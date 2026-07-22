@@ -1,0 +1,165 @@
+# On-disk format
+*Part of the [Arbor spec](../spec.md): what lives in a workspace — files, directories, databases, scripts, links, and sidecars.*
+
+## 1. Nodes and stores
+
+A node is a file or a directory.
+
+- A **markdown file** is a leaf: YAML frontmatter for props, Markdown body. Each page carries a durable short `id` in its frontmatter, minted at creation (or on first save for existing files) — the page's stable identity across renames.
+- A **directory** is a node with children; its own body and props live in `_index.md`.
+- A **collection** is a folder of records. Its backing is declared *inside* the folder — ordinary row files, a known-name `_store.sqlite3` database, or a known-name `_store.postgres` connection reference — and can change without the folder's path, page, schema, or views changing. A folder whose store holds several tables is a database container: each table appears as a child collection.
+- A **script** is a `.tsx` file that may colocate React components, queries, mutations, and actions.
+
+The filesystem driver is the default store, not a universal storage requirement. Arbor presents one tree API over heterogeneous stores. A store driver supplies schema inspection, reads, transactions, change observation, consistent snapshots, and materialization where meaningful. Data should remain inspectable with ordinary tools appropriate to its store: `cat` for Markdown, SQLite tools for `.sqlite3`, and a SQL client for Postgres.
+
+## 2. SQLite by placement
+
+Putting `_store.sqlite3` inside a folder makes that folder database-backed. Arbord opens it through the SQLite driver, introspects its tables for type generation, watches committed changes, and supplies built-in table views. If the folder has a `schema.ts`, the folder *is* a collection: the store supplies its rows from the table matching the folder's name (or the sole table), and no Arbor-specific database manifest is required. Otherwise the folder is a database container: `tracker/_store.sqlite3` with tables `tasks` and `tags` yields the child collections `/tracker/tasks` and `/tracker/tags`.
+
+Because the backing is a detail of the folder rather than a node of its own, migration is transparent: replace a collection's row files with `_store.sqlite3` (or the reverse) and the folder keeps its path, `_index.md`, `schema.ts`, views, and every query and mutation pointed at it.
+
+The file remains canonical. It can be opened by ordinary SQLite software and materialized on another machine. Arbor must take consistent snapshots through SQLite's backup/checkpoint facilities rather than copying live database and WAL files naïvely. A `.sqlite3` file under any other name is still recognized and browsable as a database node under its filename; the `_store` convention is what lets a folder absorb a database as its backing.
+
+## 3. External database references
+
+An external database backs a folder the same way, through a small, non-secret known-name reference:
+
+```yaml
+# reports/_store.postgres
+driver: postgres
+connection: system:connections/production
+schema: public
+```
+
+The referenced `system:connections` record holds a friendly label and safe metadata; its connection string or password lives in the platform credential store. Typegen introspects the database through that record. The Postgres server normally remains the data authority, so Arbor synchronizes the reference—not a redundant copy of the database—unless an explicit snapshot/mirroring profile is later configured. Graduating a collection from `_store.sqlite3` to `_store.postgres` is one file swap; nothing pointed at the folder changes.
+
+## 4. Links
+
+Links are paths, made rename-proof by identity: a link may carry the target page's durable `id` as a fragment (`[Title](notes.md#x7f3q2)`), and the ID is authoritative when path and ID disagree, so renames break no inbound links; stale destinations heal lazily to canonical `path#id` form through the normal commit path. The full catalog of name forms — tree-rooted and relative paths, public names, `tree:` URIs, `system:`/`local:` schemes, both fragment kinds, the legacy hatch — and their resolution rules live in [urls.md](urls.md).
+
+## 5. Collections, schemas, and generated tree types
+
+A collection has a schema supplied by its backing store:
+
+- A **file-backed collection** is a folder with a `schema.ts`; its rows may be JSON/CSV records or Markdown files whose frontmatter conforms.
+- A **SQLite-backed folder** contains `_store.sqlite3`; table schemas come from `sqlite_schema`.
+- A **Postgres-backed folder** contains a `_store.postgres` reference; table schemas come from catalog introspection.
+
+Database-backed collections retain relational operations—joins, SQL transactions, constraints, and database-wide schema inspection—that do not apply to every collection. This is a specialized interface on the collection, not a separate workspace-node category.
+
+For a file-backed collection, Zod describes rows over the same ordinary files:
+
+```ts
+// essays/schema.ts
+import { z } from "zod";
+
+export const Essay = z.object({
+  title: z.string(),
+  date: z.coerce.date(),
+  tag: z.string(),
+  status: z.enum(["draft", "published"]).default("draft"),
+});
+
+export type Essay = z.infer<typeof Essay>;
+```
+
+Arbord validates file-backed collections on change and sync; violations become diagnostics rather than crashes. Database drivers introspect their child collections, and future stores contribute schemas through the same interface. Arbord generates TypeScript declarations mapping workspace paths visible to a script to collection types and, for database-backed collections, their additional relational interface:
+
+```ts
+// .arbor/tree.gen.d.ts — maintained by arbord and wired in through the
+// workspace tsconfig; scripts import nothing to get it.
+import type { Collection, Database } from "arbor/runtime";
+import type { Essay } from "../essays/schema";
+import type { Submission } from "../submissions/schema";
+import type { TrackerDatabase, ReportsDatabase } from "./database-schema.gen";
+
+declare module "arbor/runtime" {
+  interface TreeRegistry {
+    "/essays": Collection<Essay>;
+    "/tracker": Database<TrackerDatabase>;
+    "/tracker/tasks": Collection<TrackerDatabase["tasks"]>;
+    "/reports": Database<ReportsDatabase>;
+    "paxmachina.org/inbox": Collection<Submission>;
+  }
+}
+
+export {};
+```
+
+Registry keys are **canonical tree-rooted paths** — the same URL-shaped names Arbor uses everywhere else, rooted at the `arbor dev` root (later, the enclosing shared tree's root, which is what keeps scripts portable across mounts: the whole tree moves together). Because rooted keys are unambiguous workspace-wide, one generated file types everything and there is no per-file ceremony: `tree("/essays")` is a `Collection<Essay>` and `tree("/tracker/tasks")` is the collection for the inferred `tasks` table, in any script, with no type imports at all. Relative forms (`tree("./essays")`) remain legal — the compiler resolves them against the script's location — but rooted paths are the blessed, autocompleted form. Ordinary TypeScript inference supplies query arguments, results, component props, and exported handle types; Arbor does not generate a bespoke context interface for each function.
+
+Database schema changes regenerate these declarations just as `schema.ts` changes do. A connection that is unavailable leaves its previous generated types in place, marks them stale, and surfaces a diagnostic rather than destroying editor support.
+
+## 6. Scripts on disk
+
+A script is an ordinary TypeScript/React `.tsx` file that reads, renders, or changes the workspace. It can export components alongside the typed queries, mutations, and actions they need. Explicit `query`/`mutation` constructors mark execution boundaries (in the TanStack Start lineage) without introducing a second application language — but each takes a single plain async function rather than a builder chain. Input types are ordinary TypeScript parameter types; the compiler generates runtime boundary validators from them (as Encore.ts does), reusing a Zod schema directly when the parameter type originates from one. Read and write sets are inferred from literal tree paths in the handler body; an explicit `reads`/`writes` option is required only when a path is computed.
+
+“Script” is the authored Arbor concept. Each script is technically an ES module, and the compiler uses normal ES-module imports and exports, but users create, open, link to, and run scripts. Arbor imports come from **one package, `arbor`, with two subpaths**: `arbor/runtime` (constructors and `tree`) and `arbor/react` (hooks). The compiler enforces realms either way — a hook in a handler is a compile error regardless of where it was imported from; the split just keeps the UI surface visually distinct.
+
+```tsx
+import { useState } from "react";
+import { query, mutation, tree } from "arbor/runtime";
+import { useQuery, useMutation } from "arbor/react";
+
+import type { Submission } from "./submissions/schema";
+
+export const recentEssays = query(async ({ tag }: { tag: string }) => {
+  return tree("/essays")
+    .filter(essay => essay.tag === tag && essay.status === "published")
+    .sortBy(essay => essay.date, "desc")
+    .take(20);
+});
+
+export const submitEssay = mutation(async (submission: Submission) => {
+  return tree("paxmachina.org/inbox").append(submission);
+});
+
+export default function ReadingRoom() {
+  const [tag, setTag] = useState("governance");
+  const essays = useQuery(recentEssays, { tag });
+  const submit = useMutation(submitEssay);
+  return <EssayList essays={essays} tag={tag} onTagChange={setTag} onSubmit={submit} />;
+}
+```
+
+`tree(path)` is the scoped data door, valid only inside a query or mutation body; using it elsewhere is a compile error — and it is the *only* door. The same collection surface works over file-, SQLite-, and Postgres-backed collections, so changing a folder's backing never rewrites its queries:
+
+```ts
+import { mutation, query, tree } from "arbor/runtime";
+
+// Portable: identical whether /tracker/tasks is row files, SQLite, or Postgres.
+export const openTasks = query(async ({ status }: { status: string }) => {
+  return tree("/tracker/tasks").filter(task => task.status === status);
+});
+
+export const createTask = mutation(async (task: NewTask) => {
+  return tree("/tracker/tasks").append(task);
+});
+
+// Backing-coupled: the relational escape hatch, only typed on database-backed
+// folders and recorded in the manifest as tied to this backing.
+export const taskCounts = query(async () => {
+  return tree("/tracker").sql
+    .selectFrom("tasks")
+    .select(["status", eb => eb.fn.countAll().as("n")])
+    .groupBy("status")
+    .execute();
+});
+```
+
+Collection predicates (`filter`, `sortBy`, …) are a compiled, analyzable subset of TypeScript, so drivers can push them down — as SQL on database-backed folders, as frontmatter scans on file-backed ones — and a query's cost profile survives a backing change ([scripts.md](scripts.md) §1). `tree(path).sql` exposes joins, transactions, and the rest of a Kysely-like relational builder, but only on database-backed folders: using it is a visible commitment to the backing, and the manifest records the query as backing-coupled.
+
+Compilation and execution semantics — realms, validators, placement, reactivity — are specified in [scripts.md](scripts.md).
+
+An **agent** is also just a markdown file: prompt as body, frontmatter carrying the model, `tools:` as references to mutations, and `context:` as references to queries. Its browser surface is specified in [browser.md](browser.md) §4.
+
+## 7. Sidecars and generated state
+
+A few names inside the tree are conventions rather than content, and a little state deliberately lives outside the tree:
+
+- **`_index.md`** — a directory's own body and props (see §1). Materialized on the first structural edit to a directory page ([browser.md](browser.md) §2).
+- **`_store.sqlite3` / `_store.postgres`** — a folder's database backing (see §2–3). Swapping the store file migrates the folder between backings without moving anything else.
+- **`Trash/`** — soft-deleted pages, mirroring the source structure; restore returns a page to its original path ([system.md](system.md) §3).
+- **`Assets/`** — pasted images, visible by convention (Notion/Obsidian style) so pages stay portable to any markdown viewer.
+- **`.arbor/`** — generated TypeScript declarations (`tree.gen.d.ts`), wired in through the workspace tsconfig; in-tree only because the TypeScript language service must see it.
+- **Arbord-private state** — the index, caches, and the write journal live in a per-workspace directory outside the tree (Application Support/XDG), so they never appear in `grep`, git, sync, or deploys ([system.md](system.md) §3).
