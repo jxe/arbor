@@ -39,6 +39,8 @@ overlay: local:annotations/railton
 
 `system:connections` follows the same rule. A record may show driver, host, database, user, and connection status while saying only that its secret is stored in Keychain. Pasting a connection string into TreeHopper or the CLI creates the safe record and credential entry together.
 
+Phase 1 bootstraps this one slice before the rest of `system:` exists: `arbor connection set|test|remove` maintains the same private human-readable connection records and operating-system credentials that phase 5 later exposes as `system:connections`. The initial credential adapter uses `Bun.secrets`; DSNs never enter tree files, generated declarations, logs, diagnostics, or HTTP payloads. A `_store.postgres` file can therefore name `system:connections/production` from the first browser release without inventing a temporary environment-variable or plaintext-DSN format.
+
 Arbord materializes the workspace, including mounted trees, as real files by default because agents and editors assume them. A later userfs/FUSE mode may provide lazy access for huge trees.
 
 - **Overlays** are the annotation and fork primitive. Local files shadow a read-only source; upstream remains untouched, and “propose upstream” is a diff of the overlay.

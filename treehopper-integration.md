@@ -9,6 +9,8 @@
 - **The home page plus Cmd+P is enough navigation.** `system:mounts` can appear as subpage-like rows; Arbor does not require a sidebar.
 - **Arbord materializes real files.** TreeHopper edits the workspace; arbord watches and routes writes to local folders, mounted trees, or overlays. Neither side needs a second document model.
 - **Collections keep one UI vocabulary across stores.** File-backed, SQLite, and Postgres collections render through the same built-ins or islands; Clamshell never becomes a database engine.
+- **BlockNote is an interaction layer over canonical Markdown.** TreeHopper web uses Arbor's source-spanned parser/serializer, preserves unsupported syntax as raw blocks, and maps Clamshell's `▸` toggle grammar onto BlockNote's nested toggle UI without persisting disclosure state.
+- **Pages keep one logical name as they grow.** Physical `x.md` and `x/_index.md` are mutually exclusive representations of `/x`; both TreeHopper faces, arbord APIs, links, search, history, and journals use the extensionless identity.
 
 ## Division of labor
 
@@ -38,7 +40,9 @@ external(url)
 unresolved(name)
 ```
 
-In phase B only local folders and mounts resolve. Phase C adds public aliases, `TreeID`s, and invitations without changing the TreeHopper classifier again. Materialized pages still enter `openPage` through the existing path.
+In phase B only local folders and mounts resolve. Phase C adds public aliases, `TreeID`s, and invitations without changing the TreeHopper classifier again. Materialized pages still enter `openPage` through the existing path. The classifier canonicalizes `.md` and `/_index.md` storage aliases before navigation, and rendered Markdown links use the same resolver rather than behaving as inert editor text.
+
+The web sidebar lists the current page's containing directory (or the current directory's own children) and offers parent navigation only inside the launched workspace root. Native TreeHopper may keep its home-plus-Cmd+P navigation, but it must preserve the same logical paths and bounded parent semantics anywhere it exposes hierarchy.
 
 ### 2. Human-readable `system:` surfaces
 

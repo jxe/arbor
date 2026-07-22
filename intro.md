@@ -35,7 +35,7 @@ Imagine there was a thing with this kind of structure on your disk:
   library/               # a public tree, mounted from a domain name
 ```
 
-Everything is ordinary files. A markdown file is YAML frontmatter for properties plus a markdown body. A directory is itself a page — its own body and properties live in `_index.md`, so a folder is never just a listing. And imagine a background process — call it arbord — that watches this tree and does three jobs.
+Everything is ordinary files. A markdown page is YAML frontmatter for properties plus a markdown body. A directory is itself a page — its own body and properties live in `_index.md`, so a folder is never just a listing. Crucially, those are not two kinds of address: `atlas.md` and `atlas/_index.md` are two mutually exclusive physical forms of the same logical `atlas` page. It can gain children without changing its browser name, links, identity, or history. And imagine a background process — call it arbord — that watches this tree and does three jobs.
 
 **It handles sharing and syncing.** Take `projects/atlas`, an ordinary folder. When I choose **Share this folder**, arbord gives that subtree an independent identity, a revision history, a permission boundary, and a synchronization endpoint. The folder doesn't move; it's still at `projects/atlas`. Only its backing changes. When Alice accepts my invitation, she places the same shared tree wherever it makes sense in *her* workspace:
 
@@ -67,7 +67,7 @@ notes.example.org
   → tree=tr_7k3m…
 ```
 
-From then on, `notes.example.org/essays/drift.md` is a real address that anyone's browser or agent can resolve — and no hosting company owns your namespace, because the name is yours and the endpoint behind it can move without the name changing.
+From then on, `notes.example.org/essays/drift` is a real address that anyone's browser or agent can resolve — and no hosting company owns your namespace, because the name is yours and the endpoint behind it can move without the name changing.
 
 And that record is the *entire* ceremony. There is no registry to enroll in, no account to create, no platform that can revoke your name — DNS, which you already have, is the only authority involved. Claiming is optional, too: a tree without a domain loses nothing but the pretty rendering of its names.
 
@@ -87,13 +87,13 @@ Three kinds of position, one identity. Moving something in *your* tree never bre
 
 Imagine you could put structured data in this tree as easily as markdown. There are three ways, in increasing order of machinery.
 
-**First: plain files plus a schema.** A directory with a `schema.ts` becomes a typed collection over its records — markdown files whose frontmatter conforms, or CSV or JSON rows:
+**First: plain files plus a schema.** A directory with a `schema.ts` becomes a typed collection over exactly one ordinary backing: many Markdown files whose frontmatter conforms, one `_store.csv`, or one line-oriented `_store.jsonl`:
 
 ```ts
 // essays/schema.ts
 import { z } from "zod";
 
-export const Essay = z.object({
+export const schema = z.object({
   title: z.string(),
   date: z.coerce.date(),
   tag: z.string(),
@@ -103,7 +103,7 @@ export const Essay = z.object({
 
 This is the Notion move — page properties quietly turning a subtree into a database — made explicit and typed. The records stay ordinary files you can edit by hand; arbord validates them against the schema on change and sync, and violations become diagnostics, not crashes.
 
-**Second: a real database, by placement.** When a collection outgrows one-file-per-record, drop `_store.sqlite3` into its folder. That's it — that's the whole configuration. Arbord opens it through the SQLite driver, serves the folder's rows from it, introspects its tables to generate types, and watches committed changes. The folder keeps its path, its page, its schema, and every query pointed at it — the backing changed, nothing else did. The file remains canonical: you can still open it with any SQLite tool, back it up by copying it, and sync it to another machine like any other file in the tree.
+**Second: a real database, by placement.** When a file-backed collection outgrows its current representation, drop `_store.sqlite3` into its folder. That's it — that's the whole configuration. Arbord opens it through the SQLite driver, serves the folder's rows from it, introspects its tables to generate types, and watches committed changes. The folder keeps its path, its page, its schema, and every query pointed at it — the backing changed, nothing else did. The file remains canonical: you can still open it with any SQLite tool, back it up by copying it, and sync it to another machine like any other file in the tree.
 
 **Third: a connection to a database you already have.** An external database enters the tree as a small reference file:
 

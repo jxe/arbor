@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "types": ["bun"],
+    "baseUrl": ".",
+    "paths": {
+      "@arbor/core": ["packages/core/src/index.ts"],
+      "@arbor/core/logical-path": ["packages/core/src/logical-path.ts"],
+      "@arbor/stores": ["packages/stores/src/index.ts"],
+      "@arbor/editor": ["packages/editor/src/index.ts"],
+      "@arbor/arbord": ["packages/arbord/src/index.ts"]
+    }
+  },
+  "include": ["packages/**/*.ts", "packages/**/*.tsx", "tests/**/*.ts"]
+}

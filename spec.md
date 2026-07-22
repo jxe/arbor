@@ -1,5 +1,5 @@
 # Arbor: a successor to the web
-*Spec overview, v0.5 — the spec is split into topic files under [spec/](spec/). Placeholder names: **Arbor** (the system), **a workspace** (the tree a person sees and works in), **a shared tree** (an independent sync root), **arbord** (the daemon: local workspace + runtime), **TreeHopper** (the browser — web and native), and **the wire** (the shared-tree protocol). All names remain provisional.*
+*Spec overview, v0.6 — the spec is split into topic files under [spec/](spec/). Placeholder names: **Arbor** (the system), **a workspace** (the tree a person sees and works in), **a shared tree** (an independent sync root), **arbord** (the daemon: local workspace + runtime), **TreeHopper** (the browser — web and native), and **the wire** (the shared-tree protocol). All names remain provisional.*
 
 ---
 
@@ -9,7 +9,7 @@ Arbor gives each person one local tree. Any folder may be backed by ordinary fil
 
 **One workspace to navigate and edit; independent shared trees where synchronization, history, or permissions require a boundary; and ordinary TypeScript scripts for turning that workspace into applications.**
 
-Arbord materializes the workspace as ordinary files where appropriate. Agents already know this interface: `ls` is browsing, `cat` is reading, writing a file is editing, and `grep -r` is search. Humans get Finder, editors, the browser, and TreeHopper over the same tree. Publishing or sharing a folder can give that subtree an independent identity without changing where it appears in the workspace.
+Arbord materializes the workspace as ordinary files where appropriate. Agents already know this interface: `ls` is browsing, `cat` is reading, writing a file is editing, and `grep -r` is search. Humans get Finder, editors, the browser, and TreeHopper over the same tree. A Markdown page has one extensionless logical address whether it is physically a leaf `x.md` or a directory body `x/_index.md`, so gaining children never renames it. Publishing or sharing a folder can give that subtree an independent identity without changing where it appears in the workspace.
 
 The developer pitch remains familiar: *put Markdown, a SQLite database, or a connection to an existing store in the workspace; write a typed query, a mutation, and a React component; Arbor generates the execution boundary and, when needed, the synchronization boundary.*
 
@@ -33,7 +33,7 @@ If Alice annotates a read-only file, her overlay belongs to her workspace rather
 
 | File | Covers |
 |---|---|
-| [spec/format.md](spec/format.md) | On-disk format: markdown pages and durable IDs, `_index.md`, collections (files/SQLite/Postgres via `_store.*`), schemas and generated types, what a `.tsx` script looks like, sidecars (`Trash/`, `Assets/`, `.arbor/`) |
+| [spec/format.md](spec/format.md) | On-disk format: Markdown pages and durable IDs, `_index.md`, CSV/JSONL/Markdown collections, database collections via `_store.*`, schemas and generated types, scripts, and sidecars (`Trash/`, `Assets/`, `.arbor/`) |
 | [spec/urls.md](spec/urls.md) | Names and URLs: every name form (paths, public names, `tree:` URIs, `system:`/`local:`, fragments), resolution rules, and the legacy bridge |
 | [spec/system.md](spec/system.md) | The `system:` tree, workspace resolution, mounts, overlays, visited trees, agent confinement, effective access, and local durability (journal, trash, recovery) |
 | [spec/scripts.md](spec/scripts.md) | Script compilation and execution: realms, generated validators, query placement and reactivity, mutations, authority actions, components and consent |

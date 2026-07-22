@@ -7,6 +7,8 @@ The browser is a view *and editing surface* over arbord, not an independent netw
 
 The home view renders `system:mounts` as subpage-like rows without storing control records in the publishable home page. Cmd+P accepts workspace paths, mounted public names, `TreeID`s/invitations, and full-text search. Provenance indicates local, mounted rw/ro, overlay-active, visited, pinned, or stale.
 
+The sidebar is contextual: on a page it lists that page's containing directory; on a directory page it lists that directory's children. It therefore remains useful while reading or editing a file instead of disappearing into a page-only state. A parent action moves the context up one directory and is shown only while still below the root passed to `arbor dev`; navigation can never escape that root. Markdown labels, breadcrumbs, search results, and routes use logical extensionless names, so `/x`, the physical `x.md`, and the physical `x/_index.md` are one browser location.
+
 Every page has a source view. Search runs locally over the materialized workspace. Sharing a folder and accepting an invitation are system operations that create shared trees, grants, credentials, and mounts; TreeHopper supplies their human UI.
 
 ## 2. Rendering and editing
@@ -18,9 +20,17 @@ View resolution precedence is strict:
 3. nearest ancestor `_view.tsx`;
 4. built-in defaults.
 
-Built-ins must be genuinely good: article for Markdown, outline for directories, and schema-derived table/board/gallery/calendar views for collections. Custom presentation belongs in a script. A paragraph containing only a `.tsx` link renders its component as an island backed by arbord's render route.
+Built-ins must be genuinely good: article for Markdown, outline for directories, and schema-derived tables for collections in phases 1–2 (board/gallery/calendar remain later built-ins). Custom presentation belongs in a script. A paragraph containing only a `.tsx` link renders its component as an island backed by arbord's render route.
 
 Built-in views are editable wherever the underlying node is writable. The article view for Markdown is a block editor whose write-back target is the file itself: the file stays canonical, frontmatter is preserved unless edited, and untouched blocks round-trip without churn — every edit remains a clean diff for git and agents. The directory outline is the same editor over the directory's own page: children appear as blocks that can be reordered, grouped under inserted headings, and annotated with surrounding prose, and the first such structural edit materializes the directory's `_index.md`. Children not mentioned in `_index.md` still render, appended after the authored body.
+
+Rendered body links are interactive. Relative and tree-rooted Arbor links navigate within TreeHopper, canonicalize legacy `.md` or `/_index.md` spellings, and preserve normal back/forward history; fragment-only links remain in-document, while explicit external schemes use the host browser. A standalone authored child-page block and an auto-generated directory-child block are real links with the same single-click behavior, not inert editor decorations. Giving a leaf page its first child promotes its physical `x.md` body to `x/_index.md` without changing the open route, history entry, durable ID, backlinks, sidebar identity, or editor revision model.
+
+TreeHopper web uses BlockNote as its interaction layer, not its storage model. Arbor parses CommonMark/GFM into source-spanned blocks; unsupported constructs remain visible editable raw-Markdown blocks. Saving reuses the exact source for untouched blocks and rewrites only edited blocks. YAML properties are patched through a concrete-syntax tree so comments, order, quoting, and unrelated values survive.
+
+Arbor additionally recognizes Clamshell toggle lists. A line `▸ Title` starts a toggle; blank lines and following lines indented at least two additional spaces are its children, recursively. The first nonblank line at-or-above its indentation ends it, and fenced code is opaque during that scan. A toggle may contain any normal block, including another toggle. BlockNote exposes it through its toggle block, slash menu, and `▸ ` typing conversion. Expand/collapse state is session-local, defaults collapsed on reopen, and never changes the Markdown file. This is deliberately an Arbor extension—CommonMark and GFM have no disclosure-list block—and standards-based `<details>/<summary>` HTML remains a raw-Markdown block rather than being converted.
+
+CSV, JSONL, and Postgres tables are read-only in phase 2. Markdown collections use the same table, but schema properties are editable inline and opening a row reveals the ordinary props panel plus BlockNote body editor. Row validation failures stay local to the affected row and never crash the collection.
 
 ## 3. Beyond mounted trees
 

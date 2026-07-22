@@ -3,7 +3,7 @@
 
 ```text
 1.  browse your tree               arbor dev over a whole local subtree; filesystem + Postgres stores
-2.  edit in the browser            block-edit .md in place; directories as editable pages → _index.md
+2.  edit in the browser            BlockNote over logical pages; x.md ↔ x/_index.md without an address change
 3.  scripts                        the web-framework core: compiler, queries/mutations, islands
 4.  agents                         agents as files, arbor agent run, and a chat interface in the browser
 5.  arbord                     system:, mounts, overlays, materialization, agent namespaces
@@ -48,11 +48,18 @@ arbor/                         # Bun monorepo
     cli/         arbor dev|run|agent|deploy|status|serve|pull|mount|share|accept …
 ```
 
-One process matters: **arbord**. The CLI, agents, render routes, and TreeHopper are clients of its localhost API plus the materialized files. Phase 1 runs a read-only subset of this API (`/v/tree`, `/v/search`, `/v/events`, `/render`) as a dev server before the full arbord exists; phase 2 adds the node write route; phase 3 adds `/v/query` and `/v/mutation`.
+One process matters: **arbord**. The CLI, agents, render routes, and TreeHopper are clients of its localhost API plus the materialized files. Phase 1 runs the browsing subset of this API (`/v/tree`, `/v/collection`, `/v/search`, `/v/events`, `/render`) as a dev server before the full arbord exists; phase 2 adds node, asset, trash, and recovery writes; phase 3 adds `/v/query` and `/v/mutation`.
 
 ```text
 GET  /v/tree/{path}              node + children + shared-tree/provenance
-PUT  /v/node/{path}              editor write-back: props/body → canonical file
+GET  /v/collection/{path}        cursor-paginated collection rows + diagnostics
+GET  /render/{path}              TreeHopper browser route for a workspace node
+PUT  /v/node/{path}              {baseRevision, frontmatterPatch, blocks}; 409 returns current node + revision
+DELETE /v/node/{path}            soft-delete a writable node to Trash/
+POST /v/restore                   collision-safe restore from Trash/
+POST /v/assets                    workspace-scoped pasted/uploaded asset in Assets/
+GET  /v/recovery                 list recoverable blocks for a page
+POST /v/recovery/restore         restore one journaled block
 GET  /v/system/{collection}      system: views (mounts, shares, diagnostics, …)
 POST /v/system/mounts            create/update/remove a mount
 POST /v/system/connections       create/test/update a safe connection record
@@ -62,7 +69,6 @@ GET  /v/search?q=…&scope=…       FTS over the workspace
 POST /v/query/run                {handle, input, workspace} → result/subscription
 POST /v/mutation/run             {handle, input, workspace} → result
 GET  /v/events                   file, query, mount, sync, and diagnostic events
-GET  /render/{path}              render any node or component
 ```
 
 ---
@@ -80,20 +86,23 @@ Ends when: pointing `arbor dev` at a real multi-thousand-file personal tree give
 - Keep the index (and all later arbord-private state) in a per-workspace directory under Application Support/XDG, keyed by a workspace ID minted on first open — never inside the tree. The only in-tree generated state is `.arbor/tree.gen.d.ts`, which the TypeScript language service must see.
 - Treat cloud-eviction placeholders (`.icloud` stubs, Dropbox online-only files) as a "not materialized" state, never as content — people will point `arbor dev` at folders inside iCloud Drive on day one.
 - Path-based routing over the subtree, plus Cmd+P-style jump by path and full-text search in the web view.
+- Make Markdown paths logical and extensionless everywhere: physical `x.md` and `x/_index.md` both resolve as `/x`, while `.md`/`_index.md` spellings are accepted only as input aliases. Indexes, APIs, links, type generation, events, routes, breadcrumbs, and visible names all use `/x`.
+- Keep the sidebar contextual: list the current directory's children on a directory page and the containing directory's children on a leaf page, with a parent action bounded by the `arbor dev` root. Render inline links, authored child-page rows, and auto-generated directory-child rows as real internal navigation with browser history.
 
 ### 1.2 Store drivers, schemas, and type generation
 
 - Define the store-driver interface: schema introspection, typed reads, transactions, change observation, consistent snapshots, and materialization.
 - Implement the filesystem driver.
+- A `schema.ts` file-backed collection uses exactly one backing shape: one `_store.csv`, one `_store.jsonl`, or multiple Markdown record files. CSV has one header plus many rows; JSONL has one JSON object per line; Markdown records validate user frontmatter while body, path, and Arbor's durable `id` remain reserved metadata. Mixed backings are diagnostics, not guessed precedence.
 - Implement Postgres-backed folders via safe `_store.postgres` references; resolve credentials from the platform credential store; introspect child-table schemas and execute queries without copying the database.
-- Evaluate `schema.ts` in a restricted subprocess; serialize schemas; validate on change; emit diagnostics.
+- Bundle and evaluate `schema.ts` in an isolated QuickJS/Wasm worker with only the allowlisted `zod` import, no filesystem/network/process globals, and bounded time, stack, and memory; serialize schemas, validate on change, and emit diagnostics.
 - Generate `.arbor/tree.gen.d.ts` mappings for file- and Postgres-backed collections (`_store.postgres` folder backing), plus relational database-container types, keyed by canonical tree-rooted paths.
 - Wire the generated registry in through the workspace tsconfig so `tree("/essays")` types everywhere with no per-file import; resolve relative `tree("./…")` literals in the compiler.
 - Preserve stale generated database types with a diagnostic when an external connection is temporarily unavailable; regenerate without thrashing the editor language service.
 
 ### 1.3 Read-only renderer
 
-- Render Markdown as an article, directories as outlines, collections — including Postgres tables — as schema-derived views. (`.tsx` islands arrive with the compiler in phase 3.)
+- Render Markdown as an article, directories as outlines, and collections — CSV, JSONL, Markdown records, and Postgres tables — as cursor-paginated schema-derived tables. CSV, JSONL, and Postgres remain read-only through phase 2; Markdown records gain editing with the rest of Markdown. (`.tsx` islands arrive with the compiler in phase 3.)
 
 **First spikes:** index cold-start and incremental performance on a ~50k-file tree; Postgres credential lookup without leaking the DSN into generated files or manifests.
 
@@ -105,12 +114,14 @@ Every page becomes editable in place through the dev server, using a block edito
 
 Much of this phase is a port of TreeHopper's Clamshell engine (`~/src/hunch/App/Sources/Clamshell/`, see its README) from Swift to arbord: the durability model, reconciliation contract, and link-identity scheme are proven there and re-specified here — minus Clamshell's iCloud transport role, which the wire replaces in phase 8.
 
-Ends when: editing a markdown page and a directory page in the browser produces clean, minimal diffs in the underlying files; `_index.md` appears on the first structural edit to a directory; an external editor changing the same file surfaces safely in the open editor rather than being clobbered; killing arbord mid-save loses nothing on reopen; a deleted block is recoverable from the Recover surface; and renaming a page breaks no inbound links.
+Ends when: editing a markdown page and a directory page in the browser produces clean, minimal diffs in the underlying files; adding the first child to `/x` atomically promotes `x.md` to `x/_index.md` without changing any logical address; Arbor never creates both representations and blocks ambiguous external duplicates; an external editor changing the same file surfaces safely in the open editor rather than being clobbered; killing arbord mid-save loses nothing on reopen; a deleted block is recoverable from the Recover surface; and renaming a page breaks no inbound links.
 
 ### 2.1 Block editing of markdown
 
 - Edit `.md` files in place: frontmatter as a props panel, body as blocks; **write-back targets the markdown file itself** — the file stays canonical.
 - Round-trip discipline: preserve frontmatter byte-for-byte unless edited; minimize diff churn on untouched blocks; no lossy normalization of markdown the user didn't touch.
+- Use **BlockNote** for the editing surface, but never its JSON as storage. Arbor's source-span CommonMark/GFM adapter maps supported syntax into BlockNote, splices untouched source slices back byte-for-byte, and exposes unsupported syntax as editable raw-Markdown blocks.
+- Support the Clamshell toggle extension as a first-class nested BlockNote toggle: `▸ Title` followed by blank lines or lines indented at least two more spaces. The body may contain arbitrary blocks and ends at the first nonblank line at-or-above the toggle indent; fenced code is opaque to boundary detection. Toggle disclosure state is session-local and never written.
 - Implement the `PUT /v/node/{path}` write route with atomic writes and conflict responses.
 - Pasted images land in a visible `Assets/` folder (Notion/Obsidian convention) so pages stay portable to any markdown viewer.
 
@@ -118,6 +129,7 @@ Ends when: editing a markdown page and a directory page in the browser produces 
 
 - The directory view is the same editor: children appear as blocks that can be reordered, grouped under inserted headings, and surrounded with prose.
 - The first structural edit materializes `_index.md`; subsequent edits update it. Children not mentioned in `_index.md` still render, appended after the authored body (rule specified in [spec/browser.md](spec/browser.md) §2).
+- Treat `x.md` and `x/_index.md` as mutually exclusive storage forms of one `/x` node. Child creation performs an atomic leaf-to-directory promotion; trash, restore, move, watch events, conflicts, ID ownership, backlinks, search, and generated declarations retain the logical identity. If an external writer creates both, show one blocking diagnostic and require explicit resolution rather than choosing or overwriting a body.
 
 ### 2.3 The write journal (Clamshell's durability model)
 
@@ -131,25 +143,15 @@ Ends when: editing a markdown page and a directory page in the browser produces 
 
 ### 2.4 Durable IDs, trash, and link healing
 
-- Mint a durable short ID into each page's frontmatter at creation (or first save, for existing files). Links carry it as a fragment — `[Title](notes.md#x7f3q2)` — with the path as the human-readable primary and the ID authoritative when they disagree ([spec/format.md](spec/format.md) §4).
+- Mint a durable short ID into each page's frontmatter at creation (or first save, for existing files). Links carry it as a fragment — `[Title](notes#x7f3q2)` — with the extensionless logical path as the human-readable primary and the ID authoritative when they disagree ([spec/format.md](spec/format.md) §4).
 - Lazy link healing: when a page is open and quiet, rewrite stale link destinations to canonical `path#id` form through the normal commit path, so the journal follows the rewrite. Renames are O(1) — move the file, patch the index; inbound links heal on their own schedule.
 - Soft delete to an in-tree `Trash/` mirroring the source structure; restore returns a page to its original path. The page's journal stays put in the private store (same ID key), so trash/restore never touches history.
 
-### 2.5 Editor library
+### 2.5 BlockNote adapter and acceptance corpus
 
-Left open pending the round-trip spike. Candidates:
+BlockNote is the chosen editor. Arbor owns the Markdown parser, source spans, toggle grammar, raw-block fallback, and serializer; BlockNote supplies the interactive block tree, slash menu, drag handles, nesting, and React UI. Newly authored supported blocks serialize to Arbor's canonical Markdown, while untouched supported and unsupported blocks retain their original bytes.
 
-| Library | Model | Pros | Cons |
-|---|---|---|---|
-| **BlockNote** | Block JSON on ProseMirror/TipTap | Notion-grade UX out of the box: drag handles, slash menu, nesting; React-first; active | Markdown is import/export, not the data model — round-trip fidelity and diff churn are the risk; some XL features AGPL/commercial |
-| **Milkdown** | Markdown AST (remark) on ProseMirror | Markdown-first: the strongest round-trip story; MIT; plugin system; block drag-handle plugin exists | Block UX needs assembly; smaller community; less polished than BlockNote |
-| **TipTap** | ProseMirror toolkit | Huge ecosystem, very flexible; solid React bindings | Markdown via extension (lossy-ish); Notion-style block UX partly behind paid Pro extensions; the most assembly |
-| **Plate** | Slate | Rich prebuilt editor kits; markdown serializers | Slate ecosystem churn; heavier; markdown is still serialization, not the model |
-| **Lexical** | Meta's own model | Fast, well maintained | Not markdown-native; block UX from scratch; weakest fit |
-
-Recommendation: spike **Milkdown vs BlockNote** against the round-trip corpus. Fidelity is the deciding criterion — the files are canonical and every edit is agent- and git-diff-visible — so Milkdown likely wins on fidelity while BlockNote wins on out-of-the-box UX.
-
-**First spikes:** a round-trip fidelity corpus (real `.md` files in → edit one block → assert byte-minimal diff, frontmatter intact); an external edit landing while the same file is open in the browser editor; `kill -9` between journal append and file write, then verify reconcile restores the block on reopen.
+**Required corpus:** real `.md` files in → no-op save byte-identical; edit one block → only that source region changes; frontmatter comments/order/quoting survive property edits; nested `▸` toggles survive lists, headings, blank lines, and fenced code; inline links plus authored and auto-generated child-page rows are clickable and canonicalize storage aliases; `x.md` and `x/_index.md` share one route/API/search identity; promotion and collision-safe restore never create both; external edits merge or surface explicit conflicts; `kill -9` between journal append and file write repairs on reopen; opening or closing a toggle produces no write, journal record, watcher event, or diff.
 
 ---
 

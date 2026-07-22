@@ -3,14 +3,16 @@
 
 ## 1. Nodes and stores
 
-A node is a file or a directory.
+A node is a logical workspace address. Markdown has two physical shapes but one node model: `x.md` is the leaf representation of `/x`, while `x/_index.md` is the representation of that same `/x` page once it has children. Browser routes, API paths, search results, links, generated tree types, breadcrumbs, and visible names always use the extensionless logical path `/x`.
 
-- A **markdown file** is a leaf: YAML frontmatter for props, Markdown body. Each page carries a durable short `id` in its frontmatter, minted at creation (or on first save for existing files) — the page's stable identity across renames.
-- A **directory** is a node with children; its own body and props live in `_index.md`.
-- A **collection** is a folder of records. Its backing is declared *inside* the folder — ordinary row files, a known-name `_store.sqlite3` database, or a known-name `_store.postgres` connection reference — and can change without the folder's path, page, schema, or views changing. A folder whose store holds several tables is a database container: each table appears as a child collection.
+- A **markdown page** has YAML frontmatter for props and a Markdown body. Each page carries a durable short `id` in its frontmatter, minted at creation (or on first save for existing files) — the page's stable identity across renames.
+- A **directory page** is the same page with children; its body and props live in `_index.md`.
+- A **collection** is a folder of records. Its backing is declared *inside* the folder — `_store.csv`, `_store.jsonl`, multiple Markdown row files, a known-name `_store.sqlite3` database, or a known-name `_store.postgres` connection reference — and can change without the folder's path, page, schema, or views changing. A folder whose store holds several tables is a database container: each table appears as a child collection.
 - A **script** is a `.tsx` file that may colocate React components, queries, mutations, and actions.
 
 The filesystem driver is the default store, not a universal storage requirement. Arbor presents one tree API over heterogeneous stores. A store driver supplies schema inspection, reads, transactions, change observation, consistent snapshots, and materialization where meaningful. Data should remain inspectable with ordinary tools appropriate to its store: `cat` for Markdown, SQLite tools for `.sqlite3`, and a SQL client for Postgres.
+
+`x.md` and `x/_index.md` are mutually exclusive physical representations. An Arbor operation that gives `/x` its first child atomically promotes `x.md` to `x/_index.md`; removing its last child may leave the directory representation in place, because representation is not identity. Arbor never creates both. If an external tool does, Arbor exposes one logical `/x`, reports a blocking `duplicate-node-representation` diagnostic, and refuses edits, moves, deletes, or restores that could guess which body wins. Resolving the diagnostic means explicitly retaining one body. Trash and collision-safe restore test both physical shapes before choosing a logical destination.
 
 ## 2. SQLite by placement
 
@@ -35,13 +37,13 @@ The referenced `system:connections` record holds a friendly label and safe metad
 
 ## 4. Links
 
-Links are paths, made rename-proof by identity: a link may carry the target page's durable `id` as a fragment (`[Title](notes.md#x7f3q2)`), and the ID is authoritative when path and ID disagree, so renames break no inbound links; stale destinations heal lazily to canonical `path#id` form through the normal commit path. The full catalog of name forms — tree-rooted and relative paths, public names, `tree:` URIs, `system:`/`local:` schemes, both fragment kinds, the legacy hatch — and their resolution rules live in [urls.md](urls.md).
+Links are extensionless logical paths, made rename-proof by identity: a link may carry the target page's durable `id` as a fragment (`[Title](notes#x7f3q2)`), and the ID is authoritative when path and ID disagree, so renames break no inbound links; stale destinations heal lazily to canonical `path#id` form through the normal commit path. Arbor accepts authored `.md` and `/_index.md` destinations as input aliases but resolves and heals them to the same extensionless address. The full catalog of name forms — tree-rooted and relative paths, public names, `tree:` URIs, `system:`/`local:` schemes, both fragment kinds, the legacy hatch — and their resolution rules live in [urls.md](urls.md).
 
 ## 5. Collections, schemas, and generated tree types
 
 A collection has a schema supplied by its backing store:
 
-- A **file-backed collection** is a folder with a `schema.ts`; its rows may be JSON/CSV records or Markdown files whose frontmatter conforms.
+- A **file-backed collection** is a folder with a `schema.ts` exporting exactly `export const schema = z.object(...)`. It contains exactly one backing shape: one `_store.csv`, one `_store.jsonl`, or multiple Markdown files other than `_index.md`. `_store.csv` uses its header as field names; `_store.jsonl` contains one JSON object per nonblank line; each Markdown file is one record whose user frontmatter conforms. `id`, path, and body are Arbor metadata rather than schema fields. Mixing shapes produces a diagnostic and no collection-level row interpretation, while the source files remain individually browsable.
 - A **SQLite-backed folder** contains `_store.sqlite3`; table schemas come from `sqlite_schema`.
 - A **Postgres-backed folder** contains a `_store.postgres` reference; table schemas come from catalog introspection.
 
@@ -53,17 +55,19 @@ For a file-backed collection, Zod describes rows over the same ordinary files:
 // essays/schema.ts
 import { z } from "zod";
 
-export const Essay = z.object({
+export const schema = z.object({
   title: z.string(),
   date: z.coerce.date(),
   tag: z.string(),
   status: z.enum(["draft", "published"]).default("draft"),
 });
 
-export type Essay = z.infer<typeof Essay>;
+export type Essay = z.infer<typeof schema>;
 ```
 
 Arbord validates file-backed collections on change and sync; violations become diagnostics rather than crashes. Database drivers introspect their child collections, and future stores contribute schemas through the same interface. Arbord generates TypeScript declarations mapping workspace paths visible to a script to collection types and, for database-backed collections, their additional relational interface:
+
+`schema.ts` is bundled and evaluated in an isolated QuickJS/Wasm worker. Only `zod` may be imported; filesystem, network, process, and other ambient host capabilities are absent, and execution has explicit time, stack, and memory bounds. A temporary invalid schema leaves the last valid generated declarations in place and adds a diagnostic.
 
 ```ts
 // .arbor/tree.gen.d.ts — maintained by arbord and wired in through the
@@ -159,6 +163,7 @@ A few names inside the tree are conventions rather than content, and a little st
 
 - **`_index.md`** — a directory's own body and props (see §1). Materialized on the first structural edit to a directory page ([browser.md](browser.md) §2).
 - **`_store.sqlite3` / `_store.postgres`** — a folder's database backing (see §2–3). Swapping the store file migrates the folder between backings without moving anything else.
+- **`_store.csv` / `_store.jsonl`** — the two single-file collection backings. Their fixed names make a later backing swap as explicit as replacing one `_store.*` file with another.
 - **`Trash/`** — soft-deleted pages, mirroring the source structure; restore returns a page to its original path ([system.md](system.md) §3).
 - **`Assets/`** — pasted images, visible by convention (Notion/Obsidian style) so pages stay portable to any markdown viewer.
 - **`.arbor/`** — generated TypeScript declarations (`tree.gen.d.ts`), wired in through the workspace tsconfig; in-tree only because the TypeScript language service must see it.

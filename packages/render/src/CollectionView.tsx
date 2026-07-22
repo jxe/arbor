@@ -1,0 +1,30 @@
+import { useEffect, useState } from "react";
+import type { CollectionPage, TreeNode } from "@arbor/core";
+import { api } from "./api.ts";
+
+export function CollectionView({ node, navigate, refresh }: { node: TreeNode; navigate: (path: string) => void; refresh: () => void }) {
+  const [page, setPage] = useState<CollectionPage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const table = node.path.split("/").pop();
+    api.collection(node.path).then(setPage).catch((error: Error) => setError(error.message));
+  }, [node.path, node.revision]);
+  if (error) return <div className="empty error">{error}</div>;
+  if (!page) return <div className="empty">Loading collection…</div>;
+  const edit = async (rowPath: string | undefined, field: string, value: string) => {
+    if (!rowPath) return;
+    const path = `${node.path}/${rowPath}`.replaceAll("//", "/");
+    const record = await api.node(path);
+    await api.write(path, { baseRevision: record.revision, frontmatterPatch: { [field]: value }, blocks: record.document?.blocks ?? [] });
+    refresh();
+  };
+  return <section className="collection">
+    {page.diagnostics.map((item) => <div className="diagnostic" key={item.code}>{item.message}</div>)}
+    <div className="table-scroll"><table><thead><tr>{page.columns.map((column) => <th key={column}>{column}</th>)}<th /></tr></thead>
+      <tbody>{page.rows.map((row) => <tr key={row.key}>{page.columns.map((column) => <td key={column}>{page.editable
+        ? <input defaultValue={String(row.values[column] ?? "")} onBlur={(event) => edit(row.path, column, event.target.value)} />
+        : String(row.values[column] ?? "")}</td>)}<td>{row.path && <button className="quiet" onClick={() => navigate(`${node.path}/${row.path}`.replaceAll("//", "/"))}>Open</button>}</td></tr>)}</tbody>
+    </table></div>
+    {page.nextCursor && <button onClick={async () => setPage(await api.collection(node.path, page.nextCursor))}>Next page</button>}
+  </section>;
+}
