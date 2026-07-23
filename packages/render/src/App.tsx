@@ -5,6 +5,8 @@ import { api } from "./api.ts";
 import { CollectionView } from "./CollectionView.tsx";
 import { PageEditor } from "./PageEditor.tsx";
 
+const SIDEBAR_STORAGE_KEY = "arbor.sidebar.collapsed";
+
 type SidebarMenuMode = "createDirectory" | "createMarkdown" | "rename" | null;
 
 interface SidebarMenuState {
@@ -28,6 +30,14 @@ function childPath(parent: string, name: string): string {
   return canonicalNodePath(`${parent === "/" ? "" : parent}/${name}`);
 }
 
+function storedSidebarCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 export function App() {
   const [path, setPath] = useState(pathFromLocation);
   const [node, setNode] = useState<TreeNode | null>(null);
@@ -37,6 +47,8 @@ export function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const load = useCallback(async (next = path) => {
     try {
       setError(null);
@@ -50,6 +62,7 @@ export function App() {
     catch (error) { setError(error instanceof Error ? error.message : String(error)); }
   }, [path]);
   const navigate = useCallback((next: string) => {
+    setMobileSidebarOpen(false);
     if (next === path) return;
     history.pushState({}, "", `/render${next === "/" ? "/" : next}`);
     setPath(next); setNode(null); setSidebar(null);
@@ -81,11 +94,24 @@ export function App() {
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") { event.preventDefault(); setSearchOpen(true); }
-      if (event.key === "Escape") setSearchOpen(false);
+      if ((event.metaKey || event.ctrlKey) && event.key === "\\") {
+        event.preventDefault();
+        if (matchMedia("(max-width: 760px)").matches) setMobileSidebarOpen((value) => !value);
+        else setSidebarCollapsed((value) => !value);
+      }
+      if (event.key === "Escape") {
+        setSearchOpen(false);
+        setMobileSidebarOpen(false);
+      }
     };
     addEventListener("keydown", listener, true); addEventListener("popstate", () => setPath(pathFromLocation()));
     return () => removeEventListener("keydown", listener, true);
   }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed));
+    } catch {}
+  }, [sidebarCollapsed]);
   useEffect(() => { const timer = setTimeout(() => query ? api.search(query).then(setResults) : setResults([]), 120); return () => clearTimeout(timer); }, [query]);
 
   const openSidebarMenu = useCallback((event: React.MouseEvent, target: TreeChild | null) => {
@@ -141,9 +167,18 @@ export function App() {
     }
   }, [navigate, path, refreshSidebar, sidebarMenu]);
 
-  return <div className="app">
-    <aside>
-      <button className="brand" onClick={() => navigate("/")}>Arbor</button>
+  const toggleSidebar = () => {
+    if (matchMedia("(max-width: 760px)").matches) setMobileSidebarOpen((value) => !value);
+    else setSidebarCollapsed((value) => !value);
+  };
+
+  return <div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}`}>
+    <button className="sidebar-backdrop" aria-label="Close workspace sidebar" onClick={() => setMobileSidebarOpen(false)} />
+    <aside className="workspace-sidebar" id="workspace-sidebar">
+      <div className="sidebar-heading">
+        <button className="brand" onClick={() => navigate("/")}>Arbor</button>
+        <button className="sidebar-close" aria-label="Close workspace sidebar" title="Close sidebar (⌘\\)" onClick={toggleSidebar}>×</button>
+      </div>
       <button className="search-button" onClick={() => setSearchOpen(true)}>⌘P Search</button>
       <div className="sidebar-path">{sidebarPath}</div>
       <nav aria-label="Workspace files" onContextMenu={(event) => {
@@ -164,8 +199,20 @@ export function App() {
         ><span>{child.kind === "directory" || child.kind === "collection" ? "▸" : "·"}</span>{child.name}{child.materialization === "placeholder" && <small>offline</small>}</button>)}
       </nav>
     </aside>
-    <main>
-      <header><div className="breadcrumbs">{path.split("/").filter(Boolean).map((part, index, parts) => <button key={index} onClick={() => navigate(`/${parts.slice(0, index + 1).join("/")}`)}>{part}</button>)}</div>{node && <span className="kind">{node.kind}{node.collection ? ` · ${node.collection.backing}` : ""}</span>}</header>
+    <main className="workspace-main">
+      <header className="app-header">
+        <div className="header-leading">
+          <button
+            className="sidebar-toggle"
+            aria-label="Toggle workspace sidebar"
+            aria-controls="workspace-sidebar"
+            title="Toggle sidebar (⌘\\)"
+            onClick={toggleSidebar}
+          ><span aria-hidden="true">☰</span></button>
+          <div className="breadcrumbs">{path.split("/").filter(Boolean).map((part, index, parts) => <button key={index} onClick={() => navigate(`/${parts.slice(0, index + 1).join("/")}`)}>{part}</button>)}</div>
+        </div>
+        {node && <span className="kind">{node.kind}{node.collection ? ` · ${node.collection.backing}` : ""}</span>}
+      </header>
       {error ? <div className="empty error">{error}</div> : !node ? <div className="empty">Loading…</div> : <>
         {node.diagnostics.map((item) => <div className="diagnostic node-diagnostic" key={`${item.code}:${item.path}`}>{item.message}</div>)}
         {(node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") && node.document && <PageEditor node={node} onSaved={setNode} navigate={navigate} />}

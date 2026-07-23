@@ -1,16 +1,26 @@
 # Arbor editor follow-up
 
-This list starts after the logical filesystem, body-row selection, drag/drop, inline create/rename, soft-delete, generation-aware autosave/history coordinator, and persistent BlockNote reconciliation tranche. Difficulty is relative to the current web editor.
+This list starts after the logical filesystem, source-preserving BlockNote adapter, structural child rows, Hunch-derived visual system, generation-aware autosave/history coordinator, and persistent BlockNote reconciliation tranche. Difficulty is relative to the current web editor.
 
-1. **Inline Markdown fidelity and rich marks — Hard.** Expand the source-span adapter beyond links and plain text: emphasis, strong, strike, inline code, hard breaks, nested marks, and mark-preserving edits. Keep raw fallback for unsupported syntax and prove that untouched source remains byte-identical.
-2. **Keyboard block navigation and structural editing — Hard.** Add predictable up/down traversal, keyboard multi-selection, indent/outdent, and keyboard reorder. Managed child rows must join the visible selection model without leaking BlockNote's ordinary block-drag semantics into filesystem moves.
-3. **Markdown-aware copy/paste and image paste — Medium–Hard.** Preserve block structure and Markdown when copying within Arbor, produce useful HTML/plain-text clipboard flavors for other apps, parse pasted Markdown, and make image paste/upload progress and failures explicit.
-4. **Search and picker keyboard behavior and ranking — Medium.** Add robust focus handoff, arrow/return/escape behavior, stale-query suppression, path/title/content ranking, recent-page bias, and clear empty/error states.
-5. **Mentions, page creation, and moving blocks into pages — Hard.** Implement page completion and create-on-select, then a transaction that extracts selected blocks into a new or existing page while inserting a durable child-page/link reference and preserving recovery history.
-6. **Link healing UI, backlinks, and orphan indicators — Medium–Hard.** Surface durable-ID healing instead of making it invisible, show inbound references, distinguish stale paths from missing identities, and provide useful orphan diagnostics without forcing eager rewrites.
-7. **Leading-emoji page icons and emoji completion — Medium.** Treat a leading title emoji as the page icon, retain it through rename and navigation, and add `:emoji` completion with reliable popover focus and keyboard selection.
-8. **Link previews — Medium.** Add compact previews for internal pages and safe external metadata, with cancellation, caching, offline behavior, and no editor-selection disruption.
-9. **Persistent hierarchical sidebar, then sidebar drag/drop — Hard.** Preserve expansion and selection state across navigation, scale lazy disclosure to large trees, and only then reuse the filesystem mutation API for sidebar moves. Do not fork a second mutation or selection model.
-10. **Voice recording and transcript support — Very hard / later.** Add explicit recorder ownership, permission and interruption handling, incremental transcription, durable media placement, and recovery. This is independent of the core editor and should remain late.
+1. **Hunch-style nav/edit modes and contiguous block selection — Hard.** Add a true block-navigation mode alongside text editing: up/down traversal, Shift-extend, Return to edit, Escape back to block selection, and edge-of-text traversal between blocks. Ordinary blocks and managed child rows must share one visible selection model without confusing filesystem moves with BlockNote-local structure.
+2. **Keyboard structural editing and gutter actions — Hard.** Add Tab/Shift-Tab indent/outdent, Option-Up/Down reorder, selection-aware drag handles, and a compact Turn Into / Copy / Move / Delete menu. Preserve heading/toggle descendants and route child-page mutations through the filesystem transaction layer.
+3. **Inline Markdown fidelity and rich marks — Hard.** Expand the source-span adapter beyond links and plain text: emphasis, strong, strike, inline code, hard breaks, nested marks, mark-preserving edits, and Cmd-B/I/E/Shift-S/K behavior in both text and block modes. Keep raw fallback for unsupported syntax and prove untouched source remains byte-identical.
+4. **Markdown-aware copy/paste and image paste — Medium–Hard.** Preserve block structure and Markdown within Arbor, produce useful HTML/plain-text clipboard flavors for other apps, parse pasted Markdown, and make image paste/upload progress and failures explicit.
+5. **Search and picker keyboard behavior and ranking — Medium.** Add robust focus handoff, arrow/return/escape behavior, stale-query suppression, path/title/content ranking, recent-page bias, and clear empty/error states.
+6. **Mentions, page creation, and moving blocks into pages — Hard.** Add `@` page completion and create-on-select, then a recovery-safe transaction that extracts selected blocks into a new or existing page while inserting a durable child-page/link reference. Include Turn Into Page and inlining a child page back into its parent.
+7. **Link healing UI, backlinks, and orphan indicators — Medium–Hard.** Surface durable-ID healing instead of making it invisible, show inbound references, distinguish stale paths from missing identities, and provide useful orphan diagnostics without forcing eager rewrites.
+8. **Leading-emoji page icons and emoji completion — Medium.** Treat a leading title emoji as the page icon, retain it through rename and navigation, and add keyboard-reliable `:emoji` completion.
+9. **Link previews — Medium.** Add compact previews for internal pages and safe external metadata, with cancellation, caching, offline behavior, and no editor-selection disruption.
+10. **Persistent hierarchical sidebar, then sidebar drag/drop — Hard.** Replace the contextual flat listing with lazy hierarchy while preserving expansion and selection state across navigation; only then reuse the filesystem mutation API for sidebar moves. Do not fork a second mutation or selection model.
+11. **Voice recording and transcript support — Very hard / later.** Add explicit recorder ownership, permissions and interruption handling, incremental transcription, optional transcript polishing, durable media placement, and recovery. This remains independent of the core editor.
 
-Native pinch gestures should **not** be ported to the web editor. Browser and OS zoom/gesture behavior is already the correct ownership boundary.
+## Smaller Hunch-like wins
+
+- **Page-menu utilities — Small.** Add Copy Markdown, Copy Arbor path, and Reveal in Finder without introducing another action strip.
+- **Shortcut discoverability — Small.** Show quiet shortcut hints in the page menu and tooltips for Search, sidebar toggle, Undo, and Redo.
+- **Empty-page affordance — Small.** Give an empty first block a restrained “Type `/` for commands” placeholder without synthesizing a title or changing Markdown.
+- **Local disclosure memory — Small.** Remember whether Properties is open per page, while keeping its first visit collapsed.
+- **Navigation continuity — Medium.** Restore per-page scroll position and the last focused block when moving backward and forward.
+- **Resizable desktop sidebar — Medium.** Allow a constrained, locally persisted sidebar width while retaining the 708px centered writing column when collapsed.
+
+Native pinch gestures should **not** be ported to the web editor. Browser and OS zoom/gesture behavior are already the correct ownership boundary.

@@ -52,6 +52,7 @@ test("browses, searches, and edits toggle Markdown", async ({ page }) => {
   await expect(page.getByText("Notes", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
 
+  await page.locator(".properties summary").click();
   const topic = page.locator(".properties label").filter({ hasText: "topic" }).locator("input");
   await topic.fill("trees");
   await expect(page.getByRole("status")).toHaveText("Changes pending");

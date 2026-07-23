@@ -38,6 +38,28 @@ export interface ManagedRowsController {
 
 export const ManagedRowsContext = createContext<ManagedRowsController | null>(null);
 
+function ChildPageIcon({ folder = false }: { folder?: boolean }) {
+  return <svg
+    aria-hidden="true"
+    className="child-page-icon"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    {folder
+      ? <>
+        <path d="M1.75 4.25h4l1.4 1.5h7.1v6.75a1.25 1.25 0 0 1-1.25 1.25H3a1.25 1.25 0 0 1-1.25-1.25z" />
+        <path d="M1.75 4.25V3.5A1.25 1.25 0 0 1 3 2.25h2.35l1.4 1.5h6A1.25 1.25 0 0 1 14 5" />
+      </>
+      : <>
+        <path d="M3 1.75h6l4 4v8.5H3z" />
+        <path d="M9 1.75v4h4M5.25 9h5.5M5.25 11.5h4" />
+      </>}
+  </svg>;
+}
+
 function ArborDragHandleMenu() {
   const controller = useContext(ManagedRowsContext);
   const Components = useComponentsContext();
@@ -86,7 +108,7 @@ const ChildPageBlock = createReactBlockSpec(
       const path = controller?.resolve(block.props.path) ?? null;
       const kind = path ? controller?.kind(path) ?? null : null;
       if (!controller || !path || !kind) {
-        return <a className="child-page" href={block.props.path}><span>↗</span><span ref={contentRef} /><small>{block.props.path}</small></a>;
+        return <a className="child-page" href={block.props.path} title={block.props.path}><span className="child-page-kind"><ChildPageIcon /></span><span ref={contentRef} /><small>{block.props.path}</small></a>;
       }
       const renaming = controller.renamingPath === path;
       return <div
@@ -111,7 +133,7 @@ const ChildPageBlock = createReactBlockSpec(
           controller.drop(path, position, event);
         }}
       >
-        <span className="child-page-kind" aria-hidden="true">{kind === "directory" || kind === "collection" ? "▸" : "↗"}</span>
+        <span className="child-page-kind"><ChildPageIcon folder={kind === "directory" || kind === "collection"} /></span>
         {renaming ? <>
           <span className="managed-hidden-content" ref={contentRef} />
           <input
@@ -125,7 +147,7 @@ const ChildPageBlock = createReactBlockSpec(
             }}
             onBlur={() => controller.commitRename()}
           />
-        </> : <a href={block.props.path}><span ref={contentRef} /></a>}
+        </> : <a href={block.props.path} title={path}><span ref={contentRef} /></a>}
         <small>{path}</small>
       </div>;
     },

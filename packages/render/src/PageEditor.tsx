@@ -752,34 +752,63 @@ export function PageEditor({ node, onSaved, navigate }: {
   const closePageActions = () => {
     if (pageActionsMenu.current) pageActionsMenu.current.open = false;
   };
+  const saveStateLabel = saveState === "saving" ? "Saving…"
+    : saveState === "changed" ? "Changes pending"
+      : saveState === "external" ? "External changes"
+        : saveState === "conflict" ? "Conflict"
+          : saveState === "error" ? "Save failed"
+            : "Saved";
 
   return <div className="editor-shell">
-    <div className="properties">
-      <div className="properties-heading">Properties</div>
-      {keys.map((key) => <label key={key}><span>{key}</span><input value={String(frontmatter[key] ?? "")} disabled={key === "id"} onChange={(event) => {
-        const next = { ...frontmatter, [key]: event.target.value };
-        setFrontmatter(next);
-        recordDocumentSnapshot(snapshot(next));
-      }} /></label>)}
-      <button className="quiet" onClick={() => {
-        const key = prompt("Property name");
-        if (key) {
-          const next = { ...frontmatter, [key]: "" };
+    <details className="properties">
+      <summary><span>Properties</span><small>{keys.length}</small></summary>
+      <div className="properties-grid">
+        {keys.map((key) => <label key={key}><span>{key}</span><input value={String(frontmatter[key] ?? "")} disabled={key === "id"} onChange={(event) => {
+          const next = { ...frontmatter, [key]: event.target.value };
           setFrontmatter(next);
           recordDocumentSnapshot(snapshot(next));
-        }
-      }}>+ property</button>
-    </div>
-    {isDirectory && <details className="page-actions-menu" ref={pageActionsMenu}>
+        }} /></label>)}
+        <button className="quiet" onClick={() => {
+          const key = prompt("Property name");
+          if (key) {
+            const next = { ...frontmatter, [key]: "" };
+            setFrontmatter(next);
+            recordDocumentSnapshot(snapshot(next));
+          }
+        }}>+ property</button>
+      </div>
+    </details>
+    <details className="page-actions-menu" ref={pageActionsMenu}>
       <summary aria-label="Page actions" title="Page actions">•••</summary>
       <div role="menu">
-        <button role="menuitem" title="New Markdown Page (⌘N)" onClick={() => { closePageActions(); setCreating("markdown"); setCreateValue(""); }}>New Page</button>
-        <button role="menuitem" title="New Folder (⇧⌘N)" onClick={() => { closePageActions(); setCreating("directory"); setCreateValue(""); }}>New Folder</button>
-        <div className="menu-separator" />
-        <button role="menuitem" title="Rename (Enter)" disabled={selected.size !== 1} onClick={() => { closePageActions(); startRename(); }}>Rename</button>
-        <button role="menuitem" title="Move to Trash (⌘⌫)" disabled={!selected.size} className="danger" onClick={() => { closePageActions(); void trashSelection(); }}>Move to Trash</button>
+        <button role="menuitem" disabled={!coordinator.canUndo} title="Undo (⌘Z)" onClick={() => { closePageActions(); void undo(); }}>Undo</button>
+        <button role="menuitem" disabled={!coordinator.canRedo} title="Redo (⇧⌘Z)" onClick={() => { closePageActions(); void redo(); }}>Redo</button>
+        <button role="menuitem" onClick={async () => { closePageActions(); setRecovery(await api.recovery(node.path)); }}>Recover…</button>
+        {isDirectory && <>
+          <div className="menu-separator" />
+          <button role="menuitem" title="New Markdown Page (⌘N)" onClick={() => { closePageActions(); setCreating("markdown"); setCreateValue(""); }}>New Page</button>
+          <button role="menuitem" title="New Folder (⇧⌘N)" onClick={() => { closePageActions(); setCreating("directory"); setCreateValue(""); }}>New Folder</button>
+          <div className="menu-separator" />
+          <button role="menuitem" title="Rename (Enter)" disabled={selected.size !== 1} onClick={() => { closePageActions(); startRename(); }}>Rename selected page</button>
+          <button role="menuitem" title="Move to Trash (⌘⌫)" disabled={!selected.size} className="danger" onClick={() => { closePageActions(); void trashSelection(); }}>Move selected page to Trash</button>
+        </>}
       </div>
-    </details>}
+    </details>
+    <div className={`editor-status${saveState === "saved" && !message ? " editor-status-saved" : ""}`}>
+      {message && <span className="warning">{message}</span>}
+      {saveState === "conflict" && <button onClick={async () => {
+        const local = snapshot();
+        const loaded = await api.node(node.path);
+        const disk: DocumentSnapshot = {
+          blocks: loaded.document?.blocks ?? [],
+          frontmatter: { ...(loaded.document?.frontmatter ?? {}) },
+        };
+        coordinator.useDisk(loaded, local, disk);
+      }}>Use disk</button>}
+      {saveState === "conflict" && <button onClick={async () => save((await api.node(node.path)).revision)}>Keep mine</button>}
+      {(saveState === "error" || saveState === "external") && <button className="retry-save" onClick={() => void save()}>Retry</button>}
+      <span className={`save-state ${saveState}`} role="status">{saveStateLabel}</span>
+    </div>
     {creating && <div className="provisional-child-page">
       <span>{creating === "directory" ? "▸" : "↗"}</span>
       <input
@@ -839,31 +868,6 @@ export function PageEditor({ node, onSaved, navigate }: {
       <span>↗</span>
       {dragPreview.paths.length === 1 ? dragPreview.paths[0]!.slice(dragPreview.paths[0]!.lastIndexOf("/") + 1) : `${dragPreview.paths.length} pages`}
     </div>}
-    <div className="editor-actions">
-      {message && <span className="warning">{message}</span>}
-      {saveState === "conflict" && <button onClick={async () => {
-        const local = snapshot();
-        const loaded = await api.node(node.path);
-        const disk: DocumentSnapshot = {
-          blocks: loaded.document?.blocks ?? [],
-          frontmatter: { ...(loaded.document?.frontmatter ?? {}) },
-        };
-        coordinator.useDisk(loaded, local, disk);
-      }}>Use disk</button>}
-      {saveState === "conflict" && <button onClick={async () => save((await api.node(node.path)).revision)}>Keep mine</button>}
-      <button className="quiet" disabled={!coordinator.canUndo} title="Undo (⌘Z)" onClick={() => void undo()}>Undo</button>
-      <button className="quiet" disabled={!coordinator.canRedo} title="Redo (⇧⌘Z)" onClick={() => void redo()}>Redo</button>
-      <button className="quiet" onClick={async () => setRecovery(await api.recovery(node.path))}>Recover</button>
-      <span className={`save-state ${saveState}`} role="status">{
-        saveState === "saving" ? "Saving…"
-          : saveState === "changed" ? "Changes pending"
-            : saveState === "external" ? "External changes"
-              : saveState === "conflict" ? "Conflict"
-                : saveState === "error" ? "Save failed"
-                  : "Saved"
-      }</span>
-      {(saveState === "error" || saveState === "external") && <button className="retry-save" onClick={() => void save()}>Retry</button>}
-    </div>
     {recovery && <div className="recovery"><div className="recovery-title"><strong>Recover blocks</strong><button className="quiet" onClick={() => setRecovery(null)}>Close</button></div>{!recovery.length && <p>Nothing recoverable for this page.</p>}{recovery.map((entry) => <div className="recovery-entry" key={entry.hash}><div><span>{entry.status}</span><pre>{entry.markdown}</pre></div><button onClick={async () => { onSavedPreservingScroll(await api.restoreBlock(node.path, entry.hash)); setRecovery(await api.recovery(node.path)); }}>Restore</button></div>)}</div>}
   </div>;
 }
