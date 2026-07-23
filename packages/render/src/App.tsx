@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SearchResult, TreeChild, TreeNode } from "@arbor/core";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { api } from "./api.ts";
@@ -30,6 +30,10 @@ function childPath(parent: string, name: string): string {
   return canonicalNodePath(`${parent === "/" ? "" : parent}/${name}`);
 }
 
+function isDirectoryNode(node: TreeNode): boolean {
+  return node.kind === "directory" || node.kind === "collection";
+}
+
 function storedSidebarCollapsed(): boolean {
   try {
     return localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
@@ -49,33 +53,67 @@ export function App() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const load = useCallback(async (next = path) => {
+  const nodeRequest = useRef(0);
+  const sidebarRequest = useRef(0);
+  const load = useCallback(async (next: string) => {
+    const request = ++nodeRequest.current;
     try {
       setError(null);
       const loaded = await api.node(next);
+      if (request !== nodeRequest.current) return;
       if (loaded.path !== next) {
         history.replaceState({}, "", `/render${loaded.path === "/" ? "/" : loaded.path}`);
         setPath(loaded.path);
       }
       setNode(loaded);
     }
-    catch (error) { setError(error instanceof Error ? error.message : String(error)); }
-  }, [path]);
+    catch (error) {
+      if (request === nodeRequest.current) setError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
   const navigate = useCallback((next: string) => {
     setMobileSidebarOpen(false);
     if (next === path) return;
+    nodeRequest.current += 1;
+    sidebarRequest.current += 1;
     history.pushState({}, "", `/render${next === "/" ? "/" : next}`);
-    setPath(next); setNode(null); setSidebar(null);
+    setPath(next); setNode(null);
   }, [path]);
-  useEffect(() => { load(); }, [path]);
-  const sidebarPath = node && (node.kind === "directory" || node.kind === "collection")
+  useEffect(() => {
+    if (node?.path === path) return;
+    void load(path);
+    return () => { nodeRequest.current += 1; };
+  }, [load, node?.path, path]);
+  const sidebarPath = node && isDirectoryNode(node)
     ? node.path
     : parentPath(path);
   const refreshSidebar = useCallback(async () => {
-    try { setSidebar(await api.node(sidebarPath)); }
-    catch { setSidebar(null); }
+    const request = ++sidebarRequest.current;
+    try {
+      const loaded = await api.node(sidebarPath);
+      if (request === sidebarRequest.current) setSidebar(loaded);
+    }
+    catch {
+      if (request === sidebarRequest.current) setSidebar(null);
+    }
   }, [sidebarPath]);
-  useEffect(() => { api.node(sidebarPath).then(setSidebar).catch(() => setSidebar(null)); }, [sidebarPath, node?.revision]);
+  useEffect(() => {
+    if (!node) return;
+    if (isDirectoryNode(node)) {
+      sidebarRequest.current += 1;
+      setSidebar((current) => current === node ? current : node);
+      return;
+    }
+    if (sidebar?.path === sidebarPath) return;
+    const request = ++sidebarRequest.current;
+    api.node(sidebarPath).then(
+      (loaded) => { if (request === sidebarRequest.current) setSidebar(loaded); },
+      () => { if (request === sidebarRequest.current) setSidebar(null); },
+    );
+    return () => {
+      if (request === sidebarRequest.current) sidebarRequest.current += 1;
+    };
+  }, [node, sidebar?.path, sidebarPath]);
   useEffect(() => {
     if (!sidebarMenu) return;
     const close = (event: PointerEvent) => {

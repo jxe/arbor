@@ -7,6 +7,65 @@ test("canonicalizes Markdown storage aliases", async ({ page }) => {
   await expect(page.getByText("Research ideas")).toBeVisible();
 });
 
+test("reuses loaded nodes for navigation and ignores stale sidebar responses", async ({ page }) => {
+  const treeRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/v/tree/")) treeRequests.push(url.pathname);
+  });
+
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "▸ books" })).toBeVisible();
+
+  treeRequests.length = 0;
+  await page.getByRole("button", { name: "▸ books" }).click();
+  await expect(page).toHaveURL(/\/render\/books$/);
+  await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible();
+  expect(treeRequests).toEqual(["/v/tree/books"]);
+
+  treeRequests.length = 0;
+  await page.getByRole("button", { name: "Open" }).click();
+  await expect(page).toHaveURL(/\/render\/books\/one$/);
+  await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
+  expect(treeRequests).toEqual(["/v/tree/books/one"]);
+
+  treeRequests.length = 0;
+  await page.locator(".breadcrumbs button").filter({ hasText: "books" }).click();
+  await expect(page).toHaveURL(/\/render\/books$/);
+  await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible();
+  expect(treeRequests).toEqual(["/v/tree/books"]);
+
+  let releaseRoot!: () => void;
+  let markRootStarted!: () => void;
+  const rootGate = new Promise<void>((resolve) => { releaseRoot = resolve; });
+  const rootStarted = new Promise<void>((resolve) => { markRootStarted = resolve; });
+  let delayRoot = true;
+  await page.route("**/v/tree/**", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (delayRoot && pathname === "/v/tree/") {
+      delayRoot = false;
+      markRootStarted();
+      await rootGate;
+    }
+    await route.continue();
+  });
+
+  await page.goto("/render/notes");
+  await expect(page.getByText("Research ideas")).toBeVisible();
+  await rootStarted;
+  await page.getByText("the book", { exact: true }).click();
+  await expect(page).toHaveURL(/\/render\/books\/one$/);
+  await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
+  await expect(page.locator(".sidebar-path")).toHaveText("/books");
+  await expect(page.getByRole("button", { name: "· one" })).toBeVisible();
+
+  const delayedRootResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/v/tree/");
+  releaseRoot();
+  await delayedRootResponse;
+  await expect(page.locator(".sidebar-path")).toHaveText("/books");
+  await expect(page.getByRole("button", { name: "· one" })).toBeVisible();
+});
+
 test("opens authored and auto-generated subpage rows", async ({ page }) => {
   await page.goto("/");
   const generated = page.locator('.managed-child-page a[href="/books"]');
