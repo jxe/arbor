@@ -15,6 +15,10 @@ beforeAll(async () => {
   await writeFile(join(root, "notes.md"), "---\ntitle: Notes\n---\n▸ Ideas\n  First\n");
   await mkdir(join(root, "folder"));
   await writeFile(join(root, "folder", "child.md"), "Child body\n");
+  await mkdir(join(root, ".claude", "worktrees"), { recursive: true });
+  await writeFile(join(root, ".claude", "worktrees", "visible.md"), "Workspace discovery marker\n");
+  await mkdir(join(root, ".build", "artifacts"), { recursive: true });
+  await writeFile(join(root, ".build", "artifacts", "hidden.md"), "Generated build marker\n");
   workspace = await Workspace.open(root);
 });
 
@@ -28,6 +32,8 @@ describe("workspace service", () => {
   test("browses pages and directories", async () => {
     const rootNode = await workspace.node("/");
     expect(rootNode.children?.map((item) => item.name)).toContain("notes");
+    expect(rootNode.children?.map((item) => item.name)).toContain(".claude");
+    expect(rootNode.children?.map((item) => item.name)).not.toContain(".build");
     const leaf = await workspace.node("/notes");
     expect(leaf.document?.blocks[0]?.type).toBe("toggle");
     expect((await workspace.node("/notes.md")).path).toBe("/notes");
@@ -72,6 +78,8 @@ describe("workspace service", () => {
   test("searches indexed content", async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(workspace.search("Changed").some((item) => item.path === "/notes")).toBe(true);
+    expect(workspace.search("discovery marker").some((item) => item.path === "/.claude/worktrees/visible")).toBe(true);
+    expect(workspace.search("build marker")).toEqual([]);
   });
 
   test("uses a sibling Markdown body for a directory and blocks two bodies", async () => {

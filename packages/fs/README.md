@@ -12,6 +12,10 @@
 - Every physical path is containment-checked against the real workspace root. Transaction staging names are private, same-filesystem siblings and are ignored by the watcher.
 - Full-byte revisions are the compare-and-swap boundary. Parsed body revisions are separate recovery information and cannot hide frontmatter-only changes.
 
+## Discovery
+
+Startup performs one symlink-safe discovery walk and shares its immutable result with page-ID loading, search indexing, and generated collection types. Discovery never follows symlinks. It omits Arbor-private or generated directories (`.git`, `node_modules`, `.arbor`, `Trash`, `.build`, and `DerivedData`); other hidden working directories, including `.claude`, remain ordinary workspace content.
+
 ## Coordinators
 
 Two state machines cooperate:

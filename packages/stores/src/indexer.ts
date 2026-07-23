@@ -1,12 +1,11 @@
 import { readFile, stat } from "node:fs/promises";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { readFileSync, statSync } from "node:fs";
+import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import type { SearchResult } from "@arbor/core";
 import { nodeDisplayName, nodePathFromPhysical, toTreePath } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
-
-const IGNORED = new Set([".git", "node_modules", "Trash", ".arbor"]);
+import { discoverWorkspace, type WorkspaceDiscovery } from "@arbor/fs";
 const INDEXED_EXTENSIONS = new Set(["md", "csv", "jsonl", "json", "ts", "tsx", "txt"]);
 
 interface IndexRecord {
@@ -28,19 +27,30 @@ export class WorkspaceIndex {
     this.database.exec("CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(path UNINDEXED, title, body, content='files', content_rowid='rowid', tokenize='unicode61');");
   }
 
-  async rebuild(): Promise<void> {
+  async rebuild(discovery?: WorkspaceDiscovery): Promise<void> {
     const existing = this.database.query("SELECT path, mtime, size FROM files").all() as Array<{ path: string; mtime: number; size: number }>;
     const current = new Map(existing.map((item) => [item.path, item]));
-    const files = this.discoverFiles();
-    const prepared = files.map((absolute) => {
-      const treePath = nodePathFromPhysical(toTreePath(this.root, absolute));
-      const extension = absolute.split(".").pop()?.toLowerCase();
-      if (!INDEXED_EXTENSIONS.has(extension ?? "")) return { path: treePath, record: null };
-      const info = statSync(absolute);
+    const snapshot = discovery ?? await discoverWorkspace(this.root);
+    const absoluteFiles = new Set(snapshot.files.map((file) => file.absolutePath));
+    const prepared: Array<{ path: string; record: IndexRecord | null }> = [];
+    for (const file of snapshot.files) {
+      if (
+        file.name === "_index.md"
+        && dirname(file.absolutePath) !== this.root
+        && absoluteFiles.has(`${dirname(file.absolutePath)}.md`)
+      ) continue;
+      const extension = file.absolutePath.split(".").pop()?.toLowerCase();
+      if (!INDEXED_EXTENSIONS.has(extension ?? "")) continue;
+      const treePath = nodePathFromPhysical(file.treePath);
+      const info = statSync(file.absolutePath);
       const previous = current.get(treePath);
-      if (previous?.mtime === info.mtimeMs && previous.size === info.size) return { path: treePath, record: null };
-      return { path: treePath, record: this.prepareRecordSync(absolute, treePath, info.mtimeMs, info.size) };
-    });
+      prepared.push({
+        path: treePath,
+        record: previous?.mtime === info.mtimeMs && previous.size === info.size
+          ? null
+          : this.prepareRecordSync(file.absolutePath, treePath, info.mtimeMs, info.size),
+      });
+    }
     const seen = new Set(prepared.map((item) => item.path));
     const removeFile = this.database.prepare("DELETE FROM files WHERE path = ?");
     const upsertFile = this.database.prepare("INSERT INTO files(path, mtime, size, title, body) VALUES (?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime,size=excluded.size,title=excluded.title,body=excluded.body");
@@ -79,24 +89,6 @@ export class WorkspaceIndex {
   }
 
   close(): void { this.database.close(); }
-
-  private discoverFiles(): string[] {
-    const files: string[] = [];
-    const directories = [this.root];
-    while (directories.length) {
-      const directory = directories.pop()!;
-      for (const entry of readdirSync(directory, { withFileTypes: true })) {
-        if (IGNORED.has(entry.name) || entry.name.startsWith("._") || entry.isSymbolicLink()) continue;
-        const absolute = join(directory, entry.name);
-        if (entry.isDirectory()) directories.push(absolute);
-        else if (entry.isFile()) {
-          if (basename(absolute) === "_index.md" && dirname(absolute) !== this.root && existsSync(`${dirname(absolute)}.md`)) continue;
-          files.push(absolute);
-        }
-      }
-    }
-    return files;
-  }
 
   private prepareRecordSync(absolute: string, treePath: string, mtime: number, size: number): IndexRecord | null {
     const extension = absolute.split(".").pop()?.toLowerCase();

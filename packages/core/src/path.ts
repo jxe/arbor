@@ -12,9 +12,9 @@ export function resolveTreePath(root: string, treePath: string): string {
   return candidate;
 }
 
-export async function ensureContainedPath(root: string, treePath: string): Promise<string> {
+export async function ensureContainedPath(root: string, treePath: string, canonicalRoot?: string): Promise<string> {
   const candidate = resolveTreePath(root, treePath);
-  const rootReal = await realpath(root);
+  const rootReal = canonicalRoot ?? await realpath(root);
   let existing = candidate;
   let target: string | null = null;
   while (!target) {

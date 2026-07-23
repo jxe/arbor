@@ -10,6 +10,7 @@ import {
   nodeDisplayName,
   nodePathFromPhysical,
   normalizeTreePath,
+  PathEscapeError,
   resolveTreePath,
   revisionOf,
   sha256,
@@ -18,6 +19,12 @@ import {
 } from "@arbor/core";
 import { mintPageID, parseMarkdown, serializeMarkdown } from "@arbor/editor";
 import { commitPrepared, pathExists, prepareAtomic, removeIfExists, syncDirectory, transactionTemporaryPath, writeAtomic } from "./file-ops.ts";
+import {
+  discoverWorkspace,
+  IGNORED_WORKSPACE_DIRECTORIES,
+  type WorkspaceDiscovery,
+  WORKSPACE_WATCHER_IGNORE_GLOBS,
+} from "./discovery.ts";
 import { WriteJournal } from "./journal.ts";
 import {
   FsConflictError,
@@ -37,7 +44,7 @@ import {
 } from "./types.ts";
 
 const RESERVED = new Set(["schema.ts", "_store.csv", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
-const IGNORED = new Set([".git", "node_modules", ".arbor", "Trash"]);
+const IGNORED = IGNORED_WORKSPACE_DIRECTORIES;
 const EMPTY_REVISION = revisionOf("");
 const PAGE_ID = /^[a-z0-9]{6}$/;
 
@@ -169,7 +176,7 @@ function validateName(name: string): void {
     name.includes("\\") ||
     name.includes("\0") ||
     [...RESERVED].some((reserved) => reserved.toLowerCase() === lower) ||
-    [".git", ".arbor", "trash", "node_modules"].includes(lower) ||
+    [".git", ".arbor", "trash", "node_modules", ".build", "deriveddata"].includes(lower) ||
     lower.includes(".arbor-txn-") ||
     lower.includes(".arbor-write-")
   ) {
@@ -209,6 +216,7 @@ export class WorkspaceFS implements AsyncDisposable {
   private mutationTail: Promise<unknown> = Promise.resolve();
   private transactionDirectory: string;
   private pendingDiagnostics: Diagnostic[] = [];
+  private initialDiscovery?: WorkspaceDiscovery;
 
   private constructor(root: string, options: WorkspaceFSOptions) {
     this.root = root;
@@ -226,9 +234,15 @@ export class WorkspaceFS implements AsyncDisposable {
     const instance = new WorkspaceFS(root, options);
     await mkdir(instance.transactionDirectory, { recursive: true });
     await instance.recoverTransactions();
-    await instance.scanIDs();
+    instance.initialDiscovery = await discoverWorkspace(root);
+    instance.loadPageIDs(instance.initialDiscovery);
     await instance.startWatcher();
     return instance;
+  }
+
+  startupDiscovery(): WorkspaceDiscovery {
+    if (!this.initialDiscovery) throw new Error("Workspace discovery is unavailable");
+    return this.initialDiscovery;
   }
 
   subscribe(listener: (event: FsEvent) => void): () => void {
@@ -243,11 +257,15 @@ export class WorkspaceFS implements AsyncDisposable {
 
   async resolve(inputPath: string): Promise<ResolvedFsNode> {
     const path = canonicalNodePath(inputPath);
-    const direct = await ensureContainedPath(this.root, path);
-    const directInfo = await stat(direct).catch(() => null);
     const siblingTreePath = siblingMarkdownTreePath(path);
-    const sibling = await ensureContainedPath(this.root, siblingTreePath);
-    const siblingInfo = path === "/" ? null : await stat(sibling).catch(() => null);
+    const [direct, sibling] = await Promise.all([
+      ensureContainedPath(this.root, path, this.root),
+      ensureContainedPath(this.root, siblingTreePath, this.root),
+    ]);
+    const [directInfo, siblingInfo] = await Promise.all([
+      stat(direct).catch(() => null),
+      path === "/" ? Promise.resolve(null) : stat(sibling).catch(() => null),
+    ]);
 
     if (path === "/") {
       const indexPath = resolveTreePath(this.root, directoryIndexTreePath("/"));
@@ -377,19 +395,25 @@ export class WorkspaceFS implements AsyncDisposable {
       const physical = `${node.path === "/" ? "" : node.path}/${entry.name}`;
       paths.add(entry.isFile() && entry.name.endsWith(".md") ? canonicalNodePath(physical) : normalizeTreePath(physical));
     }
-    const result: FsDirectoryEntry[] = [];
-    for (const path of paths) {
-      const child = await this.resolve(path);
-      if (child.kind === "missing") continue;
-      result.push({
+    const children = await Promise.all([...paths].map(async (path): Promise<FsDirectoryEntry | null> => {
+      let child: ResolvedFsNode;
+      try { child = await this.resolve(path); }
+      catch (error) {
+        if (error instanceof PathEscapeError) return null;
+        throw error;
+      }
+      if (child.kind === "missing") return null;
+      return {
         path: child.path,
         name: nodeDisplayName(child.path),
         kind: child.kind,
         materialization: child.materialization,
         diagnostics: child.diagnostics,
-      });
-    }
-    return result.sort((a, b) => a.name.localeCompare(b.name));
+      };
+    }));
+    return children
+      .filter((child): child is FsDirectoryEntry => child !== null)
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   writeMarkdown(inputPath: string, request: MarkdownWriteRequest): Promise<FsWriteResult> {
@@ -1065,7 +1089,7 @@ export class WorkspaceFS implements AsyncDisposable {
         return;
       }
       for (const event of events) this.queueWatch(event.path, event.type);
-    }, { ignore: ["**/.git/**", "**/node_modules/**", "**/.arbor/**", "**/Trash/**", "**/*.arbor-txn-*", "**/*.arbor-write-*"] });
+    }, { ignore: WORKSPACE_WATCHER_IGNORE_GLOBS });
   }
 
   private queueWatch(absolute: string, type: watcher.EventType): void {
@@ -1155,24 +1179,11 @@ export class WorkspaceFS implements AsyncDisposable {
     this.suppressedPaths.set(canonicalNodePath(path), Date.now() + Math.max(500, this.settleDelayMs * 2));
   }
 
-  private async scanIDs(): Promise<void> {
-    const walk = async (directory: string): Promise<void> => {
-      for (const entry of await readdir(directory, { withFileTypes: true })) {
-        if (IGNORED.has(entry.name) || isTransactionTemporary(entry.name)) continue;
-        const absolute = join(directory, entry.name);
-        if (entry.isDirectory()) await walk(absolute);
-        else if (entry.isFile() && entry.name.endsWith(".md")) {
-          try {
-            const id = parseMarkdown(await readFile(absolute, "utf8")).frontmatter.id;
-            if (typeof id === "string" && PAGE_ID.test(id)) {
-              this.knownIDs.add(id);
-              this.pagePathsByID.set(id, nodePathFromPhysical(toTreePath(this.root, absolute)));
-            }
-          } catch {}
-        }
-      }
-    };
-    await walk(this.root);
+  private loadPageIDs(discovery: WorkspaceDiscovery): void {
+    for (const [id, path] of discovery.pagePathsByID) {
+      this.knownIDs.add(id);
+      this.pagePathsByID.set(id, path);
+    }
   }
 
   private async recoverTransactions(): Promise<void> {
