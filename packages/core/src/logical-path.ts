@@ -9,7 +9,7 @@ export function normalizeTreePath(input: string): string {
   return `/${parts.join("/")}`;
 }
 
-/** Canonical browser/API identity for either x.md or x/_index.md. */
+/** Canonical browser/API identity for x.md, x/, or x/_index.md. */
 export function canonicalNodePath(input: string): string {
   const path = normalizeTreePath(input);
   if (path === "/_index.md") return "/";
@@ -18,10 +18,18 @@ export function canonicalNodePath(input: string): string {
   return path;
 }
 
-export function markdownTreePath(nodePath: string): string {
+/** The Markdown body stored beside a same-named directory: /x -> /x.md. */
+export function siblingMarkdownTreePath(nodePath: string): string {
   const canonical = canonicalNodePath(nodePath);
   if (canonical === "/") return "/_index.md";
   return `${canonical}.md`;
+}
+
+/** The fallback Markdown body stored inside a directory: /x -> /x/_index.md. */
+export function directoryIndexTreePath(nodePath: string): string {
+  const canonical = canonicalNodePath(nodePath);
+  if (canonical === "/") return "/_index.md";
+  return `${canonical}/_index.md`;
 }
 
 export function nodePathFromPhysical(treePath: string): string {

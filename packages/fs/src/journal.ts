@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ArborBlock } from "@arbor/core";
 import { blockFingerprint, parseMarkdown, serializeBlocks } from "@arbor/editor";
@@ -57,10 +57,9 @@ export class WriteJournal {
 
   async observe(pageID: string, blocks: ArborBlock[]): Promise<void> {
     const known = new Set((await this.read(pageID)).map((record) => record.h));
-    const records = flatten(blocks)
+    await this.append(pageID, flatten(blocks)
       .filter((item) => !known.has(item.hash))
-      .map((item) => ({ op: "observe" as const, h: item.hash, p: item.parent, m: item.markdown }));
-    await this.append(pageID, records);
+      .map((item) => ({ op: "observe" as const, h: item.hash, p: item.parent, m: item.markdown })));
   }
 
   async reconcile(pageID: string, blocks: ArborBlock[], fileMtime: number): Promise<{ blocks: ArborBlock[]; restored: number }> {
@@ -77,13 +76,11 @@ export class WriteJournal {
         if (parsed) restored.push(parsed);
       }
     }
-    if (!restored.length) return { blocks, restored: 0 };
-    return { blocks: [...blocks, ...restored], restored: restored.length };
+    return restored.length ? { blocks: [...blocks, ...restored], restored: restored.length } : { blocks, restored: 0 };
   }
 
   async markMaterialized(pageID: string): Promise<void> {
-    const counter = await this.counter(pageID);
-    await writeAtomic(this.watermarkPath(pageID), `${counter}\n`);
+    await writeAtomic(this.watermarkPath(pageID), `${await this.counter(pageID)}\n`);
   }
 
   async list(pageID: string, liveBlocks: ArborBlock[]): Promise<RecoveryEntry[]> {
@@ -92,11 +89,8 @@ export class WriteJournal {
     const result: RecoveryEntry[] = [];
     for (const [hash, state] of intent) {
       if (live.has(hash) || !state.markdown) continue;
-      if (state.status === "alive" || state.status === "observed") {
-        result.push({ hash, markdown: state.markdown, parent: state.parent, status: "lost", changedAt: state.changedAt });
-      } else if (state.status === "purged") {
-        result.push({ hash, markdown: state.markdown, parent: state.parent, status: "purged", changedAt: state.changedAt });
-      }
+      if (state.status === "alive" || state.status === "observed") result.push({ hash, markdown: state.markdown, parent: state.parent, status: "lost", changedAt: state.changedAt });
+      else result.push({ hash, markdown: state.markdown, parent: state.parent, status: "purged", changedAt: state.changedAt });
     }
     return result.sort((a, b) => b.changedAt - a.changedAt);
   }
@@ -135,7 +129,7 @@ export class WriteJournal {
 
   private fold(records: JournalRecord[]): Map<string, { status: "alive" | "observed" | "purged"; markdown: string; parent: string | null; changedAt: number; counter: number }> {
     const byHash = new Map<string, { authoritative?: JournalRecord; snapshot?: JournalRecord; observed: boolean }>();
-    for (const record of records.sort((a, b) => a.c - b.c)) {
+    for (const record of [...records].sort((a, b) => a.c - b.c)) {
       const state = byHash.get(record.h) ?? { observed: false };
       if (record.op === "add" || record.op === "purge") state.authoritative = record;
       if ((record.op === "add" || record.op === "observe") && record.m !== undefined) state.snapshot = record;
@@ -144,13 +138,14 @@ export class WriteJournal {
     }
     const result = new Map<string, { status: "alive" | "observed" | "purged"; markdown: string; parent: string | null; changedAt: number; counter: number }>();
     for (const [hash, state] of byHash) {
-      const status = state.authoritative?.op === "purge" ? "purged" : state.authoritative?.op === "add" ? "alive" : "observed";
+      const source = state.authoritative ?? state.snapshot;
+      if (!source) continue;
       result.set(hash, {
-        status,
+        status: state.authoritative?.op === "purge" ? "purged" : state.authoritative?.op === "add" ? "alive" : "observed",
         markdown: state.snapshot?.m ?? "",
         parent: state.snapshot?.p ?? null,
-        changedAt: (state.authoritative ?? state.snapshot)?.t ?? 0,
-        counter: (state.authoritative ?? state.snapshot)?.c ?? 0,
+        changedAt: source.t,
+        counter: source.c,
       });
     }
     return result;
@@ -160,21 +155,15 @@ export class WriteJournal {
     const cached = this.counters.get(pageID);
     if (cached !== undefined) return cached;
     const records = await this.read(pageID);
-    return Math.max(0, ...records.map((record) => record.c ?? 0));
-  }
-
-  private path(pageID: string): string {
-    if (!/^[a-z0-9]{6}$/.test(pageID)) throw new Error("Invalid page ID");
-    return join(this.directory, `${pageID}.jsonl`);
+    const value = records.reduce((max, record) => Math.max(max, record.c), 0);
+    this.counters.set(pageID, value);
+    return value;
   }
 
   private async watermark(pageID: string): Promise<number> {
-    try { return Number((await readFile(this.watermarkPath(pageID), "utf8")).trim()) || 0; }
-    catch { return 0; }
+    try { return Number((await readFile(this.watermarkPath(pageID), "utf8")).trim()) || 0; } catch { return 0; }
   }
 
-  private watermarkPath(pageID: string): string {
-    if (!/^[a-z0-9]{6}$/.test(pageID)) throw new Error("Invalid page ID");
-    return join(this.directory, "watermarks", `${pageID}.txt`);
-  }
+  private path(pageID: string): string { return join(this.directory, `${pageID}.jsonl`); }
+  private watermarkPath(pageID: string): string { return join(this.directory, `${pageID}.watermark`); }
 }

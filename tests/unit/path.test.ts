@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { canonicalNodePath, ensureContainedPath, markdownTreePath, normalizeTreePath, nodePathFromPhysical, resolveTreePath } from "@arbor/core";
+import { canonicalNodePath, directoryIndexTreePath, ensureContainedPath, siblingMarkdownTreePath, normalizeTreePath, nodePathFromPhysical, resolveTreePath } from "@arbor/core";
 
 const temporaryPaths: string[] = [];
 afterEach(async () => Promise.all(temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true }))));
@@ -13,7 +13,9 @@ describe("workspace paths", () => {
     expect(canonicalNodePath("/notes/today.md")).toBe("/notes/today");
     expect(canonicalNodePath("/notes/today/_index.md")).toBe("/notes/today");
     expect(nodePathFromPhysical("/_index.md")).toBe("/");
-    expect(markdownTreePath("/notes/today")).toBe("/notes/today.md");
+    expect(siblingMarkdownTreePath("/notes/today")).toBe("/notes/today.md");
+    expect(directoryIndexTreePath("/notes/today")).toBe("/notes/today/_index.md");
+    expect(directoryIndexTreePath("/")).toBe("/_index.md");
   });
   test("rejects traversal", () => {
     expect(() => normalizeTreePath("../secret")).toThrow();

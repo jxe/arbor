@@ -17,7 +17,7 @@ The tree path may be absolute, relative to the current directory, or shell-expan
 
 Markdown uses CommonMark/GFM plus the readable Clamshell toggle extension (`▸ Title` with two-space-indented children). CSV and JSONL use the fixed `_store.csv` and `_store.jsonl` names. Configure Postgres references without a plaintext DSN using `arbor connection set <name>`.
 
-Markdown page names are logical and extensionless in Arbor. A leaf stored as `x.md` and the same page after it gains children, stored as `x/_index.md`, both open at `/render/x` and appear as `x` in navigation, search, links, and API results. They must not coexist; Arbor operations preserve that invariant and report externally-created duplicates instead of guessing which body wins.
+Markdown page names are logical and extensionless in Arbor. `x.md` supplies `/x`'s body and a sibling `x/` supplies its children, so a page can gain children without moving or rewriting its body. If `x.md` is absent, `x/_index.md` is the fallback directory body. Both body files at once are a blocking duplicate-body diagnostic. Thus this repository's `spec.md` is the body of `/spec`, while `spec/` contains its children.
 
 ## Testing
 
@@ -41,7 +41,7 @@ cp -R tests/fixtures/workspace/. "$test_root/"
 bun packages/cli/src/index.ts dev "$test_root" --port 4317 --no-open
 ```
 
-Open `http://127.0.0.1:4317`. Check that the sidebar shows `notes` without `.md`; while reading it, the sidebar should still list its containing directory. Its inline link and authored `Book subpage` row should both navigate to `books/one`, and an auto-generated directory-child row on the root page should open its child. Entering `/render/notes.md` should immediately canonicalize to `/render/notes`. Expand and collapse its toggle and verify Save remains disabled. Edit a property and body block, save, and inspect the copied Markdown for a six-character `id` plus a minimal source diff. Open `books` to edit its Markdown-backed row. CSV/JSONL/Postgres collection cells should remain read-only.
+Open `http://127.0.0.1:4317`. Check that the sidebar shows `notes` without `.md`; while reading it, the sidebar should still list its containing directory. Its inline link and authored `Book subpage` row should both navigate to `books/one`, and an auto-generated directory-child row on the root page should open its child. Entering `/render/notes.md` should immediately canonicalize to `/render/notes`. Expand and collapse its toggle without producing an authored change. Edit a property and body block and verify the status progresses from pending/saving to saved; inspect the copied Markdown for a six-character `id` plus a minimal source diff. On a directory page, drag one child row by BlockNote's native handle between prose blocks and verify only that row moves, with the normal BlockNote drop target visible. Check the page More menu and a sidebar row's context menu for filesystem actions. Open `books` to edit its Markdown-backed row. CSV/JSONL/Postgres collection cells should remain read-only.
 
 To exercise live Postgres catalog reads against an already-running server, provide a DSN for a role allowed to create a schema:
 

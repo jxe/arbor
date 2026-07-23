@@ -1,5 +1,14 @@
+import { createContext, useContext } from "react";
 import { BlockNoteSchema, defaultBlockSpecs, type PartialBlock } from "@blocknote/core";
-import { createReactBlockSpec } from "@blocknote/react";
+import { SideMenuExtension } from "@blocknote/core/extensions";
+import {
+  AddBlockButton,
+  createReactBlockSpec,
+  DragHandleButton,
+  SideMenu,
+  useComponentsContext,
+  useExtensionState,
+} from "@blocknote/react";
 import type { ArborBlock } from "@arbor/core";
 
 const RawMarkdownBlock = createReactBlockSpec(
@@ -12,10 +21,114 @@ const RawMarkdownBlock = createReactBlockSpec(
   },
 )();
 
+export interface ManagedRowsController {
+  resolve(rawPath: string): string | null;
+  kind(path: string): "file" | "markdown" | "directory" | "collection" | "postgres" | null;
+  selected(path: string): boolean;
+  select(path: string, event: React.MouseEvent): void;
+  rename(path: string): void;
+  trash(path: string): void;
+  drop(path: string, kind: "before" | "after" | "inside", event: React.DragEvent): void;
+  renamingPath: string | null;
+  renameValue: string;
+  setRenameValue(value: string): void;
+  commitRename(): void;
+  cancelRename(): void;
+}
+
+export const ManagedRowsContext = createContext<ManagedRowsController | null>(null);
+
+function ArborDragHandleMenu() {
+  const controller = useContext(ManagedRowsContext);
+  const Components = useComponentsContext();
+  const block = useExtensionState(SideMenuExtension, {
+    selector: (state) => state?.block,
+  });
+  const path = block?.type === "childPage"
+    ? controller?.resolve(String(block.props.path ?? "")) ?? null
+    : null;
+  if (!controller || !Components || !path) return null;
+
+  return <Components.Generic.Menu.Dropdown className="bn-menu-dropdown bn-drag-handle-menu">
+    <Components.Generic.Menu.Item className="bn-menu-item" onClick={() => controller.rename(path)}>
+      Rename
+    </Components.Generic.Menu.Item>
+    <Components.Generic.Menu.Item className="bn-menu-item danger" onClick={() => controller.trash(path)}>
+      Move to Trash
+    </Components.Generic.Menu.Item>
+  </Components.Generic.Menu.Dropdown>;
+}
+
+export function ArborSideMenu() {
+  const controller = useContext(ManagedRowsContext);
+  const block = useExtensionState(SideMenuExtension, {
+    selector: (state) => state?.block,
+  });
+  const path = block?.type === "childPage"
+    ? controller?.resolve(String(block.props.path ?? "")) ?? null
+    : null;
+
+  if (!controller || !block || !path) return <SideMenu />;
+
+  return <SideMenu>
+    <AddBlockButton />
+    <span className="arbor-managed-drag-handle" data-arbor-managed-handle={path}>
+      <DragHandleButton dragHandleMenu={ArborDragHandleMenu} />
+    </span>
+  </SideMenu>;
+}
+
 const ChildPageBlock = createReactBlockSpec(
   { type: "childPage", propSchema: { path: { default: "" } }, content: "inline" },
   {
-    render: ({ block, contentRef }) => <a className="child-page" href={block.props.path}><span>↗</span><span ref={contentRef} /><small>{block.props.path}</small></a>,
+    render: ({ block, contentRef }) => {
+      const controller = useContext(ManagedRowsContext);
+      const path = controller?.resolve(block.props.path) ?? null;
+      const kind = path ? controller?.kind(path) ?? null : null;
+      if (!controller || !path || !kind) {
+        return <a className="child-page" href={block.props.path}><span>↗</span><span ref={contentRef} /><small>{block.props.path}</small></a>;
+      }
+      const renaming = controller.renamingPath === path;
+      return <div
+        className={`child-page managed-child-page${controller.selected(path) ? " selected" : ""}`}
+        data-managed-row={path}
+        contentEditable={false}
+        onClick={(event) => {
+          if (event.currentTarget.dataset.suppressClick === "true") {
+            delete event.currentTarget.dataset.suppressClick;
+            return;
+          }
+          if ((event.target as Element).closest("a, input")) return;
+          controller.select(path, event);
+        }}
+        onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); }}
+        onDrop={(event) => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          const ratio = (event.clientY - bounds.top) / Math.max(1, bounds.height);
+          const position = kind === "directory" || kind === "collection"
+            ? ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "inside"
+            : ratio > 0.5 ? "after" : "before";
+          controller.drop(path, position, event);
+        }}
+      >
+        <span className="child-page-kind" aria-hidden="true">{kind === "directory" || kind === "collection" ? "▸" : "↗"}</span>
+        {renaming ? <>
+          <span className="managed-hidden-content" ref={contentRef} />
+          <input
+            autoFocus
+            aria-label={`Rename ${path}`}
+            value={controller.renameValue}
+            onChange={(event) => controller.setRenameValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") { event.preventDefault(); controller.commitRename(); }
+              if (event.key === "Escape") { event.preventDefault(); controller.cancelRename(); }
+            }}
+            onBlur={() => controller.commitRename()}
+          />
+        </> : <a href={block.props.path}><span ref={contentRef} /></a>}
+        <small>{path}</small>
+      </div>;
+    },
     toExternalHTML: ({ block, contentRef }) => <a href={block.props.path} ref={contentRef} />,
   },
 )();

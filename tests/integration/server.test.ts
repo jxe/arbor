@@ -52,6 +52,48 @@ describe("HTTP API", () => {
     expect((await response.json() as any).current.path).toBe("/page");
   });
 
+  test("runs typed mutation batches and rejects the complete batch on conflict", async () => {
+    const create = await fetch(`${base}/v/fs/mutate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ operations: [
+        { op: "createDirectory", path: "/folder" },
+        { op: "createMarkdown", path: "/other" },
+      ] }),
+    });
+    expect(create.status).toBe(200);
+    const created = await create.json() as any;
+    expect(created.created).toEqual(["/folder", "/other"]);
+
+    const conflict = await fetch(`${base}/v/fs/mutate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ operations: [
+        { op: "createMarkdown", path: "/never-created" },
+        { op: "createDirectory", path: "/folder" },
+      ] }),
+    });
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json() as any).conflict.code).toBe("occupied-destination");
+    expect(await fetch(`${base}/v/tree/never-created`).then((response) => response.status)).toBe(500);
+  });
+
+  test("imports a multipart directory manifest atomically", async () => {
+    const form = new FormData();
+    form.set("destination", "/folder");
+    form.set("manifest", JSON.stringify([
+      { path: "drop", kind: "directory" },
+      { path: "drop/readme.md", kind: "file", field: "file-1" },
+    ]));
+    form.set("file-1", new File(["Imported\n"], "readme.md", { type: "text/markdown" }));
+    const response = await fetch(`${base}/v/fs/import`, { method: "POST", body: form });
+    expect(response.status).toBe(200);
+    expect((await response.json() as any).created).toEqual(["/folder/drop"]);
+    const imported = await fetch(`${base}/v/tree/folder/drop/readme`);
+    expect(imported.status).toBe(200);
+    expect((await imported.json() as any).document.bodySource).toBe("Imported\n");
+  });
+
   test("serves the TreeHopper shell", async () => {
     const response = await fetch(`${base}/render/page`);
     expect(response.status).toBe(200);

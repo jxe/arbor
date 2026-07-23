@@ -10,7 +10,7 @@
 - **Arbord materializes real files.** TreeHopper edits the workspace; arbord watches and routes writes to local folders, mounted trees, or overlays. Neither side needs a second document model.
 - **Collections keep one UI vocabulary across stores.** File-backed, SQLite, and Postgres collections render through the same built-ins or islands; Clamshell never becomes a database engine.
 - **BlockNote is an interaction layer over canonical Markdown.** TreeHopper web uses Arbor's source-spanned parser/serializer, preserves unsupported syntax as raw blocks, and maps Clamshell's `▸` toggle grammar onto BlockNote's nested toggle UI without persisting disclosure state.
-- **Pages keep one logical name as they grow.** Physical `x.md` and `x/_index.md` are mutually exclusive representations of `/x`; both TreeHopper faces, arbord APIs, links, search, history, and journals use the extensionless identity.
+- **Pages keep one logical name as they grow.** Sibling `x.md` supplies `/x`'s body, `x/` supplies its children, and `x/_index.md` is the body fallback only when the sibling is absent; both TreeHopper faces, arbord APIs, links, search, history, and journals use the extensionless identity.
 
 ## Division of labor
 

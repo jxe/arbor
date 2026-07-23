@@ -9,7 +9,7 @@ Arbor gives each person one local tree. Any folder may be backed by ordinary fil
 
 **One workspace to navigate and edit; independent shared trees where synchronization, history, or permissions require a boundary; and ordinary TypeScript scripts for turning that workspace into applications.**
 
-Arbord materializes the workspace as ordinary files where appropriate. Agents already know this interface: `ls` is browsing, `cat` is reading, writing a file is editing, and `grep -r` is search. Humans get Finder, editors, the browser, and TreeHopper over the same tree. A Markdown page has one extensionless logical address whether it is physically a leaf `x.md` or a directory body `x/_index.md`, so gaining children never renames it. Publishing or sharing a folder can give that subtree an independent identity without changing where it appears in the workspace.
+Arbord materializes the workspace as ordinary files where appropriate. Agents already know this interface: `ls` is browsing, `cat` is reading, writing a file is editing, and `grep -r` is search. Humans get Finder, editors, the browser, and TreeHopper over the same tree. A Markdown page has one extensionless logical address: `x.md` supplies `/x`'s body while a sibling `x/` supplies its children; when the sibling body is absent, `x/_index.md` is the directory-body fallback. Publishing or sharing a folder can give that subtree an independent identity without changing where it appears in the workspace.
 
 The developer pitch remains familiar: *put Markdown, a SQLite database, or a connection to an existing store in the workspace; write a typed query, a mutation, and a React component; Arbor generates the execution boundary and, when needed, the synchronization boundary.*
 

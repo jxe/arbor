@@ -1,6 +1,5 @@
-import { mkdir, readFile, readdir, realpath, stat } from "node:fs/promises";
-import { basename, dirname, extname, join, relative, posix } from "node:path";
-import * as watcher from "@parcel/watcher";
+import { mkdir, readdir, stat } from "node:fs/promises";
+import { basename, dirname, join, posix, relative } from "node:path";
 import type {
   ArborBlock,
   CollectionPage,
@@ -9,25 +8,13 @@ import type {
   TreeChild,
   TreeNode,
 } from "@arbor/core";
-import { canonicalNodePath, ensureContainedPath, markdownTreePath, nodeDisplayName, nodePathFromPhysical, normalizeTreePath, resolveTreePath, revisionOf, sha256, toTreePath } from "@arbor/core";
-import { mintPageID, parseMarkdown, serializeMarkdown } from "@arbor/editor";
+import { canonicalNodePath, nodeDisplayName, resolveTreePath, sha256 } from "@arbor/core";
+import { type FsEvent, FsConflictError, type FsImportEntry, type FsMutationRequest, WorkspaceFS } from "@arbor/fs";
 import { CollectionStore, WorkspaceIndex, workspaceStateDirectory } from "@arbor/stores";
 import { EventBus } from "./events.ts";
-import { moveCollisionSafe, writeAtomic } from "./file-ops.ts";
-import { WriteJournal } from "./journal.ts";
 
-const RESERVED = new Set(["schema.ts", "_store.csv", "_store.jsonl", "_store.postgres", "_store.sqlite3"]);
-const IGNORED = new Set([".git", "node_modules", ".arbor", "Trash"]);
-const EMPTY_REVISION = revisionOf("");
-type FileInfo = Awaited<ReturnType<typeof stat>>;
-
-interface ResolvedPhysicalNode {
-  path: string;
-  absolute: string;
-  info: FileInfo | null;
-  representation: "directory" | "markdown" | "file" | "missing";
-  collision: boolean;
-}
+const EMPTY_REVISION = sha256("");
+const PAGE_ID = /^[a-z0-9]{6}$/;
 
 export class RevisionConflictError extends Error {
   constructor(public current: TreeNode) { super("The file changed since it was opened"); }
@@ -36,184 +23,161 @@ export class RevisionConflictError extends Error {
 export class Workspace implements AsyncDisposable {
   readonly root: string;
   readonly events = new EventBus();
-  private stateDirectory!: string;
-  private index!: WorkspaceIndex;
-  private journal!: WriteJournal;
+  readonly fs: WorkspaceFS;
+  private stateDirectory: string;
+  private index: WorkspaceIndex;
   private collections = new CollectionStore();
-  private subscription?: watcher.AsyncSubscription;
-  private ownWrites = new Map<string, string>();
-  private knownIDs = new Set<string>();
   private idOwners = new Map<string, string>();
   private healingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private unsubscribeFS: () => void;
 
-  private constructor(root: string) { this.root = root; }
+  private constructor(root: string, stateDirectory: string, fs: WorkspaceFS, index: WorkspaceIndex) {
+    this.root = root;
+    this.stateDirectory = stateDirectory;
+    this.fs = fs;
+    this.index = index;
+    this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
+  }
 
   static async open(path: string): Promise<Workspace> {
-    const root = await realpath(path);
-    const info = await stat(root);
-    if (!info.isDirectory()) throw new Error("arbor dev requires a directory");
-    const workspace = new Workspace(root);
-    await workspace.initialize();
+    const stateDirectory = await workspaceStateDirectory(path);
+    const fs = await WorkspaceFS.open(path, { stateDirectory });
+    const index = new WorkspaceIndex(fs.root, join(stateDirectory, "index.sqlite"));
+    const workspace = new Workspace(fs.root, stateDirectory, fs, index);
+    await Promise.all([index.rebuild(), workspace.scanIDs()]);
+    await workspace.generateTypes();
     return workspace;
   }
 
   async node(inputPath: string): Promise<TreeNode> {
-    const resolved = await this.resolvePhysicalNode(inputPath);
-    const treePath = resolved.path;
-    const { absolute, info } = resolved;
-    if (!info) {
-      const virtual = await this.postgresVirtualNode(treePath);
+    const read = await this.fs.read(inputPath);
+    const resolved = read.node;
+    if (resolved.kind === "missing") {
+      const virtual = await this.postgresVirtualNode(resolved.path);
       if (virtual) return virtual;
-      throw new Error(`Node not found: ${treePath}`);
+      throw new Error(`Node not found: ${resolved.path}`);
     }
-    if (info.isDirectory()) return this.directoryNode(treePath, absolute, resolved.collision);
-    const source = await readFile(absolute);
-    const materialization = basename(absolute).endsWith(".icloud") ? "placeholder" as const : "available" as const;
-    if (extname(absolute).toLowerCase() !== ".md") {
+
+    if (resolved.kind === "file") {
       return {
-        path: treePath,
-        name: nodeDisplayName(treePath),
+        path: resolved.path,
+        name: nodeDisplayName(resolved.path),
         kind: "file",
-        revision: revisionOf(source),
-        writable: materialization === "available",
-        materialization,
-        diagnostics: [],
+        revision: read.byteRevision,
+        writable: resolved.writable,
+        materialization: resolved.materialization,
+        diagnostics: resolved.diagnostics,
       };
     }
-    const text = source.toString("utf8");
-    let document = parseMarkdown(text);
-    const pageID = typeof document.frontmatter.id === "string" && /^[a-z0-9]{6}$/.test(document.frontmatter.id) ? document.frontmatter.id : null;
-    if (pageID) {
-      const existingOwner = this.idOwners.get(pageID);
-      if (!existingOwner) this.idOwners.set(pageID, treePath);
-      const reconciled = await this.journal.reconcile(pageID, document.blocks, Number(info.mtimeMs) / 1_000);
-      if (reconciled.restored) {
-        const repaired = serializeMarkdown(document, reconciled.blocks);
-        await writeAtomic(absolute, repaired);
-        await this.journal.markMaterialized(pageID);
-        document = parseMarkdown(repaired);
-      }
-      this.scheduleLinkHealing(treePath, revisionOf(text), document);
+
+    if (resolved.kind === "markdown") {
+      const document = read.document!;
+      const pageID = this.registerPageID(resolved.path, document.frontmatter.id);
+      if (pageID) this.scheduleLinkHealing(resolved.path, read.byteRevision, document);
+      return {
+        path: resolved.path,
+        name: nodeDisplayName(resolved.path),
+        kind: "markdown",
+        revision: read.byteRevision,
+        writable: resolved.writable,
+        materialization: resolved.materialization,
+        document,
+        diagnostics: [
+          ...resolved.diagnostics,
+          ...this.pageIDDiagnostics(resolved.path, pageID),
+        ],
+      };
     }
+
+    const collection = await this.collections.summary(resolved.directoryPath!).catch(() => null);
+    const children = await this.directoryChildren(resolved.path, collection?.tables ?? []);
+    const document = read.document!;
+    const pageID = this.registerPageID(resolved.path, document.frontmatter.id);
+    if (pageID) this.scheduleLinkHealing(resolved.path, read.byteRevision, document);
     return {
-      path: treePath,
-      name: nodeDisplayName(treePath),
-      kind: "markdown",
-      revision: revisionOf(text),
-      writable: materialization === "available",
-      materialization,
+      path: resolved.path,
+      name: resolved.path === "/" ? basename(this.root) : nodeDisplayName(resolved.path),
+      kind: collection ? "collection" : "directory",
+      revision: read.byteRevision,
+      writable: resolved.writable,
+      materialization: resolved.materialization,
       document,
+      children: children.children,
+      collection: collection ?? undefined,
       diagnostics: [
-        ...(resolved.collision ? [{ code: "duplicate-node-representation", message: `${treePath} exists as both ${treePath}.md and ${treePath}/; keep only one representation.`, path: treePath, severity: "error" as const }] : []),
-        ...(pageID && this.idOwners.get(pageID) !== treePath ? [{ code: "duplicate-page-id", message: `Page ID ${pageID} is also used by ${this.idOwners.get(pageID)}`, path: treePath, severity: "error" as const }] : []),
+        ...resolved.diagnostics,
+        ...this.pageIDDiagnostics(resolved.path, pageID),
+        ...children.diagnostics,
       ],
     };
   }
 
   async collection(inputPath: string, cursor = 0, limit = 100, table?: string): Promise<CollectionPage> {
     const treePath = canonicalNodePath(inputPath);
-    let absolute = await ensureContainedPath(this.root, treePath);
-    try {
-      if (!(await stat(absolute)).isDirectory()) throw new Error("Collection path is not a directory");
-    } catch {
-      const parentPath = treePath.slice(0, treePath.lastIndexOf("/")) || "/";
-      absolute = resolveTreePath(this.root, parentPath);
+    const resolved = await this.fs.resolve(treePath);
+    let absolute = resolved.directoryPath;
+    if (!absolute) {
+      const parent = await this.fs.resolve(treePath.slice(0, treePath.lastIndexOf("/")) || "/");
+      absolute = parent.directoryPath;
       table ??= treePath.slice(treePath.lastIndexOf("/") + 1);
     }
+    if (!absolute) throw new Error("Collection path is not a directory");
     return this.collections.page(absolute, treePath, cursor, limit, table);
   }
 
   search(query: string, limit = 30): SearchResult[] { return this.index.search(query, limit); }
 
   async write(inputPath: string, request: NodeWriteRequest): Promise<TreeNode> {
-    const resolved = await this.resolvePhysicalNode(inputPath);
-    const treePath = resolved.path;
-    if (resolved.collision) throw new Error(`${treePath} has both a .md file and a same-named directory; resolve the duplicate before editing`);
-    let absolute = resolved.absolute;
-    if (resolved.representation === "directory") absolute = join(absolute, "_index.md");
-    else if (resolved.representation === "missing") absolute = resolveTreePath(this.root, markdownTreePath(treePath));
-    else if (resolved.representation !== "markdown") throw new Error("Only Markdown nodes are editable");
-    let source = "";
-    try { source = await readFile(absolute, "utf8"); } catch {}
-    const currentRevision = revisionOf(source);
-    if (request.baseRevision !== currentRevision) throw new RevisionConflictError(await this.node(treePath));
-    const document = parseMarkdown(source);
-    const patch = { ...(request.frontmatterPatch ?? {}) };
-    let pageID = typeof document.frontmatter.id === "string" ? document.frontmatter.id : undefined;
-    if (!pageID || !/^[a-z0-9]{6}$/.test(pageID)) {
-      pageID = mintPageID(this.knownIDs);
-      patch.id = pageID;
-      this.knownIDs.add(pageID);
-      this.idOwners.set(pageID, treePath);
+    try {
+      await this.fs.writeMarkdown(inputPath, request);
+      return this.node(inputPath);
+    } catch (error) {
+      if (error instanceof FsConflictError && error.details.code === "stale-revision") {
+        throw new RevisionConflictError(await this.node(inputPath));
+      }
+      throw error;
     }
-    await this.journal.commit(pageID, document.blocks, request.blocks);
-    const output = serializeMarkdown(document, request.blocks, patch);
-    await writeAtomic(absolute, output);
-    await this.journal.markMaterialized(pageID);
-    const revision = revisionOf(output);
-    this.ownWrites.set(treePath, revision);
-    await this.index.updateAbsolute(absolute);
-    this.events.emit({ type: source ? "updated" : "created", path: treePath, revision, classification: "echo" });
-    return this.node(treePath);
+  }
+
+  async mutate(request: FsMutationRequest) {
+    return this.fs.mutate(request);
+  }
+
+  async import(destination: string, entries: FsImportEntry[]) {
+    return this.fs.mutate({ operations: [{ op: "import", destination, entries }] });
   }
 
   async delete(inputPath: string): Promise<{ trashPath: string }> {
-    const resolved = await this.resolvePhysicalNode(inputPath);
-    const treePath = resolved.path;
-    if (treePath === "/" || treePath.startsWith("/Trash/")) throw new Error("This node cannot be trashed");
-    if (resolved.collision) throw new Error(`${treePath} has two physical representations; resolve the duplicate before deleting`);
-    if (!resolved.info) throw new Error(`Node not found: ${treePath}`);
-    const absolute = resolved.absolute;
-    const destination = resolved.representation === "markdown" || resolved.representation === "directory"
-      ? await this.availableLogicalDestination(`/Trash${treePath}`, resolved.representation)
-      : resolveTreePath(this.root, `/Trash${toTreePath(this.root, absolute)}`);
-    const moved = await moveCollisionSafe(absolute, destination);
-    const trashPath = nodePathFromPhysical(toTreePath(this.root, moved));
-    this.events.emit({ type: "deleted", path: treePath });
-    return { trashPath };
+    const path = canonicalNodePath(inputPath);
+    if (path === "/" || path.startsWith("/Trash/")) throw new Error("This node cannot be trashed");
+    await this.fs.mutate({ operations: [{ op: "trash", paths: [path] }] });
+    return { trashPath: `/Trash${path}` };
   }
 
   async restore(trashPathInput: string): Promise<{ path: string }> {
-    const resolved = await this.resolvePhysicalNode(trashPathInput);
-    const trashPath = resolved.path;
-    if (!trashPath.startsWith("/Trash/")) throw new Error("Restore path must be inside Trash");
-    if (resolved.collision) throw new Error(`${trashPath} has two physical representations; resolve the duplicate before restoring`);
-    if (!resolved.info) throw new Error(`Trash node not found: ${trashPath}`);
-    const source = resolved.absolute;
-    const destinationPath = trashPath.slice("/Trash".length);
-    const destination = resolved.representation === "markdown" || resolved.representation === "directory"
-      ? await this.availableLogicalDestination(destinationPath, resolved.representation)
-      : resolveTreePath(this.root, destinationPath);
-    const moved = await moveCollisionSafe(source, destination);
-    const path = nodePathFromPhysical(toTreePath(this.root, moved));
-    this.events.emit({ type: "created", path });
-    return { path };
+    const trashPath = canonicalNodePath(trashPathInput);
+    const result = await this.fs.mutate({ operations: [{ op: "restore", paths: [trashPath] }] });
+    return { path: result.changes[0]?.path ?? trashPath.slice("/Trash".length) };
   }
 
   async addAsset(directoryInput: string, filename: string, bytes: Uint8Array): Promise<{ path: string; markdownPath: string }> {
-    const directoryPath = normalizeTreePath(directoryInput || "/");
-    const pageDirectory = resolveTreePath(this.root, directoryPath);
-    const extension = extname(filename).toLowerCase().replace(/[^a-z0-9.]/g, "");
+    const extension = filename.includes(".") ? `.${filename.split(".").pop()!.toLowerCase().replace(/[^a-z0-9]/g, "")}` : "";
     const safeName = `${sha256(bytes).slice(0, 16)}${extension}`;
-    const absolute = join(this.root, "Assets", safeName);
-    try { await stat(absolute); } catch { await writeAtomic(absolute, bytes); }
-    const markdownPath = relative(pageDirectory, absolute).split("/").join("/");
-    return { path: toTreePath(this.root, absolute), markdownPath };
+    const assets = await this.fs.resolve("/Assets");
+    if (assets.kind === "missing") await this.fs.mutate({ operations: [{ op: "createDirectory", path: "/Assets" }] });
+    const path = `/Assets/${safeName}`;
+    const existing = await this.fs.resolve(path);
+    if (existing.kind === "missing") await this.fs.mutate({ operations: [{ op: "createFile", path, bytes }] });
+    const directory = (await this.fs.resolve(directoryInput)).directoryPath
+      ?? dirname((await this.fs.resolve(directoryInput)).bodyPath ?? this.root);
+    return { path, markdownPath: relative(directory, resolveTreePath(this.root, path)).split("/").join("/") };
   }
 
-  async recovery(inputPath: string) {
-    const node = await this.node(inputPath);
-    if (!node.document) throw new Error("Recovery is available only for Markdown nodes");
-    const pageID = node.document.frontmatter.id;
-    if (typeof pageID !== "string") return [];
-    return this.journal.list(pageID, node.document.blocks);
-  }
+  recovery(inputPath: string) { return this.fs.recovery(inputPath); }
 
   async restoreBlock(inputPath: string, hash: string): Promise<TreeNode> {
-    const node = await this.node(inputPath);
-    if (!node.document || typeof node.document.frontmatter.id !== "string") throw new Error("Page has no durable identity");
-    const blocks = await this.journal.restore(node.document.frontmatter.id, hash, node.document.blocks);
-    return this.write(inputPath, { baseRevision: node.revision, blocks });
+    await this.fs.restoreBlock(inputPath, hash);
+    return this.node(inputPath);
   }
 
   async generateTypes(): Promise<void> {
@@ -225,11 +189,11 @@ export class Workspace implements AsyncDisposable {
     let temporaryFailure = false;
     const walk = async (directory: string) => {
       for (const entry of await readdir(directory, { withFileTypes: true })) {
-        if (!entry.isDirectory() || IGNORED.has(entry.name)) continue;
+        if (!entry.isDirectory() || [".git", "node_modules", ".arbor", "Trash"].includes(entry.name)) continue;
         const absolute = join(directory, entry.name);
         const summary = await this.collections.summary(absolute).catch(() => { temporaryFailure = true; return null; });
         if (summary) {
-          const treePath = toTreePath(this.root, absolute);
+          const treePath = `/${relative(this.root, absolute).split("/").join("/")}`;
           const schemaPath = join(absolute, "schema.ts");
           if (summary.backing === "postgres") {
             try {
@@ -279,127 +243,34 @@ export class Workspace implements AsyncDisposable {
       try { await stat(target); return; } catch {}
     }
     await mkdir(join(this.root, ".arbor"), { recursive: true });
-    await writeAtomic(target, source);
+    await this.fs.writeFile("/.arbor/tree.gen.d.ts", new TextEncoder().encode(source));
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
     for (const timer of this.healingTimers.values()) clearTimeout(timer);
-    await this.subscription?.unsubscribe();
+    this.unsubscribeFS();
     this.index.close();
+    await this.fs[Symbol.asyncDispose]();
   }
 
-  private async initialize(): Promise<void> {
-    this.stateDirectory = await workspaceStateDirectory(this.root);
-    this.journal = new WriteJournal(join(this.stateDirectory, "journal"));
-    this.index = new WorkspaceIndex(this.root, join(this.stateDirectory, "index.sqlite"));
-    await Promise.all([this.index.rebuild(), this.scanIDs()]);
-    await this.generateTypes();
-    this.subscription = await watcher.subscribe(this.root, async (error, events) => {
-      if (error) { this.events.emit({ type: "diagnostic", path: "/" }); return; }
-      for (const event of events) await this.handleWatch(event.path, event.type);
-    }, { ignore: ["**/.git/**", "**/node_modules/**", "**/.arbor/**", "**/Trash/**"] });
-  }
-
-  private async resolvePhysicalNode(inputPath: string): Promise<ResolvedPhysicalNode> {
-    const path = canonicalNodePath(inputPath);
-    const direct = await ensureContainedPath(this.root, path);
-    let directInfo: FileInfo | null = null;
-    try { directInfo = await stat(direct); } catch {}
-    if (path === "/") return { path, absolute: direct, info: directInfo, representation: directInfo?.isDirectory() ? "directory" : directInfo ? "file" : "missing", collision: false };
-
-    const markdownPath = markdownTreePath(path);
-    const markdown = await ensureContainedPath(this.root, markdownPath);
-    let markdownInfo: FileInfo | null = null;
-    try { markdownInfo = await stat(markdown); } catch {}
-    const collision = Boolean(directInfo && markdownInfo);
-    if (directInfo) {
-      return { path, absolute: direct, info: directInfo, representation: directInfo.isDirectory() ? "directory" : "file", collision };
-    }
-    if (markdownInfo) return { path, absolute: markdown, info: markdownInfo, representation: "markdown", collision: false };
-    return { path, absolute: direct, info: null, representation: "missing", collision: false };
-  }
-
-  private async availableLogicalDestination(inputPath: string, representation: "markdown" | "directory"): Promise<string> {
-    const base = canonicalNodePath(inputPath);
-    const slash = base.lastIndexOf("/");
-    const parent = base.slice(0, slash) || "/";
-    const name = base.slice(slash + 1);
-    for (let suffix = 1; ; suffix += 1) {
-      const candidate = `${parent === "/" ? "" : parent}/${name}${suffix === 1 ? "" : `-${suffix}`}`;
-      const direct = resolveTreePath(this.root, candidate);
-      const markdown = resolveTreePath(this.root, markdownTreePath(candidate));
-      let occupied = false;
-      try { await stat(direct); occupied = true; } catch {}
-      try { await stat(markdown); occupied = true; } catch {}
-      if (!occupied) return representation === "markdown" ? markdown : direct;
-    }
-  }
-
-  private async directoryNode(treePath: string, absolute: string, collision = false): Promise<TreeNode> {
-    const collection = await this.collections.summary(absolute).catch(() => null);
-    const indexPath = join(absolute, "_index.md");
-    let source = "";
-    let indexMtime = 0;
-    try {
-      source = await readFile(indexPath, "utf8");
-      indexMtime = (await stat(indexPath)).mtimeMs / 1_000;
-    } catch {}
-    let document = parseMarkdown(source);
-    const pageID = typeof document.frontmatter.id === "string" && /^[a-z0-9]{6}$/.test(document.frontmatter.id) ? document.frontmatter.id : null;
-    if (pageID) {
-      const existingOwner = this.idOwners.get(pageID);
-      if (!existingOwner) this.idOwners.set(pageID, treePath);
-      const reconciled = await this.journal.reconcile(pageID, document.blocks, indexMtime);
-      if (reconciled.restored) {
-        const repaired = serializeMarkdown(document, reconciled.blocks);
-        await writeAtomic(indexPath, repaired);
-        await this.journal.markMaterialized(pageID);
-        source = repaired;
-        document = parseMarkdown(repaired);
-      }
-      this.scheduleLinkHealing(treePath, revisionOf(source), document);
-    }
-    const listing = await this.directoryChildren(treePath, absolute, collection?.tables ?? []);
-    return {
-      path: treePath,
-      name: treePath === "/" ? basename(this.root) : nodeDisplayName(treePath),
-      kind: collection ? "collection" : "directory",
-      revision: revisionOf(source),
-      writable: true,
-      materialization: "available",
-      document,
-      children: listing.children,
-      collection: collection ?? undefined,
-      diagnostics: [
-        ...(collision ? [{ code: "duplicate-node-representation", message: `${treePath} exists as both ${treePath}.md and ${treePath}/; keep only one representation.`, path: treePath, severity: "error" as const }] : []),
-        ...(pageID && this.idOwners.get(pageID) !== treePath ? [{ code: "duplicate-page-id", message: `Page ID ${pageID} is also used by ${this.idOwners.get(pageID)}`, path: treePath, severity: "error" as const }] : []),
-        ...listing.diagnostics,
-      ],
-    };
-  }
-
-  private async directoryChildren(treePath: string, absolute: string, virtualTables: string[]): Promise<{ children: TreeChild[]; diagnostics: TreeNode["diagnostics"] }> {
-    const entries = await readdir(absolute, { withFileTypes: true });
-    const childrenByPath = new Map<string, TreeChild>();
+  private async directoryChildren(treePath: string, virtualTables: string[]): Promise<{ children: TreeChild[]; diagnostics: TreeNode["diagnostics"] }> {
+    const entries = await this.fs.list(treePath);
+    const children: TreeChild[] = [];
     const diagnostics: TreeNode["diagnostics"] = [];
-    for (const entry of entries.filter((entry) => !IGNORED.has(entry.name) && !RESERVED.has(entry.name) && entry.name !== "_index.md")) {
-      const physicalPath = `${treePath === "/" ? "" : treePath}/${entry.name}`;
-      const path = entry.isFile() && entry.name.endsWith(".md") ? canonicalNodePath(physicalPath) : normalizeTreePath(physicalPath);
-      const isPlaceholder = entry.name.endsWith(".icloud");
-      let kind: TreeChild["kind"] = entry.isDirectory() ? "directory" : entry.name.endsWith(".md") ? "markdown" : "file";
-      if (entry.isDirectory() && await this.collections.summary(join(absolute, entry.name)).catch(() => null)) kind = "collection";
-      const child = { name: nodeDisplayName(path), path, kind, materialization: isPlaceholder ? "placeholder" : "available" } satisfies TreeChild;
-      const existing = childrenByPath.get(path);
-      if (existing) {
-        diagnostics.push({ code: "duplicate-node-representation", message: `${path} exists as both ${path}.md and ${path}/; keep only one representation.`, path, severity: "error" });
-        if (kind === "directory" || kind === "collection") childrenByPath.set(path, child);
-      } else childrenByPath.set(path, child);
+    for (const entry of entries) {
+      let kind: TreeChild["kind"] = entry.kind;
+      if (entry.kind === "directory") {
+        const resolved = await this.fs.resolve(entry.path);
+        if (resolved.directoryPath && await this.collections.summary(resolved.directoryPath).catch(() => null)) kind = "collection";
+      }
+      children.push({ name: entry.name, path: entry.path, kind, materialization: entry.materialization });
+      diagnostics.push(...entry.diagnostics);
     }
     for (const table of virtualTables) {
       const path = `${treePath === "/" ? "" : treePath}/${table}`;
-      childrenByPath.set(path, { name: table, path, kind: "collection", materialization: "available" });
+      children.push({ name: table, path, kind: "collection", materialization: "available" });
     }
-    return { children: [...childrenByPath.values()].sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
+    return { children: children.sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
   }
 
   private async postgresVirtualNode(treePath: string): Promise<TreeNode | null> {
@@ -407,8 +278,9 @@ export class Workspace implements AsyncDisposable {
     if (slash <= 0) return null;
     const parentPath = treePath.slice(0, slash) || "/";
     const table = treePath.slice(slash + 1);
-    const parent = resolveTreePath(this.root, parentPath);
-    const summary = await this.collections.summary(parent).catch(() => null);
+    const parent = await this.fs.resolve(parentPath);
+    if (!parent.directoryPath) return null;
+    const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
     if (summary?.backing !== "postgres" || !summary.tables?.includes(table)) return null;
     return {
       path: treePath,
@@ -422,43 +294,55 @@ export class Workspace implements AsyncDisposable {
     };
   }
 
+  private registerPageID(path: string, candidate: unknown): string | null {
+    if (typeof candidate !== "string" || !PAGE_ID.test(candidate)) return null;
+    if (!this.idOwners.has(candidate)) this.idOwners.set(candidate, path);
+    return candidate;
+  }
+
+  private pageIDDiagnostics(path: string, pageID: string | null): TreeNode["diagnostics"] {
+    return pageID && this.idOwners.get(pageID) !== path
+      ? [{ code: "duplicate-page-id", message: `Page ID ${pageID} is also used by ${this.idOwners.get(pageID)}`, path, severity: "error" }]
+      : [];
+  }
+
   private async scanIDs(): Promise<void> {
-    const walk = async (directory: string): Promise<void> => {
-      for (const entry of await readdir(directory, { withFileTypes: true })) {
-        if (IGNORED.has(entry.name)) continue;
-        const absolute = join(directory, entry.name);
-        if (entry.isDirectory()) await walk(absolute);
-        else if (entry.isFile() && entry.name.endsWith(".md")) {
-          try {
-            const id = parseMarkdown(await readFile(absolute, "utf8")).frontmatter.id;
-            if (typeof id === "string" && /^[a-z0-9]{6}$/.test(id)) {
-              this.knownIDs.add(id);
-              if (!this.idOwners.has(id)) this.idOwners.set(id, nodePathFromPhysical(toTreePath(this.root, absolute)));
-            }
-          } catch {}
+    const walk = async (path: string): Promise<void> => {
+      const node = await this.fs.read(path);
+      const id = node.document?.frontmatter.id;
+      if (typeof id === "string" && PAGE_ID.test(id) && !this.idOwners.has(id)) this.idOwners.set(id, path);
+      if (node.node.kind === "directory") {
+        for (const child of await this.fs.list(path)) {
+          if (child.kind === "markdown" || child.kind === "directory") await walk(child.path);
         }
       }
     };
-    await walk(this.root);
+    await walk("/");
   }
 
-  private async handleWatch(absolute: string, type: watcher.EventType): Promise<void> {
-    let treePath: string;
-    try { treePath = nodePathFromPhysical(toTreePath(this.root, absolute)); } catch { return; }
-    await this.index.updateAbsolute(absolute);
-    let revision: string | undefined;
-    try { revision = revisionOf(await readFile(absolute)); } catch {}
-    const expected = this.ownWrites.get(treePath);
-    const classification = expected && expected === revision ? "echo" : expected ? "stomp" : "external";
-    if (classification === "echo") this.ownWrites.delete(treePath);
-    if (classification === "external" && (absolute.endsWith(".md") || basename(absolute) === "_index.md")) {
-      try {
-        const document = parseMarkdown(await readFile(absolute, "utf8"));
-        const id = document.frontmatter.id;
-        if (typeof id === "string" && /^[a-z0-9]{6}$/.test(id)) await this.journal.observe(id, document.blocks);
-      } catch {}
-    }
-    this.events.emit({ type: type === "delete" ? "deleted" : type === "create" ? "created" : "updated", path: treePath, revision, classification });
+  private async handleFsEvent(event: FsEvent): Promise<void> {
+    const updateIndex = async (path: string) => {
+      const resolved = await this.fs.resolve(path);
+      const absolute = resolved.kind === "directory" ? resolved.bodyPath : resolved.kind === "markdown" ? resolved.bodyPath : resolved.absolutePath;
+      if (absolute) await this.index.updateAbsolute(absolute);
+      else if (event.previousPath) {
+        const oldBody = resolveTreePath(this.root, `${event.previousPath}.md`);
+        await this.index.updateAbsolute(oldBody);
+      }
+    };
+    if (event.type === "batch") {
+      await this.index.rebuild().catch(() => {});
+      await this.generateTypes().catch(() => {});
+    } else if (event.type === "moved" || event.type === "deleted") await this.index.rebuild().catch(() => {});
+    else if (event.type !== "diagnostic") await updateIndex(event.path).catch(() => {});
+    this.events.emit({
+      type: event.type,
+      path: event.path,
+      previousPath: event.previousPath,
+      revision: event.byteRevision,
+      classification: event.classification,
+      changes: event.changes,
+    });
   }
 
   private scheduleLinkHealing(treePath: string, revision: string, document: NonNullable<TreeNode["document"]>): void {

@@ -3,16 +3,16 @@
 
 ## 1. Nodes and stores
 
-A node is a logical workspace address. Markdown has two physical shapes but one node model: `x.md` is the leaf representation of `/x`, while `x/_index.md` is the representation of that same `/x` page once it has children. Browser routes, API paths, search results, links, generated tree types, breadcrumbs, and visible names always use the extensionless logical path `/x`.
+A node is a logical workspace address with an optional body path and directory path. `x.md` supplies `/x`'s body, while a sibling `x/` supplies `/x`'s children. If `x.md` is absent, `x/_index.md` is the fallback directory body. Browser routes, API paths, search results, links, generated tree types, breadcrumbs, and visible names always use the extensionless logical path `/x`.
 
 - A **markdown page** has YAML frontmatter for props and a Markdown body. Each page carries a durable short `id` in its frontmatter, minted at creation (or on first save for existing files) — the page's stable identity across renames.
-- A **directory page** is the same page with children; its body and props live in `_index.md`.
+- A **directory page** has children in `x/`; its body and props come from sibling `x.md`, falling back to `x/_index.md`, or from an empty implicit body when neither exists.
 - A **collection** is a folder of records. Its backing is declared *inside* the folder — `_store.csv`, `_store.jsonl`, multiple Markdown row files, a known-name `_store.sqlite3` database, or a known-name `_store.postgres` connection reference — and can change without the folder's path, page, schema, or views changing. A folder whose store holds several tables is a database container: each table appears as a child collection.
 - A **script** is a `.tsx` file that may colocate React components, queries, mutations, and actions.
 
 The filesystem driver is the default store, not a universal storage requirement. Arbor presents one tree API over heterogeneous stores. A store driver supplies schema inspection, reads, transactions, change observation, consistent snapshots, and materialization where meaningful. Data should remain inspectable with ordinary tools appropriate to its store: `cat` for Markdown, SQLite tools for `.sqlite3`, and a SQL client for Postgres.
 
-`x.md` and `x/_index.md` are mutually exclusive physical representations. An Arbor operation that gives `/x` its first child atomically promotes `x.md` to `x/_index.md`; removing its last child may leave the directory representation in place, because representation is not identity. Arbor never creates both. If an external tool does, Arbor exposes one logical `/x`, reports a blocking `duplicate-node-representation` diagnostic, and refuses edits, moves, deletes, or restores that could guess which body wins. Resolving the diagnostic means explicitly retaining one body. Trash and collision-safe restore test both physical shapes before choosing a logical destination.
+`x.md` and `x/` may and normally do coexist: together they are one logical node, and directory listings collapse them into one child. Giving `/x` its first child creates `x/` and leaves `x.md` in place. Editing a directory that has no sibling body materializes `x/_index.md`. Only `x.md` plus `x/_index.md` is ambiguous; Arbor reports a blocking `duplicate-body-representation` diagnostic and refuses content or structural mutations until one body is explicitly retained. Rename, move, copy, trash, and restore treat a sibling body plus directory as one logical unit, and occupied destinations reject without overwrite, merging, or suffixing.
 
 ## 2. SQLite by placement
 
@@ -161,7 +161,7 @@ An **agent** is also just a markdown file: prompt as body, frontmatter carrying 
 
 A few names inside the tree are conventions rather than content, and a little state deliberately lives outside the tree:
 
-- **`_index.md`** — a directory's own body and props (see §1). Materialized on the first structural edit to a directory page ([browser.md](browser.md) §2).
+- **`_index.md`** — the fallback body and props for a directory that has no sibling `x.md` (see §1). Materialized on the first body or structural edit when no sibling body exists ([browser.md](browser.md) §2).
 - **`_store.sqlite3` / `_store.postgres`** — a folder's database backing (see §2–3). Swapping the store file migrates the folder between backings without moving anything else.
 - **`_store.csv` / `_store.jsonl`** — the two single-file collection backings. Their fixed names make a later backing swap as explicit as replacing one `_store.*` file with another.
 - **`Trash/`** — soft-deleted pages, mirroring the source structure; restore returns a page to its original path ([system.md](system.md) §3).

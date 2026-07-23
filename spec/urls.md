@@ -17,7 +17,7 @@
 
 Fragments are disambiguated by target kind: on a markdown page they carry the durable page ID; on a script they name an export. `arbor run ./reading-room.tsx#recentEssays` and a link block rendering the same export use the identical name.
 
-Markdown node names never expose their storage suffix. The physical leaf `x.md` and directory body `x/_index.md` both name exactly `/x`; the root `_index.md` names `/`. `.md` and `/_index.md` spellings are accepted only as compatibility aliases at resolution boundaries and immediately canonicalized. They never appear in browser URLs, API results, link healing, search results, generated types, or user-visible filenames. The two physical representations may not coexist ([format.md](format.md) §1).
+Markdown node names never expose their storage suffix. Sibling body `x.md`, child directory `x/`, and fallback body `x/_index.md` all contribute to exactly `/x`; the root `_index.md` names `/`. `.md` and `/_index.md` spellings are accepted only as compatibility aliases at resolution boundaries and immediately canonicalized. They never appear in browser URLs, API results, link healing, search results, generated types, or user-visible filenames. `x.md` may coexist with `x/`, but not with `x/_index.md` ([format.md](format.md) §1).
 
 Links are paths, made rename-proof by identity. The path is the human-readable primary; when a page fragment's ID and its path disagree — the file was renamed, or a new file reused the old name — the ID is authoritative, so renames break no inbound links. Stale destinations heal lazily to canonical `path#id` form. Fragment-less links keep pure path semantics.
 

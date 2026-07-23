@@ -56,9 +56,11 @@ describe("workspace service", () => {
     expect(deleted.trashPath).toStartWith("/Trash/folder/child");
     await expect(stat(join(root, "folder", "child.md"))).rejects.toThrow();
     await mkdir(join(root, "folder", "child"));
+    await expect(workspace.restore(deleted.trashPath)).rejects.toThrow("Destination already exists");
+    await rm(join(root, "folder", "child"), { recursive: true });
     const restored = await workspace.restore(deleted.trashPath);
-    expect(restored.path).toBe("/folder/child-2");
-    expect(await readFile(join(root, "folder", "child-2.md"), "utf8")).toContain("Child body");
+    expect(restored.path).toBe("/folder/child");
+    expect(await readFile(join(root, "folder", "child.md"), "utf8")).toContain("Child body");
   });
 
   test("stores content-addressed assets", async () => {
@@ -72,7 +74,7 @@ describe("workspace service", () => {
     expect(workspace.search("Changed").some((item) => item.path === "/notes")).toBe(true);
   });
 
-  test("diagnoses and blocks duplicate leaf/directory representations", async () => {
+  test("uses a sibling Markdown body for a directory and blocks two bodies", async () => {
     const duplicateRoot = await mkdtemp(join(tmpdir(), "arbor-duplicate-"));
     const duplicateState = await mkdtemp(join(tmpdir(), "arbor-duplicate-state-"));
     process.env.ARBOR_DATA_HOME = duplicateState;
@@ -80,13 +82,21 @@ describe("workspace service", () => {
     try {
       await writeFile(join(duplicateRoot, "same.md"), "Leaf\n");
       await mkdir(join(duplicateRoot, "same"));
-      await writeFile(join(duplicateRoot, "same", "_index.md"), "Directory\n");
+      await writeFile(join(duplicateRoot, "same", "child.md"), "Child\n");
       duplicateWorkspace = await Workspace.open(duplicateRoot);
       const rootNode = await duplicateWorkspace.node("/");
       expect(rootNode.children?.filter((child) => child.path === "/same")).toHaveLength(1);
-      expect(rootNode.diagnostics.some((item) => item.code === "duplicate-node-representation")).toBe(true);
       const same = await duplicateWorkspace.node("/same");
-      await expect(duplicateWorkspace.write("/same", { baseRevision: same.revision, blocks: same.document?.blocks ?? [] })).rejects.toThrow("both a .md file");
+      expect(same.kind).toBe("directory");
+      expect(same.document?.bodySource).toBe("Leaf\n");
+      await duplicateWorkspace[Symbol.asyncDispose]();
+      duplicateWorkspace = null;
+
+      await writeFile(join(duplicateRoot, "same", "_index.md"), "Directory\n");
+      duplicateWorkspace = await Workspace.open(duplicateRoot);
+      const duplicate = await duplicateWorkspace.node("/same");
+      expect(duplicate.diagnostics.some((item) => item.code === "duplicate-body-representation")).toBe(true);
+      await expect(duplicateWorkspace.write("/same", { baseRevision: duplicate.revision, blocks: duplicate.document?.blocks ?? [] })).rejects.toThrow("competing bodies");
     } finally {
       await duplicateWorkspace?.[Symbol.asyncDispose]();
       process.env.ARBOR_DATA_HOME = state;

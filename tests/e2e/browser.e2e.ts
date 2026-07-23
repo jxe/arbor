@@ -9,7 +9,7 @@ test("canonicalizes Markdown storage aliases", async ({ page }) => {
 
 test("opens authored and auto-generated subpage rows", async ({ page }) => {
   await page.goto("/");
-  const generated = page.locator('.child-page[href="/books"]');
+  const generated = page.locator('.managed-child-page a[href="/books"]');
   await expect(generated).toBeVisible();
   await generated.click();
   await expect(page).toHaveURL(/\/render\/books$/);
@@ -54,8 +54,8 @@ test("browses, searches, and edits toggle Markdown", async ({ page }) => {
 
   const topic = page.locator(".properties label").filter({ hasText: "topic" }).locator("input");
   await topic.fill("trees");
-  await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByRole("button", { name: "Saved" })).toBeDisabled();
+  await expect(page.getByRole("status")).toHaveText("Changes pending");
+  await expect(page.getByRole("status")).toHaveText("Saved");
 });
 
 test("renders a Markdown collection and opens a record", async ({ page }) => {

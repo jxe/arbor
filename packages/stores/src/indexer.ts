@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import type { SearchResult } from "@arbor/core";
 import { nodeDisplayName, nodePathFromPhysical, toTreePath } from "@arbor/core";
@@ -89,7 +89,10 @@ export class WorkspaceIndex {
         if (IGNORED.has(entry.name) || entry.name.startsWith("._") || entry.isSymbolicLink()) continue;
         const absolute = join(directory, entry.name);
         if (entry.isDirectory()) directories.push(absolute);
-        else if (entry.isFile()) files.push(absolute);
+        else if (entry.isFile()) {
+          if (basename(absolute) === "_index.md" && dirname(absolute) !== this.root && existsSync(`${dirname(absolute)}.md`)) continue;
+          files.push(absolute);
+        }
       }
     }
     return files;
