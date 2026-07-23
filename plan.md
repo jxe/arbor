@@ -124,7 +124,8 @@ Ends when: editing a markdown page and a directory page in the browser produces 
 - Edit `.md` files in place: frontmatter as a props panel, body as blocks; **write-back targets the markdown file itself** — the file stays canonical.
 - Round-trip discipline: preserve frontmatter byte-for-byte unless edited; minimize diff churn on untouched blocks; no lossy normalization of markdown the user didn't touch.
 - Use **BlockNote** for the editing surface, but never its JSON as storage. Arbor's source-span CommonMark/GFM adapter maps supported syntax into BlockNote, splices untouched source slices back byte-for-byte, and exposes unsupported syntax as editable raw-Markdown blocks.
-- Support the Clamshell toggle extension as a first-class nested BlockNote toggle: `▸ Title` followed by blank lines or lines indented at least two more spaces. The body may contain arbitrary blocks and ends at the first nonblank line at-or-above the toggle indent; fenced code is opaque to boundary detection. Toggle disclosure state is session-local and never written.
+- Keep one BlockNote instance alive per open page. Reconcile clean saved or externally observed snapshots through a non-history BlockNote transaction; do not reconstruct the editor for every file revision.
+- Support the Clamshell toggle extension as a first-class nested BlockNote toggle: `▸ Title` followed by blank lines or lines indented at least two more spaces. The body may contain arbitrary blocks and ends at the first nonblank line at-or-above the toggle indent; fenced code is opaque to boundary detection. Toggle disclosure state is session-local and never written. Implement `▸ ` authoring as a BlockNote input rule so conversion and typing form one native transaction and one Arbor generation.
 - Implement the `PUT /v/node/{path}` write route with atomic writes and conflict responses.
 - Pasted images land in a visible `Assets/` folder (Notion/Obsidian convention) so pages stay portable to any markdown viewer.
 
@@ -132,6 +133,7 @@ Ends when: editing a markdown page and a directory page in the browser produces 
 
 - The directory view is the same editor: children appear as blocks that can be reordered, grouped under inserted headings, and surrounded with prose.
 - A structural edit updates sibling `x.md` when it supplies the directory body; otherwise it materializes `x/_index.md`. Children not mentioned in the selected body still render, appended after the authored body (rule specified in [spec/browser.md](spec/browser.md) §2).
+- Use one pure structural-row transform for optimistic browser previews and committed filesystem rewrites. An anchored move carries the directory body's full-byte revision; stale revisions and missing block/path anchors reject the entire batch instead of falling back to the end.
 - Treat sibling body `x.md` plus child directory `x/` as one `/x` node; use `x/_index.md` only when the sibling body is absent. Trash, restore, move, watch events, conflicts, ID ownership, backlinks, search, and generated declarations retain the logical identity. If an external writer creates both body files, show one blocking diagnostic and require explicit resolution rather than choosing or overwriting a body.
 
 ### 2.3 The write journal (Clamshell's durability model)
@@ -152,7 +154,7 @@ Ends when: editing a markdown page and a directory page in the browser produces 
 
 ### 2.5 BlockNote adapter and acceptance corpus
 
-BlockNote is the chosen editor. Arbor owns the Markdown parser, source spans, toggle grammar, raw-block fallback, and serializer; BlockNote supplies the interactive block tree, slash menu, drag handles, nesting, and React UI. Newly authored supported blocks serialize to Arbor's canonical Markdown, while untouched supported and unsupported blocks retain their original bytes.
+BlockNote is the chosen editor. Arbor owns the Markdown parser, source spans, toggle grammar, raw-block fallback, serializer, logical filesystem mutations, and multi-row selection semantics. BlockNote supplies the interactive block tree, custom-block contract, input rules, transactions, change provenance, slash menu, drag handles, nesting, and React UI. Newly authored supported blocks serialize to Arbor's canonical Markdown, while untouched supported and unsupported blocks retain their original bytes.
 
 **Required corpus:** real `.md` files in → no-op save byte-identical; edit one block → only that source region changes; frontmatter comments/order/quoting survive property edits; nested `▸` toggles survive lists, headings, blank lines, and fenced code; inline links plus authored and auto-generated child-page rows are clickable and canonicalize storage aliases; sibling `x.md`, child directory `x/`, and fallback `x/_index.md` share one route/API/search identity; child creation and conflict-rejecting restore never create duplicate bodies; external edits merge or surface explicit conflicts; `kill -9` between journal append and file write repairs on reopen; opening or closing a toggle produces no write, journal record, watcher event, or diff.
 

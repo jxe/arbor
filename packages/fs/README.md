@@ -9,6 +9,7 @@
 - `x/_index.md` is the body only when `x.md` is absent. Both body files produce `duplicate-body-representation` and block content and structural mutation.
 - A sibling body and directory move, copy, rename, trash, and restore as one unit.
 - Destinations never overwrite, merge, or acquire an automatic suffix.
+- A structural insertion anchor is a compare-and-swap precondition: the request carries the directory body's full-byte revision, and a stale revision or missing `beforePath`/`beforeBlockId` rejects the complete batch.
 - Every physical path is containment-checked against the real workspace root. Transaction staging names are private, same-filesystem siblings and are ignored by the watcher.
 - Full-byte revisions are the compare-and-swap boundary. Parsed body revisions are separate recovery information and cannot hide frontmatter-only changes.
 

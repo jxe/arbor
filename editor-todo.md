@@ -1,6 +1,6 @@
 # Arbor editor follow-up
 
-This list starts after the logical filesystem, body-row selection, drag/drop, inline create/rename, and soft-delete tranche. Difficulty is relative to the current web editor.
+This list starts after the logical filesystem, body-row selection, drag/drop, inline create/rename, soft-delete, generation-aware autosave/history coordinator, and persistent BlockNote reconciliation tranche. Difficulty is relative to the current web editor.
 
 1. **Inline Markdown fidelity and rich marks — Hard.** Expand the source-span adapter beyond links and plain text: emphasis, strong, strike, inline code, hard breaks, nested marks, and mark-preserving edits. Keep raw fallback for unsupported syntax and prove that untouched source remains byte-identical.
 2. **Keyboard block navigation and structural editing — Hard.** Add predictable up/down traversal, keyboard multi-selection, indent/outdent, and keyboard reorder. Managed child rows must join the visible selection model without leaking BlockNote's ordinary block-drag semantics into filesystem moves.

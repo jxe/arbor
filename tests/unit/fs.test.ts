@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { FsConflictError, FsInjectedCrashError, WorkspaceFS } from "@arbor/fs";
+import { transformStructuralRows, type ArborBlock } from "@arbor/core";
+import { FsConflictError, FsInjectedCrashError, type FsMutation, WorkspaceFS } from "@arbor/fs";
 
 const opened: WorkspaceFS[] = [];
 const directories: string[] = [];
@@ -80,7 +81,7 @@ describe("@arbor/fs logical nodes", () => {
   test("moves managed rows between prose blocks without regrouping the other children", async () => {
     const { fs } = await workspace({ "a.md": "A\n", "b.md": "B\n", "_index.md": "Initial\n" });
     const root = await fs.read("/");
-    await fs.writeMarkdown("/", {
+    const written = await fs.writeMarkdown("/", {
       baseRevision: root.byteRevision,
       blocks: [
         { id: "heading-one", type: "heading", content: "One", props: { level: 2 }, children: [] },
@@ -91,7 +92,13 @@ describe("@arbor/fs logical nodes", () => {
     });
 
     const headingTwoID = (await fs.read("/")).document!.blocks.find((block) => block.type === "heading" && block.content === "Two")!.id;
-    await fs.mutate({ operations: [{ op: "move", paths: ["/b"], destination: "/", beforeBlockId: headingTwoID }] });
+    await fs.mutate({ operations: [{
+      op: "move",
+      paths: ["/b"],
+      destination: "/",
+      beforeBlockId: headingTwoID,
+      directoryRevision: written.byteRevision,
+    }] });
     const blocks = (await fs.read("/")).document!.blocks;
     expect(blocks.map((block) => `${block.type}:${block.content}`)).toEqual([
       "heading:One",
@@ -99,6 +106,56 @@ describe("@arbor/fs logical nodes", () => {
       "heading:Two",
       "childPage:a",
     ]);
+  });
+
+  test("rejects stale and missing structural insertion anchors", async () => {
+    const { fs } = await workspace({ "a.md": "A\n", "b.md": "B\n", "_index.md": "[a](a)\n[b](b)\n" });
+    const current = await fs.read("/");
+    const anchored: FsMutation = { op: "move", paths: ["/b"], destination: "/", beforeBlockId: "missing" };
+
+    await expect(fs.mutate({ operations: [anchored] })).rejects.toMatchObject({
+      details: { code: "stale-revision" },
+    });
+    await expect(fs.mutate({ operations: [{ ...anchored, directoryRevision: "stale" }] })).rejects.toMatchObject({
+      details: { code: "stale-revision" },
+    });
+    await expect(fs.mutate({ operations: [{ ...anchored, directoryRevision: current.byteRevision }] })).rejects.toMatchObject({
+      details: { code: "missing-insertion-anchor" },
+    });
+  });
+
+  test("uses the shared structural-row transform for nested prose placement", () => {
+    const blocks: ArborBlock[] = [
+      {
+        id: "heading",
+        type: "heading",
+        content: "Section",
+        props: { level: 2 },
+        children: [{
+          id: "anchor",
+          type: "paragraph",
+          content: "Anchor",
+          props: {},
+          children: [],
+        }],
+      },
+      { id: "child-a", type: "childPage", content: "a", props: { path: "a" }, children: [] },
+      { id: "child-b", type: "childPage", content: "b", props: { path: "b" }, children: [] },
+    ];
+    const transformed = transformStructuralRows(blocks, {
+      directory: "/",
+      removePaths: ["/b"],
+      insertMoves: [{ oldPath: "/b", newPath: "/b" }],
+      beforeBlockId: "anchor",
+    });
+    expect(transformed.anchor).toBe("found");
+    expect(transformed.blocks[0]?.children.map((block) => block.id)).toEqual(["child-b", "anchor"]);
+    expect(transformStructuralRows(blocks, {
+      directory: "/",
+      removePaths: ["/b"],
+      insertMoves: [{ oldPath: "/b", newPath: "/b" }],
+      beforeBlockId: "gone",
+    }).anchor).toBe("missing");
   });
 
   test("rejects duplicate bodies, occupied destinations, and recursive moves", async () => {

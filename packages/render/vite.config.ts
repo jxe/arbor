@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: "@arbor/core/logical-path", replacement: resolve(import.meta.dirname, "../core/src/logical-path.ts") },
+      { find: "@arbor/core/structural-rows", replacement: resolve(import.meta.dirname, "../core/src/structural-rows.ts") },
       { find: "@arbor/core", replacement: resolve(import.meta.dirname, "../core/src/index.ts") },
       { find: "@arbor/editor", replacement: resolve(import.meta.dirname, "../editor/src/index.ts") },
     ],

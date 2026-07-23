@@ -1,8 +1,8 @@
 import { constants } from "node:fs";
 import { access, cp, mkdir, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
-import { basename, dirname, extname, join, posix, relative } from "node:path";
+import { basename, dirname, extname, join, relative } from "node:path";
 import * as watcher from "@parcel/watcher";
-import type { ArborBlock, Diagnostic, MarkdownDocument } from "@arbor/core";
+import type { Diagnostic, MarkdownDocument } from "@arbor/core";
 import {
   canonicalNodePath,
   directoryIndexTreePath,
@@ -11,6 +11,7 @@ import {
   nodePathFromPhysical,
   normalizeTreePath,
   PathEscapeError,
+  transformStructuralRows,
   resolveTreePath,
   revisionOf,
   sha256,
@@ -134,6 +135,7 @@ interface PlannedRows {
   moved: Array<{ oldPath: string; newPath: string }>;
   beforePath?: string;
   beforeBlockId?: string;
+  expectedDirectoryRevision?: string;
   revisions?: Map<string, string>;
 }
 
@@ -189,13 +191,6 @@ function validateLogicalName(name: string): void {
   if (name.toLowerCase().endsWith(".md")) {
     throw new FsConflictError({ code: "invalid-name", path: name }, "Logical page and folder names do not include .md");
   }
-}
-
-function resolveChildReference(parent: string, raw: string): string | null {
-  if (!raw || raw.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(raw)) return null;
-  const base = parent === "/" ? "/" : `${parent}/`;
-  const resolved = new URL(raw.split("#")[0]!, `http://arbor${base}`).pathname;
-  return canonicalNodePath(resolved);
 }
 
 export class WorkspaceFS implements AsyncDisposable {
@@ -610,7 +605,21 @@ export class WorkspaceFS implements AsyncDisposable {
     for (const plan of rowPlans) {
       const directories = new Set([...plan.sources.keys(), ...(plan.destination ? [canonicalNodePath(plan.destination)] : [])]);
       plan.revisions = new Map();
-      for (const directory of directories) plan.revisions.set(directory, (await this.read(directory)).byteRevision);
+      for (const directory of directories) {
+        const current = await this.read(directory);
+        if (
+          plan.destination
+          && directory === canonicalNodePath(plan.destination)
+          && plan.expectedDirectoryRevision !== undefined
+          && current.byteRevision !== plan.expectedDirectoryRevision
+        ) {
+          throw new FsConflictError(
+            { code: "stale-revision", path: directory, current },
+            `Directory body changed before mutation: ${directory}`,
+          );
+        }
+        plan.revisions.set(directory, current.byteRevision);
+      }
     }
     const rowSnapshots: RowSnapshot[] = [];
     const snapshottedRows = new Set<string>();
@@ -808,12 +817,20 @@ export class WorkspaceFS implements AsyncDisposable {
       const destinationNode = await this.resolve(destination);
       if (destinationNode.kind !== "directory") throw new FsConflictError({ code: "not-found", path: destination }, `Move destination is not a directory: ${destination}`);
       if (paths.every((path) => parentPath(path) === destination)) {
+        if ((operation.beforePath || operation.beforeBlockId) && operation.directoryRevision === undefined) {
+          const current = await this.read(destination);
+          throw new FsConflictError(
+            { code: "stale-revision", path: destination, current },
+            `A directory revision is required for anchored placement in ${destination}`,
+          );
+        }
         rowPlans.push({
           sources: new Map([[destination, paths]]),
           destination,
           moved: paths.map((path) => ({ oldPath: path, newPath: path })),
           beforePath: operation.beforePath,
           beforeBlockId: operation.beforeBlockId,
+          expectedDirectoryRevision: operation.directoryRevision,
         });
         changes.push({ path: destination, kind: "updated" });
         return;
@@ -827,7 +844,21 @@ export class WorkspaceFS implements AsyncDisposable {
           sources.set(parentPath(path), group);
           return { oldPath: path, newPath: canonicalNodePath(`${destination === "/" ? "" : destination}/${nodeDisplayName(path)}`) };
         });
-        rowPlans.push({ sources, destination, moved, beforePath: operation.beforePath, beforeBlockId: operation.beforeBlockId });
+        if ((operation.beforePath || operation.beforeBlockId) && operation.directoryRevision === undefined) {
+          const current = await this.read(destination);
+          throw new FsConflictError(
+            { code: "stale-revision", path: destination, current },
+            `A directory revision is required for anchored placement in ${destination}`,
+          );
+        }
+        rowPlans.push({
+          sources,
+          destination,
+          moved,
+          beforePath: operation.beforePath,
+          beforeBlockId: operation.beforeBlockId,
+          expectedDirectoryRevision: operation.directoryRevision,
+        });
       }
       return;
     }
@@ -1016,62 +1047,20 @@ export class WorkspaceFS implements AsyncDisposable {
     for (const directory of allParents) {
       const current = await this.read(directory);
       if (!current.document) continue;
-      const remove = new Set(plan.sources.get(directory) ?? []);
-      const existingByPath = new Map<string, ArborBlock>();
-      const collect = (blocks: ArborBlock[]) => {
-        for (const block of blocks) {
-          const resolved = block.type === "childPage" ? resolveChildReference(directory, String(block.props?.path ?? "")) : null;
-          if (resolved) existingByPath.set(resolved, block);
-          collect(block.children);
-        }
-      };
-      collect(current.document.blocks);
-      const strip = (blocks: ArborBlock[]): ArborBlock[] => blocks.flatMap((block) => {
-        const resolved = block.type === "childPage" ? resolveChildReference(directory, String(block.props?.path ?? "")) : null;
-        if (resolved && remove.has(resolved)) return [];
-        return [{ ...block, children: strip(block.children) }];
+      const transformed = transformStructuralRows(current.document.blocks, {
+        directory,
+        removePaths: plan.sources.get(directory) ?? [],
+        insertMoves: destination && directory === destination ? plan.moved : [],
+        beforePath: plan.beforePath,
+        beforeBlockId: plan.beforeBlockId,
       });
-      let blocks = strip(current.document.blocks);
-      if (destination && directory === destination) {
-        const inserted = plan.moved.map((item) => {
-          const existing = existingByPath.get(item.oldPath);
-          const oldName = nodeDisplayName(item.oldPath);
-          const newName = nodeDisplayName(item.newPath);
-          return existing ? {
-            ...existing,
-            content: existing.content === oldName ? newName : existing.content,
-            props: {
-              ...existing.props,
-              path: posix.relative(directory === "/" ? "/" : directory, item.newPath) || newName,
-            },
-          } : {
-            id: `child-${crypto.randomUUID()}`,
-            type: "childPage",
-            content: newName,
-            props: { path: posix.relative(directory === "/" ? "/" : directory, item.newPath) || newName },
-            children: [],
-          } satisfies ArborBlock;
-        });
-        const beforePath = plan.beforePath ? canonicalNodePath(plan.beforePath) : null;
-        const insertBefore = (items: ArborBlock[]): [ArborBlock[], boolean] => {
-          const result: ArborBlock[] = [];
-          for (let index = 0; index < items.length; index += 1) {
-            const block = items[index]!;
-            const resolved = block.type === "childPage" ? resolveChildReference(directory, String(block.props?.path ?? "")) : null;
-            if (block.id === plan.beforeBlockId || beforePath && resolved === beforePath) {
-              return [[...result, ...inserted, block, ...items.slice(index + 1)], true];
-            }
-            const [children, didInsert] = insertBefore(block.children);
-            if (didInsert) {
-              return [[...result, { ...block, children }, ...items.slice(index + 1)], true];
-            }
-            result.push({ ...block, children });
-          }
-          return [result, false];
-        };
-        const [withInsertion, didInsert] = insertBefore(blocks);
-        blocks = didInsert ? withInsertion : [...blocks, ...inserted];
+      if (transformed.anchor === "missing") {
+        throw new FsConflictError(
+          { code: "missing-insertion-anchor", path: directory, current },
+          `Insertion anchor no longer exists in ${directory}`,
+        );
       }
+      const blocks = transformed.blocks;
       if (JSON.stringify(blocks) !== JSON.stringify(current.document.blocks)) {
         const expectedRevision = plan.revisions?.get(directory);
         if (expectedRevision !== undefined && current.byteRevision !== expectedRevision) {

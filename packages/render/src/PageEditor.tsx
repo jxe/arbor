@@ -4,14 +4,20 @@ import { SideMenuExtension } from "@blocknote/core/extensions";
 import { SideMenuController, useCreateBlockNote } from "@blocknote/react";
 import type { ArborBlock, TreeNode } from "@arbor/core";
 import { canonicalNodePath } from "@arbor/core/logical-path";
+import { resolveStructuralRowPath, transformStructuralRows } from "@arbor/core/structural-rows";
 import type { FsMutation, FsMutationResult } from "@arbor/fs";
-import { mergeBlocks } from "@arbor/editor";
 import { api } from "./api.ts";
+import {
+  EditorCoordinator,
+  frontmatterPatch,
+  type DocumentSnapshot,
+  type HistoryEntry,
+} from "./editor-coordinator.ts";
 import { importEntries } from "./file-drop.ts";
 import {
   arborSchema,
+  arborEditorExtensions,
   ArborSideMenu,
-  blockText,
   fromBlockNote,
   ManagedRowsContext,
   originalMap,
@@ -21,20 +27,6 @@ import {
 } from "./blocks.tsx";
 
 const ARBOR_DRAG_TYPE = "application/x-arbor-logical-paths";
-const AUTOSAVE_DELAY_MS = 750;
-
-type SaveState = "saved" | "changed" | "saving" | "external" | "conflict" | "error";
-
-interface DocumentSnapshot {
-  blocks: ArborBlock[];
-  frontmatter: Record<string, unknown>;
-}
-
-interface HistoryEntry {
-  label: string;
-  undo(): Promise<void>;
-  redo(): Promise<void>;
-}
 
 function parentPath(path: string): string {
   return path.slice(0, path.lastIndexOf("/")) || "/";
@@ -42,12 +34,6 @@ function parentPath(path: string): string {
 
 function childPath(parent: string, name: string): string {
   return canonicalNodePath(`${parent === "/" ? "" : parent}/${name}`);
-}
-
-function resolveChildReference(parent: string, raw: string): string | null {
-  if (!raw || raw.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(raw)) return null;
-  const base = parent === "/" ? "/" : `${parent}/`;
-  return canonicalNodePath(new URL(raw.split("#")[0]!, `http://arbor${base}`).pathname);
 }
 
 function importedTopLevel(destination: string, entries: Array<{ path: string }>): string[] {
@@ -68,56 +54,6 @@ function inverseMoves(moved: FsMutationResult["moved"]): FsMutation[] {
   return [...byParent].map(([destination, paths]) => ({ op: "move", paths, destination }));
 }
 
-function moveManagedRows(
-  blocks: ArborBlock[],
-  directory: string,
-  paths: string[],
-  beforePath?: string,
-  beforeBlockId?: string,
-): ArborBlock[] {
-  const selected = new Set(paths);
-  const rows = new Map<string, ArborBlock>();
-  const collect = (items: ArborBlock[]) => {
-    for (const block of items) {
-      const path = block.type === "childPage"
-        ? resolveChildReference(directory, String(block.props?.path ?? ""))
-        : null;
-      if (path && selected.has(path)) rows.set(path, block);
-      collect(block.children);
-    }
-  };
-  collect(blocks);
-  const moved = paths.flatMap((path) => rows.get(path) ? [rows.get(path)!] : []);
-  if (!moved.length) return blocks;
-  const strip = (items: ArborBlock[]): ArborBlock[] => items.flatMap((block) => {
-    const path = block.type === "childPage"
-      ? resolveChildReference(directory, String(block.props?.path ?? ""))
-      : null;
-    if (path && selected.has(path)) return [];
-    return [{ ...block, children: strip(block.children) }];
-  });
-  const remaining = strip(blocks);
-  const anchorPath = beforePath ? canonicalNodePath(beforePath) : null;
-  const insert = (items: ArborBlock[]): [ArborBlock[], boolean] => {
-    const result: ArborBlock[] = [];
-    for (let index = 0; index < items.length; index += 1) {
-      const block = items[index]!;
-      const path = block.type === "childPage"
-        ? resolveChildReference(directory, String(block.props?.path ?? ""))
-        : null;
-      if (block.id === beforeBlockId || anchorPath && path === anchorPath) {
-        return [[...result, ...moved, block, ...items.slice(index + 1)], true];
-      }
-      const [children, inserted] = insert(block.children);
-      if (inserted) return [[...result, { ...block, children }, ...items.slice(index + 1)], true];
-      result.push({ ...block, children });
-    }
-    return [result, false];
-  };
-  const [inserted, found] = insert(remaining);
-  return found ? inserted : [...remaining, ...moved];
-}
-
 export function PageEditor({ node, onSaved, navigate }: {
   node: TreeNode;
   onSaved: (node: TreeNode) => void;
@@ -130,7 +66,7 @@ export function PageEditor({ node, onSaved, navigate }: {
   const childrenByPath = useMemo(() => new Map(physicalChildren.map((child) => [child.path, child])), [childrenRevision]);
   const implicitChildren: ArborBlock[] = isDirectory
     ? physicalChildren.filter((child) => !authored.some((block) =>
-      block.type === "childPage" && resolveChildReference(node.path, String(block.props?.path ?? "")) === child.path
+      block.type === "childPage" && resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) === child.path
     )).map((child, index) => ({
       id: `implicit-${index}-${child.name}`,
       type: "childPage",
@@ -142,7 +78,7 @@ export function PageEditor({ node, onSaved, navigate }: {
   const initial = [...authored, ...implicitChildren];
   const managedOrder = initial.flatMap((block) => {
     if (block.type !== "childPage") return [];
-    const path = resolveChildReference(node.path, String(block.props?.path ?? ""));
+    const path = resolveStructuralRowPath(node.path, String(block.props?.path ?? ""));
     return path && childrenByPath.has(path) ? [path] : [];
   });
   const originals = useMemo(() => originalMap(initial), [node.revision, childrenRevision]);
@@ -150,12 +86,12 @@ export function PageEditor({ node, onSaved, navigate }: {
   const editor = useCreateBlockNote({
     schema: arborSchema,
     initialContent: initial.length ? initial.map(toBlockNote) : [{ type: "paragraph" }],
+    extensions: arborEditorExtensions,
     uploadFile: async (file) => (await api.asset(pageDirectory, file)).markdownPath,
-  }, [node.path, node.revision, childrenRevision]);
+  }, [node.path]);
   const editorRef = useRef(editor);
   editorRef.current = editor;
-  const [saveState, setSaveState] = useState<SaveState>("saved");
-  const [message, setMessage] = useState<string | null>(null);
+  const [, renderCoordinator] = useState(0);
   const [frontmatter, setFrontmatter] = useState<Record<string, unknown>>({ ...(node.document?.frontmatter ?? {}) });
   const [recovery, setRecovery] = useState<Array<{ hash: string; markdown: string; status: string; changedAt: number }> | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -165,24 +101,9 @@ export function PageEditor({ node, onSaved, navigate }: {
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [dragPreview, setDragPreview] = useState<{ paths: string[]; x: number; y: number } | null>(null);
-  const baseBlocks = useRef(authored);
   const bodySurface = useRef<HTMLDivElement>(null);
   const pageActionsMenu = useRef<HTMLDetailsElement>(null);
   const pendingScrollRestore = useRef<{ x: number; y: number } | null>(null);
-  const generation = useRef(0);
-  const durableGeneration = useRef(0);
-  const currentRevision = useRef(node.revision);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const saveInFlight = useRef<Promise<void> | null>(null);
-  const applyingHistory = useRef(false);
-  const observedSnapshot = useRef<DocumentSnapshot>({ blocks: initial, frontmatter: { ...(node.document?.frontmatter ?? {}) } });
-  const documentDraft = useRef<{ before: DocumentSnapshot; after: DocumentSnapshot } | null>(null);
-  const documentHistoryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const undoStack = useRef<HistoryEntry[]>([]);
-  const redoStack = useRef<HistoryEntry[]>([]);
-  const applySnapshotRef = useRef<(value: DocumentSnapshot) => Promise<void>>(async () => {});
-  const pushHistoryRef = useRef<(entry: HistoryEntry) => void>(() => {});
-  const [, renderHistory] = useState(0);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const onSavedPreservingScroll = useCallback((loaded: TreeNode) => {
@@ -218,132 +139,56 @@ export function PageEditor({ node, onSaved, navigate }: {
     blocks: currentBlocks(),
     frontmatter: structuredClone(nextFrontmatter),
   });
-  const frontmatterPatch = (value: Record<string, unknown>) => {
-    const result: Record<string, unknown | null> = {};
-    const before = node.document?.frontmatter ?? {};
-    for (const key of new Set([...Object.keys(before), ...Object.keys(value)])) {
-      if (!(key in value)) result[key] = null;
-      else if (JSON.stringify(before[key]) !== JSON.stringify(value[key])) result[key] = value[key];
-    }
-    return result;
-  };
-  const saveNowRef = useRef<(forceRevision?: string) => Promise<void>>(async () => {});
-  const scheduleAutosave = useCallback((delay = AUTOSAVE_DELAY_MS) => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      saveTimer.current = null;
-      void saveNowRef.current();
-    }, delay);
-  }, []);
-  const markChanged = useCallback(() => {
-    generation.current += 1;
-    setSaveState("changed");
-    scheduleAutosave();
-  }, [scheduleAutosave]);
-
-  const save = useCallback(async (forceRevision?: string) => {
-    if (saveInFlight.current) {
-      await saveInFlight.current;
-      if (generation.current > durableGeneration.current) return saveNowRef.current(forceRevision);
-      return;
-    }
-    const savingGeneration = generation.current;
-    if (savingGeneration <= durableGeneration.current && !forceRevision) return;
-    const local = currentBlocks();
-    const localFrontmatter = structuredClone(frontmatter);
-    const execute = async () => {
-      setSaveState("saving");
-      setMessage(null);
-      try {
-        let saved: TreeNode;
-        try {
-          saved = await api.write(node.path, {
-            baseRevision: forceRevision ?? currentRevision.current,
-            frontmatterPatch: frontmatterPatch(localFrontmatter),
-            blocks: local,
-          });
-        } catch (error) {
-          const conflict = error as Error & { status?: number; payload?: { current?: TreeNode } };
-          if (conflict.status !== 409 || !conflict.payload?.current?.document) throw error;
-          const current = conflict.payload.current;
-          const currentDocument = current.document!;
-          const merged = mergeBlocks(baseBlocks.current, local, currentDocument.blocks);
-          if (merged.conflicts.length) {
-            setSaveState("conflict");
-            setMessage(`${merged.conflicts.length} block conflict${merged.conflicts.length === 1 ? "" : "s"}. Use the disk version or keep this version.`);
-            return;
-          }
-          saved = await api.write(node.path, {
-            baseRevision: current.revision,
-            frontmatterPatch: frontmatterPatch(localFrontmatter),
-            blocks: merged.blocks,
-          });
-          if (JSON.stringify(merged.blocks) !== JSON.stringify(local)) {
-            const beforeMerge: DocumentSnapshot = { blocks: local, frontmatter: localFrontmatter };
-            const afterMerge: DocumentSnapshot = { blocks: merged.blocks, frontmatter: localFrontmatter };
-            applyingHistory.current = true;
-            editor.replaceBlocks(editor.document, merged.blocks.length ? merged.blocks.map(toBlockNote) : [{ type: "paragraph" }]);
-            applyingHistory.current = false;
-            observedSnapshot.current = structuredClone(afterMerge);
-            pushHistoryRef.current({
-              label: "Merge external changes",
-              undo: () => applySnapshotRef.current(beforeMerge),
-              redo: () => applySnapshotRef.current(afterMerge),
-            });
-          }
-          setMessage("Merged an external edit.");
-        }
-        currentRevision.current = saved.revision;
-        baseBlocks.current = saved.document?.blocks ?? [];
-        durableGeneration.current = Math.max(durableGeneration.current, savingGeneration);
-        onSavedPreservingScroll(saved);
-        if (generation.current === savingGeneration) setSaveState("saved");
-        else {
-          setSaveState("changed");
-          scheduleAutosave(0);
-        }
-      } catch (error) {
-        setSaveState("error");
-        setMessage(error instanceof Error ? error.message : String(error));
-      }
-    };
-    const running = execute().finally(() => {
-      if (saveInFlight.current === running) saveInFlight.current = null;
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const replaceEditorSnapshot = useCallback((value: DocumentSnapshot) => {
+    editor.transact((transaction) => {
+      transaction.setMeta("addToHistory", false);
+      editor.replaceBlocks(editor.document, value.blocks.length ? value.blocks.map(toBlockNote) : [{ type: "paragraph" }]);
     });
-    saveInFlight.current = running;
-    await running;
-  }, [editor, frontmatter, node.document?.frontmatter, node.path, onSavedPreservingScroll, originals, scheduleAutosave]);
-  saveNowRef.current = save;
+    setFrontmatter(structuredClone(value.frontmatter));
+  }, [editor]);
+  const coordinator = useMemo(() => new EditorCoordinator({
+    path: node.path,
+    revision: node.revision,
+    baseBlocks: authored,
+    baseFrontmatter: node.document?.frontmatter ?? {},
+    initialSnapshot: { blocks: initial, frontmatter: node.document?.frontmatter ?? {} },
+    capture: () => snapshotRef.current(),
+    write: (path, baseRevision, value, base) => api.write(path, {
+      baseRevision,
+      frontmatterPatch: frontmatterPatch(base.frontmatter, value.frontmatter),
+      blocks: value.blocks,
+    }),
+    applySnapshot: replaceEditorSnapshot,
+    acceptNode: onSavedPreservingScroll,
+    notify: () => renderCoordinator((value) => value + 1),
+  }), [editor, node.path]);
+  coordinator.configure({
+    capture: () => snapshotRef.current(),
+    applySnapshot: replaceEditorSnapshot,
+    acceptNode: onSavedPreservingScroll,
+    notify: () => renderCoordinator((value) => value + 1),
+  });
+  const saveState = coordinator.saveState;
+  const message = coordinator.message;
+  const setMessage = useCallback((value: string | null) => coordinator.setMessage(value), [coordinator]);
+  const save = useCallback((forceRevision?: string) => coordinator.save(forceRevision), [coordinator]);
+  const flushAutosave = useCallback(() => coordinator.flush(), [coordinator]);
+  const flushDocumentHistory = useCallback(() => coordinator.flushHistory(), [coordinator]);
+  const recordDocumentSnapshot = useCallback((value: DocumentSnapshot) => coordinator.markAuthored(value), [coordinator]);
+  const pushHistory = useCallback((entry: HistoryEntry) => coordinator.pushHistory(entry), [coordinator]);
+  const undo = useCallback(() => coordinator.undo(), [coordinator]);
+  const redo = useCallback(() => coordinator.redo(), [coordinator]);
 
-  const flushAutosave = useCallback(async () => {
-    if (saveTimer.current) {
-      clearTimeout(saveTimer.current);
-      saveTimer.current = null;
-    }
-    if (generation.current > durableGeneration.current) await saveNowRef.current();
-    if (saveInFlight.current) await saveInFlight.current;
-    if (generation.current > durableGeneration.current) await saveNowRef.current();
-    if (generation.current > durableGeneration.current) {
-      throw new Error("Resolve or retry the unsaved document changes before changing the filesystem.");
-    }
-  }, []);
+  useLayoutEffect(() => {
+    coordinator.reconcileServer(node, {
+      blocks: initial,
+      frontmatter: { ...(node.document?.frontmatter ?? {}) },
+    });
+  }, [childrenRevision, coordinator, node.revision]);
 
-  useEffect(() => {
-    currentRevision.current = node.revision;
-    baseBlocks.current = authored;
-    if (generation.current === durableGeneration.current) {
-      const nextFrontmatter = { ...(node.document?.frontmatter ?? {}) };
-      setFrontmatter(nextFrontmatter);
-      observedSnapshot.current = { blocks: structuredClone(initial), frontmatter: nextFrontmatter };
-      setSaveState("saved");
-    }
-  }, [node.path, node.revision, childrenRevision, editor]);
-
-  useEffect(() => () => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    if (documentHistoryTimer.current) clearTimeout(documentHistoryTimer.current);
-    void saveNowRef.current();
-  }, []);
+  useEffect(() => () => coordinator.dispose(), [coordinator]);
 
   useEffect(() => {
     const source = new EventSource("/v/events");
@@ -352,90 +197,10 @@ export function PageEditor({ node, onSaved, navigate }: {
       const update = JSON.parse((event as MessageEvent).data) as { path: string; classification?: string };
       if (update.path !== node.path || update.classification === "echo") return;
       const loaded = await api.node(node.path);
-      if (generation.current > durableGeneration.current || saveInFlight.current) {
-        setSaveState("external");
-        scheduleAutosave(0);
-        return;
-      }
-      currentRevision.current = loaded.revision;
-      baseBlocks.current = loaded.document?.blocks ?? [];
-      onSavedPreservingScroll(loaded);
-      setSaveState("saved");
+      coordinator.observeExternal(loaded);
     });
     return () => source.close();
-  }, [node.path, onSavedPreservingScroll, scheduleAutosave]);
-
-  const pushHistory = useCallback((entry: HistoryEntry) => {
-    undoStack.current.push(entry);
-    redoStack.current = [];
-    renderHistory((value) => value + 1);
-  }, []);
-  pushHistoryRef.current = pushHistory;
-  const flushDocumentHistory = useCallback(() => {
-    if (documentHistoryTimer.current) {
-      clearTimeout(documentHistoryTimer.current);
-      documentHistoryTimer.current = null;
-    }
-    const draft = documentDraft.current;
-    documentDraft.current = null;
-    if (!draft || JSON.stringify(draft.before) === JSON.stringify(draft.after)) return;
-    pushHistory({
-      label: "Edit document",
-      undo: () => applySnapshotRef.current(draft.before),
-      redo: () => applySnapshotRef.current(draft.after),
-    });
-  }, [pushHistory]);
-  const recordDocumentSnapshot = useCallback((after: DocumentSnapshot) => {
-    if (applyingHistory.current) {
-      observedSnapshot.current = after;
-      return;
-    }
-    const before = observedSnapshot.current;
-    observedSnapshot.current = after;
-    if (!documentDraft.current) documentDraft.current = { before, after };
-    else documentDraft.current.after = after;
-    if (documentHistoryTimer.current) clearTimeout(documentHistoryTimer.current);
-    documentHistoryTimer.current = setTimeout(flushDocumentHistory, AUTOSAVE_DELAY_MS);
-  }, [flushDocumentHistory]);
-  const applySnapshot = useCallback(async (value: DocumentSnapshot) => {
-    applyingHistory.current = true;
-    editor.replaceBlocks(editor.document, value.blocks.length ? value.blocks.map(toBlockNote) : [{ type: "paragraph" }]);
-    setFrontmatter(structuredClone(value.frontmatter));
-    observedSnapshot.current = structuredClone(value);
-    generation.current += 1;
-    setSaveState("changed");
-    scheduleAutosave(0);
-    applyingHistory.current = false;
-  }, [editor, scheduleAutosave]);
-  applySnapshotRef.current = applySnapshot;
-
-  const undo = useCallback(async () => {
-    flushDocumentHistory();
-    const entry = undoStack.current.at(-1);
-    if (!entry) return;
-    try {
-      setMessage(null);
-      await entry.undo();
-      undoStack.current.pop();
-      redoStack.current.push(entry);
-      renderHistory((value) => value + 1);
-    } catch (error) {
-      setMessage(`Could not undo ${entry.label.toLowerCase()}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }, [flushDocumentHistory]);
-  const redo = useCallback(async () => {
-    const entry = redoStack.current.at(-1);
-    if (!entry) return;
-    try {
-      setMessage(null);
-      await entry.redo();
-      redoStack.current.pop();
-      undoStack.current.push(entry);
-      renderHistory((value) => value + 1);
-    } catch (error) {
-      setMessage(`Could not redo ${entry.label.toLowerCase()}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }, []);
+  }, [coordinator, node.path]);
 
   const reload = useCallback(async (nextSelection: string[] = []) => {
     const loaded = await api.node(node.path);
@@ -483,11 +248,11 @@ export function PageEditor({ node, onSaved, navigate }: {
           const lastIndex = Math.max(...reorder.paths.map((path) => beforeOrder.indexOf(path)));
           const beforePath = beforeOrder.slice(lastIndex + 1).find((path) => !selectedPaths.has(path));
           const selectedBlockIndexes = beforeBlocks.flatMap((block, index) => {
-            const path = block.type === "childPage" ? resolveChildReference(node.path, String(block.props?.path ?? "")) : null;
+            const path = block.type === "childPage" ? resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) : null;
             return path && selectedPaths.has(path) ? [index] : [];
           });
           const beforeBlockId = beforeBlocks.slice(Math.max(...selectedBlockIndexes, -1) + 1).find((block) => {
-            const path = block.type === "childPage" ? resolveChildReference(node.path, String(block.props?.path ?? "")) : null;
+            const path = block.type === "childPage" ? resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) : null;
             return !path || !selectedPaths.has(path);
           })?.id;
           undoOperations = [{
@@ -503,7 +268,17 @@ export function PageEditor({ node, onSaved, navigate }: {
       if (undoOperations.length) {
         const execute = async (request: FsMutation[], selection: string[]) => {
           await flushAutosave();
-          await api.mutate({ operations: request });
+          const prepared = await Promise.all(request.map(async (operation) => {
+            if (
+              operation.op !== "move"
+              || operation.directoryRevision === undefined && !operation.beforePath && !operation.beforeBlockId
+            ) return operation;
+            return {
+              ...operation,
+              directoryRevision: (await api.node(operation.destination)).revision,
+            };
+          }));
+          await api.mutate({ operations: prepared });
           await reloadRef.current(selection);
         };
         pushHistory({
@@ -588,23 +363,34 @@ export function PageEditor({ node, onSaved, navigate }: {
     flushDocumentHistory();
     await flushAutosave();
     const before = currentBlocks();
-    const preview = moveManagedRows(before, node.path, paths, beforePath, beforeBlockId);
-    applyingHistory.current = true;
-    editor.replaceBlocks(editor.document, preview.length ? preview.map(toBlockNote) : [{ type: "paragraph" }]);
-    applyingHistory.current = false;
+    const previewResult = transformStructuralRows(before, {
+      directory: node.path,
+      removePaths: paths,
+      insertMoves: paths.map((path) => ({ oldPath: path, newPath: path })),
+      beforePath,
+      beforeBlockId,
+    });
+    if (previewResult.anchor === "missing") throw new Error("The insertion target is no longer present.");
+    const preview = previewResult.blocks;
+    coordinator.applyNormalizationSnapshot({ blocks: preview, frontmatter });
     try {
       return await runMutation(
-        [{ op: "move", paths, destination: node.path, beforePath, beforeBlockId }],
+        [{
+          op: "move",
+          paths,
+          destination: node.path,
+          beforePath,
+          beforeBlockId,
+          directoryRevision: coordinator.currentRevision,
+        }],
         paths,
         before,
       );
     } catch (error) {
-      applyingHistory.current = true;
-      editor.replaceBlocks(editor.document, before.length ? before.map(toBlockNote) : [{ type: "paragraph" }]);
-      applyingHistory.current = false;
+      coordinator.applyNormalizationSnapshot({ blocks: before, frontmatter });
       throw error;
     }
-  }, [editor, flushAutosave, flushDocumentHistory, node.path, runMutation]);
+  }, [coordinator, flushAutosave, flushDocumentHistory, frontmatter, node.path, runMutation]);
 
   const drop = useCallback(async (targetPath: string, position: "before" | "after" | "inside", event: React.DragEvent) => {
     event.preventDefault();
@@ -938,7 +724,7 @@ export function PageEditor({ node, onSaved, navigate }: {
 
   const managedRows = useMemo<ManagedRowsController>(() => ({
     resolve: (rawPath) => {
-      const path = resolveChildReference(node.path, rawPath);
+      const path = resolveStructuralRowPath(node.path, rawPath);
       return path && childrenByPath.has(path) ? path : null;
     },
     kind: (path) => childrenByPath.get(path)?.kind ?? null,
@@ -974,7 +760,6 @@ export function PageEditor({ node, onSaved, navigate }: {
         const next = { ...frontmatter, [key]: event.target.value };
         setFrontmatter(next);
         recordDocumentSnapshot(snapshot(next));
-        markChanged();
       }} /></label>)}
       <button className="quiet" onClick={() => {
         const key = prompt("Property name");
@@ -982,7 +767,6 @@ export function PageEditor({ node, onSaved, navigate }: {
           const next = { ...frontmatter, [key]: "" };
           setFrontmatter(next);
           recordDocumentSnapshot(snapshot(next));
-          markChanged();
         }
       }}>+ property</button>
     </div>
@@ -1042,13 +826,10 @@ export function PageEditor({ node, onSaved, navigate }: {
         }}
         onClickCapture={openInternalLink}
       >
-        <BlockNoteView editor={editor} sideMenu={false} onChange={() => {
-          if (applyingHistory.current) return;
-          const shorthand = editor.document.find((block) => block.type === "paragraph" && blockText(block as ArborEditorBlock).startsWith("▸ ")) as ArborEditorBlock | undefined;
-          if (shorthand) editor.updateBlock(shorthand, { type: "toggleListItem", content: blockText(shorthand).slice(2) });
-          const next = snapshot();
-          recordDocumentSnapshot(next);
-          markChanged();
+        <BlockNoteView editor={editor} sideMenu={false} onChange={(_editor, { getChanges }) => {
+          if (coordinator.isApplying) return;
+          if (!getChanges().some((change) => change.source.type !== "yjs-remote")) return;
+          recordDocumentSnapshot(snapshot());
         }} data-theming-css-variables-demo>
           <SideMenuController sideMenu={ArborSideMenu} />
         </BlockNoteView>
@@ -1067,22 +848,11 @@ export function PageEditor({ node, onSaved, navigate }: {
           blocks: loaded.document?.blocks ?? [],
           frontmatter: { ...(loaded.document?.frontmatter ?? {}) },
         };
-        flushDocumentHistory();
-        pushHistory({
-          label: "Use disk version",
-          undo: () => applySnapshotRef.current(local),
-          redo: () => applySnapshotRef.current(disk),
-        });
-        generation.current = durableGeneration.current;
-        currentRevision.current = loaded.revision;
-        baseBlocks.current = disk.blocks;
-        setMessage(null);
-        setSaveState("saved");
-        onSavedPreservingScroll(loaded);
+        coordinator.useDisk(loaded, local, disk);
       }}>Use disk</button>}
       {saveState === "conflict" && <button onClick={async () => save((await api.node(node.path)).revision)}>Keep mine</button>}
-      <button className="quiet" disabled={!undoStack.current.length && !documentDraft.current} title="Undo (⌘Z)" onClick={() => void undo()}>Undo</button>
-      <button className="quiet" disabled={!redoStack.current.length} title="Redo (⇧⌘Z)" onClick={() => void redo()}>Redo</button>
+      <button className="quiet" disabled={!coordinator.canUndo} title="Undo (⌘Z)" onClick={() => void undo()}>Undo</button>
+      <button className="quiet" disabled={!coordinator.canRedo} title="Redo (⇧⌘Z)" onClick={() => void redo()}>Redo</button>
       <button className="quiet" onClick={async () => setRecovery(await api.recovery(node.path))}>Recover</button>
       <span className={`save-state ${saveState}`} role="status">{
         saveState === "saving" ? "Saving…"

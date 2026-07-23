@@ -78,6 +78,24 @@ describe("HTTP API", () => {
     expect(await fetch(`${base}/v/tree/never-created`).then((response) => response.status)).toBe(500);
   });
 
+  test("returns a structured conflict for a vanished insertion anchor", async () => {
+    const directory = await fetch(`${base}/v/tree/`).then((response) => response.json()) as any;
+    const response = await fetch(`${base}/v/fs/mutate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ operations: [{
+        op: "move",
+        paths: ["/other"],
+        destination: "/",
+        beforeBlockId: "vanished-block",
+        directoryRevision: directory.revision,
+      }] }),
+    });
+    expect(response.status).toBe(409);
+    expect((await response.json() as any).conflict.code).toBe("missing-insertion-anchor");
+    expect((await fetch(`${base}/v/tree/other`).then((result) => result.json()) as any).path).toBe("/other");
+  });
+
   test("imports a multipart directory manifest atomically", async () => {
     const form = new FormData();
     form.set("destination", "/folder");

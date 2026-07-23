@@ -42,7 +42,15 @@ export type FsMutation =
   | { op: "createMarkdown"; path: string; blocks?: ArborBlock[] }
   | { op: "createFile"; path: string; bytes: Uint8Array }
   | { op: "rename"; path: string; name: string; updateDirectoryRows?: boolean }
-  | { op: "move"; paths: string[]; destination: string; beforePath?: string; beforeBlockId?: string; updateDirectoryRows?: boolean }
+  | {
+    op: "move";
+    paths: string[];
+    destination: string;
+    beforePath?: string;
+    beforeBlockId?: string;
+    directoryRevision?: string;
+    updateDirectoryRows?: boolean;
+  }
   | { op: "copy"; paths: string[]; destination: string }
   | { op: "trash"; paths: string[] }
   | { op: "restore"; paths: string[] }
@@ -109,6 +117,7 @@ export interface FsConflictDetails {
     | "interrupted-transaction"
     | "recursive-move"
     | "not-found"
+    | "missing-insertion-anchor"
     | "invalid-name";
   path: string;
   current?: FsReadResult;

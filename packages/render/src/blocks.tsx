@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import { BlockNoteSchema, defaultBlockSpecs, type PartialBlock } from "@blocknote/core";
+import { BlockNoteSchema, createExtension, defaultBlockSpecs, type PartialBlock } from "@blocknote/core";
 import { SideMenuExtension } from "@blocknote/core/extensions";
 import {
   AddBlockButton,
@@ -137,12 +137,17 @@ export const arborSchema = BlockNoteSchema.create({
   blockSpecs: { ...defaultBlockSpecs, rawMarkdown: RawMarkdownBlock, childPage: ChildPageBlock },
 });
 
-export type ArborEditorBlock = (typeof arborSchema.Block) & { type: string };
+export const arborEditorExtensions = [
+  createExtension({
+    key: "arbor-toggle-shorthand",
+    inputRules: [{
+      find: /^▸\s$/,
+      replace: () => ({ type: "toggleListItem", props: {} }),
+    }],
+  }),
+];
 
-function textOf(content: ArborEditorBlock["content"]): string {
-  if (!Array.isArray(content)) return "";
-  return content.map((item) => item.type === "text" ? item.text : item.type === "link" ? item.content.map((part) => part.text).join("") : "").join("");
-}
+export type ArborEditorBlock = (typeof arborSchema.Block) & { type: string };
 
 function markdownOf(content: ArborEditorBlock["content"]): string {
   if (!Array.isArray(content)) return "";
@@ -166,8 +171,6 @@ function inlineMarkdown(source: string): any[] {
   if (cursor < source.length) result.push({ type: "text", text: source.slice(cursor), styles: {} });
   return result.length ? result : [{ type: "text", text: source, styles: {} }];
 }
-
-export function blockText(block: ArborEditorBlock): string { return textOf(block.content); }
 
 export function toBlockNote(block: ArborBlock): PartialBlock<typeof arborSchema.blockSchema> {
   const children = block.children.map(toBlockNote);
