@@ -1,10 +1,20 @@
 import { createContext, useContext } from "react";
-import { BlockNoteSchema, createExtension, defaultBlockSpecs, type PartialBlock } from "@blocknote/core";
+import {
+  BlockNoteEditor,
+  BlockNoteSchema,
+  createExtension,
+  defaultBlockSpecs,
+  defaultStyleSpecs,
+  type PartialBlock,
+} from "@blocknote/core";
 import { SideMenuExtension } from "@blocknote/core/extensions";
 import {
   AddBlockButton,
+  BasicTextStyleButton,
   createReactBlockSpec,
   DragHandleButton,
+  FormattingToolbar,
+  getFormattingToolbarItems,
   SideMenu,
   useComponentsContext,
   useExtensionState,
@@ -157,6 +167,12 @@ const ChildPageBlock = createReactBlockSpec(
 
 export const arborSchema = BlockNoteSchema.create({
   blockSpecs: { ...defaultBlockSpecs, rawMarkdown: RawMarkdownBlock, childPage: ChildPageBlock },
+  styleSpecs: {
+    bold: defaultStyleSpecs.bold,
+    italic: defaultStyleSpecs.italic,
+    strike: defaultStyleSpecs.strike,
+    code: defaultStyleSpecs.code,
+  },
 });
 
 export const arborEditorExtensions = [
@@ -169,52 +185,87 @@ export const arborEditorExtensions = [
   }),
 ];
 
+const omittedFormattingToolbarItems = new Set([
+  "underlineStyleButton",
+  "textAlignLeftButton",
+  "textAlignCenterButton",
+  "textAlignRightButton",
+  "colorStyleButton",
+]);
+
+export function ArborFormattingToolbar() {
+  const items = getFormattingToolbarItems().filter((item) => !omittedFormattingToolbarItems.has(String(item.key)));
+  const strikeIndex = items.findIndex((item) => item.key === "strikeStyleButton");
+  items.splice(strikeIndex + 1, 0, <BasicTextStyleButton basicTextStyle="code" key="codeStyleButton" />);
+  return <FormattingToolbar>{items}</FormattingToolbar>;
+}
+
+export type ArborBlockNoteEditor = BlockNoteEditor<
+  typeof arborSchema.blockSchema,
+  typeof arborSchema.inlineContentSchema,
+  typeof arborSchema.styleSchema
+>;
 export type ArborEditorBlock = (typeof arborSchema.Block) & { type: string };
 
-function markdownOf(content: ArborEditorBlock["content"]): string {
+const inlineMarkdownPrefix = "arbor-inline-boundary ";
+
+function plainInlineContent(source: string): any[] {
+  return source ? [{ type: "text", text: source, styles: {} }] : [];
+}
+
+function inlineMarkdown(editor: ArborBlockNoteEditor, source: string): any[] {
+  const parsed = editor.tryParseMarkdownToBlocks(`${inlineMarkdownPrefix}${source}`);
+  const content = parsed[0]?.content;
+  if (!Array.isArray(content)) return plainInlineContent(source);
+  const result = structuredClone(content) as any[];
+  const first = result[0];
+  if (first?.type !== "text" || typeof first.text !== "string" || !first.text.startsWith(inlineMarkdownPrefix)) {
+    return plainInlineContent(source);
+  }
+  first.text = first.text.slice(inlineMarkdownPrefix.length);
+  if (!first.text) result.shift();
+  return result;
+}
+
+function inlineMarkdownOf(editor: ArborBlockNoteEditor, content: ArborEditorBlock["content"], original?: ArborBlock): string {
+  if (!Array.isArray(content)) return "";
+  if (original && JSON.stringify(content) === JSON.stringify(inlineMarkdown(editor, original.content ?? ""))) {
+    return original.content ?? "";
+  }
+  return editor.blocksToMarkdownLossy([{ type: "paragraph", content }]).replace(/\r?\n+$/, "");
+}
+
+function literalContentOf(content: ArborEditorBlock["content"]): string {
+  if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content.map((item) => item.type === "text"
     ? item.text
     : item.type === "link"
-      ? `[${item.content.map((part) => part.text).join("")}](${item.href})`
+      ? item.content.map((part) => part.text).join("")
       : "").join("");
 }
 
-function inlineMarkdown(source: string): any[] {
-  const result: any[] = [];
-  const pattern = /\[([^\]]+)\]\(([^)]+)\)/g;
-  let cursor = 0;
-  for (const match of source.matchAll(pattern)) {
-    const index = match.index ?? 0;
-    if (index > cursor) result.push({ type: "text", text: source.slice(cursor, index), styles: {} });
-    result.push({ type: "link", href: match[2]!, content: [{ type: "text", text: match[1]!, styles: {} }] });
-    cursor = index + match[0].length;
-  }
-  if (cursor < source.length) result.push({ type: "text", text: source.slice(cursor), styles: {} });
-  return result.length ? result : [{ type: "text", text: source, styles: {} }];
-}
-
-export function toBlockNote(block: ArborBlock): PartialBlock<typeof arborSchema.blockSchema> {
-  const children = block.children.map(toBlockNote);
+export function toBlockNote(block: ArborBlock, editor: ArborBlockNoteEditor): PartialBlock<typeof arborSchema.blockSchema> {
+  const children = block.children.map((child) => toBlockNote(child, editor));
   switch (block.type) {
-    case "toggle": return { id: block.id, type: "toggleListItem", content: inlineMarkdown(block.content ?? ""), children };
-    case "heading": return { id: block.id, type: "heading", props: { level: Number(block.props?.level ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 }, content: inlineMarkdown(block.content ?? ""), children };
-    case "bulletListItem": return { id: block.id, type: "bulletListItem", content: inlineMarkdown(block.content ?? ""), children };
-    case "numberedListItem": return { id: block.id, type: "numberedListItem", content: inlineMarkdown(block.content ?? ""), children };
-    case "checkListItem": return { id: block.id, type: "checkListItem", props: { checked: Boolean(block.props?.checked) }, content: inlineMarkdown(block.content ?? ""), children };
-    case "quote": return { id: block.id, type: "quote", content: inlineMarkdown(block.content ?? "") };
+    case "toggle": return { id: block.id, type: "toggleListItem", content: inlineMarkdown(editor, block.content ?? ""), children };
+    case "heading": return { id: block.id, type: "heading", props: { level: Number(block.props?.level ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 }, content: inlineMarkdown(editor, block.content ?? ""), children };
+    case "bulletListItem": return { id: block.id, type: "bulletListItem", content: inlineMarkdown(editor, block.content ?? ""), children };
+    case "numberedListItem": return { id: block.id, type: "numberedListItem", content: inlineMarkdown(editor, block.content ?? ""), children };
+    case "checkListItem": return { id: block.id, type: "checkListItem", props: { checked: Boolean(block.props?.checked) }, content: inlineMarkdown(editor, block.content ?? ""), children };
+    case "quote": return { id: block.id, type: "quote", content: inlineMarkdown(editor, block.content ?? "") };
     case "codeBlock": return { id: block.id, type: "codeBlock", props: { language: String(block.props?.language ?? "") }, content: block.content ?? "" };
     case "divider": return { id: block.id, type: "divider" };
     case "image": return { id: block.id, type: "image", props: { url: String(block.props?.url ?? ""), caption: String(block.props?.caption ?? "") } };
-    case "childPage": return { id: block.id, type: "childPage", props: { path: String(block.props?.path ?? "") }, content: block.content ?? "" };
+    case "childPage": return { id: block.id, type: "childPage", props: { path: String(block.props?.path ?? "") }, content: inlineMarkdown(editor, block.content ?? "") };
     case "rawMarkdown": return { id: block.id, type: "rawMarkdown", props: { blank: Boolean(block.props?.blank) }, content: block.content ?? "" };
-    default: return { id: block.id, type: "paragraph", content: inlineMarkdown(block.content ?? ""), children };
+    default: return { id: block.id, type: "paragraph", content: inlineMarkdown(editor, block.content ?? ""), children };
   }
 }
 
-export function fromBlockNote(block: ArborEditorBlock, originals: Map<string, ArborBlock>): ArborBlock {
+export function fromBlockNote(block: ArborEditorBlock, originals: Map<string, ArborBlock>, editor: ArborBlockNoteEditor): ArborBlock {
   const original = originals.get(block.id);
-  const children = block.children.map((child) => fromBlockNote(child as ArborEditorBlock, originals));
+  const children = block.children.map((child) => fromBlockNote(child as ArborEditorBlock, originals, editor));
   let type: ArborBlock["type"];
   switch (block.type) {
     case "toggleListItem": type = "toggle"; break;
@@ -240,7 +291,11 @@ export function fromBlockNote(block: ArborEditorBlock, originals: Map<string, Ar
   return {
     id: block.id,
     type,
-    content: block.type === "image" || block.type === "divider" ? "" : markdownOf(block.content),
+    content: block.type === "image" || block.type === "divider"
+      ? ""
+      : block.type === "codeBlock" || block.type === "rawMarkdown"
+        ? literalContentOf(block.content)
+        : inlineMarkdownOf(editor, block.content, original),
     props,
     children,
     source: original?.source,

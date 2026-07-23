@@ -59,6 +59,144 @@ test("browses, searches, and edits toggle Markdown", async ({ page }) => {
   await expect(page.getByRole("status")).toHaveText("Saved");
 });
 
+test("round-trips inline Markdown and uses Markdown-aware clipboard formats", async ({ page }) => {
+  await page.goto("/render/inline-markdown");
+
+  const first = page.locator('[data-content-type="paragraph"]').filter({ hasText: "Untouched" });
+  await expect(first.locator("strong")).toHaveText("strong");
+  await expect(first.locator("em")).toHaveText("emphasis");
+  await expect(first.locator("s")).toHaveText("removed");
+  await expect(first.locator("code")).toHaveText("code");
+  await expect(first.locator('a[href="https://example.com"]')).toHaveText("a link");
+
+  const hardBreak = page.locator('[data-content-type="paragraph"]').filter({ hasText: /Hard.*break/ });
+  await expect(hardBreak.locator("br")).toHaveCount(1);
+
+  const originalBody = [
+    "Untouched __strong__, _emphasis_, ~~removed~~, `code`, and [a link](https://example.com).",
+    "",
+    "Edit this __strong__ sentence.",
+    "",
+    "Hard\\",
+    "break.",
+    "",
+    "```md",
+    "**literal code**",
+    "```",
+    "",
+    '<aside data-kind="raw">**literal raw Markdown**</aside>',
+    "",
+    "After raw Markdown.",
+  ].join("\n");
+  const bodySource = async () => page.evaluate(async () => {
+    const response = await fetch("/v/tree/inline-markdown");
+    const node = await response.json();
+    return node.document.bodySource as string;
+  });
+  expect((await bodySource()).trimEnd()).toBe(originalBody);
+
+  await page.locator(".properties summary").click();
+  const topic = page.locator(".properties label").filter({ hasText: "topic" }).locator("input");
+  await topic.fill("round-trip");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  expect((await bodySource()).trimEnd()).toBe(originalBody);
+
+  const edited = page.locator('[data-content-type="paragraph"]').filter({ hasText: "Edit this" }).locator(".bn-inline-content");
+  await edited.evaluate((element) => {
+    const editor = (window as any).ProseMirror;
+    editor.view.focus();
+    editor.commands.setTextSelection(editor.view.posAtDOM(element, element.childNodes.length));
+  });
+  await page.keyboard.type(" changed");
+  await expect(page.getByRole("status")).not.toHaveText("Saved");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  const afterEdit = (await bodySource()).trimEnd();
+  expect(afterEdit).toContain("Untouched __strong__, _emphasis_, ~~removed~~, `code`, and [a link](https://example.com).");
+  expect(afterEdit).toContain("Edit this **strong** sentence. changed");
+
+  await edited.evaluate((element) => {
+    const editor = (window as any).ProseMirror;
+    editor.view.focus();
+    editor.commands.setTextSelection(editor.view.posAtDOM(element, element.childNodes.length));
+  });
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Typed **bold** and *italic* and ~~gone~~ and `code`");
+  const typed = page.locator('[data-content-type="paragraph"]').filter({ hasText: "Typed" });
+  await expect(typed.locator("strong")).toHaveText("bold");
+  await expect(typed.locator("em")).toHaveText("italic");
+  await expect(typed.locator("s")).toHaveText("gone");
+  await expect(typed.locator("code")).toHaveText("code");
+  await expect(page.getByRole("status")).not.toHaveText("Saved");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+
+  await page.keyboard.press("Enter");
+  await page.evaluate(() => {
+    const clipboard = new DataTransfer();
+    clipboard.setData("text/markdown", "Pasted **Markdown MIME** with `code`.");
+    document.activeElement?.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipboard,
+    }));
+  });
+  const markdownMimePaste = page.locator('[data-content-type="paragraph"]').filter({ hasText: "Markdown MIME" });
+  await expect(markdownMimePaste.locator("strong")).toHaveText("Markdown MIME");
+  await expect(markdownMimePaste.locator("code")).toHaveText("code");
+  await expect(page.getByRole("status")).not.toHaveText("Saved");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+
+  await page.keyboard.press("Enter");
+  await page.evaluate(() => {
+    const clipboard = new DataTransfer();
+    clipboard.setData("text/plain", "Pasted *plain Markdown* with ~~strike~~.");
+    document.activeElement?.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipboard,
+    }));
+  });
+  const plainPaste = page.locator('[data-content-type="paragraph"]').filter({ hasText: "plain Markdown" });
+  await expect(plainPaste.locator("em")).toHaveText("plain Markdown");
+  await expect(plainPaste.locator("s")).toHaveText("strike");
+  await expect(page.getByRole("status")).not.toHaveText("Saved");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  const afterPaste = await bodySource();
+  expect(afterPaste).toContain("Pasted **Markdown MIME** with `code`.");
+  expect(afterPaste).toContain("Pasted *plain Markdown* with ~~strike~~.");
+
+  const copied = await page.evaluate(() => {
+    (window as any).ProseMirror.commands.selectAll();
+    const clipboard = new DataTransfer();
+    document.querySelector(".bn-editor")?.dispatchEvent(new ClipboardEvent("copy", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipboard,
+    }));
+    return clipboard.getData("text/plain");
+  });
+  expect(copied).toContain("**strong**");
+  expect(copied).toContain("*emphasis*");
+  expect(copied).toContain("~~removed~~");
+  expect(copied).toContain("`code`");
+  expect(copied).toContain("[a link](https://example.com)");
+
+  await first.locator("strong").dblclick();
+  const toolbar = page.locator(".bn-formatting-toolbar");
+  await expect(toolbar.locator('[data-test="bold"]')).toBeVisible();
+  await expect(toolbar.locator('[data-test="italic"]')).toBeVisible();
+  await expect(toolbar.locator('[data-test="strike"]')).toBeVisible();
+  await expect(toolbar.locator('[data-test="code"]')).toBeVisible();
+  await expect(toolbar.locator('[data-test="createLink"]')).toBeVisible();
+  await expect(toolbar.locator('[data-test="underline"]')).toHaveCount(0);
+  await expect(toolbar.locator('[data-test="colors"]')).toHaveCount(0);
+  await expect(toolbar.locator('[data-test^="alignText"]')).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.locator('[data-content-type="paragraph"]').filter({ hasText: "Typed" }).locator("strong")).toHaveText("bold");
+  await expect(page.locator('[data-content-type="paragraph"]').filter({ hasText: "Markdown MIME" }).locator("strong")).toHaveText("Markdown MIME");
+  await expect(page.locator('[data-content-type="paragraph"]').filter({ hasText: "plain Markdown" }).locator("em")).toHaveText("plain Markdown");
+});
+
 test("renders a Markdown collection and opens a record", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /books/ }).click();

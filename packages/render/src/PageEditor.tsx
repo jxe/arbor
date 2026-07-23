@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import { SideMenuExtension } from "@blocknote/core/extensions";
-import { SideMenuController, useCreateBlockNote } from "@blocknote/react";
+import { FormattingToolbarController, SideMenuController } from "@blocknote/react";
 import type { ArborBlock, TreeNode } from "@arbor/core";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { resolveStructuralRowPath, transformStructuralRows } from "@arbor/core/structural-rows";
@@ -17,6 +18,7 @@ import { importEntries } from "./file-drop.ts";
 import {
   arborSchema,
   arborEditorExtensions,
+  ArborFormattingToolbar,
   ArborSideMenu,
   fromBlockNote,
   ManagedRowsContext,
@@ -83,11 +85,22 @@ export function PageEditor({ node, onSaved, navigate }: {
   });
   const originals = useMemo(() => originalMap(initial), [node.revision, childrenRevision]);
   const pageDirectory = isDirectory ? node.path : parentPath(node.path);
-  const editor = useCreateBlockNote({
-    schema: arborSchema,
-    initialContent: initial.length ? initial.map(toBlockNote) : [{ type: "paragraph" }],
-    extensions: arborEditorExtensions,
-    uploadFile: async (file) => (await api.asset(pageDirectory, file)).markdownPath,
+  const editor = useMemo(() => {
+    const instance = BlockNoteEditor.create({
+      schema: arborSchema,
+      initialContent: [{ type: "paragraph" }],
+      extensions: arborEditorExtensions,
+      uploadFile: async (file) => (await api.asset(pageDirectory, file)).markdownPath,
+    });
+    instance.transact((transaction) => {
+      transaction.setMeta("addToHistory", false);
+      instance.replaceBlocks(
+        instance.document,
+        initial.length ? initial.map((block) => toBlockNote(block, instance)) : [{ type: "paragraph" }],
+      );
+    });
+    (window as any).ProseMirror = instance._tiptapEditor;
+    return instance;
   }, [node.path]);
   const editorRef = useRef(editor);
   editorRef.current = editor;
@@ -134,7 +147,7 @@ export function PageEditor({ node, onSaved, navigate }: {
     setRenamingPath(null);
   }, [node.path]);
 
-  const currentBlocks = () => editor.document.map((block) => fromBlockNote(block as ArborEditorBlock, originals));
+  const currentBlocks = () => editor.document.map((block) => fromBlockNote(block as ArborEditorBlock, originals, editor));
   const snapshot = (nextFrontmatter = frontmatter): DocumentSnapshot => ({
     blocks: currentBlocks(),
     frontmatter: structuredClone(nextFrontmatter),
@@ -144,7 +157,10 @@ export function PageEditor({ node, onSaved, navigate }: {
   const replaceEditorSnapshot = useCallback((value: DocumentSnapshot) => {
     editor.transact((transaction) => {
       transaction.setMeta("addToHistory", false);
-      editor.replaceBlocks(editor.document, value.blocks.length ? value.blocks.map(toBlockNote) : [{ type: "paragraph" }]);
+      editor.replaceBlocks(
+        editor.document,
+        value.blocks.length ? value.blocks.map((block) => toBlockNote(block, editor)) : [{ type: "paragraph" }],
+      );
     });
     setFrontmatter(structuredClone(value.frontmatter));
   }, [editor]);
@@ -855,11 +871,12 @@ export function PageEditor({ node, onSaved, navigate }: {
         }}
         onClickCapture={openInternalLink}
       >
-        <BlockNoteView editor={editor} sideMenu={false} onChange={(_editor, { getChanges }) => {
+        <BlockNoteView editor={editor} sideMenu={false} formattingToolbar={false} onChange={(_editor, { getChanges }) => {
           if (coordinator.isApplying) return;
           if (!getChanges().some((change) => change.source.type !== "yjs-remote")) return;
           recordDocumentSnapshot(snapshot());
         }} data-theming-css-variables-demo>
+          <FormattingToolbarController formattingToolbar={ArborFormattingToolbar} />
           <SideMenuController sideMenu={ArborSideMenu} />
         </BlockNoteView>
       </div>
