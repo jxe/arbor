@@ -95,6 +95,10 @@ function dedent(source: string, spaces: number): string {
 }
 
 function toggleExtent(lines: SourceLine[], start: number, baseIndent: number): number {
+  return indentedExtent(lines, start, baseIndent + 2);
+}
+
+function indentedExtent(lines: SourceLine[], start: number, minimumIndent: number): number {
   let index = start + 1;
   let fence: { marker: "`" | "~"; length: number } | null = null;
   while (index < lines.length) {
@@ -105,12 +109,12 @@ function toggleExtent(lines: SourceLine[], start: number, baseIndent: number): n
       continue;
     }
     const opening = isFence(line.text);
-    if (opening && indentation(line.text) >= baseIndent + 2) {
+    if (opening && indentation(line.text) >= minimumIndent) {
       fence = opening;
       index += 1;
       continue;
     }
-    if (!line.text.trim() || indentation(line.text) >= baseIndent + 2) {
+    if (!line.text.trim() || indentation(line.text) >= minimumIndent) {
       index += 1;
       continue;
     }
@@ -127,6 +131,8 @@ function isBlockStart(text: string): boolean {
     /^([-+*])\s/.test(trimmed) ||
     /^\d+[.)]\s/.test(trimmed) ||
     /^>\s?/.test(trimmed) ||
+    /^\[\^[^\]\s]+\]:/.test(trimmed) ||
+    /^\$\$/.test(trimmed) ||
     /^(`{3,}|~{3,})/.test(trimmed) ||
     /^<([A-Za-z][\w-]*)(\s|>|$)/.test(trimmed) ||
     /^(---+|___+|\*\*\*+)\s*$/.test(trimmed)
@@ -180,6 +186,51 @@ function parseBlocks(source: string): ArborBlock[] {
       if (codeEnd > 1 && isClosingFence(rawLines[codeEnd - 1]!.text, fence)) codeEnd -= 1;
       const content = rawLines.slice(1, codeEnd).map((value) => value.full).join("").replace(/(?:\r\n|\n|\r)$/, "");
       blocks.push(makeBlock("codeBlock", raw, content, { language }, [], ordinal++));
+      continue;
+    }
+
+    const oneLineMath = trimmed.match(/^\$\$\s*(.*?)\s*\$\$\s*$/);
+    if (oneLineMath && oneLineMath[1]) {
+      const start = index;
+      index = consumeTrailingBlank(lines, index + 1);
+      const raw = lines.slice(start, index).map((value) => value.full).join("");
+      blocks.push(makeBlock("mathBlock", raw, oneLineMath[1], {}, [], ordinal++));
+      continue;
+    }
+
+    if (/^\$\$\s*$/.test(trimmed)) {
+      const start = index++;
+      while (index < lines.length && !/^\$\$\s*$/.test(lines[index]!.text.trimStart())) index += 1;
+      if (index < lines.length) index += 1;
+      index = consumeTrailingBlank(lines, index);
+      const raw = lines.slice(start, index).map((value) => value.full).join("");
+      const rawLines = lines.slice(start, index);
+      let mathEnd = rawLines.length;
+      while (mathEnd > 1 && !rawLines[mathEnd - 1]!.text.trim()) mathEnd -= 1;
+      if (mathEnd > 1 && /^\$\$\s*$/.test(rawLines[mathEnd - 1]!.text.trimStart())) mathEnd -= 1;
+      const content = rawLines.slice(1, mathEnd).map((value) => value.full).join("").replace(/(?:\r\n|\n|\r)$/, "");
+      blocks.push(makeBlock("mathBlock", raw, content, {}, [], ordinal++));
+      continue;
+    }
+
+    const footnote = trimmed.match(/^\[\^([^\]\s]+)\]:\s*(.*)$/);
+    if (footnote) {
+      const start = index;
+      const end = indentedExtent(lines, index, baseIndent + 4);
+      const raw = lines.slice(start, end).map((value) => value.full).join("");
+      let childEnd = end;
+      while (childEnd > start + 1 && !lines[childEnd - 1]!.text.trim()) childEnd -= 1;
+      const childRaw = lines.slice(start + 1, childEnd).map((value) => value.full).join("");
+      const children = childRaw ? parseBlocks(dedent(childRaw, baseIndent + 4)) : [];
+      blocks.push(makeBlock(
+        "footnoteDefinition",
+        raw,
+        footnote[2] ?? "",
+        { label: footnote[1] ?? "" },
+        children,
+        ordinal++,
+      ));
+      index = end;
       continue;
     }
 
@@ -339,6 +390,12 @@ function serializeCanonical(block: ArborBlock, depth = 0): string {
     }
     case "divider":
       return `${prefix}---\n\n`;
+    case "mathBlock":
+      return `${prefix}$$\n${block.content ?? ""}\n${prefix}$$\n\n`;
+    case "footnoteDefinition": {
+      const footnoteChildren = block.children.map((child) => serializeBlockAtDepth(child, depth + 2)).join("");
+      return `${prefix}[^${String(block.props?.label ?? "1")}]: ${block.content ?? ""}\n${footnoteChildren || "\n"}`;
+    }
     case "image":
       return `${prefix}![${String(block.props?.caption ?? "")}](${String(block.props?.url ?? "")})\n\n`;
     case "childPage":

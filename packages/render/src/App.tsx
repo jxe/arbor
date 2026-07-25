@@ -215,7 +215,11 @@ export function App() {
     <aside className="workspace-sidebar" id="workspace-sidebar">
       <div className="sidebar-heading">
         <button className="brand" onClick={() => navigate("/")}>Arbor</button>
-        <button className="sidebar-close" aria-label="Close workspace sidebar" title="Close sidebar (⌘\\)" onClick={toggleSidebar}>×</button>
+        <button className="sidebar-close" aria-label="Collapse workspace sidebar" title="Collapse sidebar (⌘\\)" onClick={toggleSidebar}>
+          <svg aria-hidden="true" viewBox="0 0 22 22">
+            <path d="m13.5 5.5-5.5 5.5 5.5 5.5" />
+          </svg>
+        </button>
       </div>
       <button className="search-button" onClick={() => setSearchOpen(true)}>⌘P Search</button>
       <div className="sidebar-path">{sidebarPath}</div>
@@ -249,7 +253,10 @@ export function App() {
           ><span aria-hidden="true">☰</span></button>
           <div className="breadcrumbs">{path.split("/").filter(Boolean).map((part, index, parts) => <button key={index} onClick={() => navigate(`/${parts.slice(0, index + 1).join("/")}`)}>{part}</button>)}</div>
         </div>
-        {node && <span className="kind">{node.kind}{node.collection ? ` · ${node.collection.backing}` : ""}</span>}
+        {node && <span className="kind">
+          {node.document && (node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") ? "ArborNote · " : ""}
+          {node.kind}{node.collection ? ` · ${node.collection.backing}` : ""}
+        </span>}
       </header>
       {error ? <div className="empty error">{error}</div> : !node ? <div className="empty">Loading…</div> : <>
         {node.diagnostics.map((item) => <div className="diagnostic node-diagnostic" key={`${item.code}:${item.path}`}>{item.message}</div>)}

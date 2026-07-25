@@ -1,25 +1,33 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, useState } from "react";
 import {
   BlockNoteEditor,
   BlockNoteSchema,
   createExtension,
   defaultBlockSpecs,
+  defaultInlineContentSpecs,
   defaultStyleSpecs,
   type PartialBlock,
 } from "@blocknote/core";
 import { SideMenuExtension } from "@blocknote/core/extensions";
+import { Plugin } from "@tiptap/pm/state";
+import katex from "katex";
 import {
   AddBlockButton,
   BasicTextStyleButton,
   createReactBlockSpec,
+  createReactInlineContentSpec,
   DragHandleButton,
   FormattingToolbar,
+  getDefaultReactSlashMenuItems,
   getFormattingToolbarItems,
   SideMenu,
+  type DefaultReactSuggestionItem,
   useComponentsContext,
+  useEditorChange,
   useExtensionState,
 } from "@blocknote/react";
 import type { ArborBlock } from "@arbor/core";
+import "katex/dist/katex.min.css";
 
 const RawMarkdownBlock = createReactBlockSpec(
   { type: "rawMarkdown", propSchema: { blank: { default: false } }, content: "inline" },
@@ -28,6 +36,240 @@ const RawMarkdownBlock = createReactBlockSpec(
       ? <div className="raw-blank" ref={contentRef} />
       : <div className="raw-markdown"><span className="raw-label">Markdown</span><pre ref={contentRef} /></div>,
     toExternalHTML: ({ contentRef }) => <pre data-arbor-raw="true" ref={contentRef} />,
+  },
+)();
+
+function renderedLatex(formula: string, displayMode: boolean): string {
+  return katex.renderToString(formula || "\\text{Equation}", {
+    displayMode,
+    throwOnError: false,
+    strict: "warn",
+    trust: false,
+  });
+}
+
+function footnoteLabels(editor: BlockNoteEditor<any, any, any>): string[] {
+  const referenced: string[] = [];
+  const defined: string[] = [];
+  const add = (target: string[], label: string) => {
+    if (label && !target.includes(label)) target.push(label);
+  };
+  const visit = (blocks: any[]) => blocks.forEach((block) => {
+    if (Array.isArray(block.content)) {
+      block.content.forEach((item: any) => {
+        if (item.type === "footnoteReference") add(referenced, String(item.props?.label ?? ""));
+      });
+    }
+    if (block.type === "footnoteDefinition") add(defined, String(block.props?.label ?? ""));
+    visit(block.children ?? []);
+  });
+  visit(editor.document);
+  return [...referenced, ...defined.filter((label) => !referenced.includes(label))];
+}
+
+function footnoteDefinitions(editor: BlockNoteEditor<any, any, any>): Set<string> {
+  const result = new Set<string>();
+  const visit = (blocks: any[]) => blocks.forEach((block) => {
+    if (block.type === "footnoteDefinition") result.add(String(block.props?.label ?? ""));
+    visit(block.children ?? []);
+  });
+  visit(editor.document);
+  return result;
+}
+
+function useFootnoteNumber(editor: BlockNoteEditor<any, any, any>, label: string): number {
+  const [, render] = useState(0);
+  useEditorChange(() => render((value) => value + 1), editor);
+  return Math.max(1, footnoteLabels(editor).indexOf(label) + 1);
+}
+
+function visitFootnoteBlocks(editor: BlockNoteEditor<any, any, any>, callback: (block: any) => void): void {
+  const visit = (blocks: any[]) => blocks.forEach((block) => {
+    callback(block);
+    visit(block.children ?? []);
+  });
+  visit(editor.document);
+}
+
+function renameFootnote(editor: BlockNoteEditor<any, any, any>, label: string, nextLabel: string): void {
+  editor.transact(() => {
+    visitFootnoteBlocks(editor, (block) => {
+      if (Array.isArray(block.content)) {
+        const content = block.content.map((item: any) => item.type === "footnoteReference" && item.props?.label === label
+          ? { ...item, props: { ...item.props, label: nextLabel } }
+          : item);
+        if (content.some((item: any, index: number) => item !== block.content[index])) {
+          editor.updateBlock(block, { content });
+        }
+      }
+      if (block.type === "footnoteDefinition" && block.props?.label === label) {
+        editor.updateBlock(block, { props: { label: nextLabel } });
+      }
+    });
+  });
+}
+
+function deleteFootnote(editor: BlockNoteEditor<any, any, any>, label: string): void {
+  editor.transact(() => {
+    const definitions: string[] = [];
+    visitFootnoteBlocks(editor, (block) => {
+      if (Array.isArray(block.content)) {
+        const content = block.content.filter((item: any) =>
+          item.type !== "footnoteReference" || item.props?.label !== label
+        );
+        if (content.length !== block.content.length) editor.updateBlock(block, { content });
+      }
+      if (block.type === "footnoteDefinition" && block.props?.label === label) definitions.push(block.id);
+    });
+    if (definitions.length) editor.removeBlocks(definitions);
+  });
+}
+
+function revealFootnote(label: string, destination: "definition" | "reference"): void {
+  const selector = destination === "definition" ? ".footnote-definition" : ".footnote-reference";
+  const target = [...document.querySelectorAll<HTMLElement>(selector)]
+    .find((element) => element.dataset.footnoteLabel === label);
+  if (!target) return;
+  target.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  target.classList.add("footnote-linked");
+  window.setTimeout(() => target.classList.remove("footnote-linked"), 1200);
+}
+
+const InlineMath = createReactInlineContentSpec(
+  {
+    type: "inlineMath",
+    propSchema: { formula: { default: "" } },
+    content: "none",
+  },
+  {
+    render: ({ inlineContent, updateInlineContent }) => {
+      const formula = inlineContent.props.formula;
+      return <span
+        className="inline-math"
+        contentEditable={false}
+        title={`$${formula}$ — double-click to edit`}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const next = window.prompt("Inline LaTeX", formula);
+          if (next !== null) updateInlineContent({ type: "inlineMath", props: { formula: next } });
+        }}
+        dangerouslySetInnerHTML={{ __html: renderedLatex(formula, false) }}
+      />;
+    },
+    toExternalHTML: ({ inlineContent }) => <span data-arbor-inline-math={inlineContent.props.formula}>{`$${inlineContent.props.formula}$`}</span>,
+    parse: (element) => {
+      const formula = element.getAttribute("data-arbor-inline-math");
+      return formula === null ? undefined : { formula };
+    },
+  },
+);
+
+const FootnoteReference = createReactInlineContentSpec(
+  {
+    type: "footnoteReference",
+    propSchema: { label: { default: "1" } },
+    content: "none",
+  },
+  {
+    render: ({ inlineContent, editor }) => {
+      const label = inlineContent.props.label;
+      const number = useFootnoteNumber(editor, label);
+      const missing = !footnoteDefinitions(editor).has(label);
+      return <sup
+        className={`footnote-reference${missing ? " missing" : ""}`}
+        contentEditable={false}
+        data-footnote-label={label}
+        title={missing ? `Missing footnote definition [^${label}]` : `Footnote ${number} [^${label}]`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          revealFootnote(label, "definition");
+        }}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const next = window.prompt("Footnote label", label)?.trim();
+          if (next && next !== label) renameFootnote(editor, label, next);
+        }}
+      >{missing ? `${number}?` : number}</sup>;
+    },
+    toExternalHTML: ({ inlineContent }) => <sup data-arbor-footnote={inlineContent.props.label}>{`[^${inlineContent.props.label}]`}</sup>,
+    parse: (element) => {
+      const label = element.getAttribute("data-arbor-footnote");
+      return label ? { label } : undefined;
+    },
+  },
+);
+
+const MathBlock = createReactBlockSpec(
+  { type: "mathBlock", propSchema: { formula: { default: "" } }, content: "none" },
+  {
+    render: ({ block, editor }) => <div
+      className="math-block"
+      contentEditable={false}
+      title="Double-click to edit LaTeX"
+      onDoubleClick={() => {
+        const next = window.prompt("Display LaTeX", block.props.formula);
+        if (next !== null) editor.updateBlock(block, { props: { formula: next } });
+      }}
+      dangerouslySetInnerHTML={{ __html: renderedLatex(block.props.formula, true) }}
+    />,
+    toExternalHTML: ({ block }) => <div data-arbor-math="true">{`$$\n${block.props.formula}\n$$`}</div>,
+  },
+)();
+
+const FootnoteDefinitionBlock = createReactBlockSpec(
+  { type: "footnoteDefinition", propSchema: { label: { default: "1" } }, content: "inline" },
+  {
+    render: ({ block, editor, contentRef }) => {
+      const number = useFootnoteNumber(editor, block.props.label);
+      const referenced = (() => {
+        let found = false;
+        visitFootnoteBlocks(editor, (candidate) => {
+          if (Array.isArray(candidate.content) && candidate.content.some((item: any) =>
+            item.type === "footnoteReference" && item.props?.label === block.props.label
+          )) found = true;
+        });
+        return found;
+      })();
+      return <div
+        className={`footnote-definition${!referenced ? " orphan" : ""}`}
+        data-footnote-block={block.id}
+        data-footnote-label={block.props.label}
+        data-footnote-referenced={referenced ? "true" : "false"}
+      >
+        <span className="footnote-definition-number" contentEditable={false} title={`[^${block.props.label}]`}>{number}.</span>
+        <span className="footnote-definition-content" ref={contentRef} />
+        <span className="footnote-definition-actions" contentEditable={false}>
+          {!referenced && <span className="footnote-orphan-label">Unreferenced</span>}
+          {referenced && <button
+            type="button"
+            aria-label={`Return to footnote ${number} reference`}
+            title="Return to reference"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              revealFootnote(block.props.label, "reference");
+            }}
+          >↩</button>}
+          <button
+            type="button"
+            className="footnote-delete"
+            aria-label={`Delete footnote ${number}`}
+            title="Delete footnote and all references"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (window.confirm(`Delete footnote ${number} and all of its references?`)) {
+                deleteFootnote(editor, block.props.label);
+              }
+            }}
+          >×</button>
+        </span>
+      </div>;
+    },
+    toExternalHTML: ({ block, contentRef }) => <div data-arbor-footnote-definition={block.props.label}><sup>{block.props.label}</sup><span ref={contentRef} /></div>,
   },
 )();
 
@@ -166,7 +408,18 @@ const ChildPageBlock = createReactBlockSpec(
 )();
 
 export const arborSchema = BlockNoteSchema.create({
-  blockSpecs: { ...defaultBlockSpecs, rawMarkdown: RawMarkdownBlock, childPage: ChildPageBlock },
+  blockSpecs: {
+    ...defaultBlockSpecs,
+    rawMarkdown: RawMarkdownBlock,
+    childPage: ChildPageBlock,
+    mathBlock: MathBlock,
+    footnoteDefinition: FootnoteDefinitionBlock,
+  },
+  inlineContentSpecs: {
+    ...defaultInlineContentSpecs,
+    inlineMath: InlineMath,
+    footnoteReference: FootnoteReference,
+  },
   styleSpecs: {
     bold: defaultStyleSpecs.bold,
     italic: defaultStyleSpecs.italic,
@@ -182,6 +435,60 @@ export const arborEditorExtensions = [
       find: /^▸\s$/,
       replace: () => ({ type: "toggleListItem", props: {} }),
     }],
+  }),
+  createExtension({
+    key: "arbor-markdown-extensions",
+    inputRules: [
+      {
+        find: /^\$\$\s$/,
+        replace: () => ({ type: "mathBlock", props: { formula: "" } }),
+      },
+      {
+        find: /^\[\^([^\]\s]+)\]:\s$/,
+        replace: ({ match }) => ({
+          type: "footnoteDefinition",
+          props: { label: match[1] ?? "1" },
+        }),
+      },
+    ],
+    plugins: [
+      new Plugin({
+        props: {
+          handleTextInput(view, from, to, text) {
+            const resolved = view.state.doc.resolve(from);
+            if (!resolved.parent.isTextblock) return false;
+            const before = resolved.parent.textBetween(0, resolved.parentOffset, "\n", "\ufffc");
+            if (text === "]") {
+              const match = before.match(/\[\^([A-Za-z0-9][\w.-]*)$/);
+              const nodeType = view.state.schema.nodes.footnoteReference;
+              if (match && nodeType) {
+                view.dispatch(view.state.tr.replaceWith(
+                  from - match[0].length,
+                  to,
+                  nodeType.create({ label: match[1] }),
+                ));
+                return true;
+              }
+            }
+            if (text === "$") {
+              const opener = before.lastIndexOf("$");
+              const formula = opener >= 0 ? before.slice(opener + 1) : "";
+              const previous = opener > 0 ? before[opener - 1] : "";
+              const nodeType = view.state.schema.nodes.inlineMath;
+              if (opener >= 0 && formula && previous !== "\\" && previous !== "$" && !formula.includes("$") && nodeType) {
+                view.dispatch(view.state.tr.replaceWith(
+                  from - formula.length - 1,
+                  to,
+                  nodeType.create({ formula }),
+                ));
+                return true;
+              }
+            }
+            return false;
+          },
+        },
+      }),
+    ],
   }),
 ];
 
@@ -200,6 +507,64 @@ export function ArborFormattingToolbar() {
   return <FormattingToolbar>{items}</FormattingToolbar>;
 }
 
+export function getArborSlashMenuItems(editor: ArborBlockNoteEditor): DefaultReactSuggestionItem[] {
+  const insertEquation = (display: boolean) => {
+    const formula = window.prompt(display ? "Display LaTeX" : "Inline LaTeX", "");
+    if (formula === null) return;
+    if (display) {
+      editor.updateBlock(editor.getTextCursorPosition().block, {
+        type: "mathBlock",
+        props: { formula },
+      });
+    } else {
+      editor.insertInlineContent([
+        { type: "inlineMath", props: { formula } },
+        " ",
+      ]);
+    }
+  };
+  return [
+    ...getDefaultReactSlashMenuItems(editor),
+    {
+      title: "Equation",
+      subtext: "A displayed LaTeX equation",
+      aliases: ["latex", "math", "formula"],
+      group: "Other",
+      icon: <span className="slash-symbol">∑</span>,
+      onItemClick: () => insertEquation(true),
+    },
+    {
+      title: "Inline equation",
+      subtext: "LaTeX within the current paragraph",
+      aliases: ["latex", "math", "formula"],
+      group: "Other",
+      icon: <span className="slash-symbol">𝑥</span>,
+      onItemClick: () => insertEquation(false),
+    },
+    {
+      title: "Footnote",
+      subtext: "Insert a reference and its definition",
+      aliases: ["note", "citation", "reference"],
+      group: "Other",
+      icon: <span className="slash-symbol">¹</span>,
+      onItemClick: () => {
+        const labels = footnoteLabels(editor);
+        let ordinal = 1;
+        while (labels.includes(String(ordinal))) ordinal += 1;
+        const label = String(ordinal);
+        const note = window.prompt("Footnote text", "");
+        if (note === null) return;
+        editor.insertInlineContent([{ type: "footnoteReference", props: { label } }, " "]);
+        editor.insertBlocks(
+          [{ type: "footnoteDefinition", props: { label }, content: note }],
+          editor.document.at(-1)!,
+          "after",
+        );
+      },
+    },
+  ];
+}
+
 export type ArborBlockNoteEditor = BlockNoteEditor<
   typeof arborSchema.blockSchema,
   typeof arborSchema.inlineContentSchema,
@@ -213,8 +578,147 @@ function plainInlineContent(source: string): any[] {
   return source ? [{ type: "text", text: source, styles: {} }] : [];
 }
 
+interface ProtectedInlineToken {
+  source: string;
+  content: {
+    type: "inlineMath" | "footnoteReference";
+    props: { formula?: string; label?: string };
+  };
+}
+
+function backtickRun(source: string, start: number): number {
+  let end = start;
+  while (source[end] === "`") end += 1;
+  return end - start;
+}
+
+function codeSpanEnd(source: string, start: number, length: number): number {
+  let cursor = start + length;
+  while (cursor < source.length) {
+    if (source[cursor] !== "`") {
+      cursor += 1;
+      continue;
+    }
+    const run = backtickRun(source, cursor);
+    if (run === length) return cursor + length;
+    cursor += run;
+  }
+  return start + length;
+}
+
+function protectArborInlineSyntax(source: string): {
+  markdown: string;
+  tokens: Map<string, ProtectedInlineToken>;
+} {
+  const tokens = new Map<string, ProtectedInlineToken>();
+  let markdown = "";
+  let cursor = 0;
+  const addToken = (token: ProtectedInlineToken) => {
+    let placeholder = `ARBORNOTETOKEN${tokens.size}X`;
+    while (source.includes(placeholder) || markdown.includes(placeholder)) placeholder += "X";
+    tokens.set(placeholder, token);
+    markdown += placeholder;
+  };
+
+  while (cursor < source.length) {
+    const character = source[cursor]!;
+    if (character === "\\") {
+      markdown += source.slice(cursor, Math.min(source.length, cursor + 2));
+      cursor += 2;
+      continue;
+    }
+    if (character === "`") {
+      const length = backtickRun(source, cursor);
+      const end = codeSpanEnd(source, cursor, length);
+      markdown += source.slice(cursor, end);
+      cursor = end;
+      continue;
+    }
+    if (source.startsWith("[^", cursor)) {
+      const match = source.slice(cursor).match(/^\[\^([^\]\s]+)\]/);
+      if (match) {
+        addToken({
+          source: match[0],
+          content: { type: "footnoteReference", props: { label: match[1] ?? "" } },
+        });
+        cursor += match[0].length;
+        continue;
+      }
+    }
+    if (character === "$" && source[cursor + 1] === "$") {
+      markdown += "$$";
+      cursor += 2;
+      continue;
+    }
+    if (character === "$") {
+      let end = cursor + 1;
+      while (end < source.length && source[end] !== "\n") {
+        if (source[end] === "\\") {
+          end += 2;
+          continue;
+        }
+        if (source[end] === "$") break;
+        end += 1;
+      }
+      if (end < source.length && end > cursor + 1 && source[end] === "$") {
+        const formula = source.slice(cursor + 1, end);
+        addToken({
+          source: source.slice(cursor, end + 1),
+          content: { type: "inlineMath", props: { formula } },
+        });
+        cursor = end + 1;
+        continue;
+      }
+    }
+    markdown += character;
+    cursor += 1;
+  }
+
+  return { markdown, tokens };
+}
+
+function restoreTextTokens(item: any, tokens: Map<string, ProtectedInlineToken>, customContent: boolean): any[] {
+  const restored: any[] = [];
+  let text = item.text;
+  while (text) {
+    let found: { index: number; placeholder: string; token: ProtectedInlineToken } | null = null;
+    for (const [placeholder, token] of tokens) {
+      const index = text.indexOf(placeholder);
+      if (index >= 0 && (!found || index < found.index)) found = { index, placeholder, token };
+    }
+    if (!found) {
+      restored.push({ ...item, text });
+      break;
+    }
+    if (found.index > 0) restored.push({ ...item, text: text.slice(0, found.index) });
+    restored.push(customContent ? found.token.content : { ...item, text: found.token.source });
+    text = text.slice(found.index + found.placeholder.length);
+  }
+  return restored;
+}
+
+function restoreArborInlineSyntax(content: any[], tokens: Map<string, ProtectedInlineToken>): any[] {
+  const restored: any[] = [];
+  for (const item of content) {
+    if (item.type === "text") {
+      restored.push(...restoreTextTokens(item, tokens, true));
+    } else if (item.type === "link" && Array.isArray(item.content)) {
+      restored.push({
+        ...item,
+        content: item.content.flatMap((part: any) =>
+          part.type === "text" ? restoreTextTokens(part, tokens, false) : [part]
+        ),
+      });
+    } else {
+      restored.push(item);
+    }
+  }
+  return restored;
+}
+
 function inlineMarkdown(editor: ArborBlockNoteEditor, source: string): any[] {
-  const parsed = editor.tryParseMarkdownToBlocks(`${inlineMarkdownPrefix}${source}`);
+  const protectedSource = protectArborInlineSyntax(source);
+  const parsed = editor.tryParseMarkdownToBlocks(`${inlineMarkdownPrefix}${protectedSource.markdown}`);
   const content = parsed[0]?.content;
   if (!Array.isArray(content)) return plainInlineContent(source);
   const result = structuredClone(content) as any[];
@@ -224,7 +728,7 @@ function inlineMarkdown(editor: ArborBlockNoteEditor, source: string): any[] {
   }
   first.text = first.text.slice(inlineMarkdownPrefix.length);
   if (!first.text) result.shift();
-  return result;
+  return restoreArborInlineSyntax(result, protectedSource.tokens);
 }
 
 function inlineMarkdownOf(editor: ArborBlockNoteEditor, content: ArborEditorBlock["content"], original?: ArborBlock): string {
@@ -232,7 +736,18 @@ function inlineMarkdownOf(editor: ArborBlockNoteEditor, content: ArborEditorBloc
   if (original && JSON.stringify(content) === JSON.stringify(inlineMarkdown(editor, original.content ?? ""))) {
     return original.content ?? "";
   }
-  return editor.blocksToMarkdownLossy([{ type: "paragraph", content }]).replace(/\r?\n+$/, "");
+  const replacements = new Map<string, string>();
+  const markdownContent = content.map((item: any, index) => {
+    if (item.type !== "inlineMath" && item.type !== "footnoteReference") return item;
+    const token = `ARBORINLINE${index}PLACEHOLDER`;
+    replacements.set(token, item.type === "inlineMath"
+      ? `$${String(item.props?.formula ?? "")}$`
+      : `[^${String(item.props?.label ?? "1")}]`);
+    return { type: "text", text: token, styles: {} };
+  });
+  let markdown = editor.blocksToMarkdownLossy([{ type: "paragraph", content: markdownContent }]).replace(/\r?\n+$/, "");
+  for (const [token, replacement] of replacements) markdown = markdown.replaceAll(token, replacement);
+  return markdown;
 }
 
 function literalContentOf(content: ArborEditorBlock["content"]): string {
@@ -241,7 +756,7 @@ function literalContentOf(content: ArborEditorBlock["content"]): string {
   return content.map((item) => item.type === "text"
     ? item.text
     : item.type === "link"
-      ? item.content.map((part) => part.text).join("")
+      ? item.content.map((part: { text: string }) => part.text).join("")
       : "").join("");
 }
 
@@ -256,6 +771,14 @@ export function toBlockNote(block: ArborBlock, editor: ArborBlockNoteEditor): Pa
     case "quote": return { id: block.id, type: "quote", content: inlineMarkdown(editor, block.content ?? "") };
     case "codeBlock": return { id: block.id, type: "codeBlock", props: { language: String(block.props?.language ?? "") }, content: block.content ?? "" };
     case "divider": return { id: block.id, type: "divider" };
+    case "mathBlock": return { id: block.id, type: "mathBlock", props: { formula: block.content ?? "" } };
+    case "footnoteDefinition": return {
+      id: block.id,
+      type: "footnoteDefinition",
+      props: { label: String(block.props?.label ?? "1") },
+      content: inlineMarkdown(editor, block.content ?? ""),
+      children,
+    };
     case "image": return { id: block.id, type: "image", props: { url: String(block.props?.url ?? ""), caption: String(block.props?.caption ?? "") } };
     case "childPage": return { id: block.id, type: "childPage", props: { path: String(block.props?.path ?? "") }, content: inlineMarkdown(editor, block.content ?? "") };
     case "rawMarkdown": return { id: block.id, type: "rawMarkdown", props: { blank: Boolean(block.props?.blank) }, content: block.content ?? "" };
@@ -276,6 +799,8 @@ export function fromBlockNote(block: ArborEditorBlock, originals: Map<string, Ar
     case "quote": type = "quote"; break;
     case "codeBlock": type = "codeBlock"; break;
     case "divider": type = "divider"; break;
+    case "mathBlock": type = "mathBlock"; break;
+    case "footnoteDefinition": type = "footnoteDefinition"; break;
     case "image": type = "image"; break;
     case "rawMarkdown": type = "rawMarkdown"; break;
     case "childPage": type = "childPage"; break;
@@ -285,6 +810,7 @@ export function fromBlockNote(block: ArborEditorBlock, originals: Map<string, Ar
   if (block.type === "heading") props.level = block.props.level;
   if (block.type === "checkListItem") props.checked = block.props.checked;
   if (block.type === "codeBlock") props.language = block.props.language;
+  if (block.type === "footnoteDefinition") props.label = block.props.label;
   if (block.type === "image") { props.url = block.props.url; props.caption = block.props.caption; }
   if (block.type === "rawMarkdown") props.blank = block.props.blank;
   if (block.type === "childPage") props.path = block.props.path;
@@ -293,7 +819,9 @@ export function fromBlockNote(block: ArborEditorBlock, originals: Map<string, Ar
     type,
     content: block.type === "image" || block.type === "divider"
       ? ""
-      : block.type === "codeBlock" || block.type === "rawMarkdown"
+      : block.type === "mathBlock"
+        ? block.props.formula
+        : block.type === "codeBlock" || block.type === "rawMarkdown"
         ? literalContentOf(block.content)
         : inlineMarkdownOf(editor, block.content, original),
     props,

@@ -20,6 +20,8 @@ export type BlockType =
   | "codeBlock"
   | "image"
   | "divider"
+  | "mathBlock"
+  | "footnoteDefinition"
   | "toggle"
   | "childPage"
   | "rawMarkdown";

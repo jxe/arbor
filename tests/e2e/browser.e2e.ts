@@ -256,6 +256,102 @@ test("round-trips inline Markdown and uses Markdown-aware clipboard formats", as
   await expect(page.locator('[data-content-type="paragraph"]').filter({ hasText: "plain Markdown" }).locator("em")).toHaveText("plain Markdown");
 });
 
+test("renders footnotes and LaTeX and preserves the cursor through background saves", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto("/render/math-notes");
+
+  await expect(page.locator(".kind")).toContainText("ArborNote");
+  await expect(page.locator(".inline-math .katex")).toHaveCount(2);
+  const criterionMath = page.locator('.inline-math[title="$e_B : \\\\prod_{i \\\\in B} \\\\mathcal{S}_i \\\\to \\\\{0,1\\\\}$ — double-click to edit"]');
+  await expect(criterionMath).toHaveCount(1);
+  await expect(criterionMath.locator(".katex")).toBeVisible();
+  await expect(page.locator("code").filter({ hasText: "literal $x_y$" })).toHaveText("literal $x_y$");
+  await expect(page.locator(".math-block .katex-display")).toHaveCount(1);
+  await expect(page.locator(".footnote-reference")).toHaveText(["1", "2"]);
+  await expect(page.locator(".footnote-definition-number")).toHaveText(["2.", "1."]);
+  await expect(page.locator(".body-drop-surface")).toHaveAttribute("data-footnote-layout", "margin");
+  await expect(page.locator('.footnote-definition[data-footnote-referenced="true"]')).toHaveCount(2);
+
+  const energyNote = page.locator('.bn-block-outer:has(.footnote-definition[data-footnote-label="energy"])');
+  const integralNote = page.locator('.bn-block-outer:has(.footnote-definition[data-footnote-label="integral"])');
+  await expect(energyNote).toHaveCSS("position", "absolute");
+  await expect(integralNote).toHaveCSS("position", "absolute");
+  const energyMarginBox = await energyNote.boundingBox();
+  const integralMarginBox = await integralNote.boundingBox();
+  expect(energyMarginBox).not.toBeNull();
+  expect(integralMarginBox).not.toBeNull();
+  expect(integralMarginBox!.y).toBeGreaterThanOrEqual(energyMarginBox!.y + energyMarginBox!.height);
+
+  const energyDefinition = page.locator(".footnote-definition").filter({ hasText: "Einstein's mass-energy relation." });
+  await energyDefinition.locator(".footnote-definition-content").click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" Updated.");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+
+  const cursorParagraph = page.locator('[data-content-type="paragraph"]').filter({ hasText: "Cursor stays here." });
+  await cursorParagraph.locator(".bn-inline-content").evaluate((element) => {
+    const editor = (window as any).ProseMirror;
+    const text = element.firstChild!;
+    editor.view.focus();
+    editor.commands.setTextSelection(editor.view.posAtDOM(text, "Cursor".length));
+  });
+  await page.keyboard.type("X");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+
+  const selection = await page.evaluate(() => {
+    const editor = (window as any).ProseMirror;
+    return {
+      focused: editor.view.hasFocus(),
+      offset: editor.view.state.selection.$from.parentOffset,
+      text: editor.view.state.selection.$from.parent.textContent,
+    };
+  });
+  expect(selection).toEqual({ focused: true, offset: 7, text: "CursorX stays here." });
+
+  await page.keyboard.type(" and $a+b$");
+  await expect(page.locator(".inline-math .katex")).toHaveCount(3);
+  await expect(page.getByRole("status")).toHaveText("Saved");
+
+  const bodySource = await page.evaluate(async () => {
+    const response = await fetch("/v/tree/math-notes");
+    const node = await response.json();
+    return node.document.bodySource as string;
+  });
+  expect(bodySource).toContain("Energy is $E = mc^2$.[^energy] The integral below has a compact result.[^integral]");
+  expect(bodySource).toContain("The criterion $e_B : \\prod_{i \\in B} \\mathcal{S}_i \\to \\{0,1\\}$ is intact; `literal $x_y$` remains code.");
+  expect(bodySource).toContain("CursorX and $a+b$ stays here.");
+  expect(bodySource).toContain("$$\n\\int_0^1 x^2\\,dx = \\frac{1}{3}\n$$");
+  expect(bodySource).toContain("[^energy]: Einstein's mass-energy relation. Updated.");
+
+  await page.setViewportSize({ width: 900, height: 900 });
+  await expect(page.locator(".body-drop-surface")).toHaveAttribute("data-footnote-layout", "endnotes");
+  const energyEndnote = page.locator('.bn-block-outer:has(.footnote-definition[data-footnote-label="energy"])');
+  const integralEndnote = page.locator('.bn-block-outer:has(.footnote-definition[data-footnote-label="integral"])');
+  await expect(energyEndnote).toHaveCSS("position", "absolute");
+  await expect(energyEndnote).toHaveCSS("border-top-style", "solid");
+  const closingBox = await page.locator('[data-content-type="paragraph"]').filter({ hasText: "Closing paragraph after the source definitions." }).boundingBox();
+  const energyEndnoteBox = await energyEndnote.boundingBox();
+  const integralEndnoteBox = await integralEndnote.boundingBox();
+  expect(closingBox).not.toBeNull();
+  expect(energyEndnoteBox).not.toBeNull();
+  expect(integralEndnoteBox).not.toBeNull();
+  expect(energyEndnoteBox!.y).toBeGreaterThan(closingBox!.y + closingBox!.height);
+  expect(integralEndnoteBox!.y).toBeGreaterThan(energyEndnoteBox!.y + energyEndnoteBox!.height);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator('.footnote-definition[data-footnote-label="integral"] .footnote-delete').click();
+  await expect(page.locator(".footnote-reference")).toHaveCount(1);
+  await expect(page.locator(".footnote-definition")).toHaveCount(1);
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  const afterDelete = await page.evaluate(async () => {
+    const response = await fetch("/v/tree/math-notes");
+    const node = await response.json();
+    return node.document.bodySource as string;
+  });
+  expect(afterDelete).not.toContain("[^integral]");
+  expect(afterDelete).toContain("[^energy]: Einstein's mass-energy relation. Updated.");
+});
+
 test("renders a Markdown collection and opens a record", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /books/ }).click();

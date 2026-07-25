@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
-import { SideMenuExtension } from "@blocknote/core/extensions";
-import { FormattingToolbarController, SideMenuController } from "@blocknote/react";
+import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extensions";
+import { TextSelection } from "@tiptap/pm/state";
+import { FormattingToolbarController, SideMenuController, SuggestionMenuController } from "@blocknote/react";
 import type { ArborBlock, TreeNode } from "@arbor/core";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { resolveStructuralRowPath, transformStructuralRows } from "@arbor/core/structural-rows";
@@ -21,6 +22,7 @@ import {
   ArborFormattingToolbar,
   ArborSideMenu,
   fromBlockNote,
+  getArborSlashMenuItems,
   ManagedRowsContext,
   originalMap,
   toBlockNote,
@@ -29,6 +31,143 @@ import {
 } from "./blocks.tsx";
 
 const ARBOR_DRAG_TYPE = "application/x-arbor-logical-paths";
+
+interface TextSelectionPoint {
+  textblockIndex: number;
+  offset: number;
+}
+
+function captureTextSelectionPoint(document: any, position: number): TextSelectionPoint | null {
+  let textblockIndex = 0;
+  let result: TextSelectionPoint | null = null;
+  document.descendants((node: any, nodePosition: number) => {
+    if (result !== null) return false;
+    if (!node.isTextblock) return true;
+    const start = nodePosition + 1;
+    const end = start + node.content.size;
+    if (position >= start && position <= end) {
+      result = { textblockIndex, offset: position - start };
+      return false;
+    }
+    textblockIndex += 1;
+    return false;
+  });
+  return result;
+}
+
+function resolveTextSelectionPoint(document: any, point: TextSelectionPoint): number | null {
+  let textblockIndex = 0;
+  let result: number | null = null;
+  document.descendants((node: any, nodePosition: number) => {
+    if (result !== null) return false;
+    if (!node.isTextblock) return true;
+    if (textblockIndex === point.textblockIndex) {
+      result = nodePosition + 1 + Math.min(point.offset, node.content.size);
+      return false;
+    }
+    textblockIndex += 1;
+    return false;
+  });
+  return result;
+}
+
+interface FootnoteLayout {
+  mode: "margin" | "endnotes";
+  css: string;
+}
+
+function layoutFootnotes(surface: HTMLElement): FootnoteLayout {
+  const editorElement = surface.querySelector<HTMLElement>(".bn-editor");
+  if (!editorElement) return { mode: "endnotes", css: "" };
+  const definitions = [...surface.querySelectorAll<HTMLElement>(".footnote-definition")].map((definition) => ({
+    definition,
+    outer: definition.closest<HTMLElement>(".bn-block-outer"),
+    label: definition.dataset.footnoteLabel ?? "",
+    blockID: definition.dataset.footnoteBlock ?? "",
+  })).filter((item): item is { definition: HTMLElement; outer: HTMLElement; label: string; blockID: string } =>
+    Boolean(item.outer && item.blockID)
+  );
+  const references = [...surface.querySelectorAll<HTMLElement>(".footnote-reference")];
+  const firstReference = new Map<string, HTMLElement>();
+  const firstReferenceOrder = new Map<string, number>();
+  for (const [index, reference] of references.entries()) {
+    const label = reference.dataset.footnoteLabel ?? "";
+    if (label && !firstReference.has(label)) {
+      firstReference.set(label, reference);
+      firstReferenceOrder.set(label, index);
+    }
+  }
+
+  if (!definitions.length) return { mode: "endnotes", css: "" };
+
+  const editorRect = editorElement.getBoundingClientRect();
+  const workspaceRight = surface.closest(".workspace-main")?.getBoundingClientRect().right ?? window.innerWidth;
+  const available = workspaceRight - editorRect.right - 24;
+  const marginWidth = Math.min(264, available - 20);
+  const referenced = definitions.filter((item) => firstReference.has(item.label));
+  const orphans = definitions.filter((item) => !firstReference.has(item.label));
+  const useMargin = editorRect.width >= 600 && marginWidth >= 210 && referenced.length > 0;
+
+  if (!useMargin) {
+    const ordered = referenced.map((item) => ({
+      ...item,
+      reference: firstReference.get(item.label)!,
+      height: item.outer.getBoundingClientRect().height,
+    })).sort((left, right) =>
+      firstReferenceOrder.get(left.label)! - firstReferenceOrder.get(right.label)!
+    );
+    const definitionOuters = new Set(definitions.map((item) => item.outer));
+    const contentBottom = [...surface.querySelectorAll<HTMLElement>(".bn-block-outer")]
+      .filter((outer) => ![...definitionOuters].some((definition) =>
+        definition === outer || definition.contains(outer)
+      ))
+      .reduce((bottom, outer) => Math.max(bottom, outer.getBoundingClientRect().bottom - editorRect.top), 0);
+    let nextTop = contentBottom + 30;
+    const endnoteRules: string[] = [];
+    for (const item of [...ordered, ...orphans.map((orphan) => ({
+      ...orphan,
+      height: orphan.outer.getBoundingClientRect().height,
+    }))]) {
+      endnoteRules.push(
+        `.body-drop-surface[data-footnote-layout="endnotes"] .bn-block-outer:has(.footnote-definition[data-footnote-block="${item.blockID}"]){--arbor-footnote-top:${nextTop}px}`,
+      );
+      nextTop += item.height + 8;
+    }
+    const first = ordered[0] ?? orphans[0]!;
+    endnoteRules.push(
+      `.body-drop-surface[data-footnote-layout="endnotes"] .bn-editor{min-height:${nextTop + 18}px}`,
+      `.body-drop-surface[data-footnote-layout="endnotes"] .bn-block-outer:has(.footnote-definition[data-footnote-block="${first.blockID}"]){padding-top:17px;border-top:1px solid var(--arbor-divider)}`,
+    );
+    return {
+      mode: "endnotes",
+      css: endnoteRules.join(""),
+    };
+  }
+
+  const ordered = referenced.map((item) => ({
+    ...item,
+    reference: firstReference.get(item.label)!,
+    height: item.outer.getBoundingClientRect().height,
+  })).sort((left, right) =>
+    firstReferenceOrder.get(left.label)! - firstReferenceOrder.get(right.label)!
+  );
+  let nextTop = 0;
+  const rules: string[] = [];
+  for (const item of ordered) {
+    const desiredTop = item.reference.getBoundingClientRect().top - editorRect.top - 3;
+    const top = Math.max(0, desiredTop, nextTop);
+    nextTop = top + item.height + 14;
+    rules.push(
+      `.body-drop-surface[data-footnote-layout="margin"] .bn-block-outer:has(.footnote-definition[data-footnote-block="${item.blockID}"]){--arbor-footnote-top:${top}px;--arbor-footnote-width:${marginWidth}px}`,
+    );
+  }
+  if (orphans[0]) {
+    rules.push(
+      `.body-drop-surface[data-footnote-layout="margin"] .bn-block-outer:has(.footnote-definition[data-footnote-block="${orphans[0].blockID}"]){margin-top:30px!important;padding-top:17px;border-top:1px solid var(--arbor-divider)}`,
+    );
+  }
+  return { mode: "margin", css: rules.join("") };
+}
 
 function parentPath(path: string): string {
   return path.slice(0, path.lastIndexOf("/")) || "/";
@@ -114,6 +253,7 @@ export function PageEditor({ node, onSaved, navigate }: {
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [dragPreview, setDragPreview] = useState<{ paths: string[]; x: number; y: number } | null>(null);
+  const [footnoteLayout, setFootnoteLayout] = useState<FootnoteLayout>({ mode: "endnotes", css: "" });
   const bodySurface = useRef<HTMLDivElement>(null);
   const pageActionsMenu = useRef<HTMLDetailsElement>(null);
   const pendingScrollRestore = useRef<{ x: number; y: number } | null>(null);
@@ -156,11 +296,20 @@ export function PageEditor({ node, onSaved, navigate }: {
   snapshotRef.current = snapshot;
   const replaceEditorSnapshot = useCallback((value: DocumentSnapshot) => {
     editor.transact((transaction) => {
+      const anchor = captureTextSelectionPoint(transaction.doc, transaction.selection.anchor);
+      const head = captureTextSelectionPoint(transaction.doc, transaction.selection.head);
       transaction.setMeta("addToHistory", false);
       editor.replaceBlocks(
         editor.document,
         value.blocks.length ? value.blocks.map((block) => toBlockNote(block, editor)) : [{ type: "paragraph" }],
       );
+      if (anchor && head) {
+        const nextAnchor = resolveTextSelectionPoint(transaction.doc, anchor);
+        const nextHead = resolveTextSelectionPoint(transaction.doc, head);
+        if (nextAnchor !== null && nextHead !== null) {
+          transaction.setSelection(TextSelection.create(transaction.doc, nextAnchor, nextHead));
+        }
+      }
     });
     setFrontmatter(structuredClone(value.frontmatter));
   }, [editor]);
@@ -205,6 +354,41 @@ export function PageEditor({ node, onSaved, navigate }: {
   }, [childrenRevision, coordinator, node.revision]);
 
   useEffect(() => () => coordinator.dispose(), [coordinator]);
+
+  useLayoutEffect(() => {
+    const surface = bodySurface.current;
+    if (!surface) return;
+    let frame = 0;
+    let mutationObserver: MutationObserver;
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const next = layoutFootnotes(surface);
+        setFootnoteLayout((current) => current.mode === next.mode && current.css === next.css ? current : next);
+        mutationObserver.takeRecords();
+      });
+    };
+    const stopEditorObserver = editor.onChange(schedule);
+    const resizeObserver = new ResizeObserver(schedule);
+    resizeObserver.observe(surface);
+    const workspaceMain = surface.closest<HTMLElement>(".workspace-main");
+    if (workspaceMain) resizeObserver.observe(workspaceMain);
+    mutationObserver = new MutationObserver(schedule);
+    mutationObserver.observe(surface, {
+      childList: true,
+      subtree: true,
+    });
+    window.addEventListener("resize", schedule);
+    void document.fonts?.ready.then(schedule);
+    schedule();
+    return () => {
+      cancelAnimationFrame(frame);
+      stopEditorObserver();
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
+  }, [editor, node.path]);
 
   useEffect(() => {
     const source = new EventSource("/v/events");
@@ -843,6 +1027,7 @@ export function PageEditor({ node, onSaved, navigate }: {
       <div
         ref={bodySurface}
         className="body-drop-surface"
+        data-footnote-layout={footnoteLayout.mode}
         onClick={(event) => {
           if (event.target === event.currentTarget || (event.target as Element).classList.contains("bn-editor")) {
             setSelected(new Set()); setSelectionAnchor(null);
@@ -871,13 +1056,18 @@ export function PageEditor({ node, onSaved, navigate }: {
         }}
         onClickCapture={openInternalLink}
       >
-        <BlockNoteView editor={editor} sideMenu={false} formattingToolbar={false} onChange={(_editor, { getChanges }) => {
+        <style>{footnoteLayout.css}</style>
+        <BlockNoteView editor={editor} sideMenu={false} formattingToolbar={false} slashMenu={false} onChange={(_editor, { getChanges }) => {
           if (coordinator.isApplying) return;
           if (!getChanges().some((change) => change.source.type !== "yjs-remote")) return;
           recordDocumentSnapshot(snapshot());
         }} data-theming-css-variables-demo>
           <FormattingToolbarController formattingToolbar={ArborFormattingToolbar} />
           <SideMenuController sideMenu={ArborSideMenu} />
+          <SuggestionMenuController
+            triggerCharacter="/"
+            getItems={async (query) => filterSuggestionItems(getArborSlashMenuItems(editor), query)}
+          />
         </BlockNoteView>
       </div>
     </ManagedRowsContext.Provider>

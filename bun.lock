@@ -12,7 +12,9 @@
         "@mantine/hooks": "8.3.10",
         "@noble/hashes": "^2.2.0",
         "@parcel/watcher": "2.5.1",
+        "@tiptap/pm": "3.28.0",
         "csv-parse": "6.1.0",
+        "katex": "0.18.1",
         "quickjs-emscripten": "0.32.0",
         "react": "19.2.4",
         "react-dom": "19.2.4",
@@ -48,6 +50,10 @@
       "name": "@arbor/editor",
       "version": "0.1.0",
     },
+    "packages/fs": {
+      "name": "@arbor/fs",
+      "version": "0.1.0",
+    },
     "packages/render": {
       "name": "@arbor/render",
       "version": "0.1.0",
@@ -65,6 +71,8 @@
     "@arbor/core": ["@arbor/core@workspace:packages/core"],
 
     "@arbor/editor": ["@arbor/editor@workspace:packages/editor"],
+
+    "@arbor/fs": ["@arbor/fs@workspace:packages/fs"],
 
     "@arbor/render": ["@arbor/render@workspace:packages/render"],
 
@@ -360,6 +368,8 @@
 
     "clsx": ["clsx@2.1.1", "", {}, "sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA=="],
 
+    "commander": ["commander@8.3.0", "", {}, "sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww=="],
+
     "convert-source-map": ["convert-source-map@2.0.0", "", {}, "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="],
 
     "csstype": ["csstype@3.2.3", "", {}, "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ=="],
@@ -405,6 +415,8 @@
     "jsesc": ["jsesc@3.1.0", "", { "bin": { "jsesc": "bin/jsesc" } }, "sha512-/sM3dO2FOzXjKQhJuo0Q173wf2KOo8t4I8vHy6lF9poUp7bKT0/NHE8fPX23PwfhnykfqnC2xRxOnVw5XuGIaA=="],
 
     "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
+
+    "katex": ["katex@0.18.1", "", { "dependencies": { "commander": "^8.3.0" }, "bin": { "katex": "cli.js" } }, "sha512-Td8GCYSxDAoMhHOlKmCFMJ/hz5qlAAb71n66Dryw9nfCVfumLo7nhuotbvKom/XPADmrYC3O5QR71EPq4DarJQ=="],
 
     "lib0": ["lib0@1.0.0-rc.22", "", { "bin": { "0gentesthtml": "src/bin/gentesthtml.js", "0serve": "src/bin/0serve.js", "0ecdsa-generate-keypair": "src/bin/0ecdsa-generate-keypair.js" } }, "sha512-KNefJloRQIsWncTF2tIcRqQXSQ7bDRYHwVSUhf1lY2P65Rej4WWFnen6L8L+odJQIo1ZNJGVVjK2WzqB9a+B/g=="],
 
