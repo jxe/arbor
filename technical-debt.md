@@ -5,10 +5,16 @@ id: d9x485
 
 This file tracks implementation debt and incomplete invariants, not product features. Product-facing editor work belongs in `editor-todo.md`.
 
+## REST protocol and reference clients
+
+1. **Specify copied-subtree identity and link semantics.** Copy correctly remints page IDs while move preserves them, but recursive copy does not yet define whether page-ID links between copied pages should be remapped to the new subtree or continue pointing at the originals. Make that choice normative and test duplicate-page and nested-directory copies before presenting copy as project/folder duplication.
+2. **Stop eagerly draining children when large directories need incremental presentation.** The TypeScript client's `node()` and observed-node view currently drain all fixed-size child pages to preserve TreeHopper's existing UI. Keep the fixed protocol page size, but introduce incremental or virtualized directory presentation before large trees make every navigation fetch the entire listing.
+3. **Share runtime protocol decoding only when another boundary needs it.** Arbord's handwritten validators are becoming substantial, particularly for recursive Markdown block values. If the CLI or another trusted client needs runtime decoding, colocate pure decoders with the browser-safe protocol types in `@arbor/core`; do not introduce schema generation or a general validation framework solely to remove repetition.
+
 ## Filesystem and structural editing
 
 1. **Make structural undo workspace-scoped.** The current undo stack lives in `PageEditor`, so it covers body-view mutations but is lost on navigation and does not include mutations initiated from the sidebar context menu. Move history ownership above individual page editors and store transaction descriptors rather than closures.
-2. **Give transactions first-class inverse metadata.** The UI currently derives inverse move, create, import, and trash operations from `FsMutationResult` and the `/Trash` path convention. Have `WorkspaceFS` return a validated inverse token or expose `undo(transactionId)` so recovery, conflicts, and future sync causality stay inside the filesystem coordinator.
+2. **Give protocol mutations first-class inverse metadata.** The UI currently derives inverse move, create, import, and trash operations from `MutationReceipt.effects` and the `/Trash` path convention. Have arbord return a validated inverse token or accept an explicit receipt/transaction undo operation so recovery, conflicts, and future sync causality remain inside the workspace authority.
 3. **Specify nested structural-row placement.** The shared row planner supports insertion before a nested BlockNote block, but the intended relationship between filesystem children and nested document blocks is not yet documented or exhaustively tested.
 4. **Preserve exact non-contiguous reorder undo.** A batch of non-contiguous selected rows is moved as a contiguous group. Its current inverse restores the group near its former trailing anchor but cannot recreate intervening rows exactly. Either record an exact structural-row layout or add an exact-order mutation.
 5. **Exercise row placement under crash recovery.** Add fault injection around a `beforeBlockId` move between prose blocks and prove recovery preserves both the physical tree and the complete mixed prose/child-row order.

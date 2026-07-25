@@ -1,0 +1,3 @@
+id: not-a-cursor
+event: workspace
+data: {"kind":"updated","path":"/missing-cursor"}

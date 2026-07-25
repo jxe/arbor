@@ -45,8 +45,8 @@ Do not reintroduce the superseded `SpaceID`, binding, `.view.json`, or authored 
 | Status | Milestone | Outcome |
 |---|---|---|
 | **Implemented** | Local Arbor browser/editor baseline | One chosen filesystem subtree can be indexed, browsed, searched, edited, recovered, and structurally mutated through arbord and TreeHopper web. |
-| **Next** | 1. Specify arbord REST v1 and build both clients | A normative reference contract with page-aware references, explicit revisions, durable idempotent mutations, lossless observation, and matching TypeScript and Swift clients. |
-| **Partial** | 2. Finish the whole-workspace daily driver | Validate large-tree behavior and make ordinary non-Markdown files as useful as Markdown and collections. |
+| **Implemented** | 1. Specify arbord REST v1 and build both clients | A normative reference contract with page-aware references, explicit revisions, durable idempotent mutations, lossless observation, and matching TypeScript and Swift clients. |
+| **Next** | 2. Finish the whole-workspace daily driver | Validate large-tree behavior and make ordinary non-Markdown files as useful as Markdown and collections. |
 | **Planned** | 3. Namespace and local mounts | Compose a workspace from roots, mounts, overlays, and readable `system:` state. |
 | **Planned** | 4. Scripts | Colocated components, queries, and mutations with explicit execution boundaries. |
 | **Planned** | 5. Agents | Agent files, restricted namespaces/tools, CLI execution, and browser chat. |
@@ -110,7 +110,7 @@ Current behavior:
 - The workspace service reads nodes and collections, writes Markdown with CAS, creates assets, searches, soft-deletes, restores, and exposes recovery.
 - Workspace startup uses one discovery snapshot to seed visible paths and page IDs rather than repeatedly walking the tree.
 
-Do not redesign the logical `x.md` + `x/` representation in milestone 1. The next work exposes its page-reference and revision semantics through the reference REST contract without inventing durable identity for every filesystem node.
+REST v1 exposes the representation through page-aware references and separate content/directory revisions without inventing durable identity for every filesystem node.
 
 ### Durable Markdown writes, recovery, and structural mutations
 
@@ -133,36 +133,26 @@ Current behavior:
 - Directory-row moves share one pure transform across optimistic UI planning and committed filesystem mutation. Stale or vanished anchors reject instead of silently appending.
 - Finder/browser imports submit a manifest and bytes as one preflighted mutation.
 
-The journal and mutation engine are existing foundations. Milestone 1 strengthens their externally visible acknowledgement and retry contract; it does not replace them.
+The journal and mutation engine remain the filesystem foundations. REST v1 adds durable mutation identity, complete receipts, and restart-safe retry semantics without replacing them.
 
 ### Current HTTP surface
 
 Implemented in [`packages/arbord/src/server.ts`](packages/arbord/src/server.ts):
 
 ```text
-GET    /v/tree/{path}
-GET    /v/collection/{path}
-GET    /v/search?q=…
-GET    /v/events
-PUT    /v/node/{path}
-DELETE /v/node/{path}
-POST   /v/restore
-POST   /v/assets
-GET    /v/recovery
-POST   /v/recovery/restore
-POST   /v/fs/mutate
-POST   /v/fs/import
+GET    /v1/node
+GET    /v1/children
+GET    /v1/search
+GET    /v1/collection
+GET    /v1/recovery
+GET    /v1/events
+POST   /v1/mutations
+POST   /v1/assets
+POST   /v1/imports
 GET    /render/{path}
 ```
 
-Important limitations, which define milestone 1:
-
-- references are still path-only even when a Markdown page has a durable ID;
-- write requests have `baseRevision` but no idempotency key or durable mutation receipt;
-- `/v/events` assigns an in-memory sequence but has no lossless snapshot-to-stream handoff, replay window, or reconnect/resync contract;
-- structural endpoints expose filesystem-shaped request types;
-- the browser client in [`packages/render/src/api.ts`](packages/render/src/api.ts) is an ad hoc wrapper rather than a specified reference client;
-- no Swift arbord protocol client exists yet.
+The old `/v/*` routes are removed. Each JSON mutation stays within one durability domain: exactly one content operation or a non-empty atomic structural batch. Assets and imports keep isolated multipart transfer routes with the same mutation identity and receipt semantics. State reads carry an observation cursor and `/v1/events` supports epoch/sequence replay or deterministic `resync-required`.
 
 ### TreeHopper web and ArborNote
 
@@ -211,14 +201,17 @@ SQLite collection/database support is not implemented. SQLite used internally fo
 
 ### Last verified
 
-Verified in the current checkout on **2026-07-23**:
+Milestone 1 and its durability-domain/observed-view follow-up were verified on **2026-07-25**:
 
 ```text
 bun run typecheck       passed
-bun test                56 passed, 0 failed
+bun test                80 passed, 0 failed
+bun run test:protocol   passed: TypeScript fixtures plus 8 Swift tests against live arbord
 bun run build           passed
-bun run test:e2e        7 passed
-bun run test:performance passed: 50,000 files; 1,065 ms startup; 1.49 ms incremental update; 31.12 ms search
+bun run test:e2e        8 passed
+bun run test:performance passed: 50,000 files; 1,828 ms startup; 0.27 ms incremental update; 37.06 ms search
+swift test --package-path native/Packages/ArborClient
+                        8 tests, 0 failures; standalone live-server case skipped as designed
 ```
 
 The general Postgres test is skipped unless `ARBOR_TEST_POSTGRES_DSN` is supplied; do not describe live Postgres integration as re-verified unless that environment-specific test actually ran against a server.
@@ -237,213 +230,52 @@ Primary coverage:
 
 ## Milestone 1 — specify arbord REST v1 and build both clients
 
-**Status: Next.**
+**Status: Implemented.**
 
 ### Outcome and ownership
 
-The current HTTP API is sufficient for the colocated web browser, but its behavior is partly implicit in the TypeScript implementation. This milestone turns the behavior needed by real clients into a small, normative reference protocol and proves it with two independent clients.
+REST v1 is now Arbor's sole application API and is proved by two independent reference clients. This file owns all four delivered parts:
 
-This file owns all four deliverables:
+1. the normative contract and shared fixtures in [`spec/arbord-rest.md`](spec/arbord-rest.md) and [`tests/fixtures/protocol`](tests/fixtures/protocol);
+2. the arbord adapter, executor, journal integration, and observation path in [`packages/arbord`](packages/arbord) and [`packages/fs`](packages/fs);
+3. the browser-safe protocol values and TypeScript client in [`packages/core/src/protocol.ts`](packages/core/src/protocol.ts) and [`packages/client`](packages/client);
+4. the Foundation-only Swift package at [`native/Packages/ArborClient`](native/Packages/ArborClient).
 
-1. the written REST v1 contract and sequencing invariants;
-2. the arbord reference implementation of that contract;
-3. the TypeScript reference client used by TreeHopper web;
-4. a UI-independent Swift reference client, expected to live as a small package such as `~/src/hunch/Packages/ArborClient`.
-
-[plan-native.md](plan-native.md) begins where the fourth deliverable ends: it adapts the Swift client to `WorkspaceProvider` and `WorkspacePageSession`, native editor documents, window behavior, migration, and iCloud. It must not redefine REST values or retry/event semantics.
+[plan-native.md](plan-native.md) begins where the fourth deliverable ends. Hunch migration, `WorkspaceProvider`, `WorkspacePageSession`, native editor integration, and an app/project target remain deliberately unimplemented here.
 
 REST v1 is scoped to one arbord process serving one explicitly chosen filesystem workspace. Loopback authentication, general capability negotiation, mounts, overlays, `TreeID`, invitations, public names, and remote grants are not part of this milestone.
 
-### 1.1 Finalize and fixture the normative contract before expanding the server
+### Delivered behavior
 
-[`spec/arbord-rest.md`](spec/arbord-rest.md) now defines the reference surface and invariants. Before expanding the server, complete its exact per-route examples and turn those examples into language-neutral fixtures covering:
-
-- exact routes, methods, request/response JSON, status codes, SSE framing, and multipart transfer where needed;
-- which fields are normative and which are merely descriptive;
-- the sequencing rules for reads, mutations, receipts, events, retries, conflicts, and resync;
-- a stable error envelope and the finite set of error codes exercised by current features;
-- language-neutral JSON examples and fixtures consumed by both clients.
-
-The v1 surface should cover the behavior already present in the reference product:
-
-- resolve and read a node;
-- list children, search, read collections, and inspect recovery;
-- write Markdown and perform current create/move/copy/reorder/trash/restore operations;
-- import files, attach assets, and restore recovery content;
-- observe workspace changes.
-
-Keep editor lifecycle out of REST. `/open`, `/flush`, and `/close` would turn local UI coordination into daemon state. Both clients build those higher-level behaviors from snapshots, mutations, receipts, and events.
-
-The prose specification and fixtures are authoritative. OpenAPI generation, generated SDKs, a compatibility matrix, and runtime capability negotiation are deliberately deferred and may never be needed for the reference implementation.
-
-### 1.2 Use page-aware references and explicit revision domains
-
-Do not introduce a universal `NodeID`. A Markdown page has durable identity; many ordinary files and directories do not.
-
-The transport reference is conceptually:
-
-```ts
-type NodeRef =
-  | { path: LogicalPath }
-  | { pageID: PageID; pathHint?: LogicalPath };
-```
-
-Required behavior:
-
-- `PageID` is an opaque, variable-length string. Existing six-character Clamshell/Arbor IDs remain valid, but the protocol does not make that length permanent.
-- A successful resolution always returns the canonical current logical path and the page ID when one exists.
-- A stale path hint plus a valid page ID follows a renamed page.
-- Ordinary files remain path-addressed.
-- Duplicate page IDs produce a stable diagnostic/error rather than nondeterministic ownership.
-- Node snapshots distinguish `contentRevision` from `directoryRevision` where structural ordering needs a separate precondition. Do not overload one `revision` with several meanings.
-- Preserve the currently useful materialization value (`available` or `placeholder`) without designing the later mount/overlay/provenance state model.
-
-`TreeID`, invitations, public names, and identities for arbitrary filesystem objects are added only when their corresponding planned features exist.
-
-### 1.3 Make authored mutations durable and idempotent
-
-Every authored v1 mutation carries a client-generated `mutationID`, operation-specific preconditions, and a request body whose stable hash can be recorded.
-
-The reference implementation must:
-
-- append the mutation ID and request hash with durable authored intent before materializing its effects;
-- record a completed `MutationReceipt` before reporting success;
-- include every logical effect in the receipt, with before/after paths and applicable content/directory revisions;
-- include the event cursor at which the effects became observable;
-- return the same receipt when the same mutation ID and request are retried;
-- reject reuse of a mutation ID with a different request;
-- reconstruct or finish the receipt during recovery if arbord crashes after file materialization but before completion was recorded;
-- retain ordinary CAS behavior: resolving a real stale-content conflict and submitting merged content uses a new mutation ID.
-
-Use the existing journal rather than adding an unrelated receipt database. The reference implementation may retain completed mutation records indefinitely so it can always answer a retry correctly. Receipt expiry, compaction, administrative inspection, and configurable retention are deliberately deferred. If a later feature makes bounded retention necessary, add an explicit protocol rule then; do not introduce ambiguous “maybe this mutation ran” behavior now.
-
-The first vertical slice is Markdown write. Once its failure cases pass, apply the same logical request/receipt semantics to the current structural, trash/restore, asset/import, and recovery mutations. Multipart bytes may keep a specialized transfer route; the authored operation that attaches them still has mutation identity and a receipt.
-
-### 1.4 Make snapshot-to-event handoff lossless
-
-SSE remains the reference observation transport. The contract must make this sequence safe:
-
-```text
-read ─────────────▶ snapshot observed through cursor C
-events(after C) ──▶ C+1, C+2, …
-
-mutation M ───────▶ receipt { mutationID: M, eventCursor: D, effects: … }
-retry M ──────────▶ the same receipt
-```
-
-Required behavior:
-
-- cursors identify an arbord process epoch plus a monotonically increasing sequence;
-- a read/list result and its cursor form a defined observation barrier, so a client cannot miss a change between fetching state and following events;
-- a bounded in-memory replay window supports ordinary disconnect/reconnect;
-- an unknown epoch or expired cursor returns `resync-required`; the client refetches its open node and visible listing;
-- events carry canonical path, previous path for moves, applicable revisions, minimal origin, and originating mutation ID;
-- events remain invalidations/observations; current state is always fetched authoritatively.
-
-Do not persist replay across daemon restarts: a new epoch plus deterministic resync is sufficient. Do not implement sophisticated event compaction or a broad provenance taxonomy. Avoid public `echo` semantics because “my echo” depends on the observing client; correlation comes from `mutationID`.
-
-### 1.5 Define only the errors current features need
-
-Use one serialized error envelope with a stable machine code, human message, retryability, and relevant current snapshot/conflict details.
-
-The initial codes should cover actual v1 behavior:
-
-- invalid or missing reference;
-- duplicate page ID or competing page bodies;
-- stale content revision;
-- stale directory revision or missing insertion anchor;
-- occupied destination or unsafe path;
-- mutation-ID/request mismatch;
-- unsupported operation;
-- resync required.
-
-Do not predefine offline mount, overlay, revoked-grant, remote-store, deployment, or other future errors. Add those codes with the feature that can produce them, while requiring both clients to preserve unknown codes safely.
-
-### 1.6 Build matching TypeScript and Swift reference clients
-
-#### TypeScript
-
-Create `packages/client` as the browser/CLI-facing implementation of REST v1. It owns:
-
-- request and response decoding;
-- mutation-ID creation and safe retry;
-- SSE cursor tracking, buffering, reconnect, and resync notification;
-- the stable error representation;
-- multipart helpers for current asset/import operations.
-
-TreeHopper web must stop importing public request types from `@arbor/fs` and use this client for the current REST surface.
-
-#### Swift
-
-Create a separate UI-independent Swift package, expected at `~/src/hunch/Packages/ArborClient`. It owns the same transport concerns using Foundation:
-
-- Codable REST values corresponding to the normative fixtures;
-- async request methods for the v1 surface;
-- mutation-ID creation and idempotent retry;
-- SSE parsing, cursor tracking, reconnect, and resync notification;
-- stable error decoding including unknown future codes.
-
-The package must not import SwiftUI, the Hunch app target, `Editor`, or Clamshell. It does not define `WorkspaceProvider`, own an `Editor.Document`, or decide when a page session is flushed. Those are native integration responsibilities in [plan-native.md](plan-native.md).
-
-Hand-maintain these two small clients against the written contract and shared fixtures. Code generation is not a completion requirement.
-
-### Likely implementation locations
-
-- [`spec/arbord-rest.md`](spec/arbord-rest.md) — normative routes, values, invariants, and examples;
-- `packages/core/src/types.ts` or a new pure protocol module — serialized references, snapshots, errors, events, mutations, and receipts without filesystem-driver imports;
-- `packages/arbord/src/server.ts` and `packages/arbord/src/workspace.ts` — REST adapter and authoritative workspace ordering;
-- `packages/arbord/src/events.ts` — epoch/cursor replay and observation barriers;
-- `packages/fs/src/journal.ts` and `packages/fs/src/workspace-fs.ts` — durable mutation identity, receipts, and crash recovery;
-- `packages/client` — TypeScript reference client;
-- `~/src/hunch/Packages/ArborClient` — Swift reference client and its Foundation-only tests;
-- `tests/fixtures/protocol` and black-box integration tests — shared JSON/SSE examples plus lost-response, crash, rename, conflict, replay, and resync scenarios.
-
-Keep serialized protocol values in a browser-safe pure module. Do not make the TypeScript client—or generated fixtures—import server-only `@arbor/fs`.
+- `NodeRef` is either a logical path or an opaque non-empty page ID plus optional hint. Arbor still mints six-character IDs; discovery, duplicate diagnostics, private journal filenames, rename resolution, and link healing accept arbitrary existing IDs.
+- Node snapshots return a canonical reference, `contentRevision`, optional `directoryRevision`, and `observedThrough`. Children, search, and collection reads use fixed 100/30/100 page sizes and query-bound opaque cursors.
+- `/v1/mutations` accepts either exactly one content operation or a non-empty ordered structural batch. Content operations cannot be combined with each other or with structural operations; structural batches are all-or-nothing and always maintain structural rows. There is no public `updateDirectoryRows` control.
+- Mutation records use a canonical recursively key-sorted request hash. Authored intent precedes materialization, completed receipts precede acknowledgement, identical retries return the original receipt, changed ID reuse is `mutation-mismatch`, and prepared/materialized recovery does not repeat effects.
+- One epoch/sequence event bus publishes normalized logical effects, retains 1,024 events, suppresses local watcher echoes, and makes every state read an observation barrier. Foreign/expired cursors return `resync-required`.
+- Runtime validation and one error envelope cover every v1 route. Physical paths and transaction state do not cross the boundary.
+- [`packages/client`](packages/client) provides separate prepared and convenience APIs for singleton content mutations and structural batches, exact-request retry after termination or HTTP 500, multipart helpers, SSE parsing/reconnect, cursor tracking, and an observed-node view that buffers during listing hydration and converts resync into a refreshed snapshot.
+- TreeHopper web uses the client for node/edit/reconcile, listings/search, structural actions, assets/import, recovery, collections, and observed views. The editor coordinator uses content revisions; placement uses directory revisions; page-aware references survive rename without replacing BlockNote or normalizing untouched Markdown.
+- [`native/Packages/ArborClient`](native/Packages/ArborClient) is a standalone Swift 6 package for macOS and iOS. Its actor is Foundation-only and supports injectable sessions, IDs, and retry timing, Codable values, domain-specific prepared mutations, multipart, exact retries, unknown error codes, and `AsyncThrowingStream` SSE/observed-node updates.
 
 ### Delivery slices
 
-#### A. Editing kernel
+- **Editing kernel — Implemented.** Shared reference/revision/error/receipt/event values, durable Markdown mutation recovery, snapshot/event handoff, both clients, and web open/edit/reconcile are complete.
+- **Navigation kernel — Implemented.** Children, search, create, rename, move/place, trash, and restore use logical protocol operations with page-ID rename and distinct revision-conflict coverage.
+- **Current feature parity — Implemented.** Copy, multipart assets/import, recovery, and collection reads are on the same contract and TypeScript client.
 
-1. Write the reference, revision, error, receipt, and event invariants.
-2. Implement resolve/read and Markdown write through REST v1.
-3. Add durable mutation retry and crash-recovery cases.
-4. Add the lossless read/event handoff and epoch-based resync.
-5. Make both clients pass the same fixture and live-server scenarios.
-6. Move TreeHopper web's open/edit/reconcile path onto the TypeScript client.
+### Completion evidence
 
-This slice is complete when TypeScript and Swift can independently resolve, open, edit, retry after a lost response or arbord restart, and reconnect without losing the final state.
+[`tests/integration/server.test.ts`](tests/integration/server.test.ts), [`tests/unit/events.test.ts`](tests/unit/events.test.ts), and [`tests/unit/fs.test.ts`](tests/unit/fs.test.ts) cover opaque page IDs, duplicate IDs, atomic structural batches, mixed-domain rejection, content/directory conflicts, anchors, lost responses, mutation mismatch, crash recovery, ordered replay, observed-view buffering, foreign epochs, and resync. [`tests/protocol/conformance.ts`](tests/protocol/conformance.ts) runs shared TypeScript fixtures and starts a temporary live arbord for the Swift suite.
 
-#### B. Navigation kernel
+No editor lifecycle endpoint, auth layer, SDK generator, persisted replay service, mount, script, store mutation, wire behavior, sharing, or native application integration was introduced.
 
-Add list, search, create, move/reorder, trash, and restore to the contract and both clients. Verify path/page-ID resolution through rename and distinguish content from directory preconditions.
-
-This slice is complete when both clients can drive the ordinary page tree without importing filesystem-driver concepts.
-
-#### C. Current feature parity
-
-Add copy, assets, import, recovery, and collection reads. Move the remaining TreeHopper web calls onto `packages/client`.
-
-This slice is complete when the reference clients cover the existing arbord workspace API surface; serving the TreeHopper application itself is not a client operation. Later mount/store/wire operations extend the same contract only when those features arrive.
-
-### Milestone completion gate
-
-- the normative REST document and language-neutral fixtures are checked in;
-- arbord passes black-box HTTP/SSE tests for every specified v1 operation;
-- both reference clients pass fixture decoding and live-server scenarios;
-- a renamed Markdown page resolves by `PageID` and returns its canonical path;
-- tests prove separate content/directory conflicts, lost-response retry, restart recovery, mutation mismatch, replay, and deterministic resync;
-- TreeHopper web uses the TypeScript client for the full current workspace API surface;
-- the Swift package is usable without any Hunch, Editor, or Clamshell dependency;
-- no REST endpoint models editor `open`, `flush`, or `close`;
-- no milestone work is spent on auth, SDK generation, persistent replay, future resolver kinds, rich provenance, or generic driver routing.
-
-Do not bundle mounts, `system:`, scripts, stores, or the wire into REST v1. The goal is a small, trustworthy reference boundary over behavior that already exists, proven by two clients.
+Implementation and follow-up verification are recorded in **Current implementation → Last verified** above. All milestone gates passed.
 
 ---
 
 ## Milestone 2 — finish the whole-workspace daily driver
 
-**Status: Partial.**
+**Status: Next.**
 
 ### Already implemented
 

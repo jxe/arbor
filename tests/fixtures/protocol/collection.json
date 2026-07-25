@@ -1,0 +1,12 @@
+{
+  "path": "/books",
+  "backing": "csv",
+  "columns": ["title"],
+  "rows": [
+    { "key": "one", "values": { "title": "One" }, "diagnostics": [] }
+  ],
+  "nextCursor": null,
+  "diagnostics": [],
+  "editable": false,
+  "observedThrough": "11111111-1111-1111-1111-111111111111:4"
+}

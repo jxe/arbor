@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "future-error-code",
+    "message": "A future server returned a new error",
+    "retryable": false,
+    "path": "/notes/today"
+  }
+}

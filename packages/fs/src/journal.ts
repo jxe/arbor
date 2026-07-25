@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { ArborBlock } from "@arbor/core";
+import { sha256, type ArborBlock, type MutationEffect, type MutationReceipt } from "@arbor/core";
 import { blockFingerprint, parseMarkdown, serializeBlocks } from "@arbor/editor";
 import { writeAtomic } from "./file-ops.ts";
 
@@ -21,6 +21,16 @@ export interface RecoveryEntry {
   parent: string | null;
   status: "lost" | "purged";
   changedAt: number;
+}
+
+export interface DurableMutationRecord {
+  mutationID: string;
+  requestHash: string;
+  request: unknown;
+  state: "pending" | "materialized" | "completed";
+  expectedEffects?: MutationEffect[];
+  effects?: MutationEffect[];
+  receipt?: MutationReceipt;
 }
 
 interface FlatBlock {
@@ -164,6 +174,80 @@ export class WriteJournal {
     try { return Number((await readFile(this.watermarkPath(pageID), "utf8")).trim()) || 0; } catch { return 0; }
   }
 
-  private path(pageID: string): string { return join(this.directory, `${pageID}.jsonl`); }
-  private watermarkPath(pageID: string): string { return join(this.directory, `${pageID}.watermark`); }
+  private pageKey(pageID: string): string {
+    return /^[a-z0-9]{6}$/.test(pageID) ? pageID : `id-${sha256(pageID)}`;
+  }
+
+  private path(pageID: string): string { return join(this.directory, `${this.pageKey(pageID)}.jsonl`); }
+  private watermarkPath(pageID: string): string { return join(this.directory, `${this.pageKey(pageID)}.watermark`); }
+}
+
+export class MutationJournal {
+  constructor(private directory: string) {}
+
+  async prepare(mutationID: string, requestHash: string, request: unknown): Promise<DurableMutationRecord> {
+    const existing = await this.get(mutationID);
+    if (existing) return existing;
+    const record: DurableMutationRecord = { mutationID, requestHash, request, state: "pending" };
+    await this.write(record);
+    return record;
+  }
+
+  async markMaterialized(mutationID: string, requestHash: string, effects: MutationEffect[]): Promise<DurableMutationRecord> {
+    const current = await this.get(mutationID);
+    if (!current || current.requestHash !== requestHash) throw new Error(`Mutation journal mismatch: ${mutationID}`);
+    if (current.state === "completed") return current;
+    const record: DurableMutationRecord = { ...current, state: "materialized", effects };
+    await this.write(record);
+    return record;
+  }
+
+  async markExpected(mutationID: string, requestHash: string, effects: MutationEffect[]): Promise<DurableMutationRecord> {
+    const current = await this.get(mutationID);
+    if (!current || current.requestHash !== requestHash) throw new Error(`Mutation journal mismatch: ${mutationID}`);
+    if (current.state !== "pending") return current;
+    const record: DurableMutationRecord = { ...current, expectedEffects: effects };
+    await this.write(record);
+    return record;
+  }
+
+  async complete(mutationID: string, requestHash: string, receipt: MutationReceipt): Promise<DurableMutationRecord> {
+    const current = await this.get(mutationID);
+    if (!current || current.requestHash !== requestHash) throw new Error(`Mutation journal mismatch: ${mutationID}`);
+    if (current.state === "completed") return current;
+    const record: DurableMutationRecord = { ...current, state: "completed", effects: receipt.effects, receipt };
+    await this.write(record);
+    return record;
+  }
+
+  async get(mutationID: string): Promise<DurableMutationRecord | null> {
+    try {
+      return JSON.parse(await readFile(this.path(mutationID), "utf8")) as DurableMutationRecord;
+    } catch {
+      return null;
+    }
+  }
+
+  async pending(): Promise<DurableMutationRecord[]> {
+    const { readdir } = await import("node:fs/promises");
+    try {
+      const entries = await readdir(this.directory);
+      const records = await Promise.all(entries.filter((entry) => entry.endsWith(".json")).map(async (entry) => {
+        try { return JSON.parse(await readFile(join(this.directory, entry), "utf8")) as DurableMutationRecord; }
+        catch { return null; }
+      }));
+      return records.filter((record): record is DurableMutationRecord => Boolean(record && record.state !== "completed"));
+    } catch {
+      return [];
+    }
+  }
+
+  private async write(record: DurableMutationRecord): Promise<void> {
+    await mkdir(this.directory, { recursive: true });
+    await writeAtomic(this.path(record.mutationID), JSON.stringify(record));
+  }
+
+  private path(mutationID: string): string {
+    return join(this.directory, `${sha256(mutationID)}.json`);
+  }
 }

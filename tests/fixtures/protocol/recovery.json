@@ -1,0 +1,13 @@
+{
+  "ref": { "path": "/notes/today", "pageID": "abc123" },
+  "entries": [
+    {
+      "hash": "sha256:lost",
+      "markdown": "Lost paragraph\n",
+      "parent": null,
+      "status": "lost",
+      "changedAt": 1770000000
+    }
+  ],
+  "observedThrough": "11111111-1111-1111-1111-111111111111:4"
+}

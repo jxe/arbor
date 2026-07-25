@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ArborBlock, TreeNode } from "@arbor/core";
+import type { ArborBlock, NodeSnapshot } from "@arbor/core";
 import {
   EditorCoordinator,
   type DocumentSnapshot,
@@ -31,12 +31,13 @@ function paragraph(id: string, content: string): ArborBlock {
   return { id, type: "paragraph", content, props: {}, children: [] };
 }
 
-function tree(revision: string, snapshot: DocumentSnapshot): TreeNode {
+function tree(revision: string, snapshot: DocumentSnapshot): NodeSnapshot {
   return {
+    ref: { path: "/page", pageID: "abc123" },
     path: "/page",
     name: "page",
     kind: "markdown",
-    revision,
+    contentRevision: revision,
     writable: true,
     materialization: "available",
     document: {
@@ -46,6 +47,7 @@ function tree(revision: string, snapshot: DocumentSnapshot): TreeNode {
       bodySource: "",
     },
     diagnostics: [],
+    observedThrough: `test:${revision}`,
   };
 }
 
@@ -54,7 +56,7 @@ function harness(initial: DocumentSnapshot) {
   let captured = structuredClone(initial);
   const applied: DocumentSnapshot[] = [];
   const writes: DocumentSnapshot[] = [];
-  const accepted: TreeNode[] = [];
+  const accepted: NodeSnapshot[] = [];
   const coordinator = new EditorCoordinator({
     path: "/page",
     revision: "r0",

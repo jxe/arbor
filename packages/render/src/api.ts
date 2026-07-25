@@ -1,5 +1,12 @@
-import type { CollectionPage, NodeWriteRequest, SearchResult, TreeNode } from "@arbor/core";
-import type { FsMutationRequest, FsMutationResult } from "@arbor/fs";
+import {
+  ArbordClient,
+  type ArborBlock,
+  type MutationEffect,
+  type MutationReceipt,
+  type NodeRef,
+  type NodeSnapshot,
+  type StructuralWorkspaceOperation,
+} from "@arbor/client";
 
 export interface BrowserImportEntry {
   path: string;
@@ -7,40 +14,61 @@ export interface BrowserImportEntry {
   file?: File;
 }
 
-async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
-  const value = await response.json() as T & { error?: string };
-  if (!response.ok) {
-    const error = new Error(value.error ?? response.statusText) as Error & { status: number; payload: typeof value };
-    error.status = response.status;
-    error.payload = value;
-    throw error;
-  }
-  return value;
+export interface BrowserMutationResult {
+  receipt: MutationReceipt;
+  created: string[];
+  updated: string[];
+  moved: Array<{ from: string; to: string }>;
+  deleted: string[];
 }
 
+function result(receipt: MutationReceipt): BrowserMutationResult {
+  return {
+    receipt,
+    created: receipt.effects.filter((effect) => effect.kind === "created").map((effect) => effect.path),
+    updated: receipt.effects.filter((effect) => effect.kind === "updated").map((effect) => effect.path),
+    moved: receipt.effects.flatMap((effect) =>
+      effect.kind === "moved" && effect.previousPath ? [{ from: effect.previousPath, to: effect.path }] : []
+    ),
+    deleted: receipt.effects.filter((effect) => effect.kind === "deleted").map((effect) => effect.path),
+  };
+}
+
+const client = new ArbordClient();
+const refOf = (value: string | NodeRef): NodeRef => typeof value === "string" ? { path: value } : value;
+
+export type BrowserOperation = StructuralWorkspaceOperation;
+export type BrowserEffect = MutationEffect;
+
 export const api = {
-  node: (path: string) => request<TreeNode>(`/v/tree${path === "/" ? "/" : path}`),
-  collection: (path: string, cursor?: string | null) => request<CollectionPage>(`/v/collection${path}?cursor=${encodeURIComponent(cursor ?? "0")}`),
-  search: (query: string) => request<SearchResult[]>(`/v/search?q=${encodeURIComponent(query)}`),
-  write: (path: string, body: NodeWriteRequest) => request<TreeNode>(`/v/node${path}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
-  mutate: (body: FsMutationRequest) => request<FsMutationResult>("/v/fs/mutate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
-  import: (destination: string, entries: BrowserImportEntry[]) => {
-    const form = new FormData();
-    form.set("destination", destination);
-    const manifest = entries.map((entry, index) => {
-      if (entry.kind === "directory") return { path: entry.path, kind: entry.kind };
-      const field = `file-${index}`;
-      if (!entry.file) throw new Error(`Missing imported file: ${entry.path}`);
-      form.set(field, entry.file, entry.file.name);
-      return { path: entry.path, kind: entry.kind, field };
+  client,
+  node: (ref: string | NodeRef) => client.node(refOf(ref)),
+  openNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openNodeView(refOf(ref), signal),
+  collection: async (path: string, cursor?: string | null) => client.collection({ path }, cursor),
+  search: async (query: string) => (await client.search(query)).results,
+  write: async (
+    ref: string | NodeRef,
+    body: {
+      baseContentRevision: string;
+      frontmatterPatch?: Record<string, unknown | null>;
+      blocks: ArborBlock[];
+    },
+  ): Promise<NodeSnapshot> => {
+    await client.mutateContent({
+      op: "writeMarkdown",
+      ref: refOf(ref),
+      baseContentRevision: body.baseContentRevision,
+      frontmatterPatch: body.frontmatterPatch,
+      blocks: body.blocks,
     });
-    form.set("manifest", JSON.stringify(manifest));
-    return request<FsMutationResult>("/v/fs/import", { method: "POST", body: form });
+    return client.node(refOf(ref));
   },
-  trash: (path: string) => request<{ trashPath: string }>(`/v/node${path}`, { method: "DELETE" }),
-  restore: (path: string) => request<{ path: string }>("/v/restore", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) }),
-  recovery: (path: string) => request<Array<{ hash: string; markdown: string; status: string; changedAt: number }>>(`/v/recovery?path=${encodeURIComponent(path)}`),
-  restoreBlock: (path: string, hash: string) => request<TreeNode>("/v/recovery/restore", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, hash }) }),
-  asset: async (directory: string, file: File) => request<{ path: string; markdownPath: string }>(`/v/assets?directory=${encodeURIComponent(directory)}`, { method: "POST", headers: { "x-filename": file.name, "content-type": file.type }, body: file }),
+  mutate: async (body: { operations: StructuralWorkspaceOperation[] }) => result(await client.mutateStructural(body.operations)),
+  import: async (destination: string, entries: BrowserImportEntry[]) => result(await client.import({ path: destination }, entries)),
+  recovery: async (ref: string | NodeRef) => (await client.recovery(refOf(ref))).entries,
+  restoreBlock: async (ref: string | NodeRef, hash: string) => {
+    await client.mutateContent({ op: "restoreRecovery", ref: refOf(ref), hash });
+    return client.node(refOf(ref));
+  },
+  asset: async (directory: string, file: File) => client.asset({ path: directory }, file),
 };

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseMarkdown } from "@arbor/editor";
 import { WriteJournal } from "@arbor/arbord";
+import { MutationJournal } from "@arbor/fs";
 
 const directories: string[] = [];
 afterEach(async () => Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))));
@@ -51,5 +52,27 @@ describe("write journal", () => {
     const entries = await journal.list("abc123", []);
     expect(entries[0]?.status).toBe("purged");
     expect(entries[0]?.markdown).toContain("Delete me");
+  });
+});
+
+describe("durable mutation journal", () => {
+  test("retains materialized effects and completed receipts across instances", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arbor-mutations-")); directories.push(directory);
+    const first = new MutationJournal(directory);
+    await first.prepare("mutation-1", "request-hash", { operations: [] });
+    await first.markMaterialized("mutation-1", "request-hash", [{ kind: "created", path: "/page" }]);
+
+    const reopened = new MutationJournal(directory);
+    expect(await reopened.get("mutation-1")).toMatchObject({
+      state: "materialized",
+      effects: [{ kind: "created", path: "/page" }],
+    });
+    const receipt = {
+      mutationID: "mutation-1",
+      eventCursor: "epoch:1",
+      effects: [{ kind: "created" as const, path: "/page" }],
+    };
+    await reopened.complete("mutation-1", "request-hash", receipt);
+    expect((await new MutationJournal(directory).get("mutation-1"))?.receipt).toEqual(receipt);
   });
 });

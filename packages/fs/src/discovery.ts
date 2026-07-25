@@ -1,6 +1,6 @@
 import { readFile, readdir, realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { nodePathFromPhysical, toTreePath } from "@arbor/core";
+import { isPageID, nodePathFromPhysical, toTreePath } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 
 export const IGNORED_WORKSPACE_DIRECTORIES = new Set([
@@ -23,7 +23,6 @@ export const WORKSPACE_WATCHER_IGNORE_GLOBS = [
   "**/*.arbor-write-*",
 ];
 
-const PAGE_ID = /^[a-z0-9]{6}$/;
 
 export interface DiscoveredWorkspaceFile {
   absolutePath: string;
@@ -43,6 +42,7 @@ export interface WorkspaceDiscovery {
   files: readonly DiscoveredWorkspaceFile[];
   directories: readonly DiscoveredWorkspaceDirectory[];
   pagePathsByID: ReadonlyMap<string, string>;
+  pageIDOwners: ReadonlyMap<string, readonly string[]>;
 }
 
 export function isIgnoredWorkspaceDirectory(name: string): boolean {
@@ -54,6 +54,7 @@ export async function discoverWorkspace(path: string): Promise<WorkspaceDiscover
   const files: DiscoveredWorkspaceFile[] = [];
   const directories: DiscoveredWorkspaceDirectory[] = [];
   const pagePathsByID = new Map<string, string>();
+  const pageIDOwners = new Map<string, string[]>();
 
   const walk = async (absoluteDirectory: string): Promise<void> => {
     const entries = await readdir(absoluteDirectory, { withFileTypes: true });
@@ -78,13 +79,18 @@ export async function discoverWorkspace(path: string): Promise<WorkspaceDiscover
       if (!entry.name.endsWith(".md")) continue;
       try {
         const id = parseMarkdown(await readFile(absolutePath, "utf8")).frontmatter.id;
-        if (typeof id === "string" && PAGE_ID.test(id) && !pagePathsByID.has(id)) {
-          pagePathsByID.set(id, nodePathFromPhysical(treePath));
+        if (isPageID(id)) {
+          const path = nodePathFromPhysical(treePath);
+          const owners = pageIDOwners.get(id) ?? [];
+          owners.push(path);
+          pageIDOwners.set(id, owners);
+          if (!pagePathsByID.has(id)) pagePathsByID.set(id, path);
         }
       } catch {}
     }
   };
 
   await walk(root);
-  return { root, files, directories, pagePathsByID };
+  for (const owners of pageIDOwners.values()) owners.sort();
+  return { root, files, directories, pagePathsByID, pageIDOwners };
 }

@@ -1,4 +1,5 @@
-import type { ArborBlock, TreeNode } from "@arbor/core";
+import type { ArborBlock } from "@arbor/core";
+import type { NodeSnapshot } from "@arbor/client";
 import { mergeBlocks } from "@arbor/editor";
 
 export const AUTOSAVE_DELAY_MS = 750;
@@ -23,9 +24,9 @@ export interface EditorClock {
 
 interface EditorCoordinatorCallbacks {
   capture(): DocumentSnapshot;
-  write(path: string, baseRevision: string, snapshot: DocumentSnapshot, base: DocumentSnapshot): Promise<TreeNode>;
+  write(path: string, baseRevision: string, snapshot: DocumentSnapshot, base: DocumentSnapshot): Promise<NodeSnapshot>;
   applySnapshot(snapshot: DocumentSnapshot): void;
-  acceptNode(node: TreeNode): void;
+  acceptNode(node: NodeSnapshot): void;
   notify(): void;
 }
 
@@ -231,8 +232,8 @@ export class EditorCoordinator {
     }
   }
 
-  reconcileServer(node: TreeNode, displayed: DocumentSnapshot): void {
-    this.revision = node.revision;
+  reconcileServer(node: NodeSnapshot, displayed: DocumentSnapshot): void {
+    this.revision = node.contentRevision!;
     this.base = {
       blocks: structuredClone(node.document?.blocks ?? []),
       frontmatter: structuredClone(node.document?.frontmatter ?? {}),
@@ -248,13 +249,13 @@ export class EditorCoordinator {
     }
   }
 
-  observeExternal(node: TreeNode): void {
+  observeExternal(node: NodeSnapshot): void {
     if (this.isDirty || this.saveInFlight) {
       this.setStatus("external");
       this.scheduleSave(0);
       return;
     }
-    this.revision = node.revision;
+    this.revision = node.contentRevision!;
     this.base = {
       blocks: structuredClone(node.document?.blocks ?? []),
       frontmatter: structuredClone(node.document?.frontmatter ?? {}),
@@ -275,11 +276,11 @@ export class EditorCoordinator {
     const execute = async () => {
       this.setStatus("saving", null);
       try {
-        let saved: TreeNode;
+        let saved: NodeSnapshot;
         try {
           saved = await this.callbacks.write(this.path, forceRevision ?? this.revision, local, this.base);
         } catch (error) {
-          const conflict = error as Error & { status?: number; payload?: { current?: TreeNode } };
+          const conflict = error as Error & { status?: number; payload?: { current?: NodeSnapshot } };
           if (conflict.status !== 409 || !conflict.payload?.current?.document) throw error;
           const current = conflict.payload.current;
           const currentDocument = current.document!;
@@ -292,7 +293,7 @@ export class EditorCoordinator {
             return;
           }
           const mergedSnapshot = { blocks: merged.blocks, frontmatter: local.frontmatter };
-          saved = await this.callbacks.write(this.path, current.revision, mergedSnapshot, this.base);
+          saved = await this.callbacks.write(this.path, current.contentRevision!, mergedSnapshot, this.base);
           if (!sameSnapshot(mergedSnapshot, local)) {
             this.applying = true;
             try {
@@ -309,7 +310,7 @@ export class EditorCoordinator {
           }
           this.setMessage("Merged an external edit.");
         }
-        this.revision = saved.revision;
+        this.revision = saved.contentRevision!;
         this.base = {
           blocks: structuredClone(saved.document?.blocks ?? []),
           frontmatter: structuredClone(saved.document?.frontmatter ?? {}),
@@ -343,7 +344,7 @@ export class EditorCoordinator {
     if (this.isDirty) throw new Error("Resolve or retry the unsaved document changes before changing the filesystem.");
   }
 
-  useDisk(node: TreeNode, local: DocumentSnapshot, disk: DocumentSnapshot): void {
+  useDisk(node: NodeSnapshot, local: DocumentSnapshot, disk: DocumentSnapshot): void {
     this.flushHistory();
     this.pushHistory({
       label: "Use disk version",
@@ -351,7 +352,7 @@ export class EditorCoordinator {
       redo: () => this.applyHistorySnapshot(disk),
     });
     this.generationValue = this.durableGenerationValue;
-    this.revision = node.revision;
+    this.revision = node.contentRevision!;
     this.base = cloneSnapshot(disk);
     this.applying = true;
     try {

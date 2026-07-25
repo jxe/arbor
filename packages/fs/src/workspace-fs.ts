@@ -5,6 +5,7 @@ import * as watcher from "@parcel/watcher";
 import type { Diagnostic, MarkdownDocument } from "@arbor/core";
 import {
   canonicalNodePath,
+  isPageID,
   directoryIndexTreePath,
   ensureContainedPath,
   nodeDisplayName,
@@ -18,7 +19,7 @@ import {
   siblingMarkdownTreePath,
   toTreePath,
 } from "@arbor/core";
-import { mintPageID, parseMarkdown, serializeMarkdown } from "@arbor/editor";
+import { mintPageID, parseMarkdown, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
 import { commitPrepared, pathExists, prepareAtomic, removeIfExists, syncDirectory, transactionTemporaryPath, writeAtomic } from "./file-ops.ts";
 import {
   discoverWorkspace,
@@ -47,7 +48,6 @@ import {
 const RESERVED = new Set(["schema.ts", "_store.csv", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
 const IGNORED = IGNORED_WORKSPACE_DIRECTORIES;
 const EMPTY_REVISION = revisionOf("");
-const PAGE_ID = /^[a-z0-9]{6}$/;
 
 interface AuthoredRevision {
   revision: string;
@@ -122,6 +122,7 @@ interface TransactionStep {
 
 interface TransactionRecord {
   id: string;
+  mutationID?: string;
   phase: "prepared" | "committing" | "committed" | "interrupted";
   steps: TransactionStep[];
   changes: FsChange[];
@@ -211,6 +212,7 @@ export class WorkspaceFS implements AsyncDisposable {
   private mutationTail: Promise<unknown> = Promise.resolve();
   private transactionDirectory: string;
   private pendingDiagnostics: Diagnostic[] = [];
+  private recoveredMutationResults: Array<{ mutationID: string; result: FsMutationResult }> = [];
   private initialDiscovery?: WorkspaceDiscovery;
 
   private constructor(root: string, options: WorkspaceFSOptions) {
@@ -363,7 +365,7 @@ export class WorkspaceFS implements AsyncDisposable {
     const byteRevision = revisionOf(bytes);
     if (node.kind === "file") return { node, bytes, byteRevision };
     let document = parseMarkdown(new TextDecoder().decode(bytes));
-    const pageID = typeof document.frontmatter.id === "string" && PAGE_ID.test(document.frontmatter.id) ? document.frontmatter.id : null;
+    const pageID = isPageID(document.frontmatter.id) ? document.frontmatter.id : null;
     if (pageID) {
       this.knownIDs.add(pageID);
       if (!this.pagePathsByID.has(pageID)) this.pagePathsByID.set(pageID, node.path);
@@ -411,11 +413,24 @@ export class WorkspaceFS implements AsyncDisposable {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  writeMarkdown(inputPath: string, request: MarkdownWriteRequest): Promise<FsWriteResult> {
-    return this.writeMarkdownInternal(inputPath, request);
+  writeMarkdown(
+    inputPath: string,
+    request: MarkdownWriteRequest,
+    options: {
+      onPrepared?: (result: FsWriteResult) => void | Promise<void>;
+      onMaterialized?: (result: FsWriteResult) => void | Promise<void>;
+    } = {},
+  ): Promise<FsWriteResult> {
+    return this.writeMarkdownInternal(inputPath, request, undefined, options.onMaterialized, options.onPrepared);
   }
 
-  private async writeMarkdownInternal(inputPath: string, request: MarkdownWriteRequest, transactionId?: string): Promise<FsWriteResult> {
+  private async writeMarkdownInternal(
+    inputPath: string,
+    request: MarkdownWriteRequest,
+    transactionId?: string,
+    onMaterialized?: (result: FsWriteResult) => void | Promise<void>,
+    onPrepared?: (result: FsWriteResult) => void | Promise<void>,
+  ): Promise<FsWriteResult> {
     const path = canonicalNodePath(inputPath);
     const coordinator = this.coordinator(path);
     const execute = async (generation: number) => {
@@ -434,7 +449,7 @@ export class WorkspaceFS implements AsyncDisposable {
       }
       const document = parseMarkdown(current);
       const patch = { ...(request.frontmatterPatch ?? {}) };
-      let pageID = typeof document.frontmatter.id === "string" && PAGE_ID.test(document.frontmatter.id) ? document.frontmatter.id : undefined;
+      let pageID = isPageID(document.frontmatter.id) ? document.frontmatter.id : undefined;
       if (!pageID) {
         pageID = mintPageID(this.knownIDs);
         patch.id = pageID;
@@ -448,6 +463,18 @@ export class WorkspaceFS implements AsyncDisposable {
       await this.journal.commit(pageID, document.blocks, request.blocks);
       const output = serializeMarkdown(document, request.blocks, patch);
       const bytes = new TextEncoder().encode(output);
+      const parsed = parseMarkdown(output);
+      const byteRevision = revisionOf(bytes);
+      const preview = {
+        node: await this.resolve(path),
+        bytes,
+        byteRevision,
+        bodyRevision: bodyRevision(parsed),
+        document: parsed,
+        pageID,
+        generation,
+      };
+      await onPrepared?.(preview);
       const temporary = await prepareAtomic(target, bytes);
       await this.fault("write:prepared");
       const justBefore = await readFile(target, "utf8").catch(() => "");
@@ -458,8 +485,8 @@ export class WorkspaceFS implements AsyncDisposable {
       await commitPrepared(temporary, target);
       await this.fault("write:replaced");
       await this.journal.markMaterialized(pageID);
-      const parsed = parseMarkdown(output);
-      const byteRevision = revisionOf(bytes);
+      const result = { node: await this.resolve(path), bytes, byteRevision, bodyRevision: bodyRevision(parsed), document: parsed, pageID, generation };
+      await onMaterialized?.(result);
       coordinator.remember({ revision: byteRevision, bytes, bodyPath: target, generation }, this.settleDelayMs, transactionId
         ? () => {}
         : () => this.emit({
@@ -473,7 +500,7 @@ export class WorkspaceFS implements AsyncDisposable {
           settledGeneration: coordinator.durableGeneration,
         }));
       if (transactionId) this.suppress(path);
-      return { node: await this.resolve(path), bytes, byteRevision, bodyRevision: bodyRevision(parsed), document: parsed, pageID, generation };
+      return result;
     };
     return transactionId ? execute(coordinator.reserveGeneration()) : coordinator.enqueue(execute);
   }
@@ -494,26 +521,64 @@ export class WorkspaceFS implements AsyncDisposable {
     });
   }
 
-  mutate(request: FsMutationRequest): Promise<FsMutationResult> {
-    const execute = () => this.withNodeLocks(this.affectedMutationPaths(request), () => this.performMutation(request));
+  mutate(
+    request: FsMutationRequest,
+    options: {
+      mutationID?: string;
+      onMaterialized?: (result: FsMutationResult) => void | Promise<void>;
+    } = {},
+  ): Promise<FsMutationResult> {
+    const execute = () => this.withNodeLocks(
+      this.affectedMutationPaths(request),
+      () => this.performMutation(request, options),
+    );
     const run = this.mutationTail.then(execute, execute);
     this.mutationTail = run.then(() => undefined, () => undefined);
     return run;
   }
 
+  takeRecoveredMutationResults(): Array<{ mutationID: string; result: FsMutationResult }> {
+    return this.recoveredMutationResults.splice(0);
+  }
+
   async recovery(inputPath: string) {
     const current = await this.read(inputPath);
     const id = current.document?.frontmatter.id;
-    if (typeof id !== "string" || !PAGE_ID.test(id)) return [];
+    if (!isPageID(id)) return [];
     return this.journal.list(id, current.document!.blocks);
   }
 
-  async restoreBlock(inputPath: string, hash: string): Promise<FsWriteResult> {
+  async restoreBlock(
+    inputPath: string,
+    hash: string,
+    options: {
+      onPrepared?: (result: FsWriteResult) => void | Promise<void>;
+      onMaterialized?: (result: FsWriteResult) => void | Promise<void>;
+    } = {},
+  ): Promise<FsWriteResult> {
     const current = await this.read(inputPath);
     const id = current.document?.frontmatter.id;
-    if (typeof id !== "string" || !PAGE_ID.test(id)) throw new Error("Page has no durable identity");
+    if (!isPageID(id)) throw new Error("Page has no durable identity");
     const blocks = await this.journal.restore(id, hash, current.document!.blocks);
-    return this.writeMarkdown(inputPath, { baseRevision: current.byteRevision, blocks });
+    return this.writeMarkdown(inputPath, { baseRevision: current.byteRevision, blocks }, options);
+  }
+
+  async restoreMarkdownBytesForRollback(inputPath: string, bytes: Uint8Array | null): Promise<void> {
+    const path = canonicalNodePath(inputPath);
+    const resolved = await this.resolve(path);
+    const target = resolved.kind === "directory"
+      ? resolved.bodyPath ?? resolveTreePath(this.root, directoryIndexTreePath(path))
+      : resolved.kind === "markdown"
+        ? resolved.bodyPath!
+        : resolveTreePath(this.root, siblingMarkdownTreePath(path));
+    if (bytes) {
+      await writeAtomic(target, bytes);
+      const document = parseMarkdown(new TextDecoder().decode(bytes));
+      if (isPageID(document.frontmatter.id)) await this.journal.markMaterialized(document.frontmatter.id);
+    } else {
+      await removeIfExists(target);
+    }
+    this.suppress(path);
   }
 
   async drain(): Promise<void> {
@@ -575,7 +640,13 @@ export class WorkspaceFS implements AsyncDisposable {
     return this.coordinators.get(id ? `id:${id}` : canonical) ?? this.coordinators.get(canonical);
   }
 
-  private async performMutation(request: FsMutationRequest): Promise<FsMutationResult> {
+  private async performMutation(
+    request: FsMutationRequest,
+    options: {
+      mutationID?: string;
+      onMaterialized?: (result: FsMutationResult) => void | Promise<void>;
+    },
+  ): Promise<FsMutationResult> {
     if (!request.operations.length) throw new FsConflictError({ code: "unsupported-entry", path: "/" }, "A mutation must contain at least one operation");
     const destructiveSources = request.operations.flatMap((operation) =>
       operation.op === "rename" ? [canonicalNodePath(operation.path)]
@@ -641,6 +712,7 @@ export class WorkspaceFS implements AsyncDisposable {
 
     const record: TransactionRecord = {
       id,
+      mutationID: options.mutationID,
       phase: "prepared",
       steps,
       changes,
@@ -679,6 +751,8 @@ export class WorkspaceFS implements AsyncDisposable {
       record.phase = "committed";
       await writeAtomic(recordPath, JSON.stringify(record));
       await this.fault("mutation:committed");
+      const materializedResult = this.mutationResult(id, changes);
+      await options.onMaterialized?.(materializedResult);
       await rm(recordPath, { force: true });
     } catch (error) {
       if (error instanceof FsInjectedCrashError) throw error;
@@ -701,7 +775,7 @@ export class WorkspaceFS implements AsyncDisposable {
         try {
           if (snapshot.bytes) await writeAtomic(snapshot.bodyPath, snapshot.bytes);
           else await removeIfExists(snapshot.bodyPath);
-          if (snapshot.pageID && PAGE_ID.test(snapshot.pageID)) await this.journal.markMaterialized(snapshot.pageID);
+          if (snapshot.pageID && isPageID(snapshot.pageID)) await this.journal.markMaterialized(snapshot.pageID);
           this.suppress(snapshot.path);
         } catch { rollbackFailed = true; }
       }
@@ -718,8 +792,12 @@ export class WorkspaceFS implements AsyncDisposable {
       this.suppress(change.path);
     }
     this.emit({ type: "batch", path: "/", transactionId: id, origin: "local-api", classification: "echo", changes });
+    return this.mutationResult(id, changes);
+  }
+
+  private mutationResult(transactionId: string, changes: FsChange[]): FsMutationResult {
     return {
-      transactionId: id,
+      transactionId,
       changes,
       created: changes.filter((change) => change.kind === "created").map((change) => change.path),
       updated: changes.filter((change) => change.kind === "updated").map((change) => change.path),
@@ -896,6 +974,7 @@ export class WorkspaceFS implements AsyncDisposable {
         for (const part of parts) {
           const temporary = transactionTemporaryPath(part.destination, transactionId);
           await cp(part.source, temporary, { recursive: true, errorOnExist: true });
+          await this.remintCopiedPageIDs(temporary, part.kind, part.destination);
           steps.push({ temporary, destination: part.destination, kind: part.kind });
         }
         changes.push({ path: target, kind: "created" });
@@ -993,6 +1072,33 @@ export class WorkspaceFS implements AsyncDisposable {
       if (destinations.has(path) || await pathExists(path)) throw new FsConflictError({ code: "occupied-destination", path: logicalPath }, `Destination already exists: ${logicalPath}`);
       destinations.add(path);
     }
+  }
+
+  private async remintCopiedPageIDs(
+    physicalPath: string,
+    kind: "file" | "directory",
+    destinationPath: string,
+  ): Promise<void> {
+    if (kind === "directory") {
+      const entries = await readdir(physicalPath, { withFileTypes: true });
+      entries.sort((a, b) => a.name.localeCompare(b.name));
+      for (const entry of entries) {
+        await this.remintCopiedPageIDs(
+          join(physicalPath, entry.name),
+          entry.isDirectory() ? "directory" : "file",
+          join(destinationPath, entry.name),
+        );
+      }
+      return;
+    }
+    if (extname(destinationPath).toLowerCase() !== ".md") return;
+    const source = await readFile(physicalPath, "utf8");
+    const document = parseMarkdown(source);
+    if (!isPageID(document.frontmatter.id)) return;
+    const pageID = mintPageID(this.knownIDs);
+    this.knownIDs.add(pageID);
+    const output = `${patchFrontmatter(document.frontmatterSource, { id: pageID }) ?? ""}${document.bodySource}`;
+    await writeAtomic(physicalPath, output);
   }
 
   private async planImport(
@@ -1138,7 +1244,7 @@ export class WorkspaceFS implements AsyncDisposable {
     }
     if (current.document) {
       const id = current.document.frontmatter.id;
-      if (typeof id === "string" && PAGE_ID.test(id)) {
+      if (isPageID(id)) {
         await this.journal.observe(id, current.document.blocks);
         const previous = this.pagePathsByID.get(id);
         this.pagePathsByID.set(id, path);
@@ -1198,6 +1304,12 @@ export class WorkspaceFS implements AsyncDisposable {
         continue;
       }
       if (record.phase === "committed") {
+        if (record.mutationID) {
+          this.recoveredMutationResults.push({
+            mutationID: record.mutationID,
+            result: this.mutationResult(record.id, record.changes),
+          });
+        }
         await rm(path, { force: true });
         continue;
       }
@@ -1236,7 +1348,15 @@ export class WorkspaceFS implements AsyncDisposable {
         this.pendingDiagnostics.push(this.interruptedDiagnostic(record));
         record.phase = "interrupted";
         await writeAtomic(path, JSON.stringify(record));
-      } else await rm(path, { force: true });
+      } else {
+        if (record.mutationID) {
+          this.recoveredMutationResults.push({
+            mutationID: record.mutationID,
+            result: this.mutationResult(record.id, record.changes),
+          });
+        }
+        await rm(path, { force: true });
+      }
     }
   }
 

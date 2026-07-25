@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: [
+      { find: "@arbor/client", replacement: resolve(import.meta.dirname, "../client/src/index.ts") },
       { find: "@arbor/core/logical-path", replacement: resolve(import.meta.dirname, "../core/src/logical-path.ts") },
       { find: "@arbor/core/structural-rows", replacement: resolve(import.meta.dirname, "../core/src/structural-rows.ts") },
       { find: "@arbor/core", replacement: resolve(import.meta.dirname, "../core/src/index.ts") },

@@ -41,6 +41,7 @@ type NodeSnapshot = {
     path: LogicalPath;
     pageID?: PageID;
   };
+  path: LogicalPath;
   kind: "markdown" | "directory" | "collection" | "database" | "file";
   name: string;
   writable: boolean;
@@ -76,6 +77,20 @@ GET /v1/recovery?path=…
 
 Every state-bearing response includes `observedThrough`, establishing the event boundary described in §5. Collection rows and search results carry canonical paths and page IDs when those rows identify Markdown pages.
 
+Page sizes are fixed in v1: 100 children, 30 search results, and 100 collection rows. A continuation cursor is bound to the route's complete query, including reference, search text, and collection table. Supplying it with another query is `invalid-reference`. `nextCursor` is either the next opaque cursor or `null`; the server does not accept a caller-selected limit.
+
+The wire examples for these responses are the checked-in fixtures:
+
+| Route | Normative response fixture |
+|---|---|
+| `/v1/node` | [`tests/fixtures/protocol/node.json`](../tests/fixtures/protocol/node.json) |
+| `/v1/children` | [`tests/fixtures/protocol/children.json`](../tests/fixtures/protocol/children.json) |
+| `/v1/search` | [`tests/fixtures/protocol/search.json`](../tests/fixtures/protocol/search.json) |
+| `/v1/collection` | [`tests/fixtures/protocol/collection.json`](../tests/fixtures/protocol/collection.json) |
+| `/v1/recovery` | [`tests/fixtures/protocol/recovery.json`](../tests/fixtures/protocol/recovery.json) |
+
+Unknown descriptive fields are ignored by clients. The reference, revision, cursor, pagination, document/row data, diagnostics, and materialization fields shown in these fixtures are normative when applicable.
+
 ## 3. Authored mutations and receipts
 
 ### Request envelope
@@ -87,22 +102,60 @@ POST /v1/mutations
 ```
 
 ```ts
-type MutationRequest = {
-  mutationID: string;
-  operation: WorkspaceOperation;
-};
+type ContentWorkspaceOperation =
+  | {
+      op: "writeMarkdown";
+      ref: NodeRef;
+      baseContentRevision: ContentRevision;
+      frontmatterPatch?: Record<string, unknown | null>;
+      blocks: ArborBlock[];
+    }
+  | {
+      op: "restoreRecovery";
+      ref: NodeRef;
+      hash: string;
+      baseContentRevision?: ContentRevision;
+    };
+
+type StructuralWorkspaceOperation =
+  | { op: "createMarkdown"; path: LogicalPath; blocks?: ArborBlock[] }
+  | { op: "createDirectory"; path: LogicalPath }
+  | { op: "rename"; ref: NodeRef; name: string }
+  | {
+      op: "move";
+      refs: NodeRef[];
+      destination: NodeRef;
+      beforePath?: LogicalPath;
+      beforeBlockID?: string;
+      baseDirectoryRevision?: DirectoryRevision;
+    }
+  | { op: "copy"; refs: NodeRef[]; destination: NodeRef }
+  | { op: "trash"; refs: NodeRef[] }
+  | { op: "restore"; refs: NodeRef[] };
+
+type MutationRequest =
+  | {
+      mutationID: string;
+      operations: [ContentWorkspaceOperation];
+    }
+  | {
+      mutationID: string;
+      operations: [
+        StructuralWorkspaceOperation,
+        ...StructuralWorkspaceOperation[],
+      ];
+    };
 ```
 
-`WorkspaceOperation` is a closed discriminated union for operations Arbor currently supports:
+`mutationID` is a non-empty opaque string. Every mutation belongs to exactly one durability domain. A content mutation contains exactly one Markdown write or recovery restoration. A structural mutation contains a non-empty ordered batch of structural operations. Content operations may not be combined with each other or with structural operations. A rejected mixed-domain request records no mutation intent and returns `unsupported-operation`.
 
-- write Markdown/frontmatter;
-- create a page or directory;
-- move or copy logical nodes;
-- reorder/place children with a directory revision and explicit anchor;
-- move to Trash or restore;
-- restore selected recovery content.
+The complete structural batch either commits or has no logical effects. Structural operation order is authored intent and participates in the request hash. This boundary lets Markdown intents and structural transactions each provide crash-safe recovery without a cross-domain transaction coordinator.
 
-Each operation carries the relevant `NodeRef` and explicit preconditions such as `baseContentRevision` or `baseDirectoryRevision`. Physical filenames, transaction-temporary paths, watcher classifications, and filesystem-driver request types are never public fields.
+`refs` arrays are non-empty and retain their order. `move` is also the placement operation: `beforePath` identifies a child, while `beforeBlockID` identifies an authored block boundary in the destination directory body. If the named anchor no longer exists, arbord returns `missing-insertion-anchor`; it never silently appends. Logical mutations maintain generated structural rows themselves. Filesystem-only controls such as `updateDirectoryRows` are not protocol operations.
+
+The normative request example is [`tests/fixtures/protocol/mutation.json`](../tests/fixtures/protocol/mutation.json). [`tests/fixtures/protocol/operations.json`](../tests/fixtures/protocol/operations.json) contains separate valid requests covering every content and structural operation. Physical filenames, transaction-temporary paths, watcher classifications, and filesystem-driver request types are never public fields.
+
+Malformed envelopes, empty batches, mixed-domain batches, multiple-content batches, empty reference arrays, ambiguous references, and missing required operation fields are rejected before dispatch. [`tests/fixtures/protocol/mixed-mutation.json`](../tests/fixtures/protocol/mixed-mutation.json) is the normative rejected mixed-domain example.
 
 Asset and import bytes retain concrete transfer routes:
 
@@ -113,11 +166,25 @@ POST /v1/imports
 
 Their multipart metadata contains the same mutation ID and logical destination/preconditions. Successful transfers return the same receipt shape as JSON mutations. Arbor does not require a generic blob-staging service merely to make unlike byte transfers look uniform.
 
+`/v1/assets` has two `multipart/form-data` parts:
+
+- `metadata`, a JSON string matching [`asset-metadata.json`](../tests/fixtures/protocol/asset-metadata.json);
+- `file`, the uninterpreted asset bytes.
+
+It returns `{ "receipt": MutationReceipt, "path": LogicalPath, "markdownPath": string }`; `path` is the canonical asset path and `markdownPath` is the relative Markdown destination from the addressed directory.
+
+`/v1/imports` has:
+
+- `metadata`, a JSON string matching [`import-metadata.json`](../tests/fixtures/protocol/import-metadata.json);
+- one byte part for each file entry, named by that entry's `field`. Directory entries have no byte part.
+
+It returns a `MutationReceipt`. Metadata, entry ordering, filenames, and SHA-256 digests of transferred bytes participate in transfer identity. Retrying uses the same mutation ID, metadata, and bytes.
+
 ### Durability and idempotency
 
-For every authored mutation:
+For every authored mutation or transfer:
 
-1. arbord records the mutation ID, stable request hash, and authored intent durably before materializing its effects;
+1. arbord recursively sorts object keys, preserves array order, serializes the normalized request without insignificant whitespace, hashes it, and records that request hash plus authored intent durably before materializing effects;
 2. arbord performs the logical mutation with its content/directory preconditions;
 3. arbord durably records the completed receipt;
 4. only then may it report success.
@@ -146,6 +213,8 @@ type MutationReceipt = {
 ```
 
 One receipt covers the complete logical operation, including all sibling body/directory moves and parent directory-body changes. An HTTP success may not describe only the first physical file changed.
+
+[`tests/fixtures/protocol/receipt.json`](../tests/fixtures/protocol/receipt.json) is the normative receipt example. Effects are in logical publication order. `eventCursor` is the cursor of the last event published for the receipt, or the current cursor when the mutation produces no event.
 
 ## 4. Conflicts and errors
 
@@ -181,20 +250,26 @@ REST v1 defines codes for:
 - `occupied-destination`;
 - `unsafe-path`;
 - `mutation-mismatch`;
+- `read-only`;
+- `not-materialized`;
 - `unsupported-operation`;
-- `resync-required`.
+- `resync-required`;
+- `internal-error`.
 
 Fields not relevant to a code are omitted: `owners` belongs to duplicate identity/body errors, `anchor` to placement conflicts, `current` to stale revisions, and `mutationID` to idempotency failures. Physical paths and filesystem transaction details are never returned. Clients preserve and present unknown future codes without crashing, but REST v1 does not predeclare errors for unimplemented mounts, remote stores, grants, or deployment targets.
+
+[`tests/fixtures/protocol/error.json`](../tests/fixtures/protocol/error.json) deliberately uses an unknown code to prove forward-compatible decoding.
 
 HTTP status use is deliberately small:
 
 | Status | Meaning |
 |---|---|
 | `200` | Read succeeded, mutation committed, or an idempotent retry returned its original receipt |
-| `400` | Malformed request, invalid reference, or unsafe path |
+| `400` | Malformed request, invalid reference/query cursor, or unsafe path |
 | `404` | Referenced node or recovery entry does not exist |
-| `409` | Revision, destination, identity, anchor, mutation-ID, or event-cursor conflict |
-| `422` | Well-formed operation is not supported by this specified surface |
+| `405` | The route exists outside v1 or the requested method is not part of v1 |
+| `409` | Revision, destination, identity, anchor, mutation-ID, materialization, or event-cursor conflict |
+| `422` | A well-formed operation is unsupported or addresses read-only content |
 | `500` | Unexpected arbord failure; never used for a declared conflict |
 
 Stale content and stale directory placement are distinct conflicts. A client may merge/retry content or refresh/replan placement; it must never silently turn a missing anchor into append-at-end.
@@ -224,6 +299,17 @@ Last-Event-ID: {cursor}
 
 The query and header are equivalent; supplying both with different values is an invalid request. Each workspace event uses its cursor as the SSE `id`.
 
+```text
+: connected
+
+id: 11111111-1111-1111-1111-111111111111:5
+event: workspace
+data: {"cursor":"11111111-1111-1111-1111-111111111111:5","kind":"moved","path":"/archive/today","previousPath":"/notes/today","pageID":"abc123","contentRevision":"sha256:content","origin":"api","mutationID":"22222222-2222-2222-2222-222222222222"}
+
+```
+
+Frames are UTF-8, separated by a blank line, and may contain multiple `data:` lines whose values are joined with newline before JSON decoding. Comment/keepalive frames are ignored. The complete fixture is [`tests/fixtures/protocol/events.sse`](../tests/fixtures/protocol/events.sse).
+
 ```ts
 type WorkspaceEvent = {
   cursor: EventCursor;
@@ -242,6 +328,8 @@ Events are invalidations and observations, not replacement snapshots. A client f
 
 Arbord retains a bounded in-memory replay window for ordinary disconnects. If a cursor's epoch is not current or its sequence is no longer available, the event request returns `resync-required`; the client refetches visible state and follows from the new response cursor.
 
+The replay window contains 1,024 events. A cursor at the current sequence is valid and waits for later events. Events after an older retained cursor are delivered strictly by sequence. A client that needs several state requests begins following from the first snapshot's `observedThrough`; replay buffers changes that occur while subsequent visible listings are loaded.
+
 Replay is not persisted across arbord restarts. Event batching, compaction, and client-relative `echo` classification are absent. A client recognizes its own authored effect by `mutationID`; origin describes the authority path, not which subscriber is looking.
 
 ## 6. Reference-client behavior
@@ -255,9 +343,14 @@ Both clients:
 - generate unique mutation IDs;
 - retry an ambiguous transport failure only with the exact same mutation ID and request;
 - never automatically retry a conflict as a new mutation;
-- buffer or follow events from a response's `observedThrough` cursor;
-- surface `resync-required` to the higher-level owner, which refetches its visible state and resumes from the returned cursor;
+- expose separate prepared/convenience APIs for singleton content mutations and non-empty structural batches;
+- provide an observed-node view that begins buffering from the initial node snapshot before loading additional child pages;
+- turn `resync-required` in that observed view into a refreshed node snapshot and resume from its returned cursor;
 - preserve unknown error codes and ignore unknown descriptive response fields.
+
+The TypeScript client makes at most three total attempts after network termination or HTTP 500. It reuses the exact prepared request and mutation ID, never retries a declared conflict, and throws an ambiguous-transport error retaining the prepared request after the third ambiguous outcome. Its `openNodeView` helper starts observation after the first `/v1/node` response, buffers events while its directory convenience drains `/v1/children`, and emits either an event or a resynchronized snapshot.
+
+The Swift client is an actor with injectable `URLSession`, mutation-ID generator, and retry timing. It applies the same three-attempt rule, encodes multipart bodies once for exact retry, and exposes both raw observation and matching observed-node updates as `AsyncThrowingStream`.
 
 The TypeScript package is the only browser-facing API wrapper. The Swift package imports Foundation but not SwiftUI, TreeHopper, Hunch, Editor, or Clamshell.
 
@@ -270,7 +363,19 @@ Editor page sessions remain client-side:
 
 These behaviors do not create server `/open`, `/flush`, or `/close` endpoints.
 
-## 7. Feature-required extensions
+## 7. Conformance fixtures and runner
+
+The language-neutral fixtures live in [`tests/fixtures/protocol`](../tests/fixtures/protocol). Together they cover every read family, mutation and receipt values, an unknown error code, cursors, SSE framing, and both multipart manifests. Unknown descriptive fields are permitted; missing required fields and malformed values are tested against the live boundary.
+
+Run the cross-language contract with:
+
+```sh
+bun run test:protocol
+```
+
+[`tests/protocol/conformance.ts`](../tests/protocol/conformance.ts) runs the TypeScript fixture cases, starts a temporary arbord workspace, passes the fixture directory and live URL to `swift test --package-path native/Packages/ArborClient`, and tears the workspace down.
+
+## 8. Feature-required extensions
 
 The complete Arbor system adds concrete local operations when their owning feature is implemented:
 

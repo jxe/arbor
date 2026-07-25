@@ -7,7 +7,7 @@ A successor to the web built around three concepts: **a workspace**, the tree a 
 
 ## Current implementation
 
-The current implementation is a Bun workspace: `arbor dev <path>` indexes and watches a local tree, serves the TreeHopper React/BlockNote browser, renders CSV/JSONL/Markdown/Postgres collections, and journal-writes Markdown edits back to canonical files. The web editor uses the bundled Inter face, a Hunch-derived 708px writing column and block rhythm, adaptive light/dark colors, a collapsible workspace sidebar, and quiet property/action chrome without changing Markdown storage. Start from this checkout with:
+The current implementation is a Bun workspace: `arbor dev <path>` indexes and watches a local tree, serves the TreeHopper React/BlockNote browser, renders CSV/JSONL/Markdown/Postgres collections, and journal-writes Markdown edits back to canonical files. TreeHopper uses the REST v1 TypeScript client in `packages/client`; the matching Foundation-only Swift 6 client lives in `native/Packages/ArborClient` for later native integration. REST mutations stay within one durability domain—one content operation, one atomic structural batch, or one multipart transfer—and both clients provide an observed-node view that closes the snapshot/listing/event handoff. The web editor uses the bundled Inter face, a Hunch-derived 708px writing column and block rhythm, adaptive light/dark colors, a collapsible workspace sidebar, and quiet property/action chrome without changing Markdown storage. Start from this checkout with:
 
 ```sh
 bun install
@@ -31,10 +31,14 @@ bun install
 bunx playwright install chromium
 bun run typecheck
 bun test
+bun run test:protocol
 bun run build
 bun run test:e2e
 bun run test:performance
+swift test --package-path native/Packages/ArborClient
 ```
+
+`bun run test:protocol` is the cross-language conformance gate: it checks the shared JSON/SSE fixtures, starts a temporary live arbord, and runs the Swift tests against it. Running `swift test` directly checks the standalone package and fixture decoding; its live-server case is skipped when `ARBOR_TEST_URL` is absent.
 
 For hands-on testing without modifying the checked-in fixture, copy it to a scratch tree and start Arbor:
 
@@ -67,7 +71,7 @@ Working documents:
 
 - **[intro.md](intro.md)** — narrative introduction and pitch: from the agent-playground problems (sharing/syncing, human interface, containment) to a universal dynamic material that supersedes the web.
 - **[spec.md](spec.md)** — spec overview, v0.7, with the complete intended reference system split into topic files under [spec/](spec/): on-disk format, names and URLs, the `system:` tree/mounts/durability, arbord REST and its TypeScript/Swift clients, scripts, the browser, shared trees and the wire, and the CLI.
-- **[plan.md](plan.md)** — the reference-implementation record and roadmap: verified current capabilities, the next arbord REST v1 work, both TypeScript and Swift protocol clients, and later milestones for the daily driver, mounts, scripts, agents, SQLite, the wire, sharing, and publication.
+- **[plan.md](plan.md)** — the reference-implementation record and roadmap: verified current capabilities, implemented arbord REST v1 and both reference clients, and the next milestones for the daily driver, mounts, scripts, agents, SQLite, the wire, sharing, and publication.
 - **[plan-native.md](plan-native.md)** — the separate Swift/Hunch integration plan: adapting the Swift protocol client into provider/page-session boundaries, arbord-mediated macOS, direct Clamshell on iOS, migration, sidecars, and native product surfaces.
 - **[social-networking.md](social-networking.md)** — a thought experiment: with Arbor ubiquitous and the wire lowered to the transport layer, what remains of atproto, and how relays, AppViews, feeds, and labelers collapse into trees, watches, and queries.
 

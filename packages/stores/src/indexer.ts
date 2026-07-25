@@ -79,12 +79,12 @@ export class WorkspaceIndex {
     }
   }
 
-  search(query: string, limit = 30): SearchResult[] {
+  search(query: string, limit = 30, offset = 0): SearchResult[] {
     const escaped = query.trim().split(/\s+/).map((token) => `"${token.replaceAll('"', '""')}"*`).join(" ");
     if (!escaped) return [];
     const rows = this.database.query(
-      "SELECT path, title, snippet(docs, 2, '<mark>', '</mark>', '…', 24) AS excerpt, bm25(docs) AS rank FROM docs WHERE docs MATCH ? ORDER BY rank LIMIT ?",
-    ).all(escaped, limit) as Array<{ path: string; title: string; excerpt: string; rank: number }>;
+      "SELECT path, title, snippet(docs, 2, '<mark>', '</mark>', '…', 24) AS excerpt, bm25(docs) AS rank FROM docs WHERE docs MATCH ? ORDER BY rank LIMIT ? OFFSET ?",
+    ).all(escaped, limit, offset) as Array<{ path: string; title: string; excerpt: string; rank: number }>;
     return rows.map((row) => ({ path: row.path, title: row.title, excerpt: row.excerpt, score: -row.rank }));
   }
 

@@ -1,0 +1,56 @@
+[
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555551",
+    "operations": [
+      {
+        "op": "writeMarkdown",
+        "ref": { "pageID": "abc123", "pathHint": "/notes/today" },
+        "baseContentRevision": "sha256:content",
+        "frontmatterPatch": { "title": "Today", "obsolete": null },
+        "blocks": [
+          { "id": "block-1", "type": "paragraph", "content": "Updated", "children": [] }
+        ]
+      }
+    ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555552",
+    "operations": [
+      {
+        "op": "createMarkdown",
+        "path": "/notes/tomorrow",
+        "blocks": [
+          { "id": "block-2", "type": "paragraph", "content": "Tomorrow", "children": [] }
+        ]
+      },
+      { "op": "createDirectory", "path": "/archive" },
+      { "op": "rename", "ref": { "path": "/draft" }, "name": "published" },
+      {
+        "op": "move",
+        "refs": [{ "path": "/notes/tomorrow" }],
+        "destination": { "path": "/archive" },
+        "beforePath": "/archive/later",
+        "beforeBlockID": "anchor-block",
+        "baseDirectoryRevision": "sha256:directory"
+      },
+      {
+        "op": "copy",
+        "refs": [{ "path": "/notes/today" }],
+        "destination": { "path": "/archive" }
+      },
+      { "op": "trash", "refs": [{ "path": "/draft" }] },
+      { "op": "restore", "refs": [{ "path": "/Trash/draft" }] }
+    ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555553",
+    "operations": [
+      {
+        "op": "restoreRecovery",
+        "ref": { "pageID": "abc123", "pathHint": "/notes/today" },
+        "hash": "sha256:lost",
+        "baseContentRevision": "sha256:content"
+      }
+    ]
+  }
+]

@@ -177,6 +177,7 @@ describe("@arbor/fs logical nodes", () => {
     ["mutation:prepared", false],
     ["mutation:source-staged", true],
     ["mutation:destination-committed", true],
+    ["mutation:committed", true],
   ] as const) {
     test(`recovers an injected crash at ${point}`, async () => {
       const root = await mkdtemp(join(tmpdir(), "arbor-fs-crash-"));
@@ -186,12 +187,21 @@ describe("@arbor/fs logical nodes", () => {
         stateDirectory: state,
         faultInjector: (current) => { if (current === point) throw new Error("power loss"); },
       });
-      await expect(crashing.mutate({ operations: [{ op: "createFile", path: "/created.txt", bytes: new TextEncoder().encode("complete") }] })).rejects.toBeInstanceOf(FsInjectedCrashError);
+      await expect(crashing.mutate(
+        { operations: [{ op: "createFile", path: "/created.txt", bytes: new TextEncoder().encode("complete") }] },
+        { mutationID: `client-${point}` },
+      )).rejects.toBeInstanceOf(FsInjectedCrashError);
       await crashing[Symbol.asyncDispose]();
 
       const recovered = await WorkspaceFS.open(root, { stateDirectory: state });
       opened.push(recovered);
-      if (shouldExist) expect(await readFile(join(root, "created.txt"), "utf8")).toBe("complete");
+      if (shouldExist) {
+        expect(await readFile(join(root, "created.txt"), "utf8")).toBe("complete");
+        expect(recovered.takeRecoveredMutationResults()).toMatchObject([{
+          mutationID: `client-${point}`,
+          result: { changes: [{ path: "/created.txt", kind: "created" }] },
+        }]);
+      }
       else await expect(stat(join(root, "created.txt"))).rejects.toThrow();
     });
   }

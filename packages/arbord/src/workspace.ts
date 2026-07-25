@@ -2,60 +2,296 @@ import { mkdir, stat } from "node:fs/promises";
 import { basename, dirname, join, posix, relative } from "node:path";
 import type {
   ArborBlock,
+  ArbordErrorCode,
+  ChildrenPage,
   CollectionPage,
+  CollectionResultPage,
+  ContentWorkspaceOperation,
+  MutationEffect,
+  MutationReceipt,
+  MutationRequest,
+  NodeRef,
+  NodeSnapshot,
   NodeWriteRequest,
+  RecoveryPage,
   SearchResult,
+  SearchPage,
+  StructuralWorkspaceOperation,
   TreeChild,
   TreeNode,
+  WorkspaceOperation,
 } from "@arbor/core";
-import { canonicalNodePath, nodeDisplayName, resolveTreePath, sha256 } from "@arbor/core";
+import {
+  canonicalJSONString,
+  canonicalNodePath,
+  isPageID,
+  nodeDisplayName,
+  resolveTreePath,
+  revisionOf,
+  sha256,
+} from "@arbor/core";
 import {
   discoverWorkspace,
   type FsEvent,
   FsConflictError,
+  FsInjectedCrashError,
   type FsImportEntry,
+  type FsMutation,
   type FsMutationRequest,
+  type FsWriteResult,
+  MutationJournal,
   type WorkspaceDiscovery,
   WorkspaceFS,
 } from "@arbor/fs";
 import { CollectionStore, WorkspaceIndex, workspaceStateDirectory } from "@arbor/stores";
 import { EventBus } from "./events.ts";
 
-const EMPTY_REVISION = sha256("");
-const PAGE_ID = /^[a-z0-9]{6}$/;
+const EMPTY_REVISION = revisionOf("");
+export interface WorkspaceOptions {
+  faultInjector?: (stage: string) => void | Promise<void>;
+}
 
 export class RevisionConflictError extends Error {
   constructor(public current: TreeNode) { super("The file changed since it was opened"); }
+}
+
+export class ProtocolError extends Error {
+  constructor(
+    public code: ArbordErrorCode,
+    message: string,
+    public status: number,
+    public details: Partial<{
+      path: string;
+      current: NodeSnapshot;
+      owners: string[];
+      anchor: { beforePath?: string; beforeBlockID?: string };
+      mutationID: string;
+      retryable: boolean;
+    }> = {},
+  ) {
+    super(message);
+    this.name = "ProtocolError";
+  }
 }
 
 export class Workspace implements AsyncDisposable {
   readonly root: string;
   readonly events = new EventBus();
   readonly fs: WorkspaceFS;
+  readonly mutations: MutationJournal;
   private stateDirectory: string;
   private index: WorkspaceIndex;
   private collections = new CollectionStore();
   private idOwners = new Map<string, string>();
+  private idOwnerSets = new Map<string, readonly string[]>();
   private healingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private unsubscribeFS: () => void;
+  private faultInjector?: WorkspaceOptions["faultInjector"];
 
-  private constructor(root: string, stateDirectory: string, fs: WorkspaceFS, index: WorkspaceIndex) {
+  private constructor(root: string, stateDirectory: string, fs: WorkspaceFS, index: WorkspaceIndex, options: WorkspaceOptions) {
     this.root = root;
     this.stateDirectory = stateDirectory;
     this.fs = fs;
+    this.mutations = new MutationJournal(join(stateDirectory, "journal", "mutations"));
     this.index = index;
+    this.faultInjector = options.faultInjector;
     this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
   }
 
-  static async open(path: string): Promise<Workspace> {
+  static async open(path: string, options: WorkspaceOptions = {}): Promise<Workspace> {
     const stateDirectory = await workspaceStateDirectory(path);
-    const fs = await WorkspaceFS.open(path, { stateDirectory });
+    const fs = await WorkspaceFS.open(path, { stateDirectory, faultInjector: options.faultInjector });
     const discovery = fs.startupDiscovery();
     const index = new WorkspaceIndex(fs.root, join(stateDirectory, "index.sqlite"));
-    const workspace = new Workspace(fs.root, stateDirectory, fs, index);
+    const workspace = new Workspace(fs.root, stateDirectory, fs, index, options);
     workspace.idOwners = new Map(discovery.pagePathsByID);
+    workspace.idOwnerSets = new Map(discovery.pageIDOwners);
     await Promise.all([index.rebuild(discovery), workspace.generateTypes(discovery)]);
+    await workspace.finishRecoveredMutations();
     return workspace;
+  }
+
+  async snapshot(ref: NodeRef): Promise<NodeSnapshot> {
+    const observedThrough = this.events.currentCursor();
+    const path = await this.resolveRef(ref);
+    return this.snapshotFromTree(await this.node(path), observedThrough);
+  }
+
+  async children(ref: NodeRef, cursor?: string | null): Promise<ChildrenPage> {
+    const observedThrough = this.events.currentCursor();
+    const path = await this.resolveRef(ref);
+    const node = await this.node(path);
+    if (node.kind !== "directory" && node.kind !== "collection") {
+      throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
+    }
+    const offset = this.decodePageCursor(cursor, `children:${path}`);
+    const items = (node.children ?? []).slice(offset, offset + 100);
+    const nextOffset = offset + items.length;
+    return {
+      parent: { path, ...(isPageID(node.document?.frontmatter.id) ? { pageID: node.document.frontmatter.id } : {}) },
+      items,
+      nextCursor: nextOffset < (node.children?.length ?? 0) ? this.encodePageCursor(`children:${path}`, nextOffset) : null,
+      observedThrough,
+    };
+  }
+
+  async searchPage(query: string, cursor?: string | null): Promise<SearchPage> {
+    const observedThrough = this.events.currentCursor();
+    const offset = this.decodePageCursor(cursor, `search:${query}`);
+    const results = this.index.search(query, 30, offset).map((result) => {
+      const pageID = [...this.idOwners].find(([, path]) => path === result.path)?.[0];
+      return { ...result, ...(pageID ? { pageID } : {}) };
+    });
+    return {
+      results,
+      nextCursor: results.length === 30 ? this.encodePageCursor(`search:${query}`, offset + results.length) : null,
+      observedThrough,
+    };
+  }
+
+  async collectionPage(ref: NodeRef, cursor?: string | null, table?: string): Promise<CollectionResultPage> {
+    const observedThrough = this.events.currentCursor();
+    const path = await this.resolveRef(ref);
+    const offset = this.decodePageCursor(cursor, `collection:${path}:${table ?? ""}`);
+    return { ...(await this.collection(path, offset, 100, table)), observedThrough };
+  }
+
+  async recoveryPage(ref: NodeRef): Promise<RecoveryPage> {
+    const observedThrough = this.events.currentCursor();
+    const path = await this.resolveRef(ref);
+    const snapshot = await this.node(path);
+    return {
+      ref: { path, ...(isPageID(snapshot.document?.frontmatter.id) ? { pageID: snapshot.document.frontmatter.id } : {}) },
+      entries: await this.recovery(path),
+      observedThrough,
+    };
+  }
+
+  async executeMutation(request: MutationRequest): Promise<MutationReceipt> {
+    if (!request.mutationID || !Array.isArray(request.operations) || request.operations.length === 0) {
+      throw new ProtocolError("invalid-reference", "A mutation requires a non-empty mutation ID and operations array", 400);
+    }
+    const contentOperations = request.operations.filter((operation) =>
+      operation.op === "writeMarkdown" || operation.op === "restoreRecovery"
+    );
+    if (contentOperations.length > 0 && (contentOperations.length !== 1 || request.operations.length !== 1)) {
+      throw new ProtocolError(
+        "unsupported-operation",
+        "A content mutation contains exactly one operation and cannot be mixed with structural operations",
+        422,
+      );
+    }
+    const requestHash = sha256(canonicalJSONString(request));
+    const existing = await this.mutations.prepare(request.mutationID, requestHash, request);
+    await this.protocolFault("protocol:intent-recorded");
+    if (existing.requestHash !== requestHash) {
+      throw new ProtocolError("mutation-mismatch", "This mutation ID was already used for a different request", 409, {
+        mutationID: request.mutationID,
+      });
+    }
+    if (existing.receipt) return existing.receipt;
+    if (existing.state === "materialized" && existing.effects) {
+      return this.completeMaterialized(request.mutationID, requestHash, existing.effects, "recovery");
+    }
+
+    await this.protocolFault("protocol:preparation");
+    let materializationFaulted = false;
+    const effects = await this.performProtocolOperations(
+      request.operations,
+      async (materialized) => {
+        await this.mutations.markMaterialized(request.mutationID, requestHash, materialized);
+        materializationFaulted = true;
+        await this.protocolFault("protocol:materialized");
+      },
+      request.mutationID,
+      async (expected) => {
+        await this.mutations.markExpected(request.mutationID, requestHash, expected);
+      },
+    );
+    await this.mutations.markMaterialized(request.mutationID, requestHash, effects);
+    if (!materializationFaulted) await this.protocolFault("protocol:materialized");
+    return this.completeMaterialized(request.mutationID, requestHash, effects, "api");
+  }
+
+  async protocolFault(stage: string): Promise<void> {
+    try {
+      await this.faultInjector?.(stage);
+    } catch (error) {
+      throw new FsInjectedCrashError(stage, { cause: error });
+    }
+  }
+
+  async importV1(
+    mutationID: string,
+    destinationRef: NodeRef,
+    entries: FsImportEntry[],
+  ): Promise<MutationReceipt> {
+    return this.executeTransfer(
+      mutationID,
+      { kind: "import", destination: destinationRef, entries: entries.map(({ path, kind, bytes }) => ({ path, kind, digest: bytes ? sha256(bytes) : undefined })) },
+      async (markMaterialized) => {
+        const destination = await this.resolveRef(destinationRef);
+        return this.effectsFromFsResult(await this.fs.mutate(
+          { operations: [{ op: "import", destination, entries }] },
+          {
+            mutationID,
+            onMaterialized: async (result) => markMaterialized(await this.effectsFromFsResult(result)),
+          },
+        ));
+      },
+    );
+  }
+
+  async assetV1(
+    mutationID: string,
+    directoryRef: NodeRef,
+    filename: string,
+    bytes: Uint8Array,
+  ): Promise<{ receipt: MutationReceipt; path: string; markdownPath: string }> {
+    const extension = filename.includes(".") ? `.${filename.split(".").pop()!.toLowerCase().replace(/[^a-z0-9]/g, "")}` : "";
+    const assetPath = `/Assets/${sha256(bytes).slice(0, 16)}${extension}`;
+    let output: { path: string; markdownPath: string } | null = null;
+    const receipt = await this.executeTransfer(
+      mutationID,
+      { kind: "asset", directory: directoryRef, filename, digest: sha256(bytes) },
+      async (_, markExpected) => {
+        const directory = await this.resolveRef(directoryRef);
+        const assetsDirectory = await this.fs.resolve("/Assets");
+        const existingAsset = await this.fs.resolve(assetPath);
+        const expectedEffects: MutationEffect[] = [
+          ...(assetsDirectory.kind === "missing" ? [{
+            kind: "created" as const,
+            path: "/Assets",
+            contentRevision: EMPTY_REVISION,
+            directoryRevision: EMPTY_REVISION,
+          }] : []),
+          {
+            kind: existingAsset.kind === "missing" ? "created" : "updated",
+            path: assetPath,
+            contentRevision: revisionOf(bytes),
+          },
+        ];
+        await markExpected(expectedEffects);
+        output = await this.addAsset(directory, filename, bytes);
+        return expectedEffects;
+      },
+    );
+    if (!output) {
+      const path = receipt.effects.find((effect) => effect.path !== "/Assets")?.path;
+      if (!path) throw new ProtocolError("internal-error", "Stored asset receipt has no path", 500);
+      const directory = await this.resolveRef(directoryRef).catch(() =>
+        "path" in directoryRef
+          ? canonicalNodePath(directoryRef.path)
+          : canonicalNodePath(directoryRef.pathHint ?? "/")
+      );
+      const resolved = await this.fs.resolve(directory);
+      const physicalDirectory = resolved.directoryPath ?? dirname(resolved.bodyPath ?? this.root);
+      output = {
+        path,
+        markdownPath: relative(physicalDirectory, resolveTreePath(this.root, path)).split("/").join("/"),
+      };
+    }
+    return { receipt, ...output };
   }
 
   async node(inputPath: string): Promise<TreeNode> {
@@ -64,7 +300,9 @@ export class Workspace implements AsyncDisposable {
     if (resolved.kind === "missing") {
       const virtual = await this.postgresVirtualNode(resolved.path);
       if (virtual) return virtual;
-      throw new Error(`Node not found: ${resolved.path}`);
+      throw new ProtocolError("not-found", `Node not found: ${resolved.path}`, 404, {
+        path: resolved.path,
+      });
     }
 
     if (resolved.kind === "file") {
@@ -136,9 +374,13 @@ export class Workspace implements AsyncDisposable {
 
   search(query: string, limit = 30): SearchResult[] { return this.index.search(query, limit); }
 
-  async write(inputPath: string, request: NodeWriteRequest): Promise<TreeNode> {
+  async write(
+    inputPath: string,
+    request: NodeWriteRequest,
+    options: Parameters<WorkspaceFS["writeMarkdown"]>[2] = {},
+  ): Promise<TreeNode> {
     try {
-      await this.fs.writeMarkdown(inputPath, request);
+      await this.fs.writeMarkdown(inputPath, request, options);
       return this.node(inputPath);
     } catch (error) {
       if (error instanceof FsConflictError && error.details.code === "stale-revision") {
@@ -184,9 +426,342 @@ export class Workspace implements AsyncDisposable {
 
   recovery(inputPath: string) { return this.fs.recovery(inputPath); }
 
-  async restoreBlock(inputPath: string, hash: string): Promise<TreeNode> {
-    await this.fs.restoreBlock(inputPath, hash);
+  async restoreBlock(
+    inputPath: string,
+    hash: string,
+    options: {
+      onPrepared?: (result: FsWriteResult) => void | Promise<void>;
+      onMaterialized?: (result: FsWriteResult) => void | Promise<void>;
+    } = {},
+  ): Promise<TreeNode> {
+    await this.fs.restoreBlock(inputPath, hash, options);
     return this.node(inputPath);
+  }
+
+  private async performProtocolOperations(
+    operations: WorkspaceOperation[],
+    onMaterialized?: (effects: MutationEffect[]) => void | Promise<void>,
+    mutationID?: string,
+    onExpected?: (effects: MutationEffect[]) => void | Promise<void>,
+  ): Promise<MutationEffect[]> {
+    const contentOperations = operations.filter((operation): operation is ContentWorkspaceOperation =>
+      operation.op === "writeMarkdown" || operation.op === "restoreRecovery"
+    );
+    const structuralOperations = operations.filter((operation): operation is StructuralWorkspaceOperation =>
+      operation.op !== "writeMarkdown" && operation.op !== "restoreRecovery"
+    );
+    if (contentOperations.length === 1) {
+      const operation = contentOperations[0]!;
+      const path = await this.resolveRef(operation.ref);
+      return [await this.performContentOperation(operation, path, onMaterialized, onExpected)];
+    }
+
+    try {
+      const fsOperations: FsMutation[] = [];
+      for (const operation of structuralOperations) fsOperations.push(await this.protocolFsOperation(operation));
+      return await this.effectsFromFsResult(await this.fs.mutate(
+        { operations: fsOperations },
+        {
+          mutationID,
+          onMaterialized: onMaterialized
+            ? async (result) => onMaterialized(await this.effectsFromFsResult(result))
+            : undefined,
+        },
+      ));
+    } catch (error) {
+      if (
+        error instanceof FsConflictError
+        && error.details.code === "missing-insertion-anchor"
+      ) {
+        const operation = structuralOperations.find((candidate) =>
+          candidate.op === "move"
+          && (candidate.beforePath !== undefined || candidate.beforeBlockID !== undefined)
+        ) as Extract<WorkspaceOperation, { op: "move" }> | undefined;
+        throw new ProtocolError("missing-insertion-anchor", error.message, 409, {
+          path: error.details.path,
+          anchor: operation ? {
+            beforePath: operation.beforePath,
+            beforeBlockID: operation.beforeBlockID,
+          } : undefined,
+        });
+      }
+      if (
+        error instanceof FsConflictError
+        && error.details.code === "stale-revision"
+        && structuralOperations.some((operation) => operation.op === "move" && operation.baseDirectoryRevision !== undefined)
+      ) {
+        const current = await this.snapshot({ path: error.details.path }).catch(() => undefined);
+        throw new ProtocolError("stale-directory-revision", error.message, 409, {
+          path: error.details.path,
+          current,
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async performContentOperation(
+    operation: Extract<WorkspaceOperation, { op: "writeMarkdown" | "restoreRecovery" }>,
+    path: string,
+    onMaterialized?: (effects: MutationEffect[]) => void | Promise<void>,
+    onExpected?: (effects: MutationEffect[]) => void | Promise<void>,
+  ): Promise<MutationEffect> {
+    let saved: TreeNode;
+    if (operation.op === "writeMarkdown") {
+      saved = await this.write(path, {
+        baseRevision: operation.baseContentRevision,
+        frontmatterPatch: operation.frontmatterPatch,
+        blocks: operation.blocks,
+      }, {
+        onPrepared: onExpected
+          ? async (result) => onExpected([{
+            kind: "updated",
+            path: result.node.path,
+            pageID: result.pageID,
+            contentRevision: result.byteRevision,
+            directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
+          }])
+          : undefined,
+        onMaterialized: onMaterialized
+          ? async (result) => onMaterialized([{
+            kind: "updated",
+            path: result.node.path,
+            pageID: result.pageID,
+            contentRevision: result.byteRevision,
+            directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
+          }])
+          : undefined,
+      });
+    } else {
+      const current = await this.node(path);
+      if (operation.baseContentRevision && current.revision !== operation.baseContentRevision) {
+        throw new RevisionConflictError(current);
+      }
+      saved = await this.restoreBlock(path, operation.hash, {
+        onPrepared: onExpected
+          ? async (result) => onExpected([{
+            kind: "updated",
+            path: result.node.path,
+            pageID: result.pageID,
+            contentRevision: result.byteRevision,
+            directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
+          }])
+          : undefined,
+        onMaterialized: onMaterialized
+          ? async (result) => onMaterialized([{
+            kind: "updated",
+            path: result.node.path,
+            pageID: result.pageID,
+            contentRevision: result.byteRevision,
+            directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
+          }])
+          : undefined,
+      });
+    }
+    return {
+      kind: "updated",
+      path: saved.path,
+      pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
+      contentRevision: saved.revision,
+      directoryRevision: saved.kind === "directory" || saved.kind === "collection" ? saved.revision : undefined,
+    };
+  }
+
+  private async protocolFsOperation(operation: WorkspaceOperation): Promise<FsMutation> {
+    switch (operation.op) {
+      case "createDirectory":
+      case "createMarkdown":
+        return operation;
+      case "rename":
+        return { op: "rename", path: await this.resolveRef(operation.ref), name: operation.name };
+      case "move":
+        return {
+          op: "move",
+          paths: await Promise.all(operation.refs.map((ref) => this.resolveRef(ref))),
+          destination: await this.resolveRef(operation.destination),
+          beforePath: operation.beforePath,
+          beforeBlockId: operation.beforeBlockID,
+          directoryRevision: operation.baseDirectoryRevision,
+        };
+      case "copy":
+        return {
+          op: "copy",
+          paths: await Promise.all(operation.refs.map((ref) => this.resolveRef(ref))),
+          destination: await this.resolveRef(operation.destination),
+        };
+      case "trash":
+      case "restore":
+        return {
+          op: operation.op,
+          paths: await Promise.all(operation.refs.map((ref) => this.resolveRef(ref))),
+        };
+      default:
+        throw new ProtocolError("unsupported-operation", `Unsupported operation: ${operation.op}`, 422);
+    }
+  }
+
+  private async effectsFromFsResult(result: Awaited<ReturnType<WorkspaceFS["mutate"]>>): Promise<MutationEffect[]> {
+    const discovery = await discoverWorkspace(this.root);
+    this.idOwners = new Map(discovery.pagePathsByID);
+    this.idOwnerSets = new Map(discovery.pageIDOwners);
+    return Promise.all(result.changes.map(async (change) => {
+      let snapshot: TreeNode | null = null;
+      try { snapshot = await this.node(change.path); } catch {}
+      return {
+        kind: change.kind,
+        path: change.path,
+        previousPath: change.previousPath,
+        pageID: isPageID(snapshot?.document?.frontmatter.id) ? snapshot.document.frontmatter.id : undefined,
+        contentRevision: snapshot?.revision,
+        directoryRevision: snapshot && (snapshot.kind === "directory" || snapshot.kind === "collection")
+          ? snapshot.revision
+          : undefined,
+      };
+    }));
+  }
+
+  private async executeTransfer(
+    mutationID: string,
+    request: unknown,
+    perform: (
+      markMaterialized: (effects: MutationEffect[]) => Promise<void>,
+      markExpected: (effects: MutationEffect[]) => Promise<void>,
+    ) => Promise<MutationEffect[]>,
+  ): Promise<MutationReceipt> {
+    if (!mutationID) throw new ProtocolError("invalid-reference", "A mutation ID is required", 400);
+    const requestHash = sha256(canonicalJSONString({ mutationID, request }));
+    const existing = await this.mutations.prepare(mutationID, requestHash, request);
+    await this.protocolFault("protocol:intent-recorded");
+    if (existing.requestHash !== requestHash) {
+      throw new ProtocolError("mutation-mismatch", "This mutation ID was already used for different transfer bytes", 409, { mutationID });
+    }
+    if (existing.receipt) return existing.receipt;
+    if (existing.state === "materialized" && existing.effects) {
+      return this.completeMaterialized(mutationID, requestHash, existing.effects, "recovery");
+    }
+    await this.protocolFault("protocol:preparation");
+    let materializationFaulted = false;
+    const effects = await perform(async (materialized) => {
+      await this.mutations.markMaterialized(mutationID, requestHash, materialized);
+      materializationFaulted = true;
+      await this.protocolFault("protocol:materialized");
+    }, async (expected) => {
+      await this.mutations.markExpected(mutationID, requestHash, expected);
+    });
+    await this.mutations.markMaterialized(mutationID, requestHash, effects);
+    if (!materializationFaulted) await this.protocolFault("protocol:materialized");
+    return this.completeMaterialized(mutationID, requestHash, effects, "api");
+  }
+
+  private async completeMaterialized(
+    mutationID: string,
+    requestHash: string,
+    effects: MutationEffect[],
+    origin: "api" | "recovery",
+  ): Promise<MutationReceipt> {
+    let eventCursor = this.events.currentCursor();
+    for (const effect of effects) {
+      eventCursor = this.events.emit({
+        kind: effect.kind,
+        path: effect.path,
+        previousPath: effect.previousPath,
+        pageID: effect.pageID,
+        contentRevision: effect.contentRevision,
+        directoryRevision: effect.directoryRevision,
+        origin,
+        mutationID,
+      }).cursor;
+    }
+    await this.protocolFault("protocol:event-published");
+    const receipt: MutationReceipt = { mutationID, eventCursor, effects };
+    await this.mutations.complete(mutationID, requestHash, receipt);
+    await this.protocolFault("protocol:receipt-completed");
+    return receipt;
+  }
+
+  private async finishRecoveredMutations(): Promise<void> {
+    for (const recovered of this.fs.takeRecoveredMutationResults()) {
+      const record = await this.mutations.get(recovered.mutationID);
+      if (!record || record.state === "completed") continue;
+      if (record.state === "materialized") continue;
+      await this.mutations.markMaterialized(
+        recovered.mutationID,
+        record.requestHash,
+        await this.effectsFromFsResult(recovered.result),
+      );
+    }
+    for (const record of await this.mutations.pending()) {
+      if (record.state === "pending" && record.expectedEffects?.length) {
+        const matches = await Promise.all(record.expectedEffects.map(async (effect) => {
+          try {
+            const current = await this.node(effect.path);
+            return !effect.contentRevision || current.revision === effect.contentRevision;
+          } catch {
+            return false;
+          }
+        }));
+        if (matches.every(Boolean)) {
+          await this.mutations.markMaterialized(record.mutationID, record.requestHash, record.expectedEffects);
+          await this.completeMaterialized(record.mutationID, record.requestHash, record.expectedEffects, "recovery");
+          continue;
+        }
+      }
+      if (record.state !== "materialized" || !record.effects) continue;
+      await this.completeMaterialized(record.mutationID, record.requestHash, record.effects, "recovery");
+    }
+  }
+
+  private async resolveRef(ref: NodeRef): Promise<string> {
+    if ("path" in ref) return canonicalNodePath(ref.path);
+    if (!isPageID(ref.pageID)) {
+      throw new ProtocolError("invalid-reference", "A page reference requires a non-empty page ID", 400);
+    }
+    const owners = this.idOwnerSets.get(ref.pageID) ?? [];
+    if (owners.length > 1) {
+      throw new ProtocolError("duplicate-page-id", `Page ID ${ref.pageID} has multiple owners`, 409, {
+        owners: [...owners],
+      });
+    }
+    const owner = owners[0] ?? this.idOwners.get(ref.pageID);
+    if (!owner) {
+      throw new ProtocolError("not-found", `No page owns ID ${ref.pageID}`, 404, {
+        path: ref.pathHint,
+      });
+    }
+    return owner;
+  }
+
+  private snapshotFromTree(node: TreeNode, observedThrough: string): NodeSnapshot {
+    const pageID = isPageID(node.document?.frontmatter.id) ? node.document.frontmatter.id : undefined;
+    return {
+      ref: { path: node.path, ...(pageID ? { pageID } : {}) },
+      path: node.path,
+      name: node.name,
+      kind: node.kind === "postgres" ? "database" : node.kind,
+      writable: node.writable,
+      materialization: node.materialization,
+      contentRevision: node.revision,
+      directoryRevision: node.kind === "directory" || node.kind === "collection" ? node.revision : undefined,
+      document: node.document,
+      collection: node.collection,
+      diagnostics: node.diagnostics,
+      observedThrough,
+    };
+  }
+
+  private encodePageCursor(key: string, offset: number): string {
+    return Buffer.from(JSON.stringify({ key: sha256(key), offset })).toString("base64url");
+  }
+
+  private decodePageCursor(cursor: string | null | undefined, key: string): number {
+    if (!cursor) return 0;
+    try {
+      const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { key?: string; offset?: number };
+      if (value.key !== sha256(key) || !Number.isSafeInteger(value.offset) || value.offset! < 0) throw new Error();
+      return value.offset!;
+    } catch {
+      throw new ProtocolError("invalid-reference", "The page cursor does not belong to this query", 400);
+    }
   }
 
   async generateTypes(discovery?: WorkspaceDiscovery): Promise<void> {
@@ -303,7 +878,11 @@ export class Workspace implements AsyncDisposable {
   }
 
   private registerPageID(path: string, candidate: unknown): string | null {
-    if (typeof candidate !== "string" || !PAGE_ID.test(candidate)) return null;
+    if (!isPageID(candidate)) return null;
+    const owners = [...(this.idOwnerSets.get(candidate) ?? [])];
+    if (!owners.includes(path)) owners.push(path);
+    owners.sort();
+    this.idOwnerSets.set(candidate, owners);
     if (!this.idOwners.has(candidate)) this.idOwners.set(candidate, path);
     return candidate;
   }
@@ -315,6 +894,7 @@ export class Workspace implements AsyncDisposable {
   }
 
   private async handleFsEvent(event: FsEvent): Promise<void> {
+    const publish = event.origin !== "local-api";
     const updateIndex = async (path: string) => {
       const resolved = await this.fs.resolve(path);
       const absolute = resolved.kind === "directory" ? resolved.bodyPath : resolved.kind === "markdown" ? resolved.bodyPath : resolved.absolutePath;
@@ -327,6 +907,8 @@ export class Workspace implements AsyncDisposable {
     if (event.type === "batch") {
       try {
         const discovery = await discoverWorkspace(this.root);
+        this.idOwners = new Map(discovery.pagePathsByID);
+        this.idOwnerSets = new Map(discovery.pageIDOwners);
         await Promise.all([
           this.index.rebuild(discovery),
           this.generateTypes(discovery),
@@ -334,13 +916,24 @@ export class Workspace implements AsyncDisposable {
       } catch {}
     } else if (event.type === "moved" || event.type === "deleted") await this.index.rebuild().catch(() => {});
     else if (event.type !== "diagnostic") await updateIndex(event.path).catch(() => {});
+    if (!publish) return;
+    if (event.type === "batch") {
+      for (const change of event.changes ?? []) {
+        this.events.emit({
+          kind: change.kind,
+          path: change.path,
+          previousPath: change.previousPath,
+          origin: event.origin === "sync" ? "sync" : "external",
+        });
+      }
+      return;
+    }
     this.events.emit({
-      type: event.type,
+      kind: event.type,
       path: event.path,
       previousPath: event.previousPath,
-      revision: event.byteRevision,
-      classification: event.classification,
-      changes: event.changes,
+      contentRevision: event.byteRevision,
+      origin: event.origin === "sync" ? "sync" : "external",
     });
   }
 
@@ -349,7 +942,9 @@ export class Workspace implements AsyncDisposable {
     const healBlock = (block: ArborBlock): ArborBlock => {
       if (block.type === "rawMarkdown") return block;
       let changed = false;
-      const content = (block.content ?? "").replace(/\]\(([^)#]+)#([a-z0-9]{6})\)/g, (match, oldPath: string, id: string) => {
+      const content = (block.content ?? "").replace(/\]\(([^)#]+)#([^)\\s]+)\)/g, (match, oldPath: string, encodedID: string) => {
+        let id: string;
+        try { id = decodeURIComponent(encodedID); } catch { return match; }
         const owner = this.idOwners.get(id);
         if (!owner) return match;
         let desired = posix.relative(posix.dirname(treePath), owner);

@@ -1,6 +1,10 @@
 # Native build plan
 *The Swift/Hunch integration track for TreeHopper native. [plan.md](plan.md) owns arbord, REST v1, and both reference protocol clients—including the UI-independent Swift `ArborClient` package. This file owns the adapter from that client into native workspace/editor behavior, plus migration, Clamshell, iCloud compatibility, and native product surfaces.*
 
+**Core client dependency: Satisfied. Native provider/app integration: Planned.**
+
+The Foundation-only Swift package now lives at [`native/Packages/ArborClient`](native/Packages/ArborClient) in this repository and passes the shared fixture/live-server conformance runner. No Hunch source, native app target, `WorkspaceProvider`, or editor-session integration has moved here yet. The reserved future layout is `native/App` with native project configuration beside `native/Packages`.
+
 ## Founding architecture
 
 TreeHopper native has one editor integration and two workspace backends:
@@ -87,7 +91,7 @@ The exact Swift spelling may evolve, but the invariants may not:
 
 This plan implements exactly two native workspace backends: arbord on macOS and Clamshell on iOS or in deliberate arbord-less mode. It does not need a general backend plugin framework.
 
-The Swift `ArborClient` package is a deliverable of [plan.md](plan.md), even though its source lives beside Hunch. This plan:
+The Swift `ArborClient` package is an implemented deliverable of [plan.md](plan.md) at [`native/Packages/ArborClient`](native/Packages/ArborClient). This plan:
 
 - imports that package rather than copying its Codable REST values;
 - converts protocol snapshots into `Editor.Document` values;
@@ -116,9 +120,9 @@ Once provider conformance is complete, Clamshell's application-facing API can sh
 
 ## Dependency on the core plan
 
-This track consumes both the REST v1 contract and the completed Swift `ArborClient` package from the **arbord REST v1 and reference clients** milestone in [`plan.md`](plan.md). It does not redefine endpoints, Codable transport values, event fields, mutation receipts, durability semantics, or logical workspace operations here.
+This track consumes both the implemented REST v1 contract and completed in-repo Swift `ArborClient` package from the **arbord REST v1 and reference clients** milestone in [`plan.md`](plan.md). That dependency is satisfied. It does not redefine endpoints, Codable transport values, event fields, mutation receipts, durability semantics, or logical workspace operations here.
 
-Provider extraction may begin against Clamshell before REST v1 is complete. The arbord-backed adapter begins against the editing-kernel slice of the Swift client; the macOS cutover gate requires the core plan's page-reference, retry, durability, conflict, and lossless observation behavior to be implemented and tested. Later native mounts, collections, scripts, sharing, and provenance begin only when their corresponding core capability exists.
+Provider extraction and the arbord-backed adapter may now begin against the completed client. The macOS cutover still requires implementing and testing the native provider/session/editor mapping; satisfying the transport dependency does not complete Hunch migration or native integration. Later native mounts, collections, scripts, sharing, and provenance begin only when their corresponding core capability exists.
 
 `ArbordWorkspaceProvider` translates `ArborClient` into `WorkspaceProvider` and `WorkspacePageSession`. REST lifecycle and transport design remain owned by `plan.md`; editor lifecycle remains owned here.
 
@@ -137,7 +141,7 @@ This is complete when native editor functionality no longer depends on the concr
 
 1. Add the Swift `ArborClient` package delivered by `plan.md` as an app dependency without exposing it to the `Editor` package.
 2. Implement `ArbordWorkspaceProvider` as the mapping from protocol references/snapshots/errors/events into native workspace values.
-3. Implement a local `ArbordPageSession` generation queue over `ArborClient` reads, mutation receipts, and event/resync callbacks.
+3. Implement a local `ArbordPageSession` generation queue over `ArborClient.openNodeView`, domain-specific mutation receipts, and its event/resynchronized-snapshot updates.
 4. Adopt the protocol in the same slices as the core plan: editing kernel, navigation kernel, then current feature parity.
 5. Use arbord for macOS page reads, writes, search, mutations, assets, trash, and recovery.
 6. Keep Hunch's error banners and interaction behavior; swap the authority, not the product personality.

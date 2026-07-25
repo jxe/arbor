@@ -11,7 +11,7 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
   const treeRequests: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.pathname.startsWith("/v/tree/")) treeRequests.push(url.pathname);
+    if (url.pathname === "/v1/node") treeRequests.push(url.searchParams.get("path") ?? "");
   });
 
   await page.goto("/");
@@ -21,28 +21,28 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
   await page.getByRole("button", { name: "▸ books" }).click();
   await expect(page).toHaveURL(/\/render\/books$/);
   await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible();
-  expect(treeRequests).toEqual(["/v/tree/books"]);
+  expect(treeRequests).toEqual(["/books"]);
 
   treeRequests.length = 0;
   await page.getByRole("button", { name: "Open" }).click();
   await expect(page).toHaveURL(/\/render\/books\/one$/);
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
-  expect(treeRequests).toEqual(["/v/tree/books/one"]);
+  expect(treeRequests).toEqual(["/books/one"]);
 
   treeRequests.length = 0;
   await page.locator(".breadcrumbs button").filter({ hasText: "books" }).click();
   await expect(page).toHaveURL(/\/render\/books$/);
   await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible();
-  expect(treeRequests).toEqual(["/v/tree/books"]);
+  expect(treeRequests).toEqual(["/books"]);
 
   let releaseRoot!: () => void;
   let markRootStarted!: () => void;
   const rootGate = new Promise<void>((resolve) => { releaseRoot = resolve; });
   const rootStarted = new Promise<void>((resolve) => { markRootStarted = resolve; });
   let delayRoot = true;
-  await page.route("**/v/tree/**", async (route) => {
-    const pathname = new URL(route.request().url()).pathname;
-    if (delayRoot && pathname === "/v/tree/") {
+  await page.route("**/v1/node?*", async (route) => {
+    const url = new URL(route.request().url());
+    if (delayRoot && url.searchParams.get("path") === "/") {
       delayRoot = false;
       markRootStarted();
       await rootGate;
@@ -59,7 +59,10 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
   await expect(page.locator(".sidebar-path")).toHaveText("/books");
   await expect(page.getByRole("button", { name: "· one" })).toBeVisible();
 
-  const delayedRootResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/v/tree/");
+  const delayedRootResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/v1/node" && url.searchParams.get("path") === "/";
+  });
   releaseRoot();
   await delayedRootResponse;
   await expect(page.locator(".sidebar-path")).toHaveText("/books");
@@ -148,7 +151,7 @@ test("round-trips inline Markdown and uses Markdown-aware clipboard formats", as
     "After raw Markdown.",
   ].join("\n");
   const bodySource = async () => page.evaluate(async () => {
-    const response = await fetch("/v/tree/inline-markdown");
+    const response = await fetch("/v1/node?path=%2Finline-markdown");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -313,7 +316,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
   await expect(page.getByRole("status")).toHaveText("Saved");
 
   const bodySource = await page.evaluate(async () => {
-    const response = await fetch("/v/tree/math-notes");
+    const response = await fetch("/v1/node?path=%2Fmath-notes");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -344,7 +347,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
   await expect(page.locator(".footnote-definition")).toHaveCount(1);
   await expect(page.getByRole("status")).toHaveText("Saved");
   const afterDelete = await page.evaluate(async () => {
-    const response = await fetch("/v/tree/math-notes");
+    const response = await fetch("/v1/node?path=%2Fmath-notes");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -359,4 +362,48 @@ test("renders a Markdown collection and opens a record", async ({ page }) => {
   await expect(page.locator('input[value="The Dispossessed"]')).toBeVisible();
   await page.getByRole("button", { name: "Open" }).click();
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
+});
+
+test("tracks an open page through a page-ID rename without replacing the editor", async ({ page }) => {
+  await page.goto("/render/notes");
+  await expect(page.getByText("Research ideas")).toBeVisible();
+  await page.locator(".properties summary").click();
+  const topic = page.locator(".properties label").filter({ hasText: "topic" }).locator("input");
+  await topic.fill("rename-continuity");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  await page.evaluate(() => { (window as any).__arborEditorBeforeRename = (window as any).ProseMirror; });
+
+  const response = await page.evaluate(async () => {
+    const snapshot = await fetch("/v1/node?path=%2Fnotes").then((value) => value.json());
+    return fetch("/v1/mutations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mutationID: "e2e-external-rename",
+        operations: [{
+          op: "rename",
+          ref: { pageID: snapshot.ref.pageID, pathHint: "/notes" },
+          name: "renamed-notes",
+        }],
+      }),
+    }).then(async (value) => ({ status: value.status, body: await value.json() }));
+  });
+  expect(response.status).toBe(200);
+
+  await expect(page).toHaveURL(/\/render\/renamed-notes$/);
+  await expect(page.getByText("Research ideas")).toBeVisible();
+  expect(await page.evaluate(() =>
+    (window as any).ProseMirror === (window as any).__arborEditorBeforeRename
+  )).toBe(true);
+
+  const paragraph = page.locator('[data-content-type="paragraph"]').filter({ hasText: "Apple orchard" }).locator(".bn-inline-content");
+  await paragraph.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" after rename");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  const source = await page.evaluate(async () => {
+    const snapshot = await fetch("/v1/node?path=%2Frenamed-notes").then((value) => value.json());
+    return snapshot.document.bodySource as string;
+  });
+  expect(source).toContain("Apple orchard notes are searchable. after rename");
 });

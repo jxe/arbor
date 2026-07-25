@@ -1,21 +1,22 @@
 import { useEffect, useState } from "react";
-import type { CollectionPage, TreeNode } from "@arbor/core";
+import type { CollectionPage } from "@arbor/core";
+import type { NodeSnapshot } from "@arbor/client";
 import { api } from "./api.ts";
 
-export function CollectionView({ node, navigate, refresh }: { node: TreeNode; navigate: (path: string) => void; refresh: () => void }) {
+export function CollectionView({ node, navigate, refresh }: { node: NodeSnapshot; navigate: (path: string) => void; refresh: () => void }) {
   const [page, setPage] = useState<CollectionPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     const table = node.path.split("/").pop();
     api.collection(node.path).then(setPage).catch((error: Error) => setError(error.message));
-  }, [node.path, node.revision]);
+  }, [node.path, node.contentRevision]);
   if (error) return <div className="empty error">{error}</div>;
   if (!page) return <div className="empty">Loading collection…</div>;
   const edit = async (rowPath: string | undefined, field: string, value: string) => {
     if (!rowPath) return;
     const path = `${node.path}/${rowPath}`.replaceAll("//", "/");
     const record = await api.node(path);
-    await api.write(path, { baseRevision: record.revision, frontmatterPatch: { [field]: value }, blocks: record.document?.blocks ?? [] });
+    await api.write(path, { baseContentRevision: record.contentRevision!, frontmatterPatch: { [field]: value }, blocks: record.document?.blocks ?? [] });
     refresh();
   };
   return <section className="collection">

@@ -1,0 +1,14 @@
+{
+  "mutationID": "66666666-6666-6666-6666-666666666666",
+  "operations": [
+    {
+      "op": "writeMarkdown",
+      "ref": { "pageID": "abc123", "pathHint": "/notes/today" },
+      "baseContentRevision": "sha256:content",
+      "blocks": [
+        { "id": "block-1", "type": "paragraph", "content": "Not valid in this batch", "children": [] }
+      ]
+    },
+    { "op": "createDirectory", "path": "/archive" }
+  ]
+}

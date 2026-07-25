@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SearchResult, TreeChild, TreeNode } from "@arbor/core";
+import type { SearchResult, TreeChild } from "@arbor/core";
+import type { NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { api } from "./api.ts";
 import { CollectionView } from "./CollectionView.tsx";
@@ -30,7 +31,7 @@ function childPath(parent: string, name: string): string {
   return canonicalNodePath(`${parent === "/" ? "" : parent}/${name}`);
 }
 
-function isDirectoryNode(node: TreeNode): boolean {
+function isDirectoryNode(node: NodeSnapshot): boolean {
   return node.kind === "directory" || node.kind === "collection";
 }
 
@@ -44,8 +45,9 @@ function storedSidebarCollapsed(): boolean {
 
 export function App() {
   const [path, setPath] = useState(pathFromLocation);
-  const [node, setNode] = useState<TreeNode | null>(null);
-  const [sidebar, setSidebar] = useState<TreeNode | null>(null);
+  const [node, setNode] = useState<NodeSnapshot | null>(null);
+  const [nodeUpdates, setNodeUpdates] = useState<AsyncIterable<ObservedNodeUpdate> | null>(null);
+  const [sidebar, setSidebar] = useState<NodeSnapshot | null>(null);
   const [sidebarMenu, setSidebarMenu] = useState<SidebarMenuState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -54,13 +56,21 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const nodeRequest = useRef(0);
+  const nodeView = useRef<ObservedNodeView | null>(null);
   const sidebarRequest = useRef(0);
   const load = useCallback(async (next: string) => {
     const request = ++nodeRequest.current;
     try {
       setError(null);
-      const loaded = await api.node(next);
-      if (request !== nodeRequest.current) return;
+      const view = await api.openNodeView(next);
+      if (request !== nodeRequest.current) {
+        view.close();
+        return;
+      }
+      nodeView.current?.close();
+      nodeView.current = view;
+      const loaded = view.snapshot;
+      setNodeUpdates(view.updates);
       if (loaded.path !== next) {
         history.replaceState({}, "", `/render${loaded.path === "/" ? "/" : loaded.path}`);
         setPath(loaded.path);
@@ -75,15 +85,26 @@ export function App() {
     setMobileSidebarOpen(false);
     if (next === path) return;
     nodeRequest.current += 1;
+    nodeView.current?.close();
+    nodeView.current = null;
+    setNodeUpdates(null);
     sidebarRequest.current += 1;
     history.pushState({}, "", `/render${next === "/" ? "/" : next}`);
     setPath(next); setNode(null);
+  }, [path]);
+  const acceptNode = useCallback((loaded: NodeSnapshot) => {
+    if (loaded.path !== path) {
+      history.replaceState({}, "", `/render${loaded.path === "/" ? "/" : loaded.path}`);
+      setPath(loaded.path);
+    }
+    setNode(loaded);
   }, [path]);
   useEffect(() => {
     if (node?.path === path) return;
     void load(path);
     return () => { nodeRequest.current += 1; };
   }, [load, node?.path, path]);
+  useEffect(() => () => nodeView.current?.close(), []);
   const sidebarPath = node && isDirectoryNode(node)
     ? node.path
     : parentPath(path);
@@ -142,8 +163,21 @@ export function App() {
         setMobileSidebarOpen(false);
       }
     };
-    addEventListener("keydown", listener, true); addEventListener("popstate", () => setPath(pathFromLocation()));
-    return () => removeEventListener("keydown", listener, true);
+    const popstate = () => {
+      nodeRequest.current += 1;
+      nodeView.current?.close();
+      nodeView.current = null;
+      setNodeUpdates(null);
+      sidebarRequest.current += 1;
+      setPath(pathFromLocation());
+      setNode(null);
+    };
+    addEventListener("keydown", listener, true);
+    addEventListener("popstate", popstate);
+    return () => {
+      removeEventListener("keydown", listener, true);
+      removeEventListener("popstate", popstate);
+    };
   }, []);
   useEffect(() => {
     try {
@@ -167,7 +201,7 @@ export function App() {
       if (sidebarMenu.mode === "rename" && sidebarMenu.target) {
         const oldPath = sidebarMenu.target.path;
         const nextPath = childPath(parentPath(oldPath), name);
-        await api.mutate({ operations: [{ op: "rename", path: oldPath, name }] });
+        await api.mutate({ operations: [{ op: "rename", ref: { path: oldPath }, name }] });
         setSidebarMenu(null);
         if (path === oldPath || path.startsWith(`${oldPath}/`)) {
           navigate(`${nextPath}${path.slice(oldPath.length)}`);
@@ -196,7 +230,7 @@ export function App() {
     if (!target || !confirm(`Move ${target.name} to Trash?`)) return;
     try {
       setError(null);
-      await api.mutate({ operations: [{ op: "trash", paths: [target.path] }] });
+      await api.mutate({ operations: [{ op: "trash", refs: [{ path: target.path }] }] });
       setSidebarMenu(null);
       if (path === target.path || path.startsWith(`${target.path}/`)) navigate(parentPath(target.path));
       else await refreshSidebar();
@@ -260,7 +294,7 @@ export function App() {
       </header>
       {error ? <div className="empty error">{error}</div> : !node ? <div className="empty">Loading…</div> : <>
         {node.diagnostics.map((item) => <div className="diagnostic node-diagnostic" key={`${item.code}:${item.path}`}>{item.message}</div>)}
-        {(node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") && node.document && <PageEditor node={node} onSaved={setNode} navigate={navigate} />}
+        {(node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") && node.document && nodeUpdates && <PageEditor node={node} updates={nodeUpdates} onSaved={acceptNode} navigate={navigate} />}
         {node.kind === "collection" && <CollectionView node={node} navigate={navigate} refresh={() => load(path)} />}
       </>}
     </main>

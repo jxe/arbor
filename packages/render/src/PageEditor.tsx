@@ -4,11 +4,16 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extensions";
 import { TextSelection } from "@tiptap/pm/state";
 import { FormattingToolbarController, SideMenuController, SuggestionMenuController } from "@blocknote/react";
-import type { ArborBlock, TreeNode } from "@arbor/core";
+import type { ArborBlock } from "@arbor/core";
+import type {
+  NodeRef,
+  NodeSnapshot,
+  ObservedNodeUpdate,
+  StructuralWorkspaceOperation,
+} from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { resolveStructuralRowPath, transformStructuralRows } from "@arbor/core/structural-rows";
-import type { FsMutation, FsMutationResult } from "@arbor/fs";
-import { api } from "./api.ts";
+import { api, type BrowserMutationResult } from "./api.ts";
 import {
   EditorCoordinator,
   frontmatterPatch,
@@ -185,19 +190,24 @@ function trashedPath(path: string): string {
   return canonicalNodePath(`/Trash${path}`);
 }
 
-function inverseMoves(moved: FsMutationResult["moved"]): FsMutation[] {
+function inverseMoves(moved: BrowserMutationResult["moved"]): StructuralWorkspaceOperation[] {
   const byParent = new Map<string, string[]>();
   for (const item of moved) {
     const paths = byParent.get(parentPath(item.from)) ?? [];
     paths.push(item.to);
     byParent.set(parentPath(item.from), paths);
   }
-  return [...byParent].map(([destination, paths]) => ({ op: "move", paths, destination }));
+  return [...byParent].map(([destination, paths]) => ({
+    op: "move",
+    refs: paths.map((path) => ({ path })),
+    destination: { path: destination },
+  }));
 }
 
-export function PageEditor({ node, onSaved, navigate }: {
-  node: TreeNode;
-  onSaved: (node: TreeNode) => void;
+export function PageEditor({ node, updates, onSaved, navigate }: {
+  node: NodeSnapshot;
+  updates: AsyncIterable<ObservedNodeUpdate>;
+  onSaved: (node: NodeSnapshot) => void;
   navigate: (path: string) => void;
 }) {
   const authored = node.document?.blocks ?? [];
@@ -222,14 +232,20 @@ export function PageEditor({ node, onSaved, navigate }: {
     const path = resolveStructuralRowPath(node.path, String(block.props?.path ?? ""));
     return path && childrenByPath.has(path) ? [path] : [];
   });
-  const originals = useMemo(() => originalMap(initial), [node.revision, childrenRevision]);
+  const originals = useMemo(() => originalMap(initial), [node.contentRevision, childrenRevision]);
   const pageDirectory = isDirectory ? node.path : parentPath(node.path);
+  const pageDirectoryRef = useRef(pageDirectory);
+  pageDirectoryRef.current = pageDirectory;
+  const nodeReference: NodeRef = node.ref.pageID
+    ? { pageID: node.ref.pageID, pathHint: node.path }
+    : { path: node.path };
+  const nodeIdentity = useRef(node.ref.pageID ?? node.path).current;
   const editor = useMemo(() => {
     const instance = BlockNoteEditor.create({
       schema: arborSchema,
       initialContent: [{ type: "paragraph" }],
       extensions: arborEditorExtensions,
-      uploadFile: async (file) => (await api.asset(pageDirectory, file)).markdownPath,
+      uploadFile: async (file) => (await api.asset(pageDirectoryRef.current, file)).markdownPath,
     });
     instance.transact((transaction) => {
       transaction.setMeta("addToHistory", false);
@@ -240,7 +256,7 @@ export function PageEditor({ node, onSaved, navigate }: {
     });
     (window as any).ProseMirror = instance._tiptapEditor;
     return instance;
-  }, [node.path]);
+  }, [nodeIdentity]);
   const editorRef = useRef(editor);
   editorRef.current = editor;
   const [, renderCoordinator] = useState(0);
@@ -259,7 +275,7 @@ export function PageEditor({ node, onSaved, navigate }: {
   const pendingScrollRestore = useRef<{ x: number; y: number } | null>(null);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
-  const onSavedPreservingScroll = useCallback((loaded: TreeNode) => {
+  const onSavedPreservingScroll = useCallback((loaded: NodeSnapshot) => {
     pendingScrollRestore.current = { x: window.scrollX, y: window.scrollY };
     onSaved(loaded);
   }, [onSaved]);
@@ -278,7 +294,7 @@ export function PageEditor({ node, onSaved, navigate }: {
       cancelAnimationFrame(firstFrame);
       if (secondFrame) cancelAnimationFrame(secondFrame);
     };
-  }, [node.path, node.revision, childrenRevision]);
+  }, [node.path, node.contentRevision, childrenRevision]);
 
   useEffect(() => {
     setSelected(new Set());
@@ -315,22 +331,27 @@ export function PageEditor({ node, onSaved, navigate }: {
   }, [editor]);
   const coordinator = useMemo(() => new EditorCoordinator({
     path: node.path,
-    revision: node.revision,
+    revision: node.contentRevision!,
     baseBlocks: authored,
     baseFrontmatter: node.document?.frontmatter ?? {},
     initialSnapshot: { blocks: initial, frontmatter: node.document?.frontmatter ?? {} },
     capture: () => snapshotRef.current(),
-    write: (path, baseRevision, value, base) => api.write(path, {
-      baseRevision,
+    write: (_path, baseRevision, value, base) => api.write(nodeReference, {
+      baseContentRevision: baseRevision,
       frontmatterPatch: frontmatterPatch(base.frontmatter, value.frontmatter),
       blocks: value.blocks,
     }),
     applySnapshot: replaceEditorSnapshot,
     acceptNode: onSavedPreservingScroll,
     notify: () => renderCoordinator((value) => value + 1),
-  }), [editor, node.path]);
+  }), [editor, nodeIdentity]);
   coordinator.configure({
     capture: () => snapshotRef.current(),
+    write: (_path, baseRevision, value, base) => api.write(nodeReference, {
+      baseContentRevision: baseRevision,
+      frontmatterPatch: frontmatterPatch(base.frontmatter, value.frontmatter),
+      blocks: value.blocks,
+    }),
     applySnapshot: replaceEditorSnapshot,
     acceptNode: onSavedPreservingScroll,
     notify: () => renderCoordinator((value) => value + 1),
@@ -351,7 +372,7 @@ export function PageEditor({ node, onSaved, navigate }: {
       blocks: initial,
       frontmatter: { ...(node.document?.frontmatter ?? {}) },
     });
-  }, [childrenRevision, coordinator, node.revision]);
+  }, [childrenRevision, coordinator, node.contentRevision]);
 
   useEffect(() => () => coordinator.dispose(), [coordinator]);
 
@@ -390,20 +411,54 @@ export function PageEditor({ node, onSaved, navigate }: {
     };
   }, [editor, node.path]);
 
+  const observedNode = useRef(node);
+  observedNode.current = node;
+  const observedOnSaved = useRef(onSavedPreservingScroll);
+  observedOnSaved.current = onSavedPreservingScroll;
   useEffect(() => {
-    const source = new EventSource("/v/events");
-    source.onmessage = () => {};
-    source.addEventListener("updated", async (event) => {
-      const update = JSON.parse((event as MessageEvent).data) as { path: string; classification?: string };
-      if (update.path !== node.path || update.classification === "echo") return;
-      const loaded = await api.node(node.path);
-      coordinator.observeExternal(loaded);
-    });
-    return () => source.close();
-  }, [coordinator, node.path]);
+    let active = true;
+    void (async () => {
+      try {
+        for await (const update of updates) {
+          if (!active) return;
+          const currentNode = observedNode.current;
+          if (update.kind === "resync") {
+            if (update.snapshot.contentRevision !== currentNode.contentRevision) {
+              coordinator.observeExternal(update.snapshot);
+            } else {
+              observedOnSaved.current(update.snapshot);
+            }
+            continue;
+          }
+          const event = update.event;
+          if (event.mutationID && api.client.isOwnMutation(event.mutationID)) continue;
+          const affectsNode = event.path === currentNode.path
+            || event.previousPath === currentNode.path
+            || Boolean(currentNode.ref.pageID && event.pageID === currentNode.ref.pageID);
+          const currentIsDirectory = currentNode.kind === "directory" || currentNode.kind === "collection";
+          const affectsChildren = currentIsDirectory && (
+            parentPath(event.path) === currentNode.path
+            || (event.previousPath !== undefined && parentPath(event.previousPath) === currentNode.path)
+          );
+          if (!affectsNode && !affectsChildren) continue;
+          const ref = !currentNode.ref.pageID && event.previousPath === currentNode.path && event.kind === "moved"
+            ? { path: event.path } satisfies NodeRef
+            : currentNode.ref.pageID
+              ? { pageID: currentNode.ref.pageID, pathHint: currentNode.path }
+              : { path: currentNode.path };
+          const loaded = await api.node(ref);
+          if (affectsNode) coordinator.observeExternal(loaded);
+          else observedOnSaved.current(loaded);
+        }
+      } catch (error) {
+        if (active) coordinator.setMessage(error instanceof Error ? error.message : String(error));
+      }
+    })();
+    return () => { active = false; };
+  }, [coordinator, updates]);
 
   const reload = useCallback(async (nextSelection: string[] = []) => {
-    const loaded = await api.node(node.path);
+    const loaded = await api.node(nodeReference);
     onSavedPreservingScroll(loaded);
     const visible = new Set((loaded.children ?? []).map((child) => child.path));
     const retained = nextSelection.filter((path) => visible.has(path));
@@ -426,26 +481,28 @@ export function PageEditor({ node, onSaved, navigate }: {
       const beforeBlocks = beforeBlocksOverride ?? currentBlocks();
       const result = await api.mutate({ operations });
       await reload(nextSelection);
-      let undoOperations: FsMutation[] = [];
-      let redoOperations: FsMutation[] = operations;
+      let undoOperations: StructuralWorkspaceOperation[] = [];
+      let redoOperations: StructuralWorkspaceOperation[] = operations;
       let undoSelection: string[] = [];
       let redoSelection = nextSelection;
       if (result.created.length) {
-        undoOperations = [{ op: "trash", paths: result.created }];
-        redoOperations = [{ op: "restore", paths: result.created.map(trashedPath) }];
+        undoOperations = [{ op: "trash", refs: result.created.map((path) => ({ path })) }];
+        redoOperations = [{ op: "restore", refs: result.created.map(trashedPath).map((path) => ({ path })) }];
         redoSelection = result.created;
       } else if (result.deleted.length) {
-        undoOperations = [{ op: "restore", paths: result.deleted.map(trashedPath) }];
+        undoOperations = [{ op: "restore", refs: result.deleted.map(trashedPath).map((path) => ({ path })) }];
         undoSelection = result.deleted;
       } else if (result.moved.length) {
         undoOperations = inverseMoves(result.moved);
         undoSelection = result.moved.map((item) => item.from);
         redoSelection = result.moved.map((item) => item.to);
       } else {
-        const reorder = operations.find((operation): operation is Extract<FsMutation, { op: "move" }> => operation.op === "move");
-        if (reorder && reorder.paths.every((path) => parentPath(path) === reorder.destination)) {
-          const selectedPaths = new Set(reorder.paths);
-          const lastIndex = Math.max(...reorder.paths.map((path) => beforeOrder.indexOf(path)));
+        const reorder = operations.find((operation): operation is Extract<StructuralWorkspaceOperation, { op: "move" }> => operation.op === "move");
+        const reorderPaths = reorder?.refs.flatMap((ref) => "path" in ref ? [ref.path] : []) ?? [];
+        const reorderDestination = reorder && "path" in reorder.destination ? reorder.destination.path : null;
+        if (reorder && reorderDestination && reorderPaths.length === reorder.refs.length && reorderPaths.every((path) => parentPath(path) === reorderDestination)) {
+          const selectedPaths = new Set(reorderPaths);
+          const lastIndex = Math.max(...reorderPaths.map((path) => beforeOrder.indexOf(path)));
           const beforePath = beforeOrder.slice(lastIndex + 1).find((path) => !selectedPaths.has(path));
           const selectedBlockIndexes = beforeBlocks.flatMap((block, index) => {
             const path = block.type === "childPage" ? resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) : null;
@@ -457,25 +514,26 @@ export function PageEditor({ node, onSaved, navigate }: {
           })?.id;
           undoOperations = [{
             op: "move",
-            paths: beforeOrder.filter((path) => selectedPaths.has(path)),
-            destination: reorder.destination,
+            refs: beforeOrder.filter((path) => selectedPaths.has(path)).map((path) => ({ path })),
+            destination: { path: reorderDestination },
             beforePath,
-            beforeBlockId,
+            beforeBlockID: beforeBlockId,
           }];
-          undoSelection = reorder.paths;
+          undoSelection = reorderPaths;
         }
       }
       if (undoOperations.length) {
-        const execute = async (request: FsMutation[], selection: string[]) => {
+        const execute = async (request: StructuralWorkspaceOperation[], selection: string[]) => {
           await flushAutosave();
           const prepared = await Promise.all(request.map(async (operation) => {
             if (
               operation.op !== "move"
-              || operation.directoryRevision === undefined && !operation.beforePath && !operation.beforeBlockId
+              || operation.baseDirectoryRevision === undefined && !operation.beforePath && !operation.beforeBlockID
             ) return operation;
+            if (!("path" in operation.destination)) return operation;
             return {
               ...operation,
-              directoryRevision: (await api.node(operation.destination)).revision,
+              baseDirectoryRevision: (await api.node(operation.destination.path)).directoryRevision,
             };
           }));
           await api.mutate({ operations: prepared });
@@ -539,15 +597,15 @@ export function PageEditor({ node, onSaved, navigate }: {
       await reload(nextSelection);
       if (result.created.length) {
         const created = result.created;
-        const execute = async (operations: FsMutation[], selection: string[]) => {
+        const execute = async (operations: StructuralWorkspaceOperation[], selection: string[]) => {
           await flushAutosave();
           await api.mutate({ operations });
           await reloadRef.current(selection);
         };
         pushHistory({
           label: "import",
-          undo: () => execute([{ op: "trash", paths: created }], []),
-          redo: () => execute([{ op: "restore", paths: created.map(trashedPath) }], created),
+          undo: () => execute([{ op: "trash", refs: created.map((path) => ({ path })) }], []),
+          redo: () => execute([{ op: "restore", refs: created.map(trashedPath).map((path) => ({ path })) }], created),
         });
       }
     } catch (error) {
@@ -577,11 +635,11 @@ export function PageEditor({ node, onSaved, navigate }: {
       return await runMutation(
         [{
           op: "move",
-          paths,
-          destination: node.path,
+          refs: paths.map((path) => ({ path })),
+          destination: { path: node.path },
           beforePath,
-          beforeBlockId,
-          directoryRevision: coordinator.currentRevision,
+          beforeBlockID: beforeBlockId,
+          baseDirectoryRevision: coordinator.currentRevision,
         }],
         paths,
         before,
@@ -603,7 +661,11 @@ export function PageEditor({ node, onSaved, navigate }: {
     const paths = JSON.parse(raw) as string[];
     if (position === "inside") {
       const moved = paths.map((path) => childPath(targetPath, path.slice(path.lastIndexOf("/") + 1)));
-      await runMutation([{ op: "move", paths, destination: targetPath }], moved);
+      await runMutation([{
+        op: "move",
+        refs: paths.map((path) => ({ path })),
+        destination: { path: targetPath },
+      }], moved);
       return;
     }
     const targetIndex = managedOrder.indexOf(targetPath);
@@ -882,7 +944,7 @@ export function PageEditor({ node, onSaved, navigate }: {
     if (name === path.slice(path.lastIndexOf("/") + 1)) { setRenamingPath(null); return; }
     const next = childPath(parentPath(path), name);
     setRenamingPath(null);
-    try { await runMutation([{ op: "rename", path, name }], [next]); } catch {}
+    try { await runMutation([{ op: "rename", ref: { path }, name }], [next]); } catch {}
   }, [renameValue, renamingPath, runMutation]);
 
   const trashSelection = useCallback(async (focusPath?: string) => {
@@ -890,7 +952,7 @@ export function PageEditor({ node, onSaved, navigate }: {
       ? [focusPath]
       : managedOrder.filter((path) => selected.has(path));
     if (!paths.length || !confirm(`Move ${paths.length === 1 ? paths[0] : `${paths.length} items`} to Trash?`)) return;
-    try { await runMutation([{ op: "trash", paths }]); } catch {}
+    try { await runMutation([{ op: "trash", refs: paths.map((path) => ({ path })) }]); } catch {}
   }, [managedOrder.join("\0"), runMutation, selected]);
 
   useEffect(() => {
@@ -983,7 +1045,7 @@ export function PageEditor({ node, onSaved, navigate }: {
       <div role="menu">
         <button role="menuitem" disabled={!coordinator.canUndo} title="Undo (⌘Z)" onClick={() => { closePageActions(); void undo(); }}>Undo</button>
         <button role="menuitem" disabled={!coordinator.canRedo} title="Redo (⇧⌘Z)" onClick={() => { closePageActions(); void redo(); }}>Redo</button>
-        <button role="menuitem" onClick={async () => { closePageActions(); setRecovery(await api.recovery(node.path)); }}>Recover…</button>
+        <button role="menuitem" onClick={async () => { closePageActions(); setRecovery(await api.recovery(nodeReference)); }}>Recover…</button>
         {isDirectory && <>
           <div className="menu-separator" />
           <button role="menuitem" title="New Markdown Page (⌘N)" onClick={() => { closePageActions(); setCreating("markdown"); setCreateValue(""); }}>New Page</button>
@@ -998,14 +1060,14 @@ export function PageEditor({ node, onSaved, navigate }: {
       {message && <span className="warning">{message}</span>}
       {saveState === "conflict" && <button onClick={async () => {
         const local = snapshot();
-        const loaded = await api.node(node.path);
+        const loaded = await api.node(nodeReference);
         const disk: DocumentSnapshot = {
           blocks: loaded.document?.blocks ?? [],
           frontmatter: { ...(loaded.document?.frontmatter ?? {}) },
         };
         coordinator.useDisk(loaded, local, disk);
       }}>Use disk</button>}
-      {saveState === "conflict" && <button onClick={async () => save((await api.node(node.path)).revision)}>Keep mine</button>}
+      {saveState === "conflict" && <button onClick={async () => save((await api.node(nodeReference)).contentRevision)}>Keep mine</button>}
       {(saveState === "error" || saveState === "external") && <button className="retry-save" onClick={() => void save()}>Retry</button>}
       <span className={`save-state ${saveState}`} role="status">{saveStateLabel}</span>
     </div>
@@ -1044,7 +1106,11 @@ export function PageEditor({ node, onSaved, navigate }: {
             const paths = JSON.parse(raw) as string[];
             const block = (event.target as Element).closest<HTMLElement>('[data-node-type="blockContainer"][data-id]');
             if (!block) {
-              void runMutation([{ op: "move", paths, destination: node.path }], paths);
+              void runMutation([{
+                op: "move",
+                refs: paths.map((path) => ({ path })),
+                destination: { path: node.path },
+              }], paths);
               return;
             }
             const bounds = block.getBoundingClientRect();
@@ -1075,6 +1141,6 @@ export function PageEditor({ node, onSaved, navigate }: {
       <span>↗</span>
       {dragPreview.paths.length === 1 ? dragPreview.paths[0]!.slice(dragPreview.paths[0]!.lastIndexOf("/") + 1) : `${dragPreview.paths.length} pages`}
     </div>}
-    {recovery && <div className="recovery"><div className="recovery-title"><strong>Recover blocks</strong><button className="quiet" onClick={() => setRecovery(null)}>Close</button></div>{!recovery.length && <p>Nothing recoverable for this page.</p>}{recovery.map((entry) => <div className="recovery-entry" key={entry.hash}><div><span>{entry.status}</span><pre>{entry.markdown}</pre></div><button onClick={async () => { onSavedPreservingScroll(await api.restoreBlock(node.path, entry.hash)); setRecovery(await api.recovery(node.path)); }}>Restore</button></div>)}</div>}
+    {recovery && <div className="recovery"><div className="recovery-title"><strong>Recover blocks</strong><button className="quiet" onClick={() => setRecovery(null)}>Close</button></div>{!recovery.length && <p>Nothing recoverable for this page.</p>}{recovery.map((entry) => <div className="recovery-entry" key={entry.hash}><div><span>{entry.status}</span><pre>{entry.markdown}</pre></div><button onClick={async () => { onSavedPreservingScroll(await api.restoreBlock(nodeReference, entry.hash)); setRecovery(await api.recovery(nodeReference)); }}>Restore</button></div>)}</div>}
   </div>;
 }

@@ -1,0 +1,8 @@
+{
+  "mutationID": "44444444-4444-4444-4444-444444444444",
+  "destination": { "path": "/imports" },
+  "entries": [
+    { "path": "folder", "kind": "directory" },
+    { "path": "folder/readme.md", "kind": "file", "field": "file-1" }
+  ]
+}
