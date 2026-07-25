@@ -8,7 +8,7 @@ Many people have observed that there's room for a successor to Dropbox, or to Gi
 
 **The first is sharing and syncing.** There's no good way to hand a subtree of that folder to a collaborator, or to a team, with sensible permissions. And syncing is a real problem even for one person: people run agents locally *and* in the cloud, and they want the same workspace in both places — they need to sync even just with themselves. Git is too heavy and too manual for material that changes with every conversation. Dropbox is too coarse — no history you can reason about, no permissions story fit for agents, no way to share one subfolder under different terms than another.
 
-**The second is the human interface.** Right now humans browse these folders with the filesystem and code editors. That's fine for programmers and miserable for everyone else. The alternative is to move the material into Google Docs or Notion, which have lovely human surfaces — but they're far worse for the agent use cases: no plain files, no `grep`, walled identity, everything behind an API that wasn't designed for this. So we're forced to choose between a surface that's good for agents and a surface that's good for people.
+**The second is the human interface.** Right now humans browse these folders with the filesystem and code editors. That's fine for programmers and miserable for everyone else. The alternative is to move the material into Google Docs or Notion, which have better human surfaces — but they're far worse for the agent use cases: no plain files, no `grep`, walled identity, everything behind an API that wasn't designed for this. So we're forced to choose between a surface that's good for agents and a surface that's good for people.
 
 **The third is containment and scaling.** The web is especially good at this, because it's a kind of universal namespace — everything has an address, and addresses compose. Notion is good at it too, because it encourages hierarchical containment: pages inside pages, workspaces that grow without becoming disorganized. The filesystem has the same virtue in principle. But because agents usually operate on one folder at a time, in practice we end up with an endlessly growing pool of individual project folders, each its own little island, and after a while the pool becomes hard to work with. Nothing gives us one growing, navigable, containable tree.
 
@@ -16,7 +16,7 @@ What I want to show you here is that solving these three problems doesn't just g
 
 This is an old dream with a real lineage. NFS and AFS let you mount remote filesystems into one local tree, so a lab full of machines saw a single namespace. Plan 9 went further: everything was a file, every process had its own namespace, and union mounts let you compose namespaces the way we compose code. Upspin revived the idea as a global path-shaped namespace — `ann@example.com/photos/vacation` — with modern crypto. These systems were right about the shape and wrong about the timing. They offered files without an app layer, in an era when the interesting software was moving into browsers and silos, and they had no sharing or syncing model that ordinary people wanted to use.
 
-Two things have changed. Agents made plain files the universal interface again — the folder of markdown *is* the state of the art, which is exactly the situation the universal-namespace systems were designed for. And local-first sync technology matured: we now know how to give a subtree an identity, a history, and a synchronization stream without a central server owning everything. The window is open. Now is the time.
+Two things have changed. Agents made plain files the universal interface again — the folder of markdown *is* the state of the art, which is exactly the situation the universal-namespace systems were designed for. And local-first sync technology matured: we now know how to give a subtree an identity, a history, and a synchronization stream without a central server owning everything.
 
 ## Solving the three problems
 
@@ -35,7 +35,7 @@ Imagine there was a thing with this kind of structure on your disk:
   library/               # a public tree, mounted from a domain name
 ```
 
-Everything is ordinary files. A markdown page is YAML frontmatter for properties plus a markdown body. A directory is itself a page — its own body and properties live in `_index.md`, so a folder is never just a listing. Crucially, those are not two kinds of address: `atlas.md` and `atlas/_index.md` are two mutually exclusive physical forms of the same logical `atlas` page. It can gain children without changing its browser name, links, identity, or history. And imagine a background process — call it arbord — that watches this tree and does three jobs.
+Everything is ordinary files. A markdown page is YAML frontmatter for properties plus a markdown body. A directory is itself a page — its own body and properties live in `_index.md`, so a folder is never just a listing. That means any page can gain children without changing its browser name, links, identity, or history. And imagine a background process — call it arbord — that watches this tree and does three jobs.
 
 **It handles sharing and syncing.** Take `projects/atlas`, an ordinary folder. When I choose **Share this folder**, arbord gives that subtree an independent identity, a revision history, a permission boundary, and a synchronization endpoint. The folder doesn't move; it's still at `projects/atlas`. Only its backing changes. When Alice accepts my invitation, she places the same shared tree wherever it makes sense in *her* workspace:
 
@@ -271,7 +271,7 @@ Two more consequences worth spelling out:
 
 ## Who wants to build this?
 
-I've built a reference implementation over here — the [spec](spec.md), the [build plan](plan.md), and the [browser integration](treehopper-integration.md) are in this repo. But I'm too busy running MAI to turn this into a startup. Who wants to?
+I've built a reference implementation over here — the [spec](spec.md), the [core build plan](plan.md), and the [native build plan](plan-native.md) are in this repo. But I'm too busy running MAI to turn this into a startup. Who wants to?
 
 It can definitely become a powerhouse. It's time for a new Dropbox, or GitHub, or Vercel — and this is all of them combined, plus the Notion layer on top. The business models are the proven ones: hosted endpoints and managed shared trees, team permissions and audit, and eventually a marketplace of views, scripts, and agents that runs on the same rails. Every company adopting agents is about to hit all three of the problems this essay opened with, at once, this year. If someone builds this, there are definitely lots of ways to make money.
 

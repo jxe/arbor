@@ -5,10 +5,10 @@
 
 A node is a logical workspace address with an optional body path and directory path. `x.md` supplies `/x`'s body, while a sibling `x/` supplies `/x`'s children. If `x.md` is absent, `x/_index.md` is the fallback directory body. Browser routes, API paths, search results, links, generated tree types, breadcrumbs, and visible names always use the extensionless logical path `/x`.
 
-- A **markdown page** has YAML frontmatter for props and a Markdown body. Each page carries a durable short `id` in its frontmatter, minted at creation (or on first save for existing files) — the page's stable identity across renames.
+- A **markdown page** has YAML frontmatter for props and a Markdown body. Each page carries an opaque durable `id` in its frontmatter, minted at creation (or on first save for existing files) — the page's stable identity across renames. Existing Arbor and Clamshell pages use six-character IDs, but the format does not require a fixed length or alphabet.
 - A **directory page** has children in `x/`; its body and props come from sibling `x.md`, falling back to `x/_index.md`, or from an empty implicit body when neither exists.
 - A **collection** is a folder of records. Its backing is declared *inside* the folder — `_store.csv`, `_store.jsonl`, multiple Markdown row files, a known-name `_store.sqlite3` database, or a known-name `_store.postgres` connection reference — and can change without the folder's path, page, schema, or views changing. A folder whose store holds several tables is a database container: each table appears as a child collection.
-- A **script** is a `.tsx` file that may colocate React components, queries, mutations, and actions.
+- A **script** is a `.tsx` file that may colocate React components, queries, and mutations.
 
 The filesystem driver is the default store, not a universal storage requirement. Arbor presents one tree API over heterogeneous stores. A store driver supplies schema inspection, reads, transactions, change observation, consistent snapshots, and materialization where meaningful. Data should remain inspectable with ordinary tools appropriate to its store: `cat` for Markdown, SQLite tools for `.sqlite3`, and a SQL client for Postgres.
 
@@ -33,11 +33,11 @@ connection: system:connections/production
 schema: public
 ```
 
-The referenced `system:connections` record holds a friendly label and safe metadata; its connection string or password lives in the platform credential store. Typegen introspects the database through that record. The Postgres server normally remains the data authority, so Arbor synchronizes the reference—not a redundant copy of the database—unless an explicit snapshot/mirroring profile is later configured. Graduating a collection from `_store.sqlite3` to `_store.postgres` is one file swap; nothing pointed at the folder changes.
+The referenced `system:connections` record holds a friendly label and safe metadata; its connection string or password lives in the platform credential store. Typegen introspects the database through that record. The Postgres server remains the data authority, so Arbor synchronizes the reference—not a redundant copy of the database. Offline Postgres snapshots or mirrors are not specified. Graduating a collection from `_store.sqlite3` to `_store.postgres` is one file swap; nothing pointed at the folder changes.
 
 ## 4. Links
 
-Links are extensionless logical paths, made rename-proof by identity: a link may carry the target page's durable `id` as a fragment (`[Title](notes#x7f3q2)`), and the ID is authoritative when path and ID disagree, so renames break no inbound links; stale destinations heal lazily to canonical `path#id` form through the normal commit path. Arbor accepts authored `.md` and `/_index.md` destinations as input aliases but resolves and heals them to the same extensionless address. The full catalog of name forms — tree-rooted and relative paths, public names, `tree:` URIs, `system:`/`local:` schemes, both fragment kinds, the legacy hatch — and their resolution rules live in [urls.md](urls.md).
+Links are extensionless logical paths, made rename-proof for Markdown pages by identity: a link may carry the target page's durable `id` as a fragment (`[Title](notes#x7f3q2)`), and the ID is authoritative when path and ID disagree, so renames break no inbound links; stale destinations heal lazily to canonical `path#id` form through the normal commit path. Ordinary files remain path-only. Arbor accepts authored `.md` and `/_index.md` destinations as input aliases but resolves and heals them to the same extensionless address. The full catalog of name forms — tree-rooted and relative paths, public names, `tree:` URIs, `system:`/`local:` schemes, both fragment kinds, the legacy hatch — and their resolution rules live in [urls.md](urls.md).
 
 ## 5. Collections, schemas, and generated tree types
 
@@ -65,7 +65,7 @@ export const schema = z.object({
 export type Essay = z.infer<typeof schema>;
 ```
 
-Arbord validates file-backed collections on change and sync; violations become diagnostics rather than crashes. Database drivers introspect their child collections, and future stores contribute schemas through the same interface. Arbord generates TypeScript declarations mapping workspace paths visible to a script to collection types and, for database-backed collections, their additional relational interface:
+Arbord validates file-backed collections on change and sync; violations become diagnostics rather than crashes. The specified SQLite and Postgres drivers introspect their child collections. Arbord generates TypeScript declarations mapping workspace paths visible to a script to collection types and, for database-backed collections, their additional relational interface:
 
 `schema.ts` is bundled and evaluated in an isolated QuickJS/Wasm worker. Only `zod` may be imported; filesystem, network, process, and other ambient host capabilities are absent, and execution has explicit time, stack, and memory bounds. A temporary invalid schema leaves the last valid generated declarations in place and adds a diagnostic.
 
@@ -96,7 +96,7 @@ Database schema changes regenerate these declarations just as `schema.ts` change
 
 ## 6. Scripts on disk
 
-A script is an ordinary TypeScript/React `.tsx` file that reads, renders, or changes the workspace. It can export components alongside the typed queries, mutations, and actions they need. Explicit `query`/`mutation` constructors mark execution boundaries (in the TanStack Start lineage) without introducing a second application language — but each takes a single plain async function rather than a builder chain. Input types are ordinary TypeScript parameter types; the compiler generates runtime boundary validators from them (as Encore.ts does), reusing a Zod schema directly when the parameter type originates from one. Read and write sets are inferred from literal tree paths in the handler body; an explicit `reads`/`writes` option is required only when a path is computed.
+A script is an ordinary TypeScript/React `.tsx` file that reads, renders, or changes the workspace. It can export components alongside the typed queries and mutations they need. Explicit `query`/`mutation` constructors mark execution boundaries (in the TanStack Start lineage) without introducing a second application language — but each takes a single plain async function rather than a builder chain. Input types are ordinary TypeScript parameter types; the compiler generates runtime boundary validators from them (as Encore.ts does), reusing a Zod schema directly when the parameter type originates from one. Read and write sets are inferred from literal tree paths in the handler body; an explicit `reads`/`writes` option is required only when a path is computed.
 
 “Script” is the authored Arbor concept. Each script is technically an ES module, and the compiler uses normal ES-module imports and exports, but users create, open, link to, and run scripts. Arbor imports come from **one package, `arbor`, with two subpaths**: `arbor/runtime` (constructors and `tree`) and `arbor/react` (hooks). The compiler enforces realms either way — a hook in a handler is a compile error regardless of where it was imported from; the split just keeps the UI surface visually distinct.
 

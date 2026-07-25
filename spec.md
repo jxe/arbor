@@ -1,7 +1,15 @@
 # Arbor: a successor to the web
-*Spec overview, v0.6 — the spec is split into topic files under [spec/](spec/). Placeholder names: **Arbor** (the system), **a workspace** (the tree a person sees and works in), **a shared tree** (an independent sync root), **arbord** (the daemon: local workspace + runtime), **TreeHopper** (the browser — web and native), and **the wire** (the shared-tree protocol). All names remain provisional.*
+*Spec overview, v0.7 — the spec is split into topic files under [spec/](spec/). Placeholder names: **Arbor** (the system), **a workspace** (the tree a person sees and works in), **a shared tree** (an independent sync root), **arbord** (the daemon: local workspace + runtime), **TreeHopper** (the browser — web and native), and **the wire** (the shared-tree protocol). All names remain provisional.*
 
 ---
+
+## Specification stance
+
+This spec describes the complete Arbor system we intend to demonstrate, including features beyond the current implementation. It is not a claim that every described feature is built; [plan.md](plan.md) records current status and build order.
+
+Completeness does not mean future-proofing. The spec chooses concrete reference behavior for the clients, daemon, stores, scripts, mounts, and wire that it actually describes. It does not add plugin systems, compatibility matrices, universal identifiers, capability negotiation, production administration, or generic abstraction layers merely because some later implementation might want them.
+
+Deferred items may remain absent forever. But machinery required by a specified feature is not optional: scripts require isolation, shared trees require scoped grants and revocation, synchronization requires deterministic object encoding and conflict behavior, and authored local writes require durable acknowledgement and lossless observation.
 
 ## Thesis
 
@@ -17,7 +25,7 @@ Three primary concepts organize the system:
 
 1. **A workspace** is the tree a person or agent sees and works in. It may contain local folders, databases, connections, and mounted shared trees.
 2. **A shared tree**, technically a sync root, is a folder with an independent identity, history, synchronization stream, and permission boundary. It may be private, shared with a team, or public.
-3. **A script** is a `.tsx` file that reads, renders, or changes parts of a workspace. It may export components, queries, mutations, and actions.
+3. **A script** is a `.tsx` file that reads, renders, or changes parts of a workspace. It may export components, queries, and mutations.
 
 Arbord resolves the workspace from its local folders and mounts. This resolution process is an implementation mechanism, not another user-facing object. The wire moves shared-tree refs and immutable objects without dictating how a workspace or its stores are laid out.
 
@@ -36,12 +44,13 @@ If Alice annotates a read-only file, her overlay belongs to her workspace rather
 | [spec/format.md](spec/format.md) | On-disk format: Markdown pages and durable IDs, `_index.md`, CSV/JSONL/Markdown collections, database collections via `_store.*`, schemas and generated types, scripts, and sidecars (`Trash/`, `Assets/`, `.arbor/`) |
 | [spec/urls.md](spec/urls.md) | Names and URLs: every name form (paths, public names, `tree:` URIs, `system:`/`local:`, fragments), resolution rules, and the legacy bridge |
 | [spec/system.md](spec/system.md) | The `system:` tree, workspace resolution, mounts, overlays, visited trees, agent confinement, effective access, and local durability (journal, trash, recovery) |
-| [spec/scripts.md](spec/scripts.md) | Script compilation and execution: realms, generated validators, query placement and reactivity, mutations, authority actions, components and consent |
+| [spec/arbord-rest.md](spec/arbord-rest.md) | The local client boundary: REST v1, page-aware references, revision domains, durable idempotent mutations, lossless SSE observation, errors, and the matching TypeScript/Swift clients |
+| [spec/scripts.md](spec/scripts.md) | Script compilation and execution: realms, generated validators, query placement and reactivity, mutations, the authority boundary, components, and consent |
 | [spec/browser.md](spec/browser.md) | The browser: navigation, rendering and editing, visiting unmounted trees, agent chat pages |
-| [spec/wire.md](spec/wire.md) | Shared trees and the wire: folder → shared tree, `TreeID`s and public names, invitations and grants, refs/objects, sync, the one-replicator rule, collection backing, static publication, eventual delegation |
-| [spec/cli.md](spec/cli.md) | The command surface, mapped to build-plan phases |
+| [spec/wire.md](spec/wire.md) | Shared trees and the wire: folder → shared tree, `TreeID`s and public names, invitations and grants, refs/objects, sync, the one-replicator rule, collection backing, and static publication |
+| [spec/cli.md](spec/cli.md) | The command surface, mapped to build-plan milestones |
 
-The reading order above mirrors the model, local to shared: what a workspace contains, how things are named, how mounts and local state work, how scripts operate over the workspace, how humans browse and edit it, and finally how folders become shared trees with identity, access, and synchronization. The build sequence is [plan.md](plan.md); the narrative introduction is [intro.md](intro.md).
+The reading order above mirrors the model, local to shared: what a workspace contains, how things are named, how mounts and local state work, how clients talk to arbord, how scripts operate over the workspace, how humans browse and edit it, and finally how folders become shared trees with identity, access, and synchronization. The build sequence is [plan.md](plan.md); the narrative introduction is [intro.md](intro.md).
 
 ## Deferred deliberately
 
@@ -56,6 +65,11 @@ The reading order above mirrors the model, local to shared: what a workspace con
 - Rendering gateways and standalone non-Apple browsers.
 - Discovery indexes as mountable shared trees.
 - Userfs/FUSE for huge trees.
+- General authentication, accounts, or multi-user administration around the single-user loopback arbord API. Wire endpoints and deployed mutations still enforce the narrower grants required by their specified features.
+- Generated REST SDKs, general protocol capability negotiation, and multi-version compatibility machinery; the two reference clients are maintained directly against REST v1 fixtures.
+- Persistent arbord event replay across process epochs; reconnecting across an epoch performs a deterministic resync.
+- Durable identity for every ordinary file and directory; only Markdown pages require rename-resistant `PageID`s.
+- High availability, horizontal scaling, production observability infrastructure, and generic driver/adapter/plugin frameworks.
 - A compiled data-projection UI language (Riffle × SwiftUI lineage; see prior art below) beyond TSX scripts — datalog-style queries, generic non-DOM view primitives, optional explicit state machines. TSX islands may eventually become click-to-load legacy content while these components stay always-live.
 
 ## Prior art and cautions

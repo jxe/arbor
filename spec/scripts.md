@@ -29,14 +29,14 @@ The handle's input and result are inferred by TypeScript. `arbor run ./reading-r
 
 An upstream-hosted query is automatically a versioned API. The public manifest (§1) already records function IDs, validators, and code hashes; the endpoint keeps a version lineage per query ID, and a consumer's handle binds to a version. The host may publish a fix to an existing version — same interface, corrected implementation — or a new version alongside old ones; existing consumers keep working until they re-resolve. Reactivity is preserved across the boundary: the endpoint tracks the query's read set server-side and pushes invalidations and structural diffs over watch. When the endpoint is unreachable, cached results render with explicit staleness, and a tree synced locally may fall back to local evaluation of the same deterministic handler.
 
-## 3. Mutations and authority actions
+## 3. Mutations and the authority boundary
 
 A mutation is the local write-side twin: validated code running in arbord against declared write prefixes. File-backed collection mutations create ordinary file changes in writable workspace folders, mounts, or overlays. Database-backed collection mutations run through the driver's transaction boundary and emit a new consistent store revision. Changes within a shared tree are observable and revertible through its revision history; all changes remain visible to agents through the tree/store interface.
 
-An **authority action** is deliberately different. It runs at the endpoint that owns a shared tree when centralized invariants or external effects are required—for example, claiming the last event seat. A future `action` constructor may use the same typed-handle ergonomics, but its placement, authentication, and non-determinism are explicit. V1 does not disguise authority actions as local mutations.
+An **authority action** would be deliberately different: centralized invariants or external effects—for example, claiming the last event seat—cannot be disguised as a deterministic local mutation. General authority actions are not specified. The only remote execution in this spec is the explicitly described upstream-hosted query, which is read-only.
 
 ## 4. Components and imports
 
-Components are real React—JSX, hooks, state, and component composition—in a sandboxed UI realm. Workspace data enters only through statically imported query/mutation/action handles. General network APIs are absent; timers, animation, and focus remain available.
+Components are real React—JSX, hooks, state, and component composition—in a sandboxed UI realm. Workspace data enters only through statically imported query and mutation handles. General network APIs are absent; timers, animation, and focus remain available.
 
 Cross-tree script imports resolve through the current workspace, then lock the resolved ES-module graph to hashes for that execution. Imported queries and mutations remain typed handles. Consent is computed from the full handle graph and its resolved mounts: *“This component reads `essays` and appends to `paxmachina.org/inbox`.”* Enforcement makes that statement true.
