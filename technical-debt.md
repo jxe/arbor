@@ -23,6 +23,8 @@ This file tracks implementation debt and incomplete invariants, not product feat
 4. **Preserve exact non-contiguous reorder undo.** A batch of non-contiguous selected rows is moved as a contiguous group. Its current inverse restores the group near its former trailing anchor but cannot recreate intervening rows exactly. Either record an exact structural-row layout or add an exact-order mutation.
 5. **Exercise row placement under crash recovery.** Add fault injection around a `beforeBlockId` move between prose blocks and prove recovery preserves both the physical tree and the complete mixed prose/child-row order.
 
+6. **Rework the editor's optimistic move preview off `transformStructuralRows`.** `PageEditor.runOptimisticMove` still previews anchored placement by running the shared row transform over the visible blocks. Under the manifest model the preview could instead reorder the projection directly (visible blocks + manifest), letting `transformStructuralRows` become private to the filesystem layer. Behavior is correct today; this is an altitude cleanup.
+
 ## Autosave, conflicts, and history
 
 1. **Make unload draining explicit.** The editor coordinator still starts a best-effort save during cleanup. Add an application-level drain/navigation contract and a `beforeunload` policy for outstanding generations rather than relying on an unawaited component cleanup.

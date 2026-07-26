@@ -170,7 +170,7 @@ Current behavior:
 - Markdown editing uses BlockNote as the interaction layer, not storage. Arbor owns parsing, source spans, raw-Markdown fallback, serialization, and canonical files.
 - No-op saves are byte-identical. Frontmatter comments/order and untouched block source are preserved; editing one supported block normalizes only that region.
 - Inline Markdown, links, hard breaks, nested `▸` toggles, footnotes, inline/display LaTeX, and raw HTML fallback are implemented.
-- Authored and auto-generated child-page rows use a custom block type and navigate rather than editing their displayed title. This is currently a web-editor projection; the reference clients do not yet expose the shared complete-document projection and managed-row manifest specified for Milestone 2.
+- Authored and auto-generated child-page rows use a custom block type (`standaloneLink`) and navigate rather than editing their displayed title. Both reference clients now expose the shared complete-document projection and managed-row manifest (`openProjectedNodeView`), verified against common fixtures, and the web editor consumes it; content saves strip synthetic rows before persistence.
 - One editor coordinator owns authored generations, save state, merge/retry behavior, undo grouping, and clean external snapshot application without remounting the editor or manufacturing undo history.
 - Selection survives background save/reconciliation.
 - The current presentation includes bundled Inter, the 708px reading column, responsive navigation, adaptive colors, properties, page actions, Recover, and filesystem operations.
@@ -302,7 +302,7 @@ Do not rewrite those features under this milestone. Extend and measure them.
 
 #### Complete directory documents and stable references
 
-*Implementation order and code-level detail for this section live in [arbord-projection-outline.md](arbord-projection-outline.md); the behavior contract lives in [spec/format.md](spec/format.md) §4 and [spec/arbord-rest.md](spec/arbord-rest.md).*
+*Implementation order and code-level detail for this section live in [arbord-projection-outline.md](arbord-projection-outline.md); the behavior contract lives in [spec/format.md](spec/format.md) §4 and [spec/arbord-rest.md](spec/arbord-rest.md). Status: **Implemented** — shared logical-URL resolver and pure projection in `@arbor/core` with TS/Swift mirrors and cross-language fixtures; `bodyState`/child `pageID` snapshot fields; natural-vs-authored move placement with lazy `_index.md` materialization; `ensureDocumentIdentity`; projected views in both reference clients; ArborNote cut over with the synthetic-row persistence guard.*
 
 - Refactor the TypeScript and Swift `openNodeView` layers to derive one language-neutral projected directory document after the complete paginated child listing has been hydrated under the initial observation cursor.
 - Project the stored or implicit body plus every immediate child exactly once. An authored standalone child link anchors its row; otherwise append a synthetic managed row in stable directory order.
