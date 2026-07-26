@@ -148,6 +148,7 @@ type StructuralWorkspaceOperation =
       op: "move";
       refs: NodeRef[];
       destination: NodeRef;
+      placement?: "natural" | "authored";
       beforePath?: LogicalPath;
       beforeBlockID?: string;
       baseDirectoryRevision?: DirectoryRevision;
@@ -174,7 +175,9 @@ type MutationRequest =
 
 The complete structural batch either commits or has no logical effects. Structural operation order is authored intent and participates in the request hash. This boundary lets Markdown intents and structural transactions each provide crash-safe recovery without a cross-domain transaction coordinator.
 
-`refs` arrays are non-empty and retain their order. `move` is also the placement operation: `beforePath` identifies a child, while `beforeBlockID` identifies an authored block boundary in the destination directory body. If the named anchor no longer exists, arbord returns `missing-insertion-anchor`; it never silently appends. Logical mutations maintain stored structural rows themselves. Filesystem-only controls such as `updateDirectoryRows` are not protocol operations.
+`refs` arrays are non-empty and retain their order. `move` is also the placement operation, with two placements. `natural` — the default for an unanchored cross-directory move — moves the node without materializing a stored destination row: the child simply appears in the listing (and as a projected synthetic row), pre-existing destination rows naming the moved node are rewritten, and source-directory rows for the departed child are removed. `authored` places a stored row in the destination directory body; an anchor (`beforePath` or `beforeBlockID`) always implies `authored`, and an unanchored `authored` move appends in authored document order. A same-directory move is a reorder and is inherently authored. Renames update an existing authored row but never materialize one for a previously synthetic child.
+
+Anchors: `beforePath` identifies a child, while `beforeBlockID` identifies an authored block boundary in the destination directory body. `beforeBlockID` must name a stored block — client-side synthetic row IDs (the `managed:` prefix) never cross the wire; a client anchoring on a synthetic row sends that child's `beforePath` instead, and arbord materializes an authored row for the anchor child as well, keeping the placed rows ahead of it. If a `beforeBlockID` anchor no longer exists, arbord returns `missing-insertion-anchor`; it never silently appends. Logical mutations maintain stored structural rows themselves. Filesystem-only controls such as `updateDirectoryRows` are not protocol operations.
 
 The planned projected-document client never sends its complete projected directory document as `writeMarkdown`. It removes synthetic managed rows and routes intentions by durability domain: prose/frontmatter becomes the singleton content operation, while managed-row reorder/move/rename/copy/trash/restore becomes a structural batch with `directoryRevision` and explicit anchors. If the operation requires a bodyless directory to retain document identity across movement, the corresponding arbord extension establishes the ID within the authored mutation before changing its path.
 

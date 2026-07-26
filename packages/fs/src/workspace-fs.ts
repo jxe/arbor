@@ -134,6 +134,7 @@ interface PlannedRows {
   sources: Map<string, string[]>;
   destination?: string;
   moved: Array<{ oldPath: string; newPath: string }>;
+  insertMode?: "insert" | "update-existing";
   beforePath?: string;
   beforeBlockId?: string;
   expectedDirectoryRevision?: string;
@@ -144,6 +145,7 @@ interface SerializedRows {
   sources: Array<[string, string[]]>;
   destination?: string;
   moved: Array<{ oldPath: string; newPath: string }>;
+  insertMode?: "insert" | "update-existing";
   beforePath?: string;
   beforeBlockId?: string;
   revisions?: Array<[string, string]>;
@@ -720,6 +722,7 @@ export class WorkspaceFS implements AsyncDisposable {
         sources: [...plan.sources],
         destination: plan.destination,
         moved: plan.moved,
+        insertMode: plan.insertMode,
         beforePath: plan.beforePath,
         beforeBlockId: plan.beforeBlockId,
         revisions: plan.revisions ? [...plan.revisions] : undefined,
@@ -885,7 +888,14 @@ export class WorkspaceFS implements AsyncDisposable {
       await this.planMove([source], parentPath(source), operation.name, transactionId, steps, changes, destinations);
       if (operation.updateDirectoryRows !== false) {
         const next = `${parentPath(source) === "/" ? "" : parentPath(source)}/${operation.name}`;
-        rowPlans.push({ sources: new Map([[parentPath(source), [source]]]), destination: parentPath(source), moved: [{ oldPath: source, newPath: canonicalNodePath(next) }] });
+        // A rename updates an existing authored row but never materializes one
+        // for a previously synthetic child.
+        rowPlans.push({
+          sources: new Map([[parentPath(source), [source]]]),
+          destination: parentPath(source),
+          moved: [{ oldPath: source, newPath: canonicalNodePath(next) }],
+          insertMode: "update-existing",
+        });
       }
       return;
     }
@@ -915,6 +925,12 @@ export class WorkspaceFS implements AsyncDisposable {
       }
       await this.planMove(paths, destination, undefined, transactionId, steps, changes, destinations);
       if (operation.updateDirectoryRows !== false) {
+        // An anchor implies authored placement; otherwise the caller's choice,
+        // defaulting to natural (no stored destination row is materialized —
+        // pre-existing rows naming the moved node are still rewritten).
+        const placement = operation.beforePath || operation.beforeBlockId
+          ? "authored"
+          : operation.placement ?? "natural";
         const sources = new Map<string, string[]>();
         const moved = paths.map((path) => {
           const group = sources.get(parentPath(path)) ?? [];
@@ -933,6 +949,7 @@ export class WorkspaceFS implements AsyncDisposable {
           sources,
           destination,
           moved,
+          insertMode: placement === "authored" ? "insert" : "update-existing",
           beforePath: operation.beforePath,
           beforeBlockId: operation.beforeBlockId,
           expectedDirectoryRevision: operation.directoryRevision,
@@ -1153,13 +1170,30 @@ export class WorkspaceFS implements AsyncDisposable {
     for (const directory of allParents) {
       const current = await this.read(directory);
       if (!current.document) continue;
-      const transformed = transformStructuralRows(current.document.blocks, {
+      const insertMoves = destination && directory === destination ? plan.moved : [];
+      let transformed = transformStructuralRows(current.document.blocks, {
         directory,
         removePaths: plan.sources.get(directory) ?? [],
-        insertMoves: destination && directory === destination ? plan.moved : [],
+        insertMoves,
+        insertMode: plan.insertMode,
         beforePath: plan.beforePath,
         beforeBlockId: plan.beforeBlockId,
       });
+      if (transformed.anchor === "missing" && plan.beforePath && !plan.beforeBlockId) {
+        // The anchor child exists but has no stored row (synthetic). Rather
+        // than fail, materialize an authored row for the anchor too, keeping
+        // the moved rows ahead of it at the end of the stored body.
+        const anchorPath = canonicalNodePath(plan.beforePath);
+        const anchorNode = await this.resolve(anchorPath);
+        if (anchorNode.kind !== "missing" && parentPath(anchorPath) === directory) {
+          transformed = transformStructuralRows(current.document.blocks, {
+            directory,
+            removePaths: plan.sources.get(directory) ?? [],
+            insertMoves: [...insertMoves, { oldPath: anchorPath, newPath: anchorPath }],
+            insertMode: plan.insertMode,
+          });
+        }
+      }
       if (transformed.anchor === "missing") {
         throw new FsConflictError(
           { code: "missing-insertion-anchor", path: directory, current },
@@ -1336,6 +1370,7 @@ export class WorkspaceFS implements AsyncDisposable {
             sources: new Map(serialized.sources),
             destination: serialized.destination,
             moved: serialized.moved,
+            insertMode: serialized.insertMode,
             beforePath: serialized.beforePath,
             beforeBlockId: serialized.beforeBlockId,
             revisions: serialized.revisions ? new Map(serialized.revisions) : undefined,

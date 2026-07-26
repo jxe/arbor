@@ -11,6 +11,12 @@ export interface StructuralRowTransform {
   directory: string;
   removePaths: readonly string[];
   insertMoves?: readonly StructuralRowMove[];
+  /**
+   * `insert` (the default) materializes a row for every insert move;
+   * `update-existing` only rewrites rows that already exist and never
+   * creates new ones (natural placement, rename healing).
+   */
+  insertMode?: "insert" | "update-existing";
   beforePath?: string;
   beforeBlockId?: string;
   createBlockId?: () => string;
@@ -54,7 +60,9 @@ export function transformStructuralRows(
     return [{ ...block, children: strip(block.children) }];
   });
   const remaining = strip(inputBlocks);
-  const moves = transform.insertMoves ?? [];
+  const moves = (transform.insertMoves ?? []).filter((move) =>
+    transform.insertMode !== "update-existing" || existingByPath.has(canonicalNodePath(move.oldPath))
+  );
   if (!moves.length) return { blocks: remaining, anchor: "not-requested" };
 
   const createBlockId = transform.createBlockId ?? (() => `child-${crypto.randomUUID()}`);

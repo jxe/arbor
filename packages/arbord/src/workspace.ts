@@ -587,6 +587,7 @@ export class Workspace implements AsyncDisposable {
           op: "move",
           paths: await Promise.all(operation.refs.map((ref) => this.resolveRef(ref))),
           destination: await this.resolveRef(operation.destination),
+          placement: operation.placement,
           beforePath: operation.beforePath,
           beforeBlockId: operation.beforeBlockID,
           directoryRevision: operation.baseDirectoryRevision,

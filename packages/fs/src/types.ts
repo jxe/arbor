@@ -46,6 +46,8 @@ export type FsMutation =
     op: "move";
     paths: string[];
     destination: string;
+    /** `natural` (default) inserts no destination row; an anchor implies `authored`. */
+    placement?: "natural" | "authored";
     beforePath?: string;
     beforeBlockId?: string;
     directoryRevision?: string;

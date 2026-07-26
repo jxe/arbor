@@ -217,7 +217,7 @@ describe("@arbor/fs logical nodes", () => {
       stateDirectory: state,
       faultInjector: (point) => { if (point === "mutation:destination-committed") throw new Error("power loss"); },
     });
-    await expect(crashing.mutate({ operations: [{ op: "move", paths: ["/page"], destination: "/folder" }] })).rejects.toBeInstanceOf(FsInjectedCrashError);
+    await expect(crashing.mutate({ operations: [{ op: "move", paths: ["/page"], destination: "/folder", placement: "authored" }] })).rejects.toBeInstanceOf(FsInjectedCrashError);
     await crashing[Symbol.asyncDispose]();
 
     const recovered = await WorkspaceFS.open(root, { stateDirectory: state });
@@ -225,6 +225,56 @@ describe("@arbor/fs logical nodes", () => {
     expect(await readFile(join(root, "folder", "page.md"), "utf8")).toBe("Page\n");
     expect((await recovered.read("/folder")).document?.blocks.some((block) => block.type === "standaloneLink" && block.content === "page")).toBe(true);
     expect(await readFile(join(root, "_index.md"), "utf8")).not.toContain("](page)");
+  });
+
+  test("a natural move strips source rows without materializing destination ordering", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-fs-natural-move-"));
+    const state = await mkdtemp(join(tmpdir(), "arbor-fs-natural-move-state-"));
+    directories.push(root, state);
+    await writeFile(join(root, "page.md"), "Page\n");
+    await writeFile(join(root, "_index.md"), "[page](page)\n");
+    await mkdir(join(root, "folder"));
+    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
+    opened.push(fs);
+    await fs.mutate({ operations: [{ op: "move", paths: ["/page"], destination: "/folder" }] });
+    expect(await readFile(join(root, "folder", "page.md"), "utf8")).toBe("Page\n");
+    expect(await readFile(join(root, "_index.md"), "utf8")).not.toContain("](page)");
+    await expect(stat(join(root, "folder", "_index.md"))).rejects.toThrow();
+  });
+
+  test("a rename never materializes a row for a previously synthetic child", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-fs-rename-synthetic-"));
+    const state = await mkdtemp(join(tmpdir(), "arbor-fs-rename-synthetic-state-"));
+    directories.push(root, state);
+    await mkdir(join(root, "folder"));
+    await writeFile(join(root, "folder", "draft.md"), "Draft\n");
+    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
+    opened.push(fs);
+    await fs.mutate({ operations: [{ op: "rename", path: "/folder/draft", name: "published" }] });
+    expect(await readFile(join(root, "folder", "published.md"), "utf8")).toBe("Draft\n");
+    await expect(stat(join(root, "folder", "_index.md"))).rejects.toThrow();
+  });
+
+  test("anchoring before a synthetic child materializes the anchor row too", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-fs-anchor-synth-"));
+    const state = await mkdtemp(join(tmpdir(), "arbor-fs-anchor-synth-state-"));
+    directories.push(root, state);
+    await writeFile(join(root, "page.md"), "Page\n");
+    await mkdir(join(root, "folder"));
+    await writeFile(join(root, "folder", "existing.md"), "Existing\n");
+    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
+    opened.push(fs);
+    const revision = (await fs.read("/folder")).byteRevision;
+    await fs.mutate({ operations: [{
+      op: "move",
+      paths: ["/page"],
+      destination: "/folder",
+      beforePath: "/folder/existing",
+      directoryRevision: revision,
+    }] });
+    const body = await readFile(join(root, "folder", "_index.md"), "utf8");
+    expect(body.indexOf("](page)")).toBeGreaterThanOrEqual(0);
+    expect(body.indexOf("](existing)")).toBeGreaterThan(body.indexOf("](page)"));
   });
 
   test("reasserts only unsettled authored stomps and observes settled rewrites", async () => {
