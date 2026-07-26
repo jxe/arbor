@@ -84,6 +84,53 @@ test("opens authored and auto-generated subpage rows", async ({ page }) => {
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
 });
 
+test("drops a managed row immediately after a prose block", async ({ page }) => {
+  const moveOperations: Array<{ beforeBlockID?: string }> = [];
+  page.on("request", (request) => {
+    if (request.method() !== "POST" || new URL(request.url()).pathname !== "/v1/mutations") return;
+    const body = request.postDataJSON() as { operations?: Array<{ op?: string; beforeBlockID?: string }> };
+    moveOperations.push(...(body.operations ?? []).filter((operation) => operation.op === "move"));
+  });
+  await page.goto("/render/drag-order");
+  const source = page.locator('[data-managed-row="/drag-order/simulacra"]');
+  const heading = page.getByRole("heading", { name: "Oliver" });
+  await expect(source).toBeVisible();
+  await expect(heading).toBeVisible();
+
+  await source.hover();
+  const sourceHandle = page.locator('[data-arbor-managed-handle="/drag-order/simulacra"] button');
+  await expect(sourceHandle).toBeVisible();
+  const sourceBox = await sourceHandle.boundingBox();
+  const headingBox = await page.locator('[data-node-type="blockOuter"]').filter({ has: heading }).boundingBox();
+  expect(sourceBox).not.toBeNull();
+  expect(headingBox).not.toBeNull();
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    headingBox!.x + headingBox!.width / 2,
+    headingBox!.y + headingBox!.height * 0.4,
+    { steps: 10 },
+  );
+  const dropCursor = page.locator(".prosemirror-dropcursor-block-horizontal");
+  await expect(dropCursor).toBeVisible();
+  const dropCursorBox = await dropCursor.boundingBox();
+  expect(dropCursorBox).not.toBeNull();
+  expect(dropCursorBox!.y + dropCursorBox!.height / 2).toBeGreaterThan(headingBox!.y + headingBox!.height);
+  await page.mouse.up();
+
+  await expect.poll(() => moveOperations.length).toBe(1);
+  const bodySource = async () => page.evaluate(async () => {
+    const response = await fetch("/v1/node?path=%2Fdrag-order");
+    const node = await response.json();
+    return node.document.bodySource as string;
+  });
+  await expect.poll(async () => {
+    const sourceText = await bodySource();
+    return sourceText.indexOf("# Oliver") < sourceText.indexOf("[simulacra](simulacra)")
+      && sourceText.indexOf("[simulacra](simulacra)") < sourceText.indexOf("[touqeville](touqeville)");
+  }).toBe(true);
+});
+
 test("browses, searches, and edits toggle Markdown", async ({ page }) => {
   const writes: string[] = [];
   page.on("request", (request) => { if (!["GET", "HEAD"].includes(request.method())) writes.push(`${request.method()} ${request.url()}`); });

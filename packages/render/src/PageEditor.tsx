@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BlockNoteEditor } from "@blocknote/core";
+import { BlockNoteEditor, getNodeId } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extensions";
 import { TextSelection } from "@tiptap/pm/state";
@@ -240,11 +240,20 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
     ? { pageID: node.ref.pageID, pathHint: node.path }
     : { path: node.path };
   const nodeIdentity = useRef(node.ref.pageID ?? node.path).current;
+  const blockDropPosition = useRef<{ pos: number; orientation: string } | null>(null);
   const editor = useMemo(() => {
     const instance = BlockNoteEditor.create({
       schema: arborSchema,
       initialContent: [{ type: "paragraph" }],
       extensions: arborEditorExtensions,
+      dropCursor: {
+        hooks: {
+          computeDropPosition: ({ defaultPosition }) => {
+            blockDropPosition.current = defaultPosition;
+            return defaultPosition;
+          },
+        },
+      },
       uploadFile: async (file) => (await api.asset(pageDirectoryRef.current, file)).markdownPath,
     });
     instance.transact((transaction) => {
@@ -704,6 +713,7 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
       const row = managedRow(event.target);
       const path = row?.dataset.managedRow ?? managedHandlePath(event.target);
       if (!path) return;
+      blockDropPosition.current = null;
       dragStartRef.current(path, event as unknown as React.DragEvent);
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -768,6 +778,7 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
       const handlePath = managedHandlePath(event.target);
       const path = row?.dataset.managedRow ?? handlePath;
       if (!path) return;
+      blockDropPosition.current = null;
       const visiblySelected = new Set([...surface.querySelectorAll<HTMLElement>("[data-managed-row].selected")]
         .flatMap((item) => item.dataset.managedRow ? [item.dataset.managedRow] : []));
       const paths = visiblySelected.has(path)
@@ -840,6 +851,8 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
     const onPointerUp = (event: PointerEvent) => {
       const current = pointer;
       pointer = null;
+      const resolvedDropPosition = blockDropPosition.current;
+      blockDropPosition.current = null;
       if (current?.handleButton) current.handleButton.draggable = true;
       setDragPreview(null);
       document.body.classList.remove("arbor-pointer-dragging");
@@ -862,12 +875,41 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
       const target = managedRow(pointTarget);
       const targetPath = target?.dataset.managedRow;
       if (!target || !targetPath) {
+        if (resolvedDropPosition?.orientation === "block-horizontal") {
+          const document = editorRef.current.prosemirrorView.state.doc;
+          const nodeAfter = document.resolve(resolvedDropPosition.pos).nodeAfter;
+          const beforeBlockId = nodeAfter?.type.isInGroup("bnBlock")
+            ? getNodeId(nodeAfter, document)
+            : undefined;
+          void dropInDocumentRef.current(paths, beforeBlockId);
+          return;
+        }
         const block = pointTarget?.closest<HTMLElement>('[data-node-type="blockContainer"][data-id]');
-        if (!block) return;
-        const bounds = block.getBoundingClientRect();
-        let beforeBlockId = block.dataset.id;
-        if ((event.clientY - bounds.top) / Math.max(1, bounds.height) > 0.5) {
-          beforeBlockId = block.nextElementSibling instanceof HTMLElement ? block.nextElementSibling.dataset.id : undefined;
+        let beforeBlockId: string | undefined;
+        if (block) {
+          const bounds = block.getBoundingClientRect();
+          beforeBlockId = block.dataset.id;
+          if ((event.clientY - bounds.top) / Math.max(1, bounds.height) > 0.5) {
+            const outer = block.closest<HTMLElement>('[data-node-type="blockOuter"][data-id]');
+            const nextOuter = outer?.nextElementSibling;
+            beforeBlockId = nextOuter instanceof HTMLElement
+              ? nextOuter.querySelector<HTMLElement>('[data-node-type="blockContainer"][data-id]')?.dataset.id
+              : undefined;
+          }
+        } else {
+          const group = pointTarget?.closest<HTMLElement>('[data-node-type="blockGroup"]')
+            ?? editorRef.current.prosemirrorView.dom.querySelector<HTMLElement>(
+              ':scope > [data-node-type="blockGroup"]',
+            );
+          if (!group) return;
+          const nextOuter = [...group.children].find((child) => {
+            if (!(child instanceof HTMLElement) || child.dataset.nodeType !== "blockOuter") return false;
+            const bounds = child.getBoundingClientRect();
+            return event.clientY < bounds.top + bounds.height / 2;
+          });
+          beforeBlockId = nextOuter instanceof HTMLElement
+            ? nextOuter.querySelector<HTMLElement>('[data-node-type="blockContainer"][data-id]')?.dataset.id
+            : undefined;
         }
         void dropInDocumentRef.current(paths, beforeBlockId);
         return;
