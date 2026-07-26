@@ -393,6 +393,56 @@ describe("arbord REST v1", () => {
     expect(shell.headers.get("content-type")).toContain("text/html");
   });
 
+  test("serves ordinary-file bytes at logical routes with ETag, range, and ?raw", async () => {
+    const bytes = new TextEncoder().encode("PNGDATA-0123456789");
+    await writeFile(join(root, "photo.png"), bytes);
+    await writeFile(join(root, "rawdoc.md"), "Raw surface\n");
+
+    const direct = await fetch(`${base}/photo.png`);
+    expect(direct.status).toBe(200);
+    expect(direct.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await direct.arrayBuffer())).toEqual(bytes);
+    const etag = direct.headers.get("etag")!;
+    expect(etag).toMatch(/^".+"$/);
+
+    const conditional = await fetch(`${base}/photo.png`, { headers: { "if-none-match": etag } });
+    expect(conditional.status).toBe(304);
+
+    const range = await fetch(`${base}/photo.png`, { headers: { range: "bytes=3-6" } });
+    expect(range.status).toBe(206);
+    expect(range.headers.get("content-range")).toBe(`bytes 3-6/${bytes.byteLength}`);
+    expect(await range.text()).toBe("DATA");
+
+    // The /render spelling serves the same bytes so authored relative
+    // references keep resolving under the app's route prefix.
+    const prefixed = await fetch(`${base}/render/photo.png`);
+    expect(prefixed.status).toBe(200);
+    expect(prefixed.headers.get("etag")).toBe(etag);
+
+    // Document-shaped routes stay on the browsing surface unless ?raw.
+    const app = await fetch(`${base}/render/rawdoc`);
+    expect(app.headers.get("content-type")).toContain("text/html");
+    const raw = await fetch(`${base}/rawdoc?raw`);
+    expect(raw.status).toBe(200);
+    expect(raw.headers.get("content-type")).toContain("text/markdown");
+    expect(await raw.text()).toContain("Raw surface");
+  });
+
+  test("asset receipts carry the tree-rooted markdown destination", async () => {
+    const form = new FormData();
+    form.set("metadata", JSON.stringify({ mutationID: "asset-rooted-1", directory: { path: "/" } }));
+    form.set("file", new File([new TextEncoder().encode("img")], "leaf.png", { type: "image/png" }));
+    const response = await fetch(`${base}/v1/assets`, { method: "POST", body: form });
+    expect(response.status).toBe(200);
+    const result = await response.json() as { path: string; markdownPath: string };
+    expect(result.markdownPath).toBe(result.path);
+    expect(result.markdownPath).toStartWith("/Assets/");
+
+    const served = await fetch(`${base}${result.path}`);
+    expect(served.status).toBe(200);
+    expect(await served.text()).toBe("img");
+  });
+
   test("returns the durable original receipt after an arbord restart", async () => {
     await client.mutateStructural([{ op: "createDirectory", path: "/recovered-effect" }], "materialization-setup");
     const recoveredRequest: MutationRequest = {

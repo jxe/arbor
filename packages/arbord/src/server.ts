@@ -399,24 +399,56 @@ export async function serveWorkspace(
           return json(result);
         }
 
-        if (request.method === "GET" && (url.pathname.startsWith("/Assets/") || url.pathname.startsWith("/render/Assets/"))) {
-          const assetPath = url.pathname.replace(/^\/render/, "");
-          const node = await workspace.node(assetPath);
-          if (node.kind !== "file") return errorResponse("not-found", "Asset not found", 404, { path: assetPath });
-          const absolute = join(workspace.root, assetPath);
-          return new Response(await readFile(absolute), { headers: { "content-type": MIME[extname(absolute)] ?? "application/octet-stream" } });
-        }
         if (url.pathname.startsWith("/v/") || url.pathname.startsWith("/v1/")) {
           return errorResponse("unsupported-operation", "Route or method is not part of REST v1", 405);
         }
         if (request.method !== "GET" && request.method !== "HEAD") {
           return errorResponse("unsupported-operation", "Method not allowed", 405);
         }
-        const assetPath = url.pathname === "/" || url.pathname.startsWith("/render/") ? "index.html" : url.pathname.slice(1);
-        let absolute = join(renderRoot, assetPath);
-        if (!existsSync(absolute)) absolute = join(renderRoot, "index.html");
-        if (!existsSync(absolute)) return new Response("TreeHopper web is not built. Run `bun run build:web`.", { status: 503 });
-        return new Response(await readFile(absolute), { headers: { "content-type": MIME[extname(absolute)] ?? "application/octet-stream" } });
+        const isAppRoute = url.pathname === "/" || url.pathname === "/render" || url.pathname.startsWith("/render/");
+        if (!isAppRoute) {
+          const bundled = join(renderRoot, url.pathname.slice(1));
+          if (existsSync(bundled)) {
+            return new Response(await readFile(bundled), { headers: { "content-type": MIME[extname(bundled)] ?? "application/octet-stream" } });
+          }
+        }
+        // The logical route is the file API: an ordinary file's path serves
+        // its bytes (with ?raw overriding to a document's stored body); the
+        // /render spelling is accepted so authored relative references keep
+        // resolving under the app's route prefix.
+        const logicalPath = url.pathname.replace(/^\/render(?=\/|$)/, "") || "/";
+        const raw = url.searchParams.has("raw");
+        const surface = await workspace.fileSurface(logicalPath, raw).catch(() => null);
+        if (surface) {
+          const etag = `"${surface.revision}"`;
+          const contentType = MIME[extname(surface.path)]
+            ?? (raw ? "text/markdown; charset=utf-8" : "application/octet-stream");
+          const baseHeaders: Record<string, string> = {
+            "content-type": contentType,
+            etag,
+            "accept-ranges": "bytes",
+          };
+          if (request.headers.get("if-none-match") === etag) {
+            return new Response(null, { status: 304, headers: baseHeaders });
+          }
+          const range = request.headers.get("range")?.match(/^bytes=(\d*)-(\d*)$/);
+          if (range && (range[1] || range[2])) {
+            const size = surface.bytes.byteLength;
+            const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+            const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+            if (start > end || start >= size) {
+              return new Response(null, { status: 416, headers: { ...baseHeaders, "content-range": `bytes */${size}` } });
+            }
+            return new Response(request.method === "HEAD" ? null : Buffer.from(surface.bytes.slice(start, end + 1)), {
+              status: 206,
+              headers: { ...baseHeaders, "content-range": `bytes ${start}-${end}/${size}` },
+            });
+          }
+          return new Response(request.method === "HEAD" ? null : Buffer.from(surface.bytes), { headers: baseHeaders });
+        }
+        const index = join(renderRoot, "index.html");
+        if (!existsSync(index)) return new Response("TreeHopper web is not built. Run `bun run build:web`.", { status: 503 });
+        return new Response(await readFile(index), { headers: { "content-type": MIME[".html"] ?? "text/html" } });
       } catch (error) {
         if (error instanceof ProtocolError) {
           return errorResponse(error.code, error.message, error.status, { retryable: error.details.retryable ?? false, ...error.details });

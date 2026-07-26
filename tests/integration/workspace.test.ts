@@ -148,7 +148,8 @@ describe("workspace service", () => {
   test("stores content-addressed assets", async () => {
     const asset = await workspace.addAsset("/folder", "picture.png", new TextEncoder().encode("image"));
     expect(asset.path).toMatch(/^\/Assets\/[a-f0-9]{16}\.png$/);
-    expect(asset.markdownPath).toStartWith("../Assets/");
+    expect(asset.markdownPath).toStartWith("/Assets/");
+    expect(asset.markdownPath).toBe(asset.path);
   });
 
   test("searches indexed content", async () => {

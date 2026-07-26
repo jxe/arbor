@@ -214,7 +214,7 @@ Their multipart metadata contains the same mutation ID and logical destination/p
 - `metadata`, a JSON string matching [`asset-metadata.json`](../tests/fixtures/protocol/asset-metadata.json);
 - `file`, the uninterpreted asset bytes.
 
-It returns `{ "receipt": MutationReceipt, "path": LogicalPath, "markdownPath": string }`; `path` is the canonical asset path and `markdownPath` is the relative Markdown destination from the addressed directory.
+It returns `{ "receipt": MutationReceipt, "path": LogicalPath, "markdownPath": string }`; `path` is the canonical asset path and `markdownPath` is the tree-rooted Markdown destination to author (rooted spellings are the one form on which the DOM's relative-URL rule and Arbor's logical resolution agree at any document depth).
 
 `/v1/imports` has:
 

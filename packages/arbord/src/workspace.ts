@@ -422,9 +422,26 @@ export class Workspace implements AsyncDisposable {
     const path = `/Assets/${safeName}`;
     const existing = await this.fs.resolve(path);
     if (existing.kind === "missing") await this.fs.mutate({ operations: [{ op: "createFile", path, bytes }] });
-    const directory = (await this.fs.resolve(directoryInput)).directoryPath
-      ?? dirname((await this.fs.resolve(directoryInput)).bodyPath ?? this.root);
-    return { path, markdownPath: relative(directory, resolveTreePath(this.root, path)).split("/").join("/") };
+    // Tree-rooted spelling: the one form on which the DOM's relative-URL
+    // rule and Arbor's logical resolution agree at any document depth.
+    return { path, markdownPath: path };
+  }
+
+  /**
+   * The byte surface for a logical route: ordinary files serve their bytes
+   * by default; document-shaped nodes serve their stored body only under
+   * the explicit `raw` override. Null means the route belongs to the
+   * browsing surface instead.
+   */
+  async fileSurface(inputPath: string, raw: boolean): Promise<{ bytes: Uint8Array; revision: string; path: string } | null> {
+    const read = await this.fs.read(inputPath);
+    if (read.node.kind === "file") {
+      return read.bytes ? { bytes: read.bytes, revision: read.byteRevision, path: read.node.path } : null;
+    }
+    if (raw && (read.node.kind === "markdown" || read.node.kind === "directory") && read.bytes) {
+      return { bytes: read.bytes, revision: read.byteRevision, path: read.node.path };
+    }
+    return null;
   }
 
   recovery(inputPath: string) { return this.fs.recovery(inputPath); }
