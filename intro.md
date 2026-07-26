@@ -26,7 +26,6 @@ Imagine there was a thing with this kind of structure on your disk:
 ~/workspace/
   projects/
     atlas/
-      _index.md          # the folder's own body and properties
       notes.md
       app.sqlite3
       atlas.tsx
@@ -35,7 +34,7 @@ Imagine there was a thing with this kind of structure on your disk:
   library/               # a public tree, mounted from a domain name
 ```
 
-Everything is ordinary files. A markdown page is YAML frontmatter for properties plus a markdown body. A directory is itself a page — its own body and properties live in `_index.md`, so a folder is never just a listing. That means any page can gain children without changing its browser name, links, identity, or history. And imagine a background process — call it arbord — that watches this tree and does three jobs.
+Everything is ordinary files. A Markdown document is YAML frontmatter for properties and durable identity plus a Markdown body. A directory is itself a document even when it has no `_index.md`: TreeHopper combines its optional stored body with all of its immediate children, so `atlas` opens as a complete page containing `notes`, `app.sqlite3`, and `atlas.tsx`. Browsing creates nothing. If you add prose, arrange those children under headings, or first need a durable document ID, arbord materializes the minimal `_index.md`. That means any document can gain children without changing its browser name, relative links, identity, or history. And imagine a background process — call it arbord — that watches this tree and does three jobs.
 
 **It handles sharing and syncing.** Take `projects/atlas`, an ordinary folder. When I choose **Share this folder**, arbord gives that subtree an independent identity, a revision history, a permission boundary, and a synchronization endpoint. The folder doesn't move; it's still at `projects/atlas`. Only its backing changes. When Alice accepts my invitation, she places the same shared tree wherever it makes sense in *her* workspace:
 
@@ -51,7 +50,7 @@ Sharing also turns out to solve naming — the moment a folder becomes a shared 
 
 **It handles containment.** Because shared trees mount anywhere, the endless pool of project folders collapses into one navigable tree where everything has a place. You mount a collaborator's tree under `work/`, a public library under `reading/`, an archive off to the side. You scope an agent to exactly the subtrees its job concerns — it sees a small tree assembled for it, and nothing else exists for it. You hand off or archive a subtree as a unit, with its history attached.
 
-It's worth being honest that plain filesystems don't actually stay orderly — they tend toward mess — and that Notion, with the *same* hierarchical structure, somehow doesn't. The difference is three small affordances, and this design keeps all of them. First, a directory in Notion isn't a bare listing; it's a document that *contains* its children, so you can group them under headings, fold the stale ones into a toggle, annotate the important ones — the folder explains itself. Here that's exactly what `_index.md` is for. Second, page properties mean a subtree of similar pages quietly becomes a database — past meeting agendas, say, each with a date and attendees — without anyone declaring one; here that's frontmatter, hardened by an optional `schema.ts` when the pattern matures. Third, sharing works on subtrees, which nudges people to map subtrees onto groups — the team's tree, the project's tree — and that social mapping keeps the hierarchy meaningful as it grows. The same dynamic will happen here, because shared trees *are* the unit of sharing. The tree grows for years without becoming a junk drawer, for the same reason Notion workspaces and the web itself can: hierarchy plus addresses, plus folders that carry their own explanations.
+It's worth being honest that plain filesystems don't actually stay orderly — they tend toward mess — and that Notion, with the *same* hierarchical structure, somehow doesn't. The difference is three small affordances, and this design keeps all of them. First, a directory in Notion isn't a bare listing; it's a document that *contains* its children, so you can group them under headings, fold the stale ones into a toggle, annotate the important ones — the folder explains itself. Here arbord supplies the child identities and TreeHopper folds them into the directory's document; `_index.md` stores only the authored explanation and ordering when there is something to store. Second, page properties mean a subtree of similar pages quietly becomes a database — past meeting agendas, say, each with a date and attendees — without anyone declaring one; here that's frontmatter, hardened by an optional `schema.ts` when the pattern matures. Third, sharing works on subtrees, which nudges people to map subtrees onto groups — the team's tree, the project's tree — and that social mapping keeps the hierarchy meaningful as it grows. The same dynamic will happen here, because shared trees *are* the unit of sharing. The tree grows for years without becoming a junk drawer, for the same reason Notion workspaces and the web itself can: hierarchy plus addresses, plus folders that carry their own explanations.
 
 **It presents everything as real files.** Arbord materializes the workspace — including mounted trees — as ordinary files on disk, because agents and editors assume them. `ls` is browsing. `cat` is reading. Writing a file is editing. `grep -r` is search. Nothing about your existing tools breaks.
 
@@ -67,17 +66,19 @@ notes.example.org
   → tree=tr_7k3m…
 ```
 
-From then on, `notes.example.org/essays/drift` is a real address that anyone's browser or agent can resolve — and no hosting company owns your namespace, because the name is yours and the endpoint behind it can move without the name changing.
+From then on, `arbor://notes.example.org/essays/drift` is a real address that anyone's browser or agent can resolve. A tree with no domain is still addressable as `arbor://tree/tr_7k3m…/essays/drift`. No hosting company owns your namespace, because the pretty name is yours, the raw name follows the tree's identity, and the endpoint behind either can move.
 
 And that record is the *entire* ceremony. There is no registry to enroll in, no account to create, no platform that can revoke your name — DNS, which you already have, is the only authority involved. Claiming is optional, too: a tree without a domain loses nothing but the pretty rendering of its names.
 
 Private trees have URLs too, and this matters more than it sounds. On the web, naming and access are tangled: an "unlisted" URL is a secret, and linking to something private means moving it somewhere public. Here the name is universal and access is not. A link to a private file is safe to paste into any document — it resolves only for someone holding a grant — so your team can cite, link, and `grep` across private material with the same fluency the public web has.
 
+Inside Markdown, these are still ordinary link destinations. From the document `/projects/atlas`, `[Notes](notes)` points to its child and `[Roadmap](../roadmap)` to its sibling; `[Drift](arbor://notes.example.org/essays/drift#x7f3q2)` jumps to another shared tree. That final fragment is the document's durable ID. The readable path can heal after a move because the ID says which document the author meant.
+
 ## One name, many positions
 
 On the web, a document's address *is* its location — where something lives and what it's called are the same fact, which is why reorganizing a site breaks the world's links to it. Here name and position are decoupled, and a subtree can occupy several positions at once:
 
-- **A canonical position** — where the subtree officially lives in the global namespace. Your team's handbook belongs at `team.example.org/handbook`; that's its documented, citable home, the position that exists for everyone.
+- **A canonical position** — where the subtree officially lives in the global namespace. Your team's handbook belongs at `arbor://team.example.org/handbook`; that's its documented, citable home, the position that exists for everyone.
 - **Your local positions** — where *you* mount it. The handbook might sit at `work/handbook` in your workspace, while its style guide alone is also mounted at `desk/style`, next to the draft you're editing. Both are live views of the same tree.
 - **Per-agent positions** — when you launch an agent, you can assemble a namespace just for it, in the Plan 9 manner: just the material its job concerns, mounted at whatever paths make that agent's world simplest. The agent sees a small, purpose-built tree; you and your teammates each see your own arrangements; the global namespace sees the canonical one.
 
@@ -149,7 +150,7 @@ export const recentEssays = query(async ({ tag }: { tag: string }) => {
 });
 
 export const submitEssay = mutation(async (submission: Submission) => {
-  return tree("paxmachina.org/inbox").append(submission);
+  return tree("arbor://paxmachina.org/inbox").append(submission);
 });
 
 export default function ReadingRoom() {
@@ -160,13 +161,13 @@ export default function ReadingRoom() {
 }
 ```
 
-`query` and `mutation` are explicit compiler boundaries — and notice what *isn't* there: no validator, no schema ceremony, no declared read list. Arbor already requires a compiler to split code across realms, so the compiler earns its keep. It generates runtime validation from the TypeScript parameter types, so `{ tag: string }` is enforced at the execution boundary, not just at typecheck time — and where a parameter's type comes from a Zod schema, like `Submission`, that schema is reused directly. It also collects the literal tree paths — `./essays`, `paxmachina.org/inbox` — as the query's read set and the mutation's write set; you only declare `reads`/`writes` explicitly when a path is computed. The function you write is just a typed function.
+`query` and `mutation` are explicit compiler boundaries — and notice what *isn't* there: no validator, no schema ceremony, no declared read list. Arbor already requires a compiler to split code across realms, so the compiler earns its keep. It generates runtime validation from the TypeScript parameter types, so `{ tag: string }` is enforced at the execution boundary, not just at typecheck time — and where a parameter's type comes from a Zod schema, like `Submission`, that schema is reused directly. It also collects the literal tree paths — `./essays`, `arbor://paxmachina.org/inbox` — as the query's read set and the mutation's write set; you only declare `reads`/`writes` explicitly when a path is computed. The function you write is just a typed function.
 
 A query is a deterministic function of the tree snapshot plus its validated input — determinism is what makes the isomorphism real, because the same handler must mean the same thing wherever it lands. The default placement follows the data. Trees you've synced run their queries in your own arbord: private, offline-capable, free for the host. Trees you're merely visiting run their queries at the host that owns them: whoever holds the data hosts its queries, and you never sync a tree just to ask it something. (An author can also force hosting, for queries that must control egress or touch secrets.) Hosted placement carries real advantages. The host controls how much data comes down — the query *is* the egress policy. The host can fix a security problem in a query immediately, without waiting for every reader to sync new code. And versioning happens automatically: each published query is a stable, versioned endpoint — identified by its code — so the host can patch a particular version in place while old consumers keep working, or publish a new version alongside it. Nobody sits down to design a REST API; the API is a byproduct of writing queries.
 
 Either way, the reactive contract is the same: the runtime records what each query actually read, and when any change — local edit or synced revision — intersects that read set, the query re-runs and the UI updates. A mutation is the write-side twin: validated code running against declared write prefixes, producing ordinary file changes or store transactions that land in the tree's revision history.
 
-That example is the compromise list made concrete. These are **explicit data-driven components** — a superset of HTML — kept alive by the runtime, at the price of a compiler and a schema-aware tree underneath. The security stance has its own price, paid differently than the origin sandbox pays it: a handler gets no ambient capabilities, not even a clock, so some programs are more awkward to write here than in a free-for-all origin. What that buys is consent as a computed sentence — "this component reads `essays` and appends to `paxmachina.org/inbox`" — with enforcement making the sentence true. Still instant, still anyone's code. But shaped for a world where the data is yours and the code is what travels to you.
+That example is the compromise list made concrete. These are **explicit data-driven components** — a superset of HTML — kept alive by the runtime, at the price of a compiler and a schema-aware tree underneath. The security stance has its own price, paid differently than the origin sandbox pays it: a handler gets no ambient capabilities, not even a clock, so some programs are more awkward to write here than in a free-for-all origin. What that buys is consent as a computed sentence — "this component reads `essays` and appends to `arbor://paxmachina.org/inbox`" — with enforcement making the sentence true. Still instant, still anyone's code. But shaped for a world where the data is yours and the code is what travels to you.
 
 ## Agents and tools live in the tree
 
@@ -194,7 +195,7 @@ The prompt, the tools, the data, and the UI are all files in one tree, editable 
 
 Now, remember the second problem: humans have been reading all this in code editors. So imagine a web browser that is also an editor — a lot like Obsidian or Notion — but instead of browsing the HTML web, it browses this universal space. Call the first one TreeHopper.
 
-Every page is editable, including every directory — a folder isn't a listing, it's a page with its own body and properties that happens to contain other pages. A paragraph containing a link to a `.tsx` script renders that script's component inline, as a live island backed by arbord: the `ReadingRoom` above just *appears* in the page, running against the reader's tree. Every page has a source view, because underneath it's still a file. Cmd+P jumps by path, by public name, or by full-text search over your whole materialized workspace — including everything mounted into it.
+Every document is editable, including every directory — a folder isn't a listing, it's a document whose stored body and live child nodes are folded into one surface. The child rows keep their arbord identities below the editor, so dragging one is a filesystem move while deleting an ordinary link is a text edit; the Markdown does not need a special new link syntax. A paragraph containing a link to a `.tsx` script renders that script's component inline, as a live island backed by arbord: the `ReadingRoom` above just *appears* in the page, running against the reader's tree. Source view shows the actual stored file and labels projected children rather than inventing source bytes. Cmd+P jumps by a local path, an `arbor://` URL, a durable document ID, or full-text search over your whole materialized workspace — including everything mounted into it.
 
 This browser is a strict superset of the web browser, and the claim rests on two supersets underneath it:
 
@@ -206,7 +207,7 @@ So the browser inherits the web's reach — links, public names, lazy loading of
 
 ## What you get
 
-Put together, you have something that is kind of like the filesystem, kind of like Notion, and kind of like the web at once. An editable surface everywhere, agent-native plain files underneath, links that are just paths, public names via DNS, and lazy access to trees you haven't mounted. **And deploying doesn't exist as a step**: save a file and it is live, immediately, for everyone the tree is shared with — because publishing is just sync.
+Put together, you have something that is kind of like the filesystem, kind of like Notion, and kind of like the web at once. An editable surface everywhere, agent-native plain files underneath, ordinary relative links nearby, absolute `arbor://` links across shared trees, and lazy access to trees you haven't mounted. **And deploying doesn't exist as a step**: save a file and it is live, immediately, for everyone the tree is shared with — because publishing is just sync.
 
 Several other things fall out that the web has always struggled with:
 

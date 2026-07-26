@@ -17,7 +17,7 @@ Arbor gives each person one local tree. Any folder may be backed by ordinary fil
 
 **One workspace to navigate and edit; independent shared trees where synchronization, history, or permissions require a boundary; and ordinary TypeScript scripts for turning that workspace into applications.**
 
-Arbord materializes the workspace as ordinary files where appropriate. Agents already know this interface: `ls` is browsing, `cat` is reading, writing a file is editing, and `grep -r` is search. Humans get Finder, editors, the browser, and TreeHopper over the same tree. A Markdown page has one extensionless logical address: `x.md` supplies `/x`'s body while a sibling `x/` supplies its children; when the sibling body is absent, `x/_index.md` is the directory-body fallback. Publishing or sharing a folder can give that subtree an independent identity without changing where it appears in the workspace.
+Arbord materializes the workspace as ordinary files where appropriate. Agents already know this interface: `ls` is browsing, `cat` is reading, writing a file is editing, and `grep -r` is search. Humans get Finder, editors, the browser, and TreeHopper over the same tree. A Markdown document has one extensionless logical address: `x.md` supplies `/x`'s stored body while a sibling `x/` supplies its children; when the sibling body is absent, `x/_index.md` is the directory-body fallback. TreeHopper projects the stored or implicit body together with every immediate child, so every directory is a complete document without browsing having to create `_index.md`. Publishing or sharing a folder can give that subtree an independent identity without changing where it appears in the workspace.
 
 The developer pitch remains familiar: *put Markdown, a SQLite database, or a connection to an existing store in the workspace; write a typed query, a mutation, and a React component; Arbor generates the execution boundary and, when needed, the synchronization boundary.*
 
@@ -41,16 +41,25 @@ If Alice annotates a read-only file, her overlay belongs to her workspace rather
 
 | File | Covers |
 |---|---|
-| [spec/format.md](spec/format.md) | On-disk format: Markdown pages and durable IDs, `_index.md`, CSV/JSONL/Markdown collections, database collections via `_store.*`, schemas and generated types, scripts, and sidecars (`Trash/`, `Assets/`, `.arbor/`) |
-| [spec/urls.md](spec/urls.md) | Names and URLs: every name form (paths, public names, `tree:` URIs, `system:`/`local:`, fragments), resolution rules, and the legacy bridge |
+| [spec/format.md](spec/format.md) | On-disk format: Markdown documents and durable IDs, projected directories, `_index.md`, collections and stores, schemas and generated types, scripts, and sidecars |
+| [spec/urls.md](spec/urls.md) | Names and URLs: logical relative paths, absolute `arbor://` names and TreeIDs, durable document-ID fragments, `system:`/`local:`, resolution, and the legacy bridge |
 | [spec/system.md](spec/system.md) | The `system:` tree, workspace resolution, mounts, overlays, visited trees, agent confinement, effective access, and local durability (journal, trash, recovery) |
-| [spec/arbord-rest.md](spec/arbord-rest.md) | The local client boundary: REST v1, page-aware references, revision domains, durable idempotent mutations, lossless SSE observation, errors, and the matching TypeScript/Swift clients |
+| [spec/arbord-rest.md](spec/arbord-rest.md) | The local client boundary: REST v1, document-aware references, raw snapshots and projected client views, revision domains, durable idempotent mutations, lossless SSE observation, errors, and the matching TypeScript/Swift clients |
 | [spec/scripts.md](spec/scripts.md) | Script compilation and execution: realms, generated validators, query placement and reactivity, mutations, the authority boundary, components, and consent |
 | [spec/browser.md](spec/browser.md) | The browser: navigation, rendering and editing, visiting unmounted trees, agent chat pages |
 | [spec/wire.md](spec/wire.md) | Shared trees and the wire: folder → shared tree, `TreeID`s and public names, invitations and grants, refs/objects, sync, the one-replicator rule, collection backing, and static publication |
 | [spec/cli.md](spec/cli.md) | The command surface, mapped to build-plan milestones |
 
 The reading order above mirrors the model, local to shared: what a workspace contains, how things are named, how mounts and local state work, how clients talk to arbord, how scripts operate over the workspace, how humans browse and edit it, and finally how folders become shared trees with identity, access, and synchronization. The build sequence is [plan.md](plan.md); the narrative introduction is [intro.md](intro.md).
+
+## Daemon roles
+
+"arbord" names one codebase but two distinct operational roles, with different state, lifecycle, and trust boundaries. The spec has historically described a single daemon holding both; they should be read as separable:
+
+- **The local workspace daemon** (on-demand). Owns everything in the workspace authority: the mutation journal, the SQLite search index, the in-memory event bus, page-ID maps and link healing, generated types, and filesystem watching/materialization. All of this state is per-device and disk-recoverable — the daemon can stop and start at will, healing from disk on next open. This is the role that backs the local browser, native TreeHopper (app-supervised per [plan-native.md](plan-native.md)), agents, and backups. It serves the loopback REST API with no authentication by design.
+- **The wire host** (always-on). Owns a shared tree's ref authority, immutable object store, grant enforcement, `watch` streams, and host-side query execution for visiting clients ([spec/wire.md](spec/wire.md)). It deliberately needs none of the local materialization machinery — content addressing is a wire artifact, not a storage mandate — and it is exactly where the authentication the loopback API omits must live.
+
+Cross-device intent flows between the roles as shared-tree revisions on the wire, which the local role journals on apply (`origin: "sync"`). Which role owns the wire endpoint for a given shared tree is an open Milestone 7 decision recorded in [plan.md](plan.md); the working recommendation is that the local daemon is always a wire client, with the serving role deployable as a separate process (or later embedded as a relay).
 
 ## Deferred deliberately
 
@@ -68,7 +77,7 @@ The reading order above mirrors the model, local to shared: what a workspace con
 - General authentication, accounts, or multi-user administration around the single-user loopback arbord API. Wire endpoints and deployed mutations still enforce the narrower grants required by their specified features.
 - Generated REST SDKs, general protocol capability negotiation, and multi-version compatibility machinery; the two reference clients are maintained directly against REST v1 fixtures.
 - Persistent arbord event replay across process epochs; reconnecting across an epoch performs a deterministic resync.
-- Durable identity for every ordinary file and directory; only Markdown pages require rename-resistant `PageID`s.
+- Durable identity for every ordinary file or directory. Markdown documents, including a directory document once identity is required, use rename-resistant `PageID`s; ordinary non-Markdown nodes remain path-only.
 - High availability, horizontal scaling, production observability infrastructure, and generic driver/adapter/plugin frameworks.
 - A compiled data-projection UI language (Riffle × SwiftUI lineage; see prior art below) beyond TSX scripts — datalog-style queries, generic non-DOM view primitives, optional explicit state machines. TSX islands may eventually become click-to-load legacy content while these components stay always-live.
 

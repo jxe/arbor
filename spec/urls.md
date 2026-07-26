@@ -1,38 +1,67 @@
 # Names and URLs
 *Part of the [Arbor spec](../spec.md): every form of name in the system, and how each resolves.*
 
-## 1. Name forms
+## 1. One Markdown link syntax
+
+Arbor does not add a link type to Markdown. A destination in `[label](destination)` is a URL reference with these forms:
 
 | Form | Example | Names |
 |---|---|---|
-| Tree-rooted path | `/essays/drift` | a node, rooted at the enclosing tree (the `arbor dev` root; later the shared tree's root) |
-| Relative path | `../fidelity` | a node, relative to the containing page |
-| Public name | `library.meaningalignment.org/essays/drift` | a node in a tree that has a DNS alias |
-| Tree URI | `tree:tr_7k3m…/essays/drift` | a node by raw `TreeID`, when no alias exists |
+| Relative path | `notes` or `../roadmap` | a child or sibling relative to the containing logical document |
+| Tree-rooted path | `/essays/drift` | a node rooted at the enclosing tree |
+| Named Arbor URL | `arbor://library.meaningalignment.org/essays/drift` | a node in a shared tree with a DNS alias |
+| Tree-ID Arbor URL | `arbor://tree/tr_7k3m…/essays/drift` | a node in a shared tree by raw `TreeID` |
 | System path | `system:mounts/railton` | arbord control records ([system.md](system.md) §1) |
 | Overlay ref | `local:annotations/railton` | a local overlay tree, referenced from a mount record |
-| Page fragment | `notes#x7f3q2` | the target page's durable ID ([format.md](format.md) §4) |
+| Document-ID fragment | `../roadmap#x7f3q2` | the target Markdown document's durable `PageID` |
 | Export fragment | `reading-room.tsx#recentEssays` | a script export — a query, mutation, or component handle |
-| Legacy URL | `https://…` | the legacy web, through the hatch (§3) |
+| Legacy URL | `https://…` | the legacy web, through the hatch (§4) |
 
-Fragments are disambiguated by target kind: on a markdown page they carry the durable page ID; on a script they name an export. `arbor run ./reading-room.tsx#recentEssays` and a link block rendering the same export use the identical name.
+The `arbor` scheme is always absolute. A DNS name is its authority; `tree` is the reserved authority whose first path segment is the opaque `TreeID`. Bare domain/path names and the earlier `tree:tr_…/path` spelling are accepted as compatibility input, but link healing and copy-link actions emit `arbor://…`.
 
-Markdown node names never expose their storage suffix. Sibling body `x.md`, child directory `x/`, and fallback body `x/_index.md` all contribute to exactly `/x`; the root `_index.md` names `/`. `.md` and `/_index.md` spellings are accepted only as compatibility aliases at resolution boundaries and immediately canonicalized. They never appear in browser URLs, API results, link healing, search results, generated types, or user-visible filenames. `x.md` may coexist with `x/`, but not with `x/_index.md` ([format.md](format.md) §1).
+Fragments are disambiguated by target kind: on a Markdown document they carry its durable `PageID`; on a script they name an export. `arbor run ./reading-room.tsx#recentEssays` and a link block rendering the same export use the identical name.
 
-Links are paths; Markdown-page links may be made rename-proof by page identity. The path is the human-readable primary; when a page fragment's ID and its path disagree — the page was renamed, or a new file reused the old name — the ID is authoritative, so renames break no inbound links. Stale destinations heal lazily to canonical `path#id` form. Fragment-less links and links to ordinary files keep pure path semantics. Arbor does not promise a durable `NodeID` for every filesystem object.
+## 2. Logical relative paths
 
-Every node in a shared tree has a global name — `(TreeID, path)`, rendered as a domain URL where an alias exists — including nodes of a private tree ([wire.md](wire.md) §2). That is a resolvable name, not immutable node identity: a path may change, while a Markdown page's embedded `PageID` supplies rename continuity. Naming is universal; access is not: resolving a private name requires a grant, so links to private material are safe to embed anywhere and simply fail to resolve without one. Arbor never treats an obscure name as a secret.
+Every Markdown document is a logical node that may have children, regardless of its physical body representation. Relative destinations therefore resolve from the containing **logical document as a directory-like base**. The resolver appends an implicit `/` to the canonical logical address before applying standard URL-reference resolution; that slash defines the base and is not added to the displayed browser route:
 
-## 2. Resolution
+```text
+containing document                 destination       resolves to
+/projects/atlas                     notes             /projects/atlas/notes
+/projects/atlas                     ./notes           /projects/atlas/notes
+/projects/atlas                     ../roadmap         /projects/roadmap
+/projects/atlas                     /people/alice      /people/alice
+```
 
-Resolution happens **in the reader's workspace first**, so another author's link can land in the reader's mounted or annotated copy:
+This base never changes when `atlas.md`, `atlas/_index.md`, or a bodyless projected directory supplies the body. Giving a leaf document its first child likewise cannot reinterpret its existing links. `.` and `..`, percent encoding, query/fragment separation, and path normalization follow ordinary URL-path rules; attempts to traverse above the enclosing tree fail.
 
-1. Tree-rooted and relative paths resolve against the enclosing tree and the containing page respectively, then canonicalize Markdown storage aliases to their extensionless logical path. Script path literals are resolved by the compiler and typed through the generated registry ([format.md](format.md) §5).
-2. A page fragment consults the ID index; the ID wins over the path when they disagree.
-3. A public name not already mounted resolves through its DNS `_arbor` record to `(endpoint, TreeID)` ([wire.md](wire.md) §2) and opens as a visited tree ([browser.md](browser.md) §3).
-4. A `tree:` URI or invitation descriptor resolves the same way, minus DNS.
-5. `system:` and `local:` are arbord-local schemes: never part of any publishable tree, never resolvable remotely.
+Markdown node names never expose their storage suffix. Sibling body `x.md`, child directory `x/`, and fallback body `x/_index.md` all contribute to exactly `/x`; the root `_index.md` names `/`. `.md` and `/_index.md` spellings are accepted only as compatibility aliases at resolution boundaries and immediately canonicalized. They never appear in browser routes, API results, link healing, search results, generated types, or user-visible filenames. `x.md` may coexist with `x/`, but not with `x/_index.md` ([format.md](format.md) §1).
 
-## 3. The legacy bridge
+## 3. Identity, movement, and global resolution
 
-If a public domain has no `_arbor` record, plain `https://` is the legacy hatch. In reverse, a deployed website advertises its live tree via `<link rel="arbor" …>` or the `Arbor-Tree:` response header carrying `(endpoint, TreeID)`; an Arbor-aware browser landing there upgrades to the live tree while legacy browsers see plain HTML ([wire.md](wire.md) §7, [browser.md](browser.md) §3).
+The readable path says where a document is now; the fragment can say which document was meant. `PageID` is REST v1's name for this durable document identity and is stored as frontmatter `id`. When `../roadmap#x7f3q2` resolves to a different document than `x7f3q2`, the ID wins, arbord returns the current path, and the stale destination heals lazily through the normal authored commit path. Moving or renaming a document therefore does not break identity-bearing links, backlinks, history, or an open editor session. Arbor's Copy Link and link-insertion surfaces include the ID for Markdown targets; a hand-authored link without one deliberately retains ordinary path-only move semantics.
+
+A bodyless directory projection is initially path-only so browsing does not create files. Before Arbor creates an identity-bearing link to it or performs an authored move that must preserve its document identity, arbord ensures a `PageID`, minimally materializing the appropriate Markdown body when necessary. Ordinary non-Markdown files remain path-only; Arbor does not promise a durable `NodeID` for every filesystem object. Moving content across shared-tree identity boundaries is an explicit transfer and cannot be made transparent by a tree-scoped link alone.
+
+Every node in a shared tree has a global resolvable name `(TreeID, path)`. Its canonical URL is either `arbor://<dns-name>/<path>` or `arbor://tree/<TreeID>/<path>` ([wire.md](wire.md) §2). The `canonical:` metadata field, when present, contains one of these absolute Arbor URLs:
+
+```yaml
+id: x7f3q2
+canonical: arbor://library.meaningalignment.org/essays/drift#x7f3q2
+```
+
+Canonical position is descriptive and citable; it is neither a mount nor a grant.
+
+Resolution happens **in the reader's workspace first**, so another author's global link can land in the reader's mounted or annotated copy:
+
+1. Relative and tree-rooted paths resolve within the enclosing tree using §2. Script path literals use the same resolver and are typed through the generated registry ([format.md](format.md) §5).
+2. A document-ID fragment consults that tree's ID index; the ID wins over a stale path.
+3. If the named or Tree-ID tree is already mounted or visited, the reader's local mount and overlay resolve it.
+4. Otherwise, a named authority resolves through DNS `_arbor` to `(endpoint, TreeID)`; `arbor://tree/<TreeID>/…` uses endpoint hints already known from a mount, visit, invitation, or signed descriptor. With no hint it remains unresolved until one is learned.
+5. `system:` and `local:` are arbord-local schemes: never part of a publishable tree and never remotely resolvable.
+
+Naming is universal; access is not. Resolving private content still requires a grant. Credentials and invitation tokens never appear in ordinary Markdown links, and Arbor never treats an obscure URL as a secret.
+
+## 4. The legacy bridge
+
+`https://` remains an explicit legacy hatch. A deployed website advertises its live tree via `<link rel="arbor" …>` or the `Arbor-Tree:` response header carrying `(endpoint, TreeID)`; an Arbor-aware browser landing there upgrades to the live tree while legacy browsers see plain HTML ([wire.md](wire.md) §7, [browser.md](browser.md) §3).

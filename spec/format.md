@@ -5,14 +5,14 @@
 
 A node is a logical workspace address with an optional body path and directory path. `x.md` supplies `/x`'s body, while a sibling `x/` supplies `/x`'s children. If `x.md` is absent, `x/_index.md` is the fallback directory body. Browser routes, API paths, search results, links, generated tree types, breadcrumbs, and visible names always use the extensionless logical path `/x`.
 
-- A **markdown page** has YAML frontmatter for props and a Markdown body. Each page carries an opaque durable `id` in its frontmatter, minted at creation (or on first save for existing files) — the page's stable identity across renames. Existing Arbor and Clamshell pages use six-character IDs, but the format does not require a fixed length or alphabet.
-- A **directory page** has children in `x/`; its body and props come from sibling `x.md`, falling back to `x/_index.md`, or from an empty implicit body when neither exists.
+- A **Markdown document** has YAML frontmatter for props and a Markdown body. Each materialized document carries an opaque durable `id` in its frontmatter, minted at creation (or when identity is first required for existing content) — the document's stable identity across renames. REST v1 calls this a `PageID`. Existing Arbor and Clamshell documents use six-character IDs, but the format does not require a fixed length or alphabet.
+- A **directory document** has children in `x/`; its stored body and props come from sibling `x.md`, falling back to `x/_index.md`, or from an empty implicit body when neither exists. TreeHopper projects that body together with every immediate child into one complete editable document (§4).
 - A **collection** is a folder of records. Its backing is declared *inside* the folder — `_store.csv`, `_store.jsonl`, multiple Markdown row files, a known-name `_store.sqlite3` database, or a known-name `_store.postgres` connection reference — and can change without the folder's path, page, schema, or views changing. A folder whose store holds several tables is a database container: each table appears as a child collection.
 - A **script** is a `.tsx` file that may colocate React components, queries, and mutations.
 
 The filesystem driver is the default store, not a universal storage requirement. Arbor presents one tree API over heterogeneous stores. A store driver supplies schema inspection, reads, transactions, change observation, consistent snapshots, and materialization where meaningful. Data should remain inspectable with ordinary tools appropriate to its store: `cat` for Markdown, SQLite tools for `.sqlite3`, and a SQL client for Postgres.
 
-`x.md` and `x/` may and normally do coexist: together they are one logical node, and directory listings collapse them into one child. Giving `/x` its first child creates `x/` and leaves `x.md` in place. Editing a directory that has no sibling body materializes `x/_index.md`. Only `x.md` plus `x/_index.md` is ambiguous; Arbor reports a blocking `duplicate-body-representation` diagnostic and refuses content or structural mutations until one body is explicitly retained. Rename, move, copy, trash, and restore treat a sibling body plus directory as one logical unit, and occupied destinations reject without overwrite, merging, or suffixing.
+`x.md` and `x/` may and normally do coexist: together they are one logical node, and directory listings collapse them into one child. Giving `/x` its first child creates `x/` and leaves `x.md` in place. Merely browsing a bodyless directory does not create `x/_index.md`; the first authored body/property edit, authored ordering that needs storage, or operation that must establish durable document identity materializes it. Only `x.md` plus `x/_index.md` is ambiguous; Arbor reports a blocking `duplicate-body-representation` diagnostic and refuses content or structural mutations until one body is explicitly retained. Rename, move, copy, trash, and restore treat a sibling body plus directory as one logical unit, and occupied destinations reject without overwrite, merging, or suffixing.
 
 ## 2. SQLite by placement
 
@@ -35,9 +35,20 @@ schema: public
 
 The referenced `system:connections` record holds a friendly label and safe metadata; its connection string or password lives in the platform credential store. Typegen introspects the database through that record. The Postgres server remains the data authority, so Arbor synchronizes the reference—not a redundant copy of the database. Offline Postgres snapshots or mirrors are not specified. Graduating a collection from `_store.sqlite3` to `_store.postgres` is one file swap; nothing pointed at the folder changes.
 
-## 4. Links
+## 4. Projected directory documents and links
 
-Links are extensionless logical paths, made rename-proof for Markdown pages by identity: a link may carry the target page's durable `id` as a fragment (`[Title](notes#x7f3q2)`), and the ID is authoritative when path and ID disagree, so renames break no inbound links; stale destinations heal lazily to canonical `path#id` form through the normal commit path. Ordinary files remain path-only. Arbor accepts authored `.md` and `/_index.md` destinations as input aliases but resolves and heals them to the same extensionless address. The full catalog of name forms — tree-rooted and relative paths, public names, `tree:` URIs, `system:`/`local:` schemes, both fragment kinds, the legacy hatch — and their resolution rules live in [urls.md](urls.md).
+TreeHopper presents every directory as one complete document even when no Markdown body exists on disk. The projection is:
+
+1. the stored body blocks and frontmatter, or an empty implicit body;
+2. each immediate physical child exactly once;
+3. the first eligible authored standalone link to each immediate child in its authored position;
+4. synthetic managed child rows for otherwise unmentioned children, appended in stable directory order.
+
+Additional links to the same child remain ordinary authored links; only one row owns structural placement. The projection is a client/session view over arbord's authoritative node snapshot plus its complete paginated child listing. It is not a second canonical Markdown serialization. Managed rows retain out-of-band identity — block ID, target `NodeRef` (including `PageID` when present), child kind, authored/synthetic origin, and materialization state — so an editor cannot accidentally turn a structural child into anonymous prose. Web may use its internal `childPage` block while native may render Hunch's existing subpage row; neither requires a new visible Markdown link syntax.
+
+Authored prose and properties write the stored Markdown body. Reordering, moving, renaming, copying, trashing, or restoring managed rows invokes structural operations with directory preconditions and anchors. A document session must split those intentions before persistence; arbord never infers a filesystem mutation from an undifferentiated write of the projected block array. Source view shows the actual stored Markdown and clearly labels projected rows rather than pretending synthetic bytes exist.
+
+Markdown links themselves remain ordinary URL destinations. Local links use logical relative paths (`notes`, `../roadmap`) or tree-rooted paths (`/people/alice`); cross-tree links use absolute `arbor://library.example/…` or `arbor://tree/<TreeID>/…` URLs. A link may carry the target document's durable `id` as a fragment (`[Roadmap](../roadmap#x7f3q2)`), and the ID is authoritative when path and ID disagree, so moves do not break identity-bearing inbound links. Arbor's link-insertion and Copy Link surfaces include this fragment for Markdown targets; hand-authored fragment-less links remain valid path-only references. A bodyless directory is minimally materialized when such identity is first required. Stale destinations heal lazily to the target's current readable path plus ID through the normal commit path. Ordinary files remain path-only. Arbor accepts authored `.md`, `/_index.md`, bare public-name, and legacy `tree:` destinations as input aliases but heals them to the canonical forms in [urls.md](urls.md).
 
 ## 5. Collections, schemas, and generated tree types
 
@@ -83,7 +94,7 @@ declare module "arbor/runtime" {
     "/tracker": Database<TrackerDatabase>;
     "/tracker/tasks": Collection<TrackerDatabase["tasks"]>;
     "/reports": Database<ReportsDatabase>;
-    "paxmachina.org/inbox": Collection<Submission>;
+    "arbor://paxmachina.org/inbox": Collection<Submission>;
   }
 }
 
@@ -115,7 +126,7 @@ export const recentEssays = query(async ({ tag }: { tag: string }) => {
 });
 
 export const submitEssay = mutation(async (submission: Submission) => {
-  return tree("paxmachina.org/inbox").append(submission);
+  return tree("arbor://paxmachina.org/inbox").append(submission);
 });
 
 export default function ReadingRoom() {
@@ -161,7 +172,7 @@ An **agent** is also just a markdown file: prompt as body, frontmatter carrying 
 
 A few names inside the tree are conventions rather than content, and a little state deliberately lives outside the tree:
 
-- **`_index.md`** — the fallback body and props for a directory that has no sibling `x.md` (see §1). Materialized on the first body or structural edit when no sibling body exists ([browser.md](browser.md) §2).
+- **`_index.md`** — the fallback stored body, props, and document ID for a directory that has no sibling `x.md` (see §§1, 4). A complete directory document is projected before this file exists; it is materialized only by the first body/property edit, stored ordering requirement, or durable-identity requirement ([browser.md](browser.md) §2).
 - **`_store.sqlite3` / `_store.postgres`** — a folder's database backing (see §2–3). Swapping the store file migrates the folder between backings without moving anything else.
 - **`_store.csv` / `_store.jsonl`** — the two single-file collection backings. Their fixed names make a later backing swap as explicit as replacing one `_store.*` file with another.
 - **`Trash/`** — soft-deleted pages, mirroring the source structure; restore returns a page to its original path ([system.md](system.md) §3).

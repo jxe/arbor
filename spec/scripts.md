@@ -39,4 +39,4 @@ An **authority action** would be deliberately different: centralized invariants 
 
 Components are real React—JSX, hooks, state, and component composition—in a sandboxed UI realm. Workspace data enters only through statically imported query and mutation handles. General network APIs are absent; timers, animation, and focus remain available.
 
-Cross-tree script imports resolve through the current workspace, then lock the resolved ES-module graph to hashes for that execution. Imported queries and mutations remain typed handles. Consent is computed from the full handle graph and its resolved mounts: *“This component reads `essays` and appends to `paxmachina.org/inbox`.”* Enforcement makes that statement true.
+Cross-tree script imports use absolute `arbor://` URLs, resolve through the current workspace, then lock the resolved ES-module graph to hashes for that execution. Imported queries and mutations remain typed handles. Consent is computed from the full handle graph and its resolved mounts: *“This component reads `essays` and appends to `arbor://paxmachina.org/inbox`.”* Enforcement makes that statement true.

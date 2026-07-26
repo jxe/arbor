@@ -29,9 +29,9 @@ notes.example.org
 
 Private and team trees need no domain: a share descriptor (§3) supplies `(TreeID, endpoint hints, grant)` directly. Endpoint hints are replaceable and may be refreshed through a signed tree descriptor, so an endpoint move does not change identity. One reference endpoint may host many unrelated shared trees.
 
-Every node therefore has a global resolvable name — `(TreeID, path)`, rendered as a domain URL where an alias exists — including every node of a private tree. The tree identity is stable; the path is a human name that may change. Markdown links use embedded page IDs when they need rename continuity, while ordinary files remain path-addressed. Naming is universal; access is not. Resolving a private name requires a grant, so links to private material are safe to embed anywhere and simply fail to resolve without one. Arbor never treats an obscure name as a secret.
+Every node therefore has a global resolvable name — `(TreeID, path)` — including every node of a private tree. Its absolute URL is `arbor://notes.example.org/path` when a DNS alias exists or `arbor://tree/<TreeID>/path` otherwise. The tree identity is stable; the path is a human name that may change. Markdown document URLs may include the target `PageID` fragment when they need rename continuity, while ordinary files remain path-addressed ([urls.md](urls.md)). Naming is universal; access is not. Resolving a private name requires a grant, so links to private material are safe to embed anywhere and simply fail to resolve without one. Credentials and invitation tokens never appear in links, and Arbor never treats an obscure name as a secret.
 
-A shared tree may additionally record a **canonical position**: a declared home within another namespace (for example, a team handbook's official place under `team.example.org/handbook`). Canonical position is descriptive metadata for citation, documentation, and discovery. It is not a mount in anyone's workspace and never routes or grants access; readers, teams, and agents place the same tree wherever suits them.
+A shared tree may additionally record a **canonical position**: an absolute `arbor://` URL declaring its home within another namespace (for example, `arbor://team.example.org/handbook`). Canonical position is descriptive metadata for citation, documentation, and discovery. It is not a mount in anyone's workspace and never routes or grants access; readers, teams, and agents place the same tree wherever suits them.
 
 ## 3. Invitations and permissions
 
@@ -54,7 +54,7 @@ Permissions belong to shared trees and operations, not workspace paths or public
 
 ## 4. The protocol
 
-The reference endpoint stores refs, grants, and immutable objects. Its private database/layout is not part of the wire contract; Arbor does not define a server-storage plugin interface. Content addressing is a wire artifact, not a mandate for how arbord stores ordinary local workspace files.
+The reference endpoint stores refs, grants, and immutable objects. Its private database/layout is not part of the wire contract; Arbor does not define a server-storage plugin interface. Content addressing is a wire artifact, not a mandate for how arbord stores ordinary local workspace files. The endpoint is the always-on **wire host** role of the "Daemon roles" section in [spec.md](../spec.md) — operationally separable from the on-demand local workspace daemon, which participates here as a wire client.
 
 Two planes:
 

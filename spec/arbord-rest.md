@@ -5,7 +5,7 @@
 
 Arbord is the sole first-party authority for a desktop workspace. It resolves logical paths, reads and writes nodes and stores, observes external filesystem changes, maintains recovery state, and later composes mounts, scripts, agents, and shared trees.
 
-REST v1 is the concrete reference transport for that local authority. TreeHopper web uses the TypeScript reference client; TreeHopper native uses a Foundation-only Swift reference client beneath its native `WorkspaceProvider`. The CLI uses the same contract. The clients may add ergonomic methods and local page-session coordination, but none may invent a second persistence path.
+REST v1 is the concrete reference transport for that local authority. TreeHopper web uses the TypeScript reference client; TreeHopper native uses a Foundation-only Swift reference client beneath its native `WorkspaceProvider`. The CLI uses the same contract. The clients may add ergonomic methods and local document-session coordination, but none may invent a second persistence path.
 
 The initial server binds loopback and assumes a trusted single-user process environment. It has no general login, local account model, or capability-negotiation handshake. That is a deliberate reference boundary, not a claim that an arbord exposed to untrusted local or remote clients would need no authorization. Remote shared-tree grants belong to the [wire](wire.md), and deployed/script authorities enforce the narrower security required by those features.
 
@@ -24,9 +24,9 @@ type NodeRef =
 ```
 
 - `path` is the canonical extensionless logical path described in [format.md](format.md) and may address any workspace node.
-- `pageID` is an opaque, durable identity carried by a Markdown page. Existing six-character IDs remain valid, but length and alphabet are not protocol semantics.
+- `pageID` is an opaque, durable document identity carried by materialized Markdown frontmatter. Existing six-character IDs remain valid, but length and alphabet are not protocol semantics.
 - `pathHint` makes logs and failures understandable and speeds ordinary resolution. When it disagrees with a valid page ID, the ID owner wins and arbord returns its current canonical path.
-- Ordinary files and bodyless directories remain path-only. REST does not synthesize a durable universal `NodeID`.
+- Ordinary files and untouched bodyless directories remain path-only. The planned projected-document layer requires arbord to ensure a `PageID`, by minimally materializing the Markdown body, before an authored identity-bearing link or structural move requires directory-document continuity. REST does not synthesize a durable universal `NodeID`.
 - `TreeID`, public names, and invitations are not alternative local `NodeRef` variants. Visiting or mounting them first gives their content workspace paths; the normal local API then uses those paths and any page IDs contained in the tree.
 
 Duplicate page IDs are an error/diagnostic, never a nondeterministic choice. A page ID is rename-resistant identity for Markdown content, not a global name or proof of authority.
@@ -91,6 +91,29 @@ The wire examples for these responses are the checked-in fixtures:
 
 Unknown descriptive fields are ignored by clients. The reference, revision, cursor, pagination, document/row data, diagnostics, and materialization fields shown in these fixtures are normative when applicable.
 
+### Raw snapshots and projected documents
+
+REST v1 deliberately returns storage-shaped facts: `/v1/node` supplies the stored or implicit body and `/v1/children` supplies the authoritative paginated child listing. It does **not** return a second Markdown document with child rows spliced into it.
+
+The reference clients' observed-node layer will add a shared ergonomic projection after it has drained the child listing while buffering events from the initial `observedThrough` cursor. For a directory it exposes the stored blocks plus every immediate child exactly once. The first eligible authored standalone child link anchors that managed row at its existing block; additional links remain ordinary authored links, and an unmentioned child receives a synthetic row in stable listing order. Alongside the editor document the client retains a managed-row manifest containing block ID, target `NodeRef`, authored/synthetic origin, node kind, and materialization state.
+
+That projection is not a new REST representation and is planned rather than implemented in the current reference clients. Its algorithm and fixtures must be language-neutral so the TypeScript and Swift observed views produce the same document and managed-row manifest from the same node/children inputs.
+
+### Planned browser/native parity reads
+
+Core Milestone 2 adds three concrete reads before native TreeHopper depends on them:
+
+```text
+GET /v1/backlinks?path=…&cursor=…
+GET /v1/backlinks?pageID=…&pathHint=…&cursor=…
+GET /v1/recovery?scope=workspace&cursor=…
+GET /v1/file?path=…
+```
+
+Backlinks resolve the usual `NodeRef`, return referring document refs plus link context, paginate like search, and carry `observedThrough`; they never define physical parentage or deletion policy. Workspace recovery combines Trash inventory with lost/purged Markdown entries while retaining the existing node-scoped route. File reads return uninterpreted bytes for an ordinary file/asset, honor HTTP range requests, and use its content revision as `ETag`; containment, writability, and placeholder checks remain arbord responsibilities.
+
+These routes are planned extensions, not part of the currently implemented v1 fixture set above. Both reference clients and browser behavior land with their fixtures. Home/default location remains client-local until readable `system:` preferences exist; it is not smuggled into a content route.
+
 ## 3. Authored mutations and receipts
 
 ### Request envelope
@@ -151,7 +174,9 @@ type MutationRequest =
 
 The complete structural batch either commits or has no logical effects. Structural operation order is authored intent and participates in the request hash. This boundary lets Markdown intents and structural transactions each provide crash-safe recovery without a cross-domain transaction coordinator.
 
-`refs` arrays are non-empty and retain their order. `move` is also the placement operation: `beforePath` identifies a child, while `beforeBlockID` identifies an authored block boundary in the destination directory body. If the named anchor no longer exists, arbord returns `missing-insertion-anchor`; it never silently appends. Logical mutations maintain generated structural rows themselves. Filesystem-only controls such as `updateDirectoryRows` are not protocol operations.
+`refs` arrays are non-empty and retain their order. `move` is also the placement operation: `beforePath` identifies a child, while `beforeBlockID` identifies an authored block boundary in the destination directory body. If the named anchor no longer exists, arbord returns `missing-insertion-anchor`; it never silently appends. Logical mutations maintain stored structural rows themselves. Filesystem-only controls such as `updateDirectoryRows` are not protocol operations.
+
+The planned projected-document client never sends its complete projected directory document as `writeMarkdown`. It removes synthetic managed rows and routes intentions by durability domain: prose/frontmatter becomes the singleton content operation, while managed-row reorder/move/rename/copy/trash/restore becomes a structural batch with `directoryRevision` and explicit anchors. If the operation requires a bodyless directory to retain document identity across movement, the corresponding arbord extension establishes the ID within the authored mutation before changing its path.
 
 The normative request example is [`tests/fixtures/protocol/mutation.json`](../tests/fixtures/protocol/mutation.json). [`tests/fixtures/protocol/operations.json`](../tests/fixtures/protocol/operations.json) contains separate valid requests covering every content and structural operation. Physical filenames, transaction-temporary paths, watcher classifications, and filesystem-driver request types are never public fields.
 
@@ -348,15 +373,17 @@ Both clients:
 - turn `resync-required` in that observed view into a refreshed node snapshot and resume from its returned cursor;
 - preserve unknown error codes and ignore unknown descriptive response fields.
 
+The next client-layer addition is a projected-directory helper on that observed view. It composes the raw snapshot and complete child listing, returns the managed-row manifest described in §2, and preserves `PageID`-bearing `NodeRef`s so a row remains attached to the same document after a move. The shared projection fixtures are part of its completion gate; until they land, callers must treat `openNodeView` as a hydrated raw view rather than a projected editor document.
+
 The TypeScript client makes at most three total attempts after network termination or HTTP 500. It reuses the exact prepared request and mutation ID, never retries a declared conflict, and throws an ambiguous-transport error retaining the prepared request after the third ambiguous outcome. Its `openNodeView` helper starts observation after the first `/v1/node` response, buffers events while its directory convenience drains `/v1/children`, and emits either an event or a resynchronized snapshot.
 
 The Swift client is an actor with injectable `URLSession`, mutation-ID generator, and retry timing. It applies the same three-attempt rule, encodes multipart bodies once for exact retry, and exposes both raw observation and matching observed-node updates as `AsyncThrowingStream`.
 
 The TypeScript package is the only browser-facing API wrapper. The Swift package imports Foundation but not SwiftUI, TreeHopper, Hunch, Editor, or Clamshell.
 
-Editor page sessions remain client-side:
+Editor document sessions remain client-side:
 
-- TreeHopper web's editor coordinator and native `WorkspacePageSession` admit local generations synchronously;
+- TreeHopper web's editor coordinator and native `WorkspaceDocumentSession` admit local generations synchronously;
 - they serialize writes through the protocol client;
 - `flush` waits for every admitted generation and its durable receipt;
 - clean external snapshots update the existing editor document without creating authored undo history.

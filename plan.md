@@ -29,7 +29,7 @@ Examples that may remain absent indefinitely include local multi-tenant administ
 The governing vocabulary is:
 
 - **workspace** — the tree a person or process sees and works in;
-- **`PageID`** — an opaque durable identity carried by a Markdown page; ordinary files may remain path-only;
+- **`PageID`** — REST v1's name for the opaque durable identity carried by a materialized Markdown document; a bodyless directory acquires one when authored continuity requires it, while ordinary files remain path-only;
 - **shared tree** — a folder that has gained independent synchronization, history, and permissions;
 - **`TreeID`** — the stable identity of a shared tree, not of every ordinary local folder;
 - **`Mount`** — a local placement of a folder or shared tree in a workspace;
@@ -45,8 +45,8 @@ Do not reintroduce the superseded `SpaceID`, binding, `.view.json`, or authored 
 | Status | Milestone | Outcome |
 |---|---|---|
 | **Implemented** | Local Arbor browser/editor baseline | One chosen filesystem subtree can be indexed, browsed, searched, edited, recovered, and structurally mutated through arbord and TreeHopper web. |
-| **Implemented** | 1. Specify arbord REST v1 and build both clients | A normative reference contract with page-aware references, explicit revisions, durable idempotent mutations, lossless observation, and matching TypeScript and Swift clients. |
-| **Next** | 2. Finish the whole-workspace daily driver | Validate large-tree behavior and make ordinary non-Markdown files as useful as Markdown and collections. |
+| **Implemented** | 1. Specify arbord REST v1 and build both clients | A normative reference contract with document-aware references, explicit revisions, durable idempotent mutations, lossless observation, and matching TypeScript and Swift clients. |
+| **Next** | 2. Finish the whole-workspace daily driver | Add shared complete-directory projection and URL resolution, validate large-tree behavior, and make ordinary files useful. |
 | **Planned** | 3. Namespace and local mounts | Compose a workspace from roots, mounts, overlays, and readable `system:` state. |
 | **Planned** | 4. Scripts | Colocated components, queries, and mutations with explicit execution boundaries. |
 | **Planned** | 5. Agents | Agent files, restricted namespaces/tools, CLI execution, and browser chat. |
@@ -106,11 +106,11 @@ Current behavior:
 - Workspace paths are normalized, traversal and external-directory symlink escapes are rejected, and Markdown storage aliases canonicalize to one extensionless logical address.
 - `x.md` supplies `/x`'s body while sibling `x/` supplies its children. If `x.md` is absent, `x/_index.md` is the fallback body. `x.md` plus `x/_index.md` is a blocking duplicate-body diagnostic.
 - Adding the first child creates the directory without moving the sibling Markdown body.
-- Markdown pages receive durable six-character IDs. Filesystem rename observation correlates moved pages by that ID.
+- Markdown documents receive durable six-character IDs. Filesystem rename observation correlates moved documents by that ID.
 - The workspace service reads nodes and collections, writes Markdown with CAS, creates assets, searches, soft-deletes, restores, and exposes recovery.
 - Workspace startup uses one discovery snapshot to seed visible paths and page IDs rather than repeatedly walking the tree.
 
-REST v1 exposes the representation through page-aware references and separate content/directory revisions without inventing durable identity for every filesystem node.
+REST v1 exposes the representation through document-aware references and separate content/directory revisions without inventing durable identity for every filesystem node.
 
 ### Durable Markdown writes, recovery, and structural mutations
 
@@ -170,7 +170,7 @@ Current behavior:
 - Markdown editing uses BlockNote as the interaction layer, not storage. Arbor owns parsing, source spans, raw-Markdown fallback, serialization, and canonical files.
 - No-op saves are byte-identical. Frontmatter comments/order and untouched block source are preserved; editing one supported block normalizes only that region.
 - Inline Markdown, links, hard breaks, nested `▸` toggles, footnotes, inline/display LaTeX, and raw HTML fallback are implemented.
-- Authored and auto-generated child-page rows use a custom block type and navigate rather than editing their displayed title.
+- Authored and auto-generated child-page rows use a custom block type and navigate rather than editing their displayed title. This is currently a web-editor projection; the reference clients do not yet expose the shared complete-document projection and managed-row manifest specified for Milestone 2.
 - One editor coordinator owns authored generations, save state, merge/retry behavior, undo grouping, and clean external snapshot application without remounting the editor or manufacturing undo history.
 - Selection survives background save/reconciliation.
 - The current presentation includes bundled Inter, the 708px reading column, responsive navigation, adaptive colors, properties, page actions, Recover, and filesystem operations.
@@ -241,7 +241,7 @@ REST v1 is now Arbor's sole application API and is proved by two independent ref
 3. the browser-safe protocol values and TypeScript client in [`packages/core/src/protocol.ts`](packages/core/src/protocol.ts) and [`packages/client`](packages/client);
 4. the Foundation-only Swift package at [`native/Packages/ArborClient`](native/Packages/ArborClient).
 
-[plan-native.md](plan-native.md) begins where the fourth deliverable ends. Hunch migration, `WorkspaceProvider`, `WorkspacePageSession`, native editor integration, and an app/project target remain deliberately unimplemented here.
+[plan-native.md](plan-native.md) begins where the fourth deliverable ends. Hunch migration, the node-first `WorkspaceProvider`, `WorkspaceDocumentSession`, native editor integration, and an app/project target remain deliberately unimplemented here.
 
 REST v1 is scoped to one arbord process serving one explicitly chosen filesystem workspace. Loopback authentication, general capability negotiation, mounts, overlays, `TreeID`, invitations, public names, and remote grants are not part of this milestone.
 
@@ -254,7 +254,7 @@ REST v1 is scoped to one arbord process serving one explicitly chosen filesystem
 - One epoch/sequence event bus publishes normalized logical effects, retains 1,024 events, suppresses local watcher echoes, and makes every state read an observation barrier. Foreign/expired cursors return `resync-required`.
 - Runtime validation and one error envelope cover every v1 route. Physical paths and transaction state do not cross the boundary.
 - [`packages/client`](packages/client) provides separate prepared and convenience APIs for singleton content mutations and structural batches, exact-request retry after termination or HTTP 500, multipart helpers, SSE parsing/reconnect, cursor tracking, and an observed-node view that buffers during listing hydration and converts resync into a refreshed snapshot.
-- TreeHopper web uses the client for node/edit/reconcile, listings/search, structural actions, assets/import, recovery, collections, and observed views. The editor coordinator uses content revisions; placement uses directory revisions; page-aware references survive rename without replacing BlockNote or normalizing untouched Markdown.
+- TreeHopper web uses the client for node/edit/reconcile, listings/search, structural actions, assets/import, recovery, collections, and observed views. The editor coordinator uses content revisions; placement uses directory revisions; document-aware references survive rename without replacing BlockNote or normalizing untouched Markdown.
 - [`native/Packages/ArborClient`](native/Packages/ArborClient) is a standalone Swift 6 package for macOS and iOS. Its actor is Foundation-only and supports injectable sessions, IDs, and retry timing, Codable values, domain-specific prepared mutations, multipart, exact retries, unknown error codes, and `AsyncThrowingStream` SSE/observed-node updates.
 
 ### Delivery slices
@@ -300,6 +300,27 @@ Do not rewrite those features under this milestone. Extend and measure them.
 - Preserve containment, read-only, and placeholder diagnostics.
 - Ensure search/index code ignores or extracts text from ordinary files intentionally rather than by extension accident.
 
+#### Complete directory documents and stable references
+
+*Implementation order and code-level detail for this section live in [arbord-projection-outline.md](arbord-projection-outline.md); the behavior contract lives in [spec/format.md](spec/format.md) §4 and [spec/arbord-rest.md](spec/arbord-rest.md).*
+
+- Refactor the TypeScript and Swift `openNodeView` layers to derive one language-neutral projected directory document after the complete paginated child listing has been hydrated under the initial observation cursor.
+- Project the stored or implicit body plus every immediate child exactly once. An authored standalone child link anchors its row; otherwise append a synthetic managed row in stable directory order.
+- Return a managed-row manifest carrying `BlockID`, target `NodeRef`, authored/synthetic origin, child kind, and materialization state. Keep the REST `/v1/node` and `/v1/children` payloads storage-shaped.
+- Keep browsing side-effect free. Materialize `_index.md` only for authored body/properties, stored ordering/grouping, or when a bodyless directory first needs a durable `PageID` for an identity-bearing link or authored move.
+- Split projected editor commits before persistence: prose/properties use singleton `writeMarkdown`; managed-row operations use structural mutations with `directoryRevision`, `beforePath`, or `beforeBlockID`. Synthetic rows are never serialized as invented source.
+- Replace the separate `new URL` rules in [`packages/core/src/structural-rows.ts`](packages/core/src/structural-rows.ts) and [`packages/render/src/PageEditor.tsx`](packages/render/src/PageEditor.tsx) with one logical URL resolver in `@arbor/core`, then use it in arbord, TreeHopper web, the TypeScript client, and Swift conformance fixtures. From `/projects/atlas`, `notes` resolves to the child and `../roadmap` to the sibling regardless of whether the body is `atlas.md`, `atlas/_index.md`, or implicit.
+- Accept relative and tree-rooted destinations locally and canonical `arbor://<name>/…` or `arbor://tree/<TreeID>/…` destinations globally. Preserve `#PageID`; when ID and path disagree, ID wins and the readable path heals.
+- Add cross-language fixtures for bodyless and materialized directories, authored and synthetic child rows, paginated hydration with buffered events, relative/rooted/global URLs, first identity materialization, and move/rename healing.
+
+#### Browser/native parity reads
+
+- Add one arbord backlinks read over the existing Markdown index, addressed by `NodeRef`, paginated, and bounded by `observedThrough`. Backlinks are context and search data; they do not define filesystem placement or a home-rooted orphan ontology.
+- Extend recovery from one-node lookup to an explicit workspace scope that unifies Trash inventory with lost/purged blocks while preserving per-document filtering.
+- Add a safe ordinary-file/asset byte read with revision/ETag and range support so native preview/open never requires a direct filesystem reach-through.
+- Keep home/default location as client-local preference until Milestone 3 gives preferences a readable `system:` home. Do not write it into arbitrary Markdown or make it the workspace boundary.
+- Add both reference clients and TreeHopper web to these reads before native depends on them; keep caches derived exclusively from snapshots/events.
+
 #### Daily-driver polish and acceptance
 
 - Preserve one logical path across routes, links, events, search, breadcrumbs, and directory rows.
@@ -311,6 +332,10 @@ Completion gate:
 
 - `arbor dev` over a real multi-thousand-file personal tree is fast enough for daily navigation and search;
 - Markdown and directory editing retain the current no-churn/crash-recovery guarantees;
+- TreeHopper web and the Swift reference client derive structurally equivalent projected blocks and managed-row manifests from shared fixtures;
+- a directory with no `_index.md` opens as a complete document without creating a file, while its first authored edit or identity requirement materializes the minimal canonical body;
+- child, sibling, rooted, and `arbor://` references resolve consistently, and a valid document ID follows an authored move and heals its stale path;
+- backlinks, workspace recovery/Trash, and ordinary-file bytes are available through arbord/reference clients without another filesystem read path;
 - ordinary files are recognizably useful rather than blank/unsupported dead ends;
 - cloud placeholders never index placeholder bytes as content;
 - the full typecheck/unit/integration/build/browser/performance suite passes.
@@ -455,6 +480,8 @@ Completion gate:
 
 **Status: Planned. No `packages/wire` implementation exists yet.**
 
+**Open design decision — wire-endpoint ownership.** The spec describes two daemon roles (see the "Daemon roles" section of [spec.md](spec.md)): the on-demand local workspace daemon and the always-on wire host. This milestone must decide which side owns the wire endpoint for a given shared tree. Working recommendation: the local arbord is always a wire *client*; the serving role is a separate process sharing `@arbor/core` wire code; a local arbord may later embed the serving role (the relay pattern) but the one-replicator rule is stated per role, not per binary.
+
 ### Reference server
 
 - Implement deterministic DAG-CBOR, SHA-256 objects, and Merkle walk/diff.
@@ -509,9 +536,10 @@ Completion gate:
 
 ### Names and visited trees
 
-- Resolve whole-tree public aliases through DNS `_arbor` records.
+- Resolve `arbor://<dns-name>/…` through DNS `_arbor` records and `arbor://tree/<TreeID>/…` through endpoint hints learned from mounts, visits, invitations, or signed descriptors.
 - Implement visited trees as transient lazy mounts with TTL/garbage collection and promotion into the durable workspace.
-- Record canonical positions as descriptive citation/discovery metadata, never routing or authority.
+- Record canonical positions as absolute `arbor://` descriptive citation/discovery metadata, never routing or authority.
+- Resolve a global link through the reader's existing mount/overlay first; never embed credentials or invitation tokens in Markdown URLs.
 - Surface shared, stale, pinned, overlay, conflict, and revocation state through existing arbord events.
 - Add TreeHopper web sharing and invitation flows without presenting namespace administration as the primary product metaphor.
 
@@ -562,7 +590,7 @@ These are not backlog items for the reference implementation. Do not add them me
 - high availability, horizontal scaling, fleet management, quotas, billing, or production observability infrastructure;
 - persistent event replay across arbord process epochs when deterministic resync is sufficient;
 - configurable mutation-receipt retention services or administrative receipt browsers;
-- durable universal identity for every ordinary local file or directory;
+- durable universal identity for every ordinary local file or directory beyond the `PageID` required by a materialized Markdown/directory document;
 - a generic storage-driver, transport-adapter, or plugin framework ahead of a second concrete required implementation;
 - general account or group service;
 - public-name registry beyond DNS aliases;
