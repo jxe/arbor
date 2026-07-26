@@ -106,11 +106,17 @@ Core Milestone 2 adds three concrete reads before native TreeHopper depends on t
 ```text
 GET /v1/backlinks?path=…&cursor=…
 GET /v1/backlinks?pageID=…&pathHint=…&cursor=…
-GET /v1/recovery?scope=workspace&cursor=…
+GET /v1/recovery?path=…&recursive=true&cursor=…
 GET /v1/file?path=…
 ```
 
-Backlinks resolve the usual `NodeRef`, return referring document refs plus link context, paginate like search, and carry `observedThrough`; they never define physical parentage or deletion policy. Workspace recovery combines Trash inventory with lost/purged Markdown entries while retaining the existing node-scoped route. File reads return uninterpreted bytes for an ordinary file/asset, honor HTTP range requests, and use its content revision as `ETag`; containment, writability, and placeholder checks remain arbord responsibilities.
+Backlinks resolve the usual `NodeRef`, return referring document refs plus link context, paginate like search, and carry `observedThrough`; they never define physical parentage or deletion policy.
+
+**Recovery scales by subtree, not by a privileged workspace scope.** The existing node-scoped route gains `recursive` and a cursor: "what is recoverable under this directory" unifies Trash inventory with lost/purged Markdown entries for any subtree, and recovery for a whole tree is simply the root-directory call. There is no separate `scope=workspace` mode — *workspace* is not a stable boundary once arbord serves arbitrary roots and mounts. Recovery state is physically per-tree (the `/Trash` convention and `.history/` sidecars travel with the region that syncs) and per-device (the journal); the inventory is the device-merged fold over a subtree. A browser's global Recover/Trash surface merges per-tree queries client-side, the way the Finder merges per-volume Trashes; the API never pretends one aggregate exists.
+
+**File reads return uninterpreted bytes** for an ordinary file/asset, honor HTTP range requests, and use the content revision as `ETag`; containment, writability, and placeholder checks remain arbord responsibilities. `/v1/file` subsumes the `GET /Assets/…` static route — assets are ordinary files, and the bespoke route remains only as a compatibility alias for existing authored Markdown references.
+
+**Reads become tree-qualified when visiting lands.** Every read route in this section implicitly means "the tree arbord serves." Visiting an unmounted tree ([browser.md](browser.md) §3) requires naming nodes in a foreign tree — an inline image in a visited document references an asset *of that tree*, which no local path can address. The planned generalization is a tree dimension on read refs (`?tree=<TreeID>&path=…`, accepting the `arbor://` forms of [urls.md](urls.md)); `/v1/file` then serves visited bytes by resolving `(TreeID, path)` through the wire's ref plane and streaming the content-addressed blob, with the object hash as `ETag`. Arbord proxies rather than handing the browser a remote URL: grants stay enforced in one place, the web client stays same-origin against loopback, and fetched objects share one cache with any later mount or pin of the same tree. This pulls a read-only slice of the wire's ref/object planes forward of the full sync engine; it does not change the mutation surface, which stays local until sharing lands.
 
 These routes are planned extensions, not part of the currently implemented v1 fixture set above. Both reference clients and browser behavior land with their fixtures. Home/default location remains client-local until readable `system:` preferences exist; it is not smuggled into a content route.
 

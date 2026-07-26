@@ -58,7 +58,7 @@ The built-in browser keeps CSV, JSONL, and Postgres table cells read-only; it do
 
 ## 3. Beyond mounted trees
 
-Opening an unmounted `arbor://` name or invitation creates a transient mount recorded in `system:visited`; bodies arrive lazily by Merkle walk. Annotating—or beginning an edit under the reader's auto-overlay policy—creates an overlay. “Add to workspace” promotes the mount. Back/forward uses recorded revisions; changed-since-read becomes a visible state rather than silent replacement.
+Opening an unmounted `arbor://` name or invitation creates a transient mount recorded in `system:visited`; bodies arrive lazily by Merkle walk. Inline assets and ordinary files of a visited tree stream through arbord's tree-qualified file read ([arbord-rest.md](arbord-rest.md), parity reads): the browser never fetches from the remote endpoint directly, so grants, caching, and same-origin behavior stay at the loopback boundary. Annotating—or beginning an edit under the reader's auto-overlay policy—creates an overlay. “Add to workspace” promotes the mount. Back/forward uses recorded revisions; changed-since-read becomes a visible state rather than silent replacement.
 
 If a public domain has no Arbor record, TreeHopper may offer plain `https://` as the legacy-web hatch; a legacy page that advertises a tree via `<link rel="arbor">` or an `Arbor-Tree:` header ([wire.md](wire.md) §7) offers the reverse upgrade into the live tree. If an endpoint is unavailable, cached content renders with explicit staleness.
 

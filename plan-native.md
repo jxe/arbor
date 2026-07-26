@@ -247,7 +247,7 @@ Use concrete arbord reads/mutations where the capability is workspace truth; oth
 
 ## Dependency on the core plan
 
-This track consumes the implemented REST v1 contract and in-repo Swift `ArborClient` package from the **arbord REST v1 and reference clients** milestone in [`plan.md`](plan.md). That base dependency is satisfied. Complete directory documents and native feature continuity add one platform-neutral dependency, owned by core Milestone 2: shared projection fixtures, managed-row manifests, logical relative/`arbor://` resolution, lazy identity materialization, backlinks, workspace recovery/Trash, and safe ordinary-file reads. This plan consumes that layer rather than independently recreating it in Hunch. It does not redefine endpoints, Codable transport values, event fields, mutation receipts, durability semantics, or logical workspace operations here.
+This track consumes the implemented REST v1 contract and in-repo Swift `ArborClient` package from the **arbord REST v1 and reference clients** milestone in [`plan.md`](plan.md). That base dependency is satisfied. Complete directory documents and native feature continuity add one platform-neutral dependency, owned by core Milestone 2: shared projection fixtures, managed-row manifests, logical relative/`arbor://` resolution, lazy identity materialization, backlinks, subtree recovery/Trash, and safe ordinary-file reads. This plan consumes that layer rather than independently recreating it in Hunch. It does not redefine endpoints, Codable transport values, event fields, mutation receipts, durability semantics, or logical workspace operations here.
 
 Provider extraction and the node-first arbord adapter may begin against the completed client now. Full directory/editor parity waits for the Milestone 2 client projection and URL fixtures. The macOS cutover still requires implementing and testing the native provider/session/editor mapping; satisfying transport or projection dependencies does not complete Hunch migration or native integration. Later native mounts, collections, scripts, sharing, and provenance begin only when their corresponding core capability exists.
 
@@ -289,7 +289,7 @@ This is complete when native TreeHopper can browse the same heterogeneous nested
 1. Implement the lossless block/source adapter and a local `ArbordDocumentSession` generation queue over `ArborClient.openNodeView` plus the shared projected-directory helper.
 2. Map native block IDs to Arbor source identity, implement raw/footnote/LaTeX/frontmatter parity, and normalize only edited blocks.
 3. Route prose/properties to content writes and managed rows to structural mutations with domain-specific receipts, revisions, and anchors.
-4. Add assets, recursive import, Trash/restore, per-document and workspace recovery, backlinks, home preference, and asset reads to the provider surface.
+4. Add assets, recursive import, Trash/restore, per-document and subtree recovery, backlinks, home preference, and asset reads to the provider surface.
 5. Remove every remaining macOS `workspace.clamshell`/direct-file reach-through for workspace truth. Keep Clamshell only behind the iOS or deliberate arbord-less provider.
 6. Preserve Hunch's multi-document workflow ordering, banners, voice transcription, native selection/undo, menus, and interaction behavior.
 7. Ensure shutdown, navigation, tabs, and structural actions drain affected sessions before process exit or mutation.

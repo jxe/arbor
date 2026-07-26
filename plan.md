@@ -316,8 +316,8 @@ Do not rewrite those features under this milestone. Extend and measure them.
 #### Browser/native parity reads
 
 - Add one arbord backlinks read over the existing Markdown index, addressed by `NodeRef`, paginated, and bounded by `observedThrough`. Backlinks are context and search data; they do not define filesystem placement or a home-rooted orphan ontology.
-- Extend recovery from one-node lookup to an explicit workspace scope that unifies Trash inventory with lost/purged blocks while preserving per-document filtering.
-- Add a safe ordinary-file/asset byte read with revision/ETag and range support so native preview/open never requires a direct filesystem reach-through.
+- Extend recovery from one-node lookup to a recursive, paginated subtree read that unifies Trash inventory with lost/purged blocks under any directory, while preserving per-document filtering. No privileged workspace scope: whole-tree recovery is the root-directory call, and a global Recover surface merges per-tree queries client-side (Finder-style per-volume Trash merging).
+- Add a safe ordinary-file/asset byte read (`/v1/file`) with revision/ETag and range support so native preview/open never requires a direct filesystem reach-through. It subsumes the `GET /Assets/…` static route (kept as a compatibility alias). When visiting lands, read refs gain a tree dimension and `/v1/file` serves a visited tree's bytes by proxying the wire's content-addressed objects — a read-only slice of Milestone 7 pulled forward, per the parity-reads section of [spec/arbord-rest.md](spec/arbord-rest.md).
 - Keep home/default location as client-local preference until Milestone 3 gives preferences a readable `system:` home. Do not write it into arbitrary Markdown or make it the workspace boundary.
 - Add both reference clients and TreeHopper web to these reads before native depends on them; keep caches derived exclusively from snapshots/events.
 
@@ -335,7 +335,7 @@ Completion gate:
 - TreeHopper web and the Swift reference client derive structurally equivalent projected blocks and managed-row manifests from shared fixtures;
 - a directory with no `_index.md` opens as a complete document without creating a file, while its first authored edit or identity requirement materializes the minimal canonical body;
 - child, sibling, rooted, and `arbor://` references resolve consistently, and a valid document ID follows an authored move and heals its stale path;
-- backlinks, workspace recovery/Trash, and ordinary-file bytes are available through arbord/reference clients without another filesystem read path;
+- backlinks, subtree recovery/Trash, and ordinary-file bytes are available through arbord/reference clients without another filesystem read path;
 - ordinary files are recognizably useful rather than blank/unsupported dead ends;
 - cloud placeholders never index placeholder bytes as content;
 - the full typecheck/unit/integration/build/browser/performance suite passes.
