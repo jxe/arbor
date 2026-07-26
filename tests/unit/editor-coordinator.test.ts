@@ -144,4 +144,47 @@ describe("editor coordinator", () => {
     expect(value.coordinator.currentRevision).toBe("external-revision");
     expect(value.coordinator.isDirty).toBe(false);
   });
+
+  test("never persists synthetic projection rows during an unrelated prose edit", async () => {
+    const synthetic = { ...paragraph("managed:path:/page/child", "child"), type: "standaloneLink" as const };
+    const initial = { blocks: [paragraph("p", "initial"), synthetic], frontmatter: {} };
+    const value = harness(initial);
+    value.coordinator.configure({
+      toPersisted: (snapshot) => ({
+        ...snapshot,
+        blocks: snapshot.blocks.filter((block) => !block.id.startsWith("managed:")),
+      }),
+    });
+
+    value.captured = { blocks: [paragraph("p", "edited"), synthetic], frontmatter: {} };
+    value.coordinator.markAuthored(value.captured);
+    value.clock.runAll();
+    await value.coordinator.flush();
+
+    expect(value.writes).toHaveLength(1);
+    expect(value.writes[0]!.blocks.map((block) => block.id)).toEqual(["p"]);
+  });
+
+  test("a change touching only synthetic rows neither dirties, saves, nor records undo", async () => {
+    const synthetic = { ...paragraph("managed:path:/page/child", "child"), type: "standaloneLink" as const };
+    const initial = { blocks: [paragraph("p", "initial"), synthetic], frontmatter: {} };
+    const value = harness(initial);
+    value.coordinator.configure({
+      toPersisted: (snapshot) => ({
+        ...snapshot,
+        blocks: snapshot.blocks.filter((block) => !block.id.startsWith("managed:")),
+      }),
+    });
+
+    // Deleting the synthetic row is a projection-only change.
+    value.captured = { blocks: [paragraph("p", "initial")], frontmatter: {} };
+    value.coordinator.markAuthored(value.captured);
+    value.clock.runAll();
+    await value.coordinator.flush();
+
+    expect(value.coordinator.isDirty).toBe(false);
+    expect(value.writes).toHaveLength(0);
+    value.coordinator.flushHistory();
+    expect(value.coordinator.canUndo).toBe(false);
+  });
 });

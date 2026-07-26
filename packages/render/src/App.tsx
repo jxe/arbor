@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SearchResult, TreeChild } from "@arbor/core";
-import type { NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
+import type { ProjectedDocument, SearchResult, TreeChild } from "@arbor/core";
+import type { NodeRef, NodeSnapshot, ProjectedNodeUpdate, ProjectedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
+import { projectSnapshot } from "@arbor/client";
 import { api } from "./api.ts";
 import { CollectionView } from "./CollectionView.tsx";
 import { PageEditor } from "./PageEditor.tsx";
@@ -46,7 +47,8 @@ function storedSidebarCollapsed(): boolean {
 export function App() {
   const [path, setPath] = useState(pathFromLocation);
   const [node, setNode] = useState<NodeSnapshot | null>(null);
-  const [nodeUpdates, setNodeUpdates] = useState<AsyncIterable<ObservedNodeUpdate> | null>(null);
+  const [projection, setProjection] = useState<ProjectedDocument | null>(null);
+  const [nodeUpdates, setNodeUpdates] = useState<AsyncIterable<ProjectedNodeUpdate> | null>(null);
   const [sidebar, setSidebar] = useState<NodeSnapshot | null>(null);
   const [sidebarMenu, setSidebarMenu] = useState<SidebarMenuState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,13 +58,19 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const nodeRequest = useRef(0);
-  const nodeView = useRef<ObservedNodeView | null>(null);
+  const nodeView = useRef<ProjectedNodeView | null>(null);
+  const pendingRef = useRef<NodeRef | null>(null);
   const sidebarRequest = useRef(0);
   const load = useCallback(async (next: string) => {
     const request = ++nodeRequest.current;
     try {
       setError(null);
-      const view = await api.openNodeView(next);
+      // A durable-ID reference wins over the (possibly stale) path; arbord
+      // resolves it and returns the current path, which is written back
+      // through the history correction below.
+      const target = pendingRef.current ?? next;
+      pendingRef.current = null;
+      const view = await api.openProjectedNodeView(target);
       if (request !== nodeRequest.current) {
         view.close();
         return;
@@ -71,6 +79,7 @@ export function App() {
       nodeView.current = view;
       const loaded = view.snapshot;
       setNodeUpdates(view.updates);
+      setProjection(view.projection);
       if (loaded.path !== next) {
         history.replaceState({}, "", `/render${loaded.path === "/" ? "/" : loaded.path}`);
         setPath(loaded.path);
@@ -81,13 +90,18 @@ export function App() {
       if (request === nodeRequest.current) setError(error instanceof Error ? error.message : String(error));
     }
   }, []);
-  const navigate = useCallback((next: string) => {
+  const navigate = useCallback((target: string | NodeRef) => {
     setMobileSidebarOpen(false);
-    if (next === path) return;
+    const next = typeof target === "string"
+      ? target
+      : "path" in target ? target.path : target.pathHint ?? path;
+    pendingRef.current = typeof target === "string" ? null : target;
+    if (next === path && !pendingRef.current) return;
     nodeRequest.current += 1;
     nodeView.current?.close();
     nodeView.current = null;
     setNodeUpdates(null);
+    setProjection(null);
     sidebarRequest.current += 1;
     history.pushState({}, "", `/render${next === "/" ? "/" : next}`);
     setPath(next); setNode(null);
@@ -97,6 +111,7 @@ export function App() {
       history.replaceState({}, "", `/render${loaded.path === "/" ? "/" : loaded.path}`);
       setPath(loaded.path);
     }
+    setProjection(projectSnapshot(loaded));
     setNode(loaded);
   }, [path]);
   useEffect(() => {
@@ -294,7 +309,7 @@ export function App() {
       </header>
       {error ? <div className="empty error">{error}</div> : !node ? <div className="empty">Loading…</div> : <>
         {node.diagnostics.map((item) => <div className="diagnostic node-diagnostic" key={`${item.code}:${item.path}`}>{item.message}</div>)}
-        {(node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") && node.document && nodeUpdates && <PageEditor node={node} updates={nodeUpdates} onSaved={acceptNode} navigate={navigate} />}
+        {(node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") && node.document && nodeUpdates && <PageEditor node={node} projection={projection} updates={nodeUpdates} onSaved={acceptNode} navigate={navigate} />}
         {node.kind === "collection" && <CollectionView node={node} navigate={navigate} refresh={() => load(path)} />}
       </>}
     </main>

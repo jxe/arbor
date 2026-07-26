@@ -9,6 +9,6 @@ topic: arbor
 
 Apple orchard notes are searchable.
 
-Continue with [the book](books/one.md).
+Continue with [the book](../books/one.md).
 
-[Book subpage](books/one.md)
+[Book subpage](../books/one.md)

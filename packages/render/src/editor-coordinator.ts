@@ -28,6 +28,12 @@ interface EditorCoordinatorCallbacks {
   applySnapshot(snapshot: DocumentSnapshot): void;
   acceptNode(node: NodeSnapshot): void;
   notify(): void;
+  /**
+   * Map the captured visible editor state to the form that is persisted:
+   * synthetic projection rows are removed so a content save can only ever
+   * serialize stored/authored blocks. Identity when absent.
+   */
+  toPersisted?(snapshot: DocumentSnapshot): DocumentSnapshot;
 }
 
 interface EditorCoordinatorOptions extends EditorCoordinatorCallbacks {
@@ -111,6 +117,10 @@ export class EditorCoordinator {
   get canUndo(): boolean { return this.undoStack.length > 0 || this.documentDraft !== null; }
   get canRedo(): boolean { return this.redoStack.length > 0; }
 
+  private toPersisted(snapshot: DocumentSnapshot): DocumentSnapshot {
+    return this.callbacks.toPersisted?.(snapshot) ?? snapshot;
+  }
+
   runNormalization<T>(callback: () => T): T {
     this.applying = true;
     try {
@@ -157,6 +167,9 @@ export class EditorCoordinator {
     const after = cloneSnapshot(snapshot);
     const before = this.observed;
     this.observed = after;
+    // A change that only touches synthetic projection rows persists nothing:
+    // it neither dirties the document, creates an undo entry, nor saves.
+    if (sameSnapshot(this.toPersisted(after), this.toPersisted(before))) return;
     if (!this.documentDraft) this.documentDraft = { before, after };
     else this.documentDraft.after = after;
     if (this.historyTimer !== null) this.clock.clearTimeout(this.historyTimer);
@@ -272,7 +285,9 @@ export class EditorCoordinator {
     }
     const savingGeneration = this.generationValue;
     if (savingGeneration <= this.durableGenerationValue && !forceRevision) return;
-    const local = cloneSnapshot(this.callbacks.capture());
+    // Persist only stored/authored blocks; the visible projection never
+    // round-trips through writeMarkdown.
+    const local = this.toPersisted(cloneSnapshot(this.callbacks.capture()));
     const execute = async () => {
       this.setStatus("saving", null);
       try {

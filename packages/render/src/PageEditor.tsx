@@ -4,14 +4,16 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extensions";
 import { TextSelection } from "@tiptap/pm/state";
 import { FormattingToolbarController, SideMenuController, SuggestionMenuController } from "@blocknote/react";
-import type { ArborBlock } from "@arbor/core";
+import type { ArborBlock, ProjectedDocument } from "@arbor/core";
 import type {
   NodeRef,
   NodeSnapshot,
-  ObservedNodeUpdate,
+  ProjectedNodeUpdate,
   StructuralWorkspaceOperation,
 } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
+import { resolveLogicalURL } from "@arbor/core/logical-url";
+import { isSyntheticRowBlockID } from "@arbor/core/projection";
 import { resolveStructuralRowPath, transformStructuralRows } from "@arbor/core/structural-rows";
 import { api, type BrowserMutationResult } from "./api.ts";
 import {
@@ -204,34 +206,27 @@ function inverseMoves(moved: BrowserMutationResult["moved"]): StructuralWorkspac
   }));
 }
 
-export function PageEditor({ node, updates, onSaved, navigate }: {
+export function PageEditor({ node, projection, updates, onSaved, navigate }: {
   node: NodeSnapshot;
-  updates: AsyncIterable<ObservedNodeUpdate>;
+  projection: ProjectedDocument | null;
+  updates: AsyncIterable<ProjectedNodeUpdate>;
   onSaved: (node: NodeSnapshot) => void;
-  navigate: (path: string) => void;
+  navigate: (target: string | NodeRef) => void;
 }) {
   const authored = node.document?.blocks ?? [];
   const isDirectory = node.kind === "directory" || node.kind === "collection";
   const physicalChildren = node.children ?? [];
   const childrenRevision = physicalChildren.map((child) => `${child.path}:${child.kind}:${child.materialization}`).join("\0");
   const childrenByPath = useMemo(() => new Map(physicalChildren.map((child) => [child.path, child])), [childrenRevision]);
-  const implicitChildren: ArborBlock[] = isDirectory
-    ? physicalChildren.filter((child) => !authored.some((block) =>
-      block.type === "standaloneLink" && resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) === child.path
-    )).map((child, index) => ({
-      id: `implicit-${index}-${child.name}`,
-      type: "standaloneLink",
-      content: child.name,
-      props: { path: child.path },
-      children: [],
-    }))
-    : [];
-  const initial = [...authored, ...implicitChildren];
-  const managedOrder = initial.flatMap((block) => {
-    if (block.type !== "standaloneLink") return [];
-    const path = resolveStructuralRowPath(node.path, String(block.props?.path ?? ""));
-    return path && childrenByPath.has(path) ? [path] : [];
-  });
+  // The manifest-driven projected view: stored/authored blocks plus one
+  // synthetic row per unmatched child, derived by the shared client
+  // projection — never assembled locally.
+  const initial = projection?.visibleBlocks ?? authored;
+  const rowByBlockID = useMemo(
+    () => new Map((projection?.managedChildren ?? []).map((row) => [row.blockID, row])),
+    [projection],
+  );
+  const managedOrder = (projection?.managedChildren ?? []).map((row) => row.ref.path);
   const originals = useMemo(() => originalMap(initial), [node.contentRevision, childrenRevision]);
   const pageDirectory = isDirectory ? node.path : parentPath(node.path);
   const pageDirectoryRef = useRef(pageDirectory);
@@ -338,6 +333,10 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
     });
     setFrontmatter(structuredClone(value.frontmatter));
   }, [editor]);
+  const stripSyntheticRows = useCallback((value: DocumentSnapshot): DocumentSnapshot => ({
+    ...value,
+    blocks: value.blocks.filter((block) => !isSyntheticRowBlockID(block.id)),
+  }), []);
   const coordinator = useMemo(() => new EditorCoordinator({
     path: node.path,
     revision: node.contentRevision!,
@@ -345,6 +344,7 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
     baseFrontmatter: node.document?.frontmatter ?? {},
     initialSnapshot: { blocks: initial, frontmatter: node.document?.frontmatter ?? {} },
     capture: () => snapshotRef.current(),
+    toPersisted: stripSyntheticRows,
     write: (_path, baseRevision, value, base) => api.write(nodeReference, {
       baseContentRevision: baseRevision,
       frontmatterPatch: frontmatterPatch(base.frontmatter, value.frontmatter),
@@ -356,6 +356,7 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
   }), [editor, nodeIdentity]);
   coordinator.configure({
     capture: () => snapshotRef.current(),
+    toPersisted: stripSyntheticRows,
     write: (_path, baseRevision, value, base) => api.write(nodeReference, {
       baseContentRevision: baseRevision,
       frontmatterPatch: frontmatterPatch(base.frontmatter, value.frontmatter),
@@ -526,7 +527,8 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
             refs: beforeOrder.filter((path) => selectedPaths.has(path)).map((path) => ({ path })),
             destination: { path: reorderDestination },
             beforePath,
-            beforeBlockID: beforeBlockId,
+            // Synthetic row IDs are projection artifacts; the path anchor suffices.
+            beforeBlockID: beforeBlockId && !isSyntheticRowBlockID(beforeBlockId) ? beforeBlockId : undefined,
           }];
           undoSelection = reorderPaths;
         }
@@ -640,14 +642,24 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
     if (previewResult.anchor === "missing") throw new Error("The insertion target is no longer present.");
     const preview = previewResult.blocks;
     coordinator.applyNormalizationSnapshot({ blocks: preview, frontmatter });
+    // Synthetic managed-row IDs never cross the wire: an anchor on a
+    // synthetic row is translated to that child's path.
+    let wireBeforePath = beforePath;
+    let wireBeforeBlockID = beforeBlockId;
+    if (wireBeforeBlockID && isSyntheticRowBlockID(wireBeforeBlockID)) {
+      wireBeforePath ??= rowByBlockID.get(wireBeforeBlockID)?.ref.path;
+      wireBeforeBlockID = undefined;
+      if (!wireBeforePath) throw new Error("The insertion target is no longer present.");
+    }
     try {
       return await runMutation(
         [{
           op: "move",
           refs: paths.map((path) => ({ path })),
           destination: { path: node.path },
-          beforePath,
-          beforeBlockID: beforeBlockId,
+          placement: "authored",
+          beforePath: wireBeforePath,
+          beforeBlockID: wireBeforeBlockID,
           baseDirectoryRevision: coordinator.currentRevision,
         }],
         paths,
@@ -657,7 +669,7 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
       coordinator.applyNormalizationSnapshot({ blocks: before, frontmatter });
       throw error;
     }
-  }, [coordinator, flushAutosave, flushDocumentHistory, frontmatter, node.path, runMutation]);
+  }, [coordinator, flushAutosave, flushDocumentHistory, frontmatter, node.path, rowByBlockID, runMutation]);
 
   const drop = useCallback(async (targetPath: string, position: "before" | "after" | "inside", event: React.DragEvent) => {
     event.preventDefault();
@@ -674,6 +686,7 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
         op: "move",
         refs: paths.map((path) => ({ path })),
         destination: { path: targetPath },
+        placement: "natural",
       }], moved);
       return;
     }
@@ -1048,10 +1061,18 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
   const openInternalLink = (event: React.MouseEvent) => {
     const anchor = (event.target as Element).closest("a");
     const href = anchor?.getAttribute("href");
-    if (!href || href.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(href)) return;
+    if (!href) return;
+    // Every document resolves links from its canonical logical address as a
+    // directory-like base, regardless of leaf/directory/_index.md backing.
+    const link = resolveLogicalURL(node.path, href);
+    if (link?.kind === "external") return;
     event.preventDefault();
-    const base = isDirectory ? `${node.path === "/" ? "" : node.path}/` : `${parentPath(node.path) === "/" ? "" : parentPath(node.path)}/`;
-    navigate(canonicalNodePath(new URL(href.split("#")[0]!, `http://arbor${base}`).pathname));
+    if (link?.kind === "local") {
+      navigate(link.pageID ? { pageID: link.pageID, pathHint: link.path } : link.path);
+    } else if (link?.kind === "fragment") {
+      navigate({ pageID: link.pageID });
+    }
+    // arbor://, system:, and local: destinations wait on mount/visit resolution.
   };
   const closePageActions = () => {
     if (pageActionsMenu.current) pageActionsMenu.current.open = false;

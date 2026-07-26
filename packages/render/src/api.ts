@@ -44,6 +44,7 @@ export const api = {
   client,
   node: (ref: string | NodeRef) => client.node(refOf(ref)),
   openNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openNodeView(refOf(ref), signal),
+  openProjectedNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openProjectedNodeView(refOf(ref), signal),
   collection: async (path: string, cursor?: string | null) => client.collection({ path }, cursor),
   search: async (query: string) => (await client.search(query)).results,
   write: async (

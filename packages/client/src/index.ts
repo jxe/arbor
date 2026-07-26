@@ -21,7 +21,9 @@ import type {
   WorkspaceEvent,
 } from "@arbor/core";
 import type { ProjectedDocument } from "@arbor/core";
-import { isSyntheticRowBlockID, projectDirectoryDocument } from "@arbor/core";
+// Value imports come from the browser-safe deep module; the core index also
+// re-exports Node-only path helpers that must stay out of browser bundles.
+import { isSyntheticRowBlockID, projectDirectoryDocument } from "@arbor/core/projection";
 
 export type {
   ArborBlock,

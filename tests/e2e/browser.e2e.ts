@@ -71,13 +71,13 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
 
 test("opens authored and auto-generated subpage rows", async ({ page }) => {
   await page.goto("/");
-  const generated = page.locator('.managed-child-page a[href="/books"]');
+  const generated = page.locator('.managed-child-page a[href="books"]');
   await expect(generated).toBeVisible();
   await generated.click();
   await expect(page).toHaveURL(/\/render\/books$/);
 
   await page.goto("/render/notes");
-  const authored = page.locator('.child-page[href="books/one.md"]');
+  const authored = page.locator('.child-page[href="../books/one.md"]');
   await expect(authored).toBeVisible();
   await authored.click();
   await expect(page).toHaveURL(/\/render\/books\/one$/);
@@ -166,6 +166,30 @@ test("browses, searches, and edits toggle Markdown", async ({ page }) => {
   await topic.fill("trees");
   await expect(page.getByRole("status")).toHaveText("Changes pending");
   await expect(page.getByRole("status")).toHaveText("Saved");
+});
+
+test("a prose edit in a directory never persists its synthetic rows", async ({ page }) => {
+  await page.goto("/render/garden");
+  // The child has no authored link, so it appears as a projected synthetic row.
+  const row = page.locator('[data-managed-row="/garden/rose"]');
+  await expect(row).toBeVisible();
+
+  await page.getByText("Perennials.").click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" Garden prose.");
+  await expect(page.getByRole("status")).toHaveText("Changes pending");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+
+  const bodySource = await page.evaluate(async () => {
+    const response = await fetch("/v1/node?path=%2Fgarden");
+    const node = await response.json();
+    return { body: node.document.bodySource as string, bodyState: node.bodyState as string };
+  });
+  expect(bodySource.bodyState).toBe("stored");
+  expect(bodySource.body).toContain("Garden prose.");
+  expect(bodySource.body).not.toContain("](rose)");
+  expect(bodySource.body).not.toContain("managed:");
+  await expect(row).toBeVisible();
 });
 
 test("round-trips inline Markdown and uses Markdown-aware clipboard formats", async ({ page }) => {
