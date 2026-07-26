@@ -23,7 +23,7 @@ export type BlockType =
   | "mathBlock"
   | "footnoteDefinition"
   | "toggle"
-  | "childPage"
+  | "standaloneLink"
   | "rawMarkdown";
 
 export interface ArborBlock {
@@ -48,6 +48,8 @@ export interface TreeChild {
   path: string;
   kind: NodeKind;
   materialization: Materialization;
+  /** Durable document identity, when known unambiguously. */
+  pageID?: string;
 }
 
 export interface TreeNode {

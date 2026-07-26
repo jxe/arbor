@@ -1,0 +1,42 @@
+{
+  "name": "nested authored row beneath a heading still matches",
+  "input": {
+    "path": "/projects/atlas",
+    "document": {
+      "frontmatter": {},
+      "frontmatterSource": null,
+      "bodySource": "# Sections\n\n  [Notes](notes)\n",
+      "blocks": [
+        {
+          "id": "b-heading",
+          "type": "heading",
+          "content": "Sections",
+          "props": { "level": 1 },
+          "children": [
+            { "id": "b-nested-notes", "type": "standaloneLink", "content": "Notes", "props": { "path": "notes" }, "children": [] }
+          ]
+        }
+      ]
+    },
+    "children": [
+      { "name": "notes", "path": "/projects/atlas/notes", "kind": "markdown", "materialization": "available" }
+    ]
+  },
+  "expected": {
+    "bodyState": "stored",
+    "visibleBlocks": [
+      {
+        "id": "b-heading",
+        "type": "heading",
+        "content": "Sections",
+        "props": { "level": 1 },
+        "children": [
+          { "id": "b-nested-notes", "type": "standaloneLink", "content": "Notes", "props": { "path": "notes" }, "children": [] }
+        ]
+      }
+    ],
+    "managedChildren": [
+      { "blockID": "b-nested-notes", "ref": { "path": "/projects/atlas/notes" }, "origin": "authored", "kind": "markdown", "materialization": "available" }
+    ]
+  }
+}

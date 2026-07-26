@@ -122,6 +122,8 @@ public struct TreeChild: Codable, Sendable, Equatable {
     public var path: String
     public var kind: String
     public var materialization: String
+    /// Durable document identity, when known unambiguously.
+    public var pageID: String?
 }
 
 public struct CollectionSummary: Codable, Sendable, Equatable {
@@ -141,6 +143,10 @@ public struct NodeSnapshot: Codable, Sendable, Equatable {
     public var materialization: String
     public var contentRevision: String?
     public var directoryRevision: String?
+    /// "stored" or "implicit" — whether `document` reflects stored bytes.
+    public var bodyState: String?
+    /// "sibling" or "index" — which representation supplies a stored body.
+    public var bodyOrigin: String?
     public var document: MarkdownDocument?
     public var collection: CollectionSummary?
     public var diagnostics: [Diagnostic]
@@ -208,6 +214,8 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
     public var path: String?
     public var name: String?
     public var destination: NodeRef?
+    /// "natural" (default) or "authored" — whether a move places a stored destination row.
+    public var placement: String?
     public var beforePath: String?
     public var beforeBlockID: String?
     public var baseContentRevision: String?
@@ -223,6 +231,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         path: String? = nil,
         name: String? = nil,
         destination: NodeRef? = nil,
+        placement: String? = nil,
         beforePath: String? = nil,
         beforeBlockID: String? = nil,
         baseContentRevision: String? = nil,
@@ -237,6 +246,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         self.path = path
         self.name = name
         self.destination = destination
+        self.placement = placement
         self.beforePath = beforePath
         self.beforeBlockID = beforeBlockID
         self.baseContentRevision = baseContentRevision
@@ -247,7 +257,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
     }
 
     public var isContentOperation: Bool {
-        op == "writeMarkdown" || op == "restoreRecovery"
+        op == "writeMarkdown" || op == "restoreRecovery" || op == "ensureDocumentIdentity"
     }
 }
 

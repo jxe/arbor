@@ -29,9 +29,16 @@
         "op": "move",
         "refs": [{ "path": "/notes/tomorrow" }],
         "destination": { "path": "/archive" },
+        "placement": "authored",
         "beforePath": "/archive/later",
         "beforeBlockID": "anchor-block",
         "baseDirectoryRevision": "sha256:directory"
+      },
+      {
+        "op": "move",
+        "refs": [{ "path": "/notes/scratch" }],
+        "destination": { "path": "/archive" },
+        "placement": "natural"
       },
       {
         "op": "copy",
@@ -49,6 +56,16 @@
         "op": "restoreRecovery",
         "ref": { "pageID": "abc123", "pathHint": "/notes/today" },
         "hash": "sha256:lost",
+        "baseContentRevision": "sha256:content"
+      }
+    ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555554",
+    "operations": [
+      {
+        "op": "ensureDocumentIdentity",
+        "ref": { "path": "/projects/atlas" },
         "baseContentRevision": "sha256:content"
       }
     ]

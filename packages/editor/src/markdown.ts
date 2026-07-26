@@ -299,7 +299,7 @@ function parseBlocks(source: string): ArborBlock[] {
       const start = index;
       index = consumeTrailingBlank(lines, index + 1);
       const raw = lines.slice(start, index).map((value) => value.full).join("");
-      blocks.push(makeBlock("childPage", raw, child[1] ?? "", { path: child[2] ?? "" }, [], ordinal++));
+      blocks.push(makeBlock("standaloneLink", raw, child[1] ?? "", { path: child[2] ?? "" }, [], ordinal++));
       continue;
     }
 
@@ -398,7 +398,7 @@ function serializeCanonical(block: ArborBlock, depth = 0): string {
     }
     case "image":
       return `${prefix}![${String(block.props?.caption ?? "")}](${String(block.props?.url ?? "")})\n\n`;
-    case "childPage":
+    case "standaloneLink":
       return `${prefix}[${block.content ?? ""}](${String(block.props?.path ?? "")})\n\n`;
     case "rawMarkdown":
       return block.content ?? block.source ?? "";

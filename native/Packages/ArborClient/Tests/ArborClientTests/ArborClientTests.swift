@@ -40,7 +40,11 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(recovery.entries.first?.status, "lost")
         XCTAssertEqual(
             operationRequests.flatMap(\.operations).map(\.op),
-            ["writeMarkdown", "createMarkdown", "createDirectory", "rename", "move", "copy", "trash", "restore", "restoreRecovery"]
+            ["writeMarkdown", "createMarkdown", "createDirectory", "rename", "move", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity"]
+        )
+        XCTAssertEqual(
+            operationRequests.flatMap(\.operations).first(where: { $0.placement != nil })?.placement,
+            "authored"
         )
         XCTAssertEqual(errors.last?.error.code, "future-error-code")
         XCTAssertEqual(errors.first(where: { $0.error.code == "missing-insertion-anchor" })?.error.anchor?.beforeBlockID, "gone")

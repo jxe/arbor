@@ -318,7 +318,7 @@ function ArborDragHandleMenu() {
   const block = useExtensionState(SideMenuExtension, {
     selector: (state) => state?.block,
   });
-  const path = block?.type === "childPage"
+  const path = block?.type === "standaloneLink"
     ? controller?.resolve(String(block.props.path ?? "")) ?? null
     : null;
   if (!controller || !Components || !path) return null;
@@ -338,7 +338,7 @@ export function ArborSideMenu() {
   const block = useExtensionState(SideMenuExtension, {
     selector: (state) => state?.block,
   });
-  const path = block?.type === "childPage"
+  const path = block?.type === "standaloneLink"
     ? controller?.resolve(String(block.props.path ?? "")) ?? null
     : null;
 
@@ -353,7 +353,7 @@ export function ArborSideMenu() {
 }
 
 const ChildPageBlock = createReactBlockSpec(
-  { type: "childPage", propSchema: { path: { default: "" } }, content: "inline" },
+  { type: "standaloneLink", propSchema: { path: { default: "" } }, content: "inline" },
   {
     render: ({ block, contentRef }) => {
       const controller = useContext(ManagedRowsContext);
@@ -411,7 +411,7 @@ export const arborSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
     rawMarkdown: RawMarkdownBlock,
-    childPage: ChildPageBlock,
+    standaloneLink: ChildPageBlock,
     mathBlock: MathBlock,
     footnoteDefinition: FootnoteDefinitionBlock,
   },
@@ -780,7 +780,7 @@ export function toBlockNote(block: ArborBlock, editor: ArborBlockNoteEditor): Pa
       children,
     };
     case "image": return { id: block.id, type: "image", props: { url: String(block.props?.url ?? ""), caption: String(block.props?.caption ?? "") } };
-    case "childPage": return { id: block.id, type: "childPage", props: { path: String(block.props?.path ?? "") }, content: inlineMarkdown(editor, block.content ?? "") };
+    case "standaloneLink": return { id: block.id, type: "standaloneLink", props: { path: String(block.props?.path ?? "") }, content: inlineMarkdown(editor, block.content ?? "") };
     case "rawMarkdown": return { id: block.id, type: "rawMarkdown", props: { blank: Boolean(block.props?.blank) }, content: block.content ?? "" };
     default: return { id: block.id, type: "paragraph", content: inlineMarkdown(editor, block.content ?? ""), children };
   }
@@ -803,7 +803,7 @@ export function fromBlockNote(block: ArborEditorBlock, originals: Map<string, Ar
     case "footnoteDefinition": type = "footnoteDefinition"; break;
     case "image": type = "image"; break;
     case "rawMarkdown": type = "rawMarkdown"; break;
-    case "childPage": type = "childPage"; break;
+    case "standaloneLink": type = "standaloneLink"; break;
     default: type = original?.type === "rawMarkdown" && original.props?.blank ? "rawMarkdown" : "paragraph";
   }
   const props: Record<string, string | number | boolean> = {};
@@ -813,7 +813,7 @@ export function fromBlockNote(block: ArborEditorBlock, originals: Map<string, Ar
   if (block.type === "footnoteDefinition") props.label = block.props.label;
   if (block.type === "image") { props.url = block.props.url; props.caption = block.props.caption; }
   if (block.type === "rawMarkdown") props.blank = block.props.blank;
-  if (block.type === "childPage") props.path = block.props.path;
+  if (block.type === "standaloneLink") props.path = block.props.path;
   return {
     id: block.id,
     type,

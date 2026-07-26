@@ -35,6 +35,10 @@ export interface NodeSnapshot {
   materialization: "available" | "placeholder";
   contentRevision?: ContentRevision;
   directoryRevision?: DirectoryRevision;
+  /** Whether `document` reflects stored bytes or an implicit (bodyless) directory. */
+  bodyState?: "stored" | "implicit";
+  /** Which physical representation supplies a stored body. Diagnostic only. */
+  bodyOrigin?: "sibling" | "index";
   document?: MarkdownDocument;
   collection?: CollectionSummary;
   diagnostics: Diagnostic[];
@@ -87,6 +91,11 @@ export type ContentWorkspaceOperation =
     ref: NodeRef;
     hash: string;
     baseContentRevision?: ContentRevision;
+  }
+  | {
+    op: "ensureDocumentIdentity";
+    ref: NodeRef;
+    baseContentRevision: ContentRevision;
   };
 
 export type StructuralWorkspaceOperation =
@@ -97,6 +106,12 @@ export type StructuralWorkspaceOperation =
     op: "move";
     refs: NodeRef[];
     destination: NodeRef;
+    /**
+     * `natural` (the default) moves the node without inserting a stored
+     * destination row; `authored` places a row in the destination directory
+     * document. An anchor (`beforePath`/`beforeBlockID`) implies `authored`.
+     */
+    placement?: "natural" | "authored";
     beforePath?: LogicalPath;
     beforeBlockID?: string;
     baseDirectoryRevision?: DirectoryRevision;

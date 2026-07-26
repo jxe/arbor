@@ -86,8 +86,8 @@ describe("@arbor/fs logical nodes", () => {
       blocks: [
         { id: "heading-one", type: "heading", content: "One", props: { level: 2 }, children: [] },
         { id: "heading-two", type: "heading", content: "Two", props: { level: 2 }, children: [] },
-        { id: "child-a", type: "childPage", content: "a", props: { path: "a" }, children: [] },
-        { id: "child-b", type: "childPage", content: "b", props: { path: "b" }, children: [] },
+        { id: "child-a", type: "standaloneLink", content: "a", props: { path: "a" }, children: [] },
+        { id: "child-b", type: "standaloneLink", content: "b", props: { path: "b" }, children: [] },
       ],
     });
 
@@ -102,9 +102,9 @@ describe("@arbor/fs logical nodes", () => {
     const blocks = (await fs.read("/")).document!.blocks;
     expect(blocks.map((block) => `${block.type}:${block.content}`)).toEqual([
       "heading:One",
-      "childPage:b",
+      "standaloneLink:b",
       "heading:Two",
-      "childPage:a",
+      "standaloneLink:a",
     ]);
   });
 
@@ -139,8 +139,8 @@ describe("@arbor/fs logical nodes", () => {
           children: [],
         }],
       },
-      { id: "child-a", type: "childPage", content: "a", props: { path: "a" }, children: [] },
-      { id: "child-b", type: "childPage", content: "b", props: { path: "b" }, children: [] },
+      { id: "child-a", type: "standaloneLink", content: "a", props: { path: "a" }, children: [] },
+      { id: "child-b", type: "standaloneLink", content: "b", props: { path: "b" }, children: [] },
     ];
     const transformed = transformStructuralRows(blocks, {
       directory: "/",
@@ -223,7 +223,7 @@ describe("@arbor/fs logical nodes", () => {
     const recovered = await WorkspaceFS.open(root, { stateDirectory: state });
     opened.push(recovered);
     expect(await readFile(join(root, "folder", "page.md"), "utf8")).toBe("Page\n");
-    expect((await recovered.read("/folder")).document?.blocks.some((block) => block.type === "childPage" && block.content === "page")).toBe(true);
+    expect((await recovered.read("/folder")).document?.blocks.some((block) => block.type === "standaloneLink" && block.content === "page")).toBe(true);
     expect(await readFile(join(root, "_index.md"), "utf8")).not.toContain("](page)");
   });
 

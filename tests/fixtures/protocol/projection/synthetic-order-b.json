@@ -1,0 +1,22 @@
+{
+  "name": "synthetic IDs derive from child identity (listing order B, same IDs as A)",
+  "input": {
+    "path": "/notes",
+    "document": null,
+    "children": [
+      { "name": "beta", "path": "/notes/beta", "kind": "markdown", "materialization": "available" },
+      { "name": "alpha", "path": "/notes/alpha", "kind": "markdown", "materialization": "available", "pageID": "alpha1" }
+    ]
+  },
+  "expected": {
+    "bodyState": "implicit",
+    "visibleBlocks": [
+      { "id": "managed:path:/notes/beta", "type": "standaloneLink", "content": "beta", "props": { "path": "beta" }, "children": [] },
+      { "id": "managed:id:alpha1", "type": "standaloneLink", "content": "alpha", "props": { "path": "alpha" }, "children": [] }
+    ],
+    "managedChildren": [
+      { "blockID": "managed:path:/notes/beta", "ref": { "path": "/notes/beta" }, "origin": "synthetic", "kind": "markdown", "materialization": "available" },
+      { "blockID": "managed:id:alpha1", "ref": { "path": "/notes/alpha", "pageID": "alpha1" }, "origin": "synthetic", "kind": "markdown", "materialization": "available" }
+    ]
+  }
+}

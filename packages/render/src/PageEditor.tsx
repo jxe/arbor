@@ -217,10 +217,10 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
   const childrenByPath = useMemo(() => new Map(physicalChildren.map((child) => [child.path, child])), [childrenRevision]);
   const implicitChildren: ArborBlock[] = isDirectory
     ? physicalChildren.filter((child) => !authored.some((block) =>
-      block.type === "childPage" && resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) === child.path
+      block.type === "standaloneLink" && resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) === child.path
     )).map((child, index) => ({
       id: `implicit-${index}-${child.name}`,
-      type: "childPage",
+      type: "standaloneLink",
       content: child.name,
       props: { path: child.path },
       children: [],
@@ -228,7 +228,7 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
     : [];
   const initial = [...authored, ...implicitChildren];
   const managedOrder = initial.flatMap((block) => {
-    if (block.type !== "childPage") return [];
+    if (block.type !== "standaloneLink") return [];
     const path = resolveStructuralRowPath(node.path, String(block.props?.path ?? ""));
     return path && childrenByPath.has(path) ? [path] : [];
   });
@@ -514,11 +514,11 @@ export function PageEditor({ node, updates, onSaved, navigate }: {
           const lastIndex = Math.max(...reorderPaths.map((path) => beforeOrder.indexOf(path)));
           const beforePath = beforeOrder.slice(lastIndex + 1).find((path) => !selectedPaths.has(path));
           const selectedBlockIndexes = beforeBlocks.flatMap((block, index) => {
-            const path = block.type === "childPage" ? resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) : null;
+            const path = block.type === "standaloneLink" ? resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) : null;
             return path && selectedPaths.has(path) ? [index] : [];
           });
           const beforeBlockId = beforeBlocks.slice(Math.max(...selectedBlockIndexes, -1) + 1).find((block) => {
-            const path = block.type === "childPage" ? resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) : null;
+            const path = block.type === "standaloneLink" ? resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) : null;
             return !path || !selectedPaths.has(path);
           })?.id;
           undoOperations = [{

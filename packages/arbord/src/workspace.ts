@@ -444,11 +444,12 @@ export class Workspace implements AsyncDisposable {
     mutationID?: string,
     onExpected?: (effects: MutationEffect[]) => void | Promise<void>,
   ): Promise<MutationEffect[]> {
-    const contentOperations = operations.filter((operation): operation is ContentWorkspaceOperation =>
+    const isContentOp = (operation: WorkspaceOperation): operation is ContentWorkspaceOperation =>
       operation.op === "writeMarkdown" || operation.op === "restoreRecovery"
-    );
-    const structuralOperations = operations.filter((operation): operation is StructuralWorkspaceOperation =>
-      operation.op !== "writeMarkdown" && operation.op !== "restoreRecovery"
+      || operation.op === "ensureDocumentIdentity";
+    const contentOperations = operations.filter(isContentOp);
+    const structuralOperations = operations.filter(
+      (operation): operation is StructuralWorkspaceOperation => !isContentOp(operation),
     );
     if (contentOperations.length === 1) {
       const operation = contentOperations[0]!;
@@ -501,11 +502,15 @@ export class Workspace implements AsyncDisposable {
   }
 
   private async performContentOperation(
-    operation: Extract<WorkspaceOperation, { op: "writeMarkdown" | "restoreRecovery" }>,
+    operation: ContentWorkspaceOperation,
     path: string,
     onMaterialized?: (effects: MutationEffect[]) => void | Promise<void>,
     onExpected?: (effects: MutationEffect[]) => void | Promise<void>,
   ): Promise<MutationEffect> {
+    if (operation.op === "ensureDocumentIdentity") {
+      // Implemented with the identity milestone; typed into the contract first.
+      throw new ProtocolError("unsupported-operation", "ensureDocumentIdentity is not implemented yet", 422);
+    }
     let saved: TreeNode;
     if (operation.op === "writeMarkdown") {
       saved = await this.write(path, {

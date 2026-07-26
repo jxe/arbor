@@ -1,0 +1,28 @@
+{
+  "name": "implicit directory with several children in server order",
+  "input": {
+    "path": "/notes",
+    "document": null,
+    "children": [
+      { "name": "beta", "path": "/notes/beta", "kind": "markdown", "materialization": "available", "pageID": "abc123" },
+      { "name": "alpha", "path": "/notes/alpha", "kind": "directory", "materialization": "available" },
+      { "name": "report.pdf", "path": "/notes/report.pdf", "kind": "file", "materialization": "placeholder" },
+      { "name": "people", "path": "/notes/people", "kind": "postgres", "materialization": "available" }
+    ]
+  },
+  "expected": {
+    "bodyState": "implicit",
+    "visibleBlocks": [
+      { "id": "managed:id:abc123", "type": "standaloneLink", "content": "beta", "props": { "path": "beta" }, "children": [] },
+      { "id": "managed:path:/notes/alpha", "type": "standaloneLink", "content": "alpha", "props": { "path": "alpha" }, "children": [] },
+      { "id": "managed:path:/notes/report.pdf", "type": "standaloneLink", "content": "report.pdf", "props": { "path": "report.pdf" }, "children": [] },
+      { "id": "managed:path:/notes/people", "type": "standaloneLink", "content": "people", "props": { "path": "people" }, "children": [] }
+    ],
+    "managedChildren": [
+      { "blockID": "managed:id:abc123", "ref": { "path": "/notes/beta", "pageID": "abc123" }, "origin": "synthetic", "kind": "markdown", "materialization": "available" },
+      { "blockID": "managed:path:/notes/alpha", "ref": { "path": "/notes/alpha" }, "origin": "synthetic", "kind": "directory", "materialization": "available" },
+      { "blockID": "managed:path:/notes/report.pdf", "ref": { "path": "/notes/report.pdf" }, "origin": "synthetic", "kind": "file", "materialization": "placeholder" },
+      { "blockID": "managed:path:/notes/people", "ref": { "path": "/notes/people" }, "origin": "synthetic", "kind": "database", "materialization": "available" }
+    ]
+  }
+}

@@ -40,10 +40,12 @@ describe("REST v1 protocol fixtures", () => {
       "createDirectory",
       "rename",
       "move",
+      "move",
       "copy",
       "trash",
       "restore",
       "restoreRecovery",
+      "ensureDocumentIdentity",
     ]);
     expect(errors.map((value) => value.error.code)).toContain("internal-error");
     expect(errors.at(-1)?.error.code).toBe("future-error-code");

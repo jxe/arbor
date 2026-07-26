@@ -1,0 +1,28 @@
+{
+  "name": "duplicate links to one child: first anchors, later stay ordinary",
+  "input": {
+    "path": "/projects/atlas",
+    "document": {
+      "frontmatter": {},
+      "frontmatterSource": null,
+      "bodySource": "[Notes](notes)\n\n[Notes again](./notes)\n",
+      "blocks": [
+        { "id": "b-first", "type": "standaloneLink", "content": "Notes", "props": { "path": "notes" }, "children": [] },
+        { "id": "b-second", "type": "standaloneLink", "content": "Notes again", "props": { "path": "./notes" }, "children": [] }
+      ]
+    },
+    "children": [
+      { "name": "notes", "path": "/projects/atlas/notes", "kind": "markdown", "materialization": "available" }
+    ]
+  },
+  "expected": {
+    "bodyState": "stored",
+    "visibleBlocks": [
+      { "id": "b-first", "type": "standaloneLink", "content": "Notes", "props": { "path": "notes" }, "children": [] },
+      { "id": "b-second", "type": "standaloneLink", "content": "Notes again", "props": { "path": "./notes" }, "children": [] }
+    ],
+    "managedChildren": [
+      { "blockID": "b-first", "ref": { "path": "/projects/atlas/notes" }, "origin": "authored", "kind": "markdown", "materialization": "available" }
+    ]
+  }
+}

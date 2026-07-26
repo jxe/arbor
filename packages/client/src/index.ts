@@ -385,6 +385,7 @@ export class ArbordClient {
     }
     const contentCount = request.operations.filter((operation) =>
       operation.op === "writeMarkdown" || operation.op === "restoreRecovery"
+      || operation.op === "ensureDocumentIdentity"
     ).length;
     if (contentCount > 0 && (contentCount !== 1 || request.operations.length !== 1)) {
       throw new TypeError("A content mutation contains exactly one operation and cannot be mixed with structural operations");

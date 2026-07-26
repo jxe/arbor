@@ -1,5 +1,6 @@
 import type { ArborBlock } from "./types.ts";
 import { canonicalNodePath, nodeDisplayName } from "./logical-path.ts";
+import { relativeLogicalReference, resolveLogicalURL } from "./logical-url.ts";
 
 export interface StructuralRowMove {
   oldPath: string;
@@ -20,19 +21,10 @@ export interface StructuralRowTransformResult {
   anchor: "not-requested" | "found" | "missing";
 }
 
+/** Tree-local row matching: only `local`-kind destinations name a physical child. */
 export function resolveStructuralRowPath(directoryInput: string, raw: string): string | null {
-  if (!raw || raw.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(raw)) return null;
-  const directory = canonicalNodePath(directoryInput);
-  const base = directory === "/" ? "/" : `${directory}/`;
-  return canonicalNodePath(new URL(raw.split("#")[0]!, `http://arbor${base}`).pathname);
-}
-
-function relativeReference(fromInput: string, toInput: string): string {
-  const from = canonicalNodePath(fromInput).split("/").filter(Boolean);
-  const to = canonicalNodePath(toInput).split("/").filter(Boolean);
-  let shared = 0;
-  while (shared < from.length && shared < to.length && from[shared] === to[shared]) shared += 1;
-  return [...Array(from.length - shared).fill(".."), ...to.slice(shared)].join("/") || nodeDisplayName(toInput);
+  const link = resolveLogicalURL(directoryInput, raw);
+  return link?.kind === "local" ? link.path : null;
 }
 
 export function transformStructuralRows(
@@ -45,7 +37,7 @@ export function transformStructuralRows(
 
   const collect = (blocks: readonly ArborBlock[]) => {
     for (const block of blocks) {
-      const resolved = block.type === "childPage"
+      const resolved = block.type === "standaloneLink"
         ? resolveStructuralRowPath(directory, String(block.props?.path ?? ""))
         : null;
       if (resolved) existingByPath.set(resolved, block);
@@ -55,7 +47,7 @@ export function transformStructuralRows(
   collect(inputBlocks);
 
   const strip = (blocks: readonly ArborBlock[]): ArborBlock[] => blocks.flatMap((block) => {
-    const resolved = block.type === "childPage"
+    const resolved = block.type === "standaloneLink"
       ? resolveStructuralRowPath(directory, String(block.props?.path ?? ""))
       : null;
     if (resolved && remove.has(resolved)) return [];
@@ -77,13 +69,13 @@ export function transformStructuralRows(
       content: existing.content === oldName ? newName : existing.content,
       props: {
         ...existing.props,
-        path: relativeReference(directory, newPath),
+        path: relativeLogicalReference(directory, newPath),
       },
     } : {
       id: createBlockId(),
-      type: "childPage",
+      type: "standaloneLink",
       content: newName,
-      props: { path: relativeReference(directory, newPath) },
+      props: { path: relativeLogicalReference(directory, newPath) },
       children: [],
     } satisfies ArborBlock;
   });
@@ -96,7 +88,7 @@ export function transformStructuralRows(
     const result: ArborBlock[] = [];
     for (let index = 0; index < blocks.length; index += 1) {
       const block = blocks[index]!;
-      const resolved = block.type === "childPage"
+      const resolved = block.type === "standaloneLink"
         ? resolveStructuralRowPath(directory, String(block.props?.path ?? ""))
         : null;
       if (block.id === transform.beforeBlockId || anchorPath && resolved === anchorPath) {

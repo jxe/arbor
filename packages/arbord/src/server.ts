@@ -71,6 +71,7 @@ function decodeMutation(value: unknown): MutationRequest {
   }
   const contentCount = input.operations.filter((operation) =>
     operation.op === "writeMarkdown" || operation.op === "restoreRecovery"
+    || operation.op === "ensureDocumentIdentity"
   ).length;
   if (contentCount > 0 && (contentCount !== 1 || input.operations.length !== 1)) {
     throw new ProtocolError(
@@ -128,9 +129,20 @@ const BLOCK_TYPES = new Set([
   "mathBlock",
   "footnoteDefinition",
   "toggle",
+  "standaloneLink",
+  // Accepted input alias for standaloneLink, normalized on decode.
   "childPage",
   "rawMarkdown",
 ]);
+
+function normalizeBlockAliases(value: unknown): void {
+  if (!Array.isArray(value)) return;
+  for (const block of value) {
+    if (!isRecord(block)) continue;
+    if (block.type === "childPage") block.type = "standaloneLink";
+    normalizeBlockAliases(block.children);
+  }
+}
 
 function validateBlocks(value: unknown, field: string): void {
   if (!Array.isArray(value)) {
@@ -175,6 +187,7 @@ function validateOperation(value: unknown): void {
         throw new ProtocolError("invalid-reference", "writeMarkdown requires baseContentRevision and blocks", 400);
       }
       validateBlocks(value.blocks, "writeMarkdown.blocks");
+      normalizeBlockAliases(value.blocks);
       if (value.frontmatterPatch !== undefined && !isRecord(value.frontmatterPatch)) {
         throw new ProtocolError("invalid-reference", "frontmatterPatch must be an object", 400);
       }
@@ -192,7 +205,10 @@ function validateOperation(value: unknown): void {
       ) {
         throw new ProtocolError("invalid-reference", "createMarkdown requires path and optional blocks", 400);
       }
-      if (value.blocks !== undefined) validateBlocks(value.blocks, "createMarkdown.blocks");
+      if (value.blocks !== undefined) {
+        validateBlocks(value.blocks, "createMarkdown.blocks");
+        normalizeBlockAliases(value.blocks);
+      }
       return;
     case "rename":
       validateRef(value.ref, "rename.ref");
@@ -203,6 +219,9 @@ function validateOperation(value: unknown): void {
     case "move":
       validateRefs(value.refs, "move.refs");
       validateRef(value.destination, "move.destination");
+      if (value.placement !== undefined && value.placement !== "natural" && value.placement !== "authored") {
+        throw new ProtocolError("invalid-reference", "move.placement must be \"natural\" or \"authored\"", 400);
+      }
       optionalString(value.beforePath, "move.beforePath");
       optionalString(value.beforeBlockID, "move.beforeBlockID");
       optionalString(value.baseDirectoryRevision, "move.baseDirectoryRevision");
@@ -221,6 +240,12 @@ function validateOperation(value: unknown): void {
         throw new ProtocolError("invalid-reference", "restoreRecovery requires a recovery hash", 400);
       }
       optionalString(value.baseContentRevision, "restoreRecovery.baseContentRevision");
+      return;
+    case "ensureDocumentIdentity":
+      validateRef(value.ref, "ensureDocumentIdentity.ref");
+      if (typeof value.baseContentRevision !== "string") {
+        throw new ProtocolError("invalid-reference", "ensureDocumentIdentity requires baseContentRevision", 400);
+      }
       return;
     default:
       throw new ProtocolError("unsupported-operation", `Unsupported operation: ${value.op}`, 422);
