@@ -6,6 +6,8 @@
   "writable": true,
   "materialization": "available",
   "contentRevision": "sha256:content",
+  "bodyState": "stored",
+  "bodyOrigin": "sibling",
   "document": {
     "frontmatter": { "id": "abc123", "title": "Today" },
     "frontmatterSource": "---\nid: abc123\ntitle: Today\n---\n",

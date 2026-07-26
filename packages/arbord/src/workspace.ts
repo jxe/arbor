@@ -84,6 +84,8 @@ export class Workspace implements AsyncDisposable {
   private collections = new CollectionStore();
   private idOwners = new Map<string, string>();
   private idOwnerSets = new Map<string, readonly string[]>();
+  /** Inverted unambiguous owner index: path -> pageID. */
+  private pathPageIDs = new Map<string, string>();
   private healingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private unsubscribeFS: () => void;
   private faultInjector?: WorkspaceOptions["faultInjector"];
@@ -104,8 +106,7 @@ export class Workspace implements AsyncDisposable {
     const discovery = fs.startupDiscovery();
     const index = new WorkspaceIndex(fs.root, join(stateDirectory, "index.sqlite"));
     const workspace = new Workspace(fs.root, stateDirectory, fs, index, options);
-    workspace.idOwners = new Map(discovery.pagePathsByID);
-    workspace.idOwnerSets = new Map(discovery.pageIDOwners);
+    workspace.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
     await Promise.all([index.rebuild(discovery), workspace.generateTypes(discovery)]);
     await workspace.finishRecoveredMutations();
     return workspace;
@@ -139,7 +140,7 @@ export class Workspace implements AsyncDisposable {
     const observedThrough = this.events.currentCursor();
     const offset = this.decodePageCursor(cursor, `search:${query}`);
     const results = this.index.search(query, 30, offset).map((result) => {
-      const pageID = [...this.idOwners].find(([, path]) => path === result.path)?.[0];
+      const pageID = this.pathPageIDs.get(result.path);
       return { ...result, ...(pageID ? { pageID } : {}) };
     });
     return {
@@ -328,6 +329,7 @@ export class Workspace implements AsyncDisposable {
         revision: read.byteRevision,
         writable: resolved.writable,
         materialization: resolved.materialization,
+        bodyOrigin: resolved.bodySource ?? undefined,
         document,
         diagnostics: [
           ...resolved.diagnostics,
@@ -348,6 +350,7 @@ export class Workspace implements AsyncDisposable {
       revision: read.byteRevision,
       writable: resolved.writable,
       materialization: resolved.materialization,
+      bodyOrigin: resolved.bodySource ?? undefined,
       document,
       children: children.children,
       collection: collection ?? undefined,
@@ -607,8 +610,7 @@ export class Workspace implements AsyncDisposable {
 
   private async effectsFromFsResult(result: Awaited<ReturnType<WorkspaceFS["mutate"]>>): Promise<MutationEffect[]> {
     const discovery = await discoverWorkspace(this.root);
-    this.idOwners = new Map(discovery.pagePathsByID);
-    this.idOwnerSets = new Map(discovery.pageIDOwners);
+    this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
     return Promise.all(result.changes.map(async (change) => {
       let snapshot: TreeNode | null = null;
       try { snapshot = await this.node(change.path); } catch {}
@@ -747,6 +749,10 @@ export class Workspace implements AsyncDisposable {
       materialization: node.materialization,
       contentRevision: node.revision,
       directoryRevision: node.kind === "directory" || node.kind === "collection" ? node.revision : undefined,
+      ...(node.document
+        ? { bodyState: node.bodyOrigin ? "stored" as const : "implicit" as const }
+        : {}),
+      ...(node.bodyOrigin ? { bodyOrigin: node.bodyOrigin } : {}),
       document: node.document,
       collection: node.collection,
       diagnostics: node.diagnostics,
@@ -851,7 +857,14 @@ export class Workspace implements AsyncDisposable {
         const resolved = await this.fs.resolve(entry.path);
         if (resolved.directoryPath && await this.collections.summary(resolved.directoryPath).catch(() => null)) kind = "collection";
       }
-      children.push({ name: entry.name, path: entry.path, kind, materialization: entry.materialization });
+      const pageID = this.pathPageIDs.get(entry.path);
+      children.push({
+        name: entry.name,
+        path: entry.path,
+        kind,
+        materialization: entry.materialization,
+        ...(pageID ? { pageID } : {}),
+      });
       diagnostics.push(...entry.diagnostics);
     }
     for (const table of virtualTables) {
@@ -889,7 +902,18 @@ export class Workspace implements AsyncDisposable {
     owners.sort();
     this.idOwnerSets.set(candidate, owners);
     if (!this.idOwners.has(candidate)) this.idOwners.set(candidate, path);
+    if (owners.length === 1) this.pathPageIDs.set(path, candidate);
+    else for (const owner of owners) if (this.pathPageIDs.get(owner) === candidate) this.pathPageIDs.delete(owner);
     return candidate;
+  }
+
+  private adoptIDMaps(pagePathsByID: ReadonlyMap<string, string>, pageIDOwners: ReadonlyMap<string, readonly string[]>): void {
+    this.idOwners = new Map(pagePathsByID);
+    this.idOwnerSets = new Map(pageIDOwners);
+    this.pathPageIDs = new Map();
+    for (const [pageID, path] of this.idOwners) {
+      if ((this.idOwnerSets.get(pageID)?.length ?? 1) <= 1) this.pathPageIDs.set(path, pageID);
+    }
   }
 
   private pageIDDiagnostics(path: string, pageID: string | null): TreeNode["diagnostics"] {
@@ -912,8 +936,7 @@ export class Workspace implements AsyncDisposable {
     if (event.type === "batch") {
       try {
         const discovery = await discoverWorkspace(this.root);
-        this.idOwners = new Map(discovery.pagePathsByID);
-        this.idOwnerSets = new Map(discovery.pageIDOwners);
+        this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
         await Promise.all([
           this.index.rebuild(discovery),
           this.generateTypes(discovery),

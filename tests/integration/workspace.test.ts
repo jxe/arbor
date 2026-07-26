@@ -57,6 +57,28 @@ describe("workspace service", () => {
     expect((await workspace.node("/folder/_index.md")).path).toBe("/folder");
   });
 
+  test("reports body state and unambiguous child identity", async () => {
+    const notes = await workspace.snapshot({ path: "/notes" });
+    expect(notes.bodyState).toBe("stored");
+    expect(notes.bodyOrigin).toBe("sibling");
+    expect(notes.ref.pageID).toMatch(/^[a-z0-9]{6}$/);
+
+    const materialized = await workspace.snapshot({ path: "/folder" });
+    expect(materialized.bodyState).toBe("stored");
+    expect(materialized.bodyOrigin).toBe("index");
+
+    await mkdir(join(root, "plain"));
+    const implicit = await workspace.snapshot({ path: "/plain" });
+    expect(implicit.bodyState).toBe("implicit");
+    expect(implicit.bodyOrigin).toBeUndefined();
+    expect(implicit.document?.blocks).toEqual([]);
+
+    const listing = await workspace.children({ path: "/" });
+    const child = listing.items.find((item) => item.path === "/notes");
+    expect(child?.pageID).toBe(notes.ref.pageID!);
+    expect(listing.items.find((item) => item.path === "/plain")?.pageID).toBeUndefined();
+  });
+
   test("soft deletes and restores", async () => {
     const deleted = await workspace.delete("/folder/child");
     expect(deleted.trashPath).toStartWith("/Trash/folder/child");

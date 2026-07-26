@@ -59,6 +59,8 @@ export interface TreeNode {
   revision: string;
   writable: boolean;
   materialization: Materialization;
+  /** Which physical representation supplies a stored body; absent for implicit bodies. */
+  bodyOrigin?: "sibling" | "index";
   document?: MarkdownDocument;
   children?: TreeChild[];
   collection?: CollectionSummary;
