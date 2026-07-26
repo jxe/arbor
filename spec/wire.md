@@ -99,7 +99,7 @@ A Postgres-backed collection has different synchronization semantics: the named 
 
 ## 7. Static publication and content-centric caching
 
-The immutable half naturally permits static read-only publication, but it is a later conformance profile rather than the founding server. `arbor bake` emits a shared tree's refs and objects for nginx, S3, GitHub Pages, or any dumb HTTP host. Such an origin provides snapshots or deployment-updated tips but no push/watch.
+The immutable half naturally permits static read-only publication, but it is a later conformance profile rather than the founding server. `arbor bake` emits a shared tree's refs and objects for nginx, S3, GitHub Pages, or any dumb HTTP host. Such an origin provides snapshots or deployment-updated tips but no push/watch. Baked pages carry references already resolved for the static host's plain relative-URL rule ([arbord-rest.md](arbord-rest.md), parity reads), so images and file links work without an Arbor-aware server.
 
 Clients fetch from their local object store and then the configured tree endpoint. LAN discovery and mirror cascades are not specified.
 
