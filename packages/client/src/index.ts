@@ -4,11 +4,15 @@ import type {
   ChildrenPage,
   CollectionResultPage,
   ContentMutationRequest,
+  ContentRevision,
   ContentWorkspaceOperation,
+  DirectoryRevision,
+  LogicalPath,
   MutationReceipt,
   MutationRequest,
   NodeRef,
   NodeSnapshot,
+  PageID,
   RecoveryPage,
   SearchPage,
   StructuralMutationRequest,
@@ -265,6 +269,45 @@ export class ArbordClient {
 
   mutateStructural(operations: StructuralWorkspaceOperation[], mutationID?: string): Promise<MutationReceipt> {
     return this.mutate(this.prepareStructuralMutation(operations, mutationID));
+  }
+
+  /**
+   * Ensure the referenced document carries a durable PageID, materializing a
+   * frontmatter-only `_index.md` for an implicit directory when necessary.
+   */
+  async ensureDocumentIdentity(
+    ref: NodeRef,
+    baseContentRevision: ContentRevision,
+  ): Promise<{ pageID: PageID; contentRevision: ContentRevision }> {
+    const receipt = await this.mutateContent({ op: "ensureDocumentIdentity", ref, baseContentRevision });
+    const effect = receipt.effects[0];
+    if (!effect?.pageID || !effect.contentRevision) {
+      throw new TypeError("ensureDocumentIdentity receipt is missing the resulting identity");
+    }
+    return { pageID: effect.pageID, contentRevision: effect.contentRevision };
+  }
+
+  /** A move that lets the node appear naturally, materializing no stored destination row. */
+  moveNatural(refs: NodeRef[], destination: NodeRef, mutationID?: string): Promise<MutationReceipt> {
+    return this.mutateStructural([{ op: "move", refs, destination, placement: "natural" }], mutationID);
+  }
+
+  /** A move that places a stored row in the destination directory document. */
+  moveAuthored(
+    refs: NodeRef[],
+    destination: NodeRef,
+    anchor?: { beforePath?: LogicalPath; beforeBlockID?: string; baseDirectoryRevision: DirectoryRevision },
+    mutationID?: string,
+  ): Promise<MutationReceipt> {
+    return this.mutateStructural([{
+      op: "move",
+      refs,
+      destination,
+      placement: "authored",
+      beforePath: anchor?.beforePath,
+      beforeBlockID: anchor?.beforeBlockID,
+      baseDirectoryRevision: anchor?.baseDirectoryRevision,
+    }], mutationID);
   }
 
   async asset(

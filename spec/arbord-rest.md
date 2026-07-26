@@ -138,6 +138,11 @@ type ContentWorkspaceOperation =
       ref: NodeRef;
       hash: string;
       baseContentRevision?: ContentRevision;
+    }
+  | {
+      op: "ensureDocumentIdentity";
+      ref: NodeRef;
+      baseContentRevision: ContentRevision;
     };
 
 type StructuralWorkspaceOperation =
@@ -170,6 +175,8 @@ type MutationRequest =
       ];
     };
 ```
+
+`ensureDocumentIdentity` makes a document's durable `PageID` explicit: when one already exists it writes nothing and its receipt echoes the current `pageID` and revisions; when a Markdown body lacks an `id` it patches the frontmatter under the content-revision precondition; and for an implicit directory it materializes a frontmatter-only `_index.md` with a minted ID. The receipt always carries a single `"updated"` effect with the resulting `pageID` and `contentRevision`. Clients use it before Copy Link or link insertion targeting a bodyless directory. Independently, an authored rename/move/trash of a Markdown-bodied document ensures identity inside the structural transaction, so those mutation effects always carry a `PageID`; bodyless directories gain identity on authored placement, and ordinary path-only files stay path-only.
 
 `mutationID` is a non-empty opaque string. Every mutation belongs to exactly one durability domain. A content mutation contains exactly one Markdown write or recovery restoration. A structural mutation contains a non-empty ordered batch of structural operations. Content operations may not be combined with each other or with structural operations. A rejected mixed-domain request records no mutation intent and returns `unsupported-operation`.
 

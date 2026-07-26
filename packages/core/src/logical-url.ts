@@ -140,3 +140,16 @@ export function relativeLogicalReference(fromInput: LogicalPath, toInput: Logica
   while (shared < from.length && shared < to.length && from[shared] === to[shared]) shared += 1;
   return [...Array(from.length - shared).fill(".."), ...to.slice(shared)].join("/") || nodeDisplayName(toInput);
 }
+
+/**
+ * The canonical authored spelling of a link from one document to another:
+ * the shortest relative path, carrying the target's durable `PageID` as a
+ * fragment when known (spec/urls.md §3).
+ */
+export function buildCanonicalLink(
+  fromInput: LogicalPath,
+  target: { path: LogicalPath; pageID?: PageID },
+): string {
+  const reference = relativeLogicalReference(fromInput, target.path);
+  return target.pageID ? `${reference}#${target.pageID}` : reference;
+}

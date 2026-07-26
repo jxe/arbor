@@ -72,6 +72,8 @@ export interface FsChange {
   path: string;
   previousPath?: string;
   kind: "created" | "updated" | "moved" | "deleted";
+  /** Durable identity of the affected document, when it carries one. */
+  pageID?: string;
 }
 
 export interface FsMutationResult {

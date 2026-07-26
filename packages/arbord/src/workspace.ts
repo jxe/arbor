@@ -511,8 +511,54 @@ export class Workspace implements AsyncDisposable {
     onExpected?: (effects: MutationEffect[]) => void | Promise<void>,
   ): Promise<MutationEffect> {
     if (operation.op === "ensureDocumentIdentity") {
-      // Implemented with the identity milestone; typed into the contract first.
-      throw new ProtocolError("unsupported-operation", "ensureDocumentIdentity is not implemented yet", 422);
+      const current = await this.node(path);
+      const existingID = isPageID(current.document?.frontmatter.id) ? current.document.frontmatter.id : undefined;
+      if (existingID) {
+        // Identity already exists: no write, the receipt echoes current state.
+        return {
+          kind: "updated",
+          path: current.path,
+          pageID: existingID,
+          contentRevision: current.revision,
+          directoryRevision: current.kind === "directory" || current.kind === "collection" ? current.revision : undefined,
+        };
+      }
+      if (!current.document) {
+        throw new ProtocolError("unsupported-operation", `${current.path} is not a document; ordinary files remain path-only`, 422);
+      }
+      if (current.revision !== operation.baseContentRevision) {
+        throw new RevisionConflictError(current);
+      }
+      const saved = await this.write(path, {
+        baseRevision: operation.baseContentRevision,
+        blocks: current.document.blocks,
+      }, {
+        onPrepared: onExpected
+          ? async (result) => onExpected([{
+            kind: "updated",
+            path: result.node.path,
+            pageID: result.pageID,
+            contentRevision: result.byteRevision,
+            directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
+          }])
+          : undefined,
+        onMaterialized: onMaterialized
+          ? async (result) => onMaterialized([{
+            kind: "updated",
+            path: result.node.path,
+            pageID: result.pageID,
+            contentRevision: result.byteRevision,
+            directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
+          }])
+          : undefined,
+      });
+      return {
+        kind: "updated",
+        path: saved.path,
+        pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
+        contentRevision: saved.revision,
+        directoryRevision: saved.kind === "directory" || saved.kind === "collection" ? saved.revision : undefined,
+      };
     }
     let saved: TreeNode;
     if (operation.op === "writeMarkdown") {
@@ -619,7 +665,8 @@ export class Workspace implements AsyncDisposable {
         kind: change.kind,
         path: change.path,
         previousPath: change.previousPath,
-        pageID: isPageID(snapshot?.document?.frontmatter.id) ? snapshot.document.frontmatter.id : undefined,
+        pageID: change.pageID
+          ?? (isPageID(snapshot?.document?.frontmatter.id) ? snapshot.document.frontmatter.id : undefined),
         contentRevision: snapshot?.revision,
         directoryRevision: snapshot && (snapshot.kind === "directory" || snapshot.kind === "collection")
           ? snapshot.revision

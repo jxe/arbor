@@ -79,6 +79,60 @@ describe("workspace service", () => {
     expect(listing.items.find((item) => item.path === "/plain")?.pageID).toBeUndefined();
   });
 
+  test("ensureDocumentIdentity mints lazily, no-ops when present, and replays idempotently", async () => {
+    await mkdir(join(root, "bodyless"));
+    const before = await workspace.snapshot({ path: "/bodyless" });
+    expect(before.bodyState).toBe("implicit");
+    expect(before.ref.pageID).toBeUndefined();
+
+    const request = {
+      mutationID: "identity-test-0001",
+      operations: [{
+        op: "ensureDocumentIdentity" as const,
+        ref: { path: "/bodyless" },
+        baseContentRevision: before.contentRevision!,
+      }] as [never] & { 0: unknown },
+    };
+    const receipt = await workspace.executeMutation(request as never);
+    const effect = receipt.effects[0]!;
+    expect(effect.pageID).toMatch(/^[a-z0-9]{6}$/);
+    const materialized = await readFile(join(root, "bodyless", "_index.md"), "utf8");
+    expect(materialized).toContain(`id: ${effect.pageID}`);
+    expect(materialized.trim().endsWith("---")).toBe(true);
+
+    const replayed = await workspace.executeMutation(request as never);
+    expect(replayed).toEqual(receipt);
+
+    const after = await workspace.snapshot({ path: "/bodyless" });
+    const again = await workspace.executeMutation({
+      mutationID: "identity-test-0002",
+      operations: [{
+        op: "ensureDocumentIdentity",
+        ref: { path: "/bodyless" },
+        baseContentRevision: "sha256:stale-is-fine-for-a-no-op",
+      }],
+    } as never);
+    expect(again.effects[0]?.pageID).toBe(effect.pageID);
+    expect(again.effects[0]?.contentRevision).toBe(after.contentRevision!);
+  });
+
+  test("rename and trash preserve and report document identity", async () => {
+    await writeFile(join(root, "unnamed.md"), "No identity yet\n");
+    const receipt = await workspace.executeMutation({
+      mutationID: "identity-rename-0001",
+      operations: [{ op: "rename", ref: { path: "/unnamed" }, name: "named" }],
+    } as never);
+    const moved = receipt.effects.find((item) => item.path === "/named");
+    expect(moved?.pageID).toMatch(/^[a-z0-9]{6}$/);
+    expect(await readFile(join(root, "named.md"), "utf8")).toContain(`id: ${moved!.pageID}`);
+
+    const trashed = await workspace.executeMutation({
+      mutationID: "identity-trash-0001",
+      operations: [{ op: "trash", refs: [{ path: "/named" }] }],
+    } as never);
+    expect(trashed.effects.some((item) => item.pageID === moved!.pageID)).toBe(true);
+  });
+
   test("soft deletes and restores", async () => {
     const deleted = await workspace.delete("/folder/child");
     expect(deleted.trashPath).toStartWith("/Trash/folder/child");

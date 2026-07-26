@@ -885,6 +885,7 @@ export class WorkspaceFS implements AsyncDisposable {
     if (operation.op === "rename") {
       validateLogicalName(operation.name);
       const source = canonicalNodePath(operation.path);
+      await this.ensureIdentityBeforePathChange(source, transactionId, { materializeImplicit: false });
       await this.planMove([source], parentPath(source), operation.name, transactionId, steps, changes, destinations);
       if (operation.updateDirectoryRows !== false) {
         const next = `${parentPath(source) === "/" ? "" : parentPath(source)}/${operation.name}`;
@@ -923,14 +924,17 @@ export class WorkspaceFS implements AsyncDisposable {
         changes.push({ path: destination, kind: "updated" });
         return;
       }
+      // An anchor implies authored placement; otherwise the caller's choice,
+      // defaulting to natural (no stored destination row is materialized —
+      // pre-existing rows naming the moved node are still rewritten).
+      const placement = operation.beforePath || operation.beforeBlockId
+        ? "authored"
+        : operation.placement ?? "natural";
+      for (const path of paths) {
+        await this.ensureIdentityBeforePathChange(path, transactionId, { materializeImplicit: placement === "authored" });
+      }
       await this.planMove(paths, destination, undefined, transactionId, steps, changes, destinations);
       if (operation.updateDirectoryRows !== false) {
-        // An anchor implies authored placement; otherwise the caller's choice,
-        // defaulting to natural (no stored destination row is materialized —
-        // pre-existing rows naming the moved node are still rewritten).
-        const placement = operation.beforePath || operation.beforeBlockId
-          ? "authored"
-          : operation.placement ?? "natural";
         const sources = new Map<string, string[]>();
         const moved = paths.map((path) => {
           const group = sources.get(parentPath(path)) ?? [];
@@ -959,6 +963,9 @@ export class WorkspaceFS implements AsyncDisposable {
     }
     if (operation.op === "trash") {
       const paths = operation.paths.map(canonicalNodePath);
+      for (const path of paths) {
+        await this.ensureIdentityBeforePathChange(path, transactionId, { materializeImplicit: false });
+      }
       await this.planMove(paths, "/Trash", undefined, transactionId, steps, changes, destinations, true);
       const sources = new Map<string, string[]>();
       for (const path of paths) {
@@ -1033,9 +1040,15 @@ export class WorkspaceFS implements AsyncDisposable {
           kind: part.kind,
         });
       }
+      let pageID: string | undefined;
+      if (node.kind === "markdown" || node.kind === "directory") {
+        const read = await this.read(node.path).catch(() => null);
+        const id = read?.document?.frontmatter.id;
+        if (isPageID(id)) pageID = id;
+      }
       changes.push(trash
-        ? { path: node.path, kind: "deleted" }
-        : { path: target, previousPath: node.path, kind: "moved" });
+        ? { path: node.path, kind: "deleted", pageID }
+        : { path: target, previousPath: node.path, kind: "moved", pageID });
     }
   }
 
@@ -1080,6 +1093,26 @@ export class WorkspaceFS implements AsyncDisposable {
     }
     if (node.kind === "markdown") return [{ source: node.bodyPath!, destination: resolveTreePath(this.root, siblingMarkdownTreePath(target)), kind: "file" }];
     return [{ source: node.absolutePath, destination: resolveTreePath(this.root, target), kind: "file" }];
+  }
+
+  /**
+   * Ensure a Markdown-bodied document carries a durable page ID before its
+   * path changes, minting one (and materializing a frontmatter-only
+   * `_index.md` for an implicit directory) when absent. The write happens
+   * before staging; a later rollback leaves the harmless ID in place.
+   */
+  private async ensureIdentityBeforePathChange(path: string, transactionId: string, options: { materializeImplicit: boolean }): Promise<string | null> {
+    const read = await this.read(path);
+    if (!read.document) return null;
+    const existing = read.document.frontmatter.id;
+    if (isPageID(existing)) return existing;
+    if (read.node.bodySource === null && !options.materializeImplicit) return null;
+    const result = await this.writeMarkdownInternal(
+      path,
+      { baseRevision: read.byteRevision, blocks: read.document.blocks },
+      transactionId,
+    );
+    return result.pageID;
   }
 
   private async assertDestinationFree(logicalPath: string, physicalPaths: string[], destinations: Set<string>): Promise<void> {

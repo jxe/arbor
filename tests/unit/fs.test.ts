@@ -68,13 +68,13 @@ describe("@arbor/fs logical nodes", () => {
     const { root, fs } = await workspace({ "page.md": "Page body\n", "page/child.md": "Child\n" });
     const renamed = await fs.mutate({ operations: [{ op: "rename", path: "/page", name: "renamed" }] });
     expect(renamed.moved).toEqual([{ from: "/page", to: "/renamed" }]);
-    expect(await readFile(join(root, "renamed.md"), "utf8")).toBe("Page body\n");
+    expect(await readFile(join(root, "renamed.md"), "utf8")).toContain("Page body\n");
     expect(await readFile(join(root, "renamed", "child.md"), "utf8")).toBe("Child\n");
 
     const trashed = await fs.mutate({ operations: [{ op: "trash", paths: ["/renamed"] }] });
     expect(trashed.deleted).toEqual(["/renamed"]);
     await expect(stat(join(root, "renamed.md"))).rejects.toThrow();
-    expect(await readFile(join(root, "Trash", "renamed.md"), "utf8")).toBe("Page body\n");
+    expect(await readFile(join(root, "Trash", "renamed.md"), "utf8")).toContain("Page body\n");
     expect(await readFile(join(root, "Trash", "renamed", "child.md"), "utf8")).toBe("Child\n");
   });
 
@@ -222,7 +222,7 @@ describe("@arbor/fs logical nodes", () => {
 
     const recovered = await WorkspaceFS.open(root, { stateDirectory: state });
     opened.push(recovered);
-    expect(await readFile(join(root, "folder", "page.md"), "utf8")).toBe("Page\n");
+    expect(await readFile(join(root, "folder", "page.md"), "utf8")).toContain("Page\n");
     expect((await recovered.read("/folder")).document?.blocks.some((block) => block.type === "standaloneLink" && block.content === "page")).toBe(true);
     expect(await readFile(join(root, "_index.md"), "utf8")).not.toContain("](page)");
   });
@@ -237,7 +237,7 @@ describe("@arbor/fs logical nodes", () => {
     const fs = await WorkspaceFS.open(root, { stateDirectory: state });
     opened.push(fs);
     await fs.mutate({ operations: [{ op: "move", paths: ["/page"], destination: "/folder" }] });
-    expect(await readFile(join(root, "folder", "page.md"), "utf8")).toBe("Page\n");
+    expect(await readFile(join(root, "folder", "page.md"), "utf8")).toContain("Page\n");
     expect(await readFile(join(root, "_index.md"), "utf8")).not.toContain("](page)");
     await expect(stat(join(root, "folder", "_index.md"))).rejects.toThrow();
   });
@@ -251,7 +251,7 @@ describe("@arbor/fs logical nodes", () => {
     const fs = await WorkspaceFS.open(root, { stateDirectory: state });
     opened.push(fs);
     await fs.mutate({ operations: [{ op: "rename", path: "/folder/draft", name: "published" }] });
-    expect(await readFile(join(root, "folder", "published.md"), "utf8")).toBe("Draft\n");
+    expect(await readFile(join(root, "folder", "published.md"), "utf8")).toContain("Draft\n");
     await expect(stat(join(root, "folder", "_index.md"))).rejects.toThrow();
   });
 
