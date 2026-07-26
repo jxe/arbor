@@ -76,6 +76,111 @@ final class ArborClientTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode(WorkspaceEvent.self, from: data))
     }
 
+    private struct ProjectionFixture: Decodable {
+        struct Input: Decodable {
+            var path: String
+            var document: MarkdownDocument?
+            var children: [TreeChild]
+        }
+        struct Expected: Decodable {
+            var bodyState: String
+            var visibleBlocks: [ArborBlock]
+            var managedChildren: [ManagedChildRow]
+        }
+        var name: String
+        var input: Input
+        var expected: Expected
+    }
+
+    func testSharedProjectionFixturesProjectIdentically() throws {
+        let directory = fixtures.appending(path: "projection")
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasSuffix(".json") }
+            .sorted()
+        // Both languages must consume the same fixture set; the TS suite
+        // asserts the same minimum count.
+        XCTAssertGreaterThanOrEqual(names.count, 9)
+        for name in names {
+            let fixture = try JSONDecoder().decode(
+                ProjectionFixture.self,
+                from: Data(contentsOf: directory.appending(path: name))
+            )
+            let projected = projectDirectoryDocument(
+                path: fixture.input.path,
+                document: fixture.input.document,
+                children: fixture.input.children
+            )
+            XCTAssertEqual(projected.bodyState, fixture.expected.bodyState, name)
+            XCTAssertEqual(projected.visibleBlocks, fixture.expected.visibleBlocks, name)
+            XCTAssertEqual(projected.managedChildren, fixture.expected.managedChildren, name)
+        }
+    }
+
+    private struct URLFixture: Decodable {
+        struct Authority: Decodable {
+            var dns: String?
+            var treeID: String?
+        }
+        struct Expected: Decodable {
+            var kind: String
+            var path: String?
+            var pageID: String?
+            var fragment: String?
+            var authority: Authority?
+            var raw: String?
+            var href: String?
+        }
+        var base: String
+        var href: String
+        var expected: Expected?
+    }
+
+    func testSharedURLResolutionFixturesResolveIdentically() throws {
+        let cases = try JSONDecoder().decode(
+            [URLFixture].self,
+            from: Data(contentsOf: fixtures.appending(path: "url-resolution.json"))
+        )
+        XCTAssertGreaterThan(cases.count, 20)
+        for fixture in cases {
+            let label = "\(fixture.base) + \(fixture.href)"
+            let resolved = resolveLogicalURL(base: fixture.base, href: fixture.href)
+            guard let expected = fixture.expected else {
+                XCTAssertNil(resolved, label)
+                continue
+            }
+            switch resolved {
+            case .local(let path, let pageID, let fragment):
+                XCTAssertEqual(expected.kind, "local", label)
+                XCTAssertEqual(path, expected.path, label)
+                XCTAssertEqual(pageID, expected.pageID, label)
+                XCTAssertEqual(fragment, expected.fragment, label)
+            case .arbor(let authority, let path, let pageID, let fragment):
+                XCTAssertEqual(expected.kind, "arbor", label)
+                XCTAssertEqual(path, expected.path, label)
+                XCTAssertEqual(pageID, expected.pageID, label)
+                XCTAssertEqual(fragment, expected.fragment, label)
+                switch authority {
+                case .dns(let dns): XCTAssertEqual(dns, expected.authority?.dns, label)
+                case .treeID(let treeID): XCTAssertEqual(treeID, expected.authority?.treeID, label)
+                }
+            case .system(let raw):
+                XCTAssertEqual(expected.kind, "system", label)
+                XCTAssertEqual(raw, expected.raw, label)
+            case .overlay(let raw):
+                XCTAssertEqual(expected.kind, "overlay", label)
+                XCTAssertEqual(raw, expected.raw, label)
+            case .external(let href):
+                XCTAssertEqual(expected.kind, "external", label)
+                XCTAssertEqual(href, expected.href, label)
+            case .fragment(let pageID):
+                XCTAssertEqual(expected.kind, "fragment", label)
+                XCTAssertEqual(pageID, expected.pageID, label)
+            case nil:
+                XCTFail("Expected \(expected.kind) for \(label), resolved nil")
+            }
+        }
+    }
+
     func testLiveServerWhenProvided() async throws {
         guard
             let value = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"],

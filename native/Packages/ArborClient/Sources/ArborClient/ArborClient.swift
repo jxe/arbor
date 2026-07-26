@@ -110,6 +110,39 @@ public actor ArborClient {
         return ObservedNodeView(snapshot: try await hydrateNode(snapshot), updates: updates)
     }
 
+    /// Open a node with its derived directory projection. Mirrors the
+    /// TypeScript `openProjectedNodeView`: the snapshot/event handoff is
+    /// preserved and resync updates arrive re-hydrated and re-projected.
+    public func openProjectedNodeView(_ ref: NodeRef) async throws -> ProjectedNodeView {
+        let view = try await openNodeView(ref)
+        let rawUpdates = view.updates
+        let updates = AsyncThrowingStream<ProjectedNodeUpdate, Error> { continuation in
+            let task = Task {
+                do {
+                    for try await update in rawUpdates {
+                        switch update {
+                        case .event(let event):
+                            continuation.yield(.event(event))
+                        case .resync(let snapshot):
+                            continuation.yield(.resync(snapshot, projectSnapshot(snapshot)))
+                        }
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        return ProjectedNodeView(
+            snapshot: view.snapshot,
+            projection: projectSnapshot(view.snapshot),
+            updates: updates
+        )
+    }
+
     private func nodeSnapshot(_ ref: NodeRef) async throws -> NodeSnapshot {
         try await get(path: "/v1/node", ref: ref)
     }
@@ -117,7 +150,9 @@ public actor ArborClient {
     private func hydrateNode(_ initial: NodeSnapshot) async throws -> NodeSnapshot {
         var snapshot = initial
         if snapshot.kind == "directory" || snapshot.kind == "collection" {
-            snapshot.children = try await allChildren(.path(snapshot.ref.path))
+            let ref = snapshot.ref.pageID.map { NodeRef.pageID($0, pathHint: snapshot.ref.path) }
+                ?? .path(snapshot.ref.path)
+            snapshot.children = try await allChildren(ref)
         }
         return snapshot
     }
