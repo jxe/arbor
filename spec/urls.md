@@ -35,6 +35,8 @@ containing document                 destination       resolves to
 
 This base never changes when `atlas.md`, `atlas/_index.md`, or a bodyless projected directory supplies the body. Giving a leaf document its first child likewise cannot reinterpret its existing links. `.` and `..`, percent encoding, query/fragment separation, and path normalization follow ordinary URL-path rules; attempts to traverse above the enclosing tree fail.
 
+The plain local filesystem is the degenerate no-tree scope. Outside any tracked root or mounted tree, a node's logical address is its OS-absolute path, and the browser traverses it like any other part of the one navigable tree. Tree-rooted destinations resolve at the enclosing tree; with no enclosing tree they resolve at the filesystem root — the honest limit of the degenerate case. Untracked local scopes are never globally nameable: only a shared tree confers `arbor://` addresses, and `system:`/`local:` remain arbord-local ([system.md](system.md) §1).
+
 Markdown node names never expose their storage suffix. Sibling body `x.md`, child directory `x/`, and fallback body `x/_index.md` all contribute to exactly `/x`; the root `_index.md` names `/`. `.md` and `/_index.md` spellings are accepted only as compatibility aliases at resolution boundaries and immediately canonicalized. They never appear in browser routes, API results, link healing, search results, generated types, or user-visible filenames. `x.md` may coexist with `x/`, but not with `x/_index.md` ([format.md](format.md) §1).
 
 ## 3. Identity, movement, and global resolution

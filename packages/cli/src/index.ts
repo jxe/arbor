@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
-import { serveWorkspace } from "@arbor/arbord";
+import { serveArbor } from "@arbor/arbord";
 import { ConnectionStore } from "@arbor/stores";
 
 function usage(): never {
@@ -28,13 +28,16 @@ async function main(): Promise<void> {
     const path = args.find((arg) => !arg.startsWith("-")) ?? ".";
     const portIndex = args.indexOf("--port");
     const port = portIndex >= 0 ? Number(args[portIndex + 1]) : 4317;
-    const { workspace, server, url } = await serveWorkspace(resolve(path), { port });
-    console.log(`Arbor is browsing ${workspace.root}`);
+    const { service, workspace, server, start, url } = await serveArbor(resolve(path), { port });
+    const scope = workspace.tracking === "tracked"
+      ? `tracked root "${workspace.descriptor().name}"`
+      : "untracked — session only";
+    console.log(`Arbor is browsing ${start} (${scope})`);
     console.log(url);
-    if (!args.includes("--no-open")) await openBrowser(url);
+    if (!args.includes("--no-open")) await openBrowser(`${url}/render${start}`);
     const shutdown = async () => {
       server.stop(true);
-      await workspace[Symbol.asyncDispose]();
+      await service[Symbol.asyncDispose]();
       process.exit(0);
     };
     process.on("SIGINT", shutdown);

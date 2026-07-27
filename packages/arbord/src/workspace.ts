@@ -3,6 +3,7 @@ import { basename, dirname, join, posix, relative } from "node:path";
 import type {
   ArborBlock,
   ArbordErrorCode,
+  BacklinksPage,
   ChildrenPage,
   CollectionPage,
   CollectionResultPage,
@@ -13,7 +14,10 @@ import type {
   NodeRef,
   NodeSnapshot,
   NodeWriteRequest,
+  RecoveryEntry,
   RecoveryPage,
+  RootDescriptor,
+  RootID,
   SearchResult,
   SearchPage,
   StructuralWorkspaceOperation,
@@ -49,6 +53,11 @@ import { EventBus } from "./events.ts";
 const EMPTY_REVISION = revisionOf("");
 export interface WorkspaceOptions {
   faultInjector?: (stage: string) => void | Promise<void>;
+  /** Shared process-wide bus; a standalone Workspace mints its own. */
+  events?: EventBus;
+  /** This root's tree scope tag; minted from the canonical root by default. */
+  tree?: RootID;
+  tracking?: "tracked" | "session";
 }
 
 export class RevisionConflictError extends Error {
@@ -76,7 +85,10 @@ export class ProtocolError extends Error {
 
 export class Workspace implements AsyncDisposable {
   readonly root: string;
-  readonly events = new EventBus();
+  readonly events: EventBus;
+  /** This root's tree scope tag (an opaque RootID). */
+  readonly tree: RootID;
+  tracking: "tracked" | "session";
   readonly fs: WorkspaceFS;
   readonly mutations: MutationJournal;
   private stateDirectory: string;
@@ -92,6 +104,9 @@ export class Workspace implements AsyncDisposable {
 
   private constructor(root: string, stateDirectory: string, fs: WorkspaceFS, index: WorkspaceIndex, options: WorkspaceOptions) {
     this.root = root;
+    this.events = options.events ?? new EventBus();
+    this.tree = options.tree ?? `rt_${sha256(root).slice(0, 10)}`;
+    this.tracking = options.tracking ?? "session";
     this.stateDirectory = stateDirectory;
     this.fs = fs;
     this.mutations = new MutationJournal(join(stateDirectory, "journal", "mutations"));
@@ -112,6 +127,15 @@ export class Workspace implements AsyncDisposable {
     return workspace;
   }
 
+  descriptor(): RootDescriptor {
+    return {
+      id: this.tree,
+      name: basename(this.root),
+      osPath: this.root,
+      tracking: this.tracking,
+    };
+  }
+
   async snapshot(ref: NodeRef): Promise<NodeSnapshot> {
     const observedThrough = this.events.currentCursor();
     const path = await this.resolveRef(ref);
@@ -129,7 +153,7 @@ export class Workspace implements AsyncDisposable {
     const items = (node.children ?? []).slice(offset, offset + 100);
     const nextOffset = offset + items.length;
     return {
-      parent: { path, ...(isPageID(node.document?.frontmatter.id) ? { pageID: node.document.frontmatter.id } : {}) },
+      parent: { tree: this.tree, path, ...(isPageID(node.document?.frontmatter.id) ? { pageID: node.document.frontmatter.id } : {}) },
       items,
       nextCursor: nextOffset < (node.children?.length ?? 0) ? this.encodePageCursor(`children:${path}`, nextOffset) : null,
       observedThrough,
@@ -141,11 +165,41 @@ export class Workspace implements AsyncDisposable {
     const offset = this.decodePageCursor(cursor, `search:${query}`);
     const results = this.index.search(query, 30, offset).map((result) => {
       const pageID = this.pathPageIDs.get(result.path);
-      return { ...result, ...(pageID ? { pageID } : {}) };
+      return { ...result, tree: this.tree, ...(pageID ? { pageID } : {}) };
     });
     return {
       results,
       nextCursor: results.length === 30 ? this.encodePageCursor(`search:${query}`, offset + results.length) : null,
+      observedThrough,
+    };
+  }
+
+  async backlinksPage(ref: NodeRef, cursor?: string | null): Promise<BacklinksPage> {
+    const observedThrough = this.events.currentCursor();
+    const path = await this.resolveRef(ref);
+    const target = await this.node(path);
+    const pageID = isPageID(target.document?.frontmatter.id)
+      ? target.document.frontmatter.id
+      : this.pathPageIDs.get(path);
+    const offset = this.decodePageCursor(cursor, `backlinks:${path}:${pageID ?? ""}`);
+    const entries = this.index.backlinks(path, pageID, 30, offset).map((entry) => {
+      const sourcePageID = this.pathPageIDs.get(entry.path);
+      return {
+        ref: {
+          tree: this.tree,
+          path: entry.path,
+          ...(sourcePageID ? { pageID: sourcePageID } : {}),
+        },
+        title: entry.title,
+        context: entry.context,
+      };
+    });
+    return {
+      target: { tree: this.tree, path, ...(pageID ? { pageID } : {}) },
+      entries,
+      nextCursor: entries.length === 30
+        ? this.encodePageCursor(`backlinks:${path}:${pageID ?? ""}`, offset + entries.length)
+        : null,
       observedThrough,
     };
   }
@@ -157,13 +211,29 @@ export class Workspace implements AsyncDisposable {
     return { ...(await this.collection(path, offset, 100, table)), observedThrough };
   }
 
-  async recoveryPage(ref: NodeRef): Promise<RecoveryPage> {
+  async recoveryPage(
+    ref: NodeRef,
+    recursive = false,
+    cursor?: string | null,
+  ): Promise<RecoveryPage> {
     const observedThrough = this.events.currentCursor();
     const path = await this.resolveRef(ref);
     const snapshot = await this.node(path);
+    if (recursive && snapshot.kind !== "directory" && snapshot.kind !== "collection") {
+      throw new ProtocolError("invalid-reference", "Recursive recovery requires a directory", 400, { path });
+    }
+    const key = `recovery:${path}:${recursive ? "subtree" : "node"}`;
+    const offset = this.decodePageCursor(cursor, key);
+    const allEntries = recursive
+      ? await this.subtreeRecoveryEntries(path)
+      : await this.blockRecoveryEntries(path);
+    allEntries.sort((a, b) => b.changedAt - a.changedAt || a.ref.path.localeCompare(b.ref.path));
+    const entries = allEntries.slice(offset, offset + 100);
+    const nextOffset = offset + entries.length;
     return {
-      ref: { path, ...(isPageID(snapshot.document?.frontmatter.id) ? { pageID: snapshot.document.frontmatter.id } : {}) },
-      entries: await this.recovery(path),
+      ref: { tree: this.tree, path, ...(isPageID(snapshot.document?.frontmatter.id) ? { pageID: snapshot.document.frontmatter.id } : {}) },
+      entries,
+      nextCursor: nextOffset < allEntries.length ? this.encodePageCursor(key, nextOffset) : null,
       observedThrough,
     };
   }
@@ -318,6 +388,18 @@ export class Workspace implements AsyncDisposable {
       };
     }
 
+    if (resolved.materialization === "placeholder") {
+      return {
+        path: resolved.path,
+        name: nodeDisplayName(resolved.path),
+        kind: resolved.kind,
+        revision: read.byteRevision,
+        writable: false,
+        materialization: "placeholder",
+        diagnostics: resolved.diagnostics,
+      };
+    }
+
     if (resolved.kind === "markdown") {
       const document = read.document!;
       const pageID = this.registerPageID(resolved.path, document.frontmatter.id);
@@ -445,6 +527,59 @@ export class Workspace implements AsyncDisposable {
   }
 
   recovery(inputPath: string) { return this.fs.recovery(inputPath); }
+
+  private async blockRecoveryEntries(path: string): Promise<RecoveryEntry[]> {
+    const pageID = this.pathPageIDs.get(path);
+    const ref = { tree: this.tree, path, ...(pageID ? { pageID } : {}) };
+    return (await this.recovery(path)).map((entry) => ({
+      kind: "block" as const,
+      ref,
+      ...entry,
+    }));
+  }
+
+  private async subtreeRecoveryEntries(path: string): Promise<RecoveryEntry[]> {
+    const entries: RecoveryEntry[] = [];
+    const visitDocuments = async (currentPath: string): Promise<void> => {
+      const resolved = await this.fs.resolve(currentPath);
+      if (resolved.kind === "missing" || resolved.materialization === "placeholder") return;
+      if (resolved.kind === "markdown" || resolved.kind === "directory") {
+        entries.push(...await this.blockRecoveryEntries(currentPath));
+      }
+      if (resolved.kind !== "directory") return;
+      for (const child of await this.fs.list(currentPath)) {
+        await visitDocuments(child.path);
+      }
+    };
+    await visitDocuments(path);
+
+    const trashBase = path === "/" ? "/Trash" : `/Trash${path}`;
+    const trashNode = await this.fs.resolve(trashBase);
+    if (trashNode.kind !== "directory") return entries;
+    const visitTrash = async (currentPath: string): Promise<void> => {
+      const resolved = await this.fs.resolve(currentPath);
+      if (resolved.kind === "missing") return;
+      const info = await stat(resolved.absolutePath).catch(() => null);
+      const pageID = this.pathPageIDs.get(currentPath);
+      entries.push({
+        kind: "trash",
+        ref: { tree: this.tree, path: currentPath, ...(pageID ? { pageID } : {}) },
+        originalPath: currentPath.slice("/Trash".length) || "/",
+        nodeKind: resolved.kind === "markdown" || resolved.kind === "directory" || resolved.kind === "file"
+          ? resolved.kind
+          : "file",
+        changedAt: (info?.mtimeMs ?? 0) / 1_000,
+      });
+      if (resolved.kind !== "directory") return;
+      for (const child of await this.fs.list(currentPath)) {
+        await visitTrash(child.path);
+      }
+    };
+    for (const child of await this.fs.list(trashBase)) {
+      await visitTrash(child.path);
+    }
+    return entries;
+  }
 
   async restoreBlock(
     inputPath: string,
@@ -728,12 +863,14 @@ export class Workspace implements AsyncDisposable {
   private async completeMaterialized(
     mutationID: string,
     requestHash: string,
-    effects: MutationEffect[],
+    rawEffects: MutationEffect[],
     origin: "api" | "recovery",
   ): Promise<MutationReceipt> {
+    const effects = rawEffects.map((effect) => ({ ...effect, tree: effect.tree ?? this.tree }));
     let eventCursor = this.events.currentCursor();
     for (const effect of effects) {
       eventCursor = this.events.emit({
+        tree: this.tree,
         kind: effect.kind,
         path: effect.path,
         previousPath: effect.previousPath,
@@ -783,6 +920,14 @@ export class Workspace implements AsyncDisposable {
     }
   }
 
+  /** Current owners of a durable page ID in this root, for cross-root fan-out. */
+  pageIDOwners(pageID: string): readonly string[] {
+    const owners = this.idOwnerSets.get(pageID);
+    if (owners?.length) return owners;
+    const owner = this.idOwners.get(pageID);
+    return owner ? [owner] : [];
+  }
+
   private async resolveRef(ref: NodeRef): Promise<string> {
     if ("path" in ref) return canonicalNodePath(ref.path);
     if (!isPageID(ref.pageID)) {
@@ -806,7 +951,9 @@ export class Workspace implements AsyncDisposable {
   private snapshotFromTree(node: TreeNode, observedThrough: string): NodeSnapshot {
     const pageID = isPageID(node.document?.frontmatter.id) ? node.document.frontmatter.id : undefined;
     return {
-      ref: { path: node.path, ...(pageID ? { pageID } : {}) },
+      ref: { tree: this.tree, path: node.path, ...(pageID ? { pageID } : {}) },
+      tree: this.tree,
+      enclosingRoot: this.descriptor(),
       path: node.path,
       name: node.name,
       kind: node.kind === "postgres" ? "database" : node.kind,
@@ -1013,6 +1160,7 @@ export class Workspace implements AsyncDisposable {
     if (event.type === "batch") {
       for (const change of event.changes ?? []) {
         this.events.emit({
+          tree: this.tree,
           kind: change.kind,
           path: change.path,
           previousPath: change.previousPath,
@@ -1022,6 +1170,7 @@ export class Workspace implements AsyncDisposable {
       return;
     }
     this.events.emit({
+      tree: this.tree,
       kind: event.type,
       path: event.path,
       previousPath: event.previousPath,

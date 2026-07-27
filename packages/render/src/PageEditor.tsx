@@ -4,7 +4,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extensions";
 import { TextSelection } from "@tiptap/pm/state";
 import { FormattingToolbarController, SideMenuController, SuggestionMenuController } from "@blocknote/react";
-import type { ArborBlock, ProjectedDocument } from "@arbor/core";
+import type { ArborBlock, BacklinkEntry, ProjectedDocument, RecoveryEntry } from "@arbor/core";
 import type {
   NodeRef,
   NodeSnapshot,
@@ -231,9 +231,14 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
   const pageDirectory = isDirectory ? node.path : parentPath(node.path);
   const pageDirectoryRef = useRef(pageDirectory);
   pageDirectoryRef.current = pageDirectory;
+  // Every reference this editor issues stays in the node's tree scope, so
+  // an in-flight save never follows a navigation into another root.
+  const sapi = useMemo(() => api.scoped(node.tree), [node.tree]);
+  const sapiRef = useRef(sapi);
+  sapiRef.current = sapi;
   const nodeReference: NodeRef = node.ref.pageID
-    ? { pageID: node.ref.pageID, pathHint: node.path }
-    : { path: node.path };
+    ? { tree: node.tree, pageID: node.ref.pageID, pathHint: node.path }
+    : { tree: node.tree, path: node.path };
   const nodeIdentity = useRef(node.ref.pageID ?? node.path).current;
   const blockDropPosition = useRef<{ pos: number; orientation: string } | null>(null);
   const editor = useMemo(() => {
@@ -249,7 +254,7 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
           },
         },
       },
-      uploadFile: async (file) => (await api.asset(pageDirectoryRef.current, file)).markdownPath,
+      uploadFile: async (file) => (await sapiRef.current.asset(pageDirectoryRef.current, file)).markdownPath,
     });
     instance.transact((transaction) => {
       transaction.setMeta("addToHistory", false);
@@ -265,7 +270,8 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
   editorRef.current = editor;
   const [, renderCoordinator] = useState(0);
   const [frontmatter, setFrontmatter] = useState<Record<string, unknown>>({ ...(node.document?.frontmatter ?? {}) });
-  const [recovery, setRecovery] = useState<Array<{ hash: string; markdown: string; status: string; changedAt: number }> | null>(null);
+  const [backlinks, setBacklinks] = useState<BacklinkEntry[]>([]);
+  const [recovery, setRecovery] = useState<RecoveryEntry[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [creating, setCreating] = useState<"directory" | "markdown" | null>(null);
@@ -283,6 +289,19 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
     pendingScrollRestore.current = { x: window.scrollX, y: window.scrollY };
     onSaved(loaded);
   }, [onSaved]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (node.tree === "local") {
+      setBacklinks([]);
+      return;
+    }
+    sapiRef.current.backlinks(nodeReference).then(
+      (entries) => { if (!cancelled) setBacklinks(entries); },
+      () => { if (!cancelled) setBacklinks([]); },
+    );
+    return () => { cancelled = true; };
+  }, [node.path, node.ref.pageID, node.tree]);
 
   useLayoutEffect(() => {
     const target = pendingScrollRestore.current;
@@ -345,7 +364,7 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
     initialSnapshot: { blocks: initial, frontmatter: node.document?.frontmatter ?? {} },
     capture: () => snapshotRef.current(),
     toPersisted: stripSyntheticRows,
-    write: (_path, baseRevision, value, base) => api.write(nodeReference, {
+    write: (_path, baseRevision, value, base) => sapiRef.current.write(nodeReference, {
       baseContentRevision: baseRevision,
       frontmatterPatch: frontmatterPatch(base.frontmatter, value.frontmatter),
       blocks: value.blocks,
@@ -357,7 +376,7 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
   coordinator.configure({
     capture: () => snapshotRef.current(),
     toPersisted: stripSyntheticRows,
-    write: (_path, baseRevision, value, base) => api.write(nodeReference, {
+    write: (_path, baseRevision, value, base) => sapiRef.current.write(nodeReference, {
       baseContentRevision: baseRevision,
       frontmatterPatch: frontmatterPatch(base.frontmatter, value.frontmatter),
       blocks: value.blocks,
@@ -442,6 +461,7 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
           }
           const event = update.event;
           if (event.mutationID && api.client.isOwnMutation(event.mutationID)) continue;
+          if (event.tree !== undefined && currentNode.tree !== undefined && event.tree !== currentNode.tree) continue;
           const affectsNode = event.path === currentNode.path
             || event.previousPath === currentNode.path
             || Boolean(currentNode.ref.pageID && event.pageID === currentNode.ref.pageID);
@@ -456,7 +476,7 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
             : currentNode.ref.pageID
               ? { pageID: currentNode.ref.pageID, pathHint: currentNode.path }
               : { path: currentNode.path };
-          const loaded = await api.node(ref);
+          const loaded = await sapiRef.current.node(ref);
           if (affectsNode) coordinator.observeExternal(loaded);
           else observedOnSaved.current(loaded);
         }
@@ -467,8 +487,36 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
     return () => { active = false; };
   }, [coordinator, updates]);
 
+  // Untracked (`local`) scope has no watcher: revalidate on focus and apply
+  // clean external revisions through the same coordinator path events use.
+  useEffect(() => {
+    if (node.tree !== "local") return;
+    let inflight = false;
+    const revalidate = async () => {
+      if (inflight || document.hidden) return;
+      inflight = true;
+      try {
+        const currentNode = observedNode.current;
+        const loaded = await sapiRef.current.node(
+          "path" in nodeReference ? { ...nodeReference, path: currentNode.path } : nodeReference,
+        );
+        if (loaded.contentRevision !== observedNode.current.contentRevision) {
+          coordinator.observeExternal(loaded);
+        }
+      } catch {} finally {
+        inflight = false;
+      }
+    };
+    window.addEventListener("focus", revalidate);
+    document.addEventListener("visibilitychange", revalidate);
+    return () => {
+      window.removeEventListener("focus", revalidate);
+      document.removeEventListener("visibilitychange", revalidate);
+    };
+  }, [coordinator, node.tree]);
+
   const reload = useCallback(async (nextSelection: string[] = []) => {
-    const loaded = await api.node(nodeReference);
+    const loaded = await sapiRef.current.node(nodeReference);
     onSavedPreservingScroll(loaded);
     const visible = new Set((loaded.children ?? []).map((child) => child.path));
     const retained = nextSelection.filter((path) => visible.has(path));
@@ -489,7 +537,7 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
       await flushAutosave();
       const beforeOrder = [...managedOrder];
       const beforeBlocks = beforeBlocksOverride ?? currentBlocks();
-      const result = await api.mutate({ operations });
+      const result = await sapiRef.current.mutate({ operations });
       await reload(nextSelection);
       let undoOperations: StructuralWorkspaceOperation[] = [];
       let redoOperations: StructuralWorkspaceOperation[] = operations;
@@ -544,10 +592,10 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
             if (!("path" in operation.destination)) return operation;
             return {
               ...operation,
-              baseDirectoryRevision: (await api.node(operation.destination.path)).directoryRevision,
+              baseDirectoryRevision: (await sapiRef.current.node(operation.destination.path)).directoryRevision,
             };
           }));
-          await api.mutate({ operations: prepared });
+          await sapiRef.current.mutate({ operations: prepared });
           await reloadRef.current(selection);
         };
         pushHistory({
@@ -603,14 +651,14 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
       setMessage(null);
       flushDocumentHistory();
       await flushAutosave();
-      const result = await api.import(destination, entries);
+      const result = await sapiRef.current.import(destination, entries);
       const nextSelection = destination === node.path ? importedTopLevel(destination, entries) : [];
       await reload(nextSelection);
       if (result.created.length) {
         const created = result.created;
         const execute = async (operations: StructuralWorkspaceOperation[], selection: string[]) => {
           await flushAutosave();
-          await api.mutate({ operations });
+          await sapiRef.current.mutate({ operations });
           await reloadRef.current(selection);
         };
         pushHistory({
@@ -1108,7 +1156,10 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
       <div role="menu">
         <button role="menuitem" disabled={!coordinator.canUndo} title="Undo (⌘Z)" onClick={() => { closePageActions(); void undo(); }}>Undo</button>
         <button role="menuitem" disabled={!coordinator.canRedo} title="Redo (⇧⌘Z)" onClick={() => { closePageActions(); void redo(); }}>Redo</button>
-        <button role="menuitem" onClick={async () => { closePageActions(); setRecovery(await api.recovery(nodeReference)); }}>Recover…</button>
+        {node.tree !== "local" && <button role="menuitem" onClick={async () => {
+          closePageActions();
+          setRecovery(await sapiRef.current.recovery(nodeReference, isDirectory));
+        }}>{isDirectory ? "Recover subtree…" : "Recover…"}</button>}
         {isDirectory && <>
           <div className="menu-separator" />
           <button role="menuitem" title="New Markdown Page (⌘N)" onClick={() => { closePageActions(); setCreating("markdown"); setCreateValue(""); }}>New Page</button>
@@ -1123,14 +1174,14 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
       {message && <span className="warning">{message}</span>}
       {saveState === "conflict" && <button onClick={async () => {
         const local = snapshot();
-        const loaded = await api.node(nodeReference);
+        const loaded = await sapiRef.current.node(nodeReference);
         const disk: DocumentSnapshot = {
           blocks: loaded.document?.blocks ?? [],
           frontmatter: { ...(loaded.document?.frontmatter ?? {}) },
         };
         coordinator.useDisk(loaded, local, disk);
       }}>Use disk</button>}
-      {saveState === "conflict" && <button onClick={async () => save((await api.node(nodeReference)).contentRevision)}>Keep mine</button>}
+      {saveState === "conflict" && <button onClick={async () => save((await sapiRef.current.node(nodeReference)).contentRevision)}>Keep mine</button>}
       {(saveState === "error" || saveState === "external") && <button className="retry-save" onClick={() => void save()}>Retry</button>}
       <span className={`save-state ${saveState}`} role="status">{saveStateLabel}</span>
     </div>
@@ -1204,6 +1255,33 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
       <span>↗</span>
       {dragPreview.paths.length === 1 ? dragPreview.paths[0]!.slice(dragPreview.paths[0]!.lastIndexOf("/") + 1) : `${dragPreview.paths.length} pages`}
     </div>}
-    {recovery && <div className="recovery"><div className="recovery-title"><strong>Recover blocks</strong><button className="quiet" onClick={() => setRecovery(null)}>Close</button></div>{!recovery.length && <p>Nothing recoverable for this page.</p>}{recovery.map((entry) => <div className="recovery-entry" key={entry.hash}><div><span>{entry.status}</span><pre>{entry.markdown}</pre></div><button onClick={async () => { onSavedPreservingScroll(await api.restoreBlock(nodeReference, entry.hash)); setRecovery(await api.recovery(nodeReference)); }}>Restore</button></div>)}</div>}
+    {!!backlinks.length && <section className="backlinks">
+      <strong>Linked from</strong>
+      {backlinks.map((entry) => <button key={`${entry.ref.path}:${entry.context}`} onClick={() => navigate(entry.ref)}>
+        <span>{entry.title}</span>
+        <small>{entry.context}</small>
+      </button>)}
+    </section>}
+    {recovery && <div className="recovery">
+      <div className="recovery-title"><strong>{isDirectory ? "Recover subtree" : "Recover blocks"}</strong><button className="quiet" onClick={() => setRecovery(null)}>Close</button></div>
+      {!recovery.length && <p>Nothing recoverable here.</p>}
+      {recovery.map((entry) => entry.kind === "block"
+        ? <div className="recovery-entry" key={`block:${entry.ref.path}:${entry.hash}`}>
+          <div><span>{entry.status} · {entry.ref.path}</span><pre>{entry.markdown}</pre></div>
+          <button onClick={async () => {
+            await sapiRef.current.restoreBlock(entry.ref, entry.hash);
+            onSavedPreservingScroll(await sapiRef.current.node(nodeReference));
+            setRecovery(await sapiRef.current.recovery(nodeReference, isDirectory));
+          }}>Restore</button>
+        </div>
+        : <div className="recovery-entry" key={`trash:${entry.ref.path}`}>
+          <div><span>Trash · {entry.nodeKind}</span><p>{entry.originalPath}</p></div>
+          <button onClick={async () => {
+            await sapiRef.current.restoreTrash(entry.ref);
+            onSavedPreservingScroll(await sapiRef.current.node(nodeReference));
+            setRecovery(await sapiRef.current.recovery(nodeReference, isDirectory));
+          }}>Restore</button>
+        </div>)}
+    </div>}
   </div>;
 }

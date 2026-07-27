@@ -31,46 +31,59 @@ public enum JSONValue: Codable, Sendable, Equatable {
     }
 }
 
-public enum NodeRef: Codable, Sendable, Equatable {
-    case path(String)
-    case pageID(String, pathHint: String? = nil)
+/// A local reference: a logical path or a durable page ID plus hint,
+/// optionally qualified by the `tree` scope it resolves in ("local", a
+/// tracked root's RootID, "system", or later a shared/visited TreeID).
+/// An omitted `tree` means the session root.
+public struct NodeRef: Codable, Sendable, Equatable {
+    public var tree: String?
+    public var path: String?
+    public var pageID: String?
+    public var pathHint: String?
 
-    private enum CodingKeys: String, CodingKey {
-        case path, pageID, pathHint
+    public init(tree: String? = nil, path: String? = nil, pageID: String? = nil, pathHint: String? = nil) {
+        self.tree = tree
+        self.path = path
+        self.pageID = pageID
+        self.pathHint = pathHint
     }
 
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let path = try container.decodeIfPresent(String.self, forKey: .path) {
-            self = .path(path)
-        } else {
-            self = .pageID(
-                try container.decode(String.self, forKey: .pageID),
-                pathHint: try container.decodeIfPresent(String.self, forKey: .pathHint)
-            )
-        }
+    public static func path(_ path: String, tree: String? = nil) -> NodeRef {
+        NodeRef(tree: tree, path: path)
     }
 
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .path(let path):
-            try container.encode(path, forKey: .path)
-        case .pageID(let pageID, let pathHint):
-            try container.encode(pageID, forKey: .pageID)
-            try container.encodeIfPresent(pathHint, forKey: .pathHint)
-        }
+    public static func pageID(_ pageID: String, pathHint: String? = nil, tree: String? = nil) -> NodeRef {
+        NodeRef(tree: tree, pageID: pageID, pathHint: pathHint)
     }
 }
 
 public struct ResolvedNodeRef: Codable, Sendable, Equatable {
+    /// Scope the reference resolved in; absent only in legacy payloads (the session root).
+    public var tree: String?
     public var path: String
     public var pageID: String?
 
-    public init(path: String, pageID: String? = nil) {
+    public init(path: String, pageID: String? = nil, tree: String? = nil) {
+        self.tree = tree
         self.path = path
         self.pageID = pageID
     }
+}
+
+public struct RootDescriptor: Codable, Sendable, Equatable {
+    public var id: String
+    public var name: String
+    public var osPath: String
+    /// "tracked" or "session".
+    public var tracking: String
+    public var missing: Bool?
+}
+
+public struct RootsPage: Codable, Sendable, Equatable {
+    public var roots: [RootDescriptor]
+    public var home: String
+    public var diagnostics: [Diagnostic]
+    public var observedThrough: String
 }
 
 public struct Diagnostic: Codable, Sendable, Equatable {
@@ -136,6 +149,10 @@ public struct CollectionSummary: Codable, Sendable, Equatable {
 
 public struct NodeSnapshot: Codable, Sendable, Equatable {
     public var ref: ResolvedNodeRef
+    /// Scope the snapshot resolved in, after canonicalization into an owning root.
+    public var tree: String?
+    /// The enclosing tracked/session root; present iff `tree` is a RootID.
+    public var enclosingRoot: RootDescriptor?
     public var path: String
     public var name: String
     public var kind: String
@@ -162,6 +179,8 @@ public struct ChildrenPage: Codable, Sendable, Equatable {
 }
 
 public struct SearchResult: Codable, Sendable, Equatable {
+    /// Scope the result belongs to (a tracked root's RootID).
+    public var tree: String?
     public var path: String
     public var pageID: String?
     public var title: String
@@ -171,6 +190,19 @@ public struct SearchResult: Codable, Sendable, Equatable {
 
 public struct SearchPage: Codable, Sendable, Equatable {
     public var results: [SearchResult]
+    public var nextCursor: String?
+    public var observedThrough: String
+}
+
+public struct BacklinkEntry: Codable, Sendable, Equatable {
+    public var ref: ResolvedNodeRef
+    public var title: String
+    public var context: String
+}
+
+public struct BacklinksPage: Codable, Sendable, Equatable {
+    public var target: ResolvedNodeRef
+    public var entries: [BacklinkEntry]
     public var nextCursor: String?
     public var observedThrough: String
 }
@@ -194,16 +226,22 @@ public struct CollectionPage: Codable, Sendable, Equatable {
 }
 
 public struct RecoveryEntry: Codable, Sendable, Equatable {
-    public var hash: String
-    public var markdown: String
+    /// "block" or "trash".
+    public var kind: String
+    public var ref: ResolvedNodeRef
+    public var hash: String?
+    public var markdown: String?
     public var parent: String?
-    public var status: String
+    public var status: String?
+    public var originalPath: String?
+    public var nodeKind: String?
     public var changedAt: Double
 }
 
 public struct RecoveryPage: Codable, Sendable, Equatable {
     public var ref: ResolvedNodeRef
     public var entries: [RecoveryEntry]
+    public var nextCursor: String?
     public var observedThrough: String
 }
 
@@ -211,6 +249,8 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
     public var op: String
     public var ref: NodeRef?
     public var refs: [NodeRef]?
+    /// Scope for path-literal operations (createMarkdown/createDirectory).
+    public var tree: String?
     public var path: String?
     public var name: String?
     public var destination: NodeRef?
@@ -228,6 +268,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         op: String,
         ref: NodeRef? = nil,
         refs: [NodeRef]? = nil,
+        tree: String? = nil,
         path: String? = nil,
         name: String? = nil,
         destination: NodeRef? = nil,
@@ -243,6 +284,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         self.op = op
         self.ref = ref
         self.refs = refs
+        self.tree = tree
         self.path = path
         self.name = name
         self.destination = destination
@@ -273,6 +315,8 @@ public struct MutationRequest: Codable, Sendable, Equatable {
 
 public struct MutationEffect: Codable, Sendable, Equatable {
     public var kind: String
+    /// Scope the effect landed in.
+    public var tree: String?
     public var path: String
     public var previousPath: String?
     public var pageID: String?
@@ -288,6 +332,8 @@ public struct MutationReceipt: Codable, Sendable, Equatable {
 
 public struct WorkspaceEvent: Codable, Sendable, Equatable {
     public var cursor: String
+    /// Scope the event belongs to; one process-wide stream orders all scopes.
+    public var tree: String?
     public var kind: String
     public var path: String
     public var previousPath: String?

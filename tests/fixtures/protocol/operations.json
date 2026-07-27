@@ -4,7 +4,7 @@
     "operations": [
       {
         "op": "writeMarkdown",
-        "ref": { "pageID": "abc123", "pathHint": "/notes/today" },
+        "ref": { "tree": "rt_x7f3q2ab7c", "pageID": "abc123", "pathHint": "/notes/today" },
         "baseContentRevision": "sha256:content",
         "frontmatterPatch": { "title": "Today", "obsolete": null },
         "blocks": [

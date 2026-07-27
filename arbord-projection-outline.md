@@ -2,7 +2,7 @@
 id: pj4k7n
 ---
 # Directory projection implementation outline
-*Implementation companion to the projected-directory-document model in [spec/format.md](spec/format.md) §4 and the raw-vs-projected boundary in [spec/arbord-rest.md](spec/arbord-rest.md). The spec files own the behavior contract; this file owns the cutover order and code-level details. Tracked from the core Milestone 2 items in [plan.md](plan.md).*
+*Implemented companion to the projected-directory-document model in [spec/format.md](spec/format.md) §4 and the raw-vs-projected boundary in [spec/arbord-rest.md](spec/arbord-rest.md). The spec files own the behavior contract; this file records the delivered cutover and code-level details. Completion is recorded in [plan-history.md](plan-history.md).*
 
 The clean boundary is:
 
@@ -266,4 +266,3 @@ Browser E2E should verify the same behavior visibly, including selection preserv
 9. Run protocol, unit, integration, browser, source-preservation, and performance suites.
 
 The two most important safeguards are: never put synthetic blocks into the raw REST document, and never let the editor submit its complete visible projection as `writeMarkdown`.
-

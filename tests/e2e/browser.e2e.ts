@@ -1,8 +1,18 @@
+import { realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
+// The browser URL space is OS-shaped: /render/<absolute path>. The server
+// serves the fixture workspace at this fixed session root.
+const ROOT = realpathSync(join(tmpdir(), "arbor-e2e-workspace"));
+const r = (path: string) => `/render${ROOT}${path}`;
+const escaped = ROOT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const atUrl = (path: string) => new RegExp(`/render${escaped}${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+
 test("canonicalizes Markdown storage aliases", async ({ page }) => {
-  await page.goto("/render/notes.md");
-  await expect(page).toHaveURL(/\/render\/notes$/);
+  await page.goto(r("/notes.md"));
+  await expect(page).toHaveURL(atUrl("/notes"));
   await expect(page.getByRole("button", { name: "· notes" })).toBeVisible();
   await expect(page.getByText("Research ideas")).toBeVisible();
 });
@@ -14,26 +24,26 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
     if (url.pathname === "/v1/node") treeRequests.push(url.searchParams.get("path") ?? "");
   });
 
-  await page.goto("/");
+  await page.goto(r(""));
   await expect(page.getByRole("button", { name: "▸ books" })).toBeVisible();
 
   treeRequests.length = 0;
   await page.getByRole("button", { name: "▸ books" }).click();
-  await expect(page).toHaveURL(/\/render\/books$/);
+  await expect(page).toHaveURL(atUrl("/books"));
   await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible();
-  expect(treeRequests).toEqual(["/books"]);
+  expect(treeRequests).toEqual([`${ROOT}/books`]);
 
   treeRequests.length = 0;
   await page.getByRole("button", { name: "Open" }).click();
-  await expect(page).toHaveURL(/\/render\/books\/one$/);
+  await expect(page).toHaveURL(atUrl("/books/one"));
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
-  expect(treeRequests).toEqual(["/books/one"]);
+  expect(treeRequests).toEqual([`${ROOT}/books/one`]);
 
   treeRequests.length = 0;
   await page.locator(".breadcrumbs button").filter({ hasText: "books" }).click();
-  await expect(page).toHaveURL(/\/render\/books$/);
+  await expect(page).toHaveURL(atUrl("/books"));
   await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible();
-  expect(treeRequests).toEqual(["/books"]);
+  expect(treeRequests).toEqual([`${ROOT}/books`]);
 
   let releaseRoot!: () => void;
   let markRootStarted!: () => void;
@@ -42,7 +52,7 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
   let delayRoot = true;
   await page.route("**/v1/node?*", async (route) => {
     const url = new URL(route.request().url());
-    if (delayRoot && url.searchParams.get("path") === "/") {
+    if (delayRoot && url.searchParams.get("path") === ROOT) {
       delayRoot = false;
       markRootStarted();
       await rootGate;
@@ -50,37 +60,37 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
     await route.continue();
   });
 
-  await page.goto("/render/notes");
+  await page.goto(r("/notes"));
   await expect(page.getByText("Research ideas")).toBeVisible();
   await rootStarted;
   await page.getByText("the book", { exact: true }).click();
-  await expect(page).toHaveURL(/\/render\/books\/one$/);
+  await expect(page).toHaveURL(atUrl("/books/one"));
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
-  await expect(page.locator(".sidebar-path")).toHaveText("/books");
+  await expect(page.locator(".sidebar-path")).toHaveText(`${ROOT}/books`);
   await expect(page.getByRole("button", { name: "· one" })).toBeVisible();
 
   const delayedRootResponse = page.waitForResponse((response) => {
     const url = new URL(response.url());
-    return url.pathname === "/v1/node" && url.searchParams.get("path") === "/";
+    return url.pathname === "/v1/node" && url.searchParams.get("path") === ROOT;
   });
   releaseRoot();
   await delayedRootResponse;
-  await expect(page.locator(".sidebar-path")).toHaveText("/books");
+  await expect(page.locator(".sidebar-path")).toHaveText(`${ROOT}/books`);
   await expect(page.getByRole("button", { name: "· one" })).toBeVisible();
 });
 
 test("opens authored and auto-generated subpage rows", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(r(""));
   const generated = page.locator('.managed-child-page a[href="books"]');
   await expect(generated).toBeVisible();
   await generated.click();
-  await expect(page).toHaveURL(/\/render\/books$/);
+  await expect(page).toHaveURL(atUrl("/books"));
 
-  await page.goto("/render/notes");
+  await page.goto(r("/notes"));
   const authored = page.locator('.child-page[href="../books/one.md"]');
   await expect(authored).toBeVisible();
   await authored.click();
-  await expect(page).toHaveURL(/\/render\/books\/one$/);
+  await expect(page).toHaveURL(atUrl("/books/one"));
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
 });
 
@@ -91,7 +101,7 @@ test("drops a managed row immediately after a prose block", async ({ page }) => 
     const body = request.postDataJSON() as { operations?: Array<{ op?: string; beforeBlockID?: string }> };
     moveOperations.push(...(body.operations ?? []).filter((operation) => operation.op === "move"));
   });
-  await page.goto("/render/drag-order");
+  await page.goto(r("/drag-order"));
   const source = page.locator('[data-managed-row="/drag-order/simulacra"]');
   const heading = page.getByRole("heading", { name: "Oliver" });
   await expect(source).toBeVisible();
@@ -134,8 +144,8 @@ test("drops a managed row immediately after a prose block", async ({ page }) => 
 test("browses, searches, and edits toggle Markdown", async ({ page }) => {
   const writes: string[] = [];
   page.on("request", (request) => { if (!["GET", "HEAD"].includes(request.method())) writes.push(`${request.method()} ${request.url()}`); });
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "Arbor" })).toBeVisible();
+  await page.goto(r(""));
+  await expect(page.getByRole("button", { name: "Arbor", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "· notes" }).click();
   await expect(page.getByText("Research ideas")).toBeVisible();
   await expect(page.getByText("Nested thought")).not.toBeVisible();
@@ -147,17 +157,17 @@ test("browses, searches, and edits toggle Markdown", async ({ page }) => {
   expect(writes).toEqual([]);
 
   await page.getByText("the book", { exact: true }).click();
-  await expect(page).toHaveURL(/\/render\/books\/one$/);
+  await expect(page).toHaveURL(atUrl("/books/one"));
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
   await expect(page.getByRole("button", { name: "↑ Parent directory" })).toBeVisible();
   await page.getByRole("button", { name: "· one" }).click();
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
   await page.getByRole("button", { name: "↑ Parent directory" }).click();
-  await expect(page).toHaveURL(/\/render\/$/);
+  await expect(page).toHaveURL(atUrl(""));
   await page.getByRole("button", { name: "· notes" }).click();
 
   await page.keyboard.press("Meta+p");
-  await page.getByPlaceholder("Search paths and contents").fill("Apple orchard");
+  await page.getByPlaceholder("Search, or type a path (/, ~, system:)").fill("Apple orchard");
   await expect(page.getByText("Notes", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
 
@@ -169,7 +179,7 @@ test("browses, searches, and edits toggle Markdown", async ({ page }) => {
 });
 
 test("a prose edit in a directory never persists its synthetic rows", async ({ page }) => {
-  await page.goto("/render/garden");
+  await page.goto(r("/garden"));
   // The child has no authored link, so it appears as a projected synthetic row.
   const row = page.locator('[data-managed-row="/garden/rose"]');
   await expect(row).toBeVisible();
@@ -193,7 +203,7 @@ test("a prose edit in a directory never persists its synthetic rows", async ({ p
 });
 
 test("round-trips inline Markdown and uses Markdown-aware clipboard formats", async ({ page }) => {
-  await page.goto("/render/inline-markdown");
+  await page.goto(r("/inline-markdown"));
 
   const first = page.locator('[data-content-type="paragraph"]').filter({ hasText: "Untouched" });
   await expect(first.locator("strong")).toHaveText("strong");
@@ -332,7 +342,7 @@ test("round-trips inline Markdown and uses Markdown-aware clipboard formats", as
 
 test("renders footnotes and LaTeX and preserves the cursor through background saves", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
-  await page.goto("/render/math-notes");
+  await page.goto(r("/math-notes"));
 
   await expect(page.locator(".kind")).toContainText("ArborNote");
   await expect(page.locator(".inline-math .katex")).toHaveCount(2);
@@ -427,7 +437,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
 });
 
 test("renders a Markdown collection and opens a record", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(r(""));
   await page.getByRole("button", { name: /books/ }).click();
   await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible();
   await expect(page.locator('input[value="The Dispossessed"]')).toBeVisible();
@@ -436,7 +446,7 @@ test("renders a Markdown collection and opens a record", async ({ page }) => {
 });
 
 test("tracks an open page through a page-ID rename without replacing the editor", async ({ page }) => {
-  await page.goto("/render/notes");
+  await page.goto(r("/notes"));
   await expect(page.getByText("Research ideas")).toBeVisible();
   await page.locator(".properties summary").click();
   const topic = page.locator(".properties label").filter({ hasText: "topic" }).locator("input");
@@ -461,7 +471,7 @@ test("tracks an open page through a page-ID rename without replacing the editor"
   });
   expect(response.status).toBe(200);
 
-  await expect(page).toHaveURL(/\/render\/renamed-notes$/);
+  await expect(page).toHaveURL(atUrl("/renamed-notes"));
   await expect(page.getByText("Research ideas")).toBeVisible();
   expect(await page.evaluate(() =>
     (window as any).ProseMirror === (window as any).__arborEditorBeforeRename
@@ -477,4 +487,34 @@ test("tracks an open page through a page-ID rename without replacing the editor"
     return snapshot.document.bodySource as string;
   });
   expect(source).toContain("Apple orchard notes are searchable. after rename");
+});
+
+test("browses above the session root and keeps tracking it durably", async ({ page }) => {
+  await page.goto(r(""));
+  await expect(page.locator(".scope-chip")).toHaveText(/session/);
+
+  // The parent action escapes the launch root into the untracked filesystem.
+  await page.getByRole("button", { name: "↑ Parent directory" }).click();
+  const parent = ROOT.slice(0, ROOT.lastIndexOf("/"));
+  await expect(page).toHaveURL(new RegExp(`/render${parent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+  await expect(page.locator(".scope-chip")).toHaveText(/untracked/);
+  await expect(page.getByRole("button", { name: "▸ arbor-e2e-workspace", exact: true })).toBeVisible();
+
+  // Search inside a tracked/session root works; the untracked scope offers tracking instead.
+  await page.keyboard.press("Meta+p");
+  await expect(page.getByText("Search needs a tracked root here.")).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // Keep tracking the session root; the scope chip and home surface update.
+  await page.goto(r(""));
+  await page.getByRole("button", { name: "Keep tracking this folder" }).click();
+  await expect(page.locator(".scope-chip")).toHaveText(/tracked/);
+  await page.getByRole("button", { name: "Arbor", exact: true }).click();
+  await expect(page.locator(".home-root")).toHaveCount(1);
+  await expect(page.locator(".home-root .scope-chip")).toHaveText("tracked");
+
+  // The record is browsable read-only at its system:roots page.
+  await page.getByRole("button", { name: "record" }).click();
+  await expect(page).toHaveURL(/\/render\/system:roots\//);
+  await expect(page.locator(".scope-chip")).toHaveText(/system/);
 });

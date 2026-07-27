@@ -3,9 +3,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   ArbordErrorEnvelope,
+  BacklinksPage,
   MutationReceipt,
   MutationRequest,
   NodeSnapshot,
+  RecoveryPage,
+  RootsPage,
   WorkspaceEvent,
   WorkspaceOperation,
 } from "@arbor/core";
@@ -21,10 +24,37 @@ describe("REST v1 protocol fixtures", () => {
     const mutation = await json<MutationRequest>("mutation.json");
     const receipt = await json<MutationReceipt>("receipt.json");
     const error = await json<ArbordErrorEnvelope>("error.json");
-    expect(node.ref).toEqual({ path: "/notes/today", pageID: "abc123" });
+    expect(node.ref).toEqual({ tree: "rt_x7f3q2ab7c", path: "/notes/today", pageID: "abc123" });
+    expect(node.tree).toBe("rt_x7f3q2ab7c");
+    expect(node.enclosingRoot?.osPath).toBe("/Users/joe/notes");
     expect(mutation.operations[0]?.op).toBe("move");
     expect(receipt.effects[0]?.previousPath).toBe("/notes/today");
+    expect(receipt.effects[0]?.tree).toBe("rt_x7f3q2ab7c");
     expect(error.error.code).toBe("future-error-code");
+  });
+
+  test("decodes the tree-scoped, untracked, system, and roots fixtures", async () => {
+    const untracked = await json<NodeSnapshot>("node-untracked.json");
+    const systemRoot = await json<NodeSnapshot>("node-system-root.json");
+    const roots = await json<RootsPage>("roots.json");
+    const backlinks = await json<BacklinksPage>("backlinks.json");
+    const recovery = await json<RecoveryPage>("recovery.json");
+    expect(untracked.tree).toBe("local");
+    expect(untracked.path).toBe("/Users/joe/Desktop/stray");
+    expect(untracked.enclosingRoot).toBeUndefined();
+    expect(systemRoot.tree).toBe("system");
+    expect(systemRoot.writable).toBe(false);
+    expect(roots.roots.map((root) => root.tracking)).toEqual(["tracked", "session", "tracked"]);
+    expect(roots.roots.at(-1)?.missing).toBe(true);
+    expect(roots.home).toBe("/Users/joe");
+    expect(backlinks.entries[0]?.ref.pageID).toBe("week01");
+    expect(recovery.entries.map((entry) => entry.kind)).toEqual(["block", "trash"]);
+  });
+
+  test("keeps a legacy no-tree payload decodable (omitted scope = session root)", async () => {
+    const node = await json<NodeSnapshot>("node-unknown-field.json");
+    expect(node.tree).toBeUndefined();
+    expect(node.ref.tree).toBeUndefined();
   });
 
   test("covers every operation, current error code, cursor, and unknown response field", async () => {

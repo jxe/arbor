@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { extname, join } from "node:path";
 import type {
   ArbordErrorCode,
@@ -10,7 +10,8 @@ import type {
 import { PathEscapeError } from "@arbor/core";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
 import { ResyncRequiredError } from "./events.ts";
-import { ProtocolError, RevisionConflictError, Workspace } from "./workspace.ts";
+import { ArborService, fsErrorCode } from "./service.ts";
+import { ProtocolError, RevisionConflictError } from "./workspace.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -48,9 +49,11 @@ function queryRef(url: URL): NodeRef {
   if (Boolean(path) === Boolean(pageID)) {
     throw new ProtocolError("invalid-reference", "Supply exactly one of path or pageID", 400);
   }
+  const tree = url.searchParams.get("tree");
+  const scope = tree !== null ? { tree } : {};
   return path !== null
-    ? { path }
-    : { pageID: pageID!, ...(url.searchParams.has("pathHint") ? { pathHint: url.searchParams.get("pathHint")! } : {}) };
+    ? { ...scope, path }
+    : { ...scope, pageID: pageID!, ...(url.searchParams.has("pathHint") ? { pathHint: url.searchParams.get("pathHint")! } : {}) };
 }
 
 function decodeMutation(value: unknown): MutationRequest {
@@ -98,10 +101,12 @@ function validateRef(value: unknown, field: string): asserts value is NodeRef {
     || (hasPath && (typeof value.path !== "string" || !value.path))
     || (hasPageID && (typeof value.pageID !== "string" || !value.pageID))
     || (value.pathHint !== undefined && typeof value.pathHint !== "string")
+    || (value.tree !== undefined && (typeof value.tree !== "string" || !value.tree))
   ) {
     throw new ProtocolError("invalid-reference", `${field} must contain exactly one non-empty path or pageID`, 400);
   }
 }
+
 
 function validateRefs(value: unknown, field: string): asserts value is NodeRef[] {
   if (!Array.isArray(value) || value.length === 0) {
@@ -321,30 +326,16 @@ async function decodeImport(request: Request): Promise<{
   return { mutationID: metadata.mutationID, destination: metadata.destination as NodeRef, entries };
 }
 
-function fsErrorCode(error: FsConflictError): { code: ArbordErrorCode; status: number; retryable?: boolean } {
-  switch (error.details.code) {
-    case "stale-revision": return { code: "stale-content-revision", status: 409 };
-    case "missing-insertion-anchor": return { code: "missing-insertion-anchor", status: 409 };
-    case "occupied-destination": return { code: "occupied-destination", status: 409 };
-    case "duplicate-body": return { code: "duplicate-body-representation", status: 409 };
-    case "unsafe-path":
-    case "recursive-move": return { code: "unsafe-path", status: 400 };
-    case "not-found": return { code: "not-found", status: 404 };
-    case "read-only": return { code: "read-only", status: 422 };
-    case "offline": return { code: "not-materialized", status: 409, retryable: true };
-    default: return { code: "invalid-reference", status: 400 };
-  }
-}
-
-export async function serveWorkspace(
-  root: string,
+export async function serveArbor(
+  startPath: string,
   options: {
     port?: number;
     hostname?: string;
     faultInjector?: (stage: string) => void | Promise<void>;
   } = {},
 ) {
-  const workspace = await Workspace.open(root, { faultInjector: options.faultInjector });
+  const service = await ArborService.open(startPath, { faultInjector: options.faultInjector });
+  const workspace = service.session;
   const renderRoot = join(import.meta.dir, "../../render/dist");
   const server = Bun.serve({
     port: options.port ?? 4317,
@@ -355,19 +346,47 @@ export async function serveWorkspace(
         assertSameOrigin(request, url);
 
         if (request.method === "GET" && url.pathname === "/v1/node") {
-          return json(await workspace.snapshot(queryRef(url)));
+          return json(await service.snapshot(queryRef(url)));
         }
         if (request.method === "GET" && url.pathname === "/v1/children") {
-          return json(await workspace.children(queryRef(url), url.searchParams.get("cursor")));
+          return json(await service.children(queryRef(url), url.searchParams.get("cursor")));
         }
         if (request.method === "GET" && url.pathname === "/v1/search") {
-          return json(await workspace.searchPage(url.searchParams.get("q") ?? "", url.searchParams.get("cursor")));
+          return json(await service.searchPage(
+            url.searchParams.get("tree") ?? undefined,
+            url.searchParams.get("q") ?? "",
+            url.searchParams.get("cursor"),
+          ));
+        }
+        if (request.method === "GET" && url.pathname === "/v1/backlinks") {
+          return json(await service.backlinksPage(queryRef(url), url.searchParams.get("cursor")));
         }
         if (request.method === "GET" && url.pathname === "/v1/collection") {
-          return json(await workspace.collectionPage(queryRef(url), url.searchParams.get("cursor"), url.searchParams.get("table") ?? undefined));
+          return json(await service.collectionPage(queryRef(url), url.searchParams.get("cursor"), url.searchParams.get("table") ?? undefined));
         }
         if (request.method === "GET" && url.pathname === "/v1/recovery") {
-          return json(await workspace.recoveryPage(queryRef(url)));
+          return json(await service.recoveryPage(
+            queryRef(url),
+            url.searchParams.get("recursive") === "true",
+            url.searchParams.get("cursor"),
+          ));
+        }
+        if (url.pathname === "/v1/roots") {
+          if (request.method === "GET") return json(service.rootsPage());
+          if (request.method === "POST") {
+            const body = await request.json().catch(() => null) as { path?: unknown } | null;
+            if (!body || typeof body.path !== "string" || !body.path.startsWith("/")) {
+              throw new ProtocolError("invalid-reference", "Tracking requires an absolute path", 400);
+            }
+            return json(await service.track(body.path));
+          }
+          if (request.method === "DELETE") {
+            const id = url.searchParams.get("id");
+            if (!id) throw new ProtocolError("invalid-reference", "Untracking requires a root id", 400);
+            await service.untrack(id);
+            return json(service.rootsPage());
+          }
+          return errorResponse("unsupported-operation", "Method not allowed", 405);
         }
         if (request.method === "GET" && url.pathname === "/v1/events") {
           const query = url.searchParams.get("after");
@@ -376,27 +395,21 @@ export async function serveWorkspace(
             throw new ProtocolError("invalid-reference", "after and Last-Event-ID disagree", 400);
           }
           const after = query ?? header;
-          workspace.events.validate(after);
-          return new Response(workspace.events.stream(after, request.signal), {
+          service.events.validate(after);
+          return new Response(service.events.stream(after, request.signal), {
             headers: { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" },
           });
         }
         if (request.method === "POST" && url.pathname === "/v1/mutations") {
-          const result = await workspace.executeMutation(decodeMutation(await request.json()));
-          await workspace.protocolFault("protocol:response-delivery");
-          return json(result);
+          return json(await service.executeMutation(decodeMutation(await request.json())));
         }
         if (request.method === "POST" && url.pathname === "/v1/assets") {
           const input = await decodeAsset(request);
-          const result = await workspace.assetV1(input.mutationID, input.directory, input.filename, input.bytes);
-          await workspace.protocolFault("protocol:response-delivery");
-          return json(result);
+          return json(await service.assetV1(input.mutationID, input.directory, input.filename, input.bytes));
         }
         if (request.method === "POST" && url.pathname === "/v1/imports") {
           const input = await decodeImport(request);
-          const result = await workspace.importV1(input.mutationID, input.destination, input.entries);
-          await workspace.protocolFault("protocol:response-delivery");
-          return json(result);
+          return json(await service.importV1(input.mutationID, input.destination, input.entries));
         }
 
         if (url.pathname.startsWith("/v/") || url.pathname.startsWith("/v1/")) {
@@ -412,13 +425,28 @@ export async function serveWorkspace(
             return new Response(await readFile(bundled), { headers: { "content-type": MIME[extname(bundled)] ?? "application/octet-stream" } });
           }
         }
-        // The logical route is the file API: an ordinary file's path serves
-        // its bytes (with ?raw overriding to a document's stored body); the
-        // /render spelling is accepted so authored relative references keep
-        // resolving under the app's route prefix.
+        // The logical route is the file API: an ordinary file's OS-shaped
+        // path serves its bytes (with ?raw overriding to a document's stored
+        // body), dispatched into the owning root or the local filesystem;
+        // the /render spelling is accepted so authored relative references
+        // keep resolving under the app's route prefix.
         const logicalPath = url.pathname.replace(/^\/render(?=\/|$)/, "") || "/";
         const raw = url.searchParams.has("raw");
-        const surface = await workspace.fileSurface(logicalPath, raw).catch(() => null);
+        let surface = await service.fileSurface(decodeURIComponent(logicalPath), raw).catch(() => null);
+        if (!surface) {
+          // Tree-rooted authored spellings (assets) resolve against the
+          // origin in the DOM; the referring document's scope supplies the
+          // enclosing tree.
+          const referer = request.headers.get("referer");
+          const refererPath = referer ? new URL(referer).pathname.replace(/^\/render(?=\/|$)/, "") : null;
+          if (refererPath?.startsWith("/")) {
+            surface = await service.fileSurfaceInScopeOf(
+              decodeURIComponent(refererPath),
+              decodeURIComponent(logicalPath),
+              raw,
+            );
+          }
+        }
         if (surface) {
           const etag = `"${surface.revision}"`;
           const contentType = MIME[extname(surface.path)]
@@ -478,5 +506,9 @@ export async function serveWorkspace(
       }
     },
   });
-  return { workspace, server, url: `http://${server.hostname}:${server.port}` };
+  const start = await realpath(startPath).catch(() => workspace.root);
+  return { service, workspace, server, start, url: `http://${server.hostname}:${server.port}` };
 }
+
+/** Deprecated alias: the daemon serves the whole filesystem; the path is a starting location. */
+export const serveWorkspace = serveArbor;

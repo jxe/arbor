@@ -1,13 +1,23 @@
 {
-  "ref": { "path": "/notes/today", "pageID": "abc123" },
+  "ref": { "tree": "rt_x7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
   "entries": [
     {
+      "kind": "block",
+      "ref": { "tree": "rt_x7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
       "hash": "sha256:lost",
       "markdown": "Lost paragraph\n",
       "parent": null,
       "status": "lost",
       "changedAt": 1770000000
+    },
+    {
+      "kind": "trash",
+      "ref": { "tree": "rt_x7f3q2ab7c", "path": "/Trash/notes/old" },
+      "originalPath": "/notes/old",
+      "nodeKind": "markdown",
+      "changedAt": 1769990000
     }
   ],
+  "nextCursor": null,
   "observedThrough": "11111111-1111-1111-1111-111111111111:4"
 }

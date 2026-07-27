@@ -21,6 +21,8 @@ beforeAll(async () => {
   state = await mkdtemp(join(tmpdir(), "arbor-server-state-"));
   process.env.ARBOR_DATA_HOME = state;
   await writeFile(join(root, "page.md"), "Hello API\n");
+  await writeFile(join(root, "target.md"), "---\nid: target\n---\nTarget\n");
+  await writeFile(join(root, "source.md"), "---\nid: source\n---\nSee [Target](/target#target).\n");
   await writeFile(join(root, "duplicate-a.md"), "---\nid: duplicate-id\n---\nA\n");
   await writeFile(join(root, "duplicate-b.md"), "---\nid: duplicate-id\n---\nB\n");
   const running = await serveWorkspace(root, { port: 0 });
@@ -115,6 +117,20 @@ describe("arbord REST v1", () => {
         owners: ["/duplicate-a", "/duplicate-b"],
       },
     });
+  });
+
+  test("returns indexed backlinks by path or durable target identity", async () => {
+    const byPath = await client.backlinks({ path: "/target" });
+    expect(byPath.target.pageID).toBe("target");
+    expect(byPath.entries).toEqual([
+      expect.objectContaining({
+        ref: expect.objectContaining({ path: "/source", pageID: "source" }),
+        title: "source",
+        context: "See [Target](/target#target).",
+      }),
+    ]);
+    const byID = await client.backlinks({ pageID: "target", pathHint: "/stale" });
+    expect(byID.entries).toEqual(byPath.entries);
   });
 
   test("commits structural batches atomically and exposes directory conflicts", async () => {
@@ -372,15 +388,31 @@ describe("arbord REST v1", () => {
     }, "purge-for-recovery");
     const empty = await client.node(pageRef);
     const recovery = await client.recovery(pageRef);
-    const entry = recovery.entries.find((candidate) => candidate.markdown.includes("Recovery source"));
+    const entry = recovery.entries.find(
+      (candidate) => candidate.kind === "block" && candidate.markdown.includes("Recovery source"),
+    );
     expect(entry).toBeDefined();
+    if (!entry || entry.kind !== "block") throw new Error("Expected a block recovery entry");
     await client.mutateContent({
       op: "restoreRecovery",
       ref: pageRef,
-      hash: entry!.hash,
+      hash: entry.hash,
       baseContentRevision: empty.contentRevision,
     }, "restore-recovery");
     expect((await client.node(pageRef)).document?.bodySource).toContain("Recovery source");
+
+    await client.mutateStructural([{ op: "createMarkdown", path: "/discarded" }], "create-discarded");
+    await client.mutateStructural([{ op: "trash", refs: [{ path: "/discarded" }] }], "trash-discarded");
+    const subtree = await client.recovery({ path: "/" }, { recursive: true });
+    expect(subtree.entries).toContainEqual(expect.objectContaining({
+      kind: "block",
+      ref: expect.objectContaining({ path: "/renamed" }),
+    }));
+    expect(subtree.entries).toContainEqual(expect.objectContaining({
+      kind: "trash",
+      ref: expect.objectContaining({ path: "/Trash/discarded" }),
+      originalPath: "/discarded",
+    }));
   });
 
   test("removes the unversioned API and serves the TreeHopper shell", async () => {
@@ -393,36 +425,36 @@ describe("arbord REST v1", () => {
     expect(shell.headers.get("content-type")).toContain("text/html");
   });
 
-  test("serves ordinary-file bytes at logical routes with ETag, range, and ?raw", async () => {
+  test("serves ordinary-file bytes at OS-shaped logical routes with ETag, range, and ?raw", async () => {
     const bytes = new TextEncoder().encode("PNGDATA-0123456789");
     await writeFile(join(root, "photo.png"), bytes);
     await writeFile(join(root, "rawdoc.md"), "Raw surface\n");
 
-    const direct = await fetch(`${base}/photo.png`);
+    const direct = await fetch(`${base}${root}/photo.png`);
     expect(direct.status).toBe(200);
     expect(direct.headers.get("content-type")).toBe("image/png");
     expect(new Uint8Array(await direct.arrayBuffer())).toEqual(bytes);
     const etag = direct.headers.get("etag")!;
     expect(etag).toMatch(/^".+"$/);
 
-    const conditional = await fetch(`${base}/photo.png`, { headers: { "if-none-match": etag } });
+    const conditional = await fetch(`${base}${root}/photo.png`, { headers: { "if-none-match": etag } });
     expect(conditional.status).toBe(304);
 
-    const range = await fetch(`${base}/photo.png`, { headers: { range: "bytes=3-6" } });
+    const range = await fetch(`${base}${root}/photo.png`, { headers: { range: "bytes=3-6" } });
     expect(range.status).toBe(206);
     expect(range.headers.get("content-range")).toBe(`bytes 3-6/${bytes.byteLength}`);
     expect(await range.text()).toBe("DATA");
 
     // The /render spelling serves the same bytes so authored relative
     // references keep resolving under the app's route prefix.
-    const prefixed = await fetch(`${base}/render/photo.png`);
+    const prefixed = await fetch(`${base}/render${root}/photo.png`);
     expect(prefixed.status).toBe(200);
     expect(prefixed.headers.get("etag")).toBe(etag);
 
     // Document-shaped routes stay on the browsing surface unless ?raw.
-    const app = await fetch(`${base}/render/rawdoc`);
+    const app = await fetch(`${base}/render${root}/rawdoc`);
     expect(app.headers.get("content-type")).toContain("text/html");
-    const raw = await fetch(`${base}/rawdoc?raw`);
+    const raw = await fetch(`${base}${root}/rawdoc?raw`);
     expect(raw.status).toBe(200);
     expect(raw.headers.get("content-type")).toContain("text/markdown");
     expect(await raw.text()).toContain("Raw surface");
@@ -438,7 +470,9 @@ describe("arbord REST v1", () => {
     expect(result.markdownPath).toBe(result.path);
     expect(result.markdownPath).toStartWith("/Assets/");
 
-    const served = await fetch(`${base}${result.path}`);
+    // The stored spelling stays tree-rooted; fetching bytes uses the
+    // OS-shaped route through the owning root.
+    const served = await fetch(`${base}${root}${result.path}`);
     expect(served.status).toBe(200);
     expect(await served.text()).toBe("img");
   });
@@ -485,7 +519,7 @@ describe("arbord REST v1", () => {
     };
 
     expect(await client.mutate(durableWriteRequest)).toEqual(durableWriteReceipt);
-    expect((await client.mutate(recoveredRequest)).effects).toEqual([{ kind: "created", path: "/recovered-effect" }]);
+    expect((await client.mutate(recoveredRequest)).effects).toEqual([{ kind: "created", path: "/recovered-effect", tree: activeWorkspace.tree }]);
     expect((await client.mutate(recoveredWriteRequest)).effects).toMatchObject([{
       kind: "updated",
       path: "/renamed",

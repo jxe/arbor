@@ -104,8 +104,8 @@ public actor ArborClient {
     public func openNodeView(_ ref: NodeRef) async throws -> ObservedNodeView {
         let snapshot = try await nodeSnapshot(ref)
         let observedRef = snapshot.ref.pageID.map {
-            NodeRef.pageID($0, pathHint: snapshot.path)
-        } ?? .path(snapshot.path)
+            NodeRef.pageID($0, pathHint: snapshot.path, tree: snapshot.tree ?? snapshot.ref.tree)
+        } ?? .path(snapshot.path, tree: snapshot.tree ?? snapshot.ref.tree)
         let updates = nodeUpdates(ref: observedRef, after: snapshot.observedThrough)
         return ObservedNodeView(snapshot: try await hydrateNode(snapshot), updates: updates)
     }
@@ -150,8 +150,9 @@ public actor ArborClient {
     private func hydrateNode(_ initial: NodeSnapshot) async throws -> NodeSnapshot {
         var snapshot = initial
         if snapshot.kind == "directory" || snapshot.kind == "collection" {
-            let ref = snapshot.ref.pageID.map { NodeRef.pageID($0, pathHint: snapshot.ref.path) }
-                ?? .path(snapshot.ref.path)
+            let ref = snapshot.ref.pageID.map {
+                NodeRef.pageID($0, pathHint: snapshot.ref.path, tree: snapshot.tree ?? snapshot.ref.tree)
+            } ?? .path(snapshot.ref.path, tree: snapshot.tree ?? snapshot.ref.tree)
             snapshot.children = try await allChildren(ref)
         }
         return snapshot
@@ -178,6 +179,14 @@ public actor ArborClient {
         return try await get(path: "/v1/search", items: items)
     }
 
+    public func backlinks(_ ref: NodeRef, cursor: String? = nil) async throws -> BacklinksPage {
+        try await get(
+            path: "/v1/backlinks",
+            ref: ref,
+            extra: cursor.map { [URLQueryItem(name: "cursor", value: $0)] } ?? []
+        )
+    }
+
     public func collection(
         _ ref: NodeRef,
         cursor: String? = nil,
@@ -189,8 +198,15 @@ public actor ArborClient {
         return try await get(path: "/v1/collection", ref: ref, extra: extra)
     }
 
-    public func recovery(_ ref: NodeRef) async throws -> RecoveryPage {
-        try await get(path: "/v1/recovery", ref: ref)
+    public func recovery(
+        _ ref: NodeRef,
+        recursive: Bool = false,
+        cursor: String? = nil
+    ) async throws -> RecoveryPage {
+        var extra: [URLQueryItem] = []
+        if recursive { extra.append(URLQueryItem(name: "recursive", value: "true")) }
+        if let cursor { extra.append(URLQueryItem(name: "cursor", value: cursor)) }
+        return try await get(path: "/v1/recovery", ref: ref, extra: extra)
     }
 
     public func mutate(_ request: MutationRequest) async throws -> MutationReceipt {
@@ -484,15 +500,17 @@ public actor ArborClient {
     }
 
     private func queryItems(_ ref: NodeRef) -> [URLQueryItem] {
-        switch ref {
-        case .path(let path):
-            return [URLQueryItem(name: "path", value: path)]
-        case .pageID(let pageID, let pathHint):
-            return [
-                URLQueryItem(name: "pageID", value: pageID),
-                pathHint.map { URLQueryItem(name: "pathHint", value: $0) }
-            ].compactMap(\.self)
+        var items: [URLQueryItem] = []
+        if let tree = ref.tree { items.append(URLQueryItem(name: "tree", value: tree)) }
+        if let path = ref.path {
+            items.append(URLQueryItem(name: "path", value: path))
+        } else if let pageID = ref.pageID {
+            items.append(URLQueryItem(name: "pageID", value: pageID))
+            if let pathHint = ref.pathHint {
+                items.append(URLQueryItem(name: "pathHint", value: pathHint))
+            }
         }
+        return items
     }
 
     private func multipart(

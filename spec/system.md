@@ -7,6 +7,7 @@ The mount table is native Arbor state, not a magic content file. Arbord provides
 
 ```text
 system:
+  roots/
   mounts/
   trees/
   connections/
@@ -19,6 +20,8 @@ system:
 ```
 
 It is accessed through the same tree/query surface and rendered by built-in views, but it is not part of the workspace or any publishable shared tree. Durable records are canonical human-readable files under the local Arbor system directory; SQLite may index them but is never their only editable representation. Secrets remain in Keychain or the platform credential store and appear only as opaque references.
+
+**Tracked roots are the first `system:` records to exist.** Ahead of the full control tree, `system:roots` records list the local folders whose subtrees are alive on this device — indexed, watched, journaled, and eligible for durable document identity. Each record is a small human-readable Markdown file (frontmatter `id`, `path`, `added`; title as friendly name) under the local Arbor system directory, per the canonical-readable-file rule above. They are browsable read-only through the ordinary node surface at `system:roots/…`; in-place editing and diagnostics-on-invalid-edit arrive with the rest of this control tree. Tracking is per-device placement policy, not identity: there is no in-tree marker, a folder carries no claim about being tracked elsewhere, and identity continues to live in document `PageID`s and, later, shared-tree `TreeID`s.
 
 Each record in `system:mounts` has a durable identity and a friendly source alias. Its raw form is intentionally understandable:
 

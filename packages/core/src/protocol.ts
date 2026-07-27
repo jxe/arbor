@@ -14,19 +14,58 @@ export type ContentRevision = string;
 export type DirectoryRevision = string;
 export type EventCursor = string;
 
+/**
+ * The tree dimension of a reference: which scope it resolves in.
+ * Local values are a tracked root's opaque `RootID`, `"local"` (the
+ * degenerate no-tree filesystem scope; paths are OS-absolute), and
+ * `"system"` (the read-only control scope). Shared/visited `TreeID`s and
+ * DNS names join the same dimension later. Omitted on a request, it means
+ * the session root.
+ */
+export type TreeRef = string;
+export type RootID = string;
+
+export const LOCAL_TREE: TreeRef = "local";
+export const SYSTEM_TREE: TreeRef = "system";
+
 export type NodeRef =
-  | { path: LogicalPath }
-  | { pageID: PageID; pathHint?: LogicalPath };
+  | { tree?: TreeRef; path: LogicalPath }
+  | { tree?: TreeRef; pageID: PageID; pathHint?: LogicalPath };
 
 export interface ResolvedNodeRef {
+  /** Scope the reference resolved in. Present on all responses; absent only in legacy payloads, meaning the session root. */
+  tree?: TreeRef;
   path: LogicalPath;
   pageID?: PageID;
+}
+
+export interface RootDescriptor {
+  id: RootID;
+  /** Friendly name; the root directory's basename by default. */
+  name: string;
+  /** Absolute canonical path of the root on disk. */
+  osPath: string;
+  tracking: "tracked" | "session";
+  /** The record exists but its path does not resolve. */
+  missing?: boolean;
+}
+
+export interface RootsPage {
+  roots: RootDescriptor[];
+  /** The user's home directory, for client-side `~` rendering. */
+  home: string;
+  diagnostics: Diagnostic[];
+  observedThrough: EventCursor;
 }
 
 export type ProtocolNodeKind = "markdown" | "directory" | "collection" | "database" | "file";
 
 export interface NodeSnapshot {
   ref: ResolvedNodeRef;
+  /** Scope the snapshot resolved in, after canonicalization into an owning root. */
+  tree?: TreeRef;
+  /** The enclosing tracked/session root; present iff `tree` is a RootID. */
+  enclosingRoot?: RootDescriptor;
   /** Canonical-path convenience field used by hand-maintained clients. */
   path: LogicalPath;
   name: string;
@@ -60,11 +99,26 @@ export interface SearchPage {
   observedThrough: EventCursor;
 }
 
+export interface BacklinkEntry {
+  ref: ResolvedNodeRef;
+  title: string;
+  context: string;
+}
+
+export interface BacklinksPage {
+  target: ResolvedNodeRef;
+  entries: BacklinkEntry[];
+  nextCursor: string | null;
+  observedThrough: EventCursor;
+}
+
 export interface CollectionResultPage extends CollectionPage {
   observedThrough: EventCursor;
 }
 
-export interface RecoveryEntry {
+export interface BlockRecoveryEntry {
+  kind: "block";
+  ref: ResolvedNodeRef;
   hash: string;
   markdown: string;
   parent: string | null;
@@ -72,9 +126,20 @@ export interface RecoveryEntry {
   changedAt: number;
 }
 
+export interface TrashRecoveryEntry {
+  kind: "trash";
+  ref: ResolvedNodeRef;
+  originalPath: LogicalPath;
+  nodeKind: ProtocolNodeKind;
+  changedAt: number;
+}
+
+export type RecoveryEntry = BlockRecoveryEntry | TrashRecoveryEntry;
+
 export interface RecoveryPage {
   ref: ResolvedNodeRef;
   entries: RecoveryEntry[];
+  nextCursor: string | null;
   observedThrough: EventCursor;
 }
 
@@ -99,8 +164,8 @@ export type ContentWorkspaceOperation =
   };
 
 export type StructuralWorkspaceOperation =
-  | { op: "createDirectory"; path: LogicalPath }
-  | { op: "createMarkdown"; path: LogicalPath; blocks?: ArborBlock[] }
+  | { op: "createDirectory"; tree?: TreeRef; path: LogicalPath }
+  | { op: "createMarkdown"; tree?: TreeRef; path: LogicalPath; blocks?: ArborBlock[] }
   | { op: "rename"; ref: NodeRef; name: string }
   | {
     op: "move";
@@ -138,6 +203,8 @@ export type MutationEffectKind = "created" | "updated" | "moved" | "deleted";
 
 export interface MutationEffect {
   kind: MutationEffectKind;
+  /** Scope the effect landed in. Present from milestone 3 on. */
+  tree?: TreeRef;
   path: LogicalPath;
   previousPath?: LogicalPath;
   pageID?: PageID;
@@ -155,6 +222,8 @@ export type WorkspaceEventOrigin = "api" | "external" | "recovery" | "sync";
 
 export interface WorkspaceEvent {
   cursor: EventCursor;
+  /** Scope the event belongs to; one process-wide stream orders all scopes. */
+  tree?: TreeRef;
   kind: MutationEffectKind | "diagnostic";
   path: LogicalPath;
   previousPath?: LogicalPath;
@@ -177,6 +246,7 @@ export type ArbordErrorCode =
   | "unsafe-path"
   | "mutation-mismatch"
   | "read-only"
+  | "permission-denied"
   | "not-materialized"
   | "unsupported-operation"
   | "resync-required"

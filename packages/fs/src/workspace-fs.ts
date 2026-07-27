@@ -28,6 +28,7 @@ import {
   WORKSPACE_WATCHER_IGNORE_GLOBS,
 } from "./discovery.ts";
 import { WriteJournal } from "./journal.ts";
+import { iCloudPlaceholderLogicalName, iCloudPlaceholderPath } from "./materialization.ts";
 import {
   FsConflictError,
   FsInjectedCrashError,
@@ -261,9 +262,13 @@ export class WorkspaceFS implements AsyncDisposable {
       ensureContainedPath(this.root, path, this.root),
       ensureContainedPath(this.root, siblingTreePath, this.root),
     ]);
-    const [directInfo, siblingInfo] = await Promise.all([
+    const directPlaceholder = iCloudPlaceholderPath(direct);
+    const siblingPlaceholder = iCloudPlaceholderPath(sibling);
+    const [directInfo, siblingInfo, directPlaceholderInfo, siblingPlaceholderInfo] = await Promise.all([
       stat(direct).catch(() => null),
       path === "/" ? Promise.resolve(null) : stat(sibling).catch(() => null),
+      path === "/" ? Promise.resolve(null) : stat(directPlaceholder).catch(() => null),
+      path === "/" ? Promise.resolve(null) : stat(siblingPlaceholder).catch(() => null),
     ]);
 
     if (path === "/") {
@@ -306,8 +311,9 @@ export class WorkspaceFS implements AsyncDisposable {
       };
     }
 
-    if (siblingInfo?.isFile()) {
-      const placeholder = basename(sibling).endsWith(".icloud");
+    if (siblingInfo?.isFile() || siblingPlaceholderInfo?.isFile()) {
+      const placeholder = !siblingInfo?.isFile() && Boolean(siblingPlaceholderInfo?.isFile());
+      const physicalBody = placeholder ? siblingPlaceholder : sibling;
       const diagnostics: Diagnostic[] = directInfo ? [{
         code: "duplicate-node-representation",
         message: `${path} is occupied by both a file and a Markdown page.`,
@@ -317,9 +323,9 @@ export class WorkspaceFS implements AsyncDisposable {
       return {
         path,
         kind: "markdown",
-        absolutePath: sibling,
+        absolutePath: physicalBody,
         directoryPath: null,
-        bodyPath: sibling,
+        bodyPath: physicalBody,
         bodySource: "sibling",
         writable: !placeholder && await this.isWritable(sibling),
         materialization: placeholder ? "placeholder" : "available",
@@ -327,12 +333,12 @@ export class WorkspaceFS implements AsyncDisposable {
       };
     }
 
-    if (directInfo) {
-      const placeholder = basename(direct).endsWith(".icloud");
+    if (directInfo || directPlaceholderInfo?.isFile()) {
+      const placeholder = !directInfo && Boolean(directPlaceholderInfo?.isFile());
       return {
         path,
         kind: "file",
-        absolutePath: direct,
+        absolutePath: placeholder ? directPlaceholder : direct,
         directoryPath: null,
         bodyPath: null,
         bodySource: null,
@@ -358,6 +364,9 @@ export class WorkspaceFS implements AsyncDisposable {
   async read(inputPath: string): Promise<FsReadResult> {
     const node = await this.resolve(inputPath);
     if (node.kind === "missing") return { node, bytes: null, byteRevision: EMPTY_REVISION };
+    if (node.materialization === "placeholder") {
+      return { node, bytes: null, byteRevision: revisionOf(`placeholder:${node.path}`) };
+    }
     const path = node.kind === "directory" ? node.bodyPath : node.kind === "markdown" ? node.bodyPath : node.absolutePath;
     if (!path) {
       const document = parseMarkdown("");
@@ -391,8 +400,9 @@ export class WorkspaceFS implements AsyncDisposable {
     const paths = new Set<string>();
     for (const entry of entries) {
       if (IGNORED.has(entry.name) || RESERVED.has(entry.name) || isTransactionTemporary(entry.name)) continue;
-      const physical = `${node.path === "/" ? "" : node.path}/${entry.name}`;
-      paths.add(entry.isFile() && entry.name.endsWith(".md") ? canonicalNodePath(physical) : normalizeTreePath(physical));
+      const logicalName = iCloudPlaceholderLogicalName(entry.name) ?? entry.name;
+      const physical = `${node.path === "/" ? "" : node.path}/${logicalName}`;
+      paths.add(logicalName.endsWith(".md") ? canonicalNodePath(physical) : normalizeTreePath(physical));
     }
     const children = await Promise.all([...paths].map(async (path): Promise<FsDirectoryEntry | null> => {
       let child: ResolvedFsNode;
@@ -1257,7 +1267,9 @@ export class WorkspaceFS implements AsyncDisposable {
   private queueWatch(absolute: string, type: watcher.EventType): void {
     if (isTransactionTemporary(absolute)) return;
     let treePath: string;
-    try { treePath = nodePathFromPhysical(toTreePath(this.root, absolute)); } catch { return; }
+    const placeholderName = iCloudPlaceholderLogicalName(basename(absolute));
+    const logicalAbsolute = placeholderName ? join(dirname(absolute), placeholderName) : absolute;
+    try { treePath = nodePathFromPhysical(toTreePath(this.root, logicalAbsolute)); } catch { return; }
     const path = canonicalNodePath(treePath);
     const old = this.watcherTimers.get(path);
     if (old) clearTimeout(old);

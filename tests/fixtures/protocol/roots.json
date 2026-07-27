@@ -1,0 +1,33 @@
+{
+  "roots": [
+    {
+      "id": "rt_x7f3q2ab7c",
+      "name": "notes",
+      "osPath": "/Users/joe/notes",
+      "tracking": "tracked"
+    },
+    {
+      "id": "rt_s3ss10nab1",
+      "name": "scratch",
+      "osPath": "/Users/joe/scratch",
+      "tracking": "session"
+    },
+    {
+      "id": "rt_m1ss1ngxyz",
+      "name": "gone",
+      "osPath": "/Volumes/detached/gone",
+      "tracking": "tracked",
+      "missing": true
+    }
+  ],
+  "home": "/Users/joe",
+  "diagnostics": [
+    {
+      "code": "missing-root-path",
+      "message": "Tracked root path does not resolve",
+      "path": "/Volumes/detached/gone",
+      "severity": "warning"
+    }
+  ],
+  "observedThrough": "11111111-1111-1111-1111-111111111111:4"
+}

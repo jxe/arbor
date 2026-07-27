@@ -71,7 +71,8 @@ Working documents:
 
 - **[intro.md](intro.md)** — narrative introduction and pitch: from the agent-playground problems (sharing/syncing, human interface, containment) to a universal dynamic material that supersedes the web.
 - **[spec.md](spec.md)** — spec overview, v0.7, with the complete intended reference system split into topic files under [spec/](spec/): on-disk format, names and URLs, the `system:` tree/mounts/durability, arbord REST and its TypeScript/Swift clients, scripts, the browser, shared trees and the wire, and the CLI.
-- **[plan.md](plan.md)** — the reference-implementation record and roadmap: verified current capabilities, implemented arbord REST v1 and both reference clients, and the next milestones for the daily driver, mounts, scripts, agents, SQLite, the wire, sharing, and publication.
+- **[plan.md](plan.md)** — the forward roadmap: self-sync, canonical names/URLs, sharing/workspace composition, scripts, agents, data, publication, and non-blocking polish.
+- **[plan-history.md](plan-history.md)** — implemented browser/editor, REST/client, daily-driver, and tracked-root milestones with verification evidence.
 - **[plan-native.md](plan-native.md)** — the separate Swift/Hunch integration plan: adapting the Swift protocol client into provider/page-session boundaries, arbord-mediated macOS, direct Clamshell on iOS, migration, sidecars, and native product surfaces.
 - **[social-networking.md](social-networking.md)** — a thought experiment: with Arbor ubiquitous and the wire lowered to the transport layer, what remains of atproto, and how relays, AppViews, feeds, and labelers collapse into trees, watches, and queries.
 

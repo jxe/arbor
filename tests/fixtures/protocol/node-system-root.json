@@ -1,0 +1,22 @@
+{
+  "ref": { "tree": "system", "path": "/roots/notes" },
+  "tree": "system",
+  "path": "/roots/notes",
+  "name": "notes",
+  "kind": "markdown",
+  "writable": false,
+  "materialization": "available",
+  "contentRevision": "sha256:root-record",
+  "bodyState": "stored",
+  "bodyOrigin": "sibling",
+  "document": {
+    "frontmatter": { "id": "rt_x7f3q2ab7c", "path": "/Users/joe/notes", "added": "2026-07-26T18:20:31Z" },
+    "frontmatterSource": "---\nid: rt_x7f3q2ab7c\npath: /Users/joe/notes\nadded: 2026-07-26T18:20:31Z\n---\n",
+    "bodySource": "# notes\n",
+    "blocks": [
+      { "id": "block-1", "type": "heading", "content": "notes", "props": { "level": 1 }, "children": [] }
+    ]
+  },
+  "diagnostics": [],
+  "observedThrough": "11111111-1111-1111-1111-111111111111:4"
+}

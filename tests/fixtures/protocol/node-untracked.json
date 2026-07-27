@@ -1,0 +1,22 @@
+{
+  "ref": { "tree": "local", "path": "/Users/joe/Desktop/stray" },
+  "tree": "local",
+  "path": "/Users/joe/Desktop/stray",
+  "name": "stray",
+  "kind": "markdown",
+  "writable": true,
+  "materialization": "available",
+  "contentRevision": "sha256:stray-content",
+  "bodyState": "stored",
+  "bodyOrigin": "sibling",
+  "document": {
+    "frontmatter": {},
+    "frontmatterSource": null,
+    "bodySource": "Untracked note\n",
+    "blocks": [
+      { "id": "block-1", "type": "paragraph", "content": "Untracked note", "children": [] }
+    ]
+  },
+  "diagnostics": [],
+  "observedThrough": "11111111-1111-1111-1111-111111111111:4"
+}

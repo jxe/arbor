@@ -1,5 +1,5 @@
 {
-  "parent": { "path": "/notes", "pageID": "folder-id" },
+  "parent": { "tree": "rt_x7f3q2ab7c", "path": "/notes", "pageID": "folder-id" },
   "items": [
     { "name": "today", "path": "/notes/today", "kind": "markdown", "materialization": "available", "pageID": "abc123" },
     { "name": "scratch", "path": "/notes/scratch", "kind": "directory", "materialization": "available" }

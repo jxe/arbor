@@ -1,0 +1,12 @@
+{
+  "target": { "tree": "rt_x7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
+  "entries": [
+    {
+      "ref": { "tree": "rt_x7f3q2ab7c", "path": "/journal/week", "pageID": "week01" },
+      "title": "This week",
+      "context": "Review [today's note](../notes/today#abc123)."
+    }
+  ],
+  "nextCursor": null,
+  "observedThrough": "11111111-1111-1111-1111-111111111111:4"
+}

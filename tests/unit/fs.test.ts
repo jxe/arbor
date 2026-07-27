@@ -64,6 +64,22 @@ describe("@arbor/fs logical nodes", () => {
     expect(after.bodyRevision).toBe(before.bodyRevision);
   });
 
+  test("maps iCloud marker files to unavailable logical nodes without reading marker bytes", async () => {
+    const { fs } = await workspace({
+      ".offline.md.icloud": "provider marker, not Markdown content",
+      ".photo.png.icloud": "provider marker, not image content",
+    });
+    const page = await fs.resolve("/offline");
+    expect(page.kind).toBe("markdown");
+    expect(page.materialization).toBe("placeholder");
+    expect((await fs.read("/offline")).bytes).toBeNull();
+    const file = await fs.resolve("/photo.png");
+    expect(file.kind).toBe("file");
+    expect(file.materialization).toBe("placeholder");
+    expect((await fs.read("/photo.png")).bytes).toBeNull();
+    expect((await fs.list("/")).map((entry) => entry.path)).toEqual(["/offline", "/photo.png"]);
+  });
+
   test("moves and trashes both physical parts of a sibling-bodied directory", async () => {
     const { root, fs } = await workspace({ "page.md": "Page body\n", "page/child.md": "Child\n" });
     const renamed = await fs.mutate({ operations: [{ op: "rename", path: "/page", name: "renamed" }] });

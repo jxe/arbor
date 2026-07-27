@@ -1,7 +1,7 @@
 # Native build plan
 *The Swift/Hunch integration track for TreeHopper native. [plan.md](plan.md) owns arbord, REST v1, and both reference protocol clients—including the UI-independent Swift `ArborClient` package. This file owns the adapter from that client into native workspace/editor behavior, plus migration, Clamshell, iCloud compatibility, and native product surfaces.*
 
-**Base REST/client dependency: Satisfied. Shared projection/URL/parity-read dependency: Next in core Milestone 2. Native provider/app integration: Planned.**
+**Base REST/client dependency: Satisfied. Shared projection/URL/parity-read dependency: Satisfied. Native provider/app integration: Planned.**
 
 The Foundation-only Swift package now lives at [`native/Packages/ArborClient`](native/Packages/ArborClient) in this repository and passes the shared fixture/live-server conformance runner. No Hunch source, native app target, `WorkspaceProvider`, or editor-session integration has moved here yet. The reserved future layout is `native/App` with native project configuration beside `native/Packages`.
 
@@ -89,7 +89,7 @@ protocol WorkspaceDocumentSession: AnyObject {
 }
 ```
 
-`WorkspaceReference` is the native-facing equivalent of REST `NodeRef`: a logical path or durable document `PageID` with a path hint. Navigation, history, selection, and drag state retain both when available; the ID wins after a move while the path remains the readable current location. It is not a promise that every ordinary file has a stable `NodeID`.
+`WorkspaceReference` is the native-facing equivalent of REST `NodeRef`: a `tree` scope plus a logical path or durable document `PageID` with a path hint. `tree` is `"local"` for the plain filesystem, a tracked root's `RootID`, `"system"` for the read-only control scope, or later a shared/visited `TreeID` ([spec/arbord-rest.md](spec/arbord-rest.md) §2). Navigation, history, selection, and drag state retain path and ID when available; the ID wins after a move while the path remains the readable current location. It is not a promise that every ordinary file has a stable `NodeID`.
 
 This node-first split is intentional. Hunch currently treats a Clamshell workspace as one level of Markdown pages; Arbor exposes Markdown documents, bodyless directories, collections, databases, scripts, and ordinary files in one logical hierarchy. `openDocument` cannot be the provider's universal read primitive. The Clamshell provider may initially expose only its page-shaped subset, while the arbord provider returns the full node model.
 
@@ -139,7 +139,7 @@ Once provider conformance is complete, Clamshell's application-facing API can sh
 
 Feature parity means that TreeHopper native and ArborNote expose the same authored workspace behavior through arbord; it does not require pixel-identical controls or replacing native interaction patterns.
 
-- **Navigation:** arbitrary authorized roots, contextual directory children, parent/back/forward, home as a preference, search, canonical logical paths, durable-ID move continuity, and relative/rooted/`arbor://` links.
+- **Navigation:** filesystem-wide traversal with tracked roots ([spec/browser.md](spec/browser.md) §1) — the launch or default location is a starting point, never a boundary; contextual directory children, parent/back/forward across root boundaries to `/`, home as a preference, per-root search with the client-merged all-roots scope, canonical logical paths, durable-ID move continuity, and relative/rooted/`arbor://` links.
 - **Markdown:** the same frontmatter, source-preserving block model, inline Markdown, links, hard breaks, toggles, footnotes, LaTeX, raw fallback, and explicit source view. Native may use its own controls, typography, selection, and accessibility.
 - **Directories:** the same body-plus-all-children projection, managed-child identity, authored placement, synthetic fallback rows, structural drag/reorder/rename/trash behavior, and lazy `_index.md`/ID materialization.
 - **Workspace operations:** create, move/place, copy, import, assets, trash/restore, recovery, external-change reconciliation, conflicts, and durable flush before navigation or shutdown.
@@ -172,7 +172,7 @@ enum WorkspaceSurface {
 
 The concrete types may differ, but these changes are required:
 
-- Replace `WorkspaceWindow.path: [URL]`, `navigationDestination(for: URL.self)`, and `Document.url` comparisons with `WorkspaceReference`/resolved-reference state. A physical URL is optional provider metadata, never navigation identity.
+- Replace `WorkspaceWindow.path: [URL]`, `navigationDestination(for: URL.self)`, and `Document.url` comparisons with `WorkspaceReference`/resolved-reference state. A physical URL is optional provider metadata, never navigation identity. `location` and `sidebarContext` are scope-qualified: parent and breadcrumb chrome traverse above live roots to the filesystem root, and the boundary crumb carries the root's provenance.
 - Key editor lifetime by durable `PageID` when present and fall back to logical path only for path-only nodes. A rename updates the displayed path without remounting the document or losing selection/undo.
 - Keep at most one active surface per tab, but do not create an editor session for ordinary files or database rows. A directory's projected Markdown surface is a document session; its children also remain available to the shell.
 - Keep one provider-level coordinator/write stream per durable document beneath lightweight tab leases. Two tabs may have independent scroll, selection, inspector, and navigation history, but they must not create competing persistence queues for the same document.
@@ -236,7 +236,7 @@ The existing `.subpage` row can present authored and managed child rows, disting
 
 The cutover must retain the useful Hunch behavior that is not just editing:
 
-- workspace-wide Trash and lost/purged recovery, plus per-document filtering;
+- per-root subtree Trash and lost/purged recovery, plus per-document filtering; later workspace composition merges multiple roots;
 - home/default-location preference;
 - backlinks and link insertion, without using home-graph reachability as the workspace ontology;
 - asset reads as well as writes/imports;
@@ -247,9 +247,9 @@ Use concrete arbord reads/mutations where the capability is workspace truth; oth
 
 ## Dependency on the core plan
 
-This track consumes the implemented REST v1 contract and in-repo Swift `ArborClient` package from the **arbord REST v1 and reference clients** milestone in [`plan.md`](plan.md). That base dependency is satisfied. Complete directory documents and native feature continuity add one platform-neutral dependency, owned by core Milestone 2: shared projection fixtures, managed-row manifests, logical relative/`arbor://` resolution, lazy identity materialization, backlinks, subtree recovery/Trash, and safe ordinary-file reads. This plan consumes that layer rather than independently recreating it in Hunch. It does not redefine endpoints, Codable transport values, event fields, mutation receipts, durability semantics, or logical workspace operations here.
+This track consumes the implemented REST v1 contract, projection/parity reads, and in-repo Swift `ArborClient` package recorded in [`plan-history.md`](plan-history.md). Those platform-neutral dependencies are satisfied: shared projection fixtures, managed-row manifests, logical relative/`arbor://` resolution, lazy identity materialization, backlinks, subtree recovery/Trash, and safe ordinary-file reads. This plan consumes that layer rather than independently recreating it in Hunch. It does not redefine endpoints, Codable transport values, event fields, mutation receipts, durability semantics, or logical workspace operations here.
 
-Provider extraction and the node-first arbord adapter may begin against the completed client now. Full directory/editor parity waits for the Milestone 2 client projection and URL fixtures. The macOS cutover still requires implementing and testing the native provider/session/editor mapping; satisfying transport or projection dependencies does not complete Hunch migration or native integration. Later native mounts, collections, scripts, sharing, and provenance begin only when their corresponding core capability exists.
+Provider extraction and the node-first arbord adapter may begin against the completed client now. The macOS cutover still requires implementing and testing the native provider/session/editor mapping; satisfying transport or projection dependencies does not complete Hunch migration or native integration. Later native mounts, collections, scripts, sharing, and provenance begin only when their corresponding core capability exists.
 
 `ArbordWorkspaceProvider` translates `ArborClient` into `WorkspaceProvider` and `WorkspaceDocumentSession`. REST lifecycle and transport design remain owned by `plan.md`; editor lifecycle remains owned here.
 
@@ -313,7 +313,7 @@ The known migration is intentionally concrete: one folder of roughly fifty pages
 
 With native and web on one authority:
 
-- browse any user-authorized folder and large tree;
+- browse the whole authorized filesystem and large trees — the implemented filesystem-wide navigation model and tracked roots let the native shell adopt scope-qualified references and unclamped parent/breadcrumb chrome rather than inventing its own boundary;
 - make home a preference rather than the boundary of the world;
 - add Finder-like traversal, history, Quick Look/open actions, drag/import, and whole-workspace search;
 - support complete projected directory documents and ordinary non-Markdown files without coercing the latter into editor documents;
@@ -380,7 +380,7 @@ TreeHopper renders readable `system:mounts`, `system:connections`, trees, shares
 Cmd+P searches the visible workspace through arbord and later accepts durable document IDs, `arbor://` names/TreeIDs, and invitation input through the same resolver. Compact per-document states remain:
 
 ```text
-local · mounted rw · mounted ro · overlay · visited · pinned · stale · conflicted
+local · untracked · mounted rw · mounted ro · overlay · visited · pinned · stale · conflicted
 ```
 
 Arbord supplies these states; TreeHopper does not infer them from paths.

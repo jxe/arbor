@@ -1,6 +1,6 @@
 {
   "results": [
-    { "path": "/notes/today", "pageID": "abc123", "title": "Today", "excerpt": "Hello", "score": 1.25 }
+    { "tree": "rt_x7f3q2ab7c", "path": "/notes/today", "pageID": "abc123", "title": "Today", "excerpt": "Hello", "score": 1.25 }
   ],
   "nextCursor": null,
   "observedThrough": "11111111-1111-1111-1111-111111111111:4"

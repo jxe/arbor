@@ -1,5 +1,12 @@
 {
-  "ref": { "path": "/notes/today", "pageID": "abc123" },
+  "ref": { "tree": "rt_x7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
+  "tree": "rt_x7f3q2ab7c",
+  "enclosingRoot": {
+    "id": "rt_x7f3q2ab7c",
+    "name": "notes",
+    "osPath": "/Users/joe/notes",
+    "tracking": "tracked"
+  },
   "path": "/notes/today",
   "name": "today",
   "kind": "markdown",

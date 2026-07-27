@@ -3,7 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import type { SearchResult } from "@arbor/core";
-import { nodeDisplayName, nodePathFromPhysical, toTreePath } from "@arbor/core";
+import { nodeDisplayName, nodePathFromPhysical, resolveLogicalURL, toTreePath } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { discoverWorkspace, type WorkspaceDiscovery } from "@arbor/fs";
 const INDEXED_EXTENSIONS = new Set(["md", "csv", "jsonl", "json", "ts", "tsx", "txt"]);
@@ -14,6 +14,48 @@ interface IndexRecord {
   size: number;
   title: string;
   body: string;
+  links: IndexedLink[];
+}
+
+export interface BacklinkIndexResult {
+  path: string;
+  title: string;
+  context: string;
+}
+
+interface IndexedLink {
+  targetPath: string | null;
+  targetPageID: string | null;
+  context: string;
+}
+
+function indexedLinks(sourcePath: string, body: string): IndexedLink[] {
+  const links: IndexedLink[] = [];
+  const pattern = /(?<!!)\[[^\]]*]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^)]*)?\)/g;
+  for (const match of body.matchAll(pattern)) {
+    const href = match[1] ?? match[2];
+    if (!href) continue;
+    const resolved = resolveLogicalURL(sourcePath, href);
+    let targetPath: string | null = null;
+    let targetPageID: string | null = null;
+    if (resolved?.kind === "local") {
+      targetPath = resolved.path;
+      targetPageID = resolved.pageID ?? null;
+    } else if (resolved?.kind === "fragment") {
+      targetPageID = resolved.pageID;
+    } else {
+      continue;
+    }
+    const start = match.index ?? 0;
+    const lineStart = body.lastIndexOf("\n", start - 1) + 1;
+    const lineEnd = body.indexOf("\n", start);
+    links.push({
+      targetPath,
+      targetPageID,
+      context: body.slice(lineStart, lineEnd === -1 ? body.length : lineEnd).trim(),
+    });
+  }
+  return links;
 }
 
 export class WorkspaceIndex {
@@ -22,9 +64,15 @@ export class WorkspaceIndex {
     this.database = new Database(databasePath, { create: true });
     this.database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     const oldFiles = this.database.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'files'").get() as { sql: string } | null;
-    if (oldFiles && !oldFiles.sql.includes("title TEXT")) this.database.exec("DROP TABLE IF EXISTS docs; DROP TABLE files;");
+    const oldLinks = this.database.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'links'").get();
+    if (oldFiles && (!oldFiles.sql.includes("title TEXT") || !oldLinks)) {
+      this.database.exec("DROP TABLE IF EXISTS docs; DROP TABLE IF EXISTS links; DROP TABLE files;");
+    }
     this.database.exec("CREATE TABLE IF NOT EXISTS files(path TEXT UNIQUE NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL);");
     this.database.exec("CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(path UNINDEXED, title, body, content='files', content_rowid='rowid', tokenize='unicode61');");
+    this.database.exec("CREATE TABLE IF NOT EXISTS links(source_path TEXT NOT NULL, target_path TEXT, target_page_id TEXT, context TEXT NOT NULL);");
+    this.database.exec("CREATE INDEX IF NOT EXISTS links_target_path ON links(target_path);");
+    this.database.exec("CREATE INDEX IF NOT EXISTS links_target_page_id ON links(target_page_id);");
   }
 
   async rebuild(discovery?: WorkspaceDiscovery): Promise<void> {
@@ -53,15 +101,21 @@ export class WorkspaceIndex {
     }
     const seen = new Set(prepared.map((item) => item.path));
     const removeFile = this.database.prepare("DELETE FROM files WHERE path = ?");
+    const removeLinks = this.database.prepare("DELETE FROM links WHERE source_path = ?");
     const upsertFile = this.database.prepare("INSERT INTO files(path, mtime, size, title, body) VALUES (?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime,size=excluded.size,title=excluded.title,body=excluded.body");
     let changed = false;
     this.database.transaction(() => {
       for (const item of existing) {
-        if (!seen.has(item.path)) { removeFile.run(item.path); changed = true; }
+        if (!seen.has(item.path)) {
+          removeLinks.run(item.path);
+          removeFile.run(item.path);
+          changed = true;
+        }
       }
       for (const item of prepared) {
         if (!item.record) continue;
         upsertFile.run(item.path, item.record.mtime, item.record.size, item.record.title, item.record.body);
+        this.replaceLinks(item.path, item.record.links);
         changed = true;
       }
       if (changed) this.database.exec("INSERT INTO docs(docs) VALUES('rebuild')");
@@ -88,6 +142,19 @@ export class WorkspaceIndex {
     return rows.map((row) => ({ path: row.path, title: row.title, excerpt: row.excerpt, score: -row.rank }));
   }
 
+  backlinks(targetPath: string, targetPageID: string | undefined, limit = 30, offset = 0): BacklinkIndexResult[] {
+    const rows = this.database.query(
+      `SELECT l.source_path AS path, f.title AS title, MIN(l.context) AS context
+       FROM links l
+       JOIN files f ON f.path = l.source_path
+       WHERE l.target_path = ? OR (? IS NOT NULL AND l.target_page_id = ?)
+       GROUP BY l.source_path, f.title
+       ORDER BY l.source_path
+       LIMIT ? OFFSET ?`,
+    ).all(targetPath, targetPageID ?? null, targetPageID ?? null, limit, offset) as BacklinkIndexResult[];
+    return rows;
+  }
+
   close(): void { this.database.close(); }
 
   private prepareRecordSync(absolute: string, treePath: string, mtime: number, size: number): IndexRecord | null {
@@ -105,6 +172,7 @@ export class WorkspaceIndex {
       const previous = this.database.query("SELECT rowid, path, title, body FROM files WHERE path = ?").get(treePath) as { rowid: number; path: string; title: string; body: string } | null;
       if (previous) this.database.prepare("INSERT INTO docs(docs, rowid, path, title, body) VALUES ('delete', ?, ?, ?, ?)").run(previous.rowid, previous.path, previous.title, previous.body);
       this.database.prepare("INSERT INTO files(path, mtime, size, title, body) VALUES (?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime,size=excluded.size,title=excluded.title,body=excluded.body").run(treePath, mtime, size, record.title, record.body);
+      this.replaceLinks(treePath, record.links);
       const current = this.database.query("SELECT rowid FROM files WHERE path = ?").get(treePath) as { rowid: number };
       this.database.prepare("INSERT INTO docs(rowid, path, title, body) VALUES (?, ?, ?, ?)").run(current.rowid, treePath, record.title, record.body);
     });
@@ -116,6 +184,7 @@ export class WorkspaceIndex {
       const previous = this.database.query("SELECT rowid, path, title, body FROM files WHERE path = ?").get(treePath) as { rowid: number; path: string; title: string; body: string } | null;
       if (!previous) return;
       this.database.prepare("INSERT INTO docs(docs, rowid, path, title, body) VALUES ('delete', ?, ?, ?, ?)").run(previous.rowid, previous.path, previous.title, previous.body);
+      this.database.prepare("DELETE FROM links WHERE source_path = ?").run(treePath);
       this.database.prepare("DELETE FROM files WHERE path = ?").run(treePath);
     });
     transaction();
@@ -139,6 +208,23 @@ export class WorkspaceIndex {
         title = String(document.frontmatter.title ?? title);
       } catch {}
     }
-    return { path: treePath, mtime, size, title, body };
+    return {
+      path: treePath,
+      mtime,
+      size,
+      title,
+      body,
+      links: extension === "md" ? indexedLinks(treePath, source) : [],
+    };
+  }
+
+  private replaceLinks(sourcePath: string, links: IndexedLink[]): void {
+    this.database.prepare("DELETE FROM links WHERE source_path = ?").run(sourcePath);
+    const insert = this.database.prepare(
+      "INSERT INTO links(source_path, target_path, target_page_id, context) VALUES (?, ?, ?, ?)",
+    );
+    for (const link of links) {
+      insert.run(sourcePath, link.targetPath, link.targetPageID, link.context);
+    }
   }
 }

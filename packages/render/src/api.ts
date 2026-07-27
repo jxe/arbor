@@ -1,11 +1,14 @@
 import {
   ArbordClient,
   type ArborBlock,
+  type BacklinkEntry,
   type MutationEffect,
   type MutationReceipt,
   type NodeRef,
   type NodeSnapshot,
+  type RecoveryEntry,
   type StructuralWorkspaceOperation,
+  type TreeRef,
 } from "@arbor/client";
 
 export interface BrowserImportEntry {
@@ -35,41 +38,88 @@ function result(receipt: MutationReceipt): BrowserMutationResult {
 }
 
 const client = new ArbordClient();
-const refOf = (value: string | NodeRef): NodeRef => typeof value === "string" ? { path: value } : value;
 
 export type BrowserOperation = StructuralWorkspaceOperation;
 export type BrowserEffect = MutationEffect;
 
-export const api = {
-  client,
-  node: (ref: string | NodeRef) => client.node(refOf(ref)),
-  openNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openNodeView(refOf(ref), signal),
-  openProjectedNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openProjectedNodeView(refOf(ref), signal),
-  collection: async (path: string, cursor?: string | null) => client.collection({ path }, cursor),
-  search: async (query: string) => (await client.search(query)).results,
-  write: async (
-    ref: string | NodeRef,
-    body: {
-      baseContentRevision: string;
-      frontmatterPatch?: Record<string, unknown | null>;
-      blocks: ArborBlock[];
+/**
+ * The api surface, scoped to one tree. Every reference or path-literal
+ * operation lacking an explicit scope is qualified with `tree`, so a
+ * component operating inside one node's scope stays in that scope for its
+ * lifetime — an in-flight save never follows a navigation into another
+ * root. `scoped(undefined)` is the session-root scope (legacy behavior).
+ */
+function makeApi(tree: TreeRef | undefined) {
+  const refOf = (value: string | NodeRef): NodeRef => {
+    const ref = typeof value === "string" ? { path: value } : value;
+    return ref.tree !== undefined || tree === undefined ? ref : { ...ref, tree };
+  };
+  const scopeOperation = (operation: StructuralWorkspaceOperation): StructuralWorkspaceOperation => {
+    const scoped = { ...operation } as StructuralWorkspaceOperation & {
+      ref?: NodeRef;
+      refs?: NodeRef[];
+      destination?: NodeRef;
+      tree?: TreeRef;
+    };
+    if (scoped.ref) scoped.ref = refOf(scoped.ref);
+    if (scoped.refs) scoped.refs = scoped.refs.map(refOf);
+    if (scoped.destination) scoped.destination = refOf(scoped.destination);
+    if ((scoped.op === "createMarkdown" || scoped.op === "createDirectory") && scoped.tree === undefined && tree !== undefined) {
+      scoped.tree = tree;
+    }
+    return scoped;
+  };
+  return {
+    client,
+    tree,
+    scoped: (nextTree: TreeRef | undefined) => makeApi(nextTree),
+    node: (ref: string | NodeRef) => client.node(refOf(ref)),
+    openNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openNodeView(refOf(ref), signal),
+    openProjectedNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openProjectedNodeView(refOf(ref), signal),
+    collection: async (path: string, cursor?: string | null) => client.collection(refOf(path), cursor),
+    search: async (query: string, scope?: TreeRef) => (await client.search(query, null, scope ?? tree)).results,
+    roots: () => client.roots(),
+    track: (path: string) => client.track(path),
+    untrack: (id: string) => client.untrack(id),
+    write: async (
+      ref: string | NodeRef,
+      body: {
+        baseContentRevision: string;
+        frontmatterPatch?: Record<string, unknown | null>;
+        blocks: ArborBlock[];
+      },
+    ): Promise<NodeSnapshot> => {
+      await client.mutateContent({
+        op: "writeMarkdown",
+        ref: refOf(ref),
+        baseContentRevision: body.baseContentRevision,
+        frontmatterPatch: body.frontmatterPatch,
+        blocks: body.blocks,
+      });
+      return client.node(refOf(ref));
     },
-  ): Promise<NodeSnapshot> => {
-    await client.mutateContent({
-      op: "writeMarkdown",
-      ref: refOf(ref),
-      baseContentRevision: body.baseContentRevision,
-      frontmatterPatch: body.frontmatterPatch,
-      blocks: body.blocks,
-    });
-    return client.node(refOf(ref));
-  },
-  mutate: async (body: { operations: StructuralWorkspaceOperation[] }) => result(await client.mutateStructural(body.operations)),
-  import: async (destination: string, entries: BrowserImportEntry[]) => result(await client.import({ path: destination }, entries)),
-  recovery: async (ref: string | NodeRef) => (await client.recovery(refOf(ref))).entries,
-  restoreBlock: async (ref: string | NodeRef, hash: string) => {
-    await client.mutateContent({ op: "restoreRecovery", ref: refOf(ref), hash });
-    return client.node(refOf(ref));
-  },
-  asset: async (directory: string, file: File) => client.asset({ path: directory }, file),
-};
+    mutate: async (body: { operations: StructuralWorkspaceOperation[] }) =>
+      result(await client.mutateStructural(body.operations.map(scopeOperation))),
+    import: async (destination: string, entries: BrowserImportEntry[]) =>
+      result(await client.import(refOf(destination), entries)),
+    backlinks: async (ref: string | NodeRef): Promise<BacklinkEntry[]> =>
+      (await client.backlinks(refOf(ref))).entries,
+    recovery: async (
+      ref: string | NodeRef,
+      recursive = false,
+    ): Promise<RecoveryEntry[]> => (await client.recovery(refOf(ref), { recursive })).entries,
+    restoreBlock: async (ref: string | NodeRef, hash: string) => {
+      await client.mutateContent({ op: "restoreRecovery", ref: refOf(ref), hash });
+      return client.node(refOf(ref));
+    },
+    restoreTrash: async (ref: NodeRef) => {
+      await client.mutateStructural([{ op: "restore", refs: [refOf(ref)] }]);
+    },
+    asset: async (directory: string, file: File) => client.asset(refOf(directory), file),
+  };
+}
+
+export type ScopedApi = ReturnType<typeof makeApi>;
+
+/** The session-scope api; components inside another scope use `api.scoped(tree)`. */
+export const api: ScopedApi = makeApi(undefined);

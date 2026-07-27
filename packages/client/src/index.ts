@@ -1,6 +1,7 @@
 import type {
   ArbordErrorEnvelope,
   ArbordErrorValue,
+  BacklinksPage,
   ChildrenPage,
   CollectionResultPage,
   ContentMutationRequest,
@@ -14,10 +15,14 @@ import type {
   NodeSnapshot,
   PageID,
   RecoveryPage,
+  RootDescriptor,
+  RootID,
+  RootsPage,
   SearchPage,
   StructuralMutationRequest,
   StructuralWorkspaceOperation,
   TreeChild,
+  TreeRef,
   WorkspaceEvent,
 } from "@arbor/core";
 import type { ProjectedDocument } from "@arbor/core";
@@ -30,6 +35,8 @@ export type {
   ArbordErrorCode,
   ArbordErrorEnvelope,
   ArbordErrorValue,
+  BacklinkEntry,
+  BacklinksPage,
   ChildrenPage,
   CollectionResultPage,
   ContentMutationRequest,
@@ -45,11 +52,16 @@ export type {
   NodeSnapshot,
   PageID,
   ProjectedDocument,
+  RecoveryEntry,
   RecoveryPage,
+  RootDescriptor,
+  RootID,
+  RootsPage,
   SearchPage,
   StructuralMutationRequest,
   StructuralWorkspaceOperation,
   TreeChild,
+  TreeRef,
   WorkspaceEvent,
   WorkspaceOperation,
 } from "@arbor/core";
@@ -173,6 +185,7 @@ class AsyncBuffer<T> implements AsyncIterable<T> {
 
 function refQuery(ref: NodeRef): string {
   const query = new URLSearchParams();
+  if (ref.tree !== undefined) query.set("tree", ref.tree);
   if ("path" in ref) query.set("path", ref.path);
   else {
     query.set("pageID", ref.pageID);
@@ -249,8 +262,8 @@ export class ArbordClient {
   async openNodeView(ref: NodeRef, signal?: AbortSignal): Promise<ObservedNodeView> {
     const snapshot = await this.nodeSnapshot(ref);
     const observedRef: NodeRef = snapshot.ref.pageID
-      ? { pageID: snapshot.ref.pageID, pathHint: snapshot.path }
-      : { path: snapshot.path };
+      ? { tree: snapshot.tree ?? snapshot.ref.tree, pageID: snapshot.ref.pageID, pathHint: snapshot.path }
+      : { tree: snapshot.tree ?? snapshot.ref.tree, path: snapshot.path };
     const controller = new AbortController();
     const updates = new AsyncBuffer<ObservedNodeUpdate>();
     const close = () => {
@@ -295,8 +308,25 @@ export class ArbordClient {
     return result;
   }
 
-  search(query: string, cursor?: string | null): Promise<SearchPage> {
-    return this.request(`/v1/search?q=${encodeURIComponent(query)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+  search(query: string, cursor?: string | null, tree?: TreeRef): Promise<SearchPage> {
+    const scope = tree ? `&tree=${encodeURIComponent(tree)}` : "";
+    return this.request(`/v1/search?q=${encodeURIComponent(query)}${scope}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+  }
+
+  roots(): Promise<RootsPage> {
+    return this.request("/v1/roots");
+  }
+
+  track(path: string): Promise<RootDescriptor> {
+    return this.request("/v1/roots", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+  }
+
+  untrack(id: RootID): Promise<RootsPage> {
+    return this.request(`/v1/roots?id=${encodeURIComponent(id)}`, { method: "DELETE" });
   }
 
   collection(ref: NodeRef, cursor?: string | null, table?: string): Promise<CollectionResultPage> {
@@ -306,8 +336,17 @@ export class ArbordClient {
     return this.request(`/v1/collection?${query}`);
   }
 
-  recovery(ref: NodeRef): Promise<RecoveryPage> {
-    return this.request(`/v1/recovery?${refQuery(ref)}`);
+  recovery(ref: NodeRef, options: { recursive?: boolean; cursor?: string | null } = {}): Promise<RecoveryPage> {
+    const query = new URLSearchParams(refQuery(ref));
+    if (options.recursive) query.set("recursive", "true");
+    if (options.cursor) query.set("cursor", options.cursor);
+    return this.request(`/v1/recovery?${query}`);
+  }
+
+  backlinks(ref: NodeRef, cursor?: string | null): Promise<BacklinksPage> {
+    const query = new URLSearchParams(refQuery(ref));
+    if (cursor) query.set("cursor", cursor);
+    return this.request(`/v1/backlinks?${query}`);
   }
 
   async mutate(request: MutationRequest): Promise<MutationReceipt> {
