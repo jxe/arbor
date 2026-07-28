@@ -94,6 +94,81 @@ test("opens authored and auto-generated subpage rows", async ({ page }) => {
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
 });
 
+test("adds a Markdown title above the first row and reuses an empty starter block", async ({ page }) => {
+  await page.goto(r("/title-first"));
+  const syntheticRow = page.locator('[data-managed-row="/title-first/child"]');
+  const addTitle = page.getByRole("button", { name: "Add page title" });
+  const topLevelBlocks = page.locator(".bn-editor > .bn-block-group > .bn-block-outer");
+  await expect(syntheticRow).toBeVisible();
+  await expect(addTitle).toBeVisible();
+  await expect(topLevelBlocks.first().locator('[data-managed-row="/title-first/child"]')).toBeVisible();
+
+  await addTitle.click();
+  await expect(addTitle).toHaveCount(0);
+  await expect(topLevelBlocks.first().getByRole("heading", { level: 1 })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).ProseMirror.view.hasFocus())).toBe(true);
+
+  await page.keyboard.type("Synthetic title");
+  await expect(page.getByRole("heading", { name: "Synthetic title", level: 1 })).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  const titleFirstBody = async () => page.evaluate(async () => {
+    const response = await fetch("/v1/node?path=%2Ftitle-first");
+    const node = await response.json();
+    return node.document.bodySource as string;
+  });
+  expect(await titleFirstBody()).toMatch(/^# Synthetic title/);
+  expect(await titleFirstBody()).not.toContain("](child)");
+  expect(await titleFirstBody()).not.toContain("managed:");
+
+  await page.keyboard.press("Meta+z");
+  await expect(page.getByRole("button", { name: "Add page title" })).toBeVisible();
+  await expect(syntheticRow).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  expect(await titleFirstBody()).not.toContain("Synthetic title");
+
+  await page.keyboard.press("Meta+Shift+z");
+  await expect(page.getByRole("button", { name: "Add page title" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Synthetic title", level: 1 })).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Synthetic title", level: 1 })).toBeVisible();
+  await expect(syntheticRow).toBeVisible();
+
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(r("/empty-title"));
+  const emptyAddTitle = page.getByRole("button", { name: "Add page title" });
+  await expect(emptyAddTitle).toBeVisible();
+  expect(await page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches)).toBe(true);
+  const titleBox = await emptyAddTitle.boundingBox();
+  expect(titleBox).not.toBeNull();
+  expect(titleBox!.x).toBeGreaterThanOrEqual(0);
+  expect(titleBox!.x + titleBox!.width).toBeLessThanOrEqual(390);
+  await expect(topLevelBlocks).toHaveCount(1);
+
+  await emptyAddTitle.focus();
+  await expect(emptyAddTitle).toHaveCSS("outline-style", "solid");
+  await page.keyboard.press("Enter");
+  await expect(emptyAddTitle).toHaveCount(0);
+  await expect(topLevelBlocks).toHaveCount(1);
+  await expect(topLevelBlocks.first().getByRole("heading", { level: 1 })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).ProseMirror.view.hasFocus())).toBe(true);
+  await page.keyboard.type("Empty title");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  expect(await page.evaluate(async () => {
+    const response = await fetch("/v1/node?path=%2Fempty-title");
+    const node = await response.json();
+    return node.document.bodySource as string;
+  })).toMatch(/^# Empty title/);
+
+  await page.setViewportSize({ width: 1200, height: 844 });
+  await page.goto(r("/already-titled"));
+  await expect(page.getByRole("button", { name: "Add page title" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Existing title", level: 1 })).toBeVisible();
+  await page.getByText("Body.", { exact: true }).hover();
+  await expect(page.getByRole("button", { name: "Add block" })).toBeVisible();
+});
+
 test("drops a managed row immediately after a prose block", async ({ page }) => {
   const moveOperations: Array<{ beforeBlockID?: string }> = [];
   page.on("request", (request) => {

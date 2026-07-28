@@ -1131,6 +1131,24 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
         : saveState === "conflict" ? "Conflict"
           : saveState === "error" ? "Save failed"
             : "Saved";
+  const firstBlock = editor.document[0] as ArborEditorBlock | undefined;
+  const beginsWithTitle = firstBlock?.type === "heading" && Number(firstBlock.props.level) === 1;
+  const addPageTitle = () => {
+    const first = editor.document[0] as ArborEditorBlock | undefined;
+    if (!first) return;
+    const reusesStarterParagraph = editor.document.length === 1
+      && first.type === "paragraph"
+      && Array.isArray(first.content)
+      && first.content.length === 0
+      && first.children.length === 0;
+    editor.transact(() => {
+      const title = reusesStarterParagraph
+        ? editor.updateBlock(first, { type: "heading", props: { level: 1 } })
+        : editor.insertBlocks([{ type: "heading", props: { level: 1 } }], first, "before")[0]!;
+      editor.setTextCursorPosition(title, "start");
+    });
+    editor.focus();
+  };
 
   return <div className="editor-shell">
     <details className="properties">
@@ -1237,6 +1255,9 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
         onClickCapture={openInternalLink}
       >
         <style>{footnoteLayout.css}</style>
+        {!beginsWithTitle && <button type="button" className="add-page-title" aria-label="Add page title" onClick={addPageTitle}>
+          Add title
+        </button>}
         <BlockNoteView editor={editor} sideMenu={false} formattingToolbar={false} slashMenu={false} onChange={(_editor, { getChanges }) => {
           if (coordinator.isApplying) return;
           if (!getChanges().some((change) => change.source.type !== "yjs-remote")) return;

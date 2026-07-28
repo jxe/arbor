@@ -16,6 +16,10 @@ await mkdir(state, { recursive: true });
 process.env.ARBOR_DATA_HOME = state;
 await cp(join(import.meta.dir, "../fixtures/workspace"), root, { recursive: true });
 await writeFile(join(root, "_index.md"), "# E2E Garden\n");
+await mkdir(join(root, "title-first"), { recursive: true });
+await writeFile(join(root, "title-first", "child.md"), "Projected child.\n");
+await writeFile(join(root, "empty-title.md"), "");
+await writeFile(join(root, "already-titled.md"), "# Existing title\n\nBody.\n");
 const running = await serveArbor(root, { port: Number(process.env.ARBOR_E2E_PORT ?? 4321) });
 console.log(running.url);
 

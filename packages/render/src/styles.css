@@ -392,6 +392,26 @@ nav small { margin-left: auto; color: var(--arbor-warning); }
 }
 .provisional-child-page input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: inherit; }
 .body-drop-surface { min-height: 240px; margin-top: 22px; padding-bottom: 28px; }
+.add-page-title {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  outline: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--arbor-muted) 62%, transparent);
+  cursor: text;
+  font: 600 40px/48px Inter, ui-sans-serif, system-ui, sans-serif;
+  text-align: left;
+}
+.add-page-title:hover { color: var(--arbor-muted); }
+.add-page-title:focus-visible {
+  color: var(--arbor-muted);
+  outline: 2px solid color-mix(in srgb, var(--arbor-link) 55%, transparent);
+  outline-offset: 3px;
+}
 
 /* BlockNote theme */
 .bn-root {
