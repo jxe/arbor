@@ -30,7 +30,7 @@ The governing vocabulary remains:
 - **`PageID`** — the durable identity of a materialized Markdown document;
 - **shared tree** — a folder with independent synchronization, history, and permissions;
 - **`TreeID`** — the stable identity of a shared tree;
-- **`Mount`** — a local placement of a folder or shared tree in a workspace;
+- **tree placement** — a canonical local path key in `~/.arbor/trees.yaml` whose source is local content or an absolute Arbor URL;
 - **collection** — one user-facing concept across file, SQLite, and Postgres backings;
 - **script** — a `.tsx` file that may colocate components, queries, and mutations;
 - **arbord** — the desktop workspace/runtime authority;
@@ -42,7 +42,7 @@ Do not reintroduce the superseded `SpaceID`, binding, `.view.json`, or authored 
 
 The local daily driver is implemented:
 
-- filesystem-wide browsing with tracked roots and readable `system:roots`;
+- filesystem-wide browsing with local `trees.yaml` entries and a readable compatibility `system:roots` view;
 - source-preserving Markdown and complete projected directory documents;
 - durable idempotent REST v1 mutations, replay/resync, and TypeScript/Swift clients;
 - logical ordinary-file byte routes;
@@ -98,13 +98,15 @@ implemented local daily driver
 
 ### Product contract
 
-A person can give an ordinary folder a stable `TreeID`, keep it at its current visible path through a minimal `Mount`, and synchronize it between their own machines. This milestone proves identity, history, materialization, conflict handling, and one-replicator safety before invitations or public naming.
+A person can give an ordinary local entry in `~/.arbor/trees.yaml` a stable `TreeID` by replacing its `source: local` backing with an absolute Arbor source, without changing the path key where it remains visible, and synchronize it between their own machines. This milestone proves identity, history, materialization, conflict handling, and one-replicator safety before invitations or public naming.
+
+Before sync persists interoperable state, this milestone freezes the minimum addressing substrate that the wire depends on: stable `TreeID`s, extensionless logical paths, the existing `PageID` fragment semantics, self-sync descriptor endpoint hints, and the `arbor://tree/<TreeID>/…` grammar. This is a protocol prerequisite, not the full canonical-URL product surface. The promoted shared-tree root and its refs define what is synchronized; URLs name nodes and never select replication or materialization policy.
 
 The local arbord is a wire client. The serving wire-host role is a separate process sharing `@arbor/core` wire code; a later relay may embed that role without changing the protocol.
 
 ### Shared-tree and namespace foundation
 
-- Define the minimal human-readable `system:trees` and `system:mounts` records needed to identify and place a local shared tree.
+- Extend the existing path-keyed `~/.arbor/trees.yaml` entry from `source: local` to an `arbor://tree/<TreeID>/…` source plus explicit revision/access/overlay/routing policy; do not introduce separate roots, trees, or mounts registries.
 - Promote a tracked root into a shared tree without changing its visible path or discarding its existing journal/state.
 - Support one local placement per shared tree in this milestone; multiple placements and overlays belong to sharing/workspace composition.
 - Keep control records canonical and readable. Invalid direct edits produce diagnostics while the last valid configuration remains active.
@@ -145,6 +147,7 @@ Completion gate:
 - concurrent Markdown edits merge or surface explicit preserved conflicts;
 - restart and offline use retain the last verified materialization;
 - foreign-replication overlap produces a clear warning/refusal;
+- persisted tree descriptors and refs round-trip the frozen `TreeID`, endpoint-hint, and logical-path contract without depending on a local mount path;
 - two independent trees on one endpoint retain distinct ref authority.
 
 First spikes:
@@ -164,7 +167,7 @@ First spikes:
 
 Every self-synced tree has a stable global identity and canonical URL forms before Arbor adds invitations or multi-user authority. A tree may have a friendly DNS name, but routing remains grounded in `TreeID` plus endpoint hints rather than path position or credentials.
 
-This milestone proves public/read-only discovery and link behavior. It does not introduce recipient-specific grants, invitations, revocation, or writable collaboration.
+This milestone builds the resolver and user-facing naming behavior on the addressing grammar and descriptor fields frozen by self-sync; it does not redefine the synchronization boundary. It proves public/read-only discovery and link behavior without introducing recipient-specific grants, invitations, revocation, or writable collaboration.
 
 ### Required work
 
@@ -215,8 +218,8 @@ Named self-synced trees grow into collaboration: a tree can be invited, accepted
 
 ### Workspace composition
 
-- Complete the readable, unshadowable `system:` tree for mounts, trees, roots, credentials, connections, visited entries, history, trust, preferences, and diagnostics.
-- Mount local folders and shared trees, including multiple placements of one source.
+- Complete readable, unshadowable `system:` views over `trees.yaml`, credentials, connections, visits, history, trust, preferences, diagnostics, and runtime state without requiring one imaginary disk file per logical node.
+- Place local folders and shared trees through path-keyed `trees.yaml` entries, including multiple placements of one Arbor source.
 - Implement read-only modes, overlays, shadowing, rename/delete routing, and accurate provenance.
 - Extend indexing, search, events, resolution, and home/default preferences across the composed workspace.
 - Merge per-root recovery/Trash inventories in the browser without inventing a privileged aggregate API.

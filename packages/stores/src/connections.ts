@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseDocument } from "yaml";
-import { arborDataRoot } from "./private-state.ts";
+import { arborDataRoot, prepareArborDataRoot } from "./private-state.ts";
 
 export interface SafeConnectionRecord {
   name: string;
@@ -24,6 +24,7 @@ export class ConnectionStore {
   }
 
   async set(name: string, dsn: string): Promise<SafeConnectionRecord> {
+    await prepareArborDataRoot();
     this.assertName(name);
     const url = new URL(dsn);
     if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") throw new Error("Connection must be a PostgreSQL URL");
@@ -60,6 +61,7 @@ export class ConnectionStore {
   }
 
   async get(name: string): Promise<{ record: SafeConnectionRecord; dsn: string } | null> {
+    await prepareArborDataRoot();
     this.assertName(name);
     try {
       const source = await readFile(join(this.directory, `${name}.md`), "utf8");
@@ -75,6 +77,7 @@ export class ConnectionStore {
   }
 
   async remove(name: string): Promise<void> {
+    await prepareArborDataRoot();
     this.assertName(name);
     await Bun.secrets.delete({ service: SERVICE, name });
     await rm(join(this.directory, `${name}.md`), { force: true });

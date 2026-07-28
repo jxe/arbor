@@ -47,8 +47,9 @@ import {
   type WorkspaceDiscovery,
   WorkspaceFS,
 } from "@arbor/fs";
-import { CollectionStore, WorkspaceIndex, workspaceStateDirectory } from "@arbor/stores";
+import { CollectionStore, WorkspaceIndex, workspaceState } from "@arbor/stores";
 import { EventBus } from "./events.ts";
+import { rootDisplayName } from "./root-title.ts";
 
 const EMPTY_REVISION = revisionOf("");
 export interface WorkspaceOptions {
@@ -57,6 +58,8 @@ export interface WorkspaceOptions {
   events?: EventBus;
   /** This root's tree scope tag; minted from the canonical root by default. */
   tree?: RootID;
+  /** Derived from the root `_index.md`; basename fallback. */
+  displayName?: string;
   tracking?: "tracked" | "session";
 }
 
@@ -96,6 +99,7 @@ export class Workspace implements AsyncDisposable {
   private collections = new CollectionStore();
   private idOwners = new Map<string, string>();
   private idOwnerSets = new Map<string, readonly string[]>();
+  private displayName: string;
   /** Inverted unambiguous owner index: path -> pageID. */
   private pathPageIDs = new Map<string, string>();
   private healingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -106,6 +110,7 @@ export class Workspace implements AsyncDisposable {
     this.root = root;
     this.events = options.events ?? new EventBus();
     this.tree = options.tree ?? `rt_${sha256(root).slice(0, 10)}`;
+    this.displayName = options.displayName ?? basename(root);
     this.tracking = options.tracking ?? "session";
     this.stateDirectory = stateDirectory;
     this.fs = fs;
@@ -116,11 +121,16 @@ export class Workspace implements AsyncDisposable {
   }
 
   static async open(path: string, options: WorkspaceOptions = {}): Promise<Workspace> {
-    const stateDirectory = await workspaceStateDirectory(path);
+    const state = await workspaceState(path);
+    const stateDirectory = state.directory;
     const fs = await WorkspaceFS.open(path, { stateDirectory, faultInjector: options.faultInjector });
     const discovery = fs.startupDiscovery();
     const index = new WorkspaceIndex(fs.root, join(stateDirectory, "index.sqlite"));
-    const workspace = new Workspace(fs.root, stateDirectory, fs, index, options);
+    const workspace = new Workspace(fs.root, stateDirectory, fs, index, {
+      ...options,
+      tree: options.tree ?? state.identity.rootID,
+      displayName: options.displayName ?? await rootDisplayName(fs.root),
+    });
     workspace.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
     await Promise.all([index.rebuild(discovery), workspace.generateTypes(discovery)]);
     await workspace.finishRecoveredMutations();
@@ -130,10 +140,15 @@ export class Workspace implements AsyncDisposable {
   descriptor(): RootDescriptor {
     return {
       id: this.tree,
-      name: basename(this.root),
+      name: this.displayName,
       osPath: this.root,
       tracking: this.tracking,
     };
+  }
+
+  async refreshDisplayName(): Promise<string> {
+    this.displayName = await rootDisplayName(this.root);
+    return this.displayName;
   }
 
   async snapshot(ref: NodeRef): Promise<NodeSnapshot> {
@@ -1135,6 +1150,7 @@ export class Workspace implements AsyncDisposable {
   }
 
   private async handleFsEvent(event: FsEvent): Promise<void> {
+    if (event.path === "/") this.displayName = await rootDisplayName(this.root);
     const publish = event.origin !== "local-api";
     const updateIndex = async (path: string) => {
       const resolved = await this.fs.resolve(path);

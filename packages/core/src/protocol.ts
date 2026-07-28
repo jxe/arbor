@@ -41,7 +41,7 @@ export interface ResolvedNodeRef {
 
 export interface RootDescriptor {
   id: RootID;
-  /** Friendly name; the root directory's basename by default. */
+  /** First H1 in the root `_index.md`; directory basename fallback. */
   name: string;
   /** Absolute canonical path of the root on disk. */
   osPath: string;

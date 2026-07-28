@@ -372,7 +372,7 @@ export async function serveArbor(
           ));
         }
         if (url.pathname === "/v1/roots") {
-          if (request.method === "GET") return json(service.rootsPage());
+          if (request.method === "GET") return json(await service.rootsPage());
           if (request.method === "POST") {
             const body = await request.json().catch(() => null) as { path?: unknown } | null;
             if (!body || typeof body.path !== "string" || !body.path.startsWith("/")) {
@@ -384,7 +384,7 @@ export async function serveArbor(
             const id = url.searchParams.get("id");
             if (!id) throw new ProtocolError("invalid-reference", "Untracking requires a root id", 400);
             await service.untrack(id);
-            return json(service.rootsPage());
+            return json(await service.rootsPage());
           }
           return errorResponse("unsupported-operation", "Method not allowed", 405);
         }

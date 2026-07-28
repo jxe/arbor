@@ -134,7 +134,7 @@ Outcome:
 - `arbor dev <path>` treats its argument as a starting location, not a workspace boundary;
 - navigation walks to the OS root and into any readable local path;
 - Arbor intelligence activates only inside session/tracked roots;
-- minimal human-readable `system:roots` records persist tracked roots;
+- path-keyed `~/.arbor/trees.yaml` entries persist tracked roots and project through `system:roots`;
 - arbord is split into `ArborService`, `RootManager`, per-root `Workspace`s, and a reduced untracked `FilesystemService`;
 - protocol refs, snapshots, events, effects, results, and both clients carry the tree dimension;
 - local refs canonicalize into their owning root; bare `PageID` references fan out across live roots;
@@ -145,7 +145,9 @@ Implemented in:
 - [`packages/arbord/src/service.ts`](packages/arbord/src/service.ts)
 - [`packages/arbord/src/roots.ts`](packages/arbord/src/roots.ts)
 - [`packages/arbord/src/fs-service.ts`](packages/arbord/src/fs-service.ts)
-- [`packages/stores/src/system-roots.ts`](packages/stores/src/system-roots.ts)
+- [`packages/stores/src/trees.ts`](packages/stores/src/trees.ts)
+- [`packages/stores/src/private-state.ts`](packages/stores/src/private-state.ts)
+- [`packages/arbord/src/root-title.ts`](packages/arbord/src/root-title.ts)
 - [`packages/core/src/protocol.ts`](packages/core/src/protocol.ts)
 - [`packages/render/src/App.tsx`](packages/render/src/App.tsx)
 
@@ -170,16 +172,27 @@ bun run test:performance
 
 Manual acceptance covered untracked launch, parent navigation to `/`, external CAS reconciliation, Keep tracking, and readable `system:roots`.
 
+### Storage refinement — 2026-07-28
+
+Arbor's default private state home is now `~/.arbor` on every platform. An unoverridden first launch atomically relocates the former platform data directory and leaves a compatibility symlink; explicit `ARBOR_DATA_HOME` runs remain isolated. Colliding real directories are never merged.
+
+Tracked placements now live in the comment- and order-preserving, path-keyed `~/.arbor/trees.yaml`. Only `source: local` is operational; valid shared Arbor sources parse but remain blocked until the wire milestone. RootIDs, state-directory IDs, canonical paths, and device/inode fingerprints remain private in the upgraded `workspaces.json`, allowing unambiguous same-filesystem moves to retain identity. Root names come from the first H1 in `_index.md`, with the directory basename as fallback. Invalid live registry candidates leave the preceding active configuration in place and surface diagnostics.
+
 ## Current combined verification
 
-Milestones 2 and 3 share one focused worktree delivery. Verified on 2026-07-27:
+Verified on 2026-07-28 after the `~/.arbor` and `trees.yaml` refinement:
 
 ```text
 bun run typecheck       passed
-focused unit/integration suite
-                        55 passed, 0 failed
-bun run test:protocol   7 TypeScript fixture tests and 10 Swift tests passed
-bun run build:web       passed
+bun test                141 passed, 0 failed
+bun run test:protocol   7 TypeScript fixture tests and 10 Swift live tests passed
+bun run build           passed
+bun run test:e2e        11 passed
+bun run test:performance
+                        50,000 files; 1,302 ms startup; 0.27 ms incremental; 32.24 ms search
+swift test --package-path native/Packages/ArborClient
+                        9 passed, 1 live-server test skipped as designed
+git diff --check        passed
 ```
 
-Browser E2E and the performance benchmark were deliberately not rerun for the Milestone 2 follow-up; their most recent evidence remains the Milestone 3 delivery record above.
+Joe's unoverridden local state was migrated after stopping/checking for arbord. The move retained all 108 files and the 56,040 KiB state footprint, preserved the pre-move `workspaces.json` checksum before its shape upgrade, left only the compatibility symlink in Application Support, and passed an SQLite `quick_check` plus a real `/v1/roots` open against the existing Arbor workspace state.

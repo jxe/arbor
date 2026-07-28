@@ -1,44 +1,32 @@
-# The `system:` tree, mounts, and durability
-*Part of the [Arbor spec](../spec.md): arbord's control tree, workspace resolution, mounts, and the local durability model.*
+# The `system:` tree, tree placements, and durability
+*Part of the [Arbor spec](../spec.md): arbord's control views, workspace resolution, tree placements, and the local durability model.*
 
 ## 1. The `system:` tree and workspace resolution
 
-The mount table is native Arbor state, not a magic content file. Arbord provides an unshadowable, process-local control tree addressed as `system:`:
+Arbor's canonical local state home is `~/.arbor` on every platform. `ARBOR_DATA_HOME` selects an isolated alternate root for tests and special-purpose processes. On first default launch, arbord moves an existing platform-specific state directory to `~/.arbor` and leaves a compatibility symlink where supported; if both locations contain real data it uses `~/.arbor`, refuses to merge them, and reports a diagnostic.
 
-```text
-system:
-  roots/
-  mounts/
-  trees/
-  connections/
-  shares/
-  credentials/
-  history/
-  visited/
-  trust/
-  diagnostics/
+The one authored placement registry is `~/.arbor/trees.yaml`. Its keys are canonical absolute paths in the reader's filesystem:
+
+```yaml
+"/Users/joe/src/arbor":
+  source: local
+
+"/Users/joe/reading/railton":
+  source: "arbor://tree/tr_7f3q2ab7c/papers/facts-and-norms"
+  revision: tip
+  access: read
+  overlay: "local:annotations/railton"
 ```
 
-It is accessed through the same tree/query surface and rendered by built-in views, but it is not part of the workspace or any publishable shared tree. Durable records are canonical human-readable files under the local Arbor system directory; SQLite may index them but is never their only editable representation. Secrets remain in Keychain or the platform credential store and appear only as opaque references.
+`source: local` is implemented now: the folder already at the key path is the authority, and Arbor persistently indexes, watches, journals, and recovers it. An `arbor://` source names a shared tree or subtree; it becomes operational with the wire milestone. The URL names content only. Revision selection, the local access ceiling, overlays, and optional endpoint hints remain separate placement policy and never hide in the URL.
 
-**Tracked roots are the first `system:` records to exist.** Ahead of the full control tree, `system:roots` records list the local folders whose subtrees are alive on this device — indexed, watched, journaled, and eligible for durable document identity. Each record is a small human-readable Markdown file (frontmatter `id`, `path`, `added`; title as friendly name) under the local Arbor system directory, per the canonical-readable-file rule above. They are browsable read-only through the ordinary node surface at `system:roots/…`; in-place editing and diagnostics-on-invalid-edit arrive with the rest of this control tree. Tracking is per-device placement policy, not identity: there is no in-tree marker, a folder carries no claim about being tracked elsewhere, and identity continues to live in document `PageID`s and, later, shared-tree `TreeID`s.
+Private local `RootID`s are compatibility scope tags for REST, events, indexes, and journals. They never appear in `trees.yaml`. `~/.arbor/workspaces.json` associates them and private workspace-state directories with canonical paths and filesystem identity, preserving state across an unambiguous same-filesystem move. A shared source instead retains content identity through its `TreeID` when its placement key changes.
 
-Each record in `system:mounts` has a durable identity and a friendly source alias. Its raw form is intentionally understandable:
+The display name of a placement is the first nonempty H1 in its `_index.md`, falling back to the directory basename. Merely tracking a folder never creates or edits `_index.md`.
 
-```md
----
-source: railton-papers
-from: /papers/facts-and-norms
-at: /reading/railton
-access: read
-version: latest
-overlay: local:annotations/railton
----
+Arbord provides an unshadowable, process-local `system:` control tree through the same node/query surface, but that logical tree is not a physical mirror, part of the workspace, or publishable content. Today `system:roots/<RootID>` is a read-only compatibility projection of the `source: local` entries. Later control views may combine authored files, Keychain references, verified caches, and derived runtime state. A logical node does not require a corresponding imaginary file on disk.
 
-# Railton, annotated
-```
-
-`system:trees/railton-papers` resolves the alias to its `TreeID`, endpoint hints, and credential reference. Normal editing should not require copying opaque IDs. TreeHopper renders a mount as an editable sentence or table row—“Mount **Railton papers** at **reading/railton**, read-only, following **latest**, with **my annotations**”—while source view, CLI, and direct file editing remain equivalent. Invalid edits produce `system:diagnostics` and leave the last valid configuration active.
+Arbord watches `trees.yaml`. It applies a candidate only after the complete document validates; invalid YAML, noncanonical paths, overlaps, unsupported sources, or unsafe active moves produce system diagnostics while the last valid in-memory configuration remains active. Arbor-authored changes preserve comments and entry order and replace the file atomically.
 
 `system:connections` follows the same rule. A record may show driver, host, database, user, and connection status while saying only that its secret is stored in Keychain. Pasting a connection string into TreeHopper or the CLI creates the safe record and credential entry together.
 
@@ -47,7 +35,7 @@ overlay: local:annotations/railton
 Arbord materializes the workspace, including mounted trees, as real files because agents and editors assume them. Userfs/FUSE access is not specified.
 
 - **Overlays** are the annotation and fork primitive. Local files shadow a read-only source; upstream remains untouched, and “propose upstream” is a diff of the overlay.
-- **Visited trees** are transient mounts recorded under `system:visited`, backed by an arbord-private cache, TTL'd and garbage-collected. “Mount this” promotes one into `system:mounts`.
+- **Visited trees** are transient placements backed by an arbord-private cache, TTL'd and garbage-collected. “Add to workspace” creates a durable `trees.yaml` entry.
 - **History** records `(tree, path, revision)` so back/forward can return to the version actually seen.
 - **Agent confinement** is a restricted workspace view containing only the paths, mounts, and system capabilities granted to that agent. Launching an agent may assemble a fresh namespace for it in the Plan 9 manner: a per-process mount set placing exactly the subtrees its job concerns at paths chosen for that agent, independent of the human's workspace layout. The agent's namespace is ordinary mount records scoped to the process, so grants, overlays, and provenance work unchanged inside it.
 
@@ -57,25 +45,23 @@ Mount `mode` is a local ceiling, never a grant. Effective access is:
 remote grant ∩ local mount policy ∩ current process/component grant
 ```
 
-## 2. A mount places a shared tree in a workspace
+## 2. A tree entry places content in a workspace
 
-The mount record is deliberately small:
+The path-keyed placement value is deliberately small:
 
 ```ts
-type Mount = {
-  at: Path;
-  source: {
-    tree: TreeID;
-    path: Path;
-    revision: "tip" | ObjectHash;
-  };
+type TreePlacement = {
+  source: "local" | ArborURL;
+  revision?: "tip" | ObjectHash;
+  access?: "read" | "write";
   overlay?: LocalTreeRef;
+  via?: URL[];
 };
 ```
 
-A local mount is reader-controlled. A share invitation proposes a mount that becomes active only when its recipient accepts it; accepting creates an ordinary local mount without turning the inviter's path into the recipient's path.
+A placement is reader-controlled. A share invitation proposes a source; accepting it creates an ordinary entry at the recipient's chosen local path without turning the inviter's path into the recipient's path.
 
-One identity may occupy many positions at once. A workspace may mount the same shared tree — or different subtrees of it — at several paths simultaneously; each mount is an independent record, and all are live views of the same tree. Canonical position ([wire.md](wire.md) §2), personal mounts, and per-agent namespaces (§1) are three kinds of position over one identity, so rearranging a workspace never breaks names.
+One identity may occupy many positions at once. A workspace may place the same shared tree — or different subtrees of it — at several path keys simultaneously; all are live views of the same tree. Canonical position ([wire.md](wire.md) §2), personal placements, and per-agent namespaces (§1) are three kinds of position over one identity, so rearranging a workspace never breaks names.
 
 Relative links are resolved in the workspace. Script imports use ES-module semantics: they are resolved once and locked to object hashes for the lifetime of an execution, so a later mount change cannot silently replace code already running. Reader code overrides are explicit.
 

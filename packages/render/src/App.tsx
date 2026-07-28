@@ -160,6 +160,23 @@ export function App() {
     } catch {}
   }, []);
   useEffect(() => { void refreshRoots(); }, [refreshRoots]);
+  useEffect(() => {
+    const refresh = () => { void refreshRoots(); };
+    addEventListener("focus", refresh);
+    return () => removeEventListener("focus", refresh);
+  }, [refreshRoots]);
+  useEffect(() => {
+    if (!rootsPage) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        for await (const event of api.client.observe(rootsPage.observedThrough, controller.signal)) {
+          if (event.tree === "system" && event.path === "/roots") await refreshRoots();
+        }
+      } catch {}
+    })();
+    return () => controller.abort();
+  }, [refreshRoots, rootsPage?.observedThrough]);
 
   const load = useCallback(async (next: string) => {
     const request = ++nodeRequest.current;
@@ -541,7 +558,7 @@ export function App() {
               <small>{home && root.osPath.startsWith(home) ? `~${root.osPath.slice(home.length)}` : root.osPath}</small>
             </button>
             <span className={`scope-chip ${root.tracking}`}>{root.missing ? "missing" : root.tracking}</span>
-            {root.tracking === "tracked" && <button className="quiet" onClick={() => navigate(`/system:roots/${root.name}`)}>record</button>}
+            {root.tracking === "tracked" && <button className="quiet" onClick={() => navigate(`/system:roots/${root.id}`)}>record</button>}
             {root.tracking === "tracked"
               ? <button className="quiet danger" onClick={() => void untrackRoot(root)}>untrack</button>
               : <button className="quiet" onClick={() => void trackFolder(root.osPath)}>keep</button>}

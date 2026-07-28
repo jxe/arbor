@@ -318,7 +318,7 @@ With native and web on one authority:
 - add Finder-like traversal, history, Quick Look/open actions, drag/import, and whole-workspace search;
 - support complete projected directory documents and ordinary non-Markdown files without coercing the latter into editor documents;
 - resolve `notes`, `../roadmap`, and `/rooted` references in the current logical tree, and absolute `arbor://` references through arbord mounts/visits while retaining document IDs across moves;
-- add local mounts and `system:` records;
+- add local tree placements and derived `system:` views;
 - then add overlays, shared-tree provenance, scripts/islands, databases, and sharing UI.
 
 ## iCloud and sidecars
@@ -371,9 +371,9 @@ Only one first-party writer owns a platform at a time: arbord on macOS, Clamshel
 
 These build on the early provider rather than introducing new storage paths.
 
-### `system:` and mounts
+### `system:` and tree placements
 
-TreeHopper renders readable `system:mounts`, `system:connections`, trees, shares, and diagnostics as native rows/tables/forms backed by arbord operations. Secrets remain in Keychain and appear only as safe credential references. Invalid source edits retain the last valid configuration and surface diagnostics.
+TreeHopper renders readable tree placements, `system:connections`, future shares, and diagnostics as native rows/tables/forms backed by arbord operations. The placement source is the path-keyed `~/.arbor/trees.yaml`; other logical `system:` views need not correspond one-for-one to files. Secrets remain in Keychain and appear only as safe credential references. Invalid source edits retain the last valid configuration and surface diagnostics.
 
 ### Search and provenance
 

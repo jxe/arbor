@@ -44,8 +44,8 @@ describe("REST v1 protocol fixtures", () => {
     expect(untracked.enclosingRoot).toBeUndefined();
     expect(systemRoot.tree).toBe("system");
     expect(systemRoot.writable).toBe(false);
-    expect(roots.roots.map((root) => root.tracking)).toEqual(["tracked", "session", "tracked"]);
-    expect(roots.roots.at(-1)?.missing).toBe(true);
+    expect(roots.roots.map((root) => root.tracking)).toEqual(["tracked", "session"]);
+    expect(roots.roots.some((root) => root.missing)).toBe(false);
     expect(roots.home).toBe("/Users/joe");
     expect(backlinks.entries[0]?.ref.pageID).toBe("week01");
     expect(recovery.entries.map((entry) => entry.kind)).toEqual(["block", "trash"]);

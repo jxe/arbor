@@ -300,9 +300,9 @@ export class ArborService implements AsyncDisposable {
   }
 
   /** The tracked-root surface behind `GET/POST/DELETE /v1/roots`. */
-  rootsPage(): RootsPage {
+  async rootsPage(): Promise<RootsPage> {
     return {
-      roots: this.roots.descriptors(),
+      roots: await this.roots.descriptors(),
       home: homedir(),
       diagnostics: this.roots.diagnostics(),
       observedThrough: this.events.currentCursor(),
@@ -334,8 +334,9 @@ export class ArborService implements AsyncDisposable {
     return owners[0]?.workspace ?? this.roots.session;
   }
 
-  /** Read-only `system:` pages: `/`, `/roots`, and `/roots/<name>`. */
-  private systemSnapshot(path: string): NodeSnapshot {
+  /** Read-only `system:` pages: `/`, `/roots`, and `/roots/<RootID>`. */
+  private async systemSnapshot(path: string): Promise<NodeSnapshot> {
+    await this.roots.descriptors();
     const observedThrough = this.events.currentCursor();
     const base = {
       tree: SYSTEM_TREE,
@@ -386,13 +387,13 @@ export class ArborService implements AsyncDisposable {
       kind: "markdown",
       contentRevision: revisionOf(record.record.source),
       bodyState: "stored",
-      bodyOrigin: "sibling",
       document: parseMarkdown(record.record.source),
       diagnostics: [],
     };
   }
 
-  private systemChildren(path: string): ChildrenPage {
+  private async systemChildren(path: string): Promise<ChildrenPage> {
+    await this.roots.descriptors();
     const observedThrough = this.events.currentCursor();
     if (path === "/") {
       return {
@@ -413,21 +414,14 @@ export class ArborService implements AsyncDisposable {
     throw new ProtocolError("invalid-reference", `system:${path.slice(1)} does not have children`, 400, { path });
   }
 
-  /** Record pages are named by friendly name, falling back to id on collision. */
-  private systemRootSegments(): Array<{ segment: string; record: import("@arbor/stores").SystemRootRecord }> {
-    const records = this.roots.records();
-    const counts = new Map<string, number>();
-    for (const record of records) counts.set(record.name, (counts.get(record.name) ?? 0) + 1);
-    return records.map((record) => ({
-      segment: (counts.get(record.name) ?? 0) > 1 ? record.id : record.name,
-      record,
-    }));
+  private systemRootSegments() {
+    return this.roots.records().map((record) => ({ segment: record.id, record }));
   }
 
   private systemRootChildren() {
     return this.systemRootSegments()
-      .map(({ segment }) => ({
-        name: segment,
+      .map(({ segment, record }) => ({
+        name: record.name,
         path: `/roots/${segment}`,
         kind: "markdown" as const,
         materialization: "available" as const,
@@ -438,7 +432,7 @@ export class ArborService implements AsyncDisposable {
   private systemRecordAt(path: string) {
     const match = /^\/roots\/([^/]+)$/.exec(path);
     if (!match) return null;
-    return this.systemRootSegments().find(({ segment, record }) => segment === match[1] || record.id === match[1]) ?? null;
+    return this.systemRootSegments().find(({ segment }) => segment === match[1]) ?? null;
   }
 
   private async translateMutation(

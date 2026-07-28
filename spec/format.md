@@ -178,4 +178,4 @@ A few names inside the tree are conventions rather than content, and a little st
 - **`Trash/`** — soft-deleted pages, mirroring the source structure; restore returns a page to its original path ([system.md](system.md) §3).
 - **`Assets/`** — pasted images, visible by convention (Notion/Obsidian style) so pages stay portable to any markdown viewer.
 - **`.arbor/`** — generated TypeScript declarations (`tree.gen.d.ts`), wired in through the workspace tsconfig; in-tree only because the TypeScript language service must see it.
-- **Arbord-private state** — the index, caches, and the write journal live in a per-workspace directory outside the tree (Application Support/XDG), so they never appear in `grep`, git, sync, or deploys ([system.md](system.md) §3).
+- **Arbord-private state** — the index, caches, and the write journal live under `~/.arbor/workspaces/`, outside the tree, so they never appear in `grep`, git, sync, or deploys ([system.md](system.md) §3).

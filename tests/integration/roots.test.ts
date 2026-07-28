@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArbor } from "@arbor/arbord";
@@ -25,6 +25,16 @@ async function launch(path: string) {
   return running;
 }
 
+async function waitFor<T>(read: () => Promise<T | null>, timeout = 3_000): Promise<T> {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const value = await read();
+    if (value !== null) return value;
+    await Bun.sleep(25);
+  }
+  throw new Error("Timed out waiting for root registry reconciliation");
+}
+
 beforeAll(async () => {
   outer = await realpath(await mkdtemp(join(tmpdir(), "arbor-roots-")));
   state = await mkdtemp(join(tmpdir(), "arbor-roots-state-"));
@@ -33,6 +43,7 @@ beforeAll(async () => {
   otherRoot = join(outer, "library");
   await mkdir(sessionRoot);
   await mkdir(otherRoot);
+  await writeFile(join(sessionRoot, "_index.md"), "---\ntitle: Ignored title\n---\n\n## Lower heading\n\n# Session Garden\n");
   await writeFile(join(sessionRoot, "here.md"), "Session content\n");
   await writeFile(join(otherRoot, "essay.md"), "---\nid: lib001\n---\nLibrary essay about ferns\n");
   await launch(sessionRoot);
@@ -48,6 +59,7 @@ describe("tracked roots", () => {
   test("the session root starts session-scoped and can be kept", async () => {
     const before = await fetch(`${base}/v1/roots`).then((r) => r.json()) as RootsPage;
     expect(before.roots.map((root) => root.tracking)).toEqual(["session"]);
+    expect(before.roots[0]?.name).toBe("Session Garden");
     expect(before.home).toBeString();
 
     const tracked = await fetch(`${base}/v1/roots`, {
@@ -57,6 +69,7 @@ describe("tracked roots", () => {
     }).then((r) => r.json()) as RootDescriptor;
     expect(tracked.tracking).toBe("tracked");
     expect(tracked.osPath).toBe(sessionRoot);
+    expect(tracked.name).toBe("Session Garden");
 
     const node = await client.node({ path: "/here" });
     expect(node.enclosingRoot?.tracking).toBe("tracked");
@@ -69,6 +82,8 @@ describe("tracked roots", () => {
       body: JSON.stringify({ path: otherRoot }),
     }).then((r) => r.json()) as RootDescriptor;
     expect(tracked.tracking).toBe("tracked");
+    expect(tracked.name).toBe("library");
+    await expect(access(join(otherRoot, "_index.md"))).rejects.toThrow();
 
     // Idempotent by canonical path.
     const again = await fetch(`${base}/v1/roots`, {
@@ -119,6 +134,10 @@ describe("tracked roots", () => {
       body: JSON.stringify({ path: outer }),
     });
     expect(nested.status).toBe(422);
+
+    const registry = await readFile(join(state, "trees.yaml"), "utf8");
+    expect(registry).toContain(`${JSON.stringify(sessionRoot)}:\n  source: local`);
+    expect(registry).toContain(`${JSON.stringify(otherRoot)}:\n  source: local`);
   });
 
   test("system:roots is browsable read-only", async () => {
@@ -128,6 +147,7 @@ describe("tracked roots", () => {
     const roots = await client.children({ tree: "system", path: "/roots" });
     expect(roots.items.length).toBe(2);
     const first = roots.items[0]!;
+    expect(first.path).toMatch(/^\/roots\/rt_/);
     const page = await client.node({ tree: "system", path: first.path });
     expect(page.kind).toBe("markdown");
     expect(page.writable).toBe(false);
@@ -147,6 +167,68 @@ describe("tracked roots", () => {
       }),
     });
     expect(write.status).toBe(422);
+  });
+
+  test("invalid direct edits retain active roots and path moves never guess identity", async () => {
+    const before = await fetch(`${base}/v1/roots`).then((r) => r.json()) as RootsPage;
+    const library = before.roots.find((root) => root.osPath === otherRoot)!;
+    const validSource = await readFile(join(state, "trees.yaml"), "utf8");
+
+    await writeFile(join(state, "trees.yaml"), `${JSON.stringify(otherRoot)}: local\n`);
+    const invalid = await waitFor(async () => {
+      const page = await fetch(`${base}/v1/roots`).then((r) => r.json()) as RootsPage;
+      return page.diagnostics.some((item) => item.code === "invalid-tree-placement") ? page : null;
+    });
+    expect(invalid.roots.some((root) => root.id === library.id)).toBe(true);
+
+    const missingRoot = join(outer, "does-not-exist");
+    await writeFile(
+      join(state, "trees.yaml"),
+      `${validSource}${JSON.stringify(missingRoot)}:\n  source: local\n`,
+    );
+    const missing = await waitFor(async () => {
+      const page = await fetch(`${base}/v1/roots`).then((r) => r.json()) as RootsPage;
+      return page.diagnostics.some((item) => item.code === "missing-root-path") ? page : null;
+    });
+    expect(missing.roots.some((root) => root.id === library.id)).toBe(true);
+    expect(missing.roots.some((root) => root.osPath === missingRoot)).toBe(false);
+
+    await writeFile(join(state, "trees.yaml"), validSource);
+    await waitFor(async () => {
+      const page = await fetch(`${base}/v1/roots`).then((r) => r.json()) as RootsPage;
+      return page.diagnostics.length ? null : page;
+    });
+
+    const privateRegistryPath = join(state, "workspaces.json");
+    const privateRegistry = JSON.parse(await readFile(privateRegistryPath, "utf8"));
+    const libraryIdentity = privateRegistry[otherRoot];
+    delete privateRegistry[otherRoot];
+    const formerA = join(outer, "former-library-a");
+    const formerB = join(outer, "former-library-b");
+    privateRegistry[formerA] = { ...libraryIdentity, path: formerA };
+    privateRegistry[formerB] = { ...libraryIdentity, path: formerB };
+    await writeFile(privateRegistryPath, `${JSON.stringify(privateRegistry, null, 2)}\n`);
+
+    const movedRoot = join(outer, "library-moved");
+    await rename(otherRoot, movedRoot);
+    const movedSource = validSource.replace(JSON.stringify(otherRoot), JSON.stringify(movedRoot));
+    await writeFile(join(state, "trees.yaml"), movedSource);
+    const ambiguous = await waitFor(async () => {
+      const page = await fetch(`${base}/v1/roots`).then((r) => r.json()) as RootsPage;
+      return page.diagnostics.some((item) => item.code === "ambiguous-tree-move") ? page : null;
+    });
+    expect(ambiguous.roots.some((root) => root.id === library.id)).toBe(true);
+    expect(ambiguous.roots.some((root) => root.osPath === movedRoot)).toBe(false);
+
+    delete privateRegistry[formerB];
+    await writeFile(privateRegistryPath, `${JSON.stringify(privateRegistry, null, 2)}\n`);
+    await writeFile(join(state, "trees.yaml"), `${movedSource}# retry after resolving identity\n`);
+    const moved = await waitFor(async () => {
+      const page = await fetch(`${base}/v1/roots`).then((r) => r.json()) as RootsPage;
+      return page.roots.find((root) => root.osPath === movedRoot) ?? null;
+    });
+    expect(moved.id).toBe(library.id);
+    otherRoot = movedRoot;
   });
 
   test("tracked roots survive a daemon restart and untrack removes the record", async () => {

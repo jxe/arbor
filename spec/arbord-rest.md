@@ -44,7 +44,7 @@ Every successful node read returns a resolved snapshot with:
 ```ts
 type RootDescriptor = {
   id: RootID;
-  name: string;                       // friendly name; basename by default
+  name: string;                       // root _index.md H1; basename fallback
   osPath: string;                     // absolute canonical path of the root on disk
   tracking: "tracked" | "session";
   missing?: boolean;                  // record exists but the path does not
@@ -98,7 +98,7 @@ GET /v1/roots
 
 Every reference-taking route also accepts `tree=…` per §2; `/v1/search` takes `tree` as its scope (a tracked root's index; `tree=local` is `unsupported-operation` — nothing indexes the untracked filesystem, and an all-roots search is a client-side fan-out over tracked roots). Search, recovery, backlinks, collections, and Trash are per-tree capabilities: in `local` scope they return `unsupported-operation` with the tracking affordance left to clients. Recovery remains explicitly per-root until workspace composition adds a client-side multi-root surface.
 
-`GET /v1/roots` returns `{ roots: RootDescriptor[], home: string, observedThrough }` — the tracked and session roots plus the user's home directory for client-side `~` rendering, with invalid or missing records surfaced as diagnostics rather than dropped silently. `POST /v1/roots {path}` tracks a folder (idempotent by canonical path; refuses nesting an existing root until mounts give overlap semantics) and `DELETE /v1/roots?id=…` untracks it, retaining the root's private recovery state. These are system-scope operations, deliberately outside `/v1/mutations` and its journal receipts; the namespace milestone supersedes them with `system:roots` served mutably through the ordinary node surface. Until then `system:roots` is readable through `/v1/node` and `/v1/children` with `tree="system"`, and every system-scope mutation is `unsupported-operation`.
+`GET /v1/roots` returns `{ roots: RootDescriptor[], home: string, observedThrough }` — the session root plus the `source: local` entries in `~/.arbor/trees.yaml`, with invalid or missing placements surfaced as diagnostics rather than dropped silently. `POST /v1/roots {path}` adds the canonical path-keyed local entry (idempotent by path; overlapping live trees are refused) and `DELETE /v1/roots?id=…` removes it while retaining private recovery state. RootIDs live only in `workspaces.json`; an unambiguous same-filesystem path-key move preserves them. `system:roots/<RootID>` remains a generated, read-only compatibility view through `/v1/node` and `/v1/children`; every system-scope mutation is still `unsupported-operation`.
 
 `/v1/node` resolves and reads in one operation. Routes that address a Markdown page accept the same path or page-ID-plus-hint query forms; path-only nodes use `path`. Separate `/open` resources are absent. Child, search, backlink, collection, and recovery cursors are opaque continuation values; callers do not construct offsets or infer storage layout from them.
 

@@ -511,6 +511,7 @@ test("browses above the session root and keeps tracking it durably", async ({ pa
   await expect(page.locator(".scope-chip")).toHaveText(/tracked/);
   await page.getByRole("button", { name: "Arbor", exact: true }).click();
   await expect(page.locator(".home-root")).toHaveCount(1);
+  await expect(page.locator(".home-root strong")).toHaveText("E2E Garden");
   await expect(page.locator(".home-root .scope-chip")).toHaveText("tracked");
 
   // The record is browsable read-only at its system:roots page.

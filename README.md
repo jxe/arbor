@@ -18,6 +18,8 @@ arbor dev /path/to/workspace
 
 The tree path may be absolute, relative to the current directory, or shell-expanded with `~`; omit it to browse the current directory. From this checkout, `bun run dev -- <path>` is equivalent and does not require linking the command.
 
+Arbor keeps its local state in `~/.arbor`. The human-editable [`trees.yaml`](spec/system.md) registry is keyed by canonical local paths; `source: local` marks the folders whose indexes, journals, recovery, and live observation persist across launches. Private workspace indexes remain under `~/.arbor/workspaces/`. On first launch, current platform-specific state (including macOS Application Support state) moves intact to `~/.arbor`, with a compatibility symlink left at the former location. `ARBOR_DATA_HOME` selects an isolated alternate root and disables this default-state migration.
+
 Markdown uses CommonMark/GFM plus the readable Clamshell toggle extension (`▸ Title` with two-space-indented children). CSV and JSONL use the fixed `_store.csv` and `_store.jsonl` names. Configure Postgres references without a plaintext DSN using `arbor connection set <name>`.
 
 Markdown page names are logical and extensionless in Arbor. `x.md` supplies `/x`'s body and a sibling `x/` supplies its children, so a page can gain children without moving or rewriting its body. If `x.md` is absent, `x/_index.md` is the fallback directory body. Both body files at once are a blocking duplicate-body diagnostic. Thus this repository's `spec.md` is the body of `/spec`, while `spec/` contains its children.
