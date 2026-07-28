@@ -1045,7 +1045,7 @@ td input { width: 100%; min-width: 120px; border: 0; background: transparent; co
   font-size: 12px;
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
-.modal-actions button, .canonical-addresses button, .sharing-preview button {
+.modal-actions button, .canonical-addresses button, .sharing-preview button, .sharing-link-preview {
   padding: 7px 11px;
   border: 1px solid var(--arbor-border);
   border-radius: 7px;
@@ -1083,3 +1083,4 @@ td input { width: 100%; min-width: 120px; border: 0; background: transparent; co
 .sharing-placeholder p { margin: 6px 0 12px; color: var(--arbor-muted); font-size: 13px; }
 .sharing-preview { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .sharing-preview button { cursor: default; }
+.sharing-link-preview { margin-top: 8px; cursor: default; }

@@ -733,7 +733,7 @@ export function App() {
           <span>{treeControl.tree.sync === "pushing" || treeControl.tree.sync === "pulling" ? "Syncing…" : treeControl.tree.sync === "error" || treeControl.tree.sync === "conflict" ? "Needs attention" : treeControl.tree.sync === "offline" ? "Offline" : "Up to date"}</span>
         </div>
         <fieldset className="publication-control" disabled={treeBusy}>
-          <legend>Publication</legend>
+          <legend>Public access</legend>
           {([
             ["private", "Private", "Only your Arbor devices"],
             ["public-read", "Public read", "Anyone with the URL can read"],
@@ -748,8 +748,9 @@ export function App() {
           <p>Sharing with people is not available yet.</p>
           <div className="sharing-preview">
             <input disabled placeholder="Name or email address" />
-            <button disabled>Invite</button>
+            <button disabled>Share</button>
           </div>
+          <button className="sharing-link-preview" disabled>Copy read access link</button>
         </section>
       </> : <>
         <div className="tree-control-heading">

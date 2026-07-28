@@ -7,7 +7,7 @@ Arbord is the sole first-party authority for a desktop workspace. It resolves lo
 
 REST v1 is the concrete reference transport for that local authority. TreeHopper web uses the TypeScript reference client; TreeHopper native uses a Foundation-only Swift reference client beneath its native `WorkspaceProvider`. The CLI uses the same contract. The clients may add ergonomic methods and local document-session coordination, but none may invent a second persistence path.
 
-The initial server binds loopback and assumes a trusted single-user process environment. It has no general login, local account model, or capability-negotiation handshake. That is a deliberate reference boundary, not a claim that an arbord exposed to untrusted local or remote clients would need no authorization. Remote shared-tree grants belong to the [wire](wire.md), and deployed/script authorities enforce the narrower security required by those features.
+The initial server binds loopback and assumes a trusted single-user process environment. It has no general login, local account model, or capability-negotiation handshake. That is a deliberate reference boundary, not a claim that an arbord exposed to untrusted local or remote clients would need no authorization. Remote whole-tree access belongs to the [wire](wire.md), and deployed/script authorities enforce the narrower security required by those features.
 
 This contract is not an extension framework. REST v1 specifies the operations Arbor actually uses. When a later specified feature needs another operation or field, the spec is amended concretely; clients are not required to implement hypothetical provider capabilities in advance.
 
@@ -35,7 +35,7 @@ type NodeRef =
 - `pageID` is an opaque, durable document identity carried by materialized Markdown frontmatter. Existing six-character IDs remain valid, but length and alphabet are not protocol semantics.
 - `pathHint` makes logs and failures understandable and speeds ordinary resolution. When it disagrees with a valid page ID, the ID owner wins and arbord returns its current canonical path.
 - Ordinary files and untouched bodyless directories remain path-only. The planned projected-document layer requires arbord to ensure a `PageID`, by minimally materializing the Markdown body, before an authored identity-bearing link or structural move requires directory-document continuity. REST does not synthesize a durable universal `NodeID`.
-- Canonical HTTP/Arbor names and invitations resolve to a `TreeID` before entering this local API; they do not add more `TreeRef` variants.
+- Canonical HTTP/Arbor names and access links resolve to a `TreeID` before ordinary node operations; they do not add more `TreeRef` variants.
 
 Duplicate page IDs are an error/diagnostic, never a nondeterministic choice. A page ID is rename-resistant identity for Markdown content, not a global name or proof of authority.
 
@@ -51,7 +51,7 @@ type TreeDescriptor = {
   canonical?: string;
   httpURL?: string;
   endpoint?: string;
-  publication?: "private" | "public-read" | "public-write";
+  publicAccess?: "none" | "read" | "write";
   access?: "read" | "write";
   placement: "local" | "shared" | "remote";
   sync?: "idle" | "pushing" | "pulling" | "offline" | "conflict" | "error";
@@ -156,7 +156,7 @@ Backlinks resolve the usual `NodeRef`, return referring document refs plus link 
 
 **The DOM's URL rule is not Arbor's locator rule.** Displayed routes deliberately omit the directory-like base slash ([locators.md](locators.md)), so native browser resolution of a relative `src`/`href` cannot match logical resolution. In-app rendering therefore resolves every authored reference — links *and* asset embeds alike — through the shared logical resolver before it reaches the DOM. `arbor bake` performs the same resolution at publication time, emitting references that resolve natively on a dumb static host ([wire.md](wire.md) §7).
 
-**Reads are tree-qualified.** A visited or placed file arrives by resolving `(TreeID, path)` through the wire's single root ref and walking the required hashes. Arbord proxies rather than handing TreeHopper a remote object URL: grants remain enforced in one place, the web client stays same-origin against loopback, and fetched objects share one cache with any later placement or pin.
+**Reads are tree-qualified.** A visited or placed file arrives by resolving `(TreeID, path)` through the wire's single root ref and walking the required hashes. Arbord proxies rather than handing TreeHopper a remote object URL: access remains enforced in one place, the web client stays same-origin against loopback, and fetched objects share one cache with any later placement or pin.
 
 Both reference clients and TreeHopper web use these reads. The filesystem driver recognizes iCloud's `.name.icloud` eviction marker as the logical file's `placeholder` state and never reads marker bytes as content. Home/default location comes from safe `system:device` state; it is not smuggled into a content route.
 
@@ -212,11 +212,14 @@ type SystemOperation =
   | { op: "configureServer"; origin: string; ownerToken: string }
   | { op: "promoteTree"; path: string; slug: string }
   | { op: "placeTree"; tree: TreeID; path: string; endpoint?: string; canonical?: string }
-  | { op: "setTreePublication"; tree: TreeID; publication: "private" | "public-read" | "public-write" }
-  | { op: "createInvitation"; tree: TreeID; subtree: LogicalPath; rights: GrantRights; recipient?: string; expiresAt?: string }
-  | { op: "acceptInvitation"; descriptor: string; path: string; access: "read" | "write" }
-  | { op: "setGrant"; tree: TreeID; grant: string; subtree: LogicalPath; rights: GrantRights }
-  | { op: "revokeGrant"; tree: TreeID; grant: string }
+  | {
+      op: "setTreeAccess";
+      tree: TreeID;
+      subject: { kind: "everyone" } | { kind: "person"; principal: string };
+      access: "none" | "read" | "write";
+    }
+  | { op: "createAccessLink"; tree: TreeID; access: "read" | "write"; claimSecret: string }
+  | { op: "claimTreeAccess"; link: string; path?: string }
   | { op: "setPlacementAccess"; tree: TreeID; path: string; access: "read" | "write" };
 
 type MutationRequest =
@@ -245,9 +248,11 @@ The complete structural batch either commits or has no logical effects. Structur
 
 References carry their `tree` per §2; path-literal creates carry the same optional qualifier. A structural batch resolves in exactly one scope. Cross-tree movement is an explicit transfer, not an accidental composition of durability domains. A shared `TreeID` supports the full journaled mutation surface. `local` supports byte-CAS Markdown, create, and natural rename/move/copy but not identity minting, authored ordering, Trash, recovery, or sync.
 
-System operations are singleton because their authority and rollback domains differ from content and filesystem transactions. They still receive durable receipts and ordered `system` events. `configureServer` is secret-aware: the raw token moves directly to the OS credential store; only normalized origin and token digest enter durable intent. `promoteTree` reserves name/TreeID, uploads and verifies the initial tip, reattaches private state, then replaces the placement before acknowledging. Invitation and grant operations are specified here as part of the complete product even when a reference implementation stage has not landed them.
+System operations are singleton because their authority and rollback domains differ from content and filesystem transactions. They still receive durable receipts and ordered `system` events. `configureServer` is secret-aware: the raw token moves directly to the OS credential store; only normalized origin and token digest enter durable intent. `promoteTree` reserves name/TreeID, uploads and verifies the initial tip, reattaches private state, then replaces the placement before acknowledging.
 
-`placeTree` may carry the already-resolved wire endpoint and canonical name when the tree came from another person's URL. The daemon verifies that name against the resolved `TreeID`, materializes the current tip, and records the recipient's effective local access ceiling. Reads of a read-only placement return `writable: false`, and authored mutation routes reject it with `read-only`; direct filesystem edits are local divergence rather than authority to push.
+`setTreeAccess` is whole-tree only. `everyone` access is the underlying state projected in product language as private/public-read/public-write. Setting a known person's access to `none` removes it. `createAccessLink` receives a client-generated random claim secret, sends only its digest to the wire authority, and never writes the raw value into the mutation journal, receipt, events, diagnostics, or logs; the client combines the retained secret with the returned safe `AccessID`. `claimTreeAccess` sends a complete access link directly to the authority, stores the issued credential in the operating-system credential store, and optionally creates or reconciles the placement at `path`. Repeating the same claim and path returns the same effective result, so `browse` and `sync` need no second acceptance command.
+
+`placeTree` may carry the already-resolved wire endpoint and canonical name when the tree came from another person's URL. The daemon verifies that name against the resolved `TreeID`, materializes the current tip, and records an optional stricter local access ceiling. Reads of a read-only placement return `writable: false`, and authored mutation routes reject it with `read-only`; direct filesystem edits are local divergence rather than authority to push.
 
 `refs` arrays are non-empty and retain their order. `move` is also the placement operation, with two placements. `natural` — the default for an unanchored cross-directory move — moves the node without materializing a stored destination row: the child simply appears in the listing (and as a projected synthetic row), pre-existing destination rows naming the moved node are rewritten, and source-directory rows for the departed child are removed. `authored` places a stored row in the destination directory body; an anchor (`beforePath` or `beforeBlockID`) always implies `authored`, and an unanchored `authored` move appends in authored document order. A same-directory move is a reorder and is inherently authored. Renames update an existing authored row but never materialize one for a previously synthetic child.
 
@@ -485,4 +490,4 @@ bun run test:protocol
 
 ## 8. Other concrete domains
 
-Scripts add explicit run/subscribe operations for compiled handles; agents add run/transcript operations over agent files; SQLite and Postgres row changes use their own store transactions and return ordinary receipts/events. None justify a generic provider-operation registry. Remote object/ref/grant traffic remains the separate authenticated wire protocol.
+Scripts add explicit run/subscribe operations for compiled handles; agents add run/transcript operations over agent files; SQLite and Postgres row changes use their own store transactions and return ordinary receipts/events. None justify a generic provider-operation registry. Remote object/ref/access traffic remains the separate authenticated wire protocol.

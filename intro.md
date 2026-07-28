@@ -44,7 +44,7 @@ arbor://notes.example.org/atlas
 arbor://tree/tr_7k3m…          # identity fallback if it moves
 ```
 
-I can stop there and use it only for myself. I can publish the same tree for anyone to read or even for anyone to edit. And later I can invite Alice to all or part of that already identified tree. Accepting her invitation does not create a second identity; she places the same tree wherever it makes sense in *her* workspace:
+I can stop there and use it only for myself. I can give `everyone` read or write access, add Alice with read or write access, or copy a revocable access link for someone Arbor does not know yet. Alice can open that link or give it directly to `arbor sync`; claiming it stores her credential and continues to the same canonical tree. She places that tree wherever it makes sense in *her* workspace:
 
 ```text
 Joe                              Alice
@@ -52,13 +52,15 @@ projects/atlas/                  work/atlas/
              └──── same shared tree ────┘
 ```
 
-The tree has one identity; each of us controls its placement and local access ceiling.
+The tree has one identity and one access list. Publication is not a separate system: “public read” and “public write” are simply read or write access for `everyone`.
+
+The shared tree is also the permission boundary. If I want to share only `projects/atlas/research`, I first give that subtree its own URL. It becomes a nested shared tree with its own identity and access list. Sharing Atlas never leaks the private child; sharing the child never exposes the rest of Atlas.
 
 Sharing also turns out to solve naming — the moment a folder becomes a shared tree, everything inside it gets a stable global address.
 
 Inside Markdown, these are still ordinary link destinations. From the document `/projects/atlas`, `[Notes](notes)` points to its child and `[Roadmap](../roadmap)` to its sibling; `[Drift](arbor://notes.example.org/essays/drift#x7f3q2)` jumps to another shared tree. (That final fragment is the document's durable ID, which makes it so you can relocate files and directories and the links can heal to point to the right place.)
 
-The everyday command line is correspondingly small. Its arguments are **Arbor locators**: one input language for local paths, canonical HTTP/Arbor names, and immutable historical revisions.
+The everyday command line is correspondingly small. Its arguments are **Arbor locators**: one input language for local paths, canonical HTTP/Arbor names, one-claim access links, and immutable historical revisions.
 
 ```sh
 # Open TreeHopper on ordinary local files or an already placed tree.
@@ -70,6 +72,13 @@ arbor sync ~/workspace/projects/atlas https://notes.example.org/atlas -public-re
 
 # Resolve someone else's canonical tree and choose where it belongs locally.
 arbor sync https://alice.example.org/atlas ~/workspace/work/atlas
+
+# Give a known person access, or create a claim link for someone new.
+arbor share arbor://notes.example.org/atlas alice -write
+arbor share arbor://notes.example.org/atlas -read
+
+# A claim link is just another remote sync source; claiming is idempotent.
+arbor sync 'https://notes.example.org/.arbor/access/ac_7k3m…#secret' ~/workspace/work/atlas
 
 # Browse or place one exact historical root without following later changes.
 arbor browse 'arbor://notes.example.org/atlas@{sha256:7db4…}'
@@ -225,7 +234,7 @@ Several other things fall out that the web has always struggled with:
 
 **Multiplayer apps come for free.** On the web, making an app multiplayer is a rewrite: operational transforms or CRDTs, presence servers, conflict UX. Here, any component rendered over a shared tree *is* a multiplayer app, because synchronization is the substrate, not application code. The `ReadingRoom` above is multiplayer the moment its essays folder is shared.
 
-**Auth, login, and cookies are replaced.** The web makes you an account at every site, tracked by cookies, authenticated by passwords. Here there are no per-app accounts: "logging in" is accepting an invitation, which mounts a tree and stores a credential. Your identity is your workspace plus your credential store. Access is a property of trees and grants, not of sites and sessions — and revocation is a change to a grant, not a hunt through settings pages.
+**Auth, login, and cookies are replaced.** The web makes you an account at every site, tracked by cookies, authenticated by passwords. Here there are no per-app accounts. A known person receives tree access directly; someone new claims a link once, stores a credential, and thereafter uses the ordinary canonical URL. Access is a short list attached to a whole tree—people, links, and `everyone`—not a site session. Revocation changes one entry rather than sending anyone hunting through application settings.
 
 **Customization replaces browser extensions.** The web renders the author's frozen output; changing it means fragile extensions scraping the DOM. Here, rendering is reader-wins: you can override the view on anything you've mounted, and your override is just another script in your tree. Authors propose presentation; readers dispose.
 
@@ -264,7 +273,7 @@ GET  /.arbor/trees/{TreeID}/watch   # tell me when it moves
 GET  /.arbor/objects/{hash}         # give me this immutable object
 ```
 
-When the tip moves, your arbord fetches the new root and walks only the hashes needed for the subtree it is reading. A subtree grant does not need its own ref: the authority diffs the old and proposed roots and rejects changes outside the allowed path. That Merkle diff is why sync is cheap; recorded read sets are why the right queries re-run.
+When the tip moves, your arbord fetches the new root and walks only the hashes needed for the subtree it is reading. Access is checked once at the shared-tree boundary; a push still compares the expected and proposed roots before moving the tip. If a subtree needs different access, it is a nested tree with its own tip. Merkle structure is why sync is cheap; recorded read sets are why the right queries re-run.
 
 This split unlocks the whole content-centric networking agenda, almost as a side effect:
 

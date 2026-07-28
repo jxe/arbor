@@ -24,7 +24,7 @@ Vocabulary:
 - **tree placement** — a reader-local canonical path for a shared tree;
 - **`PageID`** — durable identity of a materialized Markdown document;
 - **arbord** — local workspace/runtime authority;
-- **wire authority** — always-on owner of tree tips, aliases, grants, and immutable objects;
+- **wire authority** — always-on owner of tree tips, aliases, access entries, claims, and immutable objects;
 - **TreeHopper** — browser/editor;
 - **script** — a `.tsx` component/query/mutation file.
 
@@ -51,22 +51,30 @@ The prior roadmap separated self-sync, canonical names, and publication into suc
 
 The new order combines **private self-sync + canonical URL + minimal live HTTP publication**. **Give this subtree a URL** is the one transition from ordinary files to a shared tree. Recipient sharing operates on that identity next. The wire has one mutable root hash per `TreeID`, not a ref per path. Local REST control uses `system:` records and singleton durable mutations, not public root/tree CRUD.
 
+The previous sharing plan also treated arbitrary paths, invitations, grants, publication, local attenuation, overlays, and placement as one milestone. The simplified model makes the shared tree itself the remote permission boundary. Public access is the `everyone` entry in the same whole-tree access list used for people and links; an access link is claimed through ordinary `browse` or `sync`, not accepted through a separate workflow. Subtrees that need different access become nested shared trees. Workspace composition remains separate later work.
+
+An implementation audit after this decision found no landed invitation, grant-ID, fine-rights, or scoped-change machinery to remove. The implemented `PublicationMode`/`setTreePublication` path is real Milestone 1 behavior and remains until Milestone 2 migrates it into the `everyone` entry. The placement `access` ceiling already enforces current read-only safety; the accepted `local:` overlay locator is reserved for later workspace composition. Neither is obsolete. The disabled Sharing mock stays in place, with person and access-link actions shown inertly.
+
 ## Status at a glance
 
 | Status | Milestone | Outcome |
 |---|---|---|
 | **Partial** | 1. Canonical tree hosting | Local reference host, promotion, self-sync, canonical names, and private/public modes; pinned locators and the permanent deployed hostname remain. |
-| **Next** | 2. Recipient sharing and workspace composition | Invitations, scoped grants, revocation, attenuation, overlays, visits, and multiple placements. |
-| **Planned** | 3. Scripts and agents | Colocated components/queries/mutations, isolation, then file-defined agents. |
-| **Planned** | 4. Data and SQLite | Transaction-safe SQLite backing and backing-independent collection mutations. |
-| **Planned** | 5. Fuller publication profiles | Static baking, custom deployed applications, and provider adapters beyond canonical live publication. |
-| **Polish** | 6. Daily-driver hardening | Focused ordinary-file, provider, accessibility, and scale work. |
+| **Next** | 2. Whole-tree sharing | Read/write access for people or claim links, public access on the same list, revocation, and claim-through-sync. |
+| **Planned** | 3. Workspace composition | Multiple placements, local ceilings, overlays, visits, and merged workspace views. |
+| **Planned** | 4. Scripts and agents | Colocated components/queries/mutations, isolation, then file-defined agents. |
+| **Planned** | 5. Data and SQLite | Transaction-safe SQLite backing and backing-independent collection mutations. |
+| **Planned** | 6. Fuller publication profiles | Static baking, custom deployed applications, and provider adapters beyond canonical live publication. |
+| **Polish** | 7. Daily-driver hardening | Focused ordinary-file, provider, accessibility, and scale work. |
 
 ```text
 canonical identity + self-sync + live publication
                          │
                          ▼
-recipient sharing + workspace composition
+                whole-tree sharing
+                         │
+                         ▼
+               workspace composition
             │                         │
             ▼                         ▼
      scripts + agents          data + SQLite
@@ -94,7 +102,7 @@ arbor sync <local-path> <my-canonical-url> -<mode>
 arbor sync <anyones-canonical-url> <local-path>
 ```
 
-Both `sync` forms are idempotent. Lower-level tree/publication operations remain available for explicit administration and recipient commands follow in Milestone 2.
+Both `sync` forms are idempotent. Whole-tree sharing and access-link sources follow in Milestone 2.
 
 The product spec now generalizes these operands as **Arbor locators**: local paths, named HTTP/Arbor locations, raw TreeID locations, and optional immutable revision suffixes. The current CLI implements the live local-path/named-URL subset. A shared locator parser plus historical browse and pinned placement are not yet implemented.
 
@@ -103,7 +111,7 @@ The product spec now generalizes these operands as **Arbor locators**: local pat
 These are implementation cuts, not changes to the topic specs:
 
 - one Railway-hosted server, one owner bearer token, and one active authority process;
-- private, public-read, and anonymous public-write before recipient grants;
+- private, public-read, and anonymous public-write are currently stored as a separate `PublicationMode`; Milestone 2 folds them into the `everyone` access entry without changing these user-facing modes;
 - the Sharing section occupies its final visual position but is disabled with “Sharing with people is not available yet”;
 - one immutable slug segment per tree;
 - live local paths and named URLs only in the CLI; revision-pinned locators are specified but not yet parsed;
@@ -116,7 +124,7 @@ These are implementation cuts, not changes to the topic specs:
 - Public `RootID`, `RootDescriptor`, `RootsPage`, and `/v1/roots` are removed.
 - `TreeRef` is `"local" | "system" | TreeID`; unpromoted paths are OS-absolute local refs.
 - Safe records are read under `system:device`, `system:server`, `system:trees`, `system:credentials`, `system:visited`, and `system:diagnostics`.
-- Singleton operations are `configureServer`, `promoteTree`, `placeTree`, and `setTreePublication`.
+- Implemented singleton operations are `configureServer`, `promoteTree`, `placeTree`, and `setTreePublication`; the last is a staged representation of future `everyone` access.
 - Raw owner tokens go directly to the OS credential store; journals/records/events/errors contain only safe status and digest.
 - System mutations share durable IDs, receipts, retries, conflicts, and events with content mutations but cannot be mixed with them.
 
@@ -168,37 +176,57 @@ The last item is deliberately required before promoting a real personal tree. Lo
 
 ---
 
-## Milestone 2 — recipient sharing and workspace composition
+## Milestone 2 — whole-tree sharing
 
 **Status: Next.**
 
 ### Product contract
 
-An owner invites a recipient to an existing shared tree or subtree, chooses rights, adjusts/revokes them later, and sees current recipients. The recipient accepts, chooses a local placement and stricter access ceiling, and may use a local overlay for read-only work. Revocation preserves cached and overlay work while removing new remote authority.
+An owner gives a known person whole-tree `read` or `write` access, or creates a revocable single-claim access link with one of those access levels. The recipient opens the link or passes it to the existing remote-to-local `sync`; claiming stores the credential and continues to the canonical tree idempotently. Public access is the same list's special `everyone` entry.
+
+There is no path-scoped access. To share a subtree differently, its owner gives that subtree its own URL and shares the resulting nested tree. Changing or removing access never changes its `TreeID`. Revocation leaves already materialized files visible but stale/read-only and prevents new remote reads and writes.
 
 ### Required work
 
-- authority grant metadata, scoped graph-diff validation, invitation descriptors, expiry, and revocation;
-- system mutations `createInvitation`, `acceptInvitation`, `setGrant`, `revokeGrant`, and `setPlacementAccess`;
-- complete `system:trees/<TreeID>/shares/<GrantID>` safe records;
-- working TreeHopper Sharing controls exactly as specified in [spec/browser.md](spec/browser.md);
-- multiple placements of one source, local attenuation, overlays, transient visits, placement promotion, and accurate provenance;
-- nested-tree access resolution under each child's own grant/publication mode;
-- per-device credentials/pairing and owner-device administration beyond one bearer token;
-- merged browser search/recovery views without inventing aggregate REST resources.
+- one authority access table with owner, known-person principal, unclaimed link, and `everyone` subjects; only `none`, `read`, and `write`;
+- fold the implemented publication column and `setTreePublication` operation into the `everyone` entry while preserving private/public-read/public-write as product shorthand;
+- stable person principals and the minimum device credential/pairing needed to authenticate them, without adding local arbord accounts;
+- secret-aware `setTreeAccess`, `createAccessLink`, and `claimTreeAccess` system operations;
+- the matching list/create/update/claim wire access endpoints, without path-scoped policy objects;
+- client-generated claim secrets whose raw value never enters authority storage, mutation journals, receipts, events, diagnostics, or logs;
+- complete safe `system:trees/<TreeID>/access/<AccessID>` records;
+- wire reads and pushes authorized once at the whole-tree boundary; no scoped graph-diff authorization;
+- functional TreeHopper people/link/public access list in the already reserved Sharing location;
+- `arbor share` for known people and links, and access-link resolution through ordinary `browse` and idempotent `sync`;
+- nested-tree access isolation and a direct **Give this subtree a URL** path when someone tries to share only part of a tree.
 
 Completion gate:
 
-- Joe invites Alice read/write to one subtree; Alice places it at a different path;
-- Alice can attenuate to read-only and annotate in an overlay;
-- changes outside her grant are rejected even when submitted inside a valid whole-tree CAS;
-- adjusting and revoking access updates immediately and preserves cached/overlay work;
-- the same `TreeID` may have multiple local placements with correct identity/events;
-- private nested children remain unavailable without their own access.
+- Joe gives known Alice read access; her authenticated arbord syncs the canonical locator at a different path and cannot push;
+- changing Alice to write takes effect without a new URL or placement, and removing her access makes her materialized copy stale/read-only;
+- Joe creates a write access link for an unknown recipient; `arbor sync <access-link> <path>` claims and places it, and repeating the command does not mint another person or placement;
+- public read/write continues through the same `everyone` entry and existing HTTP projection;
+- attempting to share `/research` inside Atlas directs Joe to give it a URL; sharing that new nested tree exposes neither its parent nor private sibling trees;
+- raw access-link and device secrets are absent from every durable or diagnostic text surface.
 
 ---
 
-## Milestone 3 — scripts and agents
+## Milestone 3 — workspace composition
+
+**Status: Planned.**
+
+- Allow one `TreeID` to have multiple local placements with correct identity, events, and provenance.
+- Add an optional stricter read-only ceiling per placement; it never creates remote authority.
+- Add reader-local overlays for annotations and proposals over read-only or historical content.
+- Support transient visits, placement promotion, and pinned historical placements through the common locator resolver.
+- Merge browser search and recovery results across visible trees without inventing aggregate REST resources.
+- Preserve cached and overlay work across offline periods and access restoration.
+
+Completion gate: Alice places one tree twice, makes one placement locally read-only, annotates it in an overlay, visits an unplaced tree, and sees provenance-correct search/recovery results without changing remote access.
+
+---
+
+## Milestone 4 — scripts and agents
 
 **Status: Planned.**
 
@@ -208,11 +236,11 @@ Completion gate:
 - Track read sets and rerun affected subscriptions; render components as sandboxed TreeHopper islands.
 - Add `arbor run` over the same handle identity.
 - Define agents as Markdown prompt/config pages whose context and tools are query/mutation references.
-- Assemble restricted namespaces from shared-tree placements and grants; render the same agent in CLI/browser with inspectable ordinary-tree transcripts.
+- Assemble restricted namespaces from shared-tree placements and process ceilings; render the same agent in CLI/browser with inspectable ordinary-tree transcripts.
 
 Completion gate: one `.tsx` colocates component/query/mutation over two backings; client bundles contain handles but no handler code; invalid input and undeclared paths fail before data access; a file-defined agent uses the same handles and visible consent.
 
-## Milestone 4 — data and SQLite
+## Milestone 5 — data and SQLite
 
 **Status: Planned.**
 
@@ -225,19 +253,19 @@ Completion gate: one `.tsx` colocates component/query/mutation over two backings
 
 Completion gate: changing a file collection to SQLite changes no backing-independent query call sites; external SQLite writes remain observable and snapshots remain consistent during WAL activity.
 
-## Milestone 5 — fuller publication profiles
+## Milestone 6 — fuller publication profiles
 
 **Status: Planned. Canonical live HTTP publication already belongs to Milestone 1.**
 
 - `arbor bake` emits a static ref/object directory for a dumb host.
 - Compile one portable application manifest for pages, assets, static query results, and live handlers.
 - Add one static and two live adapters only after the common manifest exists.
-- Protect deployed handlers with the same grants/validators as local execution.
+- Protect deployed handlers with the same tree access and process validators as local execution.
 - Emit `<link rel="arbor">` and `Arbor-Tree` crosslinks.
 
 Completion gate: one tree publishes statically with working links/assets and one custom live script deploys to both chosen targets from the same manifest.
 
-## Milestone 6 — polish and hardening
+## Milestone 7 — polish and hardening
 
 **Status: Polish; non-blocking.**
 
@@ -258,3 +286,4 @@ Unless an accepted milestone supplies a concrete need:
 - no production HA/horizontal scaling/retention subsystem;
 - no universal durable identity for every ordinary local file;
 - no generic store, transport, credential, or deployment plugin framework.
+- no path-scoped remote access: a subtree with different access is a nested shared tree.

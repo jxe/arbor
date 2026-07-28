@@ -18,6 +18,7 @@ An **Arbor locator** is a user-facing expression that tells Arbor what content t
 | Named HTTP URL | `https://notes.example/atlas` | a tree or node in a named authority namespace |
 | Named Arbor URL | `arbor://notes.example/atlas` | the live Arbor form of the same canonical name |
 | Tree-ID URL | `arbor://tree/tr_7k3m…/essays/drift` | a tree or node by durable `TreeID` |
+| Access link | `https://notes.example/.arbor/access/ac_7k3m…#secret` | a one-claim route to a tree's canonical locator |
 | Tree-rooted path | `/essays/drift` | a logical node rooted at the enclosing shared tree when document context exists |
 | System locator | `system:trees/tr_7k3m…` | a safe record in the local arbord control tree |
 
@@ -25,7 +26,9 @@ Shell commands accept local paths, `system:` locators, and absolute HTTP/Arbor f
 
 A named authority resolves its first path segment to a shared-tree boundary and treats the remainder as a path within that tree. The reserved `tree` authority takes a `TreeID` as its first segment. A dedicated whole-domain alias is the same model with a tree mounted at `/`.
 
-HTTP and Arbor spellings may name the same live content. HTTP is the universal fallback and publication surface; `arbor://` states Arbor resolution explicitly. Neither spelling is a credential. Private content keeps its ordinary name and still requires authority.
+HTTP and Arbor spellings may name the same live content. HTTP is the universal fallback and publication surface; `arbor://` states Arbor resolution explicitly. Canonical spellings are never credentials. Private content keeps its ordinary name and still requires authority.
+
+An access link is deliberately noncanonical. Its fragment contains a claim secret that Arbor consumes once, stores as an issued credential, and replaces with the ordinary credential-free canonical locator. The fragment is never sent in a normal HTTP request. Access links are valid `browse` and remote-source `sync` inputs but are not authored into shared content.
 
 ## 2. Revisions
 
@@ -55,7 +58,7 @@ A fragment follows the optional revision suffix:
 reading-room.tsx#recentEssays
 ```
 
-On Markdown, the fragment is the target document's durable `PageID`. When path and ID disagree within the selected tree revision, the ID wins. On a script it names an exported query, mutation, or component. Target kind disambiguates the two.
+On Markdown, the fragment is the target document's durable `PageID`. When path and ID disagree within the selected tree revision, the ID wins. On a script it names an exported query, mutation, or component. On an access link it is the one-time claim secret. Target kind disambiguates these uses; shared content never authors an access link.
 
 Bodyless directories begin path-only. Arbor minimally materializes Markdown identity before creating an identity-bearing link or performing an authored move that requires continuity. Ordinary files remain path-only; Arbor does not invent a durable `NodeID` for every filesystem object.
 
@@ -65,11 +68,12 @@ Resolution produces a concrete tree, logical path, optional immutable root hash,
 
 1. Normalize a local path. If it lies within a shared placement, resolve it to that placement's `TreeID` and tree-relative path; otherwise it remains local filesystem scope.
 2. Resolve named HTTP/Arbor locations through a local placement or visit first, then the authority namespace. The reference host uses `/.well-known/arbor/<segment>`.
-3. Resolve `arbor://tree/<TreeID>/…` from a known placement, visit, invitation, or signed endpoint hint. A TreeID alone does not reveal its authority.
-4. If a revision suffix is present, verify and walk that immutable root instead of the live ref.
-5. Resolve a `PageID` fragment inside that selected root. Access checks happen after naming and never derive from obscurity.
+3. Resolve an access link by atomically claiming it, storing the issued credential, and continuing with the returned canonical locator. Repeating a successfully claimed link under the same principal is idempotent.
+4. Resolve `arbor://tree/<TreeID>/…` from a known placement, visit, credential, or signed endpoint hint. A TreeID alone does not reveal its authority.
+5. If a revision suffix is present, verify and walk that immutable root instead of the live ref.
+6. Resolve a `PageID` fragment inside that selected root. Access checks happen after naming and never derive from obscurity.
 
-Nested shared trees remain boundaries. Walking a parent locator encounters the child `TreeID`; following it requires the child's own grant or publication mode and selects the child's own live or pinned root.
+Nested shared trees remain boundaries. Walking a parent locator encounters the child `TreeID`; following it requires the child's own access entry and selects the child's own live or pinned root.
 
 The resolved local REST representation remains `NodeRef`; locators are not added as another `TreeRef` variant. Arbord or its client resolves a locator before ordinary node, file, or mutation calls.
 
@@ -85,7 +89,7 @@ arbor sync <source-locator> <destination-locator> [-<mode>]
 `browse` accepts any resolvable locator. `sync` has two defined directions:
 
 - live local path → named canonical URL: create or reconcile identity, self-sync, and publication;
-- live or pinned remote locator → local path: create or reconcile a following or pinned placement.
+- live or pinned remote locator or access link → local path: claim when necessary, then create or reconcile a following or pinned placement.
 
 Two local operands or two remote operands are invalid until a distinct copy/transfer operation is specified. Publication mode belongs only to the owner direction. Repeating either valid form is idempotent.
 

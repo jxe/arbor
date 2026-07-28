@@ -7,27 +7,30 @@ TreeHopper is a view and editing surface over arbord, never an independent stora
 
 TreeHopper can browse ordinary local files, placed shared trees, transiently visited trees, historical revisions, and safe `system:` records. The path or [locator](locators.md) used to open it is a starting location, not a workspace boundary. Local filesystem content remains browsable and safely editable without acquiring durable Arbor identity.
 
-A shared-tree boundary is visible with its canonical name, `TreeID`, placement, effective access, publication, current or selected revision, and sync/conflict/staleness state. Nested shared trees remain independent boundaries; an unavailable or private child is not exposed through its parent.
+A shared-tree boundary is visible with its canonical name, `TreeID`, placement, effective access, public access, current or selected revision, and sync/conflict/staleness state. Nested shared trees remain independent boundaries; an unavailable or private child is not exposed through its parent.
 
 Built-in views cover Markdown, directories, collections, databases, and ordinary files. Writable views send authored changes through arbord's durable mutation surface. Read-only and historical views do not expose mutations. Source-preserving Markdown, projected directory documents, logical links, collections, and storage mappings follow [format.md](format.md); TreeHopper must not persist synthetic projection rows or normalize untouched source.
 
 Navigation, search results, backlinks, history, Copy Link, and Open Location retain resolved identity when available. A historical locator stays pinned rather than silently advancing. External changes reconcile into an open clean view; conflicts preserve both sides and remain visible.
 
-## 2. Trees, publication, and sharing
+## 2. Trees and access
 
-**Give this subtree a URL** creates a shared-tree boundary on the configured personal authority, previews matching HTTP and Arbor names, uploads the initial root, and begins private self-sync. The tree control exposes its canonical locators, raw TreeID fallback, current ref and sync state, local placement/access ceiling, and private/public-read/public-write publication.
+**Give this subtree a URL** creates a shared-tree boundary on the configured personal authority, previews matching HTTP and Arbor names, uploads the initial root, and begins private self-sync. The tree control exposes its canonical locators, raw TreeID fallback, current ref and sync state, and access.
 
-Sharing operates on an already identified tree. The complete product lets an owner:
+The access control presents one list. It lets an owner:
 
-- invite a recipient to the whole tree or a subtree with chosen rights;
-- create and copy an invitation;
-- inspect current recipients and grants;
-- adjust or revoke access;
-- see nested boundaries whose authority does not inherit.
+- set public access to private, read, or write;
+- add a known person with read or write access;
+- create and copy a read or write access link;
+- inspect people and unclaimed links;
+- change or remove access;
+- see nested tree boundaries whose access does not inherit.
 
-Invitation acceptance verifies the descriptor, explains the grant, stores credentials safely, and asks for a local placement and optional stricter read-only ceiling. A recipient can overlay local work on a read-only placement. Revocation prevents further remote access while preserving explicit cached and overlay work; restored access reconciles from the last verified revision.
+Sharing is always whole-tree. To share a subtree differently, the owner first gives it its own URL, creating a nested shared-tree boundary. TreeHopper explains this and can start that promotion rather than offering path-scoped access.
 
-Public-write requires an explicit warning that anyone can change current content. Publication and grants never expose credentials, private history, recovery state, old roots, or independently private nested trees.
+Opening an access link explains the tree and read/write access, claims it once, stores the resulting credential safely, and continues to the canonical locator. **Sync to this device** chooses a local placement through the same idempotent `sync` behavior; there is no separate acceptance workflow. Removing access prevents further remote reads or writes while leaving existing local files visibly stale and read-only.
+
+Public write requires an explicit warning that anyone can change current content. Access controls never expose credentials, private history, recovery state, old roots, or independently private nested trees.
 
 ## 3. Home, visits, and agents
 

@@ -11,17 +11,17 @@ The complete control tree includes:
 system:device
 system:server
 system:trees/<TreeID>
-system:trees/<TreeID>/shares/<GrantID>
+system:trees/<TreeID>/access/<AccessID>
 system:credentials
 system:visited
 system:diagnostics
 ```
 
-`system:device` supplies safe machine-local facts. `system:server` records the configured personal authority origin and credential status, never its token. Tree records combine canonical names, current ref/sync/publication state, effective access, placements, nested boundaries, and owner-visible remote trees. Share records expose recipient, subtree, rights, status, and revocation metadata without bearer secrets. Credentials expose only safe names/status; visited records describe transient cached trees.
+`system:device` supplies safe machine-local facts. `system:server` records the configured personal authority origin and credential status, never its token. Tree records combine canonical names, current ref/sync state, public access, effective access, placements, nested boundaries, and owner-visible remote trees. Access records expose the subject kind (`person`, `link`, or `everyone`), safe display identity, `read`/`write`/`none`, and claimed/revoked status without credentials or claim secrets. Credentials expose only safe names/status; visited records describe transient cached trees.
 
 Safe changes emit ordinary ordered `tree: "system"` events. Concrete `SystemOperation` mutations use the same durable IDs, receipts, retries, and conflicts as content mutations, but cannot be batched with filesystem/content operations because their authority and rollback domains differ ([arbord-rest.md](arbord-rest.md)).
 
-`configureServer` sends the owner token directly to the OS credential store. Its durable record and journal contain only normalized origin, credential reference, and token digest. Logs, receipts, events, diagnostics, and errors never expose raw credentials. The same rule applies to database DSNs and invitation grants.
+`configureServer` sends the owner token directly to the OS credential store. Its durable record and journal contain only normalized origin, credential reference, and token digest. Logs, receipts, events, diagnostics, and errors never expose raw credentials. The same rule applies to database DSNs, access-link claim secrets, and issued person/device credentials.
 
 ## 2. From local paths to shared-tree placements
 
@@ -43,10 +43,10 @@ The authored placement registry is `~/.arbor/trees.yaml`, keyed by canonical loc
   endpoint: "https://notes.example"
   ref: "sha256:…"
   access: write
-  publication: private
+  publicAccess: none
 ```
 
-The source names identity, not local position. The key is the reader's placement. Access is a local ceiling, ref is the last materialized common tip, and endpoint is a replaceable hint. A recipient accepting an invitation chooses a placement; the inviter's filesystem path never becomes the recipient's.
+The source names identity, not local position. The key is the reader's placement. `access` is a local ceiling, `publicAccess` is a safe projection of the tree's `everyone` entry, ref is the last materialized common tip, and endpoint is a replaceable hint. A person syncing a canonical locator or claiming an access link chooses their own placement; the owner's filesystem path never becomes the recipient's.
 
 One tree may appear in multiple positions, and distinct nested trees may occupy overlapping path prefixes because nested boundaries are real identities. Longest-boundary resolution selects the innermost tree. A parent placement stores only the nested child `TreeID`; parent rights do not cross into it.
 
@@ -57,7 +57,7 @@ Overlays shadow a read-only placement with reader-local files. Visited trees use
 Effective access is:
 
 ```text
-remote grant or public mode ∩ local placement ceiling ∩ process/component grant
+remote tree access ∩ local placement ceiling ∩ process/component ceiling
 ```
 
 ## 3. Local durability, Trash, and recovery

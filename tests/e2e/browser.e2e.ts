@@ -593,9 +593,11 @@ test("browses ordinary files and gives a subtree a canonical URL", async ({ page
   await page.getByRole("button", { name: "Create URL and sync" }).click();
   await expect(page.locator(".scope-chip")).toHaveText(/private/);
 
-  // The canonical control reserves the final Sharing location and changes publication.
+  // The canonical control reserves the final Sharing location and changes public access.
   await page.getByRole("button", { name: "Canonical tree" }).click();
   await expect(page.getByText("Sharing with people is not available yet.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Share" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Copy read access link" })).toBeDisabled();
   await expect(page.locator(".canonical-addresses")).toContainText(`${HOST_ORIGIN}/garden`);
   await page.getByText("Public read", { exact: true }).click();
   await expect(page.getByRole("radio", { name: /^Public read Anyone/ })).toBeChecked();

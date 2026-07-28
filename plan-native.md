@@ -377,7 +377,7 @@ TreeHopper renders readable tree placements, `system:connections`, future shares
 
 ### Search and provenance
 
-Cmd+P searches the visible workspace through arbord and later accepts durable document IDs, `arbor://` names/TreeIDs, and invitation input through the same resolver. Compact per-document states remain:
+Cmd+P searches the visible workspace through arbord and later accepts durable document IDs, `arbor://` names/TreeIDs, and access links through the same resolver. Compact per-document states remain:
 
 ```text
 local · untracked · mounted rw · mounted ro · overlay · visited · pinned · stale · conflicted
@@ -395,7 +395,7 @@ File-, SQLite-, and Postgres-backed collections use the same native browsing voc
 
 ### Sharing
 
-“Give this subtree a URL” asks arbord to create a shared-tree boundary while leaving the folder at the same workspace path. Sharing then creates grants and invitations on that already identified tree. Invitation acceptance stores an opaque credential reference and lets the recipient choose a placement and stricter local access. Revocation, offline, overlay, pin, stale, and conflict states reuse the provider's existing events and provenance.
+“Give this subtree a URL” asks arbord to create a shared-tree boundary while leaving the folder at the same workspace path. Sharing changes that whole tree's access list: a known person gets read/write directly, or someone new receives a single-claim access link. Opening or syncing a link stores an opaque credential and continues to the canonical tree as one flow. A subtree needing different access first becomes a nested shared tree. Later local ceilings, overlays, pin, stale, and conflict states reuse the provider's existing events and provenance without becoming remote sharing concepts.
 
 ## Acceptance bar
 
