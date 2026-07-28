@@ -95,7 +95,7 @@ export interface CollectionPage {
 }
 
 export interface SearchResult {
-  /** Scope the result belongs to (a tracked root's RootID). Present from milestone 3 on. */
+  /** Shared-tree scope the result belongs to. */
   tree?: string;
   path: string;
   title: string;

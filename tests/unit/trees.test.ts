@@ -67,7 +67,7 @@ describe("trees.yaml", () => {
     expect(await readFile(treesFilePath(), "utf8")).toBe("{}\n");
   });
 
-  test("rejects scalar entries and reserves valid Arbor URLs for the wire milestone", async () => {
+  test("rejects scalar and incomplete shared-tree entries", async () => {
     const home = await state();
     const local = join(home, "local");
     const shared = join(home, "shared");
@@ -88,8 +88,8 @@ describe("trees.yaml", () => {
     expect(snapshot.placements).toEqual([]);
     expect(snapshot.diagnostics.map((item) => item.code)).toEqual([
       "invalid-tree-placement",
-      "unsupported-tree-source",
-      "unsupported-tree-source",
+      "invalid-tree-placement",
+      "invalid-tree-source",
     ]);
   });
 

@@ -1,26 +1,28 @@
 # CLI
-*Part of the [Arbor spec](../spec.md): the command surface. Names and flags are provisional; each command notes the corresponding [plan](../plan.md) milestone.*
+*Part of the [Arbor spec](../spec.md): the intended command surface. Implementation status belongs in [plan.md](../plan.md).*
 
-## Development
+Every operand that names content is an Arbor [locator](locators.md). Commands resolve locators through arbord and use its ordinary REST, mutation, and wire contracts; the CLI has no private storage API.
 
-- **`arbor dev [path]`** — run the current reference server and open the browser at `path`: watcher, index, browser, editing, collections, and the REST v1 boundary. `path` may be absolute or relative to the process working directory and defaults to `.`; shells may expand an unquoted leading `~`. Browsing is filesystem-wide — `path` is a starting location, not a boundary; navigation walks up to the filesystem root and into anything the process can read. Arbor intelligence activates per subtree: if `path` lies inside a tracked root the session joins it; otherwise the path is tracked for the session only and the browser offers to keep tracking it. Tracked roots are path-keyed `source: local` entries in `~/.arbor/trees.yaml`, projected through `system:roots`, and persist across launches ([system.md](system.md) §1). Milestone 3 composes the workspace from additional tree sources and overlays; milestones 4–5 add islands and agent chat.
-- **`arbor run <script>.tsx#<export> [--input …]`** — invoke a query or mutation through the same compiled handle a component uses, and print the JSON the component would see. *(milestone 4)*
-- **`arbor agent run <path>`** — run an agent file against the workspace with only its declared tools and context, inside a purpose-built namespace assembled from mounts. *(milestone 5, using milestone 3 namespaces)*
-- **`arbor status`** — workspace overview: watched roots, index freshness, mounts, sync state, and `system:diagnostics`.
-- **`arbor connection set <name>`** — current bootstrap for a `_store.postgres` reference. Read a DSN interactively or from stdin, write only safe human-readable metadata to the private `system:connections` directory, and put the DSN in the operating-system credential store.
-- **`arbor connection test <name>` / `arbor connection remove <name>`** — verify or remove that private connection without exposing its secret. Milestone 3 presents the same records through the complete `system:` tree; no migration is needed.
+## Porcelain
 
-## Publication
+These are the small commands people are expected to use directly:
 
-- **`arbor deploy [--watch]`** — compile a subtree into an ordinary website for the two reference deployment targets; mints the subtree's `TreeID` on first deploy and emits dormant crosslinks. *(milestone 7)*
-- **`arbor bake`** — emit a shared-tree snapshot as a static ref/object directory for any dumb HTTP host ([wire.md](wire.md) §7). *(milestone 7)*
+- **`arbor browse <locator>`** — open TreeHopper at any resolvable live or historical locator.
+- **`arbor sync <source> <destination> [-<mode>]`**:
+  - if source is a local path and destination an arbor:// URL, this makes the dir available for syncing on other machines plus possibly published and visible to other people. mode is `private`, `public-read`, or `public-write`;
+  - if source is a canonical URL and destination a local path, starts syncing a to b. If the source has a revision suffix, the placement is pinned read-only; otherwise it follows the live tip.
+- **`arbor unsync <local-path>`** — remove one sync relationship without deleting its files, remote identity, or history.
 
-## Sync and sharing
+## Plumbing
 
-- **`arbor serve`** — host shared trees on a live reference endpoint (ref/obj/push/watch). *(milestone 1)*
-- **`arbor pull`** — fetch and verify a shared tree from an endpoint; the conformance and debugging client. *(milestone 1)*
-- **`arbor share <path>`** — create a shared tree from a folder, leave a mount at the same path, issue a scoped grant, and produce an invitation descriptor. Refuses or warns when the subtree is under foreign replication ([wire.md](wire.md) §5). *(milestone 3)*
-- **`arbor accept <descriptor>`** — validate an invitation, store the credential reference, choose a placement path, and create a path-keyed `trees.yaml` entry whose `source` is the shared Arbor URL. *(milestone 3)*
-- **`arbor trees`** — inspect and edit tree placements from the CLI; equivalent to editing `~/.arbor/trees.yaml` through arbord ([system.md](system.md) §1). *(local placement implemented; shared composition in milestone 3)*
+These commands expose explicit administration, automation, conformance, or deployment mechanisms. TreeHopper and the porcelain commands normally compose them on a person's behalf.
 
-Every authored CLI operation is a client of arbord's local [REST contract](arbord-rest.md); the CLI has no private daemon API and does not write behind arbord's back. Materialized files remain available to ordinary external tools, whose writes arbord observes as external rather than API-authored intent. The initial loopback reference has no general local authentication layer. Commands that exercise sharing, the wire, scripts, or deployed authority still present and enforce the grants declared by those features.
+- **`arbor serve`** — run the authority and live-publication gateway. The reference deployment reads `ARBOR_OWNER_TOKEN`, `ARBOR_PUBLIC_ORIGIN`, and `ARBOR_HOST_DATA` (or `RAILWAY_VOLUME_MOUNT_PATH`).
+- **`arbor run <locator> [--input …]`** — invoke the script export or agent named by the locator and print its result or stream. Agents do not require a separate command family.
+- **`arbor status [<locator>]`** — show the personal authority, resolved identity/revision, placement, effective access, sync/conflict state, and safe diagnostics globally or for one locator.
+- **`arbor invite create <locator> [--subtree …] [--rights …] [--recipient …]`** — create a revocable grant and invitation on an existing tree.
+- **`arbor invite accept <descriptor> <local-path> [--read-only]`** — verify an invitation, store its credential, and create a placement with an optional stricter ceiling.
+- **`arbor grant set <grant> [--subtree …] [--rights …]`** and **`arbor grant revoke <grant>`** — adjust or revoke recipient authority without renaming the tree.
+- **`arbor connection set|test|remove <name>`** — administer safe database connection records while storing DSNs only in the operating-system credential store.
+- **`arbor bake <locator>`** — emit a read-only ref/object snapshot for a dumb host.
+- **`arbor deploy <locator> [--watch]`** — compile and deploy a custom application; this is separate from canonical live publication.

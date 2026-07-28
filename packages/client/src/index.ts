@@ -15,10 +15,9 @@ import type {
   NodeSnapshot,
   PageID,
   RecoveryPage,
-  RootDescriptor,
-  RootID,
-  RootsPage,
   SearchPage,
+  SystemMutationRequest,
+  SystemOperation,
   StructuralMutationRequest,
   StructuralWorkspaceOperation,
   TreeChild,
@@ -54,10 +53,11 @@ export type {
   ProjectedDocument,
   RecoveryEntry,
   RecoveryPage,
-  RootDescriptor,
-  RootID,
-  RootsPage,
   SearchPage,
+  SystemMutationRequest,
+  SystemOperation,
+  TreeDescriptor,
+  TreeID,
   StructuralMutationRequest,
   StructuralWorkspaceOperation,
   TreeChild,
@@ -231,6 +231,13 @@ export class ArbordClient {
     };
   }
 
+  prepareSystemMutation(
+    operation: SystemOperation,
+    mutationID = this.createMutationID(),
+  ): SystemMutationRequest {
+    return { mutationID, operations: [operation] };
+  }
+
   async node(ref: NodeRef): Promise<NodeSnapshot> {
     return this.hydrateNode(await this.nodeSnapshot(ref));
   }
@@ -313,22 +320,6 @@ export class ArbordClient {
     return this.request(`/v1/search?q=${encodeURIComponent(query)}${scope}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
   }
 
-  roots(): Promise<RootsPage> {
-    return this.request("/v1/roots");
-  }
-
-  track(path: string): Promise<RootDescriptor> {
-    return this.request("/v1/roots", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ path }),
-    });
-  }
-
-  untrack(id: RootID): Promise<RootsPage> {
-    return this.request(`/v1/roots?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-  }
-
   collection(ref: NodeRef, cursor?: string | null, table?: string): Promise<CollectionResultPage> {
     const query = new URLSearchParams(refQuery(ref));
     if (cursor) query.set("cursor", cursor);
@@ -373,6 +364,10 @@ export class ArbordClient {
 
   mutateStructural(operations: StructuralWorkspaceOperation[], mutationID?: string): Promise<MutationReceipt> {
     return this.mutate(this.prepareStructuralMutation(operations, mutationID));
+  }
+
+  mutateSystem(operation: SystemOperation, mutationID?: string): Promise<MutationReceipt> {
+    return this.mutate(this.prepareSystemMutation(operation, mutationID));
   }
 
   /**

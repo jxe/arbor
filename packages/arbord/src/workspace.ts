@@ -16,8 +16,8 @@ import type {
   NodeWriteRequest,
   RecoveryEntry,
   RecoveryPage,
-  RootDescriptor,
-  RootID,
+  TreeDescriptor,
+  TreeID,
   SearchResult,
   SearchPage,
   StructuralWorkspaceOperation,
@@ -57,10 +57,11 @@ export interface WorkspaceOptions {
   /** Shared process-wide bus; a standalone Workspace mints its own. */
   events?: EventBus;
   /** This root's tree scope tag; minted from the canonical root by default. */
-  tree?: RootID;
+  tree?: TreeID;
   /** Derived from the root `_index.md`; basename fallback. */
   displayName?: string;
   tracking?: "tracked" | "session";
+  treeDescriptor?: Partial<TreeDescriptor>;
 }
 
 export class RevisionConflictError extends Error {
@@ -89,8 +90,8 @@ export class ProtocolError extends Error {
 export class Workspace implements AsyncDisposable {
   readonly root: string;
   readonly events: EventBus;
-  /** This root's tree scope tag (an opaque RootID). */
-  readonly tree: RootID;
+  /** This workspace's scope tag. Shared workspaces use a stable TreeID. */
+  readonly tree: TreeID;
   tracking: "tracked" | "session";
   readonly fs: WorkspaceFS;
   readonly mutations: MutationJournal;
@@ -100,6 +101,7 @@ export class Workspace implements AsyncDisposable {
   private idOwners = new Map<string, string>();
   private idOwnerSets = new Map<string, readonly string[]>();
   private displayName: string;
+  private treeDescriptor: Partial<TreeDescriptor>;
   /** Inverted unambiguous owner index: path -> pageID. */
   private pathPageIDs = new Map<string, string>();
   private healingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -111,6 +113,7 @@ export class Workspace implements AsyncDisposable {
     this.events = options.events ?? new EventBus();
     this.tree = options.tree ?? `rt_${sha256(root).slice(0, 10)}`;
     this.displayName = options.displayName ?? basename(root);
+    this.treeDescriptor = options.treeDescriptor ?? {};
     this.tracking = options.tracking ?? "session";
     this.stateDirectory = stateDirectory;
     this.fs = fs;
@@ -137,13 +140,19 @@ export class Workspace implements AsyncDisposable {
     return workspace;
   }
 
-  descriptor(): RootDescriptor {
+  descriptor(): TreeDescriptor {
     return {
       id: this.tree,
       name: this.displayName,
       osPath: this.root,
-      tracking: this.tracking,
+      placement: this.tree.startsWith("tr_") ? "shared" : "local",
+      ...(this.tree.startsWith("tr_") ? {} : { legacy: true }),
+      ...this.treeDescriptor,
     };
+  }
+
+  updateTreeDescriptor(descriptor: Partial<TreeDescriptor>): void {
+    this.treeDescriptor = { ...this.treeDescriptor, ...descriptor };
   }
 
   async refreshDisplayName(): Promise<string> {
@@ -254,6 +263,7 @@ export class Workspace implements AsyncDisposable {
   }
 
   async executeMutation(request: MutationRequest): Promise<MutationReceipt> {
+    this.requireWriteAccess();
     if (!request.mutationID || !Array.isArray(request.operations) || request.operations.length === 0) {
       throw new ProtocolError("invalid-reference", "A mutation requires a non-empty mutation ID and operations array", 400);
     }
@@ -312,6 +322,7 @@ export class Workspace implements AsyncDisposable {
     destinationRef: NodeRef,
     entries: FsImportEntry[],
   ): Promise<MutationReceipt> {
+    this.requireWriteAccess();
     return this.executeTransfer(
       mutationID,
       { kind: "import", destination: destinationRef, entries: entries.map(({ path, kind, bytes }) => ({ path, kind, digest: bytes ? sha256(bytes) : undefined })) },
@@ -334,6 +345,7 @@ export class Workspace implements AsyncDisposable {
     filename: string,
     bytes: Uint8Array,
   ): Promise<{ receipt: MutationReceipt; path: string; markdownPath: string }> {
+    this.requireWriteAccess();
     const extension = filename.includes(".") ? `.${filename.split(".").pop()!.toLowerCase().replace(/[^a-z0-9]/g, "")}` : "";
     const assetPath = `/Assets/${sha256(bytes).slice(0, 16)}${extension}`;
     let output: { path: string; markdownPath: string } | null = null;
@@ -968,11 +980,11 @@ export class Workspace implements AsyncDisposable {
     return {
       ref: { tree: this.tree, path: node.path, ...(pageID ? { pageID } : {}) },
       tree: this.tree,
-      enclosingRoot: this.descriptor(),
+      enclosingTree: this.descriptor(),
       path: node.path,
       name: node.name,
       kind: node.kind === "postgres" ? "database" : node.kind,
-      writable: node.writable,
+      writable: node.writable && this.treeDescriptor.access !== "read",
       materialization: node.materialization,
       contentRevision: node.revision,
       directoryRevision: node.kind === "directory" || node.kind === "collection" ? node.revision : undefined,
@@ -985,6 +997,12 @@ export class Workspace implements AsyncDisposable {
       diagnostics: node.diagnostics,
       observedThrough,
     };
+  }
+
+  private requireWriteAccess(): void {
+    if (this.treeDescriptor.access === "read") {
+      throw new ProtocolError("read-only", "This tree placement is read-only", 422);
+    }
   }
 
   private encodePageCursor(key: string, offset: number): string {
@@ -1045,7 +1063,7 @@ export class Workspace implements AsyncDisposable {
       }
     }
     const source = [
-      "// Generated by arbor dev. Do not edit.",
+      "// Generated by arbor browse. Do not edit.",
       'import type { z } from "zod";',
       ...imports,
       "type Collection<T> = { readonly __row?: T };",

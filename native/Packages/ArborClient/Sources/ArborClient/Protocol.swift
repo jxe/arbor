@@ -32,9 +32,8 @@ public enum JSONValue: Codable, Sendable, Equatable {
 }
 
 /// A local reference: a logical path or a durable page ID plus hint,
-/// optionally qualified by the `tree` scope it resolves in ("local", a
-/// tracked root's RootID, "system", or later a shared/visited TreeID).
-/// An omitted `tree` means the session root.
+/// optionally qualified by the `tree` scope it resolves in: "local",
+/// "system", or a stable shared TreeID.
 public struct NodeRef: Codable, Sendable, Equatable {
     public var tree: String?
     public var path: String?
@@ -70,20 +69,19 @@ public struct ResolvedNodeRef: Codable, Sendable, Equatable {
     }
 }
 
-public struct RootDescriptor: Codable, Sendable, Equatable {
+public struct TreeDescriptor: Codable, Sendable, Equatable {
     public var id: String
     public var name: String
-    public var osPath: String
-    /// "tracked" or "session".
-    public var tracking: String
+    public var osPath: String?
+    public var canonical: String?
+    public var httpURL: String?
+    public var endpoint: String?
+    public var publication: String?
+    public var access: String?
+    public var placement: String
+    public var sync: String?
+    public var legacy: Bool?
     public var missing: Bool?
-}
-
-public struct RootsPage: Codable, Sendable, Equatable {
-    public var roots: [RootDescriptor]
-    public var home: String
-    public var diagnostics: [Diagnostic]
-    public var observedThrough: String
 }
 
 public struct Diagnostic: Codable, Sendable, Equatable {
@@ -149,10 +147,10 @@ public struct CollectionSummary: Codable, Sendable, Equatable {
 
 public struct NodeSnapshot: Codable, Sendable, Equatable {
     public var ref: ResolvedNodeRef
-    /// Scope the snapshot resolved in, after canonicalization into an owning root.
+    /// Scope the snapshot resolved in, after canonicalization.
     public var tree: String?
-    /// The enclosing tracked/session root; present iff `tree` is a RootID.
-    public var enclosingRoot: RootDescriptor?
+    /// The enclosing shared tree or legacy placement, when applicable.
+    public var enclosingTree: TreeDescriptor?
     public var path: String
     public var name: String
     public var kind: String
@@ -179,7 +177,7 @@ public struct ChildrenPage: Codable, Sendable, Equatable {
 }
 
 public struct SearchResult: Codable, Sendable, Equatable {
-    /// Scope the result belongs to (a tracked root's RootID).
+    /// Scope the result belongs to.
     public var tree: String?
     public var path: String
     public var pageID: String?
@@ -263,6 +261,12 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
     public var frontmatterPatch: [String: JSONValue]?
     public var blocks: [ArborBlock]?
     public var hash: String?
+    public var origin: String?
+    public var ownerToken: String?
+    public var slug: String?
+    public var publication: String?
+    public var endpoint: String?
+    public var canonical: String?
 
     public init(
         op: String,
@@ -279,7 +283,13 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         baseDirectoryRevision: String? = nil,
         frontmatterPatch: [String: JSONValue]? = nil,
         blocks: [ArborBlock]? = nil,
-        hash: String? = nil
+        hash: String? = nil,
+        origin: String? = nil,
+        ownerToken: String? = nil,
+        slug: String? = nil,
+        publication: String? = nil,
+        endpoint: String? = nil,
+        canonical: String? = nil
     ) {
         self.op = op
         self.ref = ref
@@ -296,6 +306,12 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         self.frontmatterPatch = frontmatterPatch
         self.blocks = blocks
         self.hash = hash
+        self.origin = origin
+        self.ownerToken = ownerToken
+        self.slug = slug
+        self.publication = publication
+        self.endpoint = endpoint
+        self.canonical = canonical
     }
 
     public var isContentOperation: Bool {

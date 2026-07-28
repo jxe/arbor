@@ -8,7 +8,8 @@
     "arbor": "./packages/cli/src/index.ts"
   },
   "scripts": {
-    "dev": "bun packages/cli/src/index.ts dev",
+    "dev": "bun packages/cli/src/index.ts browse",
+    "host": "bun packages/cli/src/index.ts serve",
     "build": "bun run build:web && bun build packages/cli/src/index.ts --target=bun --outdir=dist/cli",
     "build:web": "vite build --config packages/render/vite.config.ts",
     "typecheck": "tsc --noEmit",

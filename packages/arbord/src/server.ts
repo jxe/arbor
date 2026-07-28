@@ -83,6 +83,17 @@ function decodeMutation(value: unknown): MutationRequest {
       422,
     );
   }
+  const systemCount = input.operations.filter((operation) =>
+    operation.op === "configureServer" || operation.op === "promoteTree"
+    || operation.op === "placeTree" || operation.op === "setTreePublication"
+  ).length;
+  if (systemCount > 0 && (systemCount !== 1 || input.operations.length !== 1)) {
+    throw new ProtocolError(
+      "unsupported-operation",
+      "A system mutation contains exactly one operation and cannot be mixed with workspace operations",
+      422,
+    );
+  }
   return input as MutationRequest;
 }
 
@@ -252,6 +263,40 @@ function validateOperation(value: unknown): void {
         throw new ProtocolError("invalid-reference", "ensureDocumentIdentity requires baseContentRevision", 400);
       }
       return;
+    case "configureServer":
+      if (typeof value.origin !== "string" || typeof value.ownerToken !== "string" || !value.ownerToken) {
+        throw new ProtocolError("invalid-reference", "configureServer requires origin and ownerToken", 400);
+      }
+      try { new URL(value.origin); } catch {
+        throw new ProtocolError("invalid-reference", "configureServer origin must be a URL", 400);
+      }
+      return;
+    case "promoteTree":
+      if (typeof value.path !== "string" || !value.path.startsWith("/") || typeof value.slug !== "string" || !value.slug) {
+        throw new ProtocolError("invalid-reference", "promoteTree requires an absolute path and slug", 400);
+      }
+      return;
+    case "placeTree":
+      if (
+        typeof value.tree !== "string"
+        || !value.tree.startsWith("tr_")
+        || typeof value.path !== "string"
+        || !value.path.startsWith("/")
+        || (value.endpoint !== undefined && typeof value.endpoint !== "string")
+        || (value.canonical !== undefined && typeof value.canonical !== "string")
+      ) {
+        throw new ProtocolError("invalid-reference", "placeTree requires a TreeID and absolute path", 400);
+      }
+      return;
+    case "setTreePublication":
+      if (
+        typeof value.tree !== "string"
+        || !value.tree.startsWith("tr_")
+        || !["private", "public-read", "public-write"].includes(String(value.publication))
+      ) {
+        throw new ProtocolError("invalid-reference", "setTreePublication requires a TreeID and publication mode", 400);
+      }
+      return;
     default:
       throw new ProtocolError("unsupported-operation", `Unsupported operation: ${value.op}`, 422);
   }
@@ -370,23 +415,6 @@ export async function serveArbor(
             url.searchParams.get("recursive") === "true",
             url.searchParams.get("cursor"),
           ));
-        }
-        if (url.pathname === "/v1/roots") {
-          if (request.method === "GET") return json(await service.rootsPage());
-          if (request.method === "POST") {
-            const body = await request.json().catch(() => null) as { path?: unknown } | null;
-            if (!body || typeof body.path !== "string" || !body.path.startsWith("/")) {
-              throw new ProtocolError("invalid-reference", "Tracking requires an absolute path", 400);
-            }
-            return json(await service.track(body.path));
-          }
-          if (request.method === "DELETE") {
-            const id = url.searchParams.get("id");
-            if (!id) throw new ProtocolError("invalid-reference", "Untracking requires a root id", 400);
-            await service.untrack(id);
-            return json(await service.rootsPage());
-          }
-          return errorResponse("unsupported-operation", "Method not allowed", 405);
         }
         if (request.method === "GET" && url.pathname === "/v1/events") {
           const query = url.searchParams.get("after");

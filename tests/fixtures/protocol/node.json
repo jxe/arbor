@@ -1,11 +1,16 @@
 {
-  "ref": { "tree": "rt_x7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
-  "tree": "rt_x7f3q2ab7c",
-  "enclosingRoot": {
-    "id": "rt_x7f3q2ab7c",
+  "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
+  "tree": "tr_notes7f3q2ab7c",
+  "enclosingTree": {
+    "id": "tr_notes7f3q2ab7c",
     "name": "notes",
     "osPath": "/Users/joe/notes",
-    "tracking": "tracked"
+    "canonical": "arbor://notes.example/notes",
+    "httpURL": "https://notes.example/notes",
+    "endpoint": "https://notes.example",
+    "publication": "private",
+    "placement": "shared",
+    "sync": "idle"
   },
   "path": "/notes/today",
   "name": "today",

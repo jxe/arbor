@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectedDocument, RootsPage, SearchResult, TreeChild } from "@arbor/core";
-import type { NodeRef, NodeSnapshot, ProjectedNodeUpdate, ProjectedNodeView, RootDescriptor } from "@arbor/client";
+import type { ProjectedDocument, PublicationMode, SearchResult, TreeChild, TreeDescriptor } from "@arbor/core";
+import type { NodeRef, NodeSnapshot, ProjectedNodeUpdate, ProjectedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { projectSnapshot } from "@arbor/client";
 import { api } from "./api.ts";
@@ -23,7 +23,7 @@ interface SidebarMenuState {
 
 /**
  * The browser location is URL-space: "" is the home surface, an absolute
- * OS path browses the local filesystem (canonicalized into tracked roots
+ * OS path browses the local filesystem (canonicalized into shared trees
  * by arbord), and "/system:…" addresses the read-only control scope.
  */
 function pathFromLocation(): string {
@@ -44,8 +44,8 @@ function nodeUrl(node: NodeSnapshot): string {
   if (node.tree === "system") {
     return node.path === "/" ? SYSTEM_URL_PREFIX.slice(0, -1) + ":" : `${SYSTEM_URL_PREFIX}${node.path.slice(1)}`;
   }
-  if (node.enclosingRoot) {
-    return `${node.enclosingRoot.osPath}${node.path === "/" ? "" : node.path}`;
+  if (node.enclosingTree?.osPath) {
+    return `${node.enclosingTree.osPath}${node.path === "/" ? "" : node.path}`;
   }
   return node.path;
 }
@@ -55,8 +55,8 @@ function scopeUrl(container: NodeSnapshot, scopePath: string): string {
   if (container.tree === "system") {
     return `${SYSTEM_URL_PREFIX}${scopePath === "/" ? "" : scopePath.slice(1)}`;
   }
-  if (container.enclosingRoot) {
-    return `${container.enclosingRoot.osPath}${scopePath === "/" ? "" : scopePath}`;
+  if (container.enclosingTree?.osPath) {
+    return `${container.enclosingTree.osPath}${scopePath === "/" ? "" : scopePath}`;
   }
   return scopePath;
 }
@@ -123,10 +123,10 @@ function crumbsFor(url: string, home: string | null): Crumb[] {
 function scopeChip(node: NodeSnapshot): { label: string; className: string } | null {
   if (node.tree === "local") return { label: "untracked", className: "scope-chip untracked" };
   if (node.tree === "system") return { label: "system · read-only", className: "scope-chip system" };
-  if (node.enclosingRoot) {
+  if (node.enclosingTree) {
     return {
-      label: `▣ ${node.enclosingRoot.name} · ${node.enclosingRoot.tracking}`,
-      className: `scope-chip ${node.enclosingRoot.tracking}`,
+      label: node.enclosingTree.legacy ? `▣ ${node.enclosingTree.name} · needs URL` : `▣ ${node.enclosingTree.name} · ${node.enclosingTree.publication ?? "private"}`,
+      className: `scope-chip ${node.enclosingTree.legacy ? "session" : "tracked"}`,
     };
   }
   return null;
@@ -144,7 +144,15 @@ export function App() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Array<SearchResult & { url: string }>>([]);
   const [searchScope, setSearchScope] = useState<"root" | "all">("root");
-  const [rootsPage, setRootsPage] = useState<RootsPage | null>(null);
+  const [trees, setTrees] = useState<TreeDescriptor[]>([]);
+  const [home, setHome] = useState<string | null>(null);
+  const [systemCursor, setSystemCursor] = useState<string | null>(null);
+  const [server, setServer] = useState<{ configured: boolean; origin?: string }>({ configured: false });
+  const [treeControl, setTreeControl] = useState<{ path: string; tree?: TreeDescriptor } | null>(null);
+  const [treeSlug, setTreeSlug] = useState("");
+  const [serverOrigin, setServerOrigin] = useState("");
+  const [ownerToken, setOwnerToken] = useState("");
+  const [treeBusy, setTreeBusy] = useState(false);
   const [crumbsExpanded, setCrumbsExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -152,31 +160,60 @@ export function App() {
   const nodeView = useRef<ProjectedNodeView | null>(null);
   const pendingRef = useRef<NodeRef | null>(null);
   const sidebarRequest = useRef(0);
-  const home = rootsPage?.home ?? null;
-
-  const refreshRoots = useCallback(async () => {
+  const refreshSystem = useCallback(async () => {
     try {
-      setRootsPage(await api.roots());
+      const [device, serverNode, treeDirectory] = await Promise.all([
+        api.node({ tree: "system", path: "/device" }),
+        api.node({ tree: "system", path: "/server" }),
+        api.node({ tree: "system", path: "/trees" }),
+      ]);
+      const deviceHome = device.document?.frontmatter.home;
+      setHome(typeof deviceHome === "string" ? deviceHome : null);
+      const configured = serverNode.document?.frontmatter.configured === true;
+      const origin = serverNode.document?.frontmatter.origin;
+      setServer({ configured, ...(typeof origin === "string" ? { origin } : {}) });
+      if (typeof origin === "string") setServerOrigin(origin);
+      const records = await Promise.all((treeDirectory.children ?? []).map((child) =>
+        api.node({ tree: "system", path: child.path })
+      ));
+      setTrees(records.flatMap((record): TreeDescriptor[] => {
+        const values = record.document?.frontmatter;
+        if (!values || typeof values.id !== "string" || typeof values.placement !== "string") return [];
+        return [{
+          id: values.id,
+          name: typeof values.name === "string" ? values.name : record.name,
+          placement: values.placement as TreeDescriptor["placement"],
+          ...(typeof values.path === "string" ? { osPath: values.path } : {}),
+          ...(typeof values.canonical === "string" ? { canonical: values.canonical } : {}),
+          ...(typeof values.http === "string" ? { httpURL: values.http } : {}),
+          ...(typeof values.endpoint === "string" ? { endpoint: values.endpoint } : {}),
+          ...(typeof values.publication === "string" ? { publication: values.publication as PublicationMode } : {}),
+          ...(values.access === "read" || values.access === "write" ? { access: values.access } : {}),
+          ...(typeof values.sync === "string" ? { sync: values.sync as TreeDescriptor["sync"] } : {}),
+          ...(values.legacy === true ? { legacy: true } : {}),
+        }];
+      }));
+      setSystemCursor(treeDirectory.observedThrough);
     } catch {}
   }, []);
-  useEffect(() => { void refreshRoots(); }, [refreshRoots]);
+  useEffect(() => { void refreshSystem(); }, [refreshSystem]);
   useEffect(() => {
-    const refresh = () => { void refreshRoots(); };
+    const refresh = () => { void refreshSystem(); };
     addEventListener("focus", refresh);
     return () => removeEventListener("focus", refresh);
-  }, [refreshRoots]);
+  }, [refreshSystem]);
   useEffect(() => {
-    if (!rootsPage) return;
+    if (!systemCursor) return;
     const controller = new AbortController();
     void (async () => {
       try {
-        for await (const event of api.client.observe(rootsPage.observedThrough, controller.signal)) {
-          if (event.tree === "system" && event.path === "/roots") await refreshRoots();
+        for await (const event of api.client.observe(systemCursor, controller.signal)) {
+          if (event.tree === "system") await refreshSystem();
         }
       } catch {}
     })();
     return () => controller.abort();
-  }, [refreshRoots, rootsPage?.observedThrough]);
+  }, [refreshSystem, systemCursor]);
 
   const load = useCallback(async (next: string) => {
     const request = ++nodeRequest.current;
@@ -262,13 +299,13 @@ export function App() {
       setNode(null);
       setNodeUpdates(null);
       setProjection(null);
-      void refreshRoots();
+      void refreshSystem();
       return;
     }
     if (node && nodeUrl(node) === path) return;
     void load(path);
     return () => { nodeRequest.current += 1; };
-  }, [load, node, path, refreshRoots]);
+  }, [load, node, path, refreshSystem]);
   useEffect(() => () => nodeView.current?.close(), []);
 
   const sidebarUrl = node && isDirectoryNode(node) ? nodeUrl(node) : parentUrl(path);
@@ -353,9 +390,8 @@ export function App() {
     } catch {}
   }, [sidebarCollapsed]);
 
-  // Search: scoped to the enclosing root; "all tracked" fans out per root
-  // and merges client-side. Untracked scope has no index.
-  const searchTree = node?.enclosingRoot?.id ?? sidebar?.enclosingRoot?.id;
+  // Search is scoped to a promoted tree; all-trees fans out client-side.
+  const searchTree = node?.enclosingTree?.id ?? sidebar?.enclosingTree?.id;
   const searchDisabled = !searchTree && searchScope === "root";
   useEffect(() => {
     if (!query || searchDisabled) { setResults([]); return; }
@@ -363,11 +399,11 @@ export function App() {
       try {
         if (searchScope === "root" && searchTree) {
           const found = await api.search(query, searchTree);
-          const rootPath = node?.enclosingRoot?.osPath ?? sidebar?.enclosingRoot?.osPath ?? "";
+          const rootPath = node?.enclosingTree?.osPath ?? sidebar?.enclosingTree?.osPath ?? "";
           setResults(found.map((result) => ({ ...result, url: `${rootPath}${result.path}` })));
           return;
         }
-        const tracked = (rootsPage?.roots ?? []).filter((root) => !root.missing);
+        const tracked = trees.filter((tree) => tree.placement === "shared" && tree.osPath && !tree.missing);
         const pages = await Promise.all(tracked.map(async (root) => {
           try {
             return { root, found: await api.search(query, root.id) };
@@ -377,7 +413,7 @@ export function App() {
         }));
         setResults(
           pages
-            .flatMap(({ root, found }) => found.map((result) => ({ ...result, url: `${root.osPath}${result.path}` })))
+            .flatMap(({ root, found }) => found.map((result) => ({ ...result, url: `${root.osPath!}${result.path}` })))
             .sort((a, b) => b.score - a.score)
             .slice(0, 30),
         );
@@ -386,7 +422,7 @@ export function App() {
       }
     }, 120);
     return () => clearTimeout(timer);
-  }, [node, query, rootsPage, searchDisabled, searchScope, searchTree, sidebar]);
+  }, [node, query, searchDisabled, searchScope, searchTree, sidebar, trees]);
 
   const openSidebarMenu = useCallback((event: React.MouseEvent, target: TreeChild | null) => {
     event.preventDefault();
@@ -445,27 +481,60 @@ export function App() {
     }
   }, [navigate, path, refreshSidebar, sidebar, sidebarApi, sidebarMenu]);
 
-  const trackFolder = useCallback(async (osPath: string) => {
+  const openTreeControl = useCallback((osPath: string, tree?: TreeDescriptor) => {
+    setTreeSlug("");
+    setOwnerToken("");
+    setTreeControl({ path: osPath, tree });
+  }, []);
+
+  const promoteTree = useCallback(async () => {
+    if (!treeControl || !treeSlug.trim()) return;
     try {
+      setTreeBusy(true);
       setError(null);
-      await api.track(osPath);
-      await refreshRoots();
+      if (!server.configured) {
+        await api.system({ op: "configureServer", origin: serverOrigin.trim(), ownerToken });
+      }
+      await api.system({ op: "promoteTree", path: treeControl.path, slug: treeSlug.trim() });
+      setTreeControl(null);
+      await refreshSystem();
       if (path) await load(path);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTreeBusy(false);
     }
-  }, [load, path, refreshRoots]);
+  }, [load, ownerToken, path, refreshSystem, server.configured, serverOrigin, treeControl, treeSlug]);
 
-  const untrackRoot = useCallback(async (root: RootDescriptor) => {
-    if (!confirm(`Stop tracking ${root.name}? Its files stay untouched; search and recovery stop.`)) return;
+  const setPublication = useCallback(async (tree: TreeDescriptor, publication: PublicationMode) => {
+    if (publication === "public-write" && !confirm("Anyone can create, edit, move, and trash content in this tree. Publish read/write?")) return;
+    try {
+      setTreeBusy(true);
+      setError(null);
+      await api.system({ op: "setTreePublication", tree: tree.id, publication });
+      await refreshSystem();
+      setTreeControl((current) => current?.tree?.id === tree.id
+        ? { ...current, tree: { ...tree, publication } }
+        : current);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTreeBusy(false);
+    }
+  }, [refreshSystem]);
+
+  const placeRemoteTree = useCallback(async (tree: TreeDescriptor) => {
+    const destination = prompt(`Where should ${tree.name} live on this machine?`, home ? `${home}/${tree.name}` : "");
+    if (!destination) return;
     try {
       setError(null);
-      await api.untrack(root.id);
-      await refreshRoots();
+      await api.system({ op: "placeTree", tree: tree.id, path: destination });
+      await refreshSystem();
+      navigate(destination);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     }
-  }, [refreshRoots]);
+  }, [home, navigate, refreshSystem]);
 
   const toggleSidebar = () => {
     if (matchMedia("(max-width: 760px)").matches) setMobileSidebarOpen((value) => !value);
@@ -476,8 +545,10 @@ export function App() {
   const collapseCrumbs = crumbs.length > 6 && !crumbsExpanded;
   const visibleCrumbs = collapseCrumbs ? [crumbs[0]!, ...crumbs.slice(-3)] : crumbs;
   const chip = node ? scopeChip(node) : null;
-  const canTrackHere = node?.tree === "local" && isDirectoryNode(node);
-  const keepTracking = node?.enclosingRoot?.tracking === "session" ? node.enclosingRoot : null;
+  const canPromoteHere = Boolean(node && isDirectoryNode(node) && (
+    node.tree === "local" || node.enclosingTree?.legacy || (node.enclosingTree && node.path !== "/")
+  ));
+  const currentTree = node?.enclosingTree && !node.enclosingTree.legacy && node.path === "/" ? node.enclosingTree : null;
   const lastLocation = (() => {
     try { return localStorage.getItem(LAST_LOCATION_KEY); } catch { return null; }
   })();
@@ -538,8 +609,12 @@ export function App() {
           </div>
         </div>
         <div className="header-trailing">
-          {keepTracking && <button className="track-button" title={`Keep tracking ${keepTracking.osPath} across launches`} onClick={() => void trackFolder(keepTracking.osPath)}>Keep tracking this folder</button>}
-          {canTrackHere && node && <button className="track-button" title="Enable search, recovery, and durable identity here" onClick={() => void trackFolder(node.path)}>Track this folder</button>}
+          {currentTree?.osPath && <button className="track-button" onClick={() => openTreeControl(currentTree.osPath!, currentTree)}>Canonical tree</button>}
+          {canPromoteHere && node && <button
+            className="track-button"
+            title="Give this subtree durable identity, private sync, and a canonical address"
+            onClick={() => openTreeControl(nodeUrl(node), node.enclosingTree?.legacy ? node.enclosingTree : undefined)}
+          >Give this subtree a URL</button>}
           {chip && <span className={chip.className}>{chip.label}</span>}
           {node && <span className="kind">
             {node.document && (node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") ? "ArborNote · " : ""}
@@ -549,19 +624,22 @@ export function App() {
       </header>
       {!path ? <div className="home-surface">
         <h1>Arbor</h1>
-        <p className="home-hint">Tracked roots are indexed, watched, and recoverable. Browse anywhere; track the folders that matter.</p>
-        {rootsPage?.diagnostics.map((item) => <div className="diagnostic node-diagnostic" key={`${item.code}:${item.path}`}>{item.message}</div>)}
+        <p className="home-hint">Browse ordinary files anywhere. Give a subtree a URL when you want durable identity, private sync, and publication.</p>
         <div className="home-roots">
-          {(rootsPage?.roots ?? []).map((root) => <div className="home-root" key={root.id}>
-            <button className="home-root-open" disabled={root.missing} onClick={() => navigate(root.osPath)}>
-              <strong>{root.name}</strong>
-              <small>{home && root.osPath.startsWith(home) ? `~${root.osPath.slice(home.length)}` : root.osPath}</small>
+          {trees.map((tree) => <div className="home-root" key={tree.id}>
+            <button className="home-root-open" disabled={!tree.osPath || tree.missing} onClick={() => tree.osPath && navigate(tree.osPath)}>
+              <strong>{tree.name}</strong>
+              <small>{tree.osPath
+                ? home && tree.osPath.startsWith(home) ? `~${tree.osPath.slice(home.length)}` : tree.osPath
+                : tree.canonical ?? tree.id}</small>
             </button>
-            <span className={`scope-chip ${root.tracking}`}>{root.missing ? "missing" : root.tracking}</span>
-            {root.tracking === "tracked" && <button className="quiet" onClick={() => navigate(`/system:roots/${root.id}`)}>record</button>}
-            {root.tracking === "tracked"
-              ? <button className="quiet danger" onClick={() => void untrackRoot(root)}>untrack</button>
-              : <button className="quiet" onClick={() => void trackFolder(root.osPath)}>keep</button>}
+            <span className={`scope-chip ${tree.legacy ? "session" : "tracked"}`}>
+              {tree.missing ? "missing" : tree.legacy ? "needs URL" : tree.osPath ? tree.publication ?? "private" : "remote"}
+            </span>
+            <button className="quiet" onClick={() => navigate(`/system:trees/${tree.id}`)}>record</button>
+            {tree.legacy && tree.osPath && <button className="quiet" onClick={() => openTreeControl(tree.osPath!, tree)}>Give URL</button>}
+            {!tree.legacy && !tree.osPath && <button className="quiet" onClick={() => void placeRemoteTree(tree)}>Sync here…</button>}
+            {!tree.legacy && tree.osPath && <button className="quiet" onClick={() => openTreeControl(tree.osPath!, tree)}>manage</button>}
           </div>)}
         </div>
         {home && <button className="quiet home-browse" onClick={() => navigate(home)}>Browse home directory (~)</button>}
@@ -624,16 +702,79 @@ export function App() {
         if (event.key === "Enter" && queryIsPath && queryAsUrl) { navigate(queryAsUrl); setSearchOpen(false); setQuery(""); }
       }} />
       <div className="search-scope">
-        <button className={searchScope === "root" ? "active" : ""} disabled={!searchTree} onClick={() => setSearchScope("root")}>This root</button>
-        <button className={searchScope === "all" ? "active" : ""} onClick={() => setSearchScope("all")}>All tracked</button>
+        <button className={searchScope === "root" ? "active" : ""} disabled={!searchTree} onClick={() => setSearchScope("root")}>This tree</button>
+        <button className={searchScope === "all" ? "active" : ""} onClick={() => setSearchScope("all")}>All trees</button>
       </div>
       {queryIsPath && queryAsUrl && <button onClick={() => { navigate(queryAsUrl); setSearchOpen(false); setQuery(""); }}><strong>Go to</strong><small>{query}</small></button>}
       {searchDisabled && !queryIsPath && <div className="search-untracked">
-        Search needs a tracked root here.
-        {canTrackHere && node && <button className="quiet" onClick={() => { void trackFolder(node.path); }}>Track this folder</button>}
-        <button className="quiet" onClick={() => setSearchScope("all")}>Search all tracked roots</button>
+        Search begins when this subtree has durable identity.
+        {canPromoteHere && node && <button className="quiet" onClick={() => { setSearchOpen(false); openTreeControl(nodeUrl(node), node.enclosingTree?.legacy ? node.enclosingTree : undefined); }}>Give this subtree a URL</button>}
+        <button className="quiet" onClick={() => setSearchScope("all")}>Search all trees</button>
       </div>}
       {results.map((result) => <button key={result.url} onClick={() => { navigate(result.url); setSearchOpen(false); }}><strong>{result.title}</strong><small>{home && result.url.startsWith(home) ? `~${result.url.slice(home.length)}` : result.url}</small><span dangerouslySetInnerHTML={{ __html: result.excerpt }} /></button>)}
     </div></div>}
+    {treeControl && <div className="modal-backdrop" onMouseDown={() => !treeBusy && setTreeControl(null)}><section className="tree-control-modal" onMouseDown={(event) => event.stopPropagation()}>
+      {treeControl.tree && !treeControl.tree.legacy ? <>
+        <div className="tree-control-heading">
+          <div>
+            <span className="eyebrow">Canonical tree</span>
+            <h2>{treeControl.tree.name}</h2>
+          </div>
+          <button className="modal-close" aria-label="Close" onClick={() => setTreeControl(null)}>×</button>
+        </div>
+        <div className="canonical-addresses">
+          {treeControl.tree.httpURL && <div><span>Web</span><a href={treeControl.tree.httpURL} target="_blank" rel="noreferrer">{treeControl.tree.httpURL}</a><button onClick={() => void navigator.clipboard.writeText(treeControl.tree!.httpURL!)}>Copy</button></div>}
+          {treeControl.tree.canonical && <div><span>Arbor</span><code>{treeControl.tree.canonical}</code><button onClick={() => void navigator.clipboard.writeText(treeControl.tree!.canonical!)}>Copy</button></div>}
+          <div><span>Identity</span><code>arbor://tree/{treeControl.tree.id}</code><button onClick={() => void navigator.clipboard.writeText(`arbor://tree/${treeControl.tree!.id}`)}>Copy</button></div>
+        </div>
+        <div className="sync-status">
+          <strong>Sync</strong>
+          <span className={`sync-dot ${treeControl.tree.sync ?? "idle"}`} />
+          <span>{treeControl.tree.sync === "pushing" || treeControl.tree.sync === "pulling" ? "Syncing…" : treeControl.tree.sync === "error" || treeControl.tree.sync === "conflict" ? "Needs attention" : treeControl.tree.sync === "offline" ? "Offline" : "Up to date"}</span>
+        </div>
+        <fieldset className="publication-control" disabled={treeBusy}>
+          <legend>Publication</legend>
+          {([
+            ["private", "Private", "Only your Arbor devices"],
+            ["public-read", "Public read", "Anyone with the URL can read"],
+            ["public-write", "Public read/write", "Anyone can change current content"],
+          ] as const).map(([mode, label, detail]) => <label key={mode}>
+            <input type="radio" name="publication" checked={(treeControl.tree!.publication ?? "private") === mode} onChange={() => void setPublication(treeControl.tree!, mode)} />
+            <span><strong>{label}</strong><small>{detail}</small></span>
+          </label>)}
+        </fieldset>
+        <section className="sharing-placeholder" aria-disabled="true">
+          <div><h3>Sharing</h3><span>Coming next</span></div>
+          <p>Sharing with people is not available yet.</p>
+          <div className="sharing-preview">
+            <input disabled placeholder="Name or email address" />
+            <button disabled>Invite</button>
+          </div>
+        </section>
+      </> : <>
+        <div className="tree-control-heading">
+          <div>
+            <span className="eyebrow">{treeControl.tree?.legacy ? "Needs a URL" : "Canonical tree"}</span>
+            <h2>Give this subtree a URL</h2>
+          </div>
+          <button className="modal-close" aria-label="Close" onClick={() => setTreeControl(null)}>×</button>
+        </div>
+        <p className="tree-control-intro">This creates durable identity and begins private sync. You can publish it after the initial upload completes.</p>
+        <label className="control-field"><span>Local subtree</span><input readOnly value={treeControl.path} /></label>
+        {!server.configured && <>
+          <label className="control-field"><span>Personal server</span><input autoFocus type="url" placeholder="https://arbor.example.com" value={serverOrigin} onChange={(event) => setServerOrigin(event.target.value)} /></label>
+          <label className="control-field"><span>Owner token</span><input type="password" autoComplete="new-password" value={ownerToken} onChange={(event) => setOwnerToken(event.target.value)} /><small>Stored in the operating system credential store, never Arbor’s journal.</small></label>
+        </>}
+        <label className="control-field"><span>URL name</span><input autoFocus={server.configured} placeholder="notes" pattern="[a-z0-9][a-z0-9-]*" value={treeSlug} onChange={(event) => setTreeSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} /></label>
+        {(server.origin ?? serverOrigin) && treeSlug && <div className="url-preview">
+          <span>{(server.origin ?? serverOrigin).replace(/\/$/, "")}/{treeSlug}</span>
+          <span>arbor://{(server.origin ?? serverOrigin).replace(/^https?:\/\//, "").split("/")[0]}/{treeSlug}</span>
+        </div>}
+        <div className="modal-actions">
+          <button className="quiet" disabled={treeBusy} onClick={() => setTreeControl(null)}>Cancel</button>
+          <button className="primary" disabled={treeBusy || !treeSlug || (!server.configured && (!serverOrigin || !ownerToken))} onClick={() => void promoteTree()}>{treeBusy ? "Creating…" : "Create URL and sync"}</button>
+        </div>
+      </>}
+    </section></div>}
   </div>;
 }

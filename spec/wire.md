@@ -1,11 +1,13 @@
 # Shared trees and the wire
-*Part of the [Arbor spec](../spec.md): shared-tree identity, names, and access, and the protocol that synchronizes them — refs, objects, sync, and static publication.*
+*Part of the [Arbor spec](../spec.md): shared-tree identity, canonical names, access, synchronization, and publication.*
 
-## 1. From an ordinary folder to a shared tree
+## 1. Promotion creates the boundary
 
-The common collaboration case begins with an ordinary folder in someone's workspace. Choosing **Share this folder** gives it an independent identity, history, permission boundary, and sync stream. Arbor moves the folder's backing data behind that boundary and leaves a mount at the same workspace path, so the workspace does not visibly change.
+An ordinary filesystem directory has no durable Arbor tree identity. Choosing **Give this subtree a URL** promotes it in one operation: reserve a stable opaque `TreeID` and canonical name, snapshot and upload the directory, verify the initial remote tip, attach its existing private journal/index/recovery state to the `TreeID`, and replace the local placement. Failure must leave the directory and any legacy private state usable.
 
-Recipients choose where the shared tree belongs in their own workspaces:
+Promotion starts private synchronization for the owner's devices. Publication and recipient sharing operate on that already existing shared tree; neither creates or changes its identity. The promoted directory remains at the same filesystem path unless its owner later moves the placement.
+
+Different people place one identity wherever it belongs:
 
 ```text
 Joe                              Alice
@@ -13,94 +15,95 @@ projects/atlas/                  work/atlas/
              └──── same shared TreeID ────┘
 ```
 
-This is the essential distinction: the shared tree has one identity, while Joe and Alice control its placement ([system.md](system.md) §2). Moving the folder within a workspace changes only that person's mount. Ordinary local folders need no special identity at all.
+A tree may contain a nested independent tree. The parent object records a boundary entry containing the child `TreeID`, not a duplicate of the child's graph. Access never inherits across that boundary. Owner devices may follow and place the child automatically; other readers resolve it under the child's own grant or publication mode and otherwise see an unavailable/private child.
 
-## 2. Identity and public names
+## 2. Identity and canonical names
 
-A **shared tree** is the unit the wire can watch, fetch, update, and grant access to. Every shared tree has a stable opaque `TreeID`; moving it between servers, mounting it elsewhere, or changing its public name does not change that identity.
-
-A domain is an optional human-readable alias for a shared tree, not its identity. A DNS `_arbor` TXT/SVCB record resolves a domain to an endpoint plus `TreeID`:
+Every shared tree has a stable opaque `TreeID`. Its authority-independent fallback is:
 
 ```text
-notes.example.org
-  → endpoint=https://arbor.example.org
-  → tree=tr_7k3m…
+arbor://tree/<TreeID>/path
 ```
 
-Private and team trees need no domain: a share descriptor (§3) supplies `(TreeID, endpoint hints, grant)` directly. Endpoint hints are replaceable and may be refreshed through a signed tree descriptor, so an endpoint move does not change identity. One reference endpoint may host many unrelated shared trees.
+These canonical forms, local paths, and optional immutable root selections are unified as user-facing [Arbor locators](locators.md). The wire still exchanges resolved `TreeID`s, paths, refs, and object hashes; it does not interpret shell-relative paths.
 
-Every node therefore has a global resolvable name — `(TreeID, path)` — including every node of a private tree. Its absolute URL is `arbor://notes.example.org/path` when a DNS alias exists or `arbor://tree/<TreeID>/path` otherwise. The tree identity is stable; the path is a human name that may change. Markdown document URLs may include the target `PageID` fragment when they need rename continuity, while ordinary files remain path-addressed ([urls.md](urls.md)). Naming is universal; access is not. Resolving a private name requires a grant, so links to private material are safe to embed anywhere and simply fail to resolve without one. Credentials and invitation tokens never appear in links, and Arbor never treats an obscure name as a secret.
-
-A shared tree may additionally record a **canonical position**: an absolute `arbor://` URL declaring its home within another namespace (for example, `arbor://team.example.org/handbook`). Canonical position is descriptive metadata for citation, documentation, and discovery. It is not a mount in anyone's workspace and never routes or grants access; readers, teams, and agents place the same tree wherever suits them.
-
-## 3. Invitations and permissions
-
-“Share this folder” creates grants and sends invitations after creating the shared tree. “Stop sharing” changes grants; it does not silently delete recipients' cached or overlaid work.
-
-An invitation is a signed descriptor:
-
-```ts
-type ShareDescriptor = {
-  tree: TreeID;
-  root: Path;
-  endpoints: URL[];
-  grant: Capability;
-};
-```
-
-V1 capabilities are revocable bearer tokens scoped to a shared tree, subtree, rights (`read`, `append`, `update`), and optional expiry. The endpoint enforces them on every ref read, watch, and push. A recipient may attenuate an rw grant locally by mounting read-only; secrets are stored in `system:credentials`, never embedded in links. Group identities and cryptographically attenuable capabilities are not specified.
-
-Permissions belong to shared trees and operations, not workspace paths or public names. A domain alias routes to a tree; it never grants access.
-
-## 4. The protocol
-
-The reference endpoint stores refs, grants, and immutable objects. Its private database/layout is not part of the wire contract; Arbor does not define a server-storage plugin interface. Content addressing is a wire artifact, not a mandate for how arbord stores ordinary local workspace files. The endpoint is the always-on **wire host** role of the "Daemon roles" section in [spec.md](../spec.md) — operationally separable from the on-demand local workspace daemon, which participates here as a wire client.
-
-Two planes:
-
-| Plane | What | Mutability | Served by |
-|---|---|---|---|
-| Refs | `(TreeID, path) → tip hash` | live | authority |
-| Objects | `hash → node/blob` | immutable | anyone |
-
-Objects use deterministic CBOR (JSON by content negotiation). A node contains kind, props, body/bodyRef, children `(name, hash)`, and optional schema metadata. Large bodies split into blobs. Child hashes make each directory a Merkle root.
-
-The live reference profile is:
+A named authority is a namespace that can contain multiple shared-tree boundaries. It resolves the first path segment to a `TreeID`, then resolves the remaining path within that tree:
 
 ```text
-GET  /tree/{treeID}/ref/{path}
-GET  /obj/{hash}
-POST /tree/{treeID}/push
-GET  /tree/{treeID}/watch/{path}
+https://notes.example/atlas/essay
+arbor://notes.example/atlas/essay
 ```
 
-`push` is a capability-authenticated CAS update and returns 409 on a stale ref. Objects are self-verifying and globally cacheable; refs are small authority statements.
+The personal reference server exposes `/.well-known/arbor/<slug>` and permits one immutable slug segment per tree. The complete namespace model permits richer named namespaces. A dedicated whole-domain alias is represented as a tree mounted at `/`; no alternate identity mechanism is needed.
 
-## 5. Sync and liveness
+Canonical name is descriptive and citable, not authority. Renaming a namespace alias, moving a placement, or moving the authority does not change `TreeID`. Credentials and invitations never appear in canonical URLs. Naming is universal; access is not.
 
-When a ref moves, arbord fetches the new root and recursively fetches only changed child hashes. Pinned mounts never consult refs. CAS conflicts merge at arbord, git-style. CRDT collaboration is not specified.
+## 3. Publication, invitations, and grants
 
-Ref-watch provides coarse invalidation; Merkle diff identifies changed nodes; recorded read sets select the queries to re-run. Evaluation remains local unless an upstream-hosted query ([scripts.md](scripts.md) §2) places it at the endpoint.
+A tree has one whole-tree publication mode:
 
-**One replicator per subtree.** Arbor coexists with foreign sync (iCloud Drive, Dropbox) under one rule: for any subtree, between any pair of replicas, exactly one system is responsible for replication. Two shapes satisfy it — *partition* (different subtrees on different transports) and *layering* (foreign sync beneath exactly one arbord, which treats delivered changes as external writes and is the sole wire endpoint — the relay pattern). Symmetric overlap — two arbords wire-syncing a subtree that foreign sync also replicates between them — is refused or warned: concurrent conflicts would be resolved twice by two different merge systems, and the divergent resolutions propagate. `system:trees` records foreign replication (declared or detected via placeholder files), `arbor share` checks it, and stores must treat cloud-eviction placeholders as "not materialized," never as content.
+- `private`: anonymous resolution and publication return 404;
+- `public-read`: anyone may resolve and read the current tip;
+- `public-write`: anyone may read and submit compare-and-swap mutations, subject to rate and storage limits.
 
-## 6. Collection backing and synchronization
+Recipient grants coexist with these modes. An invitation is a signed descriptor that identifies the `TreeID`, authority hints, subtree, rights, optional expiry, and a revocable grant. Rights are concrete (`read`, `append`, `update`, and the structural actions implied by the grant). Grants may be adjusted or revoked without changing tree identity or deleting cached recipient work.
 
-Store drivers decide how a logical node becomes wire objects. The first SQLite profile is deliberately conservative:
+The authority computes effective remote rights from publication plus grants and validates every operation. A recipient may further attenuate access locally—for example, place a writable grant read-only. Effective access is:
 
-- Arbord checkpoints or uses SQLite's backup API to capture a consistent `.sqlite3` snapshot.
-- The snapshot is stored as a blob (chunked when useful), verified, and materialized as the same database file on another machine.
-- Queries and mutations run locally against that materialized database.
-- Concurrent database revisions are whole-database CAS conflicts. Arbor preserves both versions and asks for reconciliation; it never attempts a byte-level merge that could corrupt the database.
+```text
+authority grant or public mode
+∩ local placement ceiling
+∩ current process/component grant
+```
 
-This supports personal/offline/multi-device databases with no configuration beyond placing the file. Logical SQLite changesets and row-level database merging are not specified.
+Invitation acceptance stores secrets in `system:credentials`, never in Markdown links or `trees.yaml`, then asks the recipient for a local placement. Read-only annotations live in an overlay. After revocation, already cached content remains explicitly stale/read-only and overlay work remains local; new remote reads or pushes fail.
 
-A Postgres-backed collection has different synchronization semantics: the named Postgres server is already the shared authority. Arbor synchronizes the safe connection reference while each device supplies its own credential record. Table snapshots, offline replicas, and conversion into Arbor objects are not specified.
+## 4. One tip and immutable objects
 
-## 7. Static publication and content-centric caching
+Each `TreeID` has exactly one authoritative mutable **root hash**:
 
-The immutable half naturally permits static read-only publication, but it is a later conformance profile rather than the founding server. `arbor bake` emits a shared tree's refs and objects for nginx, S3, GitHub Pages, or any dumb HTTP host. Such an origin provides snapshots or deployment-updated tips but no push/watch. Baked pages carry references already resolved for the static host's plain relative-URL rule ([arbord-rest.md](arbord-rest.md), parity reads), so images and file links work without an Arbor-aware server.
+| Plane | Mapping | Mutability |
+|---|---|---|
+| Ref | `TreeID → root hash` | atomic CAS |
+| Objects | `hash → DAG-CBOR node/blob` | immutable |
 
-Clients fetch from their local object store and then the configured tree endpoint. LAN discovery and mirror cascades are not specified.
+Paths are immutable nodes reached by walking that Merkle graph. They are not independent mutable refs. Objects use deterministic DAG-CBOR, hash-verifiable bytes, sorted unique directory entries, and explicit nested-tree boundary entries. Large bodies may be chunked without changing the ref model.
 
-Arbor scripts are also, deliberately, a web framework, which yields a dual-publication bridge: the same tree can be rendered and deployed as an ordinary website on Vercel, Cloudflare, or any static or server host. A deploy tool may publish both surfaces at once and crosslink them — the website emits `<link rel="arbor" …>` and/or an `Arbor-Tree:` response header carrying `(endpoint, TreeID)`, and an Arbor-aware browser landing on the website upgrades to the live tree, while legacy browsers see plain HTML. The legacy hatch ([browser.md](browser.md) §3) is the same mechanism in reverse.
+The live authority surface is:
+
+```text
+GET  /.arbor/trees/{TreeID}/ref
+POST /.arbor/trees/{TreeID}/push
+GET  /.arbor/trees/{TreeID}/watch
+GET  /.arbor/objects/{hash}
+```
+
+A push carries the expected root hash, proposed root hash, and referenced new objects. The authority verifies hashes, complete graph validity, quotas, authentication, and access before atomically moving the tip. A stale expected hash returns a ref conflict with the current tip. Subtree grants do not create path refs: the authority diffs the expected and proposed graphs and rejects changes outside allowed paths or rights.
+
+Object access is authorized by reachability: an owner or recipient may fetch objects reachable from a tree they can read; anonymous readers may fetch only objects reachable from public trees. Knowing a private hash is not authorization.
+
+## 5. Sync, partial reads, and conflicts
+
+A client fetches the root then walks only hashes required by the requested subtree, so one whole-tree tip does not require whole-tree transfer. `watch` announces tip movement; reconnect begins from a fresh ref read and Merkle comparison.
+
+When exactly one side advanced from the common root, arbord pushes or materializes the new tip. When both sides changed, arbord performs a three-way merge where defined. Text conflicts and unsupported structured conflicts preserve both versions for reconciliation; Arbor never discards either branch merely to make the tip advance. Whole-database SQLite snapshots conflict as databases until logical changesets are specified.
+
+**One replicator per subtree.** Arbor and iCloud/Dropbox may partition different subtrees or layer with one arbord as the sole wire peer. Two independent systems may not symmetrically replicate the same subtree between the same devices. Cloud eviction placeholders are unavailable content, never bytes to hash or index.
+
+## 6. Authority and HTTP publication projection
+
+The authority contract requires immutable objects and atomic tree tips; it does not require materialized files or TreeHopper's local storage strategy. A reference host may materialize current tips to reuse local services, but that is an implementation choice.
+
+A companion publication gateway projects the current tip at its canonical HTTP URL. It may be co-deployed with the authority:
+
+- private trees return 404 anonymously;
+- public-read surfaces omit mutation controls;
+- public-write surfaces expose anonymous CAS mutation with rate/storage limits and an explicit warning about effective access;
+- authenticated recipient surfaces expose exactly their effective rights;
+- credentials, private recovery, reflog/old tips, and inaccessible nested children are never published.
+
+Static baking is a separate profile: `arbor bake` emits a read-only ref/object snapshot for a dumb HTTP host. Custom deployed applications may advertise the live tree through `<link rel="arbor">` or an `Arbor-Tree` response header, but are not the canonical live publication requirement.
+
+## 7. Store profiles
+
+Plain files and Markdown map directly into immutable nodes and blobs. SQLite is captured through checkpoint/backup as a consistent snapshot, materialized as the same database on another device, and treated as a whole-database CAS unit. A Postgres collection keeps its named server as authority: Arbor synchronizes only a safe connection reference while each device supplies its own secret credential.

@@ -95,7 +95,7 @@ export async function realOsPath(inputPath: string): Promise<string> {
 
 /**
  * The untracked `local` scope: browse, read, and CAS-edit the plain
- * filesystem with the same logical node shape as a tracked root, but with
+ * filesystem with the same logical node shape as a shared tree, but with
  * no journal, no durable identity, no watcher, and no per-tree affordances
  * (search, backlinks, Trash, recovery). Authored mutations still publish
  * events on the shared bus so other tabs revalidate.
@@ -436,7 +436,7 @@ export class FilesystemService {
   private unsupported(what: string): never {
     throw new ProtocolError(
       "unsupported-operation",
-      `${what} requires a tracked root: track the enclosing folder to enable it`,
+      `${what} requires a shared tree: give the enclosing subtree a URL to enable it`,
       422,
     );
   }

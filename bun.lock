@@ -42,6 +42,13 @@
         "arbor": "./src/index.ts",
       },
     },
+    "packages/client": {
+      "name": "@arbor/client",
+      "version": "0.1.0",
+      "dependencies": {
+        "@arbor/core": "workspace:*",
+      },
+    },
     "packages/core": {
       "name": "@arbor/core",
       "version": "0.1.0",
@@ -62,11 +69,21 @@
       "name": "@arbor/stores",
       "version": "0.1.0",
     },
+    "packages/wire": {
+      "name": "@arbor/wire",
+      "version": "0.1.0",
+      "dependencies": {
+        "@arbor/core": "workspace:*",
+        "@arbor/fs": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@arbor/arbord": ["@arbor/arbord@workspace:packages/arbord"],
 
     "@arbor/cli": ["@arbor/cli@workspace:packages/cli"],
+
+    "@arbor/client": ["@arbor/client@workspace:packages/client"],
 
     "@arbor/core": ["@arbor/core@workspace:packages/core"],
 
@@ -77,6 +94,8 @@
     "@arbor/render": ["@arbor/render@workspace:packages/render"],
 
     "@arbor/stores": ["@arbor/stores@workspace:packages/stores"],
+
+    "@arbor/wire": ["@arbor/wire@workspace:packages/wire"],
 
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
 

@@ -1,394 +1,260 @@
 # Build plan
-*Forward roadmap for Arbor and the arbord reference implementation. Completed milestones and their verification evidence live in [plan-history.md](plan-history.md). [plan-native.md](plan-native.md) owns TreeHopper native, Hunch migration, Clamshell, iCloud-native integration, and native UI.*
+*Forward roadmap for Arbor and the reference implementation. Completed earlier milestones and their evidence live in [plan-history.md](plan-history.md). [plan-native.md](plan-native.md) owns native TreeHopper, Hunch migration, Clamshell, and iCloud-native integration.*
 
 ## How to use this plan
 
-This file contains current and future work only. It is not a feature inventory.
+The topic specs describe the complete intended product. This file alone records implementation order, temporary cuts, placeholders, and current status.
 
+- **Implemented** means the focused behavior and listed acceptance checks pass in the current source.
+- **Partial** means an end-to-end slice exists but a listed gate or external prerequisite remains.
 - **Next** is the immediate architectural milestone.
-- **Planned** means the design exists but the end-to-end behavior does not.
-- **Polish** is useful follow-up that does not block later architectural milestones.
-- Completed milestones move to [plan-history.md](plan-history.md), with source pointers and verification evidence.
+- **Planned** has an accepted product contract but no complete reference slice.
+- Completed older work moves to [plan-history.md](plan-history.md) with source pointers and evidence.
 
-Future agents should inspect the current source and tests before relying on a status label. When a milestone lands, move its delivered contract, deviations, and completion evidence to the history file rather than leaving completed work phrased as future work.
+Future agents must inspect source, tests, and `git status` before trusting a status label. Do not rewrite a partial implementation as future work, and do not weaken a future-product topic spec to match a staged UI.
 
 ## Reference-implementation discipline
 
-Arbor is a reference implementation of the architecture, not a production platform by default.
+Implement the smallest end-to-end system that proves a visible product feature while preserving data, durable acknowledgement, conflict safety, deterministic protocol behavior, and cross-language agreement. Prefer direct readable code and fixtures to version adapters, generic provider actions, plugin frameworks, or production administration. Introduce an abstraction only when a second concrete implementation needs it.
 
-For every milestone:
+Vocabulary:
 
-- implement the smallest end-to-end system that proves the visible product feature and preserves user data correctly;
-- require durability, conflict safety, deterministic protocol behavior, and interoperability where the feature depends on them;
-- prefer readable specifications, fixtures, and direct implementations over generators, plugin frameworks, compatibility matrices, and administrative subsystems;
-- introduce an abstraction only when a planned feature supplies its second concrete implementation;
-- treat explicitly deferred facilities as out of scope, not as automatic technical debt.
+- **workspace** — the tree a person/process sees;
+- **shared tree / `TreeID`** — an independently identified sync/history/permission boundary;
+- **tree placement** — a reader-local canonical path for a shared tree;
+- **`PageID`** — durable identity of a materialized Markdown document;
+- **arbord** — local workspace/runtime authority;
+- **wire authority** — always-on owner of tree tips, aliases, grants, and immutable objects;
+- **TreeHopper** — browser/editor;
+- **script** — a `.tsx` component/query/mutation file.
 
-The governing vocabulary remains:
-
-- **workspace** — the tree a person or process sees and works in;
-- **`PageID`** — the durable identity of a materialized Markdown document;
-- **shared tree** — a folder with independent synchronization, history, and permissions;
-- **`TreeID`** — the stable identity of a shared tree;
-- **tree placement** — a canonical local path key in `~/.arbor/trees.yaml` whose source is local content or an absolute Arbor URL;
-- **collection** — one user-facing concept across file, SQLite, and Postgres backings;
-- **script** — a `.tsx` file that may colocate components, queries, and mutations;
-- **arbord** — the desktop workspace/runtime authority;
-- **wire** — the shared-tree synchronization protocol.
-
-Do not reintroduce the superseded `SpaceID`, binding, `.view.json`, or authored “module” vocabulary.
+There is no new durable local-only tree concept. Legacy `source: local` records are migration material, not the product model.
 
 ## Current state
 
-The local daily driver is implemented:
+The local daily driver is implemented: filesystem-wide browsing/editing, source-preserving Markdown, projected directories, collections, ordinary-file byte routes, durable REST mutations and event handoff, TypeScript/Swift clients, search/backlinks/recovery within durable trees, and safe cloud-placeholder handling.
 
-- filesystem-wide browsing with local `trees.yaml` entries and a readable compatibility `system:roots` view;
-- source-preserving Markdown and complete projected directory documents;
-- durable idempotent REST v1 mutations, replay/resync, and TypeScript/Swift clients;
-- logical ordinary-file byte routes;
-- per-root search, backlinks, recursive recovery/Trash, collections, and live observation;
-- safe iCloud placeholder classification that never reads marker bytes as content.
+The current worktree additionally implements the local reference slice of canonical tree hosting:
 
-See [plan-history.md](plan-history.md) for exact source ownership, completion gates, and verification evidence.
+- `packages/wire`: deterministic CBOR objects, one root tip per `TreeID`, CAS push/watch/ref/object endpoints, graph/hash/quota validation, nested-tree boundaries, alias resolution, and publication;
+- `arbor serve`: the standalone authority/publication process, launched from the main CLI with persistent-volume and health/restart configuration;
+- arbord: `TreeID`/`system:` REST model, secret-aware system mutations, legacy promotion, placement, immediate pushes, polling pulls, and preserved conflict state;
+- TreeHopper web: **Give this subtree a URL**, canonical URL/sync/publication controls, remote placement, and the reserved Sharing layout;
+- CLI: the primary `browse` command and both idempotent `sync` forms for owner promotion/publication and remote read-only placement;
+- TypeScript and Swift fixtures/types updated together with the public root surface removed.
+
+Local conformance and end-to-end verification are recorded under the immediate milestone. The newly specified shared locator parser and pinned historical views remain local work. A permanent custom hostname and real Railway volume also remain prerequisites before promoting the first non-fixture tree.
+
+## Intentional divergence from the previous roadmap
+
+The prior roadmap separated self-sync, canonical names, and publication into successive milestones and used sharing as the action that created tree identity. That ordering created needless temporary models: a self-synced tree without its user-facing name, path-level mutable refs, durable local tracking, and a later identity-changing share operation.
+
+The new order combines **private self-sync + canonical URL + minimal live HTTP publication**. **Give this subtree a URL** is the one transition from ordinary files to a shared tree. Recipient sharing operates on that identity next. The wire has one mutable root hash per `TreeID`, not a ref per path. Local REST control uses `system:` records and singleton durable mutations, not public root/tree CRUD.
 
 ## Status at a glance
 
 | Status | Milestone | Outcome |
 |---|---|---|
-| **Next** | 1. Self-sync and local shared trees | Give a folder durable shared-tree identity and synchronize it safely between one person’s machines. |
-| **Planned** | 2. Canonical names and URLs | Resolve stable tree identities and public names before introducing invitations or multi-user authority. |
-| **Planned** | 3. Sharing and workspace composition | Add grants, invitations, multiple placements, overlays, and the complete readable workspace namespace. |
-| **Planned** | 4. Scripts | Run colocated components, queries, and mutations with explicit execution boundaries and scoped authority. |
-| **Planned** | 5. Agents | Run file-defined agents through the same query/mutation handles and restricted namespaces. |
-| **Planned** | 6. Data and SQLite | Add a transaction-safe SQLite collection/database driver and backing-independent mutation behavior. |
-| **Planned** | 7. Deploy and publication | Publish static trees and live handlers while retaining Arbor crosslinks and declared authority. |
-| **Polish** | 8. Daily-driver polish and hardening | Improve ordinary-file UX, provider controls, and measured large-tree behavior without blocking the architecture. |
-
-Dependency order:
+| **Partial** | 1. Canonical tree hosting | Local reference host, promotion, self-sync, canonical names, and private/public modes; pinned locators and the permanent deployed hostname remain. |
+| **Next** | 2. Recipient sharing and workspace composition | Invitations, scoped grants, revocation, attenuation, overlays, visits, and multiple placements. |
+| **Planned** | 3. Scripts and agents | Colocated components/queries/mutations, isolation, then file-defined agents. |
+| **Planned** | 4. Data and SQLite | Transaction-safe SQLite backing and backing-independent collection mutations. |
+| **Planned** | 5. Fuller publication profiles | Static baking, custom deployed applications, and provider adapters beyond canonical live publication. |
+| **Polish** | 6. Daily-driver hardening | Focused ordinary-file, provider, accessibility, and scale work. |
 
 ```text
-implemented local daily driver
-              │
-              ▼
-1. self-sync + local shared trees
-              │
-              ▼
-2. canonical names + URLs
-              │
-              ▼
-3. sharing + workspace composition
-       │                    │
-       ▼                    ▼
-4. scripts             6. data + SQLite
-       │
-       ▼
-5. agents
-       │
-       ▼
-7. deploy + publication
-
-8. polish and hardening is non-blocking and may be taken in focused slices.
+canonical identity + self-sync + live publication
+                         │
+                         ▼
+recipient sharing + workspace composition
+            │                         │
+            ▼                         ▼
+     scripts + agents          data + SQLite
+            │                         │
+            └──────────┬──────────────┘
+                       ▼
+          fuller publication profiles
 ```
 
 ---
 
-## Milestone 1 — self-sync and local shared trees
+## Milestone 1 — canonical tree hosting
 
-**Status: Next. No `packages/wire` implementation exists yet.**
+**Status: Partial. The live local/URL slice and tests exist; revision-pinned locators plus a permanent custom hostname and real hosted-volume restart check remain.**
 
-### Product contract
+### Product slice
 
-A person can give an ordinary local entry in `~/.arbor/trees.yaml` a stable `TreeID` by replacing its `source: local` backing with an absolute Arbor source, without changing the path key where it remains visible, and synchronize it between their own machines. This milestone proves identity, history, materialization, conflict handling, and one-replicator safety before invitations or public naming.
+Any directory can choose **Give this subtree a URL**. Promotion reserves one immutable slug and `TreeID`, uploads a verified initial Merkle root, reuses existing private journal/index/recovery state, replaces the placement, and begins private self-sync. The UI shows matching HTTP/Arbor names, raw identity fallback, sync state, and private/public-read/public-write modes.
 
-Before sync persists interoperable state, this milestone freezes the minimum addressing substrate that the wire depends on: stable `TreeID`s, extensionless logical paths, the existing `PageID` fragment semantics, self-sync descriptor endpoint hints, and the `arbor://tree/<TreeID>/…` grammar. This is a protocol prerequisite, not the full canonical-URL product surface. The promoted shared-tree root and its refs define what is synchronized; URLs name nodes and never select replication or materialization policy.
-
-The local arbord is a wire client. The serving wire-host role is a separate process sharing `@arbor/core` wire code; a later relay may embed that role without changing the protocol.
-
-### Shared-tree and namespace foundation
-
-- Extend the existing path-keyed `~/.arbor/trees.yaml` entry from `source: local` to an `arbor://tree/<TreeID>/…` source plus explicit revision/access/overlay/routing policy; do not introduce separate roots, trees, or mounts registries.
-- Promote a tracked root into a shared tree without changing its visible path or discarding its existing journal/state.
-- Support one local placement per shared tree in this milestone; multiple placements and overlays belong to sharing/workspace composition.
-- Keep control records canonical and readable. Invalid direct edits produce diagnostics while the last valid configuration remains active.
-- Surface source identity and revision provenance (`tree@revision`, locally dirty, syncing, conflict) through node snapshots/events.
-- Record declared or safely detected foreign replication and enforce one replicator per subtree.
-
-### Reference wire host
-
-- Implement deterministic DAG-CBOR, SHA-256 objects, and Merkle walk/diff.
-- Cross-check canonical encoding with a second implementation before persisting interoperable hashes.
-- Implement:
+The implemented ordinary CLI surface is:
 
 ```text
-GET  /tree/{treeID}/ref/{path}
-GET  /obj/{hash}
-POST /tree/{treeID}/push
-GET  /tree/{treeID}/watch/{path}
+arbor browse <path>
+arbor sync <local-path> <my-canonical-url> -<mode>
+arbor sync <anyones-canonical-url> <local-path>
 ```
 
-- Store immutable objects separately from refs and grants.
-- Use a local owner credential fixture scoped to one tree; invitations and recipient grants wait for Milestone 3.
-- Provide `arbor serve` and `arbor pull` as conformance/debugging clients.
-- Allow two trees to share immutable objects without blurring ref authority.
+Both `sync` forms are idempotent. Lower-level tree/publication operations remain available for explicit administration and recipient commands follow in Milestone 2.
 
-### Arbord sync engine
+The product spec now generalizes these operands as **Arbor locators**: local paths, named HTTP/Arbor locations, raw TreeID locations, and optional immutable revision suffixes. The current CLI implements the live local-path/named-URL subset. A shared locator parser plus historical browse and pinned placement are not yet implemented.
 
-- Watch refs, fetch verified Merkle differences, and materialize through the tree’s minimal mount.
-- Push writable local changes with CAS.
-- On conflict, perform block-level Markdown three-way merge informed by journal intent; preserve unresolved versions as files plus diagnostics.
-- Journal sync-applied revisions so local reconciliation cannot resurrect peer deletions. Attribution remains authored here / synced in / externally observed.
-- Reuse existing event and query invalidation machinery; pins never consult refs.
-- Refuse symmetric overlap when another transport already replicates the same subtree between the same replicas.
+### Intentional first-slice cuts
 
-Completion gate:
+These are implementation cuts, not changes to the topic specs:
 
-- a laptop and a second machine synchronize one promoted folder through a reference wire host;
-- edits made on either machine appear at the unchanged visible workspace path;
-- concurrent Markdown edits merge or surface explicit preserved conflicts;
-- restart and offline use retain the last verified materialization;
-- foreign-replication overlap produces a clear warning/refusal;
-- persisted tree descriptors and refs round-trip the frozen `TreeID`, endpoint-hint, and logical-path contract without depending on a local mount path;
-- two independent trees on one endpoint retain distinct ref authority.
+- one Railway-hosted server, one owner bearer token, and one active authority process;
+- private, public-read, and anonymous public-write before recipient grants;
+- the Sharing section occupies its final visual position but is disabled with “Sharing with people is not available yet”;
+- one immutable slug segment per tree;
+- live local paths and named URLs only in the CLI; revision-pinned locators are specified but not yet parsed;
+- current tips may be materialized/proxied to reuse TreeHopper, but compliant authorities need not store materialized files;
+- owner credentials are device-global rather than paired/per-device;
+- no static bake, custom deployed app, multi-user administration, or production HA/observability.
 
-First spikes:
+### REST/control work
 
-- canonical DAG-CBOR cross-implementation fixtures;
-- promotion of a tracked root without changing state identity;
-- conflict materialization while a document is open;
-- foreign-sync detection that never mistakes placeholder markers for content.
+- Public `RootID`, `RootDescriptor`, `RootsPage`, and `/v1/roots` are removed.
+- `TreeRef` is `"local" | "system" | TreeID`; unpromoted paths are OS-absolute local refs.
+- Safe records are read under `system:device`, `system:server`, `system:trees`, `system:credentials`, `system:visited`, and `system:diagnostics`.
+- Singleton operations are `configureServer`, `promoteTree`, `placeTree`, and `setTreePublication`.
+- Raw owner tokens go directly to the OS credential store; journals/records/events/errors contain only safe status and digest.
+- System mutations share durable IDs, receipts, retries, conflicts, and events with content mutations but cannot be mixed with them.
+
+### Wire/host work
+
+```text
+GET  /.arbor/trees/{TreeID}/ref
+POST /.arbor/trees/{TreeID}/push
+GET  /.arbor/trees/{TreeID}/watch
+GET  /.arbor/objects/{hash}
+```
+
+- one CAS tip per tree; immutable deterministic objects below it;
+- partial Merkle fetch, complete graph validation, corruption rejection, quotas, and private-object reachability checks;
+- nested independent trees are boundary entries and never inherit parent publication;
+- `/.well-known/arbor/<slug>` resolves the reference alias;
+- persistent [Railway volume](https://docs.railway.com/volumes), health route, graceful shutdown, and [automatic restart configuration](https://docs.railway.com/deployments/restart-policy);
+- live HTTP projection returns 404 for private, read-only surfaces for public-read, and anonymous CAS for public-write with warning/rate/storage limits.
+
+### Sync behavior
+
+- Promotion is transactional from the local user's point of view: failure leaves original files and legacy state usable.
+- Authored shared-tree mutations snapshot and CAS-push immediately.
+- A background loop pulls when only remote advanced and pushes when only local advanced.
+- If both differ from the common ref, neither side is discarded; local content remains and sync surfaces an explicit conflict.
+- Restart restores ref/object metadata and last verified placements.
+
+### Verification
+
+Implemented automated checks:
+
+- TypeScript typecheck and Swift package fixtures agree on new tree/system shapes;
+- no public fixture/client type contains `RootID`, `RootDescriptor`, or `/v1/roots`;
+- canonical CBOR determinism, Merkle diff, nested boundaries, graph/hash rejection;
+- private/public-read/public-write authority behavior and persistent restart;
+- legacy promotion and publication through arbord;
+- two isolated Arbor data homes syncing through the authority, including offline divergence preservation;
+- both primary CLI sync forms repeated without minting a second tree or placement;
+- remote public-read placement rejection and public-write access reconciliation/anonymous push;
+- raw configured token absent from durable text records/journals;
+- the full browser E2E suite, including canonical control, publication changes, Home records, and the inert Sharing section.
+
+Remaining before status becomes Implemented:
+
+- implement the shared locator parser and revision-pinned `browse`/remote-to-local `sync`;
+- supply the permanent custom hostname, deploy the Railway service with a mounted volume, and repeat restart/private/public checks against it.
+
+The last item is deliberately required before promoting a real personal tree. Localhost fixtures remain the only promotion targets until then.
 
 ---
 
-## Milestone 2 — canonical names and URLs
+## Milestone 2 — recipient sharing and workspace composition
+
+**Status: Next.**
+
+### Product contract
+
+An owner invites a recipient to an existing shared tree or subtree, chooses rights, adjusts/revokes them later, and sees current recipients. The recipient accepts, chooses a local placement and stricter access ceiling, and may use a local overlay for read-only work. Revocation preserves cached and overlay work while removing new remote authority.
+
+### Required work
+
+- authority grant metadata, scoped graph-diff validation, invitation descriptors, expiry, and revocation;
+- system mutations `createInvitation`, `acceptInvitation`, `setGrant`, `revokeGrant`, and `setPlacementAccess`;
+- complete `system:trees/<TreeID>/shares/<GrantID>` safe records;
+- working TreeHopper Sharing controls exactly as specified in [spec/browser.md](spec/browser.md);
+- multiple placements of one source, local attenuation, overlays, transient visits, placement promotion, and accurate provenance;
+- nested-tree access resolution under each child's own grant/publication mode;
+- per-device credentials/pairing and owner-device administration beyond one bearer token;
+- merged browser search/recovery views without inventing aggregate REST resources.
+
+Completion gate:
+
+- Joe invites Alice read/write to one subtree; Alice places it at a different path;
+- Alice can attenuate to read-only and annotate in an overlay;
+- changes outside her grant are rejected even when submitted inside a valid whole-tree CAS;
+- adjusting and revoking access updates immediately and preserves cached/overlay work;
+- the same `TreeID` may have multiple local placements with correct identity/events;
+- private nested children remain unavailable without their own access.
+
+---
+
+## Milestone 3 — scripts and agents
 
 **Status: Planned.**
 
-### Product contract
+- Recognize explicit query/mutation constructors while retaining ordinary TypeScript inference.
+- Generate validators and stable typed handles; infer literal read/write prefixes and require declarations for computed paths.
+- Run deterministic handlers in isolated workers with a scoped tree client as their only authority.
+- Track read sets and rerun affected subscriptions; render components as sandboxed TreeHopper islands.
+- Add `arbor run` over the same handle identity.
+- Define agents as Markdown prompt/config pages whose context and tools are query/mutation references.
+- Assemble restricted namespaces from shared-tree placements and grants; render the same agent in CLI/browser with inspectable ordinary-tree transcripts.
 
-Every self-synced tree has a stable global identity and canonical URL forms before Arbor adds invitations or multi-user authority. A tree may have a friendly DNS name, but routing remains grounded in `TreeID` plus endpoint hints rather than path position or credentials.
+Completion gate: one `.tsx` colocates component/query/mutation over two backings; client bundles contain handles but no handler code; invalid input and undeclared paths fail before data access; a file-defined agent uses the same handles and visible consent.
 
-This milestone builds the resolver and user-facing naming behavior on the addressing grammar and descriptor fields frozen by self-sync; it does not redefine the synchronization boundary. It proves public/read-only discovery and link behavior without introducing recipient-specific grants, invitations, revocation, or writable collaboration.
-
-### Required work
-
-- Resolve `arbor://tree/<TreeID>/…` through endpoint hints learned from the tree’s self-sync descriptor.
-- Resolve `arbor://<dns-name>/…` through DNS `_arbor` records that identify a tree and endpoint.
-- Keep the tree identity stable while human-readable paths change; document `PageID` fragments remain authoritative over stale paths.
-- Record canonical positions as descriptive citation/discovery metadata, never routing or authority.
-- Resolve a global link through an already local self-synced tree first, independent of its visible placement.
-- Implement a minimal public/read-only visited-tree path so an unmounted public name can be opened without inventing multi-user credentials.
-- Record transient visits in the minimal readable system state, with TTL/garbage collection and explicit promotion deferred to workspace composition.
-- Keep credentials and invitation tokens out of Markdown URLs by construction.
-- Surface name resolution, stale path healing, public/read-only state, and unavailable endpoints in TreeHopper.
-
-Completion gate:
-
-- a self-synced tree opens through `arbor://tree/<TreeID>/…` on either machine;
-- changing its visible local path does not change its global URL;
-- a DNS name resolves to the same tree and path;
-- an identity-bearing document URL follows a rename and heals its readable path;
-- an unmounted public tree opens read-only as a transient visit;
-- no URL contains a credential, invitation token, or reader-specific mount path.
-
-First spikes:
-
-- DNS `_arbor` record shape and caching behavior;
-- tree-ID URL resolution with several endpoint hints;
-- public visited-tree object streaming through arbord;
-- canonical-position metadata that cannot become accidental routing authority.
-
----
-
-## Milestone 3 — sharing and workspace composition
+## Milestone 4 — data and SQLite
 
 **Status: Planned.**
 
-### Product contract
+- Recognize `_store.sqlite3` collections and bare database nodes.
+- Introspect tables and expose the same typed collection surface.
+- Observe commits and run row mutations inside SQLite transactions.
+- Snapshot through backup/checkpoint APIs; never copy a live main/WAL pair naïvely.
+- Re-run the backing-independent collection corpus on SQLite.
+- Preserve concurrent revisions as whole-database conflicts until logical changesets exist.
 
-Named self-synced trees grow into collaboration: a tree can be invited, accepted, mounted at reader-chosen paths, attenuated locally, overlaid, and revoked. This milestone completes the workspace-composition work required before scripts, agents, or data execute against composed multi-user authority.
+Completion gate: changing a file collection to SQLite changes no backing-independent query call sites; external SQLite writes remain observable and snapshots remain consistent during WAL activity.
 
-### Sharing and grants
+## Milestone 5 — fuller publication profiles
 
-- `arbor share <path>` issues a scoped invitation for an existing shared tree.
-- `arbor accept` stores an opaque credential reference and lets the recipient choose a visible path and stricter local mode.
-- Enforce remote grant ∩ local mount mode ∩ execution grant.
-- Keep v1 rights to read/append/update and subtree scopes; do not add a general account/group service.
-- Preserve recipient cached/overlaid work after revocation while removing further authority.
-- Store secrets in Keychain/platform credentials; readable records contain only opaque references and safe fields.
+**Status: Planned. Canonical live HTTP publication already belongs to Milestone 1.**
 
-### Workspace composition
+- `arbor bake` emits a static ref/object directory for a dumb host.
+- Compile one portable application manifest for pages, assets, static query results, and live handlers.
+- Add one static and two live adapters only after the common manifest exists.
+- Protect deployed handlers with the same grants/validators as local execution.
+- Emit `<link rel="arbor">` and `Arbor-Tree` crosslinks.
 
-- Complete readable, unshadowable `system:` views over `trees.yaml`, credentials, connections, visits, history, trust, preferences, diagnostics, and runtime state without requiring one imaginary disk file per logical node.
-- Place local folders and shared trees through path-keyed `trees.yaml` entries, including multiple placements of one Arbor source.
-- Implement read-only modes, overlays, shadowing, rename/delete routing, and accurate provenance.
-- Extend indexing, search, events, resolution, and home/default preferences across the composed workspace.
-- Merge per-root recovery/Trash inventories in the browser without inventing a privileged aggregate API.
-- Assemble restricted namespaces containing only granted mounted paths; scripts and agents consume this substrate.
-- Promote a transient visit from Milestone 2 into a durable reader-chosen mount.
-- Resolve global links through the reader’s mount/overlay before falling back to a transient visit.
-- Surface shared, pinned, overlay, conflict, and revocation state in TreeHopper.
+Completion gate: one tree publishes statically with working links/assets and one custom live script deploys to both chosen targets from the same manifest.
 
-Completion gate:
+## Milestone 6 — polish and hardening
 
-- one person shares a folder and another mounts it at a different path;
-- the same source can appear at two local workspace paths with correct identity and provenance;
-- read-only edits use an explicit overlay;
-- direct control-record edits update behavior or yield a diagnostic without destroying the last valid state;
-- effective rights and revocation behave correctly without deleting cached work;
-- a previously visited public tree can be promoted into the durable workspace;
-- search, events, and global Recover use visible workspace positions while preserving source identity;
-- a restricted test namespace contains only its granted mounts.
+**Status: Polish; non-blocking.**
 
-First spikes:
-
-- overlay materialization across rename/delete on APFS;
-- two mounts of one source at different paths;
-- open-editor writes while a mount route changes;
-- revocation with locally dirty overlay content.
-
----
-
-## Milestone 4 — scripts
-
-**Status: Planned. No `packages/compiler` or `packages/runtime` implementation exists yet.**
-
-### Product contract
-
-A script is an ordinary `.tsx` file that may colocate React components, queries, and mutations. Explicit constructors mark execution boundaries; Arbor does not infer server/client realms from the general export graph.
-
-### Required work
-
-- Recognize explicit query/mutation constructors while preserving ordinary TypeScript inference.
-- Generate runtime validators from handler input types, reusing Zod schemas where appropriate.
-- Infer read/write prefixes from literal `tree(...)` paths and require explicit declarations for computed paths.
-- Compile supported collection predicates into driver-executable IR; reject unanalyzable forms rather than accepting backing-dependent scans.
-- Emit stable typed handles, arbord handler entries, manifests, validators, and declarations while retaining `.tsx` colocation.
-- Run deterministic handlers in an isolated worker with a scoped tree client as their only data capability.
-- Remove clock, randomness, general network, filesystem, and process access from deterministic realms.
-- Track read sets and rerun only affected subscriptions, emitting structural/JSON-patch updates.
-- Support `arbor run script.tsx#export` through the same handle manifest used by components.
-- Render components as sandboxed islands in TreeHopper. Consent derives from the resolved handle graph and composed namespace.
-
-Completion gate:
-
-- one `.tsx` file colocates a component, query, and mutation over file and Postgres collections;
-- the client bundle contains handles but no handler implementation;
-- `arbor run` and the rendered component execute the same handler identity;
-- watcher changes rerun only affected queries;
-- invalid inputs fail generated validation before reaching data;
-- consent accurately describes the resolved read/write scope.
-
-First spikes:
-
-- stable transform IDs across irrelevant source edits;
-- worker-global stripping, with QuickJS/Wasm as the fallback;
-- a 1,000-row live table through the sandbox bridge;
-- cost preservation when a collection changes backing.
-
----
-
-## Milestone 5 — agents
-
-**Status: Planned.**
-
-### Product contract
-
-An agent is a Markdown file: prompt in the body, model/runtime settings in frontmatter, context as query references, and tools as mutation references. Agent effects use the same workspace operations and validation as human/script mutations.
-
-### Required work
-
-- Finalize the agent file schema with a checked-in example.
-- Add `arbor agent run <path>` and the corresponding arbord runtime.
-- Resolve context/tools through the script handle manifest.
-- Assemble the agent’s restricted namespace from Milestone 3 mounts and grants.
-- Enforce effective access as remote grant ∩ local mount policy ∩ agent/process grant.
-- Render the same agent as editable prompt plus browser chat.
-- Show tool calls with the same generated consent language as components.
-- Choose and document an ordinary-tree transcript representation.
-- Classify direct agent file writes as external observations unless they use a declared mutation.
-
-Completion gate:
-
-- a file-defined agent runs from CLI and browser against the same prompt/tools;
-- undeclared paths and malformed tool arguments are rejected;
-- a tool mutation visibly changes the tree and invalidates dependent views;
-- transcripts are inspectable ordinary content;
-- two mounts of one source remain distinct in the agent’s namespace and consent text.
-
----
-
-## Milestone 6 — data and SQLite
-
-**Status: Planned. Arbor currently uses SQLite only for private indexes.**
-
-### Required work
-
-- Recognize `_store.sqlite3` as collection-folder backing and bare `.sqlite3` files as browsable database nodes.
-- Introspect tables and expose the same collection surface as file/Postgres backings.
-- Offer an explicit relational escape hatch for joins, transactions, and database-coupled operations.
-- Observe committed changes and run row mutations inside SQLite transaction boundaries.
-- Snapshot through SQLite backup/checkpoint APIs; never copy a live main-file/WAL pair naïvely.
-- Extend type generation and built-in collection views.
-- Re-back the file-collection conformance corpus onto SQLite; backing-independent queries must pass unchanged.
-- Preserve concurrent database revisions as whole-database CAS conflicts; do not byte-merge SQLite pages.
-
-Completion gate:
-
-- dropping `_store.sqlite3` into a collection changes no backing-independent query call sites;
-- a bare database browses as typed tables;
-- Arbor and an external SQLite client can transact without corrupting observation or snapshots;
-- snapshot hashes remain consistent during WAL activity;
-- concurrent sync revisions preserve both databases and surface a database-level conflict.
-
----
-
-## Milestone 7 — deploy and publication
-
-**Status: Planned. No `packages/deploy` implementation exists yet.**
-
-### Required work
-
-- Define a portable build manifest for pages, assets, static query results, and live handlers.
-- Implement one deterministic compiler pipeline shared by local preview and deployment.
-- `arbor bake` emits a static ref/object directory usable from a dumb HTTP host.
-- Add one static adapter and two live handler adapters, such as Vercel and Cloudflare Workers.
-- Make unsupported runtime requirements explicit build errors.
-- Protect deployed handlers with the same declared grants and validators as local execution.
-- Record deployment metadata in readable local system state without storing provider secrets there.
-- Mint or retain the subtree `TreeID`; emit `<link rel="arbor">` and `Arbor-Tree` crosslinks.
-
-Completion gate:
-
-- one tree publishes statically with functional links/assets;
-- one live script deploys to both reference targets with equivalent validation;
-- secret-requiring handlers fail rather than leaking into static output;
-- an Arbor-aware reader can discover the corresponding shared tree;
-- local preview and deployed output derive from the same manifest.
-
----
-
-## Milestone 8 — daily-driver polish and hardening
-
-**Status: Polish. Non-blocking.**
-
-Take these as focused product slices when they answer an observed need; they do not block self-sync, sharing, scripts, or data.
-
-- Enrich ordinary-file pages with bounded metadata, type/icon treatment, safe browser previews, explicit raw/source viewing, and appropriate host-app open actions.
-- Add provider-specific download/retry controls only where the platform exposes a reliable contract.
-- Extend placeholder classification beyond the current iCloud filename marker when representative provider fixtures are available.
-- Measure cold/warm navigation and search on a representative real personal tree when investigating an actual performance question; retain the synthetic 50,000-file regression gate.
-- Keep indexing intentionally extension-aware and lazy; never parse binary/placeholder bytes as Markdown.
-- Address accessibility, responsive layout, and visual consistency through focused audits tied to concrete surfaces.
-
----
+- richer bounded ordinary-file metadata and safe previews;
+- provider-specific materialization controls where reliable;
+- focused accessibility/responsive audits;
+- measured cold/warm behavior on representative large trees;
+- extension-aware lazy indexing that never parses binary or placeholder bytes.
 
 ## Deliberate absences
 
-Unless a later accepted milestone demonstrates a concrete need, the reference implementation does not add:
+Unless an accepted milestone supplies a concrete need:
 
-- local multi-tenant administration or a general account/group service;
-- SDK generation or universal capability negotiation;
-- persisted event replay across daemon restarts;
-- high availability, horizontal scaling, or configurable retention services;
-- durable universal identity for every ordinary local file or directory;
-- generic store, transport, or deployment adapter frameworks.
+- no local multi-tenant account/group administration;
+- no REST v2 or compatibility adapter for this in-place v1 change;
+- no SDK generation or universal capability negotiation;
+- no persisted event replay across daemon epochs;
+- no production HA/horizontal scaling/retention subsystem;
+- no universal durable identity for every ordinary local file;
+- no generic store, transport, credential, or deployment plugin framework.

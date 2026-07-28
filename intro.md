@@ -36,7 +36,15 @@ Imagine there was a thing with this kind of structure on your disk:
 
 Everything is ordinary files. A Markdown document is YAML frontmatter for properties and durable identity plus a Markdown body. A directory is itself a document even when it has no `_index.md`: TreeHopper combines its optional stored body with all of its immediate children, so `atlas` opens as a complete page containing `notes`, `app.sqlite3`, and `atlas.tsx`. Browsing creates nothing. If you add prose, arrange those children under headings, or first need a durable document ID, arbord materializes the minimal `_index.md`. That means any document can gain children without changing its browser name, relative links, identity, or history. And imagine a background process — call it arbord — that watches this tree and does three jobs.
 
-**It handles sharing and syncing.** Take `projects/atlas`, an ordinary folder. When I choose **Share this folder**, arbord gives that subtree an independent identity, a revision history, a permission boundary, and a synchronization endpoint. The folder doesn't move; it's still at `projects/atlas`. Only its backing changes. When Alice accepts my invitation, she places the same shared tree wherever it makes sense in *her* workspace:
+**It handles naming, syncing, publication, and sharing as one progression.** Take `projects/atlas`, an ordinary folder. It starts as exactly that: locally browsable files with no invented permanent Arbor identity. When I choose **Give this subtree a URL**, arbord gives it a stable `TreeID`, reserves a name on my personal hosted endpoint, uploads its first revision, and begins private synchronization with my other machines. The folder doesn't move; it is still at `projects/atlas`, but it now has an identity and a canonical home:
+
+```text
+https://notes.example.org/atlas
+arbor://notes.example.org/atlas
+arbor://tree/tr_7k3m…          # identity fallback if it moves
+```
+
+I can stop there and use it only for myself. I can publish the same tree for anyone to read or even for anyone to edit. And later I can invite Alice to all or part of that already identified tree. Accepting her invitation does not create a second identity; she places the same tree wherever it makes sense in *her* workspace:
 
 ```text
 Joe                              Alice
@@ -44,35 +52,39 @@ projects/atlas/                  work/atlas/
              └──── same shared tree ────┘
 ```
 
-The tree has one identity; each of us controls its placement. And "sharing with myself" is the degenerate case and the everyday one: the same mechanism syncs my workspace between my laptop and the cloud machines where my agents run. Every device and every agent sees the same live tree.
+The tree has one identity; each of us controls its placement and local access ceiling.
 
-Sharing also turns out to solve naming — the moment a folder becomes a shared tree, everything inside it gets a stable global address. That deserves its own section, just below.
+Sharing also turns out to solve naming — the moment a folder becomes a shared tree, everything inside it gets a stable global address.
+
+Inside Markdown, these are still ordinary link destinations. From the document `/projects/atlas`, `[Notes](notes)` points to its child and `[Roadmap](../roadmap)` to its sibling; `[Drift](arbor://notes.example.org/essays/drift#x7f3q2)` jumps to another shared tree. (That final fragment is the document's durable ID, which makes it so you can relocate files and directories and the links can heal to point to the right place.)
+
+The everyday command line is correspondingly small. Its arguments are **Arbor locators**: one input language for local paths, canonical HTTP/Arbor names, and immutable historical revisions.
+
+```sh
+# Open TreeHopper on ordinary local files or an already placed tree.
+arbor browse ~/workspace
+
+# Give my local subtree its canonical URL, sync it, and choose publication.
+arbor sync ~/workspace/projects/atlas https://notes.example.org/atlas -private
+arbor sync ~/workspace/projects/atlas https://notes.example.org/atlas -public-read
+
+# Resolve someone else's canonical tree and choose where it belongs locally.
+arbor sync https://alice.example.org/atlas ~/workspace/work/atlas
+
+# Browse or place one exact historical root without following later changes.
+arbor browse 'arbor://notes.example.org/atlas@{sha256:7db4…}'
+arbor sync 'https://alice.example.org/atlas@{sha256:7db4…}' ~/workspace/archive/atlas
+```
 
 **It handles containment.** Because shared trees mount anywhere, the endless pool of project folders collapses into one navigable tree where everything has a place. You mount a collaborator's tree under `work/`, a public library under `reading/`, an archive off to the side. You scope an agent to exactly the subtrees its job concerns — it sees a small tree assembled for it, and nothing else exists for it. You hand off or archive a subtree as a unit, with its history attached.
 
-It's worth being honest that plain filesystems don't actually stay orderly — they tend toward mess — and that Notion, with the *same* hierarchical structure, somehow doesn't. The difference is three small affordances, and this design keeps all of them. First, a directory in Notion isn't a bare listing; it's a document that *contains* its children, so you can group them under headings, fold the stale ones into a toggle, annotate the important ones — the folder explains itself. Here arbord supplies the child identities and TreeHopper folds them into the directory's document; `_index.md` stores only the authored explanation and ordering when there is something to store. Second, page properties mean a subtree of similar pages quietly becomes a database — past meeting agendas, say, each with a date and attendees — without anyone declaring one; here that's frontmatter, hardened by an optional `schema.ts` when the pattern matures. Third, sharing works on subtrees, which nudges people to map subtrees onto groups — the team's tree, the project's tree — and that social mapping keeps the hierarchy meaningful as it grows. The same dynamic will happen here, because shared trees *are* the unit of sharing. The tree grows for years without becoming a junk drawer, for the same reason Notion workspaces and the web itself can: hierarchy plus addresses, plus folders that carry their own explanations.
+Now, plain filesystems don't actually stay orderly. But Notion, with the *same* hierarchical structure, somehow doesn't. Why is that?
 
-**It presents everything as real files.** Arbord materializes the workspace — including mounted trees — as ordinary files on disk, because agents and editors assume them. `ls` is browsing. `cat` is reading. Writing a file is editing. `grep -r` is search. Nothing about your existing tools breaks.
+* First, a directory in Notion isn't a bare listing; it's a document that *contains* its children, so you can group them under headings, fold the stale ones into a toggle, annotate the important ones. The folder explains itself and is malleable. We do the same thing even with your local directories: an `_index.md` allows you to mark up a directory's children.
+* Second, page properties mean a subtree of similar pages can become a database: past meeting agendas, say, each with a date and attendees; here that's frontmatter, hardened by an optional `schema.ts` to keep things orderly and allow queries.
+* Third, sharing works on subtrees, which nudges people to map subtrees onto human groups and teams and projects. That social mapping keeps hierarchies meaningful as they grow. The same dynamic will happen here.
 
-That's the whole trick for the three problems: one local tree; independent shared trees wherever synchronization, history, or permissions need a boundary; and an arbord that keeps it all materialized as plain files.
-
-## Claiming your place in the global namespace
-
-The web's great invention was the URL — one universal way to name things, so that any document can point at any other — and the moment a folder becomes a shared tree, it joins that tradition: every file and folder inside it has a stable global name, the tree's identity plus a path. You claim your place in the global namespace the way you always have, with a domain. Publish one DNS record and your name resolves to your endpoint and your tree:
-
-```text
-notes.example.org
-  → endpoint=https://arbor.example.org
-  → tree=tr_7k3m…
-```
-
-From then on, `arbor://notes.example.org/essays/drift` is a real address that anyone's browser or agent can resolve. A tree with no domain is still addressable as `arbor://tree/tr_7k3m…/essays/drift`. No hosting company owns your namespace, because the pretty name is yours, the raw name follows the tree's identity, and the endpoint behind either can move.
-
-And that record is the *entire* ceremony. There is no registry to enroll in, no account to create, no platform that can revoke your name — DNS, which you already have, is the only authority involved. Claiming is optional, too: a tree without a domain loses nothing but the pretty rendering of its names.
-
-Private trees have URLs too, and this matters more than it sounds. On the web, naming and access are tangled: an "unlisted" URL is a secret, and linking to something private means moving it somewhere public. Here the name is universal and access is not. A link to a private file is safe to paste into any document — it resolves only for someone holding a grant — so your team can cite, link, and `grep` across private material with the same fluency the public web has.
-
-Inside Markdown, these are still ordinary link destinations. From the document `/projects/atlas`, `[Notes](notes)` points to its child and `[Roadmap](../roadmap)` to its sibling; `[Drift](arbor://notes.example.org/essays/drift#x7f3q2)` jumps to another shared tree. That final fragment is the document's durable ID. The readable path can heal after a move because the ID says which document the author meant.
+**It presents everything as real files.** Arbord materializes the workspace — including mounted trees — as ordinary files on disk, for the pleasure of your agents and editors. `ls` is browsing. `cat` is reading. Writing a file is editing. `grep -r` is search. Nothing about your existing tools breaks.
 
 ## One name, many positions
 
@@ -195,7 +207,7 @@ The prompt, the tools, the data, and the UI are all files in one tree, editable 
 
 Now, remember the second problem: humans have been reading all this in code editors. So imagine a web browser that is also an editor — a lot like Obsidian or Notion — but instead of browsing the HTML web, it browses this universal space. Call the first one TreeHopper.
 
-Every document is editable, including every directory — a folder isn't a listing, it's a document whose stored body and live child nodes are folded into one surface. The child rows keep their arbord identities below the editor, so dragging one is a filesystem move while deleting an ordinary link is a text edit; the Markdown does not need a special new link syntax. A paragraph containing a link to a `.tsx` script renders that script's component inline, as a live island backed by arbord: the `ReadingRoom` above just *appears* in the page, running against the reader's tree. Source view shows the actual stored file and labels projected children rather than inventing source bytes. Cmd+P jumps by a local path, an `arbor://` URL, a durable document ID, or full-text search over your whole materialized workspace — including everything mounted into it.
+Every document is editable, including every directory — a folder isn't a listing, it's a document whose stored body and live child nodes are folded into one surface. The child rows keep their arbord identities below the editor, so dragging one is a filesystem move while deleting an ordinary link is a text edit; the Markdown does not need a special new link syntax. A paragraph containing a link to a `.tsx` script renders that script's component inline, as a live island backed by arbord: the `ReadingRoom` above just *appears* in the page, running against the reader's tree. Source view shows the actual stored file and labels projected children rather than inventing source bytes. Cmd+P accepts the same Arbor locators as the CLI, plus durable document IDs and full-text search over your materialized shared trees.
 
 This browser is a strict superset of the web browser, and the claim rests on two supersets underneath it:
 
@@ -243,16 +255,16 @@ Each piece of glue was a real necessity of the web's architecture. Change the ar
 
 I've avoided saying how synchronization actually works. Here's the sketch — and it's small.
 
-The wire deals in two planes. **Refs** are tiny, live statements from a tree's authority: *(tree, path) → current root hash*. **Objects** are immutable, content-addressed nodes and blobs: each directory node lists its children by hash, so every folder is a Merkle root. Four routes cover it:
+The wire deals in two planes. **A ref** is one tiny live statement per tree: *TreeID → current root hash*. **Objects** are immutable, content-addressed nodes and blobs: each directory node lists its children by hash, so paths live inside one Merkle graph rather than becoming thousands of separately mutable refs. Four routes cover it:
 
 ```text
-GET  /tree/{treeID}/ref/{path}      # where is the tip?
-GET  /obj/{hash}                    # give me this immutable object
-POST /tree/{treeID}/push            # compare-and-swap the tip
-GET  /tree/{treeID}/watch/{path}    # tell me when the tip moves
+GET  /.arbor/trees/{TreeID}/ref     # where is the tip?
+POST /.arbor/trees/{TreeID}/push    # compare-and-swap the tip
+GET  /.arbor/trees/{TreeID}/watch   # tell me when it moves
+GET  /.arbor/objects/{hash}         # give me this immutable object
 ```
 
-When a ref moves, your arbord fetches the new root and walks down, fetching only the child hashes that changed. That Merkle diff is why sync is cheap; the recorded read sets are why the right queries re-run.
+When the tip moves, your arbord fetches the new root and walks only the hashes needed for the subtree it is reading. A subtree grant does not need its own ref: the authority diffs the old and proposed roots and rejects changes outside the allowed path. That Merkle diff is why sync is cheap; recorded read sets are why the right queries re-run.
 
 This split unlocks the whole content-centric networking agenda, almost as a side effect:
 

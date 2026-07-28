@@ -13,12 +13,12 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { homedir } from "node:os";
-import type { Diagnostic, RootID } from "@arbor/core";
+import type { Diagnostic } from "@arbor/core";
 import { sha256 } from "@arbor/core";
 
 export interface WorkspaceRegistryRecord {
   stateID: string;
-  rootID: RootID;
+  rootID: string;
   path: string;
   device?: string;
   inode?: string;
@@ -56,7 +56,7 @@ export function legacyArborDataRoot(): string {
   return join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), "arbor");
 }
 
-function rootIDForInitialPath(path: string): RootID {
+function rootIDForInitialPath(path: string): string {
   return `rt_${sha256(path).slice(0, 10)}`;
 }
 
@@ -262,8 +262,8 @@ export async function workspaceIdentity(root: string): Promise<WorkspaceRegistry
   return record;
 }
 
-/** Resolve a stable private RootID without requiring a missing path to exist. */
-export async function privateRootID(path: string): Promise<RootID> {
+/** Resolve a stable private migration/workspace ID without requiring a missing path to exist. */
+export async function privateRootID(path: string): Promise<string> {
   const loaded = await loadWorkspaceRegistry();
   const exact = loaded.registry[path];
   if (exact) return exact.rootID;

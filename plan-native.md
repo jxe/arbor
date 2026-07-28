@@ -89,7 +89,7 @@ protocol WorkspaceDocumentSession: AnyObject {
 }
 ```
 
-`WorkspaceReference` is the native-facing equivalent of REST `NodeRef`: a `tree` scope plus a logical path or durable document `PageID` with a path hint. `tree` is `"local"` for the plain filesystem, a tracked root's `RootID`, `"system"` for the read-only control scope, or later a shared/visited `TreeID` ([spec/arbord-rest.md](spec/arbord-rest.md) §2). Navigation, history, selection, and drag state retain path and ID when available; the ID wins after a move while the path remains the readable current location. It is not a promise that every ordinary file has a stable `NodeID`.
+`WorkspaceReference` is the native-facing equivalent of REST `NodeRef`: a `tree` scope plus a logical path or durable document `PageID` with a path hint. `tree` is `"local"` for the plain filesystem, `"system"` for the read-only control scope, or a shared/visited `TreeID` ([spec/arbord-rest.md](spec/arbord-rest.md) §2). Navigation, history, selection, and drag state retain path and ID when available; the ID wins after a move while the path remains the readable current location. It is not a promise that every ordinary file has a stable `NodeID`.
 
 This node-first split is intentional. Hunch currently treats a Clamshell workspace as one level of Markdown pages; Arbor exposes Markdown documents, bodyless directories, collections, databases, scripts, and ordinary files in one logical hierarchy. `openDocument` cannot be the provider's universal read primitive. The Clamshell provider may initially expose only its page-shaped subset, while the arbord provider returns the full node model.
 
@@ -139,7 +139,7 @@ Once provider conformance is complete, Clamshell's application-facing API can sh
 
 Feature parity means that TreeHopper native and ArborNote expose the same authored workspace behavior through arbord; it does not require pixel-identical controls or replacing native interaction patterns.
 
-- **Navigation:** filesystem-wide traversal with tracked roots ([spec/browser.md](spec/browser.md) §1) — the launch or default location is a starting point, never a boundary; contextual directory children, parent/back/forward across root boundaries to `/`, home as a preference, per-root search with the client-merged all-roots scope, canonical logical paths, durable-ID move continuity, and relative/rooted/`arbor://` links.
+- **Navigation:** filesystem-wide traversal across shared-tree boundaries ([spec/browser.md](spec/browser.md) §1) — the launch or default locator is a starting point, never a boundary; contextual directory children, parent/back/forward across boundaries to `/`, home as a preference, per-tree search with a client-merged all-trees scope, durable-ID move continuity, and live or revision-pinned Arbor locators.
 - **Markdown:** the same frontmatter, source-preserving block model, inline Markdown, links, hard breaks, toggles, footnotes, LaTeX, raw fallback, and explicit source view. Native may use its own controls, typography, selection, and accessibility.
 - **Directories:** the same body-plus-all-children projection, managed-child identity, authored placement, synthetic fallback rows, structural drag/reorder/rename/trash behavior, and lazy `_index.md`/ID materialization.
 - **Workspace operations:** create, move/place, copy, import, assets, trash/restore, recovery, external-change reconciliation, conflicts, and durable flush before navigation or shutdown.
@@ -313,7 +313,7 @@ The known migration is intentionally concrete: one folder of roughly fifty pages
 
 With native and web on one authority:
 
-- browse the whole authorized filesystem and large trees — the implemented filesystem-wide navigation model and tracked roots let the native shell adopt scope-qualified references and unclamped parent/breadcrumb chrome rather than inventing its own boundary;
+- browse the whole authorized filesystem and large trees — the implemented filesystem-wide navigation model and explicit shared-tree boundaries let the native shell adopt scope-qualified references and unclamped parent/breadcrumb chrome rather than inventing its own boundary;
 - make home a preference rather than the boundary of the world;
 - add Finder-like traversal, history, Quick Look/open actions, drag/import, and whole-workspace search;
 - support complete projected directory documents and ordinary non-Markdown files without coercing the latter into editor documents;
@@ -395,7 +395,7 @@ File-, SQLite-, and Postgres-backed collections use the same native browsing voc
 
 ### Sharing
 
-“Share this folder…” asks arbord to create a shared-tree boundary while leaving the folder at the same workspace path. Invitation acceptance stores an opaque credential reference and lets the recipient choose a mount path and stricter local access. Revocation, offline, overlay, pin, stale, and conflict states reuse the provider's existing events and provenance.
+“Give this subtree a URL” asks arbord to create a shared-tree boundary while leaving the folder at the same workspace path. Sharing then creates grants and invitations on that already identified tree. Invitation acceptance stores an opaque credential reference and lets the recipient choose a placement and stricter local access. Revocation, offline, overlay, pin, stale, and conflict states reuse the provider's existing events and provenance.
 
 ## Acceptance bar
 

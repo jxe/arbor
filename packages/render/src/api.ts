@@ -78,9 +78,7 @@ function makeApi(tree: TreeRef | undefined) {
     openProjectedNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openProjectedNodeView(refOf(ref), signal),
     collection: async (path: string, cursor?: string | null) => client.collection(refOf(path), cursor),
     search: async (query: string, scope?: TreeRef) => (await client.search(query, null, scope ?? tree)).results,
-    roots: () => client.roots(),
-    track: (path: string) => client.track(path),
-    untrack: (id: string) => client.untrack(id),
+    system: (operation: import("@arbor/core").SystemOperation) => client.mutateSystem(operation),
     write: async (
       ref: string | NodeRef,
       body: {

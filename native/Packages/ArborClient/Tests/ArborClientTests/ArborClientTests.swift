@@ -31,19 +31,15 @@ final class ArborClientTests: XCTestCase {
         let errors = try decode([ArbordErrorEnvelope].self, "errors.json")
         let unknownNode = try decode(NodeSnapshot.self, "node-unknown-field.json")
         let untracked = try decode(NodeSnapshot.self, "node-untracked.json")
-        let systemRoot = try decode(NodeSnapshot.self, "node-system-root.json")
-        let roots = try decode(RootsPage.self, "roots.json")
+        let systemTree = try decode(NodeSnapshot.self, "node-system-tree.json")
 
-        XCTAssertEqual(node.ref, ResolvedNodeRef(path: "/notes/today", pageID: "abc123", tree: "rt_x7f3q2ab7c"))
-        XCTAssertEqual(node.tree, "rt_x7f3q2ab7c")
-        XCTAssertEqual(node.enclosingRoot?.osPath, "/Users/joe/notes")
+        XCTAssertEqual(node.ref, ResolvedNodeRef(path: "/notes/today", pageID: "abc123", tree: "tr_notes7f3q2ab7c"))
+        XCTAssertEqual(node.tree, "tr_notes7f3q2ab7c")
+        XCTAssertEqual(node.enclosingTree?.osPath, "/Users/joe/notes")
         XCTAssertEqual(untracked.tree, "local")
-        XCTAssertNil(untracked.enclosingRoot)
-        XCTAssertEqual(systemRoot.tree, "system")
-        XCTAssertFalse(systemRoot.writable)
-        XCTAssertEqual(roots.roots.map(\.tracking), ["tracked", "session"])
-        XCTAssertFalse(roots.roots.contains { $0.missing == true })
-        XCTAssertEqual(roots.home, "/Users/joe")
+        XCTAssertNil(untracked.enclosingTree)
+        XCTAssertEqual(systemTree.tree, "system")
+        XCTAssertFalse(systemTree.writable)
         XCTAssertNil(unknownNode.tree)
         XCTAssertEqual(mutation.operations.first?.op, "move")
         XCTAssertEqual(receipt.effects.first?.previousPath, "/notes/today")
@@ -56,7 +52,7 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(recovery.entries.last?.kind, "trash")
         XCTAssertEqual(
             operationRequests.flatMap(\.operations).map(\.op),
-            ["writeMarkdown", "createMarkdown", "createDirectory", "rename", "move", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity"]
+            ["writeMarkdown", "createMarkdown", "createDirectory", "rename", "move", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity", "configureServer", "promoteTree", "placeTree", "setTreePublication"]
         )
         XCTAssertEqual(
             operationRequests.flatMap(\.operations).first(where: { $0.placement != nil })?.placement,

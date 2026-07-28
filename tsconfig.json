@@ -22,7 +22,8 @@
       "@arbor/editor": ["packages/editor/src/index.ts"],
       "@arbor/fs": ["packages/fs/src/index.ts"],
       "@arbor/arbord": ["packages/arbord/src/index.ts"],
-      "@arbor/client": ["packages/client/src/index.ts"]
+      "@arbor/client": ["packages/client/src/index.ts"],
+      "@arbor/wire": ["packages/wire/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts", "packages/**/*.tsx", "tests/**/*.ts"]

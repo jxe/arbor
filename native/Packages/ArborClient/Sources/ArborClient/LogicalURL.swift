@@ -1,6 +1,6 @@
 import Foundation
 
-/// One resolver for every Markdown link destination form in spec/urls.md,
+/// One resolver for the Markdown link destination forms in spec/locators.md,
 /// mirroring `@arbor/core` `logical-url.ts` exactly. Both implementations
 /// must produce structurally identical results for the shared
 /// `url-resolution.json` fixture table.

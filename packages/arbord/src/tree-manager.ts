@@ -1,51 +1,45 @@
 import { realpath, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import type { Diagnostic, RootDescriptor, RootID } from "@arbor/core";
+import type { Diagnostic, TreeDescriptor } from "@arbor/core";
 import {
   AmbiguousWorkspaceIdentityError,
   arborDataHomeDiagnostics,
-  deleteTreePlacement,
   legacySystemRootsExist,
   loadTreeRegistry,
-  type LocalTreePlacement,
+  type TreePlacement,
   privateRootID,
-  saveLocalTreePlacement,
+  saveSharedTreePlacement,
   watchTreeRegistry,
   workspaceIdentity,
+  type SharedTreePlacement,
 } from "@arbor/stores";
 import type { EventBus } from "./events.ts";
 import { rootDisplayName } from "./root-title.ts";
-import { ProtocolError, Workspace, type WorkspaceOptions } from "./workspace.ts";
-
-export interface SystemRootProjection {
-  id: RootID;
-  path: string;
-  name: string;
-  source: string;
-}
+import { Workspace, type WorkspaceOptions } from "./workspace.ts";
 
 interface KnownRoot {
-  placement?: LocalTreePlacement;
+  placement?: TreePlacement;
   osPath: string;
   missing: boolean;
   name: string;
 }
 
 interface CandidateRoot extends KnownRoot {
-  id: RootID;
-  placement: LocalTreePlacement;
+  id: string;
+  placement: TreePlacement;
 }
 
 /**
- * Owns the local-source entries in `~/.arbor/trees.yaml` and the per-root
- * Workspace instances behind one shared event bus. RootIDs remain private
- * compatibility scope tags; the human registry is keyed only by paths.
+ * Owns legacy and shared entries in `~/.arbor/trees.yaml` and the private
+ * Workspace instances behind one shared event bus. Private workspace IDs
+ * are never projected as durable public identity for unpromoted content.
  */
-export class RootManager implements AsyncDisposable {
-  private workspaces = new Map<RootID, Workspace>();
-  private known = new Map<RootID, KnownRoot>();
-  private sessionID: RootID | null = null;
+export class TreeManager implements AsyncDisposable {
+  private workspaces = new Map<string, Workspace>();
+  private known = new Map<string, KnownRoot>();
+  private sessionID: string | null = null;
   private recordDiagnostics: Diagnostic[] = [];
+  private syncStates = new Map<string, NonNullable<TreeDescriptor["sync"]>>();
   private workspaceOptions: Omit<WorkspaceOptions, "events" | "tree" | "tracking"> = {};
   private stopWatching?: () => void;
   private reloadTail: Promise<void> = Promise.resolve();
@@ -59,7 +53,7 @@ export class RootManager implements AsyncDisposable {
       this.recordDiagnostics.push({
         code: "legacy-system-roots",
         message: "Legacy system/roots/*.md records are unsupported; convert them manually to path-keyed trees.yaml entries",
-        path: "system:roots",
+        path: "system:trees",
         severity: "warning",
       });
     }
@@ -69,7 +63,7 @@ export class RootManager implements AsyncDisposable {
     });
   }
 
-  private async candidate(placement: LocalTreePlacement): Promise<CandidateRoot> {
+  private async candidate(placement: TreePlacement): Promise<CandidateRoot> {
     let osPath = placement.path;
     let missing = false;
     try {
@@ -85,7 +79,9 @@ export class RootManager implements AsyncDisposable {
       if (error instanceof Error && error.message.startsWith("Tree placement key is not canonical:")) throw error;
       missing = true;
     }
-    const id = missing ? await privateRootID(placement.path) : (await workspaceIdentity(osPath)).rootID;
+    const id = placement.source === "local"
+      ? (missing ? await privateRootID(placement.path) : (await workspaceIdentity(osPath)).rootID)
+      : placement.tree;
     return {
       id,
       placement,
@@ -97,7 +93,7 @@ export class RootManager implements AsyncDisposable {
 
   private validateCandidates(candidates: CandidateRoot[]): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
-    const ids = new Set<RootID>();
+    const ids = new Set<string>();
     for (const candidate of candidates) {
       if (candidate.missing) {
         diagnostics.push({
@@ -117,23 +113,9 @@ export class RootManager implements AsyncDisposable {
       }
       ids.add(candidate.id);
     }
-    const live = candidates.filter((candidate) => !candidate.missing);
-    for (let index = 0; index < live.length; index += 1) {
-      for (let other = index + 1; other < live.length; other += 1) {
-        const left = live[index]!;
-        const right = live[other]!;
-        const leftPrefix = left.osPath.endsWith("/") ? left.osPath : `${left.osPath}/`;
-        const rightPrefix = right.osPath.endsWith("/") ? right.osPath : `${right.osPath}/`;
-        if (left.osPath.startsWith(rightPrefix) || right.osPath.startsWith(leftPrefix)) {
-          diagnostics.push({
-            code: "overlapping-tree-placements",
-            message: `Tree placements overlap: ${left.osPath} and ${right.osPath}`,
-            path: left.osPath,
-            severity: "warning",
-          });
-        }
-      }
-    }
+    // Nested shared-tree placements are real authority boundaries. Exact
+    // duplicates are rejected by the ID/path checks above; longest-prefix
+    // resolution chooses the innermost tree for local operations.
     for (const candidate of candidates) {
       const open = this.workspaces.get(candidate.id);
       if (open && open.root !== candidate.osPath && candidate.id === this.sessionID) {
@@ -148,7 +130,7 @@ export class RootManager implements AsyncDisposable {
     return diagnostics;
   }
 
-  private async applyPlacements(placements: LocalTreePlacement[], publish: boolean): Promise<boolean> {
+  private async applyPlacements(placements: TreePlacement[], publish: boolean): Promise<boolean> {
     let candidates: CandidateRoot[];
     try {
       candidates = await Promise.all(placements.map((placement) => this.candidate(placement)));
@@ -165,6 +147,18 @@ export class RootManager implements AsyncDisposable {
     if (diagnostics.length) {
       this.recordDiagnostics = diagnostics;
       return false;
+    }
+
+    const previousSessionID = this.sessionID;
+    const previousSession = previousSessionID ? this.workspaces.get(previousSessionID) : undefined;
+    const reboundSession = previousSession
+      ? candidates.find((candidate) => candidate.osPath === previousSession.root && candidate.id !== previousSessionID)
+      : undefined;
+    if (previousSessionID && previousSession && reboundSession) {
+      await previousSession[Symbol.asyncDispose]();
+      this.workspaces.delete(previousSessionID);
+      this.known.delete(previousSessionID);
+      this.sessionID = reboundSession.id;
     }
 
     const nextIDs = new Set(candidates.map((candidate) => candidate.id));
@@ -193,19 +187,37 @@ export class RootManager implements AsyncDisposable {
         missing: candidate.missing,
         name: candidate.name,
       });
-      if (open) open.tracking = "tracked";
+      if (open) {
+        open.tracking = "tracked";
+        open.updateTreeDescriptor(candidate.placement.source === "local" ? {
+          legacy: true,
+        } : {
+          canonical: candidate.placement.canonical,
+          httpURL: `${candidate.placement.endpoint}/${new URL(candidate.placement.canonical).pathname.split("/").filter(Boolean)[0] ?? ""}`,
+          endpoint: candidate.placement.endpoint,
+          publication: candidate.placement.publication ?? "private",
+          access: candidate.placement.access,
+          placement: "shared",
+          legacy: false,
+        });
+      }
+    }
+    if (reboundSession) {
+      const root = this.known.get(reboundSession.id);
+      if (!root) throw new Error(`Could not rebind the active session to ${reboundSession.id}`);
+      await this.open(reboundSession.id, root);
     }
     this.recordDiagnostics = [...arborDataHomeDiagnostics()];
     if (await legacySystemRootsExist()) {
       this.recordDiagnostics.push({
         code: "legacy-system-roots",
         message: "Legacy system/roots/*.md records are unsupported; convert them manually to path-keyed trees.yaml entries",
-        path: "system:roots",
+        path: "system:trees",
         severity: "warning",
       });
     }
     if (publish) {
-      this.events.emit({ tree: "system", kind: "updated", path: "/roots", origin: "external" });
+      this.events.emit({ tree: "system", kind: "updated", path: "/trees", origin: "external" });
     }
     return true;
   }
@@ -214,7 +226,7 @@ export class RootManager implements AsyncDisposable {
     const snapshot = await loadTreeRegistry();
     if (snapshot.diagnostics.length) {
       this.recordDiagnostics = [...arborDataHomeDiagnostics(), ...snapshot.diagnostics];
-      this.events.emit({ tree: "system", kind: "diagnostic", path: "/roots", origin: "external" });
+      this.events.emit({ tree: "system", kind: "diagnostic", path: "/trees", origin: "external" });
       return;
     }
     await this.applyPlacements(snapshot.placements, true);
@@ -235,6 +247,14 @@ export class RootManager implements AsyncDisposable {
       tree: trackedID,
       displayName: tracked?.name,
       tracking: tracked ? "tracked" : "session",
+      treeDescriptor: tracked?.placement?.source === "local" ? { legacy: true } : tracked?.placement ? {
+        canonical: tracked.placement.canonical,
+        httpURL: `${tracked.placement.endpoint}/${new URL(tracked.placement.canonical).pathname.split("/").filter(Boolean)[0] ?? ""}`,
+        endpoint: tracked.placement.endpoint,
+        publication: tracked.placement.publication ?? "private",
+        access: tracked.placement.access,
+        placement: "shared",
+      } : undefined,
     });
     this.sessionID = workspace.tree;
     this.workspaces.set(workspace.tree, workspace);
@@ -254,7 +274,7 @@ export class RootManager implements AsyncDisposable {
     return workspace;
   }
 
-  async workspaceByTree(tree: RootID): Promise<Workspace | undefined> {
+  async workspaceByTree(tree: string): Promise<Workspace | undefined> {
     const open = this.workspaces.get(tree);
     if (open) return open;
     const root = this.known.get(tree);
@@ -262,13 +282,21 @@ export class RootManager implements AsyncDisposable {
     return this.open(tree, root);
   }
 
-  private async open(tree: RootID, root: KnownRoot): Promise<Workspace> {
+  private async open(tree: string, root: KnownRoot): Promise<Workspace> {
     const workspace = await Workspace.open(root.osPath, {
       ...this.workspaceOptions,
       events: this.events,
       tree,
       displayName: root.name,
       tracking: "tracked",
+      treeDescriptor: root.placement?.source === "local" ? { legacy: true } : root.placement ? {
+        canonical: root.placement.canonical,
+        httpURL: `${root.placement.endpoint}/${new URL(root.placement.canonical).pathname.split("/").filter(Boolean)[0] ?? ""}`,
+        endpoint: root.placement.endpoint,
+        publication: root.placement.publication ?? "private",
+        access: root.placement.access,
+        placement: "shared",
+      } : undefined,
     });
     this.workspaces.set(tree, workspace);
     return workspace;
@@ -276,23 +304,6 @@ export class RootManager implements AsyncDisposable {
 
   list(): Workspace[] {
     return [...this.workspaces.values()];
-  }
-
-  records(): SystemRootProjection[] {
-    return [...this.known.entries()]
-      .filter(([, root]) => Boolean(root.placement))
-      .map(([id, root]) => ({
-        id,
-        path: root.placement!.path,
-        name: this.workspaces.get(id)?.descriptor().name ?? root.name,
-        source: [
-          "---",
-          `id: ${id}`,
-          `path: ${JSON.stringify(root.placement!.path)}`,
-          "---",
-          "",
-        ].join("\n"),
-      }));
   }
 
   async openAll(): Promise<Workspace[]> {
@@ -304,7 +315,7 @@ export class RootManager implements AsyncDisposable {
     return this.list();
   }
 
-  async descriptors(): Promise<RootDescriptor[]> {
+  async descriptors(): Promise<TreeDescriptor[]> {
     await Promise.all([...this.known.entries()].map(async ([id, root]) => {
       const workspace = this.workspaces.get(id);
       if (workspace && workspace.root === root.osPath) {
@@ -313,11 +324,20 @@ export class RootManager implements AsyncDisposable {
         root.name = await rootDisplayName(root.osPath);
       }
     }));
-    return [...this.known.entries()].map(([id, root]) => ({
+    return [...this.known.entries()].filter(([, root]) => Boolean(root.placement)).map(([id, root]): TreeDescriptor => ({
       id,
       name: this.workspaces.get(id)?.descriptor().name ?? root.name,
       osPath: root.osPath,
-      tracking: root.placement ? "tracked" : "session",
+      placement: root.placement?.source === "local" || !root.placement ? "local" : "shared",
+      ...(root.placement?.source === "local" ? { legacy: true } : {}),
+      ...(root.placement && root.placement.source !== "local" ? {
+        canonical: root.placement.canonical,
+        httpURL: `${root.placement.endpoint}/${new URL(root.placement.canonical).pathname.split("/").filter(Boolean)[0] ?? ""}`,
+        endpoint: root.placement.endpoint,
+        publication: root.placement.publication ?? "private",
+        access: root.placement.access,
+        sync: this.syncStates.get(id) ?? "idle",
+      } : {}),
       ...(root.missing ? { missing: true } : {}),
     }));
   }
@@ -327,7 +347,7 @@ export class RootManager implements AsyncDisposable {
       .filter(([, root]) => root.missing)
       .map(([tree, root]): Diagnostic => ({
         code: "missing-root-path",
-        message: `Tracked root ${tree} path does not resolve`,
+        message: `Shared tree ${tree} placement path does not resolve`,
         path: root.osPath,
         severity: "warning",
       }));
@@ -335,9 +355,9 @@ export class RootManager implements AsyncDisposable {
   }
 
   async ownerOf(osPath: string): Promise<{ workspace: Workspace; treePath: string } | null> {
-    let best: { tree: RootID; root: KnownRoot } | null = null;
+    let best: { tree: string; root: KnownRoot } | null = null;
     for (const [tree, root] of this.known) {
-      if (root.missing) continue;
+      if (root.missing || !root.placement) continue;
       const prefix = root.osPath.endsWith("/") ? root.osPath : `${root.osPath}/`;
       if (osPath !== root.osPath && !osPath.startsWith(prefix)) continue;
       if (best && best.root.osPath.length >= root.osPath.length) continue;
@@ -349,69 +369,40 @@ export class RootManager implements AsyncDisposable {
     return { workspace, treePath: remainder.startsWith("/") ? remainder : `/${remainder}` };
   }
 
-  async track(inputPath: string): Promise<RootDescriptor> {
-    let canonical: string;
-    try {
-      canonical = await realpath(inputPath);
-      if (!(await stat(canonical)).isDirectory()) {
-        throw new ProtocolError("invalid-reference", `${inputPath} is not a directory`, 400, { path: inputPath });
-      }
-    } catch (error) {
-      if (error instanceof ProtocolError) throw error;
-      throw new ProtocolError("not-found", `Cannot track ${inputPath}`, 404, { path: inputPath });
-    }
+  placementFor(tree: string): TreePlacement | undefined {
+    return this.known.get(tree)?.placement;
+  }
+
+  sharedPlacements(): SharedTreePlacement[] {
+    return [...this.known.values()].flatMap((root) =>
+      root.placement && root.placement.source !== "local" ? [root.placement] : []
+    );
+  }
+
+  setSyncState(tree: string, state: NonNullable<TreeDescriptor["sync"]>): void {
+    this.syncStates.set(tree, state);
+  }
+
+  sharedBoundariesWithin(osPath: string): Map<string, string> {
+    const result = new Map<string, string>();
+    const prefix = osPath.endsWith("/") ? osPath : `${osPath}/`;
     for (const [tree, root] of this.known) {
-      if (root.missing) continue;
-      if (root.osPath === canonical) {
-        if (!root.placement) {
-          root.placement = await saveLocalTreePlacement(canonical);
-          const workspace = this.workspaces.get(tree);
-          if (workspace) workspace.tracking = "tracked";
-        }
-        return (await this.descriptorFor(tree))!;
-      }
-      const prefix = root.osPath.endsWith("/") ? root.osPath : `${root.osPath}/`;
-      if (canonical.startsWith(prefix) || root.osPath.startsWith(`${canonical}/`)) {
-        throw new ProtocolError(
-          "unsupported-operation",
-          `Tracking ${canonical} would nest with the existing root at ${root.osPath}; overlapping trees are not supported`,
-          422,
-          { path: canonical },
-        );
-      }
+      if (root.placement?.source === "local" || !root.placement || root.missing) continue;
+      if (root.osPath.startsWith(prefix)) result.set(root.osPath, tree);
     }
-    const identity = await workspaceIdentity(canonical);
-    const placement = await saveLocalTreePlacement(canonical);
-    this.known.set(identity.rootID, {
-      placement,
-      osPath: canonical,
-      missing: false,
-      name: await rootDisplayName(canonical),
-    });
-    return (await this.descriptorFor(identity.rootID))!;
+    return result;
   }
 
-  async untrack(id: RootID): Promise<void> {
-    const root = this.known.get(id);
-    if (!root?.placement) {
-      throw new ProtocolError("not-found", `No tracked root ${id}`, 404);
+  async applySharedPlacement(placement: SharedTreePlacement): Promise<TreeDescriptor> {
+    await saveSharedTreePlacement(placement);
+    const snapshot = await loadTreeRegistry();
+    if (snapshot.diagnostics.length || !(await this.applyPlacements(snapshot.placements, true))) {
+      throw new Error(`Could not activate shared tree placement at ${placement.path}`);
     }
-    await deleteTreePlacement(root.placement.path);
-    root.placement = undefined;
-    const workspace = this.workspaces.get(id);
-    if (workspace) {
-      if (id === this.sessionID) workspace.tracking = "session";
-      else {
-        await workspace[Symbol.asyncDispose]();
-        this.workspaces.delete(id);
-        this.known.delete(id);
-      }
-    } else {
-      this.known.delete(id);
-    }
+    return (await this.descriptorFor(placement.tree))!;
   }
 
-  private async descriptorFor(tree: RootID): Promise<RootDescriptor | undefined> {
+  private async descriptorFor(tree: string): Promise<TreeDescriptor | undefined> {
     return (await this.descriptors()).find((descriptor) => descriptor.id === tree);
   }
 

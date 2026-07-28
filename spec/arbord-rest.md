@@ -18,22 +18,24 @@ This contract is not an extension framework. REST v1 specifies the operations Ar
 A local workspace reference has one of two forms, each optionally qualified by the tree dimension:
 
 ```ts
-type TreeRef = string; // "local" | RootID | "system" | (future) TreeID / DNS name
-type RootID = string;  // opaque, "rt_…"
+type TreeID = string;
+type TreeRef = "local" | "system" | TreeID;
 
 type NodeRef =
   | { tree?: TreeRef; path: LogicalPath }
   | { tree?: TreeRef; pageID: PageID; pathHint?: LogicalPath };
 ```
 
-- `tree` names the scope a reference resolves in. Its local values are a tracked root's opaque `RootID` (paths are tree-relative, `/` is that root), `"local"` (the degenerate no-tree filesystem scope; paths are OS-absolute logical paths, [urls.md](urls.md) §2), and `"system"` (the read-only control scope serving `system:roots/…`, [system.md](system.md) §1). Visited/shared `TreeID`s and DNS names join the same dimension later. **An omitted `tree` means the session root** — the tracked or session-tracked root of the `arbor dev` launch path — so pre-existing requests keep today's semantics.
-- A `tree="local"` reference whose real path falls inside a live root is canonicalized into that root's scope: the response's resolved reference carries the owning `RootID` and tree-relative path. Root-scoped references never escape their root; traversal and symlink containment inside a scope are unchanged.
-- Durable identity is per-root: `{tree: RootID, pageID}` consults that root's ID map; a bare `{pageID}` fans out across all live roots, and a cross-root duplicate is `duplicate-page-id` with tree-qualified owners; `{tree: "local", pageID}` is `invalid-reference` — untracked content may carry frontmatter IDs, but nothing indexes them.
+- `tree: "local"` addresses unpromoted content with an OS-absolute logical path. It never carries durable tree identity or supports indexing, recovery, sync, or permissions.
+- `tree: TreeID` addresses a promoted or accepted shared tree with a tree-relative path; `/` is its root. A local absolute path inside a placed shared tree canonicalizes into that `TreeID`.
+- `tree: "system"` addresses safe control records such as `/server`, `/trees/<TreeID>`, `/credentials`, and `/visited`.
+- Omitted `tree` means the launch context for legacy convenience; new clients send an explicit scope.
+- `{tree: TreeID, pageID}` consults that tree's ID map. `{tree: "local", pageID}` is invalid because unpromoted content is not indexed. A bare `pageID` may fan out across placed shared trees but duplicates are errors.
 - `path` is the canonical extensionless logical path described in [format.md](format.md) and may address any workspace node.
 - `pageID` is an opaque, durable document identity carried by materialized Markdown frontmatter. Existing six-character IDs remain valid, but length and alphabet are not protocol semantics.
 - `pathHint` makes logs and failures understandable and speeds ordinary resolution. When it disagrees with a valid page ID, the ID owner wins and arbord returns its current canonical path.
 - Ordinary files and untouched bodyless directories remain path-only. The planned projected-document layer requires arbord to ensure a `PageID`, by minimally materializing the Markdown body, before an authored identity-bearing link or structural move requires directory-document continuity. REST does not synthesize a durable universal `NodeID`.
-- `TreeID`, public names, and invitations are not local `tree` values yet. Visiting or mounting them first gives their content workspace paths; when visiting lands, they become additional values of the same `tree` dimension rather than a new reference shape.
+- Canonical HTTP/Arbor names and invitations resolve to a `TreeID` before entering this local API; they do not add more `TreeRef` variants.
 
 Duplicate page IDs are an error/diagnostic, never a nondeterministic choice. A page ID is rename-resistant identity for Markdown content, not a global name or proof of authority.
 
@@ -42,12 +44,19 @@ Duplicate page IDs are an error/diagnostic, never a nondeterministic choice. A p
 Every successful node read returns a resolved snapshot with:
 
 ```ts
-type RootDescriptor = {
-  id: RootID;
-  name: string;                       // root _index.md H1; basename fallback
-  osPath: string;                     // absolute canonical path of the root on disk
-  tracking: "tracked" | "session";
-  missing?: boolean;                  // record exists but the path does not
+type TreeDescriptor = {
+  id: TreeID;
+  name: string;
+  osPath?: string;
+  canonical?: string;
+  httpURL?: string;
+  endpoint?: string;
+  publication?: "private" | "public-read" | "public-write";
+  access?: "read" | "write";
+  placement: "local" | "shared" | "remote";
+  sync?: "idle" | "pushing" | "pulling" | "offline" | "conflict" | "error";
+  legacy?: boolean;
+  missing?: boolean;
 };
 
 type NodeSnapshot = {
@@ -57,7 +66,7 @@ type NodeSnapshot = {
     pageID?: PageID;
   };
   tree: TreeRef;
-  enclosingRoot?: RootDescriptor;     // present iff tree is a RootID
+  enclosingTree?: TreeDescriptor;     // present at a shared or legacy boundary
   path: LogicalPath;
   kind: "markdown" | "directory" | "collection" | "database" | "file";
   name: string;
@@ -74,7 +83,7 @@ type NodeSnapshot = {
 
 `contentRevision` is the compare-and-swap identity of the page/file bytes that an authored content mutation would replace. `directoryRevision` is the precondition for authored directory-body ordering and anchored child placement. They may currently derive from the same physical body bytes, but the protocol keeps their meanings distinct. A changing child listing is additionally ordered by `observedThrough`; clients do not treat a content revision as a complete version of every child.
 
-`tree` is the scope the read resolved in, after canonicalization; `enclosingRoot.osPath` lets a client rebuild the OS-shaped spelling of a root-scoped location and is the deliberate, narrow relaxation of the physical-path rule — the OS path *is* the user-facing address of local space, while transaction-temporary paths, journal internals, and state directories still never cross the boundary. The enclosing tree is also the base for tree-rooted link resolution ([urls.md](urls.md) §2).
+`tree` is the resolved scope. `enclosingTree.osPath` lets a local client rebuild the OS-shaped spelling of a placed shared tree. Transaction paths, journal internals, state directories, tokens, and credential values never cross the boundary.
 
 Later mount and sharing features add their specified materialization/provenance states when implemented. The base v1 snapshot does not predeclare an open-ended provider-state taxonomy.
 
@@ -93,12 +102,11 @@ GET /v1/backlinks?pageID=…&pathHint=…&cursor=…
 GET /v1/collection?path=…&table=…&cursor=…
 GET /v1/recovery?path=…
 GET /v1/recovery?path=…&recursive=true&cursor=…
-GET /v1/roots
 ```
 
-Every reference-taking route also accepts `tree=…` per §2; `/v1/search` takes `tree` as its scope (a tracked root's index; `tree=local` is `unsupported-operation` — nothing indexes the untracked filesystem, and an all-roots search is a client-side fan-out over tracked roots). Search, recovery, backlinks, collections, and Trash are per-tree capabilities: in `local` scope they return `unsupported-operation` with the tracking affordance left to clients. Recovery remains explicitly per-root until workspace composition adds a client-side multi-root surface.
+Every reference-taking route accepts `tree=…`; `/v1/search` takes a `TreeID`. Search, recovery, backlinks, collections, and Trash are shared-tree capabilities. In `local` scope they return `unsupported-operation`; all-trees views are client-side fan-outs over `system:trees`.
 
-`GET /v1/roots` returns `{ roots: RootDescriptor[], home: string, observedThrough }` — the session root plus the `source: local` entries in `~/.arbor/trees.yaml`, with invalid or missing placements surfaced as diagnostics rather than dropped silently. `POST /v1/roots {path}` adds the canonical path-keyed local entry (idempotent by path; overlapping live trees are refused) and `DELETE /v1/roots?id=…` removes it while retaining private recovery state. RootIDs live only in `workspaces.json`; an unambiguous same-filesystem path-key move preserves them. `system:roots/<RootID>` remains a generated, read-only compatibility view through `/v1/node` and `/v1/children`; every system-scope mutation is still `unsupported-operation`.
+There is no `/v1/roots` or `/v1/trees` administration resource. Safe control state is read with the same `/v1/node` and `/v1/children` routes under `tree=system`; concrete control changes use `POST /v1/mutations`.
 
 `/v1/node` resolves and reads in one operation. Routes that address a Markdown page accept the same path or page-ID-plus-hint query forms; path-only nodes use `path`. Separate `/open` resources are absent. Child, search, backlink, collection, and recovery cursors are opaque continuation values; callers do not construct offsets or infer storage layout from them.
 
@@ -116,9 +124,8 @@ The wire examples for these responses are the checked-in fixtures:
 | `/v1/backlinks` | [`tests/fixtures/protocol/backlinks.json`](../tests/fixtures/protocol/backlinks.json) |
 | `/v1/collection` | [`tests/fixtures/protocol/collection.json`](../tests/fixtures/protocol/collection.json) |
 | `/v1/recovery` | [`tests/fixtures/protocol/recovery.json`](../tests/fixtures/protocol/recovery.json) |
-| `/v1/roots` | [`tests/fixtures/protocol/roots.json`](../tests/fixtures/protocol/roots.json) |
 
-Scope coverage: [`node-untracked.json`](../tests/fixtures/protocol/node-untracked.json) is the normative `tree="local"` snapshot (OS-absolute path, no `enclosingRoot`) and [`node-system-root.json`](../tests/fixtures/protocol/node-system-root.json) the read-only `tree="system"` record page. One legacy fixture deliberately omits `tree` to prove omitted-scope compatibility in both directions.
+Scope coverage: [`node-untracked.json`](../tests/fixtures/protocol/node-untracked.json) is the normative `tree="local"` snapshot (OS-absolute path, no `enclosingTree`) and [`node-system-tree.json`](../tests/fixtures/protocol/node-system-tree.json) is a safe `tree="system"` record. One legacy fixture deliberately omits `tree` to prove omitted-scope decoding.
 
 Unknown descriptive fields are ignored by clients. The reference, revision, cursor, pagination, document/row data, diagnostics, and materialization fields shown in these fixtures are normative when applicable.
 
@@ -132,7 +139,7 @@ That projection is not a new REST representation. Both reference clients impleme
 
 ### Browser/native parity reads
 
-The implemented whole-workspace daily-driver milestone supplies three concrete reads before native TreeHopper depends on them:
+REST v1 supplies the same concrete reads to web, native, CLI, and other trusted clients:
 
 ```text
 GET /v1/backlinks?path=…&cursor=…
@@ -143,15 +150,15 @@ GET /<logical-path>            (ordinary file → bytes)
 
 Backlinks resolve the usual `NodeRef`, return referring document refs plus link context, paginate like search, and carry `observedThrough`; they never define physical parentage or deletion policy.
 
-**Recovery scales by subtree, not by a privileged workspace scope.** The existing node-scoped route gains `recursive` and a cursor: "what is recoverable under this directory" unifies Trash inventory with lost/purged Markdown entries for any subtree, and recovery for a whole tree is simply the root-directory call. There is no separate `scope=workspace` mode — *workspace* is not a stable boundary once arbord serves arbitrary roots and mounts. Recovery state is physically per-tree (the `/Trash` convention and `.history/` sidecars travel with the region that syncs) and per-device (the journal); the inventory is the device-merged fold over a subtree. Workspace composition later adds a browser surface that merges per-tree queries client-side, the way the Finder merges per-volume Trashes; the API never pretends one aggregate exists.
+**Recovery scales by subtree, not by a privileged workspace scope.** The node-scoped route accepts `recursive` and a cursor: "what is recoverable under this directory" unifies Trash inventory with lost/purged Markdown entries. Recovery for a whole tree is its root call. There is no separate `scope=workspace`; clients merge per-tree inventories when they need a workspace view.
 
 **The logical route is the file API.** Arbord's origin serves the logical tree directly, dispatched by node kind: an ordinary file's logical path returns its uninterpreted bytes with the content revision as `ETag` and HTTP range support, while Markdown documents and directories return the browsing surface. There is no separate `/v1/file?path=…` query route and no bespoke `GET /Assets/…` static route — assets are ordinary files at ordinary logical paths, and one dispatch rule covers them all. Containment, writability, and placeholder checks remain arbord responsibilities. For node kinds with two legitimate surfaces (a CSV is both bytes and a collection view), kind-based dispatch defaults ordinary files to bytes and everything document-shaped to the browsing surface, with an explicit `?raw` override for the non-default surface.
 
-**The DOM's URL rule is not Arbor's URL rule.** Displayed routes deliberately omit the directory-like base slash ([urls.md](urls.md) §2), so native browser resolution of a relative `src`/`href` cannot match logical resolution. In-app rendering therefore resolves every authored reference — links *and* asset embeds — through the shared logical resolver before it reaches the DOM, one uniform bridge rather than per-case rewriting. `arbor bake` performs the same resolution at publication time, emitting references that resolve natively on a dumb static host ([wire.md](wire.md) §7); that is where plain web-relative behavior genuinely pays off.
+**The DOM's URL rule is not Arbor's locator rule.** Displayed routes deliberately omit the directory-like base slash ([locators.md](locators.md)), so native browser resolution of a relative `src`/`href` cannot match logical resolution. In-app rendering therefore resolves every authored reference — links *and* asset embeds alike — through the shared logical resolver before it reaches the DOM. `arbor bake` performs the same resolution at publication time, emitting references that resolve natively on a dumb static host ([wire.md](wire.md) §7).
 
-**Reads are tree-qualified; visiting extends the same dimension.** The `tree` dimension of §2 is landed for local values: tracked roots, the `local` filesystem scope, and the read-only `system` scope. Visiting an unmounted tree ([browser.md](browser.md) §3) requires naming nodes in a foreign tree — an inline image in a visited document references an asset *of that tree*, which no local path can address. The planned generalization is `TreeID`s and DNS names as further `tree` values (the `arbor://` forms of [urls.md](urls.md)); a visited file's bytes arrive by resolving `(TreeID, path)` through the wire's ref plane and streaming the content-addressed blob, with the object hash as `ETag`. Arbord proxies rather than handing the browser a remote URL: grants stay enforced in one place, the web client stays same-origin against loopback, and fetched objects share one cache with any later mount or pin of the same tree. This pulls a read-only slice of the wire's ref/object planes forward of the full sync engine; it does not change the mutation surface, which stays local until sharing lands.
+**Reads are tree-qualified.** A visited or placed file arrives by resolving `(TreeID, path)` through the wire's single root ref and walking the required hashes. Arbord proxies rather than handing TreeHopper a remote object URL: grants remain enforced in one place, the web client stays same-origin against loopback, and fetched objects share one cache with any later placement or pin.
 
-Both reference clients and TreeHopper web use these reads. The current filesystem driver recognizes iCloud's `.name.icloud` eviction marker as the logical file's `placeholder` state and never reads marker bytes as content; provider-specific download/retry controls and richer ordinary-file previews remain polish. Home/default location remains client-local until readable `system:` preferences exist; it is not smuggled into a content route.
+Both reference clients and TreeHopper web use these reads. The filesystem driver recognizes iCloud's `.name.icloud` eviction marker as the logical file's `placeholder` state and never reads marker bytes as content. Home/default location comes from safe `system:device` state; it is not smuggled into a content route.
 
 ## 3. Authored mutations and receipts
 
@@ -201,6 +208,17 @@ type StructuralWorkspaceOperation =
   | { op: "trash"; refs: NodeRef[] }
   | { op: "restore"; refs: NodeRef[] };
 
+type SystemOperation =
+  | { op: "configureServer"; origin: string; ownerToken: string }
+  | { op: "promoteTree"; path: string; slug: string }
+  | { op: "placeTree"; tree: TreeID; path: string; endpoint?: string; canonical?: string }
+  | { op: "setTreePublication"; tree: TreeID; publication: "private" | "public-read" | "public-write" }
+  | { op: "createInvitation"; tree: TreeID; subtree: LogicalPath; rights: GrantRights; recipient?: string; expiresAt?: string }
+  | { op: "acceptInvitation"; descriptor: string; path: string; access: "read" | "write" }
+  | { op: "setGrant"; tree: TreeID; grant: string; subtree: LogicalPath; rights: GrantRights }
+  | { op: "revokeGrant"; tree: TreeID; grant: string }
+  | { op: "setPlacementAccess"; tree: TreeID; path: string; access: "read" | "write" };
+
 type MutationRequest =
   | {
       mutationID: string;
@@ -212,16 +230,24 @@ type MutationRequest =
         StructuralWorkspaceOperation,
         ...StructuralWorkspaceOperation[],
       ];
+    }
+  | {
+      mutationID: string;
+      operations: [SystemOperation];
     };
 ```
 
 `ensureDocumentIdentity` makes a document's durable `PageID` explicit: when one already exists it writes nothing and its receipt echoes the current `pageID` and revisions; when a Markdown body lacks an `id` it patches the frontmatter under the content-revision precondition; and for an implicit directory it materializes a frontmatter-only `_index.md` with a minted ID. The receipt always carries a single `"updated"` effect with the resulting `pageID` and `contentRevision`. Clients use it before Copy Link or link insertion targeting a bodyless directory. Independently, an authored rename/move/trash of a Markdown-bodied document ensures identity inside the structural transaction, so those mutation effects always carry a `PageID`; bodyless directories gain identity on authored placement, and ordinary path-only files stay path-only.
 
-`mutationID` is a non-empty opaque string. Every mutation belongs to exactly one durability domain. A content mutation contains exactly one Markdown write or recovery restoration. A structural mutation contains a non-empty ordered batch of structural operations. Content operations may not be combined with each other or with structural operations. A rejected mixed-domain request records no mutation intent and returns `unsupported-operation`.
+`mutationID` is a non-empty opaque string. Every mutation belongs to exactly one durability domain. A content mutation contains one Markdown write or recovery action, a structural mutation contains a non-empty ordered filesystem batch, and a system mutation contains exactly one concrete control operation. Domains cannot be mixed. A rejected mixed-domain request records no mutation intent.
 
 The complete structural batch either commits or has no logical effects. Structural operation order is authored intent and participates in the request hash. This boundary lets Markdown intents and structural transactions each provide crash-safe recovery without a cross-domain transaction coordinator.
 
-References carry their `tree` per §2; the path-literal creates carry an optional operation-level `tree` for the same reason. A mutation also resolves in exactly one scope. A structural batch whose references span scopes — two roots, or a root and the `local` filesystem — is `unsupported-operation`; cross-scope movement is an explicit later feature, not an accidental composition of two durability domains. Inside a tracked root the full mutation surface applies with journaled durability as specified here. In `local` scope a deliberately reduced surface applies: `writeMarkdown` (byte-revision CAS, atomic replace, byte-identical no-op saves — but no journal intent and no ID minting), `createMarkdown`/`createDirectory`, and `natural` rename/move/copy. `ensureDocumentIdentity`, `authored` placement and anchors, `trash`/`restore`, and recovery restoration are `unsupported-operation` in `local` scope — durable identity, authored directory order, and Trash are per-tree capabilities. The `system` scope accepts no mutations at all in this milestone.
+References carry their `tree` per §2; path-literal creates carry the same optional qualifier. A structural batch resolves in exactly one scope. Cross-tree movement is an explicit transfer, not an accidental composition of durability domains. A shared `TreeID` supports the full journaled mutation surface. `local` supports byte-CAS Markdown, create, and natural rename/move/copy but not identity minting, authored ordering, Trash, recovery, or sync.
+
+System operations are singleton because their authority and rollback domains differ from content and filesystem transactions. They still receive durable receipts and ordered `system` events. `configureServer` is secret-aware: the raw token moves directly to the OS credential store; only normalized origin and token digest enter durable intent. `promoteTree` reserves name/TreeID, uploads and verifies the initial tip, reattaches private state, then replaces the placement before acknowledging. Invitation and grant operations are specified here as part of the complete product even when a reference implementation stage has not landed them.
+
+`placeTree` may carry the already-resolved wire endpoint and canonical name when the tree came from another person's URL. The daemon verifies that name against the resolved `TreeID`, materializes the current tip, and records the recipient's effective local access ceiling. Reads of a read-only placement return `writable: false`, and authored mutation routes reject it with `read-only`; direct filesystem edits are local divergence rather than authority to push.
 
 `refs` arrays are non-empty and retain their order. `move` is also the placement operation, with two placements. `natural` — the default for an unanchored cross-directory move — moves the node without materializing a stored destination row: the child simply appears in the listing (and as a projected synthetic row), pre-existing destination rows naming the moved node are rewritten, and source-directory rows for the departed child are removed. `authored` places a stored row in the destination directory body; an anchor (`beforePath` or `beforeBlockID`) always implies `authored`, and an unanchored `authored` move appends in authored document order. A same-directory move is a reorder and is inherently authored. Renames update an existing authored row but never materialize one for a previously synthetic child.
 
@@ -229,7 +255,7 @@ Anchors: `beforePath` identifies a child, while `beforeBlockID` identifies an au
 
 The planned projected-document client never sends its complete projected directory document as `writeMarkdown`. It removes synthetic managed rows and routes intentions by durability domain: prose/frontmatter becomes the singleton content operation, while managed-row reorder/move/rename/copy/trash/restore becomes a structural batch with `directoryRevision` and explicit anchors. If the operation requires a bodyless directory to retain document identity across movement, the corresponding arbord extension establishes the ID within the authored mutation before changing its path.
 
-The normative request example is [`tests/fixtures/protocol/mutation.json`](../tests/fixtures/protocol/mutation.json). [`tests/fixtures/protocol/operations.json`](../tests/fixtures/protocol/operations.json) contains separate valid requests covering every content and structural operation. Physical filenames, transaction-temporary paths, watcher classifications, and filesystem-driver request types are never public fields.
+The normative request example is [`tests/fixtures/protocol/mutation.json`](../tests/fixtures/protocol/mutation.json). [`tests/fixtures/protocol/operations.json`](../tests/fixtures/protocol/operations.json) contains separate valid requests covering content, structural, and system operations. Physical filenames, transaction-temporary paths, watcher classifications, raw credentials, and filesystem-driver request types are never public fields.
 
 Malformed envelopes, empty batches, mixed-domain batches, multiple-content batches, empty reference arrays, ambiguous references, and missing required operation fields are rejected before dispatch. [`tests/fixtures/protocol/mixed-mutation.json`](../tests/fixtures/protocol/mixed-mutation.json) is the normative rejected mixed-domain example.
 
@@ -334,7 +360,7 @@ REST v1 defines codes for:
 - `resync-required`;
 - `internal-error`.
 
-Fields not relevant to a code are omitted: `owners` belongs to duplicate identity/body errors, `anchor` to placement conflicts, `current` to stale revisions, and `mutationID` to idempotency failures. Physical paths and filesystem transaction details are never returned. Clients preserve and present unknown future codes without crashing, but REST v1 does not predeclare errors for unimplemented mounts, remote stores, grants, or deployment targets.
+Fields not relevant to a code are omitted: `owners` belongs to duplicate identity/body errors, `anchor` to placement conflicts, `current` to stale revisions, and `mutationID` to idempotency failures. Physical transaction paths, filesystem internals, and credential values are never returned. Clients preserve and present unknown future codes without crashing.
 
 [`tests/fixtures/protocol/error.json`](../tests/fixtures/protocol/error.json) deliberately uses an unknown code to prove forward-compatible decoding.
 
@@ -383,7 +409,7 @@ The query and header are equivalent; supplying both with different values is an 
 
 id: 11111111-1111-1111-1111-111111111111:5
 event: workspace
-data: {"cursor":"11111111-1111-1111-1111-111111111111:5","tree":"rt_x7f3q2ab7c","kind":"moved","path":"/archive/today","previousPath":"/notes/today","pageID":"abc123","contentRevision":"sha256:content","origin":"api","mutationID":"22222222-2222-2222-2222-222222222222"}
+data: {"cursor":"11111111-1111-1111-1111-111111111111:5","tree":"tr_notes7f3q2ab7c","kind":"moved","path":"/archive/today","previousPath":"/notes/today","pageID":"abc123","contentRevision":"sha256:content","origin":"api","mutationID":"22222222-2222-2222-2222-222222222222"}
 
 ```
 
@@ -423,12 +449,12 @@ Both clients:
 - generate unique mutation IDs;
 - retry an ambiguous transport failure only with the exact same mutation ID and request;
 - never automatically retry a conflict as a new mutation;
-- expose separate prepared/convenience APIs for singleton content mutations and non-empty structural batches;
+- expose separate prepared/convenience APIs for singleton content/system mutations and non-empty structural batches;
 - provide an observed-node view that begins buffering from the initial node snapshot before loading additional child pages;
 - turn `resync-required` in that observed view into a refreshed node snapshot and resume from its returned cursor;
 - preserve unknown error codes and ignore unknown descriptive response fields.
 
-The next client-layer addition is a projected-directory helper on that observed view. It composes the raw snapshot and complete child listing, returns the managed-row manifest described in §2, and preserves `PageID`-bearing `NodeRef`s so a row remains attached to the same document after a move. The shared projection fixtures are part of its completion gate; until they land, callers must treat `openNodeView` as a hydrated raw view rather than a projected editor document.
+The projected-directory helper composes the raw snapshot and complete child listing, returns the managed-row manifest described in §2, and preserves `PageID`-bearing `NodeRef`s so a row remains attached to the same document after a move.
 
 The TypeScript client makes at most three total attempts after network termination or HTTP 500. It reuses the exact prepared request and mutation ID, never retries a declared conflict, and throws an ambiguous-transport error retaining the prepared request after the third ambiguous outcome. Its `openNodeView` helper starts observation after the first `/v1/node` response, buffers events while its directory convenience drains `/v1/children`, and emits either an event or a resynchronized snapshot.
 
@@ -457,14 +483,6 @@ bun run test:protocol
 
 [`tests/protocol/conformance.ts`](../tests/protocol/conformance.ts) runs the TypeScript fixture cases, starts a temporary arbord workspace, passes the fixture directory and live URL to `swift test --package-path native/Packages/ArborClient`, and tears the workspace down.
 
-## 8. Feature-required extensions
+## 8. Other concrete domains
 
-The complete Arbor system adds concrete local operations when their owning feature is implemented:
-
-- the `system:` tree and mounted workspace paths become readable/mutable through the same node and mutation surface;
-- scripts add explicit run/subscribe operations for compiled query and mutation handles;
-- agents add run and transcript operations over agent files;
-- sharing adds local create-share and accept-invitation operations, while remote object/ref/grant traffic remains the separate wire protocol;
-- SQLite and Postgres row mutation use their store transaction boundaries and return ordinary mutation receipts/events.
-
-These are required by their corresponding topic specs, but they do not justify a generic provider-operation registry in advance. Their exact routes and values are added to this document with the feature. Auth or authorization is added where the feature's trust boundary requires it, not as an abstract platform layer.
+Scripts add explicit run/subscribe operations for compiled handles; agents add run/transcript operations over agent files; SQLite and Postgres row changes use their own store transactions and return ordinary receipts/events. None justify a generic provider-operation registry. Remote object/ref/grant traffic remains the separate authenticated wire protocol.

@@ -6,7 +6,11 @@ import { expect, test } from "@playwright/test";
 // The browser URL space is OS-shaped: /render/<absolute path>. The server
 // serves the fixture workspace at this fixed session root.
 const ROOT = realpathSync(join(tmpdir(), "arbor-e2e-workspace"));
+const PROMOTABLE_ROOT = realpathSync(join(tmpdir(), "arbor-e2e-promotable"));
+const E2E_PORT = Number(process.env.ARBOR_E2E_PORT ?? 4321);
+const HOST_ORIGIN = `http://127.0.0.1:${E2E_PORT + 1}`;
 const r = (path: string) => `/render${ROOT}${path}`;
+const promotable = (path: string) => `/render${PROMOTABLE_ROOT}${path}`;
 const escaped = ROOT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const atUrl = (path: string) => new RegExp(`/render${escaped}${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 
@@ -564,33 +568,46 @@ test("tracks an open page through a page-ID rename without replacing the editor"
   expect(source).toContain("Apple orchard notes are searchable. after rename");
 });
 
-test("browses above the session root and keeps tracking it durably", async ({ page }) => {
-  await page.goto(r(""));
-  await expect(page.locator(".scope-chip")).toHaveText(/session/);
+test("browses ordinary files and gives a subtree a canonical URL", async ({ page }) => {
+  await page.goto(promotable(""));
+  await expect(page.locator(".scope-chip")).toHaveText(/untracked/);
 
   // The parent action escapes the launch root into the untracked filesystem.
   await page.getByRole("button", { name: "↑ Parent directory" }).click();
-  const parent = ROOT.slice(0, ROOT.lastIndexOf("/"));
+  const parent = PROMOTABLE_ROOT.slice(0, PROMOTABLE_ROOT.lastIndexOf("/"));
   await expect(page).toHaveURL(new RegExp(`/render${parent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
   await expect(page.locator(".scope-chip")).toHaveText(/untracked/);
-  await expect(page.getByRole("button", { name: "▸ arbor-e2e-workspace", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "▸ arbor-e2e-promotable", exact: true })).toBeVisible();
 
-  // Search inside a tracked/session root works; the untracked scope offers tracking instead.
+  // Search begins at a shared-tree boundary; local scope offers promotion.
   await page.keyboard.press("Meta+p");
-  await expect(page.getByText("Search needs a tracked root here.")).toBeVisible();
+  await expect(page.getByText("Search begins when this subtree has durable identity.")).toBeVisible();
   await page.keyboard.press("Escape");
 
-  // Keep tracking the session root; the scope chip and home surface update.
-  await page.goto(r(""));
-  await page.getByRole("button", { name: "Keep tracking this folder" }).click();
-  await expect(page.locator(".scope-chip")).toHaveText(/tracked/);
-  await page.getByRole("button", { name: "Arbor", exact: true }).click();
-  await expect(page.locator(".home-root")).toHaveCount(1);
-  await expect(page.locator(".home-root strong")).toHaveText("E2E Garden");
-  await expect(page.locator(".home-root .scope-chip")).toHaveText("tracked");
+  // Promotion configures the personal host, creates matching URLs, and starts private sync.
+  await page.goto(promotable(""));
+  await page.getByRole("button", { name: "Give this subtree a URL" }).click();
+  await page.getByLabel("URL name").fill("garden");
+  await expect(page.locator(".url-preview")).toContainText(`${HOST_ORIGIN}/garden`);
+  await expect(page.locator(".url-preview")).toContainText(`arbor://127.0.0.1:${E2E_PORT + 1}/garden`);
+  await page.getByRole("button", { name: "Create URL and sync" }).click();
+  await expect(page.locator(".scope-chip")).toHaveText(/private/);
 
-  // The record is browsable read-only at its system:roots page.
-  await page.getByRole("button", { name: "record" }).click();
-  await expect(page).toHaveURL(/\/render\/system:roots\//);
+  // The canonical control reserves the final Sharing location and changes publication.
+  await page.getByRole("button", { name: "Canonical tree" }).click();
+  await expect(page.getByText("Sharing with people is not available yet.")).toBeVisible();
+  await expect(page.locator(".canonical-addresses")).toContainText(`${HOST_ORIGIN}/garden`);
+  await page.getByText("Public read", { exact: true }).click();
+  await expect(page.getByRole("radio", { name: /^Public read Anyone/ })).toBeChecked();
+  await page.getByRole("button", { name: "Close" }).click();
+
+  await page.getByRole("button", { name: "Arbor", exact: true }).click();
+  const garden = page.locator(".home-root").filter({ hasText: PROMOTABLE_ROOT });
+  await expect(garden.locator("strong")).toHaveText("URL Garden");
+  await expect(garden.locator(".scope-chip")).toHaveText("public-read");
+
+  // The record is browsable read-only through the ordinary system tree.
+  await garden.getByRole("button", { name: "record" }).click();
+  await expect(page).toHaveURL(/\/render\/system:trees\//);
   await expect(page.locator(".scope-chip")).toHaveText(/system/);
 });

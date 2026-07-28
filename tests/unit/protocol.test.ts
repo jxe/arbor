@@ -8,7 +8,6 @@ import type {
   MutationRequest,
   NodeSnapshot,
   RecoveryPage,
-  RootsPage,
   WorkspaceEvent,
   WorkspaceOperation,
 } from "@arbor/core";
@@ -24,29 +23,26 @@ describe("REST v1 protocol fixtures", () => {
     const mutation = await json<MutationRequest>("mutation.json");
     const receipt = await json<MutationReceipt>("receipt.json");
     const error = await json<ArbordErrorEnvelope>("error.json");
-    expect(node.ref).toEqual({ tree: "rt_x7f3q2ab7c", path: "/notes/today", pageID: "abc123" });
-    expect(node.tree).toBe("rt_x7f3q2ab7c");
-    expect(node.enclosingRoot?.osPath).toBe("/Users/joe/notes");
+    expect(node.ref).toEqual({ tree: "tr_notes7f3q2ab7c", path: "/notes/today", pageID: "abc123" });
+    expect(node.tree).toBe("tr_notes7f3q2ab7c");
+    expect(node.enclosingTree?.osPath).toBe("/Users/joe/notes");
     expect(mutation.operations[0]?.op).toBe("move");
     expect(receipt.effects[0]?.previousPath).toBe("/notes/today");
-    expect(receipt.effects[0]?.tree).toBe("rt_x7f3q2ab7c");
+    expect(receipt.effects[0]?.tree).toBe("tr_notes7f3q2ab7c");
     expect(error.error.code).toBe("future-error-code");
   });
 
-  test("decodes the tree-scoped, untracked, system, and roots fixtures", async () => {
+  test("decodes the tree-scoped, unpromoted, and system fixtures", async () => {
     const untracked = await json<NodeSnapshot>("node-untracked.json");
-    const systemRoot = await json<NodeSnapshot>("node-system-root.json");
-    const roots = await json<RootsPage>("roots.json");
+    const systemTree = await json<NodeSnapshot>("node-system-tree.json");
     const backlinks = await json<BacklinksPage>("backlinks.json");
     const recovery = await json<RecoveryPage>("recovery.json");
     expect(untracked.tree).toBe("local");
     expect(untracked.path).toBe("/Users/joe/Desktop/stray");
-    expect(untracked.enclosingRoot).toBeUndefined();
-    expect(systemRoot.tree).toBe("system");
-    expect(systemRoot.writable).toBe(false);
-    expect(roots.roots.map((root) => root.tracking)).toEqual(["tracked", "session"]);
-    expect(roots.roots.some((root) => root.missing)).toBe(false);
-    expect(roots.home).toBe("/Users/joe");
+    expect(untracked.enclosingTree).toBeUndefined();
+    expect(systemTree.tree).toBe("system");
+    expect(systemTree.writable).toBe(false);
+    expect(systemTree.document?.frontmatter.placement).toBe("shared");
     expect(backlinks.entries[0]?.ref.pageID).toBe("week01");
     expect(recovery.entries.map((entry) => entry.kind)).toEqual(["block", "trash"]);
   });
@@ -76,6 +72,10 @@ describe("REST v1 protocol fixtures", () => {
       "restore",
       "restoreRecovery",
       "ensureDocumentIdentity",
+      "configureServer",
+      "promoteTree",
+      "placeTree",
+      "setTreePublication",
     ]);
     expect(errors.map((value) => value.error.code)).toContain("internal-error");
     expect(errors.at(-1)?.error.code).toBe("future-error-code");

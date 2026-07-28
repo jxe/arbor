@@ -4,7 +4,7 @@
     "operations": [
       {
         "op": "writeMarkdown",
-        "ref": { "tree": "rt_x7f3q2ab7c", "pageID": "abc123", "pathHint": "/notes/today" },
+        "ref": { "tree": "tr_notes7f3q2ab7c", "pageID": "abc123", "pathHint": "/notes/today" },
         "baseContentRevision": "sha256:content",
         "frontmatterPatch": { "title": "Today", "obsolete": null },
         "blocks": [
@@ -67,6 +67,46 @@
         "op": "ensureDocumentIdentity",
         "ref": { "path": "/projects/atlas" },
         "baseContentRevision": "sha256:content"
+      }
+    ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555555",
+    "operations": [
+      {
+        "op": "configureServer",
+        "origin": "https://notes.example",
+        "ownerToken": "fixture-owner-token"
+      }
+    ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555556",
+    "operations": [
+      {
+        "op": "promoteTree",
+        "path": "/Users/joe/notes",
+        "slug": "notes"
+      }
+    ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555557",
+    "operations": [
+      {
+        "op": "placeTree",
+        "tree": "tr_notes7f3q2ab7c",
+        "path": "/Users/joe/notes"
+      }
+    ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555558",
+    "operations": [
+      {
+        "op": "setTreePublication",
+        "tree": "tr_notes7f3q2ab7c",
+        "publication": "public-read"
       }
     ]
   }

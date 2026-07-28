@@ -1,9 +1,9 @@
 {
-  "ref": { "tree": "rt_x7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
+  "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
   "entries": [
     {
       "kind": "block",
-      "ref": { "tree": "rt_x7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
+      "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
       "hash": "sha256:lost",
       "markdown": "Lost paragraph\n",
       "parent": null,
@@ -12,7 +12,7 @@
     },
     {
       "kind": "trash",
-      "ref": { "tree": "rt_x7f3q2ab7c", "path": "/Trash/notes/old" },
+      "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/Trash/notes/old" },
       "originalPath": "/notes/old",
       "nodeKind": "markdown",
       "changedAt": 1769990000

@@ -16,14 +16,13 @@ export type EventCursor = string;
 
 /**
  * The tree dimension of a reference: which scope it resolves in.
- * Local values are a tracked root's opaque `RootID`, `"local"` (the
- * degenerate no-tree filesystem scope; paths are OS-absolute), and
- * `"system"` (the read-only control scope). Shared/visited `TreeID`s and
- * DNS names join the same dimension later. Omitted on a request, it means
- * the session root.
+ * Values are `"local"` (the degenerate filesystem scope; paths are
+ * OS-absolute), `"system"` (the control scope), or a stable shared
+ * `TreeID`. Omitted on a request, it means the launch session.
  */
 export type TreeRef = string;
-export type RootID = string;
+export type TreeID = string;
+export type PublicationMode = "private" | "public-read" | "public-write";
 
 export const LOCAL_TREE: TreeRef = "local";
 export const SYSTEM_TREE: TreeRef = "system";
@@ -39,23 +38,19 @@ export interface ResolvedNodeRef {
   pageID?: PageID;
 }
 
-export interface RootDescriptor {
-  id: RootID;
-  /** First H1 in the root `_index.md`; directory basename fallback. */
+export interface TreeDescriptor {
+  id: TreeID;
   name: string;
-  /** Absolute canonical path of the root on disk. */
-  osPath: string;
-  tracking: "tracked" | "session";
-  /** The record exists but its path does not resolve. */
+  osPath?: string;
+  canonical?: string;
+  httpURL?: string;
+  endpoint?: string;
+  publication?: PublicationMode;
+  access?: "read" | "write";
+  placement: "local" | "shared" | "remote";
+  sync?: "idle" | "pushing" | "pulling" | "offline" | "conflict" | "error";
+  legacy?: boolean;
   missing?: boolean;
-}
-
-export interface RootsPage {
-  roots: RootDescriptor[];
-  /** The user's home directory, for client-side `~` rendering. */
-  home: string;
-  diagnostics: Diagnostic[];
-  observedThrough: EventCursor;
 }
 
 export type ProtocolNodeKind = "markdown" | "directory" | "collection" | "database" | "file";
@@ -64,8 +59,8 @@ export interface NodeSnapshot {
   ref: ResolvedNodeRef;
   /** Scope the snapshot resolved in, after canonicalization into an owning root. */
   tree?: TreeRef;
-  /** The enclosing tracked/session root; present iff `tree` is a RootID. */
-  enclosingRoot?: RootDescriptor;
+  /** The enclosing durable or migration tree, when applicable. */
+  enclosingTree?: TreeDescriptor;
   /** Canonical-path convenience field used by hand-maintained clients. */
   path: LogicalPath;
   name: string;
@@ -185,7 +180,13 @@ export type StructuralWorkspaceOperation =
   | { op: "trash"; refs: NodeRef[] }
   | { op: "restore"; refs: NodeRef[] };
 
-export type WorkspaceOperation = ContentWorkspaceOperation | StructuralWorkspaceOperation;
+export type SystemOperation =
+  | { op: "configureServer"; origin: string; ownerToken: string }
+  | { op: "promoteTree"; path: string; slug: string }
+  | { op: "placeTree"; tree: TreeID; path: string; endpoint?: string; canonical?: string }
+  | { op: "setTreePublication"; tree: TreeID; publication: PublicationMode };
+
+export type WorkspaceOperation = ContentWorkspaceOperation | StructuralWorkspaceOperation | SystemOperation;
 
 export interface ContentMutationRequest {
   mutationID: string;
@@ -197,7 +198,12 @@ export interface StructuralMutationRequest {
   operations: [StructuralWorkspaceOperation, ...StructuralWorkspaceOperation[]];
 }
 
-export type MutationRequest = ContentMutationRequest | StructuralMutationRequest;
+export interface SystemMutationRequest {
+  mutationID: string;
+  operations: [SystemOperation];
+}
+
+export type MutationRequest = ContentMutationRequest | StructuralMutationRequest | SystemMutationRequest;
 
 export type MutationEffectKind = "created" | "updated" | "moved" | "deleted";
 

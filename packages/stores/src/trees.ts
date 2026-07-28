@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { watch, type FSWatcher } from "node:fs";
-import type { Diagnostic } from "@arbor/core";
+import type { Diagnostic, PublicationMode, TreeID } from "@arbor/core";
 import { resolveLogicalURL, revisionOf } from "@arbor/core";
 import { isMap, isScalar, Pair, parseDocument, Scalar, YAMLMap, type Document } from "yaml";
 import { arborDataRoot, prepareArborDataRoot } from "./private-state.ts";
@@ -11,8 +11,21 @@ export interface LocalTreePlacement {
   source: "local";
 }
 
+export interface SharedTreePlacement {
+  path: string;
+  source: `arbor://${string}`;
+  tree: TreeID;
+  canonical: string;
+  access: "read" | "write";
+  endpoint: string;
+  ref: string;
+  publication?: PublicationMode;
+}
+
+export type TreePlacement = LocalTreePlacement | SharedTreePlacement;
+
 export interface TreeRegistrySnapshot {
-  placements: LocalTreePlacement[];
+  placements: TreePlacement[];
   diagnostics: Diagnostic[];
   revision: string;
   source: string;
@@ -31,7 +44,7 @@ function parseRegistry(source: string): TreeRegistrySnapshot {
   const diagnostics: Diagnostic[] = document.errors.map((error) =>
     diagnostic("invalid-trees-yaml", `trees.yaml is invalid: ${error.message}`)
   );
-  const placements: LocalTreePlacement[] = [];
+  const placements: TreePlacement[] = [];
   if (diagnostics.length) {
     return { placements, diagnostics, revision: revisionOf(source), source };
   }
@@ -64,23 +77,62 @@ function parseRegistry(source: string): TreeRegistrySnapshot {
       continue;
     }
     const sourceName = sourceValue.value;
-    if (sourceName !== "local") {
-      const resolved = resolveLogicalURL("/", sourceName);
-      if (!resolved || resolved.kind !== "arbor") {
-        diagnostics.push(diagnostic("invalid-tree-source", `Tree source is not local or a valid arbor:// URL: ${sourceName}`, path));
-      } else {
-        diagnostics.push(diagnostic("unsupported-tree-source", `Shared tree source is not operational yet: ${sourceName}`, path));
+    const fields = Object.fromEntries(pair.value.items.flatMap((item) =>
+      isScalar(item.key) && typeof item.key.value === "string" && isScalar(item.value)
+        ? [[item.key.value, item.value.value]]
+        : []
+    ));
+    if (sourceName === "local") {
+      const unknown = Object.keys(fields).filter((key) => key !== "source");
+      if (unknown.length) {
+        diagnostics.push(diagnostic("invalid-tree-placement", `Legacy local placement ${path} has unsupported fields: ${unknown.join(", ")}`, path));
+        continue;
       }
+      placements.push({ path, source: "local" });
       continue;
     }
-    const unknown = pair.value.items
-      .map((item) => isScalar(item.key) ? item.key.value : null)
-      .filter((key) => key !== "source");
+    const resolved = resolveLogicalURL("/", sourceName);
+    if (!resolved || resolved.kind !== "arbor" || !("treeID" in resolved.authority)) {
+      diagnostics.push(diagnostic("invalid-tree-source", `Shared tree source must be an arbor://tree/<TreeID> URL: ${sourceName}`, path));
+      continue;
+    }
+    const tree = fields.tree;
+    const canonical = fields.canonical;
+    const endpoint = fields.endpoint;
+    const access = fields.access;
+    const ref = fields.ref;
+    const publication = fields.publication;
+    if (
+      typeof tree !== "string"
+      || tree !== resolved.authority.treeID
+      || typeof canonical !== "string"
+      || resolveLogicalURL("/", canonical)?.kind !== "arbor"
+      || typeof endpoint !== "string"
+      || !endpoint.startsWith("http")
+      || typeof ref !== "string"
+      || (access !== "read" && access !== "write")
+      || (publication !== undefined && !["private", "public-read", "public-write"].includes(String(publication)))
+    ) {
+      diagnostics.push(diagnostic("invalid-tree-placement", `Shared tree placement ${path} is incomplete or inconsistent`, path));
+      continue;
+    }
+    const unknown = Object.keys(fields).filter((key) =>
+      !["source", "tree", "canonical", "endpoint", "ref", "access", "publication"].includes(key)
+    );
     if (unknown.length) {
-      diagnostics.push(diagnostic("invalid-tree-placement", `Local tree placement ${path} has unsupported fields: ${unknown.join(", ")}`, path));
+      diagnostics.push(diagnostic("invalid-tree-placement", `Shared tree placement ${path} has unsupported fields: ${unknown.join(", ")}`, path));
       continue;
     }
-    placements.push({ path, source: "local" });
+    placements.push({
+      path,
+      source: sourceName as `arbor://${string}`,
+      tree,
+      canonical,
+      endpoint,
+      ref,
+      access,
+      ...(publication ? { publication: publication as PublicationMode } : {}),
+    });
   }
 
   return { placements, diagnostics, revision: revisionOf(source), source };
@@ -136,6 +188,27 @@ function setLocalPlacement(document: Document, path: string): void {
   mapping.items.push(new Pair(doubleQuoted(path), value));
 }
 
+function setSharedPlacement(document: Document, placement: SharedTreePlacement): void {
+  const mapping = document.contents as YAMLMap;
+  mapping.flow = false;
+  let existing = mapping.items.find((pair) => isScalar(pair.key) && pair.key.value === placement.path);
+  if (!existing) {
+    existing = new Pair(doubleQuoted(placement.path), new YAMLMap());
+    mapping.items.push(existing);
+  }
+  (existing.key as Scalar).type = Scalar.QUOTE_DOUBLE;
+  const value = new YAMLMap();
+  value.flow = false;
+  value.set("source", placement.source);
+  value.set("tree", placement.tree);
+  value.set("canonical", placement.canonical);
+  value.set("endpoint", placement.endpoint);
+  value.set("ref", placement.ref);
+  value.set("access", placement.access);
+  if (placement.publication) value.set("publication", placement.publication);
+  existing.value = value;
+}
+
 function deletePlacement(document: Document, path: string): void {
   const mapping = document.contents as YAMLMap;
   mapping.items = mapping.items.filter((pair) => !(isScalar(pair.key) && pair.key.value === path));
@@ -167,6 +240,18 @@ export async function saveLocalTreePlacement(path: string): Promise<LocalTreePla
   setLocalPlacement(document, canonical);
   await writeRegistry(document);
   return { path: canonical, source: "local" };
+}
+
+export async function saveSharedTreePlacement(placement: SharedTreePlacement): Promise<SharedTreePlacement> {
+  const canonicalPath = normalize(placement.path);
+  if (!isAbsolute(placement.path) || canonicalPath !== placement.path) {
+    throw new Error(`Tree placement path must be canonical and absolute: ${placement.path}`);
+  }
+  const current = await loadTreeRegistry();
+  const document = editableDocument(current.source);
+  setSharedPlacement(document, { ...placement, path: canonicalPath });
+  await writeRegistry(document);
+  return { ...placement, path: canonicalPath };
 }
 
 export async function deleteTreePlacement(path: string): Promise<void> {

@@ -1,0 +1,10 @@
+FROM oven/bun:1.3.10
+
+WORKDIR /app
+COPY package.json bun.lock tsconfig.json ./
+COPY packages ./packages
+RUN bun install --frozen-lockfile --production
+
+ENV ARBOR_HOST_DATA=/data
+EXPOSE 4318
+CMD ["bun", "run", "host"]

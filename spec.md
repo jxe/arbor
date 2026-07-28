@@ -7,6 +7,8 @@
 
 This spec describes the complete Arbor system we intend to demonstrate, including features beyond the current implementation. It is not a claim that every described feature is built; [plan.md](plan.md) records current status and build order.
 
+Topic specs are normative product descriptions. They do not weaken features to match current implementation status. Temporary cuts and differences between the reference implementation and the intended product belong only in [plan.md](plan.md).
+
 Completeness does not mean future-proofing. The spec chooses concrete reference behavior for the clients, daemon, stores, scripts, mounts, and wire that it actually describes. It does not add plugin systems, compatibility matrices, universal identifiers, capability negotiation, production administration, or generic abstraction layers merely because some later implementation might want them.
 
 Deferred items may remain absent forever. But machinery required by a specified feature is not optional: scripts require isolation, shared trees require scoped grants and revocation, synchronization requires deterministic object encoding and conflict behavior, and authored local writes require durable acknowledgement and lossless observation.
@@ -17,7 +19,7 @@ Arbor gives each person one local tree. Any folder may be backed by ordinary fil
 
 **One workspace to navigate and edit; independent shared trees where synchronization, history, or permissions require a boundary; and ordinary TypeScript scripts for turning that workspace into applications.**
 
-TreeHopper browses the entire local filesystem as one navigable tree; the workspace is not a navigation boundary. Arbor intelligence — indexing, durable identity, recovery, and later mounts, sync, and sharing — activates per subtree: tracked roots, schema-marked collections, and eventually mounted or visited shared trees come alive where they are found, and the plain untracked filesystem remains fully browsable and editable as the degenerate no-tree case ([urls.md](spec/urls.md) §2).
+TreeHopper browses the entire local filesystem as one navigable tree; the workspace is not a navigation boundary. Ordinary unpromoted files remain fully browsable and editable as `tree: "local"`. Durable identity, indexing, recovery, synchronization, and permissions begin at a **shared-tree boundary**, created when someone gives a subtree a URL. Schema-marked stores may supply their own capabilities, but there is no durable local-only tracked-tree class ([locators.md](spec/locators.md)).
 
 Arbord materializes the workspace as ordinary files where appropriate. Agents already know this interface: `ls` is browsing, `cat` is reading, writing a file is editing, and `grep -r` is search. Humans get Finder, editors, the browser, and TreeHopper over the same tree. A Markdown document has one extensionless logical address: `x.md` supplies `/x`'s stored body while a sibling `x/` supplies its children; when the sibling body is absent, `x/_index.md` is the directory-body fallback. TreeHopper projects the stored or implicit body together with every immediate child, so every directory is a complete document without browsing having to create `_index.md`. Publishing or sharing a folder can give that subtree an independent identity without changing where it appears in the workspace.
 
@@ -35,7 +37,11 @@ Arbord resolves the workspace from its local folders and mounts. This resolution
 
 Joe begins with `projects/atlas`, an ordinary folder in his workspace. It may contain Markdown, a SQLite database, and a script that renders the project.
 
-When Joe chooses **Share this folder**, Arbor gives that subtree a `TreeID`, revision history, permissions, and a synchronization endpoint. The folder remains at `projects/atlas`; only its backing changes. Alice accepts the invitation and places the same shared tree at `work/atlas`. Joe's and Alice's paths are personal, while edits, history, and access refer to the same shared tree.
+Joe chooses **Give this subtree a URL**. Arbor gives `projects/atlas` a stable `TreeID`, reserves `atlas` in Joe's personal server namespace, uploads its initial Merkle root, and begins private synchronization between Joe's devices. Its two canonical spellings are matching names such as `https://joe.example/atlas` and `arbor://joe.example/atlas`; `arbor://tree/<TreeID>` remains the identity fallback.
+
+Those global names, local paths, and immutable revision selections are all **Arbor locators**. TreeHopper and the CLI accept the same locator language, then resolve it to a concrete tree, node path, and optional historical root.
+
+Joe may leave the tree private, publish it read-only, or allow anonymous public writes. Later he invites Alice to all or part of the already identified tree with chosen rights. Alice accepts the invitation and places it at `work/atlas`. Joe's and Alice's filesystem paths are personal, while identity, revisions, history, and grants refer to the same shared tree. Sharing does not create the tree and revoking Alice does not revoke Joe's own identity or self-sync.
 
 If Alice annotates a read-only file, her overlay belongs to her workspace rather than the shared tree. If she opens the script, its queries resolve against the paths she can see and its permissions are intersected with hers. The wire is simply how the two arbords exchange revisions of the shared tree.
 
@@ -44,13 +50,13 @@ If Alice annotates a read-only file, her overlay belongs to her workspace rather
 | File | Covers |
 |---|---|
 | [spec/format.md](spec/format.md) | On-disk format: Markdown documents and durable IDs, projected directories, `_index.md`, collections and stores, schemas and generated types, scripts, and sidecars |
-| [spec/urls.md](spec/urls.md) | Names and URLs: logical relative paths, absolute `arbor://` names and TreeIDs, durable document-ID fragments, `system:`/`local:`, resolution, and the legacy bridge |
+| [spec/locators.md](spec/locators.md) | Locators: one input syntax for local paths, canonical HTTP/Arbor names, raw TreeIDs, immutable revisions, fragments, and resolution |
 | [spec/system.md](spec/system.md) | The `system:` tree, workspace resolution, mounts, overlays, visited trees, agent confinement, effective access, and local durability (journal, trash, recovery) |
 | [spec/arbord-rest.md](spec/arbord-rest.md) | The local client boundary: REST v1, document-aware references, raw snapshots and projected client views, revision domains, durable idempotent mutations, lossless SSE observation, errors, and the matching TypeScript/Swift clients |
 | [spec/scripts.md](spec/scripts.md) | Script compilation and execution: realms, generated validators, query placement and reactivity, mutations, the authority boundary, components, and consent |
-| [spec/browser.md](spec/browser.md) | The browser: navigation, rendering and editing, visiting unmounted trees, agent chat pages |
+| [spec/browser.md](spec/browser.md) | The browser: durable human-surface requirements for browsing/editing, tree controls, publication, sharing, visits, and agents |
 | [spec/wire.md](spec/wire.md) | Shared trees and the wire: folder → shared tree, `TreeID`s and public names, invitations and grants, refs/objects, sync, the one-replicator rule, collection backing, and static publication |
-| [spec/cli.md](spec/cli.md) | The command surface, mapped to build-plan milestones |
+| [spec/cli.md](spec/cli.md) | The intended command surface |
 
 The reading order above mirrors the model, local to shared: what a workspace contains, how things are named, how mounts and local state work, how clients talk to arbord, how scripts operate over the workspace, how humans browse and edit it, and finally how folders become shared trees with identity, access, and synchronization. The build sequence is [plan.md](plan.md); the narrative introduction is [intro.md](intro.md).
 
@@ -58,8 +64,8 @@ The reading order above mirrors the model, local to shared: what a workspace con
 
 "arbord" names one codebase but two distinct operational roles, with different state, lifecycle, and trust boundaries. The spec has historically described a single daemon holding both; they should be read as separable:
 
-- **The local workspace daemon** (on-demand). Serves the whole local filesystem for browsing and editing, with per-subtree authorities instantiated per tracked root; the launch path is a starting location, not the daemon's boundary. Owns everything in the workspace authority: the mutation journal, the SQLite search index, the in-memory event bus, page-ID maps and link healing, generated types, and filesystem watching/materialization. All of this state is per-device and disk-recoverable — the daemon can stop and start at will, healing from disk on next open. This is the role that backs the local browser, native TreeHopper (app-supervised per [plan-native.md](plan-native.md)), agents, and backups. It serves the loopback REST API with no authentication by design.
-- **The wire host** (always-on). Owns a shared tree's ref authority, immutable object store, grant enforcement, `watch` streams, and host-side query execution for visiting clients ([spec/wire.md](spec/wire.md)). It deliberately needs none of the local materialization machinery — content addressing is a wire artifact, not a storage mandate — and it is exactly where the authentication the loopback API omits must live.
+- **The local workspace daemon** (on-demand). Serves the whole local filesystem for browsing and editing; the launch path is a starting location, not the daemon's boundary. It instantiates durable indexing, recovery, synchronization, and permission state at shared-tree boundaries and may retain private migration state for legacy local placements without exposing that state as a public tree identity. All per-device state is disk-recoverable. This role backs local and native TreeHopper, agents, and backups, and serves the loopback REST API with no authentication by design.
+- **The wire host** (always-on). Owns one mutable root-hash tip per `TreeID`, immutable objects, aliases, publication state, grants, and `watch` streams ([spec/wire.md](spec/wire.md)). It deliberately needs none of the local materialization machinery. A companion HTTP publication projection may be co-deployed with it, but materialized files are not a wire requirement.
 
 Cross-device intent flows between the roles as shared-tree revisions on the wire, which the local role journals on apply (`origin: "sync"`). The local daemon is the wire client; the serving role is deployable as a separate process, with a later embedded relay allowed without changing the protocol.
 

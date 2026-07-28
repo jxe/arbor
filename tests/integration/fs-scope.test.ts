@@ -11,7 +11,6 @@ let root: string;
 let state: string;
 let base: string;
 let client: ArbordClient;
-let sessionTree: string;
 let close: () => Promise<void>;
 
 beforeAll(async () => {
@@ -27,7 +26,6 @@ beforeAll(async () => {
   await writeFile(join(outer, "stray", ".offline.txt.icloud"), "provider marker");
   await symlink(join(root, "inside.md"), join(outer, "stray", "link-into-root.md"));
   const running = await serveArbor(root, { port: 0 });
-  sessionTree = running.workspace.tree;
   base = running.url;
   client = new ArbordClient({ baseURL: base, retryDelay: async () => {} });
   close = async () => {
@@ -47,7 +45,7 @@ describe("the local filesystem scope", () => {
     const node = await client.node({ tree: "local", path: outer });
     expect(node.tree).toBe("local");
     expect(node.kind).toBe("directory");
-    expect(node.enclosingRoot).toBeUndefined();
+    expect(node.enclosingTree).toBeUndefined();
     const children = await client.children({ tree: "local", path: outer });
     const names = children.items.map((item) => item.name);
     expect(names).toContain("stray");
@@ -105,21 +103,20 @@ describe("the local filesystem scope", () => {
     expect(await (await fetch(`${base}${path}`)).text()).not.toContain("provider marker");
   });
 
-  test("canonicalizes a local reference into the owning session root", async () => {
+  test("keeps an unpromoted launch directory in local scope", async () => {
     const viaLocal = await client.node({ tree: "local", path: join(root, "inside") });
-    expect(viaLocal.tree).toBe(sessionTree);
-    expect(viaLocal.path).toBe("/inside");
-    expect(viaLocal.enclosingRoot?.osPath).toBe(root);
-    expect(viaLocal.enclosingRoot?.tracking).toBe("session");
+    expect(viaLocal.tree).toBe("local");
+    expect(viaLocal.path).toBe(join(root, "inside"));
+    expect(viaLocal.enclosingTree).toBeUndefined();
   });
 
-  test("follows a symlink into the session root and lands in root scope", async () => {
+  test("follows a symlink into the unpromoted launch directory without minting a tree", async () => {
     const viaLink = await client.node({ tree: "local", path: join(outer, "stray", "link-into-root") });
-    expect(viaLink.tree).toBe(sessionTree);
-    expect(viaLink.path).toBe("/inside");
+    expect(viaLink.tree).toBe("local");
+    expect(viaLink.path).toBe(join(outer, "stray", "link-into-root"));
   });
 
-  test("refuses per-tree capabilities outside roots with the tracking affordance", async () => {
+  test("refuses shared-tree capabilities outside a promoted boundary", async () => {
     for (const url of [
       `${base}/v1/search?tree=local&q=note`,
       `${base}/v1/recovery?tree=local&path=${encodeURIComponent(join(outer, "stray"))}`,
@@ -128,7 +125,7 @@ describe("the local filesystem scope", () => {
       expect(response.status).toBe(422);
       const body = await response.json() as { error: { code: string; message: string } };
       expect(body.error.code).toBe("unsupported-operation");
-      expect(body.error.message).toContain("tracked root");
+      expect(body.error.message).toContain("shared tree");
     }
     const trash: MutationRequest = {
       mutationID: "fs-trash-refused",
