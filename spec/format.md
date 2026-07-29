@@ -14,6 +14,21 @@ The filesystem driver is the default store, not a universal storage requirement.
 
 `x.md` and `x/` may and normally do coexist: together they are one logical node, and directory listings collapse them into one child. Giving `/x` its first child creates `x/` and leaves `x.md` in place. Merely browsing a bodyless directory does not create `x/_index.md`; the first authored body/property edit, authored ordering that needs storage, or operation that must establish durable document identity materializes it. Only `x.md` plus `x/_index.md` is ambiguous; Arbor reports a blocking `duplicate-body-representation` diagnostic and refuses content or structural mutations until one body is explicitly retained. Rename, move, copy, trash, and restore treat a sibling body plus directory as one logical unit, and occupied destinations reject without overwrite, merging, or suffixing.
 
+Person and group identities are ordinary Markdown documents with two small authored conventions:
+
+```md
+---
+id: a1b2c3
+type: person
+---
+
+# Alice
+
+Designer, gardener, and distributed-systems enthusiast.
+```
+
+The root document of a public-read personal tree uses `type: person`; its first heading is the display name and its body is the public profile. The personal tree's `TreeID`, not the mutable or non-unique heading, is the stable person identity. A `type: group` document uses the same first-heading rule and adds `members`, a list of personal-tree locators. Its durable identity is `(TreeID, PageID)`. These documents remain subject to ordinary Markdown editing, revisions, conflicts, history, and recovery; no separate profile or group database is canonical.
+
 ## 2. SQLite by placement
 
 Putting `_store.sqlite3` inside a folder makes that folder database-backed. Arbord opens it through the SQLite driver, introspects its tables for type generation, watches committed changes, and supplies built-in table views. If the folder has a `schema.ts`, the folder *is* a collection: the store supplies its rows from the table matching the folder's name (or the sole table), and no Arbor-specific database manifest is required. Otherwise the folder is a database container: `tracker/_store.sqlite3` with tables `tasks` and `tags` yields the child collections `/tracker/tasks` and `/tracker/tags`.

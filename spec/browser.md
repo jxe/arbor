@@ -17,18 +17,23 @@ Navigation, search results, backlinks, history, Copy Link, and Open Location ret
 
 **Give this subtree a URL** creates a shared-tree boundary on the configured personal authority, previews matching HTTP and Arbor names, uploads the initial root, and begins private self-sync. The tree control exposes its canonical locators, raw TreeID fallback, current ref and sync state, and access.
 
+During onboarding, **Create my public profile** creates a small public-read personal tree mounted at the authority root, scaffolds its root as an ordinary `type: person` Markdown document, and opens it for editing. Its first heading is the display name and the rest of the body is the public profile; the personal tree's `TreeID`, proven by paired device credentials, is the stable identity. The control clearly distinguishes this public profile tree from private workspace and project trees.
+
 The access control presents one list. It lets an owner:
 
 - set public access to private, read, or write;
-- add a known person with read or write access;
+- add a person by personal-tree locator with read or write access;
+- add an authored group file with read or write access;
 - create and copy a read or write access link;
-- inspect people and unclaimed links;
+- inspect people, groups, and unclaimed links;
 - change or remove access;
 - see nested tree boundaries whose access does not inherit.
 
 Sharing is always whole-tree. To share a subtree differently, the owner first gives it its own URL, creating a nested shared-tree boundary. TreeHopper explains this and can start that promotion rather than offering path-scoped access.
 
 Opening an access link explains the tree and read/write access, claims it once, stores the resulting credential safely, and continues to the canonical locator. **Sync to this device** chooses a local placement through the same idempotent `sync` behavior; there is no separate acceptance workflow. Removing access prevents further remote reads or writes while leaving existing local files visibly stale and read-only.
+
+Person rows show the current verified profile name with the canonical personal locator; the locator or last verified name remains visible when the profile is unavailable. A changed or duplicate display name never changes or ambiguously selects the underlying personal `TreeID`. A claimant who has not initialized a personal tree is offered the same profile setup before claiming.
 
 Public write requires an explicit warning that anyone can change current content. Access controls never expose credentials, private history, recovery state, old roots, or independently private nested trees.
 

@@ -17,6 +17,7 @@ An **Arbor locator** is a user-facing expression that tells Arbor what content t
 | Absolute local path | `/Users/joe/notes` or `~/notes` | an OS path on this device |
 | Named HTTP URL | `https://notes.example/atlas` | a tree or node in a named authority namespace |
 | Named Arbor URL | `arbor://notes.example/atlas` | the live Arbor form of the same canonical name |
+| Personal root | `arbor://alice.example/` | the root profile of Alice's public personal tree |
 | Tree-ID URL | `arbor://tree/tr_7k3m…/essays/drift` | a tree or node by durable `TreeID` |
 | Access link | `https://notes.example/.arbor/access/ac_7k3m…#secret` | a one-claim route to a tree's canonical locator |
 | Tree-rooted path | `/essays/drift` | a logical node rooted at the enclosing shared tree when document context exists |
@@ -24,9 +25,11 @@ An **Arbor locator** is a user-facing expression that tells Arbor what content t
 
 Shell commands accept local paths, `system:` locators, and absolute HTTP/Arbor forms. In a shell, a leading `/` is always an OS path. Contextual tree-rooted paths belong in Markdown, scripts, browser location fields, and APIs that already supply an enclosing tree; a command does not silently guess which tree `/notes` means.
 
-A named authority resolves its first path segment to a shared-tree boundary and treats the remainder as a path within that tree. The reserved `tree` authority takes a `TreeID` as its first segment. A dedicated whole-domain alias is the same model with a tree mounted at `/`.
+A named authority normally resolves its first path segment to a shared-tree boundary and treats the remainder as a path within that tree. A personal authority may also mount its owner's public personal tree at `/`; registered child boundaries still resolve independently and do not inherit the root tree's public access. The reserved `tree` authority takes a `TreeID` as its first segment.
 
 HTTP and Arbor spellings may name the same live content. HTTP is the universal fallback and publication surface; `arbor://` states Arbor resolution explicitly. Canonical spellings are never credentials. Private content keeps its ordinary name and still requires authority.
+
+Person and group identity use this same locator language rather than a second name syntax. A person's canonical root locator resolves to their public personal tree; its `TreeID` is the stable person identity and its root Markdown document supplies the mutable display profile. A group locator resolves to an ordinary `type: group` Markdown document by `(TreeID, PageID)`. Commands and access controls inspect the resolved document type, retain the durable identity, and never treat a display name as authority.
 
 An access link is deliberately noncanonical. Its fragment contains a claim secret that Arbor consumes once, stores as an issued credential, and replaces with the ordinary credential-free canonical locator. The fragment is never sent in a normal HTTP request. Access links are valid `browse` and remote-source `sync` inputs but are not authored into shared content.
 
@@ -67,8 +70,8 @@ Bodyless directories begin path-only. Arbor minimally materializes Markdown iden
 Resolution produces a concrete tree, logical path, optional immutable root hash, and optional document/export identity:
 
 1. Normalize a local path. If it lies within a shared placement, resolve it to that placement's `TreeID` and tree-relative path; otherwise it remains local filesystem scope.
-2. Resolve named HTTP/Arbor locations through a local placement or visit first, then the authority namespace. The reference host uses `/.well-known/arbor/<segment>`.
-3. Resolve an access link by atomically claiming it, storing the issued credential, and continuing with the returned canonical locator. Repeating a successfully claimed link under the same principal is idempotent.
+2. Resolve named HTTP/Arbor locations through a local placement or visit first, then the authority namespace. The reference host uses `/.well-known/arbor` for an optional personal tree mounted at `/` and `/.well-known/arbor/<segment>` for named child trees.
+3. Resolve an access link by atomically claiming it for the current personal `TreeID`, storing the issued credential, and continuing with the returned canonical locator. Repeating a successfully claimed link as the same person is idempotent.
 4. Resolve `arbor://tree/<TreeID>/…` from a known placement, visit, credential, or signed endpoint hint. A TreeID alone does not reveal its authority.
 5. If a revision suffix is present, verify and walk that immutable root instead of the live ref.
 6. Resolve a `PageID` fragment inside that selected root. Access checks happen after naming and never derive from obscurity.

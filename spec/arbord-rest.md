@@ -215,7 +215,10 @@ type SystemOperation =
   | {
       op: "setTreeAccess";
       tree: TreeID;
-      subject: { kind: "everyone" } | { kind: "person"; principal: string };
+      subject:
+        | { kind: "everyone" }
+        | { kind: "person"; locator: string }
+        | { kind: "group"; locator: string };
       access: "none" | "read" | "write";
     }
   | { op: "createAccessLink"; tree: TreeID; access: "read" | "write"; claimSecret: string }
@@ -248,9 +251,9 @@ The complete structural batch either commits or has no logical effects. Structur
 
 References carry their `tree` per §2; path-literal creates carry the same optional qualifier. A structural batch resolves in exactly one scope. Cross-tree movement is an explicit transfer, not an accidental composition of durability domains. A shared `TreeID` supports the full journaled mutation surface. `local` supports byte-CAS Markdown, create, and natural rename/move/copy but not identity minting, authored ordering, Trash, recovery, or sync.
 
-System operations are singleton because their authority and rollback domains differ from content and filesystem transactions. They still receive durable receipts and ordered `system` events. `configureServer` is secret-aware: the raw token moves directly to the OS credential store; only normalized origin and token digest enter durable intent. `promoteTree` reserves name/TreeID, uploads and verifies the initial tip, reattaches private state, then replaces the placement before acknowledging.
+System operations are singleton because their authority and rollback domains differ from content and filesystem transactions. They still receive durable receipts and ordered `system` events. `configureServer` is secret-aware: the raw token moves directly to the OS credential store; only normalized origin and token digest enter durable intent. `promoteTree` reserves name/TreeID, uploads and verifies the initial tip, reattaches private state, then replaces the placement before acknowledging. The reserved `slug: "/"` form initializes or reconciles the authority's one personal tree: its root must be an identity-bearing `type: person` Markdown document and its `everyone` access is fixed at `read`. This is the control operation composed by `sync <profile-path> arbor://<personal-authority>/ -public-read`, not a separate CLI workflow.
 
-`setTreeAccess` is whole-tree only. `everyone` access is the underlying state projected in product language as private/public-read/public-write. Setting a known person's access to `none` removes it. `createAccessLink` receives a client-generated random claim secret, sends only its digest to the wire authority, and never writes the raw value into the mutation journal, receipt, events, diagnostics, or logs; the client combines the retained secret with the returned safe `AccessID`. `claimTreeAccess` sends a complete access link directly to the authority, stores the issued credential in the operating-system credential store, and optionally creates or reconciles the placement at `path`. Repeating the same claim and path returns the same effective result, so `browse` and `sync` need no second acceptance command.
+`setTreeAccess` is whole-tree only. `everyone` access is the underlying state projected in product language as private/public-read/public-write. Setting a known person or group subject to `none` removes it. A person locator resolves to the person's public personal `TreeID`; a group locator resolves to the identity-bearing Markdown file's `(TreeID, PageID)`. The authority records those stable identities, never mutable display names. `createAccessLink` receives a client-generated random claim secret, sends only its digest to the wire authority, and never writes the raw value into the mutation journal, receipt, events, diagnostics, or logs; the client combines the retained secret with the returned safe `AccessID`. `claimTreeAccess` sends a complete access link directly to the authority, binds the entry to the claimant's personal `TreeID`, stores the issued credential in the operating-system credential store, and optionally creates or reconciles the placement at `path`. Repeating the same claim and path as the same person returns the same effective result, so `browse` and `sync` need no second acceptance command.
 
 `placeTree` may carry the already-resolved wire endpoint and canonical name when the tree came from another person's URL. The daemon verifies that name against the resolved `TreeID`, materializes the current tip, and records an optional stricter local access ceiling. Reads of a read-only placement return `writable: false`, and authored mutation routes reject it with `read-only`; direct filesystem edits are local divergence rather than authority to push.
 

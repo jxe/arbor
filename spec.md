@@ -41,7 +41,9 @@ Joe chooses **Give this subtree a URL**. Arbor gives `projects/atlas` a stable `
 
 Those global names, local paths, and immutable revision selections are all **Arbor locators**. TreeHopper and the CLI accept the same locator language, then resolve it to a concrete tree, node path, and optional historical root.
 
-Joe may leave the tree private, give `everyone` read or write access, give Alice read or write access directly, or create a revocable access link for her. Alice opens that link or uses it as the source of `arbor sync`; claiming it stores her credential and continues to the tree's ordinary canonical locator. She places the tree at `work/atlas`. Joe's and Alice's filesystem paths are personal, while identity, revisions, history, and access refer to the same shared tree.
+Joe and Alice each also have a small public-read personal tree mounted at their authority root. `arbor://alice.example/` resolves to Alice's ordinary `type: person` root document: its first heading and body are her authored name and public description, while its durable `TreeID` and her paired device credentials supply stable identity and proof of control. A group is similarly an ordinary `type: group` Markdown document, optionally at the root of its own tree. Person and group names are readable content, never access authority.
+
+Joe may leave Atlas private, give `everyone` read or write access, give Alice's personal-tree locator read or write access directly, give a group-document locator access, or create a revocable access link for someone not yet known. Alice opens that link or uses it as the source of `arbor sync`; claiming it stores her credential, binds the entry to her personal tree, and continues to Atlas's ordinary canonical locator. She places the tree at `work/atlas`. Joe's and Alice's filesystem paths are personal, while identity, revisions, history, and access refer to the same shared tree.
 
 Access is always whole-tree. If Joe wants to share only `projects/atlas/research`, he first gives that subtree its own URL. It becomes a nested shared tree with its own `TreeID` and access list; neither parent nor child access inherits across the boundary. If Alice opens a script, its queries resolve against the trees she can see and its permissions are intersected with hers. The wire is simply how the two arbords exchange revisions.
 
@@ -73,7 +75,7 @@ Cross-device intent flows between the roles as shared-tree revisions on the wire
 
 - Path-scoped access within a shared tree. A subtree that needs different access becomes a nested shared tree.
 - Cryptographic/self-certifying `TreeID`s beyond opaque stable IDs and signed endpoint hints.
-- Rights finer than `read` and `write`, group subjects, and delegable or attenuable remote capabilities.
+- Rights finer than `read` and `write`, nested groups, cross-authority group proofs, and delegable or attenuable remote capabilities.
 - CRDT collaboration beyond CAS plus three-way merge.
 - Authority actions and generalized endpoint compute beyond upstream-hosted queries and the minimal reference server.
 - Differential/materialized query evaluation behind the arbord interface.
@@ -82,7 +84,7 @@ Cross-device intent flows between the roles as shared-tree revisions on the wire
 - Rendering gateways and standalone non-Apple browsers.
 - Discovery indexes as mountable shared trees.
 - Userfs/FUSE for huge trees.
-- General authentication, accounts, or multi-user administration around the single-user loopback arbord API. Wire endpoints and deployed mutations still authenticate principals or access-link claims and enforce whole-tree access.
+- General authentication, accounts, or multi-user administration around the single-user loopback arbord API. Wire endpoints and deployed mutations still authenticate device credentials bound to personal trees or access-link claims and enforce whole-tree access.
 - Generated REST SDKs, general protocol capability negotiation, and multi-version compatibility machinery; the two reference clients are maintained directly against REST v1 fixtures.
 - Persistent arbord event replay across process epochs; reconnecting across an epoch performs a deterministic resync.
 - Durable identity for every ordinary file or directory. Markdown documents, including a directory document once identity is required, use rename-resistant `PageID`s; ordinary non-Markdown nodes remain path-only.
@@ -100,7 +102,7 @@ For the eventual compiled projection language (deferred above): Riffle's reactiv
 ## Open problems
 
 1. **Shared-tree recovery and endpoint movement.** A stable `TreeID` needs a durable, signed way to refresh endpoint hints without reintroducing a central registry.
-2. **Identity and recovery UX.** Known-person access needs understandable principal verification, device replacement, and recovery without turning Arbor into an account system.
+2. **Identity and recovery UX.** Personal trees make names and stable person identity concrete, but device replacement and recovery still need understandable proof-of-control UX without turning Arbor into an account system.
 3. **Merge semantics.** Structured collections eventually need more than text three-way merge. SQLite snapshots initially conflict as whole databases; logical row changes still face schema and authority invariants.
 4. **Determinism discipline.** Query workers must consistently exclude clock, randomness, and I/O across runtime upgrades.
 5. **Compiler correctness.** `query`/`mutation` extraction, client-handle replacement, and validator generation from TypeScript types are security-critical, even though the explicit boundary is simpler than general graph slicing.

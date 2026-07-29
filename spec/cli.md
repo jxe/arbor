@@ -12,12 +12,22 @@ These are the small commands people are expected to use directly:
   - if source is a local path and destination an `arbor://` URL, this gives the directory its identity and begins self-sync. Mode is `private`, `public-read`, or `public-write`, shorthand for the tree's `everyone` access;
   - if source is a canonical URL or access link and destination a local path, it claims access when necessary and starts syncing source to destination. If the source has a revision suffix, the placement is pinned read-only; otherwise it follows the live tip.
 - **`arbor unsync <local-path>`** — remove one sync relationship without deleting its files, remote identity, or history.
-- **`arbor share <locator> [<person-or-link>] [-read|-write|-none]`** — change whole-tree access:
-  - with a known person, add, change, or remove that person's access idempotently;
-  - without a person, create and print a revocable single-claim access link;
+- **`arbor share <locator> [<person-group-or-link>] [-read|-write|-none]`** — change whole-tree access:
+  - with a personal-tree or same-authority group-document locator, add, change, or remove that subject's access idempotently;
+  - without a person or group, create and print a revocable single-claim access link;
   - with an existing access link and `-none`, revoke it before or after claim.
 
 `-read` is the default for additions and new links. `everyone` is the public subject, so `arbor share <locator> everyone -write` is the explicit form of `public-write`. Sharing a path inside a tree is invalid: give that subtree its own URL first, then share the resulting nested tree.
+
+A personal profile needs no additional command family. Syncing a profile directory to the owner's authority root with `-public-read` initializes or reconciles the personal tree, and `browse` opens its ordinary root Markdown document:
+
+```sh
+arbor sync ./alice arbor://alice.example/ -public-read
+arbor browse arbor://alice.example/
+arbor share arbor://joe.example/atlas arbor://alice.example/ -write
+```
+
+The personal tree's root must be a `type: person` profile and remains public-read; the mode does not apply to independently permissioned child tree boundaries. A group can use the same root-shaped convention when its single group document is the root of a dedicated tree, but groups may also be documents elsewhere.
 
 ## Plumbing
 

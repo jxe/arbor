@@ -10,6 +10,7 @@ The complete control tree includes:
 ```text
 system:device
 system:server
+system:people/<PersonTreeID>
 system:trees/<TreeID>
 system:trees/<TreeID>/access/<AccessID>
 system:credentials
@@ -17,11 +18,11 @@ system:visited
 system:diagnostics
 ```
 
-`system:device` supplies safe machine-local facts. `system:server` records the configured personal authority origin and credential status, never its token. Tree records combine canonical names, current ref/sync state, public access, effective access, placements, nested boundaries, and owner-visible remote trees. Access records expose the subject kind (`person`, `link`, or `everyone`), safe display identity, `read`/`write`/`none`, and claimed/revoked status without credentials or claim secrets. Credentials expose only safe names/status; visited records describe transient cached trees.
+`system:device` supplies safe machine-local facts. `system:server` records the configured personal authority origin and credential status, never its token. A people record is keyed by the person's public personal `TreeID` and exposes their canonical locator, last verified profile revision and display name, and availability—never device keys. Tree records combine canonical names, current ref/sync state, public access, effective access, placements, nested boundaries, and owner-visible remote trees. Access records expose the subject kind (`person`, `link`, `group`, or `everyone`), stable resolved subject, safe display identity, `read`/`write`/`none`, and applicable claimed/revoked status without credentials or claim secrets. A group entry also exposes its resolved `(TreeID, PageID)`, current verified membership revision, and source locator. Credentials expose only safe names/status; visited records describe transient cached trees.
 
 Safe changes emit ordinary ordered `tree: "system"` events. Concrete `SystemOperation` mutations use the same durable IDs, receipts, retries, and conflicts as content mutations, but cannot be batched with filesystem/content operations because their authority and rollback domains differ ([arbord-rest.md](arbord-rest.md)).
 
-`configureServer` sends the owner token directly to the OS credential store. Its durable record and journal contain only normalized origin, credential reference, and token digest. Logs, receipts, events, diagnostics, and errors never expose raw credentials. The same rule applies to database DSNs, access-link claim secrets, and issued person/device credentials.
+`configureServer` sends the owner token directly to the OS credential store. Its durable record and journal contain only normalized origin, credential reference, and token digest. Logs, receipts, events, diagnostics, and errors never expose raw credentials. The same rule applies to database DSNs, access-link claim secrets, and device credentials proving control of a personal tree.
 
 ## 2. From local paths to shared-tree placements
 

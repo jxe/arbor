@@ -44,7 +44,9 @@ arbor://notes.example.org/atlas
 arbor://tree/tr_7k3m…          # identity fallback if it moves
 ```
 
-I can stop there and use it only for myself. I can give `everyone` read or write access, add Alice with read or write access, or copy a revocable access link for someone Arbor does not know yet. Alice can open that link or give it directly to `arbor sync`; claiming it stores her credential and continues to the same canonical tree. She places that tree wherever it makes sense in *her* workspace:
+People themselves are named through the same material. Alice has a small public personal tree at `arbor://alice.example.org/`. Its root is an ordinary Markdown profile: its first heading is her display name and the body is her description, while the tree's stable identity and her device credentials prove that it is hers. It is deliberately separate from her private workspace. A group can likewise be one Markdown document—perhaps the root of a dedicated group tree—with member locators in frontmatter, its name as the first heading, and its purpose in the body.
+
+I can stop with Atlas private and use it only for myself. I can give `everyone` read or write access, add Alice's personal-tree locator with read or write access, give a group-document locator access, or copy a revocable access link for someone Arbor does not know yet. Alice can open that link or give it directly to `arbor sync`; claiming it stores her credential, binds the access entry to her personal tree, and continues to the same canonical Atlas tree. She places that tree wherever it makes sense in *her* workspace:
 
 ```text
 Joe                              Alice
@@ -53,6 +55,8 @@ projects/atlas/                  work/atlas/
 ```
 
 The tree has one identity and one access list. Publication is not a separate system: “public read” and “public write” are simply read or write access for `everyone`.
+
+Names stay human and editable without becoming security identifiers. If Alice changes the name in her profile, existing access still names the same personal `TreeID`. If her profile is temporarily unavailable, Arbor can show its canonical locator or last verified name rather than guessing from an ambiguous string.
 
 The shared tree is also the permission boundary. If I want to share only `projects/atlas/research`, I first give that subtree its own URL. It becomes a nested shared tree with its own identity and access list. Sharing Atlas never leaks the private child; sharing the child never exposes the rest of Atlas.
 
@@ -70,12 +74,16 @@ arbor browse ~/workspace
 arbor sync ~/workspace/projects/atlas https://notes.example.org/atlas -private
 arbor sync ~/workspace/projects/atlas https://notes.example.org/atlas -public-read
 
+# Initialize my public personal profile with the same sync primitive, then edit it.
+arbor sync ~/workspace/public-profile arbor://joe.example.org/ -public-read
+arbor browse arbor://joe.example.org/
+
 # Resolve someone else's canonical tree and choose where it belongs locally.
 arbor sync https://alice.example.org/atlas ~/workspace/work/atlas
 
-# Give a known person access, or create a claim link for someone new.
-arbor share arbor://notes.example.org/atlas alice -write
-arbor share arbor://notes.example.org/atlas -read
+# Give a known person access, or create a link for someone new
+arbor share arbor://notes.example.org/atlas arbor://alice.example.org/ -write
+arbor share arbor://notes.example.org/atlas -read # --> outputs a revocable claim link
 
 # A claim link is just another remote sync source; claiming is idempotent.
 arbor sync 'https://notes.example.org/.arbor/access/ac_7k3m…#secret' ~/workspace/work/atlas
@@ -234,7 +242,7 @@ Several other things fall out that the web has always struggled with:
 
 **Multiplayer apps come for free.** On the web, making an app multiplayer is a rewrite: operational transforms or CRDTs, presence servers, conflict UX. Here, any component rendered over a shared tree *is* a multiplayer app, because synchronization is the substrate, not application code. The `ReadingRoom` above is multiplayer the moment its essays folder is shared.
 
-**Auth, login, and cookies are replaced.** The web makes you an account at every site, tracked by cookies, authenticated by passwords. Here there are no per-app accounts. A known person receives tree access directly; someone new claims a link once, stores a credential, and thereafter uses the ordinary canonical URL. Access is a short list attached to a whole tree—people, links, and `everyone`—not a site session. Revocation changes one entry rather than sending anyone hunting through application settings.
+**Auth, login, and cookies are replaced.** The web makes you an account at every site, tracked by cookies, authenticated by passwords. Here there are no per-app accounts. A known person's public personal-tree locator receives access directly; someone new claims a link once, binds it to their personal tree, stores a device credential, and thereafter uses the ordinary canonical URL. Access is a short list attached to a whole tree—people, groups, links, and `everyone`—not a site session. Revocation changes one entry rather than sending anyone hunting through application settings.
 
 **Customization replaces browser extensions.** The web renders the author's frozen output; changing it means fragile extensions scraping the DOM. Here, rendering is reader-wins: you can override the view on anything you've mounted, and your override is just another script in your tree. Authors propose presentation; readers dispose.
 
