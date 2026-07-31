@@ -72,10 +72,13 @@ describe("REST v1 protocol fixtures", () => {
       "restore",
       "restoreRecovery",
       "ensureDocumentIdentity",
-      "configureServer",
+      "connectCommunity",
       "promoteTree",
       "placeTree",
-      "setTreePublication",
+      "setTreeAccess",
+      "claimProfile",
+      "disconnectCommunity",
+      "createGroupProfile",
     ]);
     expect(errors.map((value) => value.error.code)).toContain("internal-error");
     expect(errors.at(-1)?.error.code).toBe("future-error-code");

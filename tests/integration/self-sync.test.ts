@@ -50,7 +50,7 @@ beforeAll(async () => {
   await writeFile(join(treeA, "note.md"), "# Common\n");
   host = await serveWireHost({
     dataRoot: hostState,
-    ownerToken: token,
+    accounts: [{ handle: "owner", token, communityWriter: true }],
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
@@ -63,7 +63,7 @@ afterAll(async () => {
   await host.authority[Symbol.asyncDispose]();
   process.env.ARBOR_DATA_HOME = stateA;
   const cleanup = await serveArbor(treeA, { port: 0 });
-  await cleanup.service.serverConfig.remove();
+  await cleanup.service.communityConfig.remove();
   cleanup.server.stop(true);
   await cleanup.service[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
@@ -72,13 +72,18 @@ afterAll(async () => {
 describe("private self-sync", () => {
   test("places one TreeID in two isolated Arbor homes and pulls edits", async () => {
     const first = await launch(stateA, treeA);
-    await first.client.mutateSystem({ op: "configureServer", origin: host.url, ownerToken: token });
-    const promoted = await first.client.mutateSystem({ op: "promoteTree", path: treeA, slug: "self-sync" });
+    await first.client.mutateSystem({ op: "connectCommunity", origin: host.url, accountToken: token });
+    const promoted = await first.client.mutateSystem({
+      op: "promoteTree",
+      path: treeA,
+      canonicalPath: "/~owner/self-sync",
+      audience: { kind: "private" },
+    });
     tree = promoted.effects.find((effect) => effect.tree?.startsWith("tr_"))!.tree!;
     await first.close();
 
     const second = await launch(stateB, bootstrapB);
-    await second.client.mutateSystem({ op: "configureServer", origin: host.url, ownerToken: token });
+    await second.client.mutateSystem({ op: "connectCommunity", origin: host.url, accountToken: token });
     await second.client.mutateSystem({ op: "placeTree", tree, path: treeB });
     expect(await readFile(join(treeB, "note.md"), "utf8")).toBe("# Common\n");
     await second.close();
@@ -109,7 +114,7 @@ describe("private self-sync", () => {
 
     host = await serveWireHost({
       dataRoot: hostState,
-      ownerToken: token,
+      accounts: [{ handle: "owner", token, communityWriter: true }],
       publicOrigin: `http://127.0.0.1:${hostPort}`,
       hostname: "127.0.0.1",
       port: hostPort,

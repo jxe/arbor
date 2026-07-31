@@ -74,14 +74,23 @@ public struct TreeDescriptor: Codable, Sendable, Equatable {
     public var name: String
     public var osPath: String?
     public var canonical: String?
+    public var canonicalPath: String?
     public var httpURL: String?
     public var endpoint: String?
-    public var publication: String?
+    public var publicAccess: String?
     public var access: String?
+    public var accessEntries: [TreeAccessEntry]?
     public var placement: String
     public var sync: String?
     public var legacy: Bool?
     public var missing: Bool?
+}
+
+public struct TreeAccessEntry: Codable, Sendable, Equatable {
+    public var id: String
+    public var kind: String
+    public var access: String
+    public var locator: String?
 }
 
 public struct Diagnostic: Codable, Sendable, Equatable {
@@ -262,9 +271,13 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
     public var blocks: [ArborBlock]?
     public var hash: String?
     public var origin: String?
-    public var ownerToken: String?
-    public var slug: String?
-    public var publication: String?
+    public var accountToken: String?
+    public var handle: String?
+    public var displayName: String?
+    public var canonicalPath: String?
+    public var audience: JSONValue?
+    public var subject: JSONValue?
+    public var access: String?
     public var endpoint: String?
     public var canonical: String?
 
@@ -285,9 +298,13 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         blocks: [ArborBlock]? = nil,
         hash: String? = nil,
         origin: String? = nil,
-        ownerToken: String? = nil,
-        slug: String? = nil,
-        publication: String? = nil,
+        accountToken: String? = nil,
+        handle: String? = nil,
+        displayName: String? = nil,
+        canonicalPath: String? = nil,
+        audience: JSONValue? = nil,
+        subject: JSONValue? = nil,
+        access: String? = nil,
         endpoint: String? = nil,
         canonical: String? = nil
     ) {
@@ -307,9 +324,13 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         self.blocks = blocks
         self.hash = hash
         self.origin = origin
-        self.ownerToken = ownerToken
-        self.slug = slug
-        self.publication = publication
+        self.accountToken = accountToken
+        self.handle = handle
+        self.displayName = displayName
+        self.canonicalPath = canonicalPath
+        self.audience = audience
+        self.subject = subject
+        self.access = access
         self.endpoint = endpoint
         self.canonical = canonical
     }

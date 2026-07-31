@@ -9,8 +9,8 @@ The complete control tree includes:
 
 ```text
 system:device
-system:server
-system:people/<PersonTreeID>
+system:community
+system:profiles/<ProfileTreeID>
 system:trees/<TreeID>
 system:trees/<TreeID>/access/<AccessID>
 system:credentials
@@ -18,11 +18,11 @@ system:visited
 system:diagnostics
 ```
 
-`system:device` supplies safe machine-local facts. `system:server` records the configured personal authority origin and credential status, never its token. A people record is keyed by the person's public personal `TreeID` and exposes their canonical locator, last verified profile revision and display name, and availability—never device keys. Tree records combine canonical names, current ref/sync state, public access, effective access, placements, nested boundaries, and owner-visible remote trees. Access records expose the subject kind (`person`, `link`, `group`, or `everyone`), stable resolved subject, safe display identity, `read`/`write`/`none`, and applicable claimed/revoked status without credentials or claim secrets. A group entry also exposes its resolved `(TreeID, PageID)`, current verified membership revision, and source locator. Credentials expose only safe names/status; visited records describe transient cached trees.
+`system:device` supplies safe machine-local facts. `system:community` records the active community origin, account/handle, person profile `TreeID`/URL, community `TreeID`/URL, and credential reference—never the account token. Profile records are keyed by stable person/group profile `TreeID`. Tree records combine canonical boundary path, current ref/sync state, public/effective access, local placement, kind, parent boundary, and account-visible remote trees. Access records expose `profile`, `link`, or `everyone`, safe resolved identity, and `read`/`write`/`none` without credentials or link secrets.
 
 Safe changes emit ordinary ordered `tree: "system"` events. Concrete `SystemOperation` mutations use the same durable IDs, receipts, retries, and conflicts as content mutations, but cannot be batched with filesystem/content operations because their authority and rollback domains differ ([arbord-rest.md](arbord-rest.md)).
 
-`configureServer` sends the owner token directly to the OS credential store. Its durable record and journal contain only normalized origin, credential reference, and token digest. Logs, receipts, events, diagnostics, and errors never expose raw credentials. The same rule applies to database DSNs, access-link claim secrets, and device credentials proving control of a personal tree.
+`connectCommunity` sends an account/device token directly to the OS credential store. Durable state contains only normalized origin, safe account/community metadata, credential reference, and digest. `setTreeAccess` hashes a link secret before durable intent. Logs, receipts, events, diagnostics, and errors never expose raw credentials. The same rule applies to database DSNs.
 
 ## 2. From local paths to shared-tree placements
 
@@ -40,16 +40,16 @@ The authored placement registry is `~/.arbor/trees.yaml`, keyed by canonical loc
 "/Users/joe/notes":
   source: "arbor://tree/tr_7f3q2ab7c/"
   tree: tr_7f3q2ab7c
-  canonical: "arbor://notes.example/notes"
-  endpoint: "https://notes.example"
+  canonical: "arbor://garden.example/~joe/notes"
+  endpoint: "https://garden.example"
   ref: "sha256:…"
   access: write
   publicAccess: none
 ```
 
-The source names identity, not local position. The key is the reader's placement. `access` is a local ceiling, `publicAccess` is a safe projection of the tree's `everyone` entry, ref is the last materialized common tip, and endpoint is a replaceable hint. A person syncing a canonical locator or claiming an access link chooses their own placement; the owner's filesystem path never becomes the recipient's.
+The source names identity, not local position. The key is the reader's placement. `access` is a local ceiling, `publicAccess` projects the `everyone` entry, ref is the last common tip, and endpoint is replaceable. Canonical boundary records live at the community authority independently of these local placements.
 
-One tree may appear in multiple positions, and distinct nested trees may occupy overlapping path prefixes because nested boundaries are real identities. Longest-boundary resolution selects the innermost tree. A parent placement stores only the nested child `TreeID`; parent rights do not cross into it.
+One tree may appear in multiple positions, and distinct nested trees may occupy overlapping prefixes because nested boundaries are real identities. Longest-boundary resolution selects the innermost accessible tree. An external local placement may project as a virtual child beneath a profile whose physical folder is elsewhere; no duplicate directory or synthetic Markdown is created. A parent graph stores only the nested child `TreeID`; parent rights do not cross into it, and ordinary writes that replace its reserved path fail with `reserved-boundary`.
 
 Arbord materializes shared trees as ordinary files for editors and agents. Userfs/FUSE is not required. The registry is atomically replaced and fully validated before activation; invalid YAML, incomplete shared records, unsafe moves, and ambiguous identity produce `system:diagnostics` while the last valid configuration remains active.
 

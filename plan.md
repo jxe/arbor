@@ -32,52 +32,66 @@ There is no new durable local-only tree concept. Legacy `source: local` records 
 
 ## Current state
 
-The local daily driver is implemented: filesystem-wide browsing/editing, source-preserving Markdown, projected directories, collections, ordinary-file byte routes, durable REST mutations and event handoff, TypeScript/Swift clients, search/backlinks/recovery within durable trees, and safe cloud-placeholder handling.
+The local daily driver is implemented: filesystem-wide browsing/editing, source-preserving Markdown, projected directories, collections, durable REST mutations and event handoff, TypeScript/Swift clients, search/backlinks/recovery, and safe cloud-placeholder handling.
 
-The current worktree additionally implements the local reference slice of canonical tree hosting:
+The reference host and local arbord now implement the first community-hosting slice:
 
-- `packages/wire`: deterministic CBOR objects, one root tip per `TreeID`, CAS push/watch/ref/object endpoints, graph/hash/quota validation, nested-tree boundaries, alias resolution, and publication;
-- `arbor serve`: the standalone authority/publication process, launched from the main CLI with persistent-volume and health/restart configuration;
-- arbord: `TreeID`/`system:` REST model, secret-aware system mutations, legacy promotion, placement, immediate pushes, polling pulls, and preserved conflict state;
-- TreeHopper web: **Give this subtree a URL**, canonical URL/sync/publication controls, remote placement, and the reserved Sharing layout;
-- CLI: the primary `browse` command and both idempotent `sync` forms for owner promotion/publication and remote read-only placement;
-- TypeScript and Swift fixtures/types updated together with the public root surface removed.
+- one public-read `type: group` community tree at `/`;
+- complete person and group profile trees mounted at `/~<handle>`;
+- arbitrary nested shared-tree boundaries resolved by longest accessible prefix;
+- in-place promotion that preserves the canonical path while changing the enclosing `TreeID`;
+- virtual mounted children for external local folders, without moving or copying filesystem content;
+- account/device credentials and one active local community account instead of a process-wide owner token;
+- authored community reservations and atomic first-claim-wins person profiles;
+- authored group membership, with group writers administering membership and membership alone granting no write;
+- `everyone`, person/group profile, and link access with revocation;
+- browser Profile and Share surfaces, plus claim-first `claim`, `share`, `sync`, and `browse` CLI primitives; `connect` remains account-import plumbing.
 
-Local conformance and end-to-end verification are recorded under the immediate milestone. The newly specified shared locator parser and pinned historical views remain local work. A permanent custom hostname and real Railway volume also remain prerequisites before promoting the first non-fixture tree.
+Revision-pinned locators, production deployment, recovery/reset for disputed claims, multiple active local identities, nested groups, and cross-community membership remain outside this slice.
 
-## Intentional divergence from the previous roadmap
+## Accepted architecture
 
-The prior roadmap separated self-sync, canonical names, and publication into successive milestones and used sharing as the action that created tree identity. That ordering created needless temporary models: a self-synced tree without its user-facing name, path-level mutable refs, durable local tracking, and a later identity-changing share operation.
+One host represents one community and exposes one mounted canonical namespace:
 
-The new order combines **private self-sync + canonical URL + minimal live HTTP publication**. **Give this subtree a URL** is the one transition from ordinary files to a shared tree. Recipient sharing operates on that identity next. The wire has one mutable root hash per `TreeID`, not a ref per path. Local REST control uses `system:` records and singleton durable mutations, not public root/tree CRUD.
+```text
+/                       community profile tree
+/~joe/                  Joe's complete profile tree
+/~editors/              Editors' complete group profile
+/~editors/handbook/     ordinary content or an independent shared subtree
+```
 
-The previous sharing plan also treated arbitrary paths, invitations, grants, publication, local attenuation, overlays, and placement as one milestone. The simplified model makes the shared tree itself the remote permission boundary. Public access is the `everyone` entry in the same whole-tree access list used for people and links; an access link is claimed through ordinary `browse` or `sync`, not accepted through a separate workflow. Subtrees that need different access become nested shared trees. Workspace composition remains separate later work.
+A canonical boundary is a separate record from local placement:
 
-Milestone 2 also no longer invents a parallel account directory or exposes opaque person principals as the user-facing identity. Each person is represented by the public-read personal tree at their authority root: its `TreeID` is stable, its root Markdown profile supplies the readable name, and device credentials prove control. Group files list these personal-tree locators and resolve them to stable tree identities. People, groups, and resources therefore use the same locator and authored-content model.
+```ts
+interface CanonicalBoundary {
+  path: string;
+  tree: TreeID;
+  parentTree: TreeID | null;
+  kind: "community-profile" | "person-profile" | "group-profile" | "shared-subtree";
+}
+```
 
-An implementation audit after this decision found no landed invitation, grant-ID, fine-rights, or scoped-change machinery to remove. The implemented `PublicationMode`/`setTreePublication` path is real Milestone 1 behavior and remains until Milestone 2 migrates it into the `everyone` entry. The placement `access` ceiling already enforces current read-only safety; the accepted `local:` overlay locator is reserved for later workspace composition. Neither is obsolete. The disabled Sharing mock stays in place, with person and access-link actions shown inertly.
+Resolution chooses the longest accessible boundary and walks the remainder within that tree. A longer boundary is valid only when the parent graph contains that exact nested-tree entry; an unrelated alias cannot shadow content. Promotion replaces or reserves the exact parent entry atomically. Parent pushes that would overwrite a mounted child fail with `reserved-boundary`.
+
+Profiles are whole trees, not distinguished single pages. Their `TreeID` is the stable person/group identity; `_index.md` supplies mutable authored profile content. Community and group membership are ordinary locators in the profile document. Same-community unresolved person locators reserve handles. First claim creates and mounts the person profile and returns a device credential; later attempts return `already-claimed`.
 
 ## Status at a glance
 
 | Status | Milestone | Outcome |
 |---|---|---|
-| **Partial** | 1. Canonical tree hosting | Local reference host, promotion, self-sync, canonical names, and private/public modes; pinned locators and the permanent deployed hostname remain. |
-| **Next** | 2. Whole-tree sharing | Public personal profiles, read/write access for people or claim links, revocation, and claim-through-sync. |
-| **Planned** | 3. Authored groups | Single Markdown group files become reusable access subjects with versioned membership and authorship. |
-| **Planned** | 4. Workspace composition | Multiple placements, local ceilings, overlays, visits, and merged workspace views. |
-| **Planned** | 5. Scripts and agents | Colocated components/queries/mutations, isolation, then file-defined agents. |
-| **Planned** | 6. Data and SQLite | Transaction-safe SQLite backing and backing-independent collection mutations. |
-| **Planned** | 7. Fuller publication profiles | Static baking, custom deployed applications, and provider adapters beyond canonical live publication. |
-| **Polish** | 8. Daily-driver hardening | Focused ordinary-file, provider, accessibility, and scale work. |
+| **Partial** | 1. Canonical tree hosting | Merkle trees, CAS sync, live HTTP projection, canonical boundaries, and raw TreeID fallback; pinned locators and production deployment remain. |
+| **Partial** | 2. Community hosting | Multi-account profiles, claims, groups, Share/access, longest-prefix mounts, and virtual external folders have a reference slice; production pairing/recovery and the complete cross-language/browser gate remain. |
+| **Planned** | 3. Workspace composition | Multiple placements, local ceilings, overlays, visits, and merged workspace views. |
+| **Planned** | 4. Scripts and agents | Colocated components/queries/mutations, isolation, then file-defined agents. |
+| **Planned** | 5. Data and SQLite | Transaction-safe SQLite backing and backing-independent collection mutations. |
+| **Planned** | 6. Fuller publication profiles | Static baking, custom deployed applications, and provider adapters beyond canonical live publication. |
+| **Polish** | 7. Daily-driver hardening | Focused ordinary-file, provider, accessibility, and scale work. |
 
 ```text
 canonical identity + self-sync + live publication
                          │
                          ▼
-          personal profiles + whole-tree sharing
-                         │
-                         ▼
-                 authored groups
+        community profiles + groups + sharing
                          │
                          ▼
                workspace composition
@@ -94,189 +108,80 @@ canonical identity + self-sync + live publication
 
 ## Milestone 1 — canonical tree hosting
 
-**Status: Partial. The live local/URL slice and tests exist; revision-pinned locators plus a permanent custom hostname and real hosted-volume restart check remain.**
+**Status: Partial. The live local/URL slice exists; revision-pinned locators plus a permanent hostname and hosted-volume restart check remain.**
 
-### Product slice
+One mutable root hash belongs to each `TreeID`, with immutable deterministic objects beneath it. CAS push/watch/ref/object endpoints validate graphs, hashes, reachability, and quotas. HTTP and `arbor://` spellings name the same canonical path; raw `arbor://tree/<TreeID>` remains the durable fallback.
 
-Any directory can choose **Give this subtree a URL**. Promotion reserves one immutable slug and `TreeID`, uploads a verified initial Merkle root, reuses existing private journal/index/recovery state, replaces the placement, and begins private self-sync. The UI shows matching HTTP/Arbor names, raw identity fallback, sync state, and private/public-read/public-write modes.
+The milestone now uses mounted paths rather than one-segment slugs. Public access is an `everyone` entry (`none`, `read`, or `write`), not a parallel publication column. Nested boundaries never inherit access. Immediate push, background pull, offline divergence preservation, restart recovery, and read-only remote placement remain as implemented.
 
-The implemented ordinary CLI surface is:
+Remaining work:
 
-```text
-arbor browse <path>
-arbor sync <local-path> <my-canonical-url> -<mode>
-arbor sync <anyones-canonical-url> <local-path>
-```
-
-Both `sync` forms are idempotent. Whole-tree sharing and access-link sources follow in Milestone 2.
-
-The product spec now generalizes these operands as **Arbor locators**: local paths, named HTTP/Arbor locations, raw TreeID locations, and optional immutable revision suffixes. The current CLI implements the live local-path/named-URL subset. A shared locator parser plus historical browse and pinned placement are not yet implemented.
-
-### Intentional first-slice cuts
-
-These are implementation cuts, not changes to the topic specs:
-
-- one Railway-hosted server, one owner bearer token, and one active authority process;
-- private, public-read, and anonymous public-write are currently stored as a separate `PublicationMode`; Milestone 2 folds them into the `everyone` access entry without changing these user-facing modes;
-- the Sharing section occupies its final visual position but is disabled with “Sharing with people is not available yet”;
-- one immutable slug segment per tree;
-- live local paths and named URLs only in the CLI; revision-pinned locators are specified but not yet parsed;
-- current tips may be materialized/proxied to reuse TreeHopper, but compliant authorities need not store materialized files;
-- owner credentials are device-global rather than paired/per-device;
-- no static bake, custom deployed app, multi-user administration, or production HA/observability.
-
-### REST/control work
-
-- Public `RootID`, `RootDescriptor`, `RootsPage`, and `/v1/roots` are removed.
-- `TreeRef` is `"local" | "system" | TreeID`; unpromoted paths are OS-absolute local refs.
-- Safe records are read under `system:device`, `system:server`, `system:trees`, `system:credentials`, `system:visited`, and `system:diagnostics`.
-- Implemented singleton operations are `configureServer`, `promoteTree`, `placeTree`, and `setTreePublication`; the last is a staged representation of future `everyone` access.
-- Raw owner tokens go directly to the OS credential store; journals/records/events/errors contain only safe status and digest.
-- System mutations share durable IDs, receipts, retries, conflicts, and events with content mutations but cannot be mixed with them.
-
-### Wire/host work
-
-```text
-GET  /.arbor/trees/{TreeID}/ref
-POST /.arbor/trees/{TreeID}/push
-GET  /.arbor/trees/{TreeID}/watch
-GET  /.arbor/objects/{hash}
-```
-
-- one CAS tip per tree; immutable deterministic objects below it;
-- partial Merkle fetch, complete graph validation, corruption rejection, quotas, and private-object reachability checks;
-- nested independent trees are boundary entries and never inherit parent publication;
-- `/.well-known/arbor/<slug>` resolves the reference alias;
-- persistent [Railway volume](https://docs.railway.com/volumes), health route, graceful shutdown, and [automatic restart configuration](https://docs.railway.com/deployments/restart-policy);
-- live HTTP projection returns 404 for private, read-only surfaces for public-read, and anonymous CAS for public-write with warning/rate/storage limits.
-
-### Sync behavior
-
-- Promotion is transactional from the local user's point of view: failure leaves original files and legacy state usable.
-- Authored shared-tree mutations snapshot and CAS-push immediately.
-- A background loop pulls when only remote advanced and pushes when only local advanced.
-- If both differ from the common ref, neither side is discarded; local content remains and sync surfaces an explicit conflict.
-- Restart restores ref/object metadata and last verified placements.
-
-### Verification
-
-Implemented automated checks:
-
-- TypeScript typecheck and Swift package fixtures agree on new tree/system shapes;
-- no public fixture/client type contains `RootID`, `RootDescriptor`, or `/v1/roots`;
-- canonical CBOR determinism, Merkle diff, nested boundaries, graph/hash rejection;
-- private/public-read/public-write authority behavior and persistent restart;
-- legacy promotion and publication through arbord;
-- two isolated Arbor data homes syncing through the authority, including offline divergence preservation;
-- both primary CLI sync forms repeated without minting a second tree or placement;
-- remote public-read placement rejection and public-write access reconciliation/anonymous push;
-- raw configured token absent from durable text records/journals;
-- the full browser E2E suite, including canonical control, publication changes, Home records, and the inert Sharing section.
-
-Remaining before status becomes Implemented:
-
-- implement the shared locator parser and revision-pinned `browse`/remote-to-local `sync`;
-- supply the permanent custom hostname, deploy the Railway service with a mounted volume, and repeat restart/private/public checks against it.
-
-The last item is deliberately required before promoting a real personal tree. Localhost fixtures remain the only promotion targets until then.
+- shared parsing for immutable revision suffixes and pinned browse/sync;
+- permanent deployed hostname, mounted volume, graceful restart, and private/public verification;
+- static bake and custom applications remain in fuller publication profiles.
 
 ---
 
-## Milestone 2 — whole-tree sharing
+## Milestone 2 — community hosting
 
-**Status: Next.**
+**Status: Partial. The reference TypeScript host, arbord, CLI, browser, and focused integration coverage exist.**
 
 ### Product contract
 
-Every person has a small public-read **personal tree** whose root Markdown document is their authored profile. Its canonical root locator, such as `arbor://alice.example/`, is the human-facing person identity; its `TreeID` is the durable identity when the domain or display name changes. The tree's device credentials prove control, while `type: person`, the first heading, and the ordinary body supply its role, mutable display name, and public description.
+The community is the public-read group profile at `/`. Person and group profiles are complete public-read trees at `/~<handle>`. Handles are unique and exclude `~`.
 
-TreeHopper offers **Create my public profile**, scaffolds the root document, and opens it for ordinary Markdown editing. The CLI does not need a separate identity command: `arbor sync <profile-path> arbor://alice.example/ -public-read` creates or reconciles the same tree, and `arbor browse <profile-path>` edits it. A personal tree is deliberately small and separate from the person's private workspace; making the profile public never publishes their other trees.
+Membership is authored directly:
 
-An owner gives a known personal-tree locator whole-tree `read` or `write` access, or creates a revocable single-claim access link with one of those access levels. The recipient opens the link or passes it to the existing remote-to-local `sync`; claiming stores the credential, binds the entry to the claimant's personal tree, and continues to the canonical resource tree idempotently. Public access is the same list's special `everyone` entry.
-
-There is no path-scoped access. To share a subtree differently, its owner gives that subtree its own URL and shares the resulting nested tree. Changing or removing access never changes its `TreeID`. Revocation leaves already materialized files visible but stale/read-only and prevents new remote reads and writes.
-
-### Required work
-
-- one authority access table with owner personal tree, known personal tree, unclaimed link, and `everyone` subjects; only `none`, `read`, and `write`;
-- fold the implemented publication column and `setTreePublication` operation into the `everyone` entry while preserving private/public-read/public-write as product shorthand;
-- public-read personal trees whose root `type: person` document supplies the display name and whose `TreeID` is the stable person identity;
-- minimum device credential/pairing needed to prove control of a personal tree and authenticate its owner across devices, without adding local arbord accounts;
-- root-tree initialization on a personal authority, including TreeHopper's **Create my public profile** path and the existing idempotent `sync` form;
-- add `/.well-known/arbor` root discovery beside Milestone 1's existing `/.well-known/arbor/<slug>` child aliases;
-- resolve person locators to personal `TreeID`s, cache their safe current profile metadata for offline display, and fall back to the locator rather than treating a mutable or duplicate name as authority;
-- secret-aware `setTreeAccess`, `createAccessLink`, and `claimTreeAccess` system operations;
-- the matching list/create/update/claim wire access endpoints, without path-scoped policy objects;
-- client-generated claim secrets whose raw value never enters authority storage, mutation journals, receipts, events, diagnostics, or logs;
-- complete safe `system:people/<PersonTreeID>` and `system:trees/<TreeID>/access/<AccessID>` records;
-- wire reads and pushes authorized once at the whole-tree boundary; no scoped graph-diff authorization;
-- functional TreeHopper people/link/public access list in the already reserved Sharing location;
-- `arbor share` for person locators and links, and access-link resolution through ordinary `browse` and idempotent `sync`;
-- nested-tree access isolation and a direct **Give this subtree a URL** path when someone tries to share only part of a tree.
-
-Completion gate:
-
-- Alice initializes `arbor://alice.example/` as a public-read personal tree, edits its root profile name, and sees that same identity and updated name on a second paired device;
-- Joe gives `arbor://alice.example/` read access to Atlas; the access record retains Alice's personal `TreeID`, displays her authored name, and her authenticated arbord syncs Atlas at a different path but cannot push;
-- Alice changes her display name without losing access, and an unavailable profile falls back to her canonical locator or last verified safe metadata;
-- changing Alice to write takes effect without a new URL or placement, and removing her access makes her materialized copy stale/read-only;
-- Joe creates a write access link for an unknown recipient; `arbor sync <access-link> <path>` binds it to that recipient's personal tree, claims and places it, and repeating the command does not mint another person or placement;
-- public read/write continues through the same `everyone` entry and existing HTTP projection;
-- attempting to share `/research` inside Atlas directs Joe to give it a URL; sharing that new nested tree exposes neither its parent nor private sibling trees;
-- raw access-link and device secrets are absent from every durable or diagnostic text surface.
-
----
-
-## Milestone 3 — authored groups
-
-**Status: Planned.**
-
-### Product contract
-
-A group is authored as one ordinary Markdown file in a relevant shared tree. Its durable `PageID` is the group identity, so access entries reference the file with an Arbor locator and survive a rename or move. Frontmatter contains direct personal-tree locators; its first heading and body supply the group's readable name, purpose, and norms. Member names are resolved from their own public personal trees rather than copied into the group definition.
-
-```md
----
-id: ed7trs
-type: group
+```yaml
 members:
-  - arbor://alice.example/
-  - arbor://bob.example/
----
-
-# Editors
-
-People who may edit the team's publications.
+  - arbor://garden.example/~joe
+  - arbor://garden.example/~alice
 ```
 
-The containing shared tree determines who may author membership. Group members do not gain authority to edit the group merely by being members. If a group needs a distinct set of maintainers, its file belongs in a separate or nested administrative shared tree with those people as direct writers. A group may be the root document of a dedicated group tree, giving it a canonical root profile symmetrical with a person's tree, but a dedicated tree is not required.
+An unresolved same-community person locator reserves its handle. Anyone may browse that URL; the intended claim flow is the local TreeHopper profile control, which accepts the complete reserved profile URL and a visible local folder. The first successful submission creates `type: person` profile content, mounts the new `TreeID`, and stores the returned device credential. Removing a pending locator releases the handle. Removing a claimed locator disables future authenticated operations without deleting its tree.
 
-Another tree may use the group locator as a whole-tree access subject and independently assign that group `read` or `write`. Membership is live at the current verified group-file revision rather than copied into each resource's access list.
+Group profiles list existing person locators as members. Writers of the group tree administer its namespace and membership; membership alone does not grant write. Resource trees may independently grant the group read or write access.
 
-### Required work
+**Share** promotes a visible subtree in place. It is disabled until the current local account is connected and has a profile. Every new share requires an explicit audience, including Private. An external folder chooses an available child path beneath a writable profile and remains at its existing OS path as a virtual mounted child.
 
-- define and validate the single-file group frontmatter schema, including direct person locators, without introducing a separate `GroupID` database;
-- resolve a group locator to `(TreeID, PageID)` and retain identity when the file moves;
-- add `group` as an access-entry subject while leaving resource access at whole-tree `read` or `write`;
-- resolve each member locator to a personal `TreeID`, track the current verified revision of each referenced group file, and reevaluate derived access when membership changes;
-- expose group source, revision, members, and authorship provenance through safe `system:` records and TreeHopper;
-- let `arbor share <tree-locator> <group-locator> -read|-write|-none` use the same sharing command as people;
-- retain ordinary tree history, conflicts, recovery, and authenticated authorship for membership edits.
+The profile control owns connection, claim/initialization, public-profile editing, writable profile/group namespaces, group creation, disconnect, and account switching. Credentials never appear in content, journals, receipts, events, errors, diagnostics, or logs.
 
-The first slice supports direct person members and group/resource trees on the same authority. Nested groups and cross-authority membership proofs remain later design work.
+### Implemented control surface
 
-Completion gate:
+```text
+arbor share <local-path> <canonical-url> <explicit-audience>
+arbor sync <local-path> <canonical-url> [audience]
+arbor sync <canonical-url> <local-path>
+arbor browse <path>
+arbor serve [data-directory] [--first-writer <handle>]
+```
 
-- Joe authors one Markdown group file containing Alice and Bob and gives that group write access to Atlas;
-- Alice and Bob can sync and write Atlas while a nonmember cannot;
-- removing Bob from the group revokes his derived access and leaves his materialized copy stale/read-only;
-- moving or renaming the group file preserves access through its `PageID`;
-- a group member without write access to the containing administrative tree cannot add themselves or anyone else;
-- concurrent membership edits produce an ordinary visible file conflict rather than silently losing either authored revision.
+The browser claim stores and activates the returned device credential, so `connect` is not a new-member prerequisite. A fresh `serve` reserves the first writer and that claim grants community write; environment-supplied accounts remain available for unattended bootstrap and legacy migration. Singleton arbord operations are `connectCommunity`, `disconnectCommunity`, `claimProfile`, `createGroupProfile`, `promoteTree`, `placeTree`, and `setTreeAccess`. `system:community` stores only safe account/community metadata and a credential reference.
+
+### Reference-slice verification
+
+- promote `/~editors/handbook` and preserve its URL, bytes, and `PageID` while longest-prefix resolution changes its enclosing `TreeID`;
+- reject unrelated shadowing and a parent push that overwrites the reserved mount;
+- share an external folder as `/~owner/atlas`, preserve its real OS path, project it through TreeHopper APIs, and create no duplicate profile folder;
+- win one concurrent `~alice` claim and return `already-claimed` thereafter;
+- release a pending member and disable a removed claimed member without deleting the profile boundary;
+- isolate accounts and nested access; keep group membership separate from group authorship;
+- exercise public, person, group, and link access plus revocation;
+- keep raw account/link credentials out of durable text.
+
+### Remaining work
+
+- extend browser E2E coverage from claim/share/disconnect to group creation and access-entry revocation, plus a visual/accessibility pass;
+- historical/recovery UI for access changes;
+- production device pairing, account switching among stored identities, claim recovery/disputes, and administrator reset;
+- confirmed removal UX for claimed members;
+- execute the documented Railway/custom-domain deployment and hosted-volume restart check; broaden malformed/partial legacy-state recovery coverage.
+
+Nested groups, cross-community membership, boundary moves/aliases, multiple active local identities, and broader workspace overlays remain deferred.
 
 ---
 
-## Milestone 4 — workspace composition
+## Milestone 3 — workspace composition
 
 **Status: Planned.**
 
@@ -291,7 +196,7 @@ Completion gate: Alice places one tree twice, makes one placement locally read-o
 
 ---
 
-## Milestone 5 — scripts and agents
+## Milestone 4 — scripts and agents
 
 **Status: Planned.**
 
@@ -305,7 +210,7 @@ Completion gate: Alice places one tree twice, makes one placement locally read-o
 
 Completion gate: one `.tsx` colocates component/query/mutation over two backings; client bundles contain handles but no handler code; invalid input and undeclared paths fail before data access; a file-defined agent uses the same handles and visible consent.
 
-## Milestone 6 — data and SQLite
+## Milestone 5 — data and SQLite
 
 **Status: Planned.**
 
@@ -318,7 +223,7 @@ Completion gate: one `.tsx` colocates component/query/mutation over two backings
 
 Completion gate: changing a file collection to SQLite changes no backing-independent query call sites; external SQLite writes remain observable and snapshots remain consistent during WAL activity.
 
-## Milestone 7 — fuller publication profiles
+## Milestone 6 — fuller publication profiles
 
 **Status: Planned. Canonical live HTTP publication already belongs to Milestone 1.**
 
@@ -330,7 +235,7 @@ Completion gate: changing a file collection to SQLite changes no backing-indepen
 
 Completion gate: one tree publishes statically with working links/assets and one custom live script deploys to both chosen targets from the same manifest.
 
-## Milestone 8 — polish and hardening
+## Milestone 7 — polish and hardening
 
 **Status: Polish; non-blocking.**
 

@@ -36,6 +36,7 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(node.ref, ResolvedNodeRef(path: "/notes/today", pageID: "abc123", tree: "tr_notes7f3q2ab7c"))
         XCTAssertEqual(node.tree, "tr_notes7f3q2ab7c")
         XCTAssertEqual(node.enclosingTree?.osPath, "/Users/joe/notes")
+        XCTAssertEqual(node.enclosingTree?.accessEntries?.first?.locator, "arbor://notes.example/~alice")
         XCTAssertEqual(untracked.tree, "local")
         XCTAssertNil(untracked.enclosingTree)
         XCTAssertEqual(systemTree.tree, "system")
@@ -52,7 +53,7 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(recovery.entries.last?.kind, "trash")
         XCTAssertEqual(
             operationRequests.flatMap(\.operations).map(\.op),
-            ["writeMarkdown", "createMarkdown", "createDirectory", "rename", "move", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity", "configureServer", "promoteTree", "placeTree", "setTreePublication"]
+            ["writeMarkdown", "createMarkdown", "createDirectory", "rename", "move", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity", "connectCommunity", "promoteTree", "placeTree", "setTreeAccess", "claimProfile", "disconnectCommunity", "createGroupProfile"]
         )
         XCTAssertEqual(
             operationRequests.flatMap(\.operations).first(where: { $0.placement != nil })?.placement,

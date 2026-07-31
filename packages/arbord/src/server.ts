@@ -84,8 +84,10 @@ function decodeMutation(value: unknown): MutationRequest {
     );
   }
   const systemCount = input.operations.filter((operation) =>
-    operation.op === "configureServer" || operation.op === "promoteTree"
-    || operation.op === "placeTree" || operation.op === "setTreePublication"
+    operation.op === "connectCommunity" || operation.op === "claimProfile"
+    || operation.op === "disconnectCommunity" || operation.op === "createGroupProfile"
+    || operation.op === "promoteTree" || operation.op === "placeTree"
+    || operation.op === "setTreeAccess"
   ).length;
   if (systemCount > 0 && (systemCount !== 1 || input.operations.length !== 1)) {
     throw new ProtocolError(
@@ -263,17 +265,56 @@ function validateOperation(value: unknown): void {
         throw new ProtocolError("invalid-reference", "ensureDocumentIdentity requires baseContentRevision", 400);
       }
       return;
-    case "configureServer":
-      if (typeof value.origin !== "string" || typeof value.ownerToken !== "string" || !value.ownerToken) {
-        throw new ProtocolError("invalid-reference", "configureServer requires origin and ownerToken", 400);
+    case "connectCommunity":
+      if (typeof value.origin !== "string" || typeof value.accountToken !== "string" || !value.accountToken) {
+        throw new ProtocolError("invalid-reference", "connectCommunity requires origin and accountToken", 400);
       }
       try { new URL(value.origin); } catch {
-        throw new ProtocolError("invalid-reference", "configureServer origin must be a URL", 400);
+        throw new ProtocolError("invalid-reference", "connectCommunity origin must be a URL", 400);
+      }
+      return;
+    case "disconnectCommunity":
+      return;
+    case "claimProfile":
+      if (
+        typeof value.origin !== "string"
+        || typeof value.handle !== "string"
+        || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(value.handle)
+        || typeof value.path !== "string"
+        || !value.path.startsWith("/")
+        || (value.displayName !== undefined && typeof value.displayName !== "string")
+      ) {
+        throw new ProtocolError("invalid-reference", "claimProfile requires origin, handle, and absolute path", 400);
+      }
+      try { new URL(value.origin); } catch {
+        throw new ProtocolError("invalid-reference", "claimProfile origin must be a URL", 400);
+      }
+      return;
+    case "createGroupProfile":
+      if (
+        typeof value.handle !== "string"
+        || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(value.handle)
+        || typeof value.path !== "string"
+        || !value.path.startsWith("/")
+        || (value.displayName !== undefined && typeof value.displayName !== "string")
+      ) {
+        throw new ProtocolError("invalid-reference", "createGroupProfile requires a handle and absolute path", 400);
       }
       return;
     case "promoteTree":
-      if (typeof value.path !== "string" || !value.path.startsWith("/") || typeof value.slug !== "string" || !value.slug) {
-        throw new ProtocolError("invalid-reference", "promoteTree requires an absolute path and slug", 400);
+      if (
+        typeof value.path !== "string"
+        || !value.path.startsWith("/")
+        || typeof value.canonicalPath !== "string"
+        || !value.canonicalPath.startsWith("/")
+        || !isRecord(value.audience)
+        || !["private", "everyone", "profile"].includes(String(value.audience.kind))
+        || (value.audience.kind === "everyone" && !["read", "write"].includes(String(value.audience.access)))
+        || (value.audience.kind === "profile"
+          && (typeof value.audience.locator !== "string"
+            || !["read", "write"].includes(String(value.audience.access))))
+      ) {
+        throw new ProtocolError("invalid-reference", "promoteTree requires path, canonicalPath, and an explicit audience", 400);
       }
       return;
     case "placeTree":
@@ -288,13 +329,18 @@ function validateOperation(value: unknown): void {
         throw new ProtocolError("invalid-reference", "placeTree requires a TreeID and absolute path", 400);
       }
       return;
-    case "setTreePublication":
+    case "setTreeAccess":
       if (
         typeof value.tree !== "string"
         || !value.tree.startsWith("tr_")
-        || !["private", "public-read", "public-write"].includes(String(value.publication))
+        || !isRecord(value.subject)
+        || !["everyone", "profile", "link", "entry"].includes(String(value.subject.kind))
+        || (value.subject.kind === "profile" && typeof value.subject.locator !== "string")
+        || (value.subject.kind === "link" && typeof value.subject.secret !== "string")
+        || (value.subject.kind === "entry" && (typeof value.subject.id !== "string" || value.access !== "none"))
+        || !["none", "read", "write"].includes(String(value.access))
       ) {
-        throw new ProtocolError("invalid-reference", "setTreePublication requires a TreeID and publication mode", 400);
+        throw new ProtocolError("invalid-reference", "setTreeAccess requires a TreeID, subject, and access", 400);
       }
       return;
     default:

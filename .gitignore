@@ -4,5 +4,6 @@ packages/render/dist/
 playwright-report/
 test-results/
 .DS_Store
+.env
 native/Packages/*/.build/
 native/Packages/*/.swiftpm/

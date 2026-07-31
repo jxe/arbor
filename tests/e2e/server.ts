@@ -12,10 +12,12 @@ const root = join(tmpdir(), "arbor-e2e-workspace");
 const promotableRoot = join(tmpdir(), "arbor-e2e-promotable");
 const state = join(tmpdir(), "arbor-e2e-state");
 const hostState = join(tmpdir(), "arbor-e2e-host-state");
+const aliceProfile = join(tmpdir(), "arbor-e2e-alice-profile");
 await rm(root, { recursive: true, force: true });
 await rm(promotableRoot, { recursive: true, force: true });
 await rm(state, { recursive: true, force: true });
 await rm(hostState, { recursive: true, force: true });
+await rm(aliceProfile, { recursive: true, force: true });
 await mkdir(root, { recursive: true });
 await mkdir(promotableRoot, { recursive: true });
 await mkdir(state, { recursive: true });
@@ -32,7 +34,8 @@ await writeFile(join(promotableRoot, "seed.md"), "Ready to sync.\n");
 const port = Number(process.env.ARBOR_E2E_PORT ?? 4321);
 const host = await serveWireHost({
   dataRoot: hostState,
-  ownerToken: "e2e-owner-token",
+  accounts: [{ handle: "owner", token: "e2e-owner-token", communityWriter: true }],
+  community: { handle: "community", name: "Arbor Community", firstWriter: { handle: "alice" } },
   publicOrigin: `http://127.0.0.1:${port + 1}`,
   hostname: "127.0.0.1",
   port: port + 1,
@@ -41,9 +44,9 @@ const running = await serveArbor(root, { port });
 await running.service.executeMutation({
   mutationID: "e2e-configure-host",
   operations: [{
-    op: "configureServer",
+    op: "connectCommunity",
     origin: host.url,
-    ownerToken: "e2e-owner-token",
+    accountToken: "e2e-owner-token",
   }],
 });
 await running.service.executeMutation({
@@ -51,14 +54,15 @@ await running.service.executeMutation({
   operations: [{
     op: "promoteTree",
     path: root,
-    slug: "fixture",
+    canonicalPath: "/~owner/fixture",
+    audience: { kind: "private" },
   }],
 });
 console.log(running.url);
 
 async function shutdown() {
   running.server.stop(true);
-  await running.service.serverConfig.remove();
+  await running.service.communityConfig.remove();
   await running.service[Symbol.asyncDispose]();
   host.server.stop(true);
   await host.authority[Symbol.asyncDispose]();
@@ -66,6 +70,7 @@ async function shutdown() {
   await rm(promotableRoot, { recursive: true, force: true });
   await rm(state, { recursive: true, force: true });
   await rm(hostState, { recursive: true, force: true });
+  await rm(aliceProfile, { recursive: true, force: true });
   process.exit(0);
 }
 process.on("SIGINT", shutdown);

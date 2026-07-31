@@ -92,6 +92,7 @@ export async function snapshotDirectory(
 
   const walk = async (directory: string): Promise<ObjectHash> => {
     const entries: WireDirectoryEntry[] = [];
+    const seen = new Set<string>();
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
       if (cloudPlaceholderName(entry.name)) throw new UnavailableCloudContentError(join(directory, entry.name));
       if (entry.isSymbolicLink()) continue;
@@ -100,11 +101,43 @@ export async function snapshotDirectory(
       const boundary = boundaries.get(absolute);
       if (boundary) {
         entries.push({ name: entry.name, tree: boundary });
+        seen.add(entry.name);
       } else if (entry.isDirectory()) {
         entries.push({ name: entry.name, hash: await walk(absolute) });
+        seen.add(entry.name);
       } else if (entry.isFile()) {
         entries.push({ name: entry.name, hash: store({ type: "file", bytes: await readFile(absolute) }) });
+        seen.add(entry.name);
       }
+    }
+    const virtualChildren = new Map<string, string | null>();
+    for (const [boundaryPath, tree] of boundaries) {
+      const remainder = relative(directory, boundaryPath);
+      if (!remainder || remainder === ".." || remainder.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) continue;
+      const [name, ...rest] = remainder.split(/[\\/]/);
+      if (!name || seen.has(name)) continue;
+      virtualChildren.set(name, rest.length === 0 ? tree : null);
+    }
+    for (const [name, tree] of [...virtualChildren].sort(([a], [b]) => a.localeCompare(b))) {
+      entries.push(tree
+        ? { name, tree }
+        : { name, hash: await walkVirtual(join(directory, name)) });
+    }
+    return store({ type: "directory", entries: entries.sort((a, b) => a.name.localeCompare(b.name)) });
+  };
+
+  const walkVirtual = async (directory: string): Promise<ObjectHash> => {
+    const children = new Map<string, string | null>();
+    for (const [boundaryPath, tree] of boundaries) {
+      const remainder = relative(directory, boundaryPath);
+      if (!remainder || remainder === ".." || remainder.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) continue;
+      const [name, ...rest] = remainder.split(/[\\/]/);
+      if (name) children.set(name, rest.length === 0 ? tree : null);
+    }
+    if (!children.size) throw new Error(`Virtual canonical boundary has no target below ${directory}`);
+    const entries: WireDirectoryEntry[] = [];
+    for (const [name, tree] of [...children].sort(([a], [b]) => a.localeCompare(b))) {
+      entries.push(tree ? { name, tree } : { name, hash: await walkVirtual(join(directory, name)) });
     }
     return store({ type: "directory", entries });
   };

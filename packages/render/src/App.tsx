@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectedDocument, PublicationMode, SearchResult, TreeChild, TreeDescriptor } from "@arbor/core";
+import type { ProjectedDocument, PublicAccess, SearchResult, ShareAudience, TreeChild, TreeDescriptor } from "@arbor/core";
 import type { NodeRef, NodeSnapshot, ProjectedNodeUpdate, ProjectedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { projectSnapshot } from "@arbor/client";
@@ -125,11 +125,27 @@ function scopeChip(node: NodeSnapshot): { label: string; className: string } | n
   if (node.tree === "system") return { label: "system · read-only", className: "scope-chip system" };
   if (node.enclosingTree) {
     return {
-      label: node.enclosingTree.legacy ? `▣ ${node.enclosingTree.name} · needs URL` : `▣ ${node.enclosingTree.name} · ${node.enclosingTree.publication ?? "private"}`,
+      label: node.enclosingTree.legacy ? `▣ ${node.enclosingTree.name} · not shared` : `▣ ${node.enclosingTree.name} · ${node.enclosingTree.publicAccess === "none" ? "private" : `public ${node.enclosingTree.publicAccess ?? "read"}`}`,
       className: `scope-chip ${node.enclosingTree.legacy ? "session" : "tracked"}`,
     };
   }
   return null;
+}
+
+function reservedProfileTarget(input: string): { origin: string; handle: string } | null {
+  try {
+    const url = new URL(input.trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "arbor:") return null;
+    const path = `/${url.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
+    const match = /^\/~([a-z0-9][a-z0-9-]{0,62})$/.exec(path);
+    if (!match) return null;
+    const origin = url.protocol === "arbor:"
+      ? `${url.hostname === "localhost" || url.hostname === "127.0.0.1" ? "http" : "https"}://${url.host}`
+      : url.origin;
+    return { origin, handle: match[1]! };
+  } catch {
+    return null;
+  }
 }
 
 export function App() {
@@ -147,11 +163,27 @@ export function App() {
   const [trees, setTrees] = useState<TreeDescriptor[]>([]);
   const [home, setHome] = useState<string | null>(null);
   const [systemCursor, setSystemCursor] = useState<string | null>(null);
-  const [server, setServer] = useState<{ configured: boolean; origin?: string }>({ configured: false });
+  const [server, setServer] = useState<{
+    configured: boolean;
+    origin?: string;
+    handle?: string;
+    profileTree?: string;
+    profileURL?: string;
+    communityURL?: string;
+  }>({ configured: false });
   const [treeControl, setTreeControl] = useState<{ path: string; tree?: TreeDescriptor } | null>(null);
   const [treeSlug, setTreeSlug] = useState("");
   const [serverOrigin, setServerOrigin] = useState("");
-  const [ownerToken, setOwnerToken] = useState("");
+  const [accountToken, setAccountToken] = useState("");
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [claimURL, setClaimURL] = useState("");
+  const [claimPath, setClaimPath] = useState("");
+  const [groupHandle, setGroupHandle] = useState("");
+  const [groupPath, setGroupPath] = useState("");
+  const [profileLocator, setProfileLocator] = useState("");
+  const [linkURL, setLinkURL] = useState("");
+  const [linkSecret, setLinkSecret] = useState("");
+  const [shareAudience, setShareAudience] = useState<"" | "private" | "public-read" | "public-write" | "profile">("");
   const [treeBusy, setTreeBusy] = useState(false);
   const [crumbsExpanded, setCrumbsExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
@@ -164,14 +196,22 @@ export function App() {
     try {
       const [device, serverNode, treeDirectory] = await Promise.all([
         api.node({ tree: "system", path: "/device" }),
-        api.node({ tree: "system", path: "/server" }),
+        api.node({ tree: "system", path: "/community" }),
         api.node({ tree: "system", path: "/trees" }),
       ]);
       const deviceHome = device.document?.frontmatter.home;
       setHome(typeof deviceHome === "string" ? deviceHome : null);
-      const configured = serverNode.document?.frontmatter.configured === true;
-      const origin = serverNode.document?.frontmatter.origin;
-      setServer({ configured, ...(typeof origin === "string" ? { origin } : {}) });
+      const community = serverNode.document?.frontmatter ?? {};
+      const configured = community.connected === true;
+      const origin = community.origin;
+      setServer({
+        configured,
+        ...(typeof origin === "string" ? { origin } : {}),
+        ...(typeof community.handle === "string" ? { handle: community.handle } : {}),
+        ...(typeof community.profileTree === "string" ? { profileTree: community.profileTree } : {}),
+        ...(typeof community.profileURL === "string" ? { profileURL: community.profileURL } : {}),
+        ...(typeof community.communityURL === "string" ? { communityURL: community.communityURL } : {}),
+      });
       if (typeof origin === "string") setServerOrigin(origin);
       const records = await Promise.all((treeDirectory.children ?? []).map((child) =>
         api.node({ tree: "system", path: child.path })
@@ -187,8 +227,14 @@ export function App() {
           ...(typeof values.canonical === "string" ? { canonical: values.canonical } : {}),
           ...(typeof values.http === "string" ? { httpURL: values.http } : {}),
           ...(typeof values.endpoint === "string" ? { endpoint: values.endpoint } : {}),
-          ...(typeof values.publication === "string" ? { publication: values.publication as PublicationMode } : {}),
+          ...(typeof values.canonicalPath === "string" ? { canonicalPath: values.canonicalPath } : {}),
+          ...(values.publicAccess === "none" || values.publicAccess === "read" || values.publicAccess === "write"
+            ? { publicAccess: values.publicAccess as PublicAccess }
+            : {}),
           ...(values.access === "read" || values.access === "write" ? { access: values.access } : {}),
+          ...(Array.isArray(values.accessEntries)
+            ? { accessEntries: values.accessEntries as TreeDescriptor["accessEntries"] }
+            : {}),
           ...(typeof values.sync === "string" ? { sync: values.sync as TreeDescriptor["sync"] } : {}),
           ...(values.legacy === true ? { legacy: true } : {}),
         }];
@@ -481,21 +527,35 @@ export function App() {
     }
   }, [navigate, path, refreshSidebar, sidebar, sidebarApi, sidebarMenu]);
 
-  const openTreeControl = useCallback((osPath: string, tree?: TreeDescriptor) => {
-    setTreeSlug("");
-    setOwnerToken("");
-    setTreeControl({ path: osPath, tree });
-  }, []);
+  const openTreeControl = useCallback((osPath: string, tree?: TreeDescriptor, proposedCanonicalPath?: string) => {
+    const current = tree ? trees.find((candidate) => candidate.id === tree.id) : undefined;
+    const controlledTree = tree && current ? { ...tree, ...current } : tree;
+    const profilePath = server.profileURL ? new URL(server.profileURL).pathname.replace(/\/$/, "") : "";
+    const suggested = osPath.split("/").filter(Boolean).at(-1)?.toLowerCase().replace(/[^a-z0-9-]+/g, "-") ?? "shared";
+    setTreeSlug(controlledTree?.canonicalPath ?? proposedCanonicalPath ?? (profilePath ? `${profilePath}/${suggested}` : ""));
+    setShareAudience("");
+    setProfileLocator("");
+    setLinkURL("");
+    setLinkSecret("");
+    setTreeControl({ path: osPath, tree: controlledTree });
+  }, [server.profileURL, trees]);
 
   const promoteTree = useCallback(async () => {
-    if (!treeControl || !treeSlug.trim()) return;
+    if (!treeControl || !treeSlug.trim() || !shareAudience) return;
     try {
       setTreeBusy(true);
       setError(null);
-      if (!server.configured) {
-        await api.system({ op: "configureServer", origin: serverOrigin.trim(), ownerToken });
-      }
-      await api.system({ op: "promoteTree", path: treeControl.path, slug: treeSlug.trim() });
+      const selected: ShareAudience = shareAudience === "private"
+        ? { kind: "private" }
+        : shareAudience === "profile"
+          ? { kind: "profile", locator: profileLocator.trim(), access: "read" }
+          : { kind: "everyone", access: shareAudience === "public-write" ? "write" : "read" };
+      await api.system({
+        op: "promoteTree",
+        path: treeControl.path,
+        canonicalPath: treeSlug.trim().startsWith("/") ? treeSlug.trim() : `/${treeSlug.trim()}`,
+        audience: selected,
+      });
       setTreeControl(null);
       await refreshSystem();
       if (path) await load(path);
@@ -504,17 +564,17 @@ export function App() {
     } finally {
       setTreeBusy(false);
     }
-  }, [load, ownerToken, path, refreshSystem, server.configured, serverOrigin, treeControl, treeSlug]);
+  }, [load, path, profileLocator, refreshSystem, shareAudience, treeControl, treeSlug]);
 
-  const setPublication = useCallback(async (tree: TreeDescriptor, publication: PublicationMode) => {
-    if (publication === "public-write" && !confirm("Anyone can create, edit, move, and trash content in this tree. Publish read/write?")) return;
+  const setPublicAccess = useCallback(async (tree: TreeDescriptor, access: PublicAccess) => {
+    if (access === "write" && !confirm("Anyone can create, edit, move, and trash content in this tree. Allow public write access?")) return;
     try {
       setTreeBusy(true);
       setError(null);
-      await api.system({ op: "setTreePublication", tree: tree.id, publication });
+      await api.system({ op: "setTreeAccess", tree: tree.id, subject: { kind: "everyone" }, access });
       await refreshSystem();
       setTreeControl((current) => current?.tree?.id === tree.id
-        ? { ...current, tree: { ...tree, publication } }
+        ? { ...current, tree: { ...tree, publicAccess: access } }
         : current);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
@@ -522,6 +582,162 @@ export function App() {
       setTreeBusy(false);
     }
   }, [refreshSystem]);
+
+  const setProfileAccess = useCallback(async (tree: TreeDescriptor, access: "none" | "read") => {
+    if (!profileLocator.trim()) return;
+    try {
+      setTreeBusy(true);
+      setError(null);
+      await api.system({
+        op: "setTreeAccess",
+        tree: tree.id,
+        subject: { kind: "profile", locator: profileLocator.trim() },
+        access,
+      });
+      setProfileLocator("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTreeBusy(false);
+    }
+  }, [profileLocator]);
+
+  const createReadLink = useCallback(async (tree: TreeDescriptor) => {
+    if (!tree.httpURL) return;
+    const secret = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
+    try {
+      setTreeBusy(true);
+      setError(null);
+      await api.system({
+        op: "setTreeAccess",
+        tree: tree.id,
+        subject: { kind: "link", secret },
+        access: "read",
+      });
+      const url = new URL(tree.httpURL);
+      url.hash = `arbor-access=${encodeURIComponent(secret)}`;
+      setLinkURL(url.toString());
+      setLinkSecret(secret);
+      await navigator.clipboard.writeText(url.toString()).catch(() => {});
+      await refreshSystem();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTreeBusy(false);
+    }
+  }, [refreshSystem]);
+
+  const revokeReadLink = useCallback(async (tree: TreeDescriptor) => {
+    if (!linkSecret) return;
+    try {
+      setTreeBusy(true);
+      await api.system({
+        op: "setTreeAccess",
+        tree: tree.id,
+        subject: { kind: "link", secret: linkSecret },
+        access: "none",
+      });
+      setLinkURL("");
+      setLinkSecret("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTreeBusy(false);
+    }
+  }, [linkSecret]);
+
+  const revokeAccessEntry = useCallback(async (tree: TreeDescriptor, id: string) => {
+    try {
+      setTreeBusy(true);
+      setError(null);
+      await api.system({
+        op: "setTreeAccess",
+        tree: tree.id,
+        subject: { kind: "entry", id },
+        access: "none",
+      });
+      setTreeControl((current) => current?.tree?.id === tree.id
+        ? {
+            ...current,
+            tree: {
+              ...current.tree,
+              accessEntries: current.tree.accessEntries?.filter((entry) => entry.id !== id),
+            },
+          }
+        : current);
+      await refreshSystem();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTreeBusy(false);
+    }
+  }, [refreshSystem]);
+
+  const connectCommunity = useCallback(async () => {
+    if (!serverOrigin.trim() || !accountToken) return;
+    try {
+      setTreeBusy(true);
+      setError(null);
+      await api.system({ op: "connectCommunity", origin: serverOrigin.trim(), accountToken });
+      setAccountToken("");
+      await refreshSystem();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTreeBusy(false);
+    }
+  }, [accountToken, refreshSystem, serverOrigin]);
+
+  const claimProfile = useCallback(async () => {
+    const target = reservedProfileTarget(claimURL);
+    if (!target || !claimPath.trim()) return;
+    try {
+      setTreeBusy(true);
+      setError(null);
+      await api.system({
+        op: "claimProfile",
+        origin: target.origin,
+        handle: target.handle,
+        path: claimPath.trim(),
+      });
+      await refreshSystem();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTreeBusy(false);
+    }
+  }, [claimPath, claimURL, refreshSystem]);
+
+  const disconnectCommunity = useCallback(async () => {
+    if (!confirm("Disconnect this Arbor account on this device? Local files remain in place.")) return;
+    try {
+      await api.system({ op: "disconnectCommunity" });
+      setProfileOpen(false);
+      await refreshSystem();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
+  }, [refreshSystem]);
+
+  const createGroup = useCallback(async () => {
+    if (!groupHandle.trim() || !groupPath.trim()) return;
+    try {
+      setTreeBusy(true);
+      setError(null);
+      await api.system({
+        op: "createGroupProfile",
+        handle: groupHandle.trim(),
+        path: groupPath.trim(),
+      });
+      setGroupHandle("");
+      setGroupPath("");
+      await refreshSystem();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTreeBusy(false);
+    }
+  }, [groupHandle, groupPath, refreshSystem]);
 
   const placeRemoteTree = useCallback(async (tree: TreeDescriptor) => {
     const destination = prompt(`Where should ${tree.name} live on this machine?`, home ? `${home}/${tree.name}` : "");
@@ -549,6 +765,9 @@ export function App() {
     node.tree === "local" || node.enclosingTree?.legacy || (node.enclosingTree && node.path !== "/")
   ));
   const currentTree = node?.enclosingTree && !node.enclosingTree.legacy && node.path === "/" ? node.enclosingTree : null;
+  const nestedCanonicalPath = node?.enclosingTree?.canonicalPath && node.path !== "/"
+    ? `${node.enclosingTree.canonicalPath.replace(/\/$/, "")}${node.path}`
+    : undefined;
   const lastLocation = (() => {
     try { return localStorage.getItem(LAST_LOCATION_KEY); } catch { return null; }
   })();
@@ -609,22 +828,40 @@ export function App() {
           </div>
         </div>
         <div className="header-trailing">
-          {currentTree?.osPath && <button className="track-button" onClick={() => openTreeControl(currentTree.osPath!, currentTree)}>Canonical tree</button>}
+          {currentTree?.osPath && <button
+            className="track-button"
+            disabled={!server.configured || !server.profileTree}
+            title={!server.profileTree ? "Connect and initialize your profile before sharing" : "Manage sharing"}
+            onClick={() => openTreeControl(currentTree.osPath!, currentTree)}
+          >Share</button>}
           {canPromoteHere && node && <button
             className="track-button"
-            title="Give this subtree durable identity, private sync, and a canonical address"
-            onClick={() => openTreeControl(nodeUrl(node), node.enclosingTree?.legacy ? node.enclosingTree : undefined)}
-          >Give this subtree a URL</button>}
+            disabled={!server.configured || !server.profileTree}
+            title={!server.configured || !server.profileTree
+              ? "Connect and initialize your profile before sharing"
+              : "Share this subtree at a stable community address"}
+            onClick={() => openTreeControl(
+              nodeUrl(node),
+              node.enclosingTree?.legacy ? node.enclosingTree : undefined,
+              nestedCanonicalPath,
+            )}
+          >Share</button>}
           {chip && <span className={chip.className}>{chip.label}</span>}
           {node && <span className="kind">
             {node.document && (node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") ? "ArborNote · " : ""}
             {node.kind}{node.collection ? ` · ${node.collection.backing}` : ""}
           </span>}
+          <button
+            className="profile-button"
+            aria-label="Community and profile"
+            title={server.handle ? `Profile: ~${server.handle}` : "Connect or claim a profile"}
+            onClick={() => setProfileOpen(true)}
+          >{server.handle ? `~${server.handle}` : "◉"}</button>
         </div>
       </header>
       {!path ? <div className="home-surface">
         <h1>Arbor</h1>
-        <p className="home-hint">Browse ordinary files anywhere. Give a subtree a URL when you want durable identity, private sync, and publication.</p>
+        <p className="home-hint">Browse ordinary files anywhere. Connect your profile, then share a subtree at a stable community address.</p>
         <div className="home-roots">
           {trees.map((tree) => <div className="home-root" key={tree.id}>
             <button className="home-root-open" disabled={!tree.osPath || tree.missing} onClick={() => tree.osPath && navigate(tree.osPath)}>
@@ -634,12 +871,12 @@ export function App() {
                 : tree.canonical ?? tree.id}</small>
             </button>
             <span className={`scope-chip ${tree.legacy ? "session" : "tracked"}`}>
-              {tree.missing ? "missing" : tree.legacy ? "needs URL" : tree.osPath ? tree.publication ?? "private" : "remote"}
+              {tree.missing ? "missing" : tree.legacy ? "not shared" : tree.osPath ? tree.publicAccess === "none" ? "private" : `public ${tree.publicAccess ?? "read"}` : "remote"}
             </span>
             <button className="quiet" onClick={() => navigate(`/system:trees/${tree.id}`)}>record</button>
-            {tree.legacy && tree.osPath && <button className="quiet" onClick={() => openTreeControl(tree.osPath!, tree)}>Give URL</button>}
+            {tree.legacy && tree.osPath && <button className="quiet" disabled={!server.profileTree} onClick={() => openTreeControl(tree.osPath!, tree)}>Share</button>}
             {!tree.legacy && !tree.osPath && <button className="quiet" onClick={() => void placeRemoteTree(tree)}>Sync here…</button>}
-            {!tree.legacy && tree.osPath && <button className="quiet" onClick={() => openTreeControl(tree.osPath!, tree)}>manage</button>}
+            {!tree.legacy && tree.osPath && <button className="quiet" onClick={() => openTreeControl(tree.osPath!, tree)}>Share</button>}
           </div>)}
         </div>
         {home && <button className="quiet home-browse" onClick={() => navigate(home)}>Browse home directory (~)</button>}
@@ -708,17 +945,65 @@ export function App() {
       {queryIsPath && queryAsUrl && <button onClick={() => { navigate(queryAsUrl); setSearchOpen(false); setQuery(""); }}><strong>Go to</strong><small>{query}</small></button>}
       {searchDisabled && !queryIsPath && <div className="search-untracked">
         Search begins when this subtree has durable identity.
-        {canPromoteHere && node && <button className="quiet" onClick={() => { setSearchOpen(false); openTreeControl(nodeUrl(node), node.enclosingTree?.legacy ? node.enclosingTree : undefined); }}>Give this subtree a URL</button>}
+        {canPromoteHere && node && <button className="quiet" disabled={!server.profileTree} onClick={() => { setSearchOpen(false); openTreeControl(nodeUrl(node), node.enclosingTree?.legacy ? node.enclosingTree : undefined, nestedCanonicalPath); }}>Share this subtree</button>}
         <button className="quiet" onClick={() => setSearchScope("all")}>Search all trees</button>
       </div>}
       {results.map((result) => <button key={result.url} onClick={() => { navigate(result.url); setSearchOpen(false); }}><strong>{result.title}</strong><small>{home && result.url.startsWith(home) ? `~${result.url.slice(home.length)}` : result.url}</small><span dangerouslySetInnerHTML={{ __html: result.excerpt }} /></button>)}
     </div></div>}
+    {profileOpen && <div className="modal-backdrop" onMouseDown={() => !treeBusy && setProfileOpen(false)}><section className="tree-control-modal" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="tree-control-heading">
+        <div>
+          <span className="eyebrow">Community account</span>
+          <h2>{server.handle ? `~${server.handle}` : "Connect or claim"}</h2>
+        </div>
+        <button className="modal-close" aria-label="Close" onClick={() => setProfileOpen(false)}>×</button>
+      </div>
+      {server.configured ? <>
+        <div className="canonical-addresses">
+          {server.communityURL && <div><span>Community</span><a href={server.communityURL.replace(/^arbor:/, location.protocol)} target="_blank" rel="noreferrer">{server.communityURL}</a></div>}
+          {server.profileURL && <div><span>Profile</span><code>{server.profileURL}</code><button onClick={() => void navigator.clipboard.writeText(server.profileURL!)}>Copy</button></div>}
+        </div>
+        <p className="tree-control-intro">Your public profile is a complete tree. Profile and group namespaces you can write appear on Arbor’s home screen.</p>
+        {trees.filter((tree) => tree.access === "write" && tree.canonicalPath?.startsWith("/~")).map((tree) =>
+          <button className="profile-namespace" key={tree.id} onClick={() => {
+            if (tree.osPath) navigate(tree.osPath);
+            else void placeRemoteTree(tree);
+            setProfileOpen(false);
+          }}>
+            <strong>{tree.canonicalPath}</strong>
+            <small>{tree.osPath ?? "Choose a local folder…"}</small>
+          </button>
+        )}
+        <div className="modal-separator"><span>Create a group profile</span></div>
+        <label className="control-field"><span>Group handle</span><div className="handle-field"><span>~</span><input placeholder="editors" pattern="[a-z0-9][a-z0-9-]*" value={groupHandle} onChange={(event) => setGroupHandle(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} /></div></label>
+        <label className="control-field"><span>Visible local group folder</span><input placeholder="/Users/alice/Arbor/editors" value={groupPath} onChange={(event) => setGroupPath(event.target.value)} /></label>
+        <button className="quiet create-group-button" disabled={treeBusy || !groupHandle || !groupPath} onClick={() => void createGroup()}>Create group</button>
+        <div className="modal-actions">
+          <button className="quiet danger" onClick={() => void disconnectCommunity()}>Disconnect</button>
+          {server.profileURL && <a className="primary link-button" href={server.profileURL.replace(/^arbor:/, location.protocol)} target="_blank" rel="noreferrer">View public profile</a>}
+        </div>
+      </> : <>
+        <p className="tree-control-intro">Paste the complete profile address reserved for you by a community. Claiming creates your public profile from a visible local folder and activates this device.</p>
+        <label className="control-field"><span>Reserved profile URL</span><input autoFocus type="url" placeholder="https://garden.example/~alice" value={claimURL} onChange={(event) => setClaimURL(event.target.value)} /></label>
+        <label className="control-field"><span>Visible local profile folder</span><input placeholder="/Users/alice/Arbor/alice" value={claimPath} onChange={(event) => setClaimPath(event.target.value)} /></label>
+        {claimURL && !reservedProfileTarget(claimURL) && <small className="control-error">Use a complete person profile URL such as https://garden.example/~alice.</small>}
+        <div className="modal-actions">
+          <button className="primary" disabled={treeBusy || !reservedProfileTarget(claimURL) || !claimPath} onClick={() => void claimProfile()}>{treeBusy ? "Claiming…" : "Claim profile"}</button>
+        </div>
+        <div className="modal-separator"><span>Activate an existing device credential</span></div>
+        <label className="control-field"><span>Community</span><input type="url" placeholder="https://garden.example" value={serverOrigin} onChange={(event) => setServerOrigin(event.target.value)} /></label>
+        <label className="control-field"><span>Account/device credential</span><input type="password" autoComplete="off" value={accountToken} onChange={(event) => setAccountToken(event.target.value)} /><small>Stored in the operating-system credential store, outside Arbor content and journals.</small></label>
+        <div className="modal-actions compact-actions">
+          <button className="quiet" disabled={treeBusy || !serverOrigin || !accountToken} onClick={() => void connectCommunity()}>{treeBusy ? "Activating…" : "Activate"}</button>
+        </div>
+      </>}
+    </section></div>}
     {treeControl && <div className="modal-backdrop" onMouseDown={() => !treeBusy && setTreeControl(null)}><section className="tree-control-modal" onMouseDown={(event) => event.stopPropagation()}>
       {treeControl.tree && !treeControl.tree.legacy ? <>
         <div className="tree-control-heading">
           <div>
-            <span className="eyebrow">Canonical tree</span>
-            <h2>{treeControl.tree.name}</h2>
+            <span className="eyebrow">Share</span>
+            <h2>{treeControl.tree.canonicalPath ?? treeControl.tree.name}</h2>
           </div>
           <button className="modal-close" aria-label="Close" onClick={() => setTreeControl(null)}>×</button>
         </div>
@@ -732,48 +1017,65 @@ export function App() {
           <span className={`sync-dot ${treeControl.tree.sync ?? "idle"}`} />
           <span>{treeControl.tree.sync === "pushing" || treeControl.tree.sync === "pulling" ? "Syncing…" : treeControl.tree.sync === "error" || treeControl.tree.sync === "conflict" ? "Needs attention" : treeControl.tree.sync === "offline" ? "Offline" : "Up to date"}</span>
         </div>
-        <fieldset className="publication-control" disabled={treeBusy}>
-          <legend>Public access</legend>
+        <fieldset className="access-control" disabled={treeBusy}>
+          <legend>Everyone</legend>
           {([
-            ["private", "Private", "Only your Arbor devices"],
-            ["public-read", "Public read", "Anyone with the URL can read"],
-            ["public-write", "Public read/write", "Anyone can change current content"],
+            ["none", "Private", "No public access"],
+            ["read", "Public read", "Anyone can read"],
+            ["write", "Public read/write", "Anyone can change current content"],
           ] as const).map(([mode, label, detail]) => <label key={mode}>
-            <input type="radio" name="publication" checked={(treeControl.tree!.publication ?? "private") === mode} onChange={() => void setPublication(treeControl.tree!, mode)} />
+            <input type="radio" name="public-access" checked={(treeControl.tree!.publicAccess ?? "none") === mode} onChange={() => void setPublicAccess(treeControl.tree!, mode)} />
             <span><strong>{label}</strong><small>{detail}</small></span>
           </label>)}
         </fieldset>
-        <section className="sharing-placeholder" aria-disabled="true">
-          <div><h3>Sharing</h3><span>Coming next</span></div>
-          <p>Sharing with people is not available yet.</p>
-          <div className="sharing-preview">
-            <input disabled placeholder="Name or email address" />
-            <button disabled>Share</button>
+        <section className="sharing-section">
+          <div><h3>People and groups</h3></div>
+          <p>Grant read access to an existing person or group profile.</p>
+          <div className="access-entry-list">
+            {treeControl.tree.accessEntries?.filter((entry) => entry.kind !== "everyone").map((entry) => <div key={entry.id}>
+              <span><strong>{entry.kind === "link" ? "Secret link" : entry.locator ?? "Unavailable profile"}</strong><small>{entry.access}</small></span>
+              <button disabled={treeBusy} onClick={() => void revokeAccessEntry(treeControl.tree!, entry.id)}>Revoke</button>
+            </div>)}
           </div>
-          <button className="sharing-link-preview" disabled>Copy read access link</button>
+          <div className="sharing-preview">
+            <input placeholder="arbor://garden.example/~alice" value={profileLocator} onChange={(event) => setProfileLocator(event.target.value)} />
+            <button disabled={treeBusy || !profileLocator} onClick={() => void setProfileAccess(treeControl.tree!, "read")}>Add</button>
+            <button disabled={treeBusy || !profileLocator} onClick={() => void setProfileAccess(treeControl.tree!, "none")}>Revoke</button>
+          </div>
+          <button className="sharing-link-button" disabled={treeBusy || !treeControl.tree.httpURL} onClick={() => void createReadLink(treeControl.tree!)}>Create and copy read link</button>
+          {linkURL && <div className="url-preview"><span>{linkURL}</span><small>This secret is shown once.</small><button className="quiet" onClick={() => void revokeReadLink(treeControl.tree!)}>Revoke this link</button></div>}
         </section>
       </> : <>
         <div className="tree-control-heading">
           <div>
-            <span className="eyebrow">{treeControl.tree?.legacy ? "Needs a URL" : "Canonical tree"}</span>
-            <h2>Give this subtree a URL</h2>
+            <span className="eyebrow">Share</span>
+            <h2>Share this subtree</h2>
           </div>
           <button className="modal-close" aria-label="Close" onClick={() => setTreeControl(null)}>×</button>
         </div>
-        <p className="tree-control-intro">This creates durable identity and begins private sync. You can publish it after the initial upload completes.</p>
+        <p className="tree-control-intro">This promotes the visible subtree in place into its own identity, sync, history, and permission boundary. Its files stay where they are.</p>
         <label className="control-field"><span>Local subtree</span><input readOnly value={treeControl.path} /></label>
-        {!server.configured && <>
-          <label className="control-field"><span>Personal server</span><input autoFocus type="url" placeholder="https://arbor.example.com" value={serverOrigin} onChange={(event) => setServerOrigin(event.target.value)} /></label>
-          <label className="control-field"><span>Owner token</span><input type="password" autoComplete="new-password" value={ownerToken} onChange={(event) => setOwnerToken(event.target.value)} /><small>Stored in the operating system credential store, never Arbor’s journal.</small></label>
-        </>}
-        <label className="control-field"><span>URL name</span><input autoFocus={server.configured} placeholder="notes" pattern="[a-z0-9][a-z0-9-]*" value={treeSlug} onChange={(event) => setTreeSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} /></label>
-        {(server.origin ?? serverOrigin) && treeSlug && <div className="url-preview">
-          <span>{(server.origin ?? serverOrigin).replace(/\/$/, "")}/{treeSlug}</span>
-          <span>arbor://{(server.origin ?? serverOrigin).replace(/^https?:\/\//, "").split("/")[0]}/{treeSlug}</span>
+        <label className="control-field"><span>Canonical path</span><input autoFocus placeholder="/~alice/notes" pattern="/[~a-z0-9][a-z0-9~/-]*" value={treeSlug} onChange={(event) => setTreeSlug(`/${event.target.value.replace(/^\/+/, "").toLowerCase().replace(/[^a-z0-9~/-]/g, "")}`)} /><small>Choose an available child path beneath a profile or group you can write.</small></label>
+        {server.origin && treeSlug && <div className="url-preview">
+          <span>{server.origin.replace(/\/$/, "")}{treeSlug}</span>
+          <span>arbor://{server.origin.replace(/^https?:\/\//, "").split("/")[0]}{treeSlug}</span>
         </div>}
+        <fieldset className="access-control" disabled={treeBusy}>
+          <legend>Audience <small>(required)</small></legend>
+          {([
+            ["private", "Private", "Only profile writers"],
+            ["public-read", "Public read", "Anyone can read"],
+            ["public-write", "Public read/write", "Anyone can change current content"],
+            ["profile", "A person or group", "Grant one profile read access"],
+          ] as const).map(([mode, label, detail]) => <label key={mode}>
+            <input type="radio" name="new-share-audience" checked={shareAudience === mode} onChange={() => setShareAudience(mode)} />
+            <span><strong>{label}</strong><small>{detail}</small></span>
+          </label>)}
+        </fieldset>
+        {shareAudience === "profile" && <label className="control-field"><span>Profile URL</span><input placeholder="arbor://garden.example/~alice" value={profileLocator} onChange={(event) => setProfileLocator(event.target.value)} /></label>}
         <div className="modal-actions">
           <button className="quiet" disabled={treeBusy} onClick={() => setTreeControl(null)}>Cancel</button>
-          <button className="primary" disabled={treeBusy || !treeSlug || (!server.configured && (!serverOrigin || !ownerToken))} onClick={() => void promoteTree()}>{treeBusy ? "Creating…" : "Create URL and sync"}</button>
+          <button className="primary" disabled={treeBusy || !treeSlug || !shareAudience || (shareAudience === "profile" && !profileLocator)} onClick={() => void promoteTree()}>{treeBusy ? "Sharing…" : "Share"}</button>
         </div>
       </>}
     </section></div>}

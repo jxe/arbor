@@ -1,13 +1,43 @@
-import type { PublicationMode, PushRequest } from "./authority.ts";
+import type {
+  BoundaryKind,
+  PublicAccess,
+  PushRequest,
+  TreeAccess,
+} from "./authority.ts";
 import type { ObjectHash, TreeSnapshot } from "./objects.ts";
 
 export interface RemoteTreeDescriptor {
   id: string;
-  slug: string;
+  canonicalPath: string;
+  parentTree: string | null;
+  kind: BoundaryKind;
   ref: ObjectHash;
-  publication: PublicationMode;
+  publicAccess: PublicAccess;
+  access: TreeAccess;
   httpURL: string;
   arborURL: string;
+}
+
+export interface RemoteAccountDescriptor {
+  id: string;
+  handle: string;
+  profileTree: string | null;
+  profileURL: string | null;
+  community: RemoteTreeDescriptor;
+  writableProfiles: RemoteTreeDescriptor[];
+}
+
+export interface ClaimResult {
+  accountToken: string;
+  account: RemoteAccountDescriptor;
+  tree: RemoteTreeDescriptor;
+}
+
+export interface RemoteAccessEntry {
+  id: string;
+  kind: "everyone" | "profile" | "link";
+  access: TreeAccess;
+  locator?: string;
 }
 
 function bytesBase64(bytes: Uint8Array): string {
@@ -18,13 +48,20 @@ function base64Bytes(value: string): Uint8Array {
   return new Uint8Array(Buffer.from(value, "base64"));
 }
 
+function encodedSnapshot(snapshot: TreeSnapshot) {
+  return {
+    root: snapshot.root,
+    objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes: bytesBase64(bytes) })),
+  };
+}
+
 export class WireClient {
-  constructor(readonly origin: string, private ownerToken?: string) {}
+  constructor(readonly origin: string, private accountToken?: string) {}
 
   private headers(json = false): HeadersInit {
     return {
       ...(json ? { "content-type": "application/json" } : {}),
-      ...(this.ownerToken ? { authorization: `Bearer ${this.ownerToken}` } : {}),
+      ...(this.accountToken ? { authorization: `Bearer ${this.accountToken}` } : {}),
     };
   }
 
@@ -34,21 +71,40 @@ export class WireClient {
     throw new Error(`${response.url}: ${body || `${response.status} ${response.statusText}`}`);
   }
 
-  async create(slug: string, snapshot: TreeSnapshot): Promise<RemoteTreeDescriptor> {
-    const response = await this.checked(await fetch(`${this.origin}/.arbor/admin/trees`, {
+  async account(): Promise<RemoteAccountDescriptor> {
+    const response = await this.checked(await fetch(`${this.origin}/.arbor/account`, { headers: this.headers() }));
+    return response.json();
+  }
+
+  async create(
+    canonicalPath: string,
+    snapshot: TreeSnapshot,
+    options: { kind?: Exclude<BoundaryKind, "community-profile" | "person-profile">; publicAccess?: PublicAccess } = {},
+  ): Promise<RemoteTreeDescriptor> {
+    const response = await this.checked(await fetch(`${this.origin}/.arbor/trees`, {
       method: "POST",
       headers: this.headers(true),
       body: JSON.stringify({
-        slug,
-        root: snapshot.root,
-        objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes: bytesBase64(bytes) })),
+        canonicalPath,
+        kind: options.kind ?? "shared-subtree",
+        publicAccess: options.publicAccess ?? "none",
+        ...encodedSnapshot(snapshot),
       }),
     }));
     return response.json();
   }
 
+  async claim(handle: string, snapshot: TreeSnapshot): Promise<ClaimResult> {
+    const response = await this.checked(await fetch(`${this.origin}/.arbor/claims/${encodeURIComponent(handle)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(encodedSnapshot(snapshot)),
+    }));
+    return response.json();
+  }
+
   async list(): Promise<RemoteTreeDescriptor[]> {
-    const response = await this.checked(await fetch(`${this.origin}/.arbor/admin/trees`, { headers: this.headers() }));
+    const response = await this.checked(await fetch(`${this.origin}/.arbor/trees`, { headers: this.headers() }));
     return response.json();
   }
 
@@ -59,8 +115,9 @@ export class WireClient {
     return response.json();
   }
 
-  async resolve(slug: string): Promise<RemoteTreeDescriptor> {
-    const response = await this.checked(await fetch(`${this.origin}/.well-known/arbor/${encodeURIComponent(slug)}`, {
+  async resolve(path: string): Promise<RemoteTreeDescriptor & { path: string }> {
+    const canonical = path === "/" ? "" : `/${path.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
+    const response = await this.checked(await fetch(`${this.origin}/.well-known/arbor${canonical}`, {
       headers: this.headers(),
     }));
     return response.json();
@@ -84,16 +141,43 @@ export class WireClient {
     return response.json();
   }
 
-  async setPublication(tree: string, publication: PublicationMode): Promise<RemoteTreeDescriptor> {
-    const response = await this.checked(await fetch(`${this.origin}/.arbor/admin/trees/${encodeURIComponent(tree)}`, {
-      method: "PATCH",
-      headers: this.headers(true),
-      body: JSON.stringify({ publication }),
-    }));
+  async access(tree: string): Promise<RemoteAccessEntry[]> {
+    const response = await this.checked(await fetch(
+      `${this.origin}/.arbor/trees/${encodeURIComponent(tree)}/access`,
+      { headers: this.headers() },
+    ));
     return response.json();
   }
 
-  async object(hash: ObjectHash): Promise<Uint8Array> {
+  async revokeAccess(tree: string, id: string): Promise<RemoteTreeDescriptor> {
+    return this.setAccess(tree, { kind: "entry", id }, "none");
+  }
+
+  async setAccess(
+    tree: string,
+    subject:
+      | { kind: "everyone" }
+      | { kind: "profile"; locator: string }
+      | { kind: "link"; digest: string }
+      | { kind: "entry"; id: string },
+    access: TreeAccess | "none",
+  ): Promise<RemoteTreeDescriptor> {
+    const response = await this.checked(await fetch(
+      `${this.origin}/.arbor/trees/${encodeURIComponent(tree)}/access`,
+      {
+        method: "POST",
+        headers: this.headers(true),
+        body: JSON.stringify({ subject, access }),
+      },
+    ));
+    return response.json();
+  }
+
+  async setPublicAccess(tree: string, access: PublicAccess): Promise<RemoteTreeDescriptor> {
+    return this.setAccess(tree, { kind: "everyone" }, access);
+  }
+
+  async object(hash: string): Promise<Uint8Array> {
     const response = await this.checked(await fetch(`${this.origin}/.arbor/objects/${hash}`, {
       headers: this.headers(),
     }));

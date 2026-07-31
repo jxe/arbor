@@ -36,17 +36,26 @@ Imagine there was a thing with this kind of structure on your disk:
 
 Everything is ordinary files. A Markdown document is YAML frontmatter for properties and durable identity plus a Markdown body. A directory is itself a document even when it has no `_index.md`: TreeHopper combines its optional stored body with all of its immediate children, so `atlas` opens as a complete page containing `notes`, `app.sqlite3`, and `atlas.tsx`. Browsing creates nothing. If you add prose, arrange those children under headings, or first need a durable document ID, arbord materializes the minimal `_index.md`. That means any document can gain children without changing its browser name, relative links, identity, or history. And imagine a background process — call it arbord — that watches this tree and does three jobs.
 
-**It handles naming, syncing, publication, and sharing as one progression.** Take `projects/atlas`, an ordinary folder. It starts as exactly that: locally browsable files with no invented permanent Arbor identity. When I choose **Give this subtree a URL**, arbord gives it a stable `TreeID`, reserves a name on my personal hosted endpoint, uploads its first revision, and begins private synchronization with my other machines. The folder doesn't move; it is still at `projects/atlas`, but it now has an identity and a canonical home:
+**It handles naming, syncing, publication, and sharing as one progression.** Take `projects/atlas`, an ordinary folder. It starts as exactly that: locally browsable files with no invented permanent Arbor identity. I claim my community profile and choose **Share**. Arbord gives Atlas a stable `TreeID`, mounts it beneath a profile I can write, uploads its first revision, and begins synchronization. The folder doesn't move; it is still at `projects/atlas`, but it now has an identity and a canonical home:
 
 ```text
-https://notes.example.org/atlas
-arbor://notes.example.org/atlas
+https://garden.example.org/~joe/atlas
+arbor://garden.example.org/~joe/atlas
 arbor://tree/tr_7k3m…          # identity fallback if it moves
 ```
 
-People themselves are named through the same material. Alice has a small public personal tree at `arbor://alice.example.org/`. Its root is an ordinary Markdown profile: its first heading is her display name and the body is her description, while the tree's stable identity and her device credentials prove that it is hers. It is deliberately separate from her private workspace. A group can likewise be one Markdown document—perhaps the root of a dedicated group tree—with member locators in frontmatter, its name as the first heading, and its purpose in the body.
+The host is not assumed to belong to one person. It represents a community at `/`, with complete person and group profile trees mounted beneath `~`:
 
-I can stop with Atlas private and use it only for myself. I can give `everyone` read or write access, add Alice's personal-tree locator with read or write access, give a group-document locator access, or copy a revocable access link for someone Arbor does not know yet. Alice can open that link or give it directly to `arbor sync`; claiming it stores her credential, binds the access entry to her personal tree, and continues to the same canonical Atlas tree. She places that tree wherever it makes sense in *her* workspace:
+```text
+/                         the community profile tree
+/~alice/                  Alice's complete public profile
+/~editors/                the Editors' complete group profile
+/~editors/handbook/       content, or a separately shared subtree
+```
+
+Profiles may contain arbitrary files and directories; they are not single special pages. The profile tree's stable identity and device credentials prove control, while its ordinary `_index.md` supplies the readable profile. The community document authors member locators. An unresolved locator reserves that handle. The first person to open Arbor locally, paste that reserved profile URL, and choose a visible profile folder claims it. First-claim-wins is intentionally simple in the first version.
+
+I can stop with Atlas private and use it only for myself. I can give `everyone` read or write access, add Alice's profile locator, grant the Editors group access, or create a revocable link. Alice places the tree wherever it makes sense in *her* workspace:
 
 ```text
 Joe                              Alice
@@ -58,7 +67,7 @@ The tree has one identity and one access list. Publication is not a separate sys
 
 Names stay human and editable without becoming security identifiers. If Alice changes the name in her profile, existing access still names the same personal `TreeID`. If her profile is temporarily unavailable, Arbor can show its canonical locator or last verified name rather than guessing from an ambiguous string.
 
-The shared tree is also the permission boundary. If I want to share only `projects/atlas/research`, I first give that subtree its own URL. It becomes a nested shared tree with its own identity and access list. Sharing Atlas never leaks the private child; sharing the child never exposes the rest of Atlas.
+The shared tree is also the permission boundary. If I share `projects/atlas/research` separately, Arbor promotes that visible subtree in place. Its URL does not change, but the longest canonical boundary now resolves it to a child `TreeID` with independent sync, history, and access. Sharing Atlas never leaks the private child; sharing the child never exposes the rest of Atlas.
 
 Sharing also turns out to solve naming — the moment a folder becomes a shared tree, everything inside it gets a stable global address.
 
@@ -67,30 +76,16 @@ Inside Markdown, these are still ordinary link destinations. From the document `
 The everyday command line is correspondingly small. Its arguments are **Arbor locators**: one input language for local paths, canonical HTTP/Arbor names, one-claim access links, and immutable historical revisions.
 
 ```sh
-# Open TreeHopper on ordinary local files or an already placed tree.
-arbor browse ~/workspace
-
-# Give my local subtree its canonical URL, sync it, and choose publication.
-arbor sync ~/workspace/projects/atlas https://notes.example.org/atlas -private
-arbor sync ~/workspace/projects/atlas https://notes.example.org/atlas -public-read
-
-# Initialize my public personal profile with the same sync primitive, then edit it.
-arbor sync ~/workspace/public-profile arbor://joe.example.org/ -public-read
-arbor browse arbor://joe.example.org/
+# Share a subtree beneath a writable profile with an explicit audience.
+arbor share ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas --private
+arbor share ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas --public-read
 
 # Resolve someone else's canonical tree and choose where it belongs locally.
-arbor sync https://alice.example.org/atlas ~/workspace/work/atlas
-
-# Give a known person access, or create a link for someone new
-arbor share arbor://notes.example.org/atlas arbor://alice.example.org/ -write
-arbor share arbor://notes.example.org/atlas -read # --> outputs a revocable claim link
-
-# A claim link is just another remote sync source; claiming is idempotent.
-arbor sync 'https://notes.example.org/.arbor/access/ac_7k3m…#secret' ~/workspace/work/atlas
+arbor sync https://garden.example.org/~alice/atlas ~/workspace/work/atlas
 
 # Browse or place one exact historical root without following later changes.
-arbor browse 'arbor://notes.example.org/atlas@{sha256:7db4…}'
-arbor sync 'https://alice.example.org/atlas@{sha256:7db4…}' ~/workspace/archive/atlas
+arbor browse 'arbor://garden.example.org/~joe/atlas@{sha256:7db4…}'
+arbor sync 'https://garden.example.org/~alice/atlas@{sha256:7db4…}' ~/workspace/archive/atlas
 ```
 
 **It handles containment.** Because shared trees mount anywhere, the endless pool of project folders collapses into one navigable tree where everything has a place. You mount a collaborator's tree under `work/`, a public library under `reading/`, an archive off to the side. You scope an agent to exactly the subtrees its job concerns — it sees a small tree assembled for it, and nothing else exists for it. You hand off or archive a subtree as a unit, with its history attached.

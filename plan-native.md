@@ -395,7 +395,7 @@ File-, SQLite-, and Postgres-backed collections use the same native browsing voc
 
 ### Sharing
 
-“Give this subtree a URL” asks arbord to create a shared-tree boundary while leaving the folder at the same workspace path. Sharing changes that whole tree's access list: a known person gets read/write directly, or someone new receives a single-claim access link. Opening or syncing a link stores an opaque credential and continues to the canonical tree as one flow. A subtree needing different access first becomes a nested shared tree. Later local ceilings, overlays, pin, stale, and conflict states reuse the provider's existing events and provenance without becoming remote sharing concepts.
+**Share** asks arbord to promote the visible subtree in place at an exact mounted path beneath a writable community profile. Person and group profiles are complete trees at `/~handle`; a longer nested boundary keeps the same URL and wins by longest prefix. Sharing changes that child tree's whole-tree access list. External folders remain at their existing OS paths and appear as virtual mounted children. Later local ceilings, overlays, pin, stale, and conflict states reuse the provider's existing events and provenance without becoming remote sharing concepts.
 
 ## Acceptance bar
 

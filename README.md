@@ -7,7 +7,7 @@ A successor to the web built around three concepts: **a workspace**, the tree a 
 
 ## Current implementation
 
-The current implementation is a Bun workspace. `arbor browse <path>` opens the filesystem-wide TreeHopper React/BlockNote browser; ordinary files remain local until a directory is given a canonical URL. Shared trees gain indexing, recovery, private self-sync, and private/public live publication through the reference host. TreeHopper uses the REST v1 TypeScript client in `packages/client`; the matching Foundation-only Swift 6 client lives in `native/Packages/ArborClient`. REST mutations stay within one durability domain—one content operation, one atomic structural batch, one system operation, or one multipart transfer—and both clients provide an observed-node view that closes the snapshot/listing/event handoff. Start from this checkout with:
+The current implementation is a Bun workspace. `arbor browse <path>` opens the filesystem-wide TreeHopper React/BlockNote browser; ordinary files remain local until they are shared beneath a connected community profile. One host can serve many accounts in a mounted namespace: `/` is the community profile, `/~joe` and `/~editors` are complete person/group profile trees, and longer exact boundaries such as `/~editors/handbook` resolve by longest prefix. Sharing promotes a subtree in place into its own `TreeID`, sync, history, and access boundary without changing its URL. TreeHopper uses the REST v1 TypeScript client in `packages/client`; the matching Foundation-only Swift 6 client lives in `native/Packages/ArborClient`. Start from this checkout with:
 
 ```sh
 bun install
@@ -18,7 +18,15 @@ arbor browse /path/to/workspace
 
 The tree path may be absolute, relative to the current directory, or shell-expanded with `~`; omit it to browse the current directory. From this checkout, `bun run dev -- <path>` is equivalent and does not require linking the command.
 
-Arbor keeps its local state in `~/.arbor`. The human-editable [`trees.yaml`](spec/system.md) registry is keyed by canonical local placement paths and records shared `TreeID`, canonical name, endpoint, last verified ref, access, and publication. Unpromoted files have no durable tree record; older `source: local` entries remain migration material until they are given a URL. Private per-tree indexes, journals, and recovery state remain under `~/.arbor/workspaces/`. On first launch, current platform-specific state (including macOS Application Support state) moves intact to `~/.arbor`, with a compatibility symlink left at the former location. `ARBOR_DATA_HOME` selects an isolated alternate root and disables this default-state migration.
+Launch a new local community without preparing credentials or environment variables:
+
+```sh
+arbor serve ./garden --name "Garden" --first-writer joe
+```
+
+Arbor creates the community, reserves `/~joe`, and prints that complete profile address. Open Arbor locally, use the profile control to paste the address and choose a visible local profile folder. The first successful claim activates that device and becomes the initial community writer. Running the same command again restarts the existing authority without another bootstrap. `--url` sets its stable public canonical URL; `--hostname` and `--port` separately control the listener. Railway's public domain and port are detected automatically. Environment-based account bootstrap remains available for unattended deployment and legacy migration. See [Remote trial deployment](deploy/README.md) for Railway and VPS instructions.
+
+Arbor keeps its local state in `~/.arbor`. The human-editable [`trees.yaml`](spec/system.md) registry records local placements, while canonical boundaries are authority records independent of those placements. `system:community` stores only safe account/community metadata and an operating-system credential reference; raw account and link credentials never enter content, journals, receipts, events, diagnostics, errors, or logs. One local Arbor data home has one active personal identity. Private per-tree indexes, journals, and recovery state remain under `~/.arbor/workspaces/`. `ARBOR_DATA_HOME` selects an isolated alternate root.
 
 Markdown uses CommonMark/GFM plus the readable Clamshell toggle extension (`▸ Title` with two-space-indented children). CSV and JSONL use the fixed `_store.csv` and `_store.jsonl` names. Configure Postgres references without a plaintext DSN using `arbor connection set <name>`.
 
@@ -73,7 +81,7 @@ Working documents:
 
 - **[intro.md](intro.md)** — narrative introduction and pitch: from the agent-playground problems (sharing/syncing, human interface, containment) to a universal dynamic material that supersedes the web.
 - **[spec.md](spec.md)** — spec overview, v0.7, with the complete intended reference system split into topic files under [spec/](spec/): on-disk format, Arbor locators, the `system:` tree/placements/durability, arbord REST and its TypeScript/Swift clients, scripts, the browser, shared trees and the wire, and the CLI.
-- **[plan.md](plan.md)** — the forward roadmap: canonical hosting, whole-tree sharing, authored groups, workspace composition, scripts, agents, data, fuller publication, and non-blocking polish.
+- **[plan.md](plan.md)** — the forward roadmap: canonical hosting, community profiles/groups/sharing, workspace composition, scripts, agents, data, fuller publication, and non-blocking polish.
 - **[plan-history.md](plan-history.md)** — implemented browser/editor, REST/client, daily-driver, and tracked-root milestones with verification evidence.
 - **[plan-native.md](plan-native.md)** — the separate Swift/Hunch integration plan: adapting the Swift protocol client into provider/page-session boundaries, arbord-mediated macOS, direct Clamshell on iOS, migration, sidecars, and native product surfaces.
 - **[social-networking.md](social-networking.md)** — a thought experiment: with Arbor ubiquitous and the wire lowered to the transport layer, what remains of atproto, and how relays, AppViews, feeds, and labelers collapse into trees, watches, and queries.

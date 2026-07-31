@@ -13,7 +13,7 @@ let client: WireClient;
 async function start() {
   running = await serveWireHost({
     dataRoot,
-    ownerToken: token,
+    accounts: [{ handle: "owner", token, communityWriter: true }],
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
@@ -40,22 +40,22 @@ afterAll(async () => {
 describe("personal wire authority", () => {
   test("creates one private tree tip and isolates nested boundaries", async () => {
     const initial = await snapshotDirectory(source, new Map([[join(source, "nested"), "tr_independent"]]));
-    const tree = await client.create("notes", initial);
+    const tree = await client.create("/~owner/notes", initial);
     expect(tree.id).toMatch(/^tr_/);
     expect((await client.ref(tree.id)).ref).toBe(initial.root);
-    expect((await fetch(`${running.url}/notes`)).status).toBe(404);
+    expect((await fetch(`${running.url}/~owner/notes`)).status).toBe(404);
     expect((await fetch(`${running.url}/.arbor/objects/${initial.root}`)).status).toBe(404);
 
-    await client.setPublication(tree.id, "public-read");
-    const page = await fetch(`${running.url}/notes`);
+    await client.setPublicAccess(tree.id, "read");
+    const page = await fetch(`${running.url}/~owner/notes`);
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain("independent tree");
-    expect((await fetch(`${running.url}/notes/nested/secret.md`)).status).toBe(404);
+    expect(await page.text()).toContain("nested");
+    expect((await fetch(`${running.url}/~owner/notes/nested/secret.md`)).status).toBe(404);
     expect((await fetch(`${running.url}/.arbor/objects/${initial.root}`)).status).toBe(200);
   });
 
   test("atomically advances the one tip and rejects stale or corrupt pushes", async () => {
-    const tree = (await client.list()).find((item) => item.slug === "notes")!;
+    const tree = (await client.list()).find((item) => item.canonicalPath === "/~owner/notes")!;
     await writeFile(join(source, "note.md"), "# Second\n");
     const next = await snapshotDirectory(source, new Map([[join(source, "nested"), "tr_independent"]]));
     const updated = await client.push(tree.id, tree.ref, next);
@@ -68,11 +68,11 @@ describe("personal wire authority", () => {
     });
     expect(stale.status).toBe(409);
 
-    const corrupt = await fetch(`${running.url}/.arbor/admin/trees`, {
+    const corrupt = await fetch(`${running.url}/.arbor/trees`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
-        slug: "corrupt",
+        canonicalPath: "/~owner/corrupt",
         root: next.root,
         objects: [{ hash: next.root, bytes: Buffer.from("wrong").toString("base64") }],
       }),
@@ -81,8 +81,8 @@ describe("personal wire authority", () => {
   });
 
   test("allows anonymous CAS only in public-write mode and survives restart", async () => {
-    const tree = (await client.list()).find((item) => item.slug === "notes")!;
-    await client.setPublication(tree.id, "public-write");
+    const tree = (await client.list()).find((item) => item.canonicalPath === "/~owner/notes")!;
+    await client.setPublicAccess(tree.id, "write");
     await writeFile(join(source, "third.md"), "third\n");
     const next = await snapshotDirectory(source, new Map([[join(source, "nested"), "tr_independent"]]));
     const response = await fetch(`${running.url}/.arbor/trees/${tree.id}/push`, {
@@ -101,6 +101,6 @@ describe("personal wire authority", () => {
     await start();
     const restored = (await client.list()).find((item) => item.id === tree.id)!;
     expect(restored.ref).toBe(next.root);
-    expect(restored.publication).toBe("public-write");
+    expect(restored.publicAccess).toBe("write");
   });
 });

@@ -1,6 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
-import { basename } from "node:path";
-import type { Diagnostic, TreeDescriptor } from "@arbor/core";
+import { basename, join } from "node:path";
+import { canonicalNodePath, type Diagnostic, type TreeDescriptor } from "@arbor/core";
 import {
   AmbiguousWorkspaceIdentityError,
   arborDataHomeDiagnostics,
@@ -193,9 +193,10 @@ export class TreeManager implements AsyncDisposable {
           legacy: true,
         } : {
           canonical: candidate.placement.canonical,
-          httpURL: `${candidate.placement.endpoint}/${new URL(candidate.placement.canonical).pathname.split("/").filter(Boolean)[0] ?? ""}`,
+          canonicalPath: new URL(candidate.placement.canonical).pathname,
+          httpURL: `${candidate.placement.endpoint}${new URL(candidate.placement.canonical).pathname}`,
           endpoint: candidate.placement.endpoint,
-          publication: candidate.placement.publication ?? "private",
+          publicAccess: candidate.placement.publicAccess ?? "none",
           access: candidate.placement.access,
           placement: "shared",
           legacy: false,
@@ -249,9 +250,10 @@ export class TreeManager implements AsyncDisposable {
       tracking: tracked ? "tracked" : "session",
       treeDescriptor: tracked?.placement?.source === "local" ? { legacy: true } : tracked?.placement ? {
         canonical: tracked.placement.canonical,
-        httpURL: `${tracked.placement.endpoint}/${new URL(tracked.placement.canonical).pathname.split("/").filter(Boolean)[0] ?? ""}`,
+        canonicalPath: new URL(tracked.placement.canonical).pathname,
+        httpURL: `${tracked.placement.endpoint}${new URL(tracked.placement.canonical).pathname}`,
         endpoint: tracked.placement.endpoint,
-        publication: tracked.placement.publication ?? "private",
+        publicAccess: tracked.placement.publicAccess ?? "none",
         access: tracked.placement.access,
         placement: "shared",
       } : undefined,
@@ -291,9 +293,10 @@ export class TreeManager implements AsyncDisposable {
       tracking: "tracked",
       treeDescriptor: root.placement?.source === "local" ? { legacy: true } : root.placement ? {
         canonical: root.placement.canonical,
-        httpURL: `${root.placement.endpoint}/${new URL(root.placement.canonical).pathname.split("/").filter(Boolean)[0] ?? ""}`,
+        canonicalPath: new URL(root.placement.canonical).pathname,
+        httpURL: `${root.placement.endpoint}${new URL(root.placement.canonical).pathname}`,
         endpoint: root.placement.endpoint,
-        publication: root.placement.publication ?? "private",
+        publicAccess: root.placement.publicAccess ?? "none",
         access: root.placement.access,
         placement: "shared",
       } : undefined,
@@ -332,9 +335,10 @@ export class TreeManager implements AsyncDisposable {
       ...(root.placement?.source === "local" ? { legacy: true } : {}),
       ...(root.placement && root.placement.source !== "local" ? {
         canonical: root.placement.canonical,
-        httpURL: `${root.placement.endpoint}/${new URL(root.placement.canonical).pathname.split("/").filter(Boolean)[0] ?? ""}`,
+        canonicalPath: new URL(root.placement.canonical).pathname,
+        httpURL: `${root.placement.endpoint}${new URL(root.placement.canonical).pathname}`,
         endpoint: root.placement.endpoint,
-        publication: root.placement.publication ?? "private",
+        publicAccess: root.placement.publicAccess ?? "none",
         access: root.placement.access,
         sync: this.syncStates.get(id) ?? "idle",
       } : {}),
@@ -390,7 +394,67 @@ export class TreeManager implements AsyncDisposable {
       if (root.placement?.source === "local" || !root.placement || root.missing) continue;
       if (root.osPath.startsWith(prefix)) result.set(root.osPath, tree);
     }
+    const parent = [...this.known.entries()].find(([, root]) =>
+      root.placement?.source !== "local" && root.osPath === osPath
+    );
+    const parentPlacement = parent?.[1].placement;
+    const parentCanonical = parentPlacement && parentPlacement.source !== "local"
+      ? new URL(parentPlacement.canonical).pathname.replace(/\/$/, "")
+      : null;
+    if (parentCanonical && parent) {
+      for (const [tree, root] of this.known) {
+        if (tree === parent[0] || root.placement?.source === "local" || !root.placement?.canonical) continue;
+        const childCanonical = new URL(root.placement.canonical).pathname;
+        if (!childCanonical.startsWith(`${parentCanonical}/`)) continue;
+        result.set(join(osPath, childCanonical.slice(parentCanonical.length + 1)), tree);
+      }
+    }
     return result;
+  }
+
+  reservedBoundary(tree: string, treePath: string): { tree: string; path: string; treePath: string; exact: boolean } | null {
+    const parent = this.known.get(tree);
+    if (!parent?.placement || parent.placement.source === "local" || !parent.placement.canonical) return null;
+    const parentPath = new URL(parent.placement.canonical).pathname.replace(/\/$/, "");
+    const candidate = `${parentPath}${treePath === "/" ? "" : treePath}`;
+    let best: { tree: string; path: string; treePath: string; exact: boolean } | null = null;
+    for (const [childTree, root] of this.known) {
+      if (childTree === tree || root.placement?.source === "local" || !root.placement?.canonical) continue;
+      const childPath = new URL(root.placement.canonical).pathname.replace(/\/$/, "");
+      if (candidate !== childPath && !candidate.startsWith(`${childPath}/`)) continue;
+      if (!best || childPath.length > best.path.length) {
+        const mountTreePath = childPath.slice(parentPath.length) || "/";
+        const remainder = treePath === mountTreePath ? "/" : treePath.slice(mountTreePath.length);
+        best = {
+          tree: childTree,
+          path: childPath,
+          treePath: remainder.startsWith("/") ? remainder : `/${remainder}`,
+          exact: candidate === childPath,
+        };
+      }
+    }
+    return best;
+  }
+
+  mountedChildren(tree: string, treePath: string): Array<{ name: string; path: string; tree: string }> {
+    const parent = this.known.get(tree);
+    if (!parent?.placement || parent.placement.source === "local" || !parent.placement.canonical) return [];
+    const parentCanonical = new URL(parent.placement.canonical).pathname.replace(/\/$/, "");
+    const directoryCanonical = `${parentCanonical}${treePath === "/" ? "" : treePath}`.replace(/\/$/, "");
+    const result: Array<{ name: string; path: string; tree: string }> = [];
+    for (const [childTree, root] of this.known) {
+      if (childTree === tree || root.placement?.source === "local" || !root.placement?.canonical) continue;
+      const childCanonical = new URL(root.placement.canonical).pathname.replace(/\/$/, "");
+      if (!childCanonical.startsWith(`${directoryCanonical}/`)) continue;
+      const remainder = childCanonical.slice(directoryCanonical.length + 1);
+      if (!remainder || remainder.includes("/")) continue;
+      result.push({
+        name: remainder,
+        path: canonicalNodePath(`${treePath === "/" ? "" : treePath}/${remainder}`),
+        tree: childTree,
+      });
+    }
+    return result.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async applySharedPlacement(placement: SharedTreePlacement): Promise<TreeDescriptor> {

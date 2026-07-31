@@ -1,0 +1,31 @@
+services:
+  arbor:
+    build:
+      context: ..
+      dockerfile: Dockerfile.host
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - arbor-data:/data
+    expose:
+      - "4318"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - arbor
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  arbor-data:
+  caddy-data:
+  caddy-config:

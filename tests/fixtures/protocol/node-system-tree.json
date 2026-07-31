@@ -13,10 +13,11 @@
       "id": "tr_notes7f3q2ab7c",
       "placement": "shared",
       "path": "/Users/joe/notes",
-      "canonical": "arbor://notes.example/notes",
-      "publication": "private"
+      "canonical": "arbor://notes.example/~joe/notes",
+      "canonicalPath": "/~joe/notes",
+      "publicAccess": "none"
     },
-    "frontmatterSource": "---\nid: tr_notes7f3q2ab7c\nplacement: shared\npath: \"/Users/joe/notes\"\ncanonical: \"arbor://notes.example/notes\"\npublication: private\n---\n",
+    "frontmatterSource": "---\nid: tr_notes7f3q2ab7c\nplacement: shared\npath: \"/Users/joe/notes\"\ncanonical: \"arbor://notes.example/~joe/notes\"\ncanonicalPath: \"/~joe/notes\"\npublicAccess: none\n---\n",
     "bodySource": "",
     "blocks": []
   },

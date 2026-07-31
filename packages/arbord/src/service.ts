@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { mkdir, readdir, realpath } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import type {
   BacklinksPage,
@@ -20,7 +20,7 @@ import type { ArbordErrorCode } from "@arbor/core";
 import { LOCAL_TREE, SYSTEM_TREE, canonicalJSONString, canonicalNodePath, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { FsConflictError, MutationJournal } from "@arbor/fs";
-import { ServerConfigStore, arborDataRoot } from "@arbor/stores";
+import { CommunityConfigStore, arborDataRoot } from "@arbor/stores";
 import { WireClient, materializeTree, snapshotDirectory, type RemoteTreeDescriptor } from "@arbor/wire";
 import { EventBus } from "./events.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
@@ -58,7 +58,7 @@ export class ArborService implements AsyncDisposable {
   readonly events: EventBus;
   readonly trees: TreeManager;
   readonly localFs: FilesystemService;
-  readonly serverConfig = new ServerConfigStore();
+  readonly communityConfig = new CommunityConfigStore();
   private systemMutations = new MutationJournal(join(arborDataRoot(), "system", "journal", "mutations"));
   private syncTimer?: ReturnType<typeof setInterval>;
   private syncing = false;
@@ -81,7 +81,9 @@ export class ArborService implements AsyncDisposable {
     const trees = new TreeManager(events);
     await trees.init();
     await trees.openSession(sessionPath, options);
-    return new ArborService(events, trees);
+    const service = new ArborService(events, trees);
+    await service.migrateLegacyCommunityConfig();
+    return service;
   }
 
   get session(): Workspace {
@@ -101,7 +103,22 @@ export class ArborService implements AsyncDisposable {
       return { kind: "root", workspace: this.trees.session, ref };
     }
     const workspace = await this.trees.workspaceByTree(tree);
-    if (workspace) return { kind: "root", workspace, ref };
+    if (workspace) {
+      if ("path" in ref) {
+        const mounted = this.trees.reservedBoundary(tree, canonicalNodePath(ref.path));
+        if (mounted) {
+          const mountedWorkspace = await this.trees.workspaceByTree(mounted.tree);
+          if (mountedWorkspace) {
+          return {
+            kind: "root",
+            workspace: mountedWorkspace,
+            ref: { tree: mounted.tree, path: mounted.treePath },
+          };
+          }
+        }
+      }
+      return { kind: "root", workspace, ref };
+    }
     if (tree === SYSTEM_TREE) {
       if (!("path" in ref)) {
         throw new ProtocolError("invalid-reference", "The system scope is addressed by path", 400);
@@ -116,6 +133,17 @@ export class ArborService implements AsyncDisposable {
       const real = await realOsPath(canonical);
       const owner = await this.trees.ownerOf(real);
       if (owner) {
+        const mounted = this.trees.reservedBoundary(owner.workspace.tree, canonicalNodePath(owner.treePath));
+        if (mounted) {
+          const mountedWorkspace = await this.trees.workspaceByTree(mounted.tree);
+          if (mountedWorkspace) {
+          return {
+            kind: "root",
+            workspace: mountedWorkspace,
+            ref: { tree: mounted.tree, path: mounted.treePath },
+          };
+          }
+        }
         return {
           kind: "root",
           workspace: owner.workspace,
@@ -149,7 +177,25 @@ export class ArborService implements AsyncDisposable {
 
   async children(ref: NodeRef, cursor?: string | null): Promise<ChildrenPage> {
     const scope = await this.resolveScope(ref);
-    if (scope.kind === "root") return scope.workspace.children(scope.ref, cursor);
+    if (scope.kind === "root") {
+      const page = await scope.workspace.children(scope.ref, cursor);
+      if (!("path" in scope.ref)) return page;
+      const mounted = this.trees.mountedChildren(scope.workspace.tree, canonicalNodePath(scope.ref.path));
+      if (!mounted.length) return page;
+      const existing = new Set(page.items.map((item) => item.path));
+      return {
+        ...page,
+        items: [
+          ...page.items,
+          ...mounted.filter((item) => !existing.has(item.path)).map((item) => ({
+            name: item.name,
+            path: item.path,
+            kind: "directory" as const,
+            materialization: "available" as const,
+          })),
+        ].sort((a, b) => a.name.localeCompare(b.name)),
+      };
+    }
     if (scope.kind === "local") return this.localFs.children(scope.path, cursor);
     return this.systemChildren(scope.path);
   }
@@ -403,7 +449,7 @@ export class ArborService implements AsyncDisposable {
         parent: { tree: SYSTEM_TREE, path: "/" },
         items: [
           { name: "device", path: "/device", kind: "markdown", materialization: "available" },
-          { name: "server", path: "/server", kind: "markdown", materialization: "available" },
+          { name: "community", path: "/community", kind: "markdown", materialization: "available" },
           { name: "trees", path: "/trees", kind: "directory", materialization: "available" },
           { name: "credentials", path: "/credentials", kind: "markdown", materialization: "available" },
           { name: "visited", path: "/visited", kind: "markdown", materialization: "available" },
@@ -426,23 +472,35 @@ export class ArborService implements AsyncDisposable {
 
   private async systemTreeSegments() {
     const local = await this.trees.descriptors();
-    const configured = await this.serverConfig.get();
+    const configured = await this.communityConfig.get();
     let remote: RemoteTreeDescriptor[] = [];
+    let writable = new Set<string>();
+    const remoteAccess = new Map<string, import("@arbor/wire").RemoteAccessEntry[]>();
     if (configured) {
-      remote = await new WireClient(configured.record.origin, configured.ownerToken).list().catch(() => []);
+      const client = new WireClient(configured.record.origin, configured.accountToken);
+      [remote, writable] = await Promise.all([
+        client.list().catch(() => []),
+        client.account().then((account) => new Set(account.writableProfiles.map((tree) => tree.id))).catch(() => new Set<string>()),
+      ]);
+      await Promise.all(remote.filter((tree) => writable.has(tree.id)).map(async (tree) => {
+        const entries = await client.access(tree.id).catch(() => []);
+        remoteAccess.set(tree.id, entries);
+      }));
     }
     const byID = new Map<string, TreeDescriptor>(local.map((tree) => [tree.id, tree]));
     for (const tree of remote) {
       const current = byID.get(tree.id);
       byID.set(tree.id, {
         id: tree.id,
-        name: current?.name ?? tree.slug,
+        name: current?.name ?? tree.canonicalPath.split("/").filter(Boolean).at(-1) ?? "community",
         osPath: current?.osPath,
         canonical: tree.arborURL,
+        canonicalPath: tree.canonicalPath,
         httpURL: tree.httpURL,
         endpoint: configured?.record.origin,
-        publication: tree.publication,
-        access: current?.access,
+        publicAccess: tree.publicAccess,
+        access: current?.access ?? tree.access ?? (writable.has(tree.id) ? "write" : "read"),
+        accessEntries: remoteAccess.get(tree.id),
         placement: current ? "shared" : "remote",
         sync: current?.sync,
       });
@@ -475,8 +533,10 @@ export class ArborService implements AsyncDisposable {
       ...(tree.canonical ? [`canonical: ${JSON.stringify(tree.canonical)}`] : []),
       ...(tree.httpURL ? [`http: ${JSON.stringify(tree.httpURL)}`] : []),
       ...(tree.endpoint ? [`endpoint: ${JSON.stringify(tree.endpoint)}`] : []),
-      ...(tree.publication ? [`publication: ${tree.publication}`] : []),
+      ...(tree.canonicalPath ? [`canonicalPath: ${JSON.stringify(tree.canonicalPath)}`] : []),
+      ...(tree.publicAccess ? [`publicAccess: ${tree.publicAccess}`] : []),
       ...(tree.access ? [`access: ${tree.access}`] : []),
+      ...(tree.accessEntries ? [`accessEntries: ${JSON.stringify(tree.accessEntries)}`] : []),
       ...(tree.sync ? [`sync: ${tree.sync}`] : []),
       ...(tree.legacy ? ["legacy: true"] : []),
       "---",
@@ -490,14 +550,29 @@ export class ArborService implements AsyncDisposable {
     if (path === "/device") {
       return { segment: "device", record: { source: `---\nhome: ${JSON.stringify(homedir())}\n---\n\n# Device\n` } };
     }
-    if (path === "/server") {
-      const record = await this.serverConfig.safe();
+    if (path === "/community") {
+      const record = await this.communityConfig.safe();
       return {
-        segment: "server",
+        segment: "community",
         record: {
           source: record
-            ? `---\norigin: ${JSON.stringify(record.origin)}\ncredential: ${JSON.stringify(record.credential)}\nconfigured: true\n---\n\n# Personal server\n`
-            : "---\nconfigured: false\n---\n\n# Personal server\n",
+            ? [
+                "---",
+                `origin: ${JSON.stringify(record.origin)}`,
+                `account: ${JSON.stringify(record.id)}`,
+                `handle: ${JSON.stringify(record.handle)}`,
+                ...(record.profileTree ? [`profileTree: ${JSON.stringify(record.profileTree)}`] : []),
+                ...(record.profileURL ? [`profileURL: ${JSON.stringify(record.profileURL)}`] : []),
+                `communityTree: ${JSON.stringify(record.communityTree)}`,
+                `communityURL: ${JSON.stringify(record.communityURL)}`,
+                `credential: ${JSON.stringify(record.credential)}`,
+                "connected: true",
+                "---",
+                "",
+                "# Community",
+                "",
+              ].join("\n")
+            : "---\nconnected: false\n---\n\n# Community\n",
         },
       };
     }
@@ -510,13 +585,13 @@ export class ArborService implements AsyncDisposable {
       };
     }
     if (path === "/credentials") {
-      const configured = await this.serverConfig.safe();
+      const configured = await this.communityConfig.safe();
       return {
         segment: "credentials",
         record: {
           source: configured
-            ? `---\npersonalServer: configured\ncredential: ${JSON.stringify(configured.credential)}\n---\n\n# Credentials\n\nSecrets are held by the operating system.\n`
-            : "---\npersonalServer: missing\n---\n\n# Credentials\n",
+            ? `---\ncommunityAccount: connected\ncredential: ${JSON.stringify(configured.credential)}\n---\n\n# Credentials\n\nSecrets are held by the operating system.\n`
+            : "---\ncommunityAccount: missing\n---\n\n# Credentials\n",
         },
       };
     }
@@ -533,13 +608,21 @@ export class ArborService implements AsyncDisposable {
   }
 
   private isSystemMutation(operations: readonly WorkspaceOperation[]): operations is [SystemOperation] {
-    return operations.length === 1 && ["configureServer", "promoteTree", "placeTree", "setTreePublication"].includes(operations[0]!.op);
+    return operations.length === 1
+      && ["connectCommunity", "disconnectCommunity", "claimProfile", "createGroupProfile", "promoteTree", "placeTree", "setTreeAccess"].includes(operations[0]!.op);
   }
 
   private safeSystemOperation(operation: SystemOperation): SystemOperation | Record<string, unknown> {
-    return operation.op === "configureServer"
-      ? { ...operation, ownerToken: `[sha256:${sha256(operation.ownerToken)}]` }
-      : operation;
+    if (operation.op === "connectCommunity") {
+      return { ...operation, accountToken: `[sha256:${sha256(operation.accountToken)}]` };
+    }
+    if (operation.op === "setTreeAccess" && operation.subject.kind === "link") {
+      return {
+        ...operation,
+        subject: { kind: "link", secret: `[sha256:${sha256(operation.subject.secret)}]` },
+      };
+    }
+    return operation;
   }
 
   private async executeSystemMutation(mutationID: string, operation: SystemOperation): Promise<MutationReceipt> {
@@ -552,15 +635,21 @@ export class ArborService implements AsyncDisposable {
     if (existing.receipt) return existing.receipt;
 
     let effects: MutationReceipt["effects"];
-    if (operation.op === "configureServer") {
-      await this.serverConfig.set(operation.origin, operation.ownerToken);
-      effects = [{ kind: "updated", tree: SYSTEM_TREE, path: "/server" }];
+    if (operation.op === "connectCommunity") {
+      effects = await this.connectCommunity(operation.origin, operation.accountToken);
+    } else if (operation.op === "disconnectCommunity") {
+      await this.communityConfig.remove();
+      effects = [{ kind: "updated", tree: SYSTEM_TREE, path: "/community" }];
+    } else if (operation.op === "claimProfile") {
+      effects = await this.claimProfile(operation.origin, operation.handle, operation.path, operation.displayName);
+    } else if (operation.op === "createGroupProfile") {
+      effects = await this.createGroupProfile(operation.handle, operation.path, operation.displayName);
     } else if (operation.op === "promoteTree") {
-      effects = await this.promoteTree(operation.path, operation.slug);
+      effects = await this.promoteTree(operation.path, operation.canonicalPath, operation.audience);
     } else if (operation.op === "placeTree") {
       effects = await this.placeTree(operation.tree, operation.path, operation.endpoint, operation.canonical);
     } else {
-      effects = await this.setTreePublication(operation.tree, operation.publication);
+      effects = await this.setTreeAccess(operation.tree, operation.subject, operation.access);
     }
     await this.systemMutations.markMaterialized(mutationID, requestHash, effects);
     let cursor = this.events.currentCursor();
@@ -580,19 +669,97 @@ export class ArborService implements AsyncDisposable {
   }
 
   private async configuredWire(): Promise<{ client: WireClient; origin: string }> {
-    const configured = await this.serverConfig.get();
-    if (!configured) throw new ProtocolError("not-found", "Configure the personal Arbor server first", 409, { path: "system:server" });
+    const configured = await this.communityConfig.get();
+    if (!configured) throw new ProtocolError("not-found", "Connect to an Arbor community first", 409, { path: "system:community" });
     return {
-      client: new WireClient(configured.record.origin, configured.ownerToken),
+      client: new WireClient(configured.record.origin, configured.accountToken),
       origin: configured.record.origin,
     };
   }
 
-  private async promoteTree(inputPath: string, slug: string): Promise<MutationReceipt["effects"]> {
+  private accountMetadata(account: import("@arbor/wire").RemoteAccountDescriptor) {
+    return {
+      id: account.id,
+      handle: account.handle,
+      profileTree: account.profileTree,
+      profileURL: account.profileURL,
+      communityTree: account.community.id,
+      communityURL: account.community.arborURL,
+    };
+  }
+
+  private async migrateLegacyCommunityConfig(): Promise<void> {
+    if (await this.communityConfig.safe()) return;
+    const legacy = await this.communityConfig.legacy();
+    if (!legacy) return;
+    try {
+      const account = await new WireClient(legacy.origin, legacy.accountToken).account();
+      await this.communityConfig.set(legacy.origin, legacy.accountToken, this.accountMetadata(account));
+      await this.communityConfig.finishLegacyMigration();
+    } catch {
+      // Keep the recoverable legacy record and credential until its authority is reachable.
+    }
+  }
+
+  private async connectCommunity(originInput: string, accountToken: string): Promise<MutationReceipt["effects"]> {
+    const origin = new URL(originInput).origin;
+    const account = await new WireClient(origin, accountToken).account();
+    await this.communityConfig.set(origin, accountToken, this.accountMetadata(account));
+    return [{ kind: "updated", tree: SYSTEM_TREE, path: "/community" }];
+  }
+
+  private async claimProfile(
+    originInput: string,
+    handle: string,
+    inputPath: string,
+    displayName?: string,
+  ): Promise<MutationReceipt["effects"]> {
+    const origin = new URL(originInput).origin;
+    const requested = resolve(inputPath);
+    await mkdir(requested, { recursive: true });
+    const path = await realpath(requested);
+    const index = join(path, "_index.md");
+    const exists = await stat(index).then(() => true).catch(() => false);
+    if (!exists) {
+      await writeFile(index, `---\ntype: person\n---\n\n# ${displayName?.trim() || handle}\n`);
+    } else if (!/^type:\s*person\s*$/m.test(await readFile(index, "utf8"))) {
+      throw new ProtocolError("invalid-reference", "Profile _index.md must declare type: person", 409, { path });
+    }
+    const result = await new WireClient(origin).claim(handle, await snapshotDirectory(path));
+    await this.communityConfig.set(origin, result.accountToken, this.accountMetadata(result.account));
+    await this.trees.applySharedPlacement({
+      path,
+      source: `arbor://tree/${result.tree.id}/` as const,
+      tree: result.tree.id,
+      canonical: result.tree.arborURL,
+      endpoint: origin,
+      ref: result.tree.ref,
+      access: "write",
+      publicAccess: result.tree.publicAccess,
+    });
+    return [
+      { kind: "updated", tree: SYSTEM_TREE, path: "/community" },
+      { kind: "created", tree: SYSTEM_TREE, path: `/trees/${result.tree.id}` },
+      { kind: "created", tree: result.tree.id, path: "/" },
+    ];
+  }
+
+  private async promoteTree(
+    inputPath: string,
+    canonicalPath: string,
+    audience: import("@arbor/core").ShareAudience,
+    kind: "shared-subtree" | "group-profile" = "shared-subtree",
+  ): Promise<MutationReceipt["effects"]> {
     const path = await realpath(inputPath);
     const { client, origin } = await this.configuredWire();
     const snapshot = await snapshotDirectory(path, this.trees.sharedBoundariesWithin(path));
-    const remote = await client.create(slug, snapshot);
+    const remote = await client.create(canonicalPath, snapshot, {
+      kind,
+      publicAccess: audience.kind === "everyone" ? audience.access : "none",
+    });
+    if (audience.kind === "profile") {
+      await client.setAccess(remote.id, { kind: "profile", locator: audience.locator }, audience.access);
+    }
     await this.trees.applySharedPlacement({
       path,
       source: `arbor://tree/${remote.id}/` as const,
@@ -601,12 +768,41 @@ export class ArborService implements AsyncDisposable {
       endpoint: origin,
       ref: remote.ref,
       access: "write",
-      publication: remote.publication,
+      publicAccess: remote.publicAccess,
     });
+    for (const ancestor of this.trees.sharedPlacements()) {
+      if (ancestor.tree === remote.id || ancestor.endpoint !== origin || !ancestor.canonical) continue;
+      const ancestorPath = new URL(ancestor.canonical).pathname.replace(/\/$/, "");
+      if (remote.canonicalPath !== ancestorPath && !remote.canonicalPath.startsWith(`${ancestorPath}/`)) continue;
+      const refreshed = await client.ref(ancestor.tree);
+      await this.trees.applySharedPlacement({
+        ...ancestor,
+        ref: refreshed.ref,
+        publicAccess: refreshed.publicAccess,
+      });
+    }
     return [
       { kind: "created", tree: SYSTEM_TREE, path: `/trees/${remote.id}` },
       { kind: "created", tree: remote.id, path: "/" },
     ];
+  }
+
+  private async createGroupProfile(
+    handle: string,
+    inputPath: string,
+    displayName?: string,
+  ): Promise<MutationReceipt["effects"]> {
+    const requested = resolve(inputPath);
+    await mkdir(requested, { recursive: true });
+    const path = await realpath(requested);
+    const index = join(path, "_index.md");
+    const exists = await stat(index).then(() => true).catch(() => false);
+    if (!exists) {
+      await writeFile(index, `---\ntype: group\nmembers: []\n---\n\n# ${displayName?.trim() || handle}\n`);
+    } else if (!/^type:\s*group\s*$/m.test(await readFile(index, "utf8"))) {
+      throw new ProtocolError("invalid-reference", "Group profile _index.md must declare type: group", 409, { path });
+    }
+    return this.promoteTree(path, `/~${handle}`, { kind: "everyone", access: "read" }, "group-profile");
   }
 
   private async placeTree(
@@ -622,16 +818,16 @@ export class ArborService implements AsyncDisposable {
     const existing = this.trees.placementFor(tree);
     if (existing && existing.source !== "local" && existing.path === destination) return [];
 
-    const owner = await this.serverConfig.get();
+    const owner = await this.communityConfig.get();
     const configured = endpoint ? null : await this.configuredWire();
     const origin = endpoint ? new URL(endpoint).origin : configured!.origin;
     const client = endpoint
-      ? new WireClient(origin, owner?.record.origin === origin ? owner.ownerToken : undefined)
+      ? new WireClient(origin, owner?.record.origin === origin ? owner.accountToken : undefined)
       : configured!.client;
     const remote = endpoint
       ? await client.ref(tree).catch(() => null)
       : (await client.list()).find((item) => item.id === tree);
-    if (!remote) throw new ProtocolError("not-found", `Tree is not available from the personal server: ${tree}`, 404);
+    if (!remote) throw new ProtocolError("not-found", `Tree is not available from the community: ${tree}`, 404);
     if (canonical && canonical !== remote.arborURL && canonical !== remote.httpURL) {
       throw new ProtocolError("invalid-reference", `Canonical URL does not resolve to ${tree}`, 409);
     }
@@ -648,18 +844,34 @@ export class ArborService implements AsyncDisposable {
       canonical: remote.arborURL,
       endpoint: origin,
       ref: remote.ref,
-      access: owner?.record.origin === origin || remote.publication === "public-write" ? "write" : "read",
-      publication: remote.publication,
+      access: remote.access,
+      publicAccess: remote.publicAccess,
     });
     return [{ kind: "created", tree: remote.id, path: "/" }];
   }
 
-  private async setTreePublication(tree: string, publication: import("@arbor/core").PublicationMode): Promise<MutationReceipt["effects"]> {
+  private async setTreeAccess(
+    tree: string,
+    subject:
+      | { kind: "everyone" }
+      | { kind: "profile"; locator: string }
+      | { kind: "link"; secret: string }
+      | { kind: "entry"; id: string },
+    access: "none" | "read" | "write",
+  ): Promise<MutationReceipt["effects"]> {
     const placement = this.trees.placementFor(tree);
     if (!placement || placement.source === "local") throw new ProtocolError("not-found", `Unknown shared tree: ${tree}`, 404);
     const { client } = await this.configuredWire();
-    const remote = await client.setPublication(tree, publication);
-    await this.trees.applySharedPlacement({ ...placement, publication: remote.publication, ref: remote.ref });
+    const remote = subject.kind === "entry"
+      ? await client.revokeAccess(tree, subject.id)
+      : await client.setAccess(
+          tree,
+          subject.kind === "link"
+            ? { kind: "link", digest: `sha256:${sha256(subject.secret)}` }
+            : subject,
+          access,
+        );
+    await this.trees.applySharedPlacement({ ...placement, publicAccess: remote.publicAccess, ref: remote.ref });
     return [{ kind: "updated", tree: SYSTEM_TREE, path: `/trees/${tree}` }];
   }
 
@@ -667,10 +879,10 @@ export class ArborService implements AsyncDisposable {
     const placement = this.trees.placementFor(workspace.tree);
     if (!placement || placement.source === "local") return;
     if (placement.access !== "write") return;
-    const configured = await this.serverConfig.get();
+    const configured = await this.communityConfig.get();
     const client = new WireClient(
       placement.endpoint,
-      configured?.record.origin === placement.endpoint ? configured.ownerToken : undefined,
+      configured?.record.origin === placement.endpoint ? configured.accountToken : undefined,
     );
     this.trees.setSyncState(workspace.tree, "pushing");
     const snapshot = await snapshotDirectory(workspace.root, this.trees.sharedBoundariesWithin(workspace.root));
@@ -680,7 +892,7 @@ export class ArborService implements AsyncDisposable {
     }
     try {
       const remote = await client.push(workspace.tree, placement.ref, snapshot);
-      await this.trees.applySharedPlacement({ ...placement, ref: remote.ref, publication: remote.publication });
+      await this.trees.applySharedPlacement({ ...placement, ref: remote.ref, publicAccess: remote.publicAccess });
       this.trees.setSyncState(workspace.tree, "idle");
       this.syncConflicts.delete(workspace.tree);
     } catch (error) {
@@ -693,24 +905,22 @@ export class ArborService implements AsyncDisposable {
     if (this.syncing) return;
     this.syncing = true;
     try {
-      const configured = await this.serverConfig.get();
+      const configured = await this.communityConfig.get();
       for (const placement of this.trees.sharedPlacements()) {
         try {
           const client = new WireClient(
             placement.endpoint,
-            configured?.record.origin === placement.endpoint ? configured.ownerToken : undefined,
+            configured?.record.origin === placement.endpoint ? configured.accountToken : undefined,
           );
           const workspace = await this.trees.workspaceByTree(placement.tree);
           if (!workspace) continue;
           const remote = await client.ref(placement.tree);
-          const effectiveAccess = configured?.record.origin === placement.endpoint || remote.publication === "public-write"
-            ? "write"
-            : "read";
+          const effectiveAccess = remote.access;
           let activePlacement = placement;
-          if (placement.publication !== remote.publication || placement.access !== effectiveAccess) {
+          if (placement.publicAccess !== remote.publicAccess || placement.access !== effectiveAccess) {
             activePlacement = {
               ...placement,
-              publication: remote.publication,
+              publicAccess: remote.publicAccess,
               access: effectiveAccess,
             };
             await this.trees.applySharedPlacement(activePlacement);
@@ -776,8 +986,37 @@ export class ArborService implements AsyncDisposable {
       claim(SYSTEM_TREE);
       return ref;
     };
+    const rejectReservedMount = async (ref: NodeRef): Promise<void> => {
+      if (!("path" in ref)) return;
+      if (ref.tree && ref.tree !== LOCAL_TREE && ref.tree !== SYSTEM_TREE) {
+        const mounted = this.trees.reservedBoundary(ref.tree, canonicalNodePath(ref.path));
+        if (mounted?.exact) {
+          throw new ProtocolError("reserved-boundary", `Canonical mount is reserved: ${mounted.path}`, 409, {
+            path: ref.path,
+          });
+        }
+        return;
+      }
+      if (ref.tree === LOCAL_TREE) {
+        const real = await realOsPath(canonicalNodePath(ref.path));
+        const owner = await this.trees.ownerOf(real);
+        if (!owner) return;
+        const mounted = this.trees.reservedBoundary(owner.workspace.tree, canonicalNodePath(owner.treePath));
+        if (mounted?.exact) {
+          throw new ProtocolError("reserved-boundary", `Canonical mount is reserved: ${mounted.path}`, 409, {
+            path: ref.path,
+          });
+        }
+      }
+    };
     const operations = await Promise.all(request.operations.map(async (operation) => {
       const translated: WorkspaceOperation = { ...operation };
+      if (["rename", "move", "copy", "trash", "restore"].includes(translated.op)) {
+        if ("ref" in translated && translated.ref) await rejectReservedMount(translated.ref);
+        if ("refs" in translated && Array.isArray(translated.refs)) {
+          await Promise.all(translated.refs.map(rejectReservedMount));
+        }
+      }
       if ("ref" in translated && translated.ref) translated.ref = await translateRef(translated.ref);
       if ("refs" in translated && Array.isArray(translated.refs)) {
         translated.refs = await Promise.all(translated.refs.map(translateRef));
@@ -786,6 +1025,7 @@ export class ArborService implements AsyncDisposable {
         translated.destination = await translateRef(translated.destination);
       }
       if (translated.op === "createMarkdown" || translated.op === "createDirectory") {
+        await rejectReservedMount({ tree: translated.tree, path: translated.path });
         const scope = await this.resolveScope({ tree: translated.tree, path: translated.path });
         if (scope.kind === "root") {
           claim(scope.workspace.tree);

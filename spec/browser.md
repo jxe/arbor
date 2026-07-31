@@ -1,44 +1,56 @@
 # The browser
 *Part of the [Arbor spec](../spec.md): durable requirements for Arbor's human surface.*
 
-TreeHopper is a view and editing surface over arbord, never an independent storage authority. Web and native versions may use different controls and platform conventions; they share the same workspace, resolved locators, effective access, mutations, receipts, and event stream. Detailed layout, typography, editor-library behavior, and milestone placeholders are implementation concerns rather than protocol requirements.
+TreeHopper is a view and editing surface over arbord, never an independent storage authority. Web and native versions share the same mounted namespace, locators, access, mutations, receipts, and event stream.
 
 ## 1. Browsing and editing
 
-TreeHopper can browse ordinary local files, placed shared trees, transiently visited trees, historical revisions, and safe `system:` records. The path or [locator](locators.md) used to open it is a starting location, not a workspace boundary. Local filesystem content remains browsable and safely editable without acquiring durable Arbor identity.
+TreeHopper browses ordinary local files, placed shared trees, transient visits, historical revisions, and safe `system:` records. Opening a path does not invent identity. Source-preserving Markdown, projected directories, collections, and ordinary files follow [format.md](format.md); synthetic projection rows and virtual mounts never persist as fabricated Markdown or duplicate filesystem content.
 
-A shared-tree boundary is visible with its canonical name, `TreeID`, placement, effective access, public access, current or selected revision, and sync/conflict/staleness state. Nested shared trees remain independent boundaries; an unavailable or private child is not exposed through its parent.
+A canonical boundary shows its canonical path, `TreeID`, placement, effective/public access, revision, and sync/conflict state. Resolution uses the longest accessible boundary. An unavailable or private nested tree is not exposed through its parent.
 
-Built-in views cover Markdown, directories, collections, databases, and ordinary files. Writable views send authored changes through arbord's durable mutation surface. Read-only and historical views do not expose mutations. Source-preserving Markdown, projected directory documents, logical links, collections, and storage mappings follow [format.md](format.md); TreeHopper must not persist synthetic projection rows or normalize untouched source.
+## 2. Profile control
 
-Navigation, search results, backlinks, history, Copy Link, and Open Location retain resolved identity when available. A historical locator stays pinned rather than silently advancing. External changes reconcile into an open clean view; conflicts preserve both sides and remain visible.
+One persistent profile icon owns account and public-identity tasks:
 
-## 2. Trees and access
+- connect this device to a community account;
+- claim a community-authored profile reservation or initialize the first writer profile;
+- open and edit the complete public person profile tree;
+- list writable person and group namespaces;
+- create a public group profile tree;
+- disconnect or switch the active local account.
 
-**Give this subtree a URL** creates a shared-tree boundary on the configured personal authority, previews matching HTTP and Arbor names, uploads the initial root, and begins private self-sync. The tree control exposes its canonical locators, raw TreeID fallback, current ref and sync state, and access.
+One local Arbor data home has one active personal identity. New-member onboarding asks for one complete reserved profile URL and a visible local profile folder. Activating an already-issued device credential remains a secondary account-recovery surface; it asks for a community origin and account/device credential, not a server owner token. Raw credentials go directly to the operating-system credential store and never appear in content or durable diagnostics.
 
-During onboarding, **Create my public profile** creates a small public-read personal tree mounted at the authority root, scaffolds its root as an ordinary `type: person` Markdown document, and opens it for editing. Its first heading is the display name and the rest of the body is the public profile; the personal tree's `TreeID`, proven by paired device credentials, is the stable identity. The control clearly distinguishes this public profile tree from private workspace and project trees.
+Person and group profiles are whole trees at `/~<handle>`, not single pages. The profile icon distinguishes public profile editing from sharing an arbitrary subtree.
 
-The access control presents one list. It lets an owner:
+An unresolved same-community person locator in the community document is a claimable reservation. The user pastes that complete HTTP or `arbor://` profile URL; TreeHopper derives the community and handle, creates or validates `type: person` profile content in the selected folder, and submits atomically. The first success continues as the new profile account; later attempts show `already-claimed`.
 
-- set public access to private, read, or write;
-- add a person by personal-tree locator with read or write access;
-- add an authored group file with read or write access;
-- create and copy a read or write access link;
-- inspect people, groups, and unclaimed links;
-- change or remove access;
-- see nested tree boundaries whose access does not inherit.
+## 3. Share
 
-Sharing is always whole-tree. To share a subtree differently, the owner first gives it its own URL, creating a nested shared-tree boundary. TreeHopper explains this and can start that promotion rather than offering path-scoped access.
+Eligible subtrees always show **Share**, but the action is disabled until the current account is connected and has an initialized profile. The terms “Give this subtree a URL,” “Canonical tree,” and embedded server credentials are not separate surfaces.
 
-Opening an access link explains the tree and read/write access, claims it once, stores the resulting credential safely, and continues to the canonical locator. **Sync to this device** chooses a local placement through the same idempotent `sync` behavior; there is no separate acceptance workflow. Removing access prevents further remote reads or writes while leaving existing local files visibly stale and read-only.
+The Share sheet:
 
-Person rows show the current verified profile name with the canonical personal locator; the locator or last verified name remains visible when the profile is unavailable. A changed or duplicate display name never changes or ambiguously selects the underlying personal `TreeID`. A claimant who has not initialized a personal tree is offered the same profile setup before claiming.
+- requires an explicit audience, including an explicit Private choice;
+- previews the canonical child path beneath a writable person/group profile;
+- promotes an already canonical subtree at the same path;
+- mounts an arbitrary external folder as a virtual child without moving, copying, or representing it as synthetic Markdown;
+- reopens for an existing boundary to show HTTP/Arbor addresses, raw TreeID fallback, sync state, access, and revocation.
 
-Public write requires an explicit warning that anyone can change current content. Access controls never expose credentials, private history, recovery state, old roots, or independently private nested trees.
+Access is whole-tree and supports:
 
-## 3. Home, visits, and agents
+- `everyone` with `none`, `read`, or `write`;
+- a person profile with `read` or `write`;
+- a group profile with `read` or `write`;
+- a secret-bearing read/write link whose authority record stores only a digest.
 
-Home reads `system:trees` and shows local placements plus owner-visible remote trees. A remote tree can be placed locally. Opening an unplaced locator creates a transient visited tree with lazy verified reads; **Add to workspace** gives it a durable placement. Historical visits are read-only pins.
+Public write requires an explicit warning. Person/group access uses stable profile `TreeID`s, never mutable display names. Group membership is authored in the group profile; membership alone does not grant write to that group tree.
 
-An agent page remains ordinary tree content: its prompt and configuration are editable Markdown, its context and tools are locators for queries and mutations, and its transcript and effects are inspectable through the same workspace and permission model.
+Sharing a nested subtree promotes it in place to a longer canonical boundary. Parent access never leaks into the child and child access never reveals its parent. Writes that would replace a reserved mount return a structured conflict.
+
+## 4. Home, visits, and agents
+
+Home reads `system:trees` and shows local placements plus account-visible remote trees and writable profile/group namespaces. A remote tree can be placed locally. Historical visits remain read-only pins.
+
+An agent page remains ordinary tree content: its prompt/configuration are editable Markdown, its tools are locators, and its transcript/effects use the same namespace and permission model.

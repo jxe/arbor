@@ -74,9 +74,9 @@
     "mutationID": "55555555-5555-5555-5555-555555555555",
     "operations": [
       {
-        "op": "configureServer",
+        "op": "connectCommunity",
         "origin": "https://notes.example",
-        "ownerToken": "fixture-owner-token"
+        "accountToken": "fixture-account-token"
       }
     ]
   },
@@ -86,7 +86,8 @@
       {
         "op": "promoteTree",
         "path": "/Users/joe/notes",
-        "slug": "notes"
+        "canonicalPath": "/~joe/notes",
+        "audience": { "kind": "private" }
       }
     ]
   },
@@ -104,9 +105,39 @@
     "mutationID": "55555555-5555-5555-5555-555555555558",
     "operations": [
       {
-        "op": "setTreePublication",
+        "op": "setTreeAccess",
         "tree": "tr_notes7f3q2ab7c",
-        "publication": "public-read"
+        "subject": { "kind": "everyone" },
+        "access": "read"
+      }
+    ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555559",
+    "operations": [
+      {
+        "op": "claimProfile",
+        "origin": "https://notes.example",
+        "handle": "alice",
+        "path": "/Users/alice/Arbor/alice"
+      }
+    ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555560",
+    "operations": [
+      {
+        "op": "disconnectCommunity"
+      }
+    ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555561",
+    "operations": [
+      {
+        "op": "createGroupProfile",
+        "handle": "editors",
+        "path": "/Users/alice/Arbor/editors"
       }
     ]
   }

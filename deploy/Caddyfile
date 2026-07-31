@@ -1,0 +1,4 @@
+{$ARBOR_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy arbor:4318
+}

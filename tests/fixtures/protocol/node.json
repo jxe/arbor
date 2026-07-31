@@ -5,10 +5,14 @@
     "id": "tr_notes7f3q2ab7c",
     "name": "notes",
     "osPath": "/Users/joe/notes",
-    "canonical": "arbor://notes.example/notes",
-    "httpURL": "https://notes.example/notes",
+    "canonical": "arbor://notes.example/~joe/notes",
+    "canonicalPath": "/~joe/notes",
+    "httpURL": "https://notes.example/~joe/notes",
     "endpoint": "https://notes.example",
-    "publication": "private",
+    "publicAccess": "none",
+    "accessEntries": [
+      { "id": "ax_alice", "kind": "profile", "access": "read", "locator": "arbor://notes.example/~alice" }
+    ],
     "placement": "shared",
     "sync": "idle"
   },

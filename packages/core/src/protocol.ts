@@ -22,7 +22,13 @@ export type EventCursor = string;
  */
 export type TreeRef = string;
 export type TreeID = string;
+export type PublicAccess = "none" | "read" | "write";
+/** User-facing shorthand retained for CLI compatibility. */
 export type PublicationMode = "private" | "public-read" | "public-write";
+export type ShareAudience =
+  | { kind: "private" }
+  | { kind: "everyone"; access: "read" | "write" }
+  | { kind: "profile"; locator: string; access: "read" | "write" };
 
 export const LOCAL_TREE: TreeRef = "local";
 export const SYSTEM_TREE: TreeRef = "system";
@@ -43,10 +49,17 @@ export interface TreeDescriptor {
   name: string;
   osPath?: string;
   canonical?: string;
+  canonicalPath?: string;
   httpURL?: string;
   endpoint?: string;
-  publication?: PublicationMode;
+  publicAccess?: PublicAccess;
   access?: "read" | "write";
+  accessEntries?: Array<{
+    id: string;
+    kind: "everyone" | "profile" | "link";
+    access: "read" | "write";
+    locator?: string;
+  }>;
   placement: "local" | "shared" | "remote";
   sync?: "idle" | "pushing" | "pulling" | "offline" | "conflict" | "error";
   legacy?: boolean;
@@ -181,10 +194,22 @@ export type StructuralWorkspaceOperation =
   | { op: "restore"; refs: NodeRef[] };
 
 export type SystemOperation =
-  | { op: "configureServer"; origin: string; ownerToken: string }
-  | { op: "promoteTree"; path: string; slug: string }
+  | { op: "connectCommunity"; origin: string; accountToken: string }
+  | { op: "disconnectCommunity" }
+  | { op: "claimProfile"; origin: string; handle: string; path: string; displayName?: string }
+  | { op: "createGroupProfile"; handle: string; path: string; displayName?: string }
+  | { op: "promoteTree"; path: string; canonicalPath: string; audience: ShareAudience }
   | { op: "placeTree"; tree: TreeID; path: string; endpoint?: string; canonical?: string }
-  | { op: "setTreePublication"; tree: TreeID; publication: PublicationMode };
+  | {
+      op: "setTreeAccess";
+      tree: TreeID;
+      subject:
+        | { kind: "everyone" }
+        | { kind: "profile"; locator: string }
+        | { kind: "link"; secret: string }
+        | { kind: "entry"; id: string };
+      access: "none" | "read" | "write";
+    };
 
 export type WorkspaceOperation = ContentWorkspaceOperation | StructuralWorkspaceOperation | SystemOperation;
 
@@ -242,6 +267,7 @@ export interface WorkspaceEvent {
 
 export type ArbordErrorCode =
   | "invalid-reference"
+  | "reserved-boundary"
   | "not-found"
   | "duplicate-page-id"
   | "duplicate-body-representation"

@@ -15,23 +15,23 @@ An **Arbor locator** is a user-facing expression that tells Arbor what content t
 |---|---|---|
 | Relative local path | `./notes` or `../roadmap` | an OS path from the command's current directory, or a logical path from a containing document |
 | Absolute local path | `/Users/joe/notes` or `~/notes` | an OS path on this device |
-| Named HTTP URL | `https://notes.example/atlas` | a tree or node in a named authority namespace |
-| Named Arbor URL | `arbor://notes.example/atlas` | the live Arbor form of the same canonical name |
-| Personal root | `arbor://alice.example/` | the root profile of Alice's public personal tree |
+| Named HTTP URL | `https://garden.example/~alice/atlas` | a tree or node in a community namespace |
+| Named Arbor URL | `arbor://garden.example/~alice/atlas` | the live Arbor form of the same canonical name |
+| Person/group profile | `arbor://garden.example/~alice/` | Alice's complete public profile tree |
 | Tree-ID URL | `arbor://tree/tr_7k3m…/essays/drift` | a tree or node by durable `TreeID` |
-| Access link | `https://notes.example/.arbor/access/ac_7k3m…#secret` | a one-claim route to a tree's canonical locator |
+| Access link | `https://garden.example/~alice/atlas#arbor-access=secret` | revocable secret-bearing access to one tree |
 | Tree-rooted path | `/essays/drift` | a logical node rooted at the enclosing shared tree when document context exists |
 | System locator | `system:trees/tr_7k3m…` | a safe record in the local arbord control tree |
 
 Shell commands accept local paths, `system:` locators, and absolute HTTP/Arbor forms. In a shell, a leading `/` is always an OS path. Contextual tree-rooted paths belong in Markdown, scripts, browser location fields, and APIs that already supply an enclosing tree; a command does not silently guess which tree `/notes` means.
 
-A named authority normally resolves its first path segment to a shared-tree boundary and treats the remainder as a path within that tree. A personal authority may also mount its owner's public personal tree at `/`; registered child boundaries still resolve independently and do not inherit the root tree's public access. The reserved `tree` authority takes a `TreeID` as its first segment.
+A named authority represents one community. `/` is its community profile, `/~<handle>` is a complete person or group profile tree, and any exact nested path may be another shared-tree boundary. Resolution selects the longest accessible boundary and walks the remaining path inside it. A longer boundary is valid only when its parent graph contains that exact nested-tree entry. The reserved `tree` authority takes a `TreeID` as its first segment.
 
 HTTP and Arbor spellings may name the same live content. HTTP is the universal fallback and publication surface; `arbor://` states Arbor resolution explicitly. Canonical spellings are never credentials. Private content keeps its ordinary name and still requires authority.
 
-Person and group identity use this same locator language rather than a second name syntax. A person's canonical root locator resolves to their public personal tree; its `TreeID` is the stable person identity and its root Markdown document supplies the mutable display profile. A group locator resolves to an ordinary `type: group` Markdown document by `(TreeID, PageID)`. Commands and access controls inspect the resolved document type, retain the durable identity, and never treat a display name as authority.
+Person and group identity use this same locator language rather than a second name syntax. `/~alice` and `/~editors` resolve to complete public profile trees whose `TreeID`s are stable identities. Their `_index.md` documents supply mutable authored display content. Profiles may contain arbitrary descendants and independently shared nested boundaries.
 
-An access link is deliberately noncanonical. Its fragment contains a claim secret that Arbor consumes once, stores as an issued credential, and replaces with the ordinary credential-free canonical locator. The fragment is never sent in a normal HTTP request. Access links are valid `browse` and remote-source `sync` inputs but are not authored into shared content.
+An access link is deliberately noncanonical. Its fragment contains a secret that the browser converts to an authorization header; fragments and raw secrets do not enter normal HTTP request URLs or authority storage. Revocation removes the digest-based access entry. Access links are not authored into shared content.
 
 ## 2. Revisions
 
@@ -39,8 +39,8 @@ The optional `@{…}` suffix selects a shared tree's immutable root revision:
 
 ```text
 ./atlas@{sha256:7db4…}
-https://notes.example/atlas@{sha256:7db4…}
-arbor://notes.example/atlas/essay@{sha256:7db4…}
+https://garden.example/~alice/atlas@{sha256:7db4…}
+arbor://garden.example/~alice/atlas/essay@{sha256:7db4…}
 arbor://tree/tr_7k3m…/essay@{sha256:7db4…}
 ```
 
@@ -70,8 +70,8 @@ Bodyless directories begin path-only. Arbor minimally materializes Markdown iden
 Resolution produces a concrete tree, logical path, optional immutable root hash, and optional document/export identity:
 
 1. Normalize a local path. If it lies within a shared placement, resolve it to that placement's `TreeID` and tree-relative path; otherwise it remains local filesystem scope.
-2. Resolve named HTTP/Arbor locations through a local placement or visit first, then the authority namespace. The reference host uses `/.well-known/arbor` for an optional personal tree mounted at `/` and `/.well-known/arbor/<segment>` for named child trees.
-3. Resolve an access link by atomically claiming it for the current personal `TreeID`, storing the issued credential, and continuing with the returned canonical locator. Repeating a successfully claimed link as the same person is idempotent.
+2. Resolve named HTTP/Arbor locations through a local placement or visit first, then `/.well-known/arbor/*`. Choose the longest accessible registered boundary and walk the remainder inside that tree.
+3. Resolve an access link by retaining its secret outside durable content and presenting it only as authorization. A revoked link stops resolving.
 4. Resolve `arbor://tree/<TreeID>/…` from a known placement, visit, credential, or signed endpoint hint. A TreeID alone does not reveal its authority.
 5. If a revision suffix is present, verify and walk that immutable root instead of the live ref.
 6. Resolve a `PageID` fragment inside that selected root. Access checks happen after naming and never derive from obscurity.
@@ -86,15 +86,16 @@ The ordinary command surface uses locators directly:
 
 ```text
 arbor browse <locator>
-arbor sync <source-locator> <destination-locator> [-<mode>]
+arbor share <local-path> <canonical-url> <audience>
+arbor sync <source-locator> <destination-locator> [<audience>]
 ```
 
-`browse` accepts any resolvable locator. `sync` has two defined directions:
+The local TreeHopper profile control claims a complete reserved person-profile locator and activates the returned device credential. `connect` is account plumbing for activating an already-issued credential. `browse` accepts any resolvable locator. `sync` has two defined directions:
 
-- live local path → named canonical URL: create or reconcile identity, self-sync, and publication;
-- live or pinned remote locator or access link → local path: claim when necessary, then create or reconcile a following or pinned placement.
+- live local path → named canonical child beneath a writable profile: create or reconcile identity, sync, and explicit access;
+- live or pinned remote locator → local path: create or reconcile a following or pinned placement.
 
-Two local operands or two remote operands are invalid until a distinct copy/transfer operation is specified. Publication mode belongs only to the owner direction. Repeating either valid form is idempotent.
+Two local operands or two remote operands are invalid until a distinct copy/transfer operation is specified. Audience belongs only to the local-to-canonical direction. Repeating either valid form is idempotent.
 
 Markdown link destinations use the same logical and global forms, but portable shared content does not author OS-absolute or `system:` locators. Relative destinations resolve from the containing logical document as a directory-like base, independent of whether `x.md`, `x/_index.md`, or an implicit directory supplies its body. Storage suffixes are accepted as compatibility input and immediately canonicalized away.
 

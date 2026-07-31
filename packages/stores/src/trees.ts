@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { watch, type FSWatcher } from "node:fs";
-import type { Diagnostic, PublicationMode, TreeID } from "@arbor/core";
+import type { Diagnostic, PublicAccess, TreeID } from "@arbor/core";
 import { resolveLogicalURL, revisionOf } from "@arbor/core";
 import { isMap, isScalar, Pair, parseDocument, Scalar, YAMLMap, type Document } from "yaml";
 import { arborDataRoot, prepareArborDataRoot } from "./private-state.ts";
@@ -19,7 +19,7 @@ export interface SharedTreePlacement {
   access: "read" | "write";
   endpoint: string;
   ref: string;
-  publication?: PublicationMode;
+  publicAccess?: PublicAccess;
 }
 
 export type TreePlacement = LocalTreePlacement | SharedTreePlacement;
@@ -101,7 +101,7 @@ function parseRegistry(source: string): TreeRegistrySnapshot {
     const endpoint = fields.endpoint;
     const access = fields.access;
     const ref = fields.ref;
-    const publication = fields.publication;
+    const publicAccess = fields.publicAccess;
     if (
       typeof tree !== "string"
       || tree !== resolved.authority.treeID
@@ -111,13 +111,13 @@ function parseRegistry(source: string): TreeRegistrySnapshot {
       || !endpoint.startsWith("http")
       || typeof ref !== "string"
       || (access !== "read" && access !== "write")
-      || (publication !== undefined && !["private", "public-read", "public-write"].includes(String(publication)))
+      || (publicAccess !== undefined && !["none", "read", "write"].includes(String(publicAccess)))
     ) {
       diagnostics.push(diagnostic("invalid-tree-placement", `Shared tree placement ${path} is incomplete or inconsistent`, path));
       continue;
     }
     const unknown = Object.keys(fields).filter((key) =>
-      !["source", "tree", "canonical", "endpoint", "ref", "access", "publication"].includes(key)
+      !["source", "tree", "canonical", "endpoint", "ref", "access", "publicAccess"].includes(key)
     );
     if (unknown.length) {
       diagnostics.push(diagnostic("invalid-tree-placement", `Shared tree placement ${path} has unsupported fields: ${unknown.join(", ")}`, path));
@@ -131,7 +131,7 @@ function parseRegistry(source: string): TreeRegistrySnapshot {
       endpoint,
       ref,
       access,
-      ...(publication ? { publication: publication as PublicationMode } : {}),
+      ...(publicAccess ? { publicAccess: publicAccess as PublicAccess } : {}),
     });
   }
 
@@ -205,7 +205,7 @@ function setSharedPlacement(document: Document, placement: SharedTreePlacement):
   value.set("endpoint", placement.endpoint);
   value.set("ref", placement.ref);
   value.set("access", placement.access);
-  if (placement.publication) value.set("publication", placement.publication);
+  if (placement.publicAccess) value.set("publicAccess", placement.publicAccess);
   existing.value = value;
 }
 

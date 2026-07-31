@@ -28,7 +28,7 @@ type NodeRef =
 
 - `tree: "local"` addresses unpromoted content with an OS-absolute logical path. It never carries durable tree identity or supports indexing, recovery, sync, or permissions.
 - `tree: TreeID` addresses a promoted or accepted shared tree with a tree-relative path; `/` is its root. A local absolute path inside a placed shared tree canonicalizes into that `TreeID`.
-- `tree: "system"` addresses safe control records such as `/server`, `/trees/<TreeID>`, `/credentials`, and `/visited`.
+- `tree: "system"` addresses safe control records such as `/community`, `/trees/<TreeID>`, `/credentials`, and `/visited`.
 - Omitted `tree` means the launch context for legacy convenience; new clients send an explicit scope.
 - `{tree: TreeID, pageID}` consults that tree's ID map. `{tree: "local", pageID}` is invalid because unpromoted content is not indexed. A bare `pageID` may fan out across placed shared trees but duplicates are errors.
 - `path` is the canonical extensionless logical path described in [format.md](format.md) and may address any workspace node.
@@ -209,21 +209,29 @@ type StructuralWorkspaceOperation =
   | { op: "restore"; refs: NodeRef[] };
 
 type SystemOperation =
-  | { op: "configureServer"; origin: string; ownerToken: string }
-  | { op: "promoteTree"; path: string; slug: string }
+  | { op: "connectCommunity"; origin: string; accountToken: string }
+  | { op: "disconnectCommunity" }
+  | { op: "claimProfile"; origin: string; handle: string; path: string; displayName?: string }
+  | { op: "createGroupProfile"; handle: string; path: string; displayName?: string }
+  | {
+      op: "promoteTree";
+      path: string;
+      canonicalPath: string;
+      audience:
+        | { kind: "private" }
+        | { kind: "everyone"; access: "read" | "write" }
+        | { kind: "profile"; locator: string; access: "read" | "write" };
+    }
   | { op: "placeTree"; tree: TreeID; path: string; endpoint?: string; canonical?: string }
   | {
       op: "setTreeAccess";
       tree: TreeID;
       subject:
         | { kind: "everyone" }
-        | { kind: "person"; locator: string }
-        | { kind: "group"; locator: string };
+        | { kind: "profile"; locator: string }
+        | { kind: "link"; secret: string };
       access: "none" | "read" | "write";
-    }
-  | { op: "createAccessLink"; tree: TreeID; access: "read" | "write"; claimSecret: string }
-  | { op: "claimTreeAccess"; link: string; path?: string }
-  | { op: "setPlacementAccess"; tree: TreeID; path: string; access: "read" | "write" };
+    };
 
 type MutationRequest =
   | {
@@ -251,11 +259,15 @@ The complete structural batch either commits or has no logical effects. Structur
 
 References carry their `tree` per §2; path-literal creates carry the same optional qualifier. A structural batch resolves in exactly one scope. Cross-tree movement is an explicit transfer, not an accidental composition of durability domains. A shared `TreeID` supports the full journaled mutation surface. `local` supports byte-CAS Markdown, create, and natural rename/move/copy but not identity minting, authored ordering, Trash, recovery, or sync.
 
-System operations are singleton because their authority and rollback domains differ from content and filesystem transactions. They still receive durable receipts and ordered `system` events. `configureServer` is secret-aware: the raw token moves directly to the OS credential store; only normalized origin and token digest enter durable intent. `promoteTree` reserves name/TreeID, uploads and verifies the initial tip, reattaches private state, then replaces the placement before acknowledging. The reserved `slug: "/"` form initializes or reconciles the authority's one personal tree: its root must be an identity-bearing `type: person` Markdown document and its `everyone` access is fixed at `read`. This is the control operation composed by `sync <profile-path> arbor://<personal-authority>/ -public-read`, not a separate CLI workflow.
+System operations are singleton because their authority and rollback domains differ from content/filesystem transactions. `connectCommunity` stores the raw account/device token directly in the OS credential store and journals only safe origin/account metadata plus a digest. `claimProfile` creates/validates visible `type: person` content and performs the authority's atomic first-claim-wins transition. `createGroupProfile` creates/validates `type: group` content and mounts it at an available `/~handle`.
 
-`setTreeAccess` is whole-tree only. `everyone` access is the underlying state projected in product language as private/public-read/public-write. Setting a known person or group subject to `none` removes it. A person locator resolves to the person's public personal `TreeID`; a group locator resolves to the identity-bearing Markdown file's `(TreeID, PageID)`. The authority records those stable identities, never mutable display names. `createAccessLink` receives a client-generated random claim secret, sends only its digest to the wire authority, and never writes the raw value into the mutation journal, receipt, events, diagnostics, or logs; the client combines the retained secret with the returned safe `AccessID`. `claimTreeAccess` sends a complete access link directly to the authority, binds the entry to the claimant's personal `TreeID`, stores the issued credential in the operating-system credential store, and optionally creates or reconciles the placement at `path`. Repeating the same claim and path as the same person returns the same effective result, so `browse` and `sync` need no second acceptance command.
+`promoteTree` requires a mounted canonical path and an explicit initial audience. It snapshots the existing visible folder, creates the child `TreeID`, reserves/replaces the exact parent graph entry, records the existing OS placement, and refreshes locally placed ancestors. External folders become virtual profile children and are never moved or copied.
+
+`setTreeAccess` is whole-tree only. `everyone` is the underlying private/public state. A profile locator resolves to a stable person/group profile `TreeID`; group membership remains authored content. Link secrets are client-generated, hashed before durable intent, and absent from journals, receipts, events, diagnostics, errors, and logs. `none` removes the matching entry.
 
 `placeTree` may carry the already-resolved wire endpoint and canonical name when the tree came from another person's URL. The daemon verifies that name against the resolved `TreeID`, materializes the current tip, and records an optional stricter local access ceiling. Reads of a read-only placement return `writable: false`, and authored mutation routes reject it with `read-only`; direct filesystem edits are local divergence rather than authority to push.
+
+Mounted canonical children are visible through ordinary node/children calls even when the child's OS placement is elsewhere. A parent-scoped read at the mounted path resolves into the child `TreeID`. An operation that would create, rename, move, or trash the reserved mount itself returns `reserved-boundary`; operations inside the mounted child use the child's own scope and access.
 
 `refs` arrays are non-empty and retain their order. `move` is also the placement operation, with two placements. `natural` — the default for an unanchored cross-directory move — moves the node without materializing a stored destination row: the child simply appears in the listing (and as a projected synthetic row), pre-existing destination rows naming the moved node are rewritten, and source-directory rows for the departed child are removed. `authored` places a stored row in the destination directory body; an anchor (`beforePath` or `beforeBlockID`) always implies `authored`, and an unanchored `authored` move appends in authored document order. A same-directory move is a reorder and is inherently authored. Renames update an existing authored row but never materialize one for a previously synthetic child.
 

@@ -7,6 +7,7 @@ import { expect, test } from "@playwright/test";
 // serves the fixture workspace at this fixed session root.
 const ROOT = realpathSync(join(tmpdir(), "arbor-e2e-workspace"));
 const PROMOTABLE_ROOT = realpathSync(join(tmpdir(), "arbor-e2e-promotable"));
+const ALICE_PROFILE = join(tmpdir(), "arbor-e2e-alice-profile");
 const E2E_PORT = Number(process.env.ARBOR_E2E_PORT ?? 4321);
 const HOST_ORIGIN = `http://127.0.0.1:${E2E_PORT + 1}`;
 const r = (path: string) => `/render${ROOT}${path}`;
@@ -568,7 +569,7 @@ test("tracks an open page through a page-ID rename without replacing the editor"
   expect(source).toContain("Apple orchard notes are searchable. after rename");
 });
 
-test("browses ordinary files and gives a subtree a canonical URL", async ({ page }) => {
+test("browses ordinary files and shares a subtree beneath the active profile", async ({ page }) => {
   await page.goto(promotable(""));
   await expect(page.locator(".scope-chip")).toHaveText(/untracked/);
 
@@ -584,21 +585,23 @@ test("browses ordinary files and gives a subtree a canonical URL", async ({ page
   await expect(page.getByText("Search begins when this subtree has durable identity.")).toBeVisible();
   await page.keyboard.press("Escape");
 
-  // Promotion configures the personal host, creates matching URLs, and starts private sync.
+  // Sharing uses the connected profile, requires an audience, and keeps the local folder in place.
   await page.goto(promotable(""));
-  await page.getByRole("button", { name: "Give this subtree a URL" }).click();
-  await page.getByLabel("URL name").fill("garden");
-  await expect(page.locator(".url-preview")).toContainText(`${HOST_ORIGIN}/garden`);
-  await expect(page.locator(".url-preview")).toContainText(`arbor://127.0.0.1:${E2E_PORT + 1}/garden`);
-  await page.getByRole("button", { name: "Create URL and sync" }).click();
+  await page.getByRole("button", { name: "Share" }).click();
+  const shareSheet = page.locator(".tree-control-modal");
+  await shareSheet.getByLabel("Canonical path").fill("/~owner/garden");
+  await expect(shareSheet.locator(".url-preview")).toContainText(`${HOST_ORIGIN}/~owner/garden`);
+  await expect(shareSheet.locator(".url-preview")).toContainText(`arbor://127.0.0.1:${E2E_PORT + 1}/~owner/garden`);
+  await expect(shareSheet.getByRole("button", { name: "Share", exact: true })).toBeDisabled();
+  await shareSheet.getByText("Private", { exact: true }).click();
+  await shareSheet.getByRole("button", { name: "Share", exact: true }).click();
   await expect(page.locator(".scope-chip")).toHaveText(/private/);
 
-  // The canonical control reserves the final Sharing location and changes public access.
-  await page.getByRole("button", { name: "Canonical tree" }).click();
-  await expect(page.getByText("Sharing with people is not available yet.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Share" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Copy read access link" })).toBeDisabled();
-  await expect(page.locator(".canonical-addresses")).toContainText(`${HOST_ORIGIN}/garden`);
+  // The same Share sheet manages canonical addresses, public/profile/link access, and revocation.
+  await page.getByRole("button", { name: "Share" }).click();
+  await expect(page.getByText("People and groups")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create and copy read link" })).toBeEnabled();
+  await expect(page.locator(".canonical-addresses")).toContainText(`${HOST_ORIGIN}/~owner/garden`);
   await page.getByText("Public read", { exact: true }).click();
   await expect(page.getByRole("radio", { name: /^Public read Anyone/ })).toBeChecked();
   await page.getByRole("button", { name: "Close" }).click();
@@ -606,10 +609,23 @@ test("browses ordinary files and gives a subtree a canonical URL", async ({ page
   await page.getByRole("button", { name: "Arbor", exact: true }).click();
   const garden = page.locator(".home-root").filter({ hasText: PROMOTABLE_ROOT });
   await expect(garden.locator("strong")).toHaveText("URL Garden");
-  await expect(garden.locator(".scope-chip")).toHaveText("public-read");
+  await expect(garden.locator(".scope-chip")).toHaveText("public read");
 
   // The record is browsable read-only through the ordinary system tree.
   await garden.getByRole("button", { name: "record" }).click();
   await expect(page).toHaveURL(/\/render\/system:trees\//);
   await expect(page.locator(".scope-chip")).toHaveText(/system/);
+
+  // Share stays visible but disabled while this local data home has no active profile.
+  await page.getByRole("button", { name: "Community and profile" }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Disconnect" }).click();
+  await page.goto(promotable(""));
+  await expect(page.getByRole("button", { name: "Share" })).toBeDisabled();
+  await page.getByRole("button", { name: "Community and profile" }).click();
+  await page.getByRole("textbox", { name: "Reserved profile URL" }).fill(`${HOST_ORIGIN}/~alice`);
+  await page.getByRole("textbox", { name: "Visible local profile folder" }).fill(ALICE_PROFILE);
+  await page.getByRole("button", { name: "Claim profile", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Community and profile" })).toHaveText("~alice");
+  await expect(page.getByRole("button", { name: "Share" })).toBeEnabled();
 });

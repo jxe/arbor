@@ -14,7 +14,7 @@ The filesystem driver is the default store, not a universal storage requirement.
 
 `x.md` and `x/` may and normally do coexist: together they are one logical node, and directory listings collapse them into one child. Giving `/x` its first child creates `x/` and leaves `x.md` in place. Merely browsing a bodyless directory does not create `x/_index.md`; the first authored body/property edit, authored ordering that needs storage, or operation that must establish durable document identity materializes it. Only `x.md` plus `x/_index.md` is ambiguous; Arbor reports a blocking `duplicate-body-representation` diagnostic and refuses content or structural mutations until one body is explicitly retained. Rename, move, copy, trash, and restore treat a sibling body plus directory as one logical unit, and occupied destinations reject without overwrite, merging, or suffixing.
 
-Person and group identities are ordinary Markdown documents with two small authored conventions:
+Person and group profiles are complete trees whose root `_index.md` uses two small authored conventions:
 
 ```md
 ---
@@ -27,7 +27,9 @@ type: person
 Designer, gardener, and distributed-systems enthusiast.
 ```
 
-The root document of a public-read personal tree uses `type: person`; its first heading is the display name and its body is the public profile. The personal tree's `TreeID`, not the mutable or non-unique heading, is the stable person identity. A `type: group` document uses the same first-heading rule and adds `members`, a list of personal-tree locators. Its durable identity is `(TreeID, PageID)`. These documents remain subject to ordinary Markdown editing, revisions, conflicts, history, and recovery; no separate profile or group database is canonical.
+The root document of a public-read person profile tree uses `type: person`; its first heading is the display name and its body is the public introduction. The tree may contain arbitrary descendants. Its profile `TreeID`, not the mutable heading or root `PageID`, is the stable person identity.
+
+A public group profile tree uses `type: group` and adds `members`, a list of same-community person-profile locators. The group profile's `TreeID` is the stable group identity. Writers of that tree author membership; listed members do not thereby gain write. The community root uses the same group format, and unresolved member locators there reserve person handles. Profile content remains ordinary Markdown with normal revisions, conflicts, history, and recovery; no separate profile/group membership database is canonical.
 
 ## 2. SQLite by placement
 
