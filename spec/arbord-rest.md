@@ -145,6 +145,7 @@ REST v1 supplies the same concrete reads to web, native, CLI, and other trusted 
 GET /v1/backlinks?path=…&cursor=…
 GET /v1/backlinks?pageID=…&pathHint=…&cursor=…
 GET /v1/recovery?path=…&recursive=true&cursor=…
+GET /v1/remote?url=<canonical-locator>
 GET /<logical-path>            (ordinary file → bytes)
 ```
 
@@ -156,7 +157,7 @@ Backlinks resolve the usual `NodeRef`, return referring document refs plus link 
 
 **The DOM's URL rule is not Arbor's locator rule.** Displayed routes deliberately omit the directory-like base slash ([locators.md](locators.md)), so native browser resolution of a relative `src`/`href` cannot match logical resolution. In-app rendering therefore resolves every authored reference — links *and* asset embeds alike — through the shared logical resolver before it reaches the DOM. `arbor bake` performs the same resolution at publication time, emitting references that resolve natively on a dumb static host ([wire.md](wire.md) §7).
 
-**Reads are tree-qualified.** A visited or placed file arrives by resolving `(TreeID, path)` through the wire's single root ref and walking the required hashes. Arbord proxies rather than handing TreeHopper a remote object URL: access remains enforced in one place, the web client stays same-origin against loopback, and fetched objects share one cache with any later placement or pin.
+**Reads are tree-qualified.** A visited or placed file arrives by resolving `(TreeID, path)` through the wire's single root ref and walking the required hashes. `GET /v1/remote` is the explicit read-only visit adapter: it accepts one HTTP or DNS-authority Arbor locator, performs longest-prefix resolution with the active account credential when applicable, fetches raw immutable objects, and returns a non-writable `NodeSnapshot` with a complete immediate child list. It does not create a placement, filesystem session, temporary directory, watcher, or mutation authority. Arbord proxies rather than handing TreeHopper a remote object URL: access remains enforced in one place, the web client stays same-origin against loopback, and fetched objects can share one cache with any later placement or pin.
 
 Both reference clients and TreeHopper web use these reads. The filesystem driver recognizes iCloud's `.name.icloud` eviction marker as the logical file's `placeholder` state and never reads marker bytes as content. Home/default location comes from safe `system:device` state; it is not smuggled into a content route.
 

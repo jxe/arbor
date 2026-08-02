@@ -25,7 +25,17 @@ beforeAll(async () => {
   dataRoot = await mkdtemp(join(tmpdir(), "arbor-wire-authority-"));
   source = await mkdtemp(join(tmpdir(), "arbor-wire-source-"));
   await mkdir(join(source, "nested"));
-  await writeFile(join(source, "note.md"), "# First\n");
+  await writeFile(join(source, "note.md"), [
+    "# First",
+    "",
+    "A **read-only** Arbor page with [a safe link](https://example.com).",
+    "",
+    "- one",
+    "- two",
+    "",
+    "<script>alert('not executable')</script>",
+    "",
+  ].join("\n"));
   await writeFile(join(source, "nested", "secret.md"), "not inherited\n");
   await start();
 });
@@ -49,7 +59,18 @@ describe("personal wire authority", () => {
     await client.setPublicAccess(tree.id, "read");
     const page = await fetch(`${running.url}/~owner/notes`);
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain("nested");
+    const directoryHTML = await page.text();
+    expect(directoryHTML).toContain("class=\"arbor-document\"");
+    expect(directoryHTML).toContain("href=\"/~owner/notes/note\"");
+    expect(directoryHTML).not.toContain(">nested<");
+    const markdown = await fetch(`${running.url}/~owner/notes/note`);
+    expect(markdown.status).toBe(200);
+    const markdownHTML = await markdown.text();
+    expect(markdownHTML).toContain("<h1>First</h1>");
+    expect(markdownHTML).toContain("<strong>read-only</strong>");
+    expect(markdownHTML).toContain("<li><span>one</span>");
+    expect(markdownHTML).toContain("&lt;script&gt;alert");
+    expect(markdownHTML).not.toContain("<script>alert");
     expect((await fetch(`${running.url}/~owner/notes/nested/secret.md`)).status).toBe(404);
     expect((await fetch(`${running.url}/.arbor/objects/${initial.root}`)).status).toBe(200);
   });

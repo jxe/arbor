@@ -44,6 +44,7 @@ const host = await serveWireHost({
 });
 await mkdir(editorsProfile, { recursive: true });
 await writeFile(join(editorsProfile, "_index.md"), "---\ntype: group\n---\n\n# Editors\n");
+await writeFile(join(editorsProfile, "guide.md"), "# Editorial guide\n\nA **remote** Markdown page.\n");
 await new WireClient(host.url, "e2e-owner-token").create(
   "/~editors",
   await snapshotDirectory(editorsProfile),

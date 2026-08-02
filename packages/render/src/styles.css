@@ -307,7 +307,8 @@ nav small { margin-left: auto; color: var(--arbor-warning); }
   cursor: pointer;
 }
 .remote-profile-surface small { margin-top: 12px; color: var(--arbor-muted); }
-.remote-browser-frame { width: 100%; height: calc(100vh - 45px); border: 0; background: white; }
+.read-only-page .bn-editor { cursor: default; }
+.read-only-page .bn-block-content { cursor: default; }
 
 .page-actions-menu { position: absolute; z-index: 12; top: 0; right: 0; }
 .page-actions-menu summary {

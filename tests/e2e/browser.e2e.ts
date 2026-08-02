@@ -15,6 +15,19 @@ const promotable = (path: string) => `/render${PROMOTABLE_ROOT}${path}`;
 const escaped = ROOT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const atUrl = (path: string) => new RegExp(`/render${escaped}${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 
+test("renders an unplaced remote tree through read-only BlockNote without an iframe", async ({ page }) => {
+  const remote = `${HOST_ORIGIN}/~editors`;
+  await page.goto(`/render?browse=${encodeURIComponent(remote)}`);
+  await expect(page.locator("iframe")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Editors", level: 1 })).toBeVisible();
+  await expect(page.getByText("remote · read-only")).toBeVisible();
+  await expect(page.locator(".read-only-page .bn-editor")).toHaveAttribute("contenteditable", "false");
+  await page.locator('.read-only-page a[href="guide"]').click();
+  await expect(page.getByRole("heading", { name: "Editorial guide", level: 1 })).toBeVisible();
+  await expect(page.getByText("A remote Markdown page.")).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("browse")).toBe(`${HOST_ORIGIN}/~editors/guide`);
+});
+
 test("canonicalizes Markdown storage aliases", async ({ page }) => {
   await page.goto(r("/notes.md"));
   await expect(page).toHaveURL(atUrl("/notes"));

@@ -159,7 +159,7 @@ arbor serve [data-directory] [--community <handle>] [--first-writer <handle>]
 
 The browser claim stores and activates the returned device credential, so `connect` is not a new-member prerequisite. A fresh `serve` reserves the first writer and that claim grants community write; environment-supplied accounts remain available for unattended bootstrap and legacy migration. Singleton arbord operations are `connectCommunity`, `disconnectCommunity`, `claimProfile`, `createGroupProfile`, `promoteTree`, `placeTree`, `removeTreePlacement`, and `setTreeAccess`. `system:community` stores only safe account/community metadata and a credential reference.
 
-Browsing an ordinary untracked directory is shallow and demand-driven. Recursive discovery, indexing, type generation, and filesystem watching begin only when a folder is tracked or synced. Account-only operations such as `connect` and transient remote browser visits open arbord's control authority without attaching a filesystem session or creating a placeholder workspace.
+Browsing an ordinary untracked directory is shallow and demand-driven. Recursive discovery, indexing, type generation, and filesystem watching begin only when a folder is tracked or synced. Account-only operations such as `connect` and transient remote browser visits open arbord's control authority without attaching a filesystem session or creating a placeholder workspace. Unplaced remote visits proxy raw wire objects into a non-writable node and use TreeHopper's read-only BlockNote presentation without an iframe; ordinary host HTML uses the server-safe Arbor Markdown renderer.
 
 ### Reference-slice verification
 

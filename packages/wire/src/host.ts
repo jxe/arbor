@@ -14,6 +14,7 @@ import {
 } from "./authority.ts";
 import { WireClient, type RemoteAccountDescriptor, type RemoteTreeDescriptor } from "./client.ts";
 import { decodeWireObject, type ObjectHash } from "./objects.ts";
+import { renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
@@ -88,23 +89,6 @@ function html(value: string, status = 200, headers: HeadersInit = {}): Response 
     status,
     headers: responseHeaders,
   });
-}
-
-async function directoryHeading(
-  authority: WireAuthority,
-  entries: Array<{ name: string; hash?: string }>,
-  fallback: string,
-): Promise<string> {
-  const index = entries.find((entry) => entry.name === "_index.md");
-  if (!index?.hash) return fallback;
-  try {
-    const object = decodeWireObject(await authority.object(index.hash));
-    if (object.type !== "file") return fallback;
-    const source = new TextDecoder().decode(object.bytes);
-    return source.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim() || fallback;
-  } catch {
-    return fallback;
-  }
 }
 
 function bodySnapshot(body: { root?: unknown; objects?: unknown }) {
@@ -382,11 +366,14 @@ export async function serveWireHost(options: {
           const parts = resolved.path.split("/").filter(Boolean);
           let tree = resolved.tree;
           let hash = tree.ref;
+          let objectName = parts.at(-1) ?? tree.canonicalPath.split("/").at(-1) ?? "Arbor";
           for (const [index, part] of parts.entries()) {
             const current = decodeWireObject(await authority.object(hash));
             if (current.type !== "directory") return new Response("Not found", { status: 404 });
-            const entry = current.entries.find((candidate) => candidate.name === part);
+            const entry = current.entries.find((candidate) => candidate.name === part)
+              ?? current.entries.find((candidate) => candidate.name === `${part}.md`);
             if (!entry) return new Response("Not found", { status: 404 });
+            if (index === parts.length - 1) objectName = entry.name;
             if (entry.tree) {
               const nested = authority.get(entry.tree);
               if (!nested || !authority.canRead(account, nested.id, linkDigest(request))) return new Response("Not found", { status: 404 });
@@ -400,10 +387,21 @@ export async function serveWireHost(options: {
           }
           const objectValue = decodeWireObject(await authority.object(hash));
           if (objectValue.type === "file") {
-            const name = parts.at(-1) ?? tree.canonicalPath.split("/").at(-1) ?? "Arbor";
             const body = new TextDecoder().decode(objectValue.bytes);
-            if (name.endsWith(".md")) {
-              return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHTML(name)}</title><style>body{max-width:760px;margin:64px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}pre{white-space:pre-wrap;font:inherit}</style><pre>${escapeHTML(body)}</pre>`);
+            if (objectName.endsWith(".md")) {
+              if (request.headers.get("accept")?.includes("text/markdown")) {
+                return new Response(objectValue.bytes.buffer.slice(
+                  objectValue.bytes.byteOffset,
+                  objectValue.bytes.byteOffset + objectValue.bytes.byteLength,
+                ) as ArrayBuffer, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
+              }
+              return html(renderPublicMarkdownPage({
+                source: body,
+                fallbackTitle: objectName.slice(0, -3),
+                origin: publicOrigin,
+                treeCanonicalPath: tree.canonicalPath,
+                documentPath: resolved.path,
+              }));
             }
             return new Response(objectValue.bytes.buffer.slice(
               objectValue.bytes.byteOffset,
@@ -411,15 +409,36 @@ export async function serveWireHost(options: {
             ) as ArrayBuffer);
           }
           const prefix = url.pathname.replace(/\/$/, "");
-          const entries = objectValue.entries.filter((entry) => entry.name !== "_index.md").map((entry) =>
-            `<li><a href="${prefix}/${encodeURIComponent(entry.name)}${escapeHTML(url.search)}">${escapeHTML(entry.name)}</a></li>`
-          ).join("");
-          const heading = await directoryHeading(
-            authority,
-            objectValue.entries,
-            parts.at(-1) ?? tree.canonicalPath.split("/").filter(Boolean).at(-1) ?? authority.communityHandle(),
-          );
-          return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHTML(heading)}</title><style>body{max-width:760px;margin:64px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}a{color:inherit}li{margin:8px 0}</style><h1>${escapeHTML(heading)}</h1><ul>${entries}</ul>`);
+          const index = objectValue.entries.find((entry) => entry.name === "_index.md" && entry.hash);
+          const indexObject = index?.hash ? decodeWireObject(await authority.object(index.hash)) : null;
+          const source = indexObject?.type === "file" ? new TextDecoder().decode(indexObject.bytes) : "";
+          if (request.headers.get("accept")?.includes("text/markdown")) {
+            return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
+          }
+          const children = (await Promise.all(objectValue.entries
+            .filter((entry) => entry.name !== "_index.md")
+            .map(async (entry): Promise<PublicPageChild | null> => {
+              if (entry.tree) {
+                const nested = authority.get(entry.tree);
+                if (!nested || !authority.canRead(account, nested.id, linkDigest(request))) return null;
+              }
+              const object = entry.hash ? decodeWireObject(await authority.object(entry.hash)) : null;
+              const markdown = object?.type === "file" && entry.name.endsWith(".md");
+              const publicName = markdown ? entry.name.slice(0, -3) : entry.name;
+              return {
+                name: publicName,
+                href: `${prefix}/${encodeURIComponent(publicName)}${url.search}`,
+                kind: entry.tree || object?.type === "directory" ? "folder" : markdown ? "document" : "file",
+              };
+            }))).filter((child): child is PublicPageChild => child !== null);
+          return html(renderPublicMarkdownPage({
+            source,
+            fallbackTitle: parts.at(-1) ?? tree.canonicalPath.split("/").filter(Boolean).at(-1) ?? authority.communityHandle(),
+            origin: publicOrigin,
+            treeCanonicalPath: tree.canonicalPath,
+            documentPath: resolved.path,
+            children,
+          }));
         }
         return new Response("Not found", { status: 404 });
       } catch (error) {

@@ -6,6 +6,7 @@ import { projectSnapshot } from "@arbor/client";
 import { api } from "./api.ts";
 import { CollectionView } from "./CollectionView.tsx";
 import { PageEditor } from "./PageEditor.tsx";
+import { ReadOnlyPage } from "./ReadOnlyPage.tsx";
 
 const SIDEBAR_STORAGE_KEY = "arbor.sidebar.collapsed";
 const LAST_LOCATION_KEY = "arbor.lastLocation";
@@ -243,6 +244,8 @@ export function App() {
   const [treeControl, setTreeControl] = useState<{ path: string; tree?: TreeDescriptor } | null>(null);
   const [treeSlug, setTreeSlug] = useState("");
   const [remoteLocation, setRemoteLocation] = useState<RemoteLocation | null>(launchedRemoteLocation);
+  const [remoteNode, setRemoteNode] = useState<NodeSnapshot | null>(null);
+  const [remoteProjection, setRemoteProjection] = useState<ProjectedDocument | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [claimURL, setClaimURL] = useState("");
   const [claimPath, setClaimPath] = useState("");
@@ -313,6 +316,28 @@ export function App() {
     } catch {}
   }, []);
   useEffect(() => { void refreshSystem(); }, [refreshSystem]);
+  useEffect(() => {
+    if (!remoteLocation || remoteLocation.claimable) {
+      setRemoteNode(null);
+      setRemoteProjection(null);
+      return;
+    }
+    const request = ++nodeRequest.current;
+    setError(null);
+    setRemoteNode(null);
+    setRemoteProjection(null);
+    api.client.remoteNode(remoteLocation.url).then(
+      (loaded) => {
+        if (request !== nodeRequest.current) return;
+        setRemoteNode(loaded);
+        setRemoteProjection(projectSnapshot(loaded));
+      },
+      (remoteError) => {
+        if (request === nodeRequest.current) setError(remoteError instanceof Error ? remoteError.message : String(remoteError));
+      },
+    );
+    return () => { if (request === nodeRequest.current) nodeRequest.current += 1; };
+  }, [remoteLocation]);
   useEffect(() => {
     const refresh = () => { void refreshSystem(); };
     addEventListener("focus", refresh);
@@ -490,6 +515,7 @@ export function App() {
       nodeView.current = null;
       setNodeUpdates(null);
       sidebarRequest.current += 1;
+      setRemoteLocation(launchedRemoteLocation());
       setPath(pathFromLocation());
       setNode(null);
     };
@@ -865,6 +891,20 @@ export function App() {
   const queryAsUrl = query.startsWith("~")
     ? home ? `${home}${query.slice(1)}` : null
     : query.startsWith("system:") ? `/${query}` : query;
+  const navigateRemote = useCallback((targetPath: string) => {
+    const boundary = remoteNode?.enclosingTree?.httpURL;
+    if (!boundary) return;
+    const suffix = targetPath === "/"
+      ? ""
+      : `/${targetPath.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
+    const nextURL = `${boundary.replace(/\/$/, "")}${suffix}`;
+    const next = { url: nextURL, claimable: false };
+    const appURL = new URL(location.href);
+    appURL.searchParams.set("browse", nextURL);
+    appURL.searchParams.delete("claimable");
+    history.pushState({}, "", appURL);
+    setRemoteLocation(next);
+  }, [remoteNode]);
 
   return <div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}${remoteLocation ? " remote-browse" : ""}`}>
     <button className="sidebar-backdrop" aria-label="Close workspace sidebar" onClick={() => setMobileSidebarOpen(false)} />
@@ -942,10 +982,10 @@ export function App() {
               nestedCanonicalPath,
             )}
           >Share</button>}
-          {chip && <span className={chip.className}>{chip.label}</span>}
-          {node && <span className="kind">
-            {node.document && (node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") ? "ArborNote · " : ""}
-            {node.kind}{node.collection ? ` · ${node.collection.backing}` : ""}
+          {remoteNode ? <span className="scope-chip tracked">remote · read-only</span> : chip && <span className={chip.className}>{chip.label}</span>}
+          {(remoteNode ?? node) && <span className="kind">
+            {(remoteNode ?? node)!.document && ["markdown", "directory", "collection"].includes((remoteNode ?? node)!.kind) ? "ArborNote · " : ""}
+            {(remoteNode ?? node)!.kind}{(remoteNode ?? node)!.collection ? ` · ${(remoteNode ?? node)!.collection!.backing}` : ""}
           </span>}
           <button
             className="profile-button"
@@ -965,7 +1005,11 @@ export function App() {
           setProfileOpen(true);
         }}>Claim profile</button>
         <small>First successful claim wins.</small>
-      </div> : <iframe className="remote-browser-frame" title={remoteLocation.url} src={remoteLocation.url} /> : !path ? <div className="home-surface">
+      </div> : error ? <div className="empty error">{error}</div> : !remoteNode ? <div className="empty">Loading…</div>
+        : remoteNode.document && (remoteNode.kind === "markdown" || remoteNode.kind === "directory")
+          ? <ReadOnlyPage node={remoteNode} projection={remoteProjection} navigate={navigateRemote} />
+          : <div className="file-surface"><div className="file-glyph">◇</div><h1>{remoteNode.name}</h1><p>This remote file is not a Markdown document.</p></div>
+      : !path ? <div className="home-surface">
         <h1>Arbor</h1>
         <p className="home-hint">Browse ordinary files anywhere. Claim your profile, then share a subtree at a stable community address.</p>
         <div className="home-roots">

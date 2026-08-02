@@ -477,6 +477,11 @@ function startArborServer(
         if (request.method === "GET" && url.pathname === "/v1/node") {
           return json(await service.snapshot(queryRef(url)));
         }
+        if (request.method === "GET" && url.pathname === "/v1/remote") {
+          const locator = url.searchParams.get("url");
+          if (!locator) throw new ProtocolError("invalid-reference", "Remote URL is required", 400);
+          return json(await service.remoteSnapshot(locator));
+        }
         if (request.method === "GET" && url.pathname === "/v1/children") {
           return json(await service.children(queryRef(url), url.searchParams.get("cursor")));
         }

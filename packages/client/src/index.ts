@@ -242,6 +242,11 @@ export class ArbordClient {
     return this.hydrateNode(await this.nodeSnapshot(ref));
   }
 
+  /** Fetch one unplaced canonical node through arbord's read-only wire proxy. */
+  remoteNode(locator: string): Promise<NodeSnapshot> {
+    return this.request(`/v1/remote?url=${encodeURIComponent(locator)}`);
+  }
+
   /**
    * Open a node with its derived directory projection. The raw view's
    * snapshot/event handoff is preserved: observation starts at the initial

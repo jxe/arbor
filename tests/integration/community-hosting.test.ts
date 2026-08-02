@@ -151,7 +151,9 @@ describe("community-mounted profiles and sharing", () => {
     );
     const stable = await fetch(`${host.url}/~editors/handbook/welcome.md`);
     expect(stable.status).toBe(200);
-    expect(await stable.text()).toContain("pg_welcome");
+    expect(await stable.text()).toContain("<h1>Welcome</h1>");
+    expect(await fetch(`${host.url}/~editors/handbook/welcome.md`, { headers: { accept: "text/markdown" } }).then((response) => response.text()))
+      .toContain("pg_welcome");
     expect((await owner.resolve("/~editors/handbook/welcome.md")).id).toBe(handbook.id);
     expect((await owner.resolve("/~editors/news.md")).id).toBe(editors.id);
     expect((await owner.ref(handbook.id)).id).toBe(handbook.id);
@@ -289,7 +291,8 @@ describe("community-mounted profiles and sharing", () => {
 
       const profileIndex = join(profilePath, "_index.md");
       const beforeDiskEdit = await readFile(profileIndex, "utf8");
-      await writeFile(profileIndex, beforeDiskEdit.replace(/^# .+$/m, "# Owner changed on disk"));
+      await writeFile(profileIndex, beforeDiskEdit.replace(/^# .+$/m, "# Owner changed on disk")
+        + "\nWelcome, **friends**.\n\n- One\n- Two\n");
       const control = await serveArborControl({ port: 0 });
       try {
         let published = "";
@@ -299,8 +302,17 @@ describe("community-mounted profiles and sharing", () => {
           await Bun.sleep(100);
         }
         expect(published).toContain("Owner changed on disk");
-        expect(await fetch(`${host.url}/~owner`).then((response) => response.text()))
-          .toContain("<h1>Owner changed on disk</h1>");
+        const profileHTML = await fetch(`${host.url}/~owner`).then((response) => response.text());
+        expect(profileHTML).toContain("<h1>Owner changed on disk</h1>");
+        expect(profileHTML).toContain("Welcome, <strong>friends</strong>.");
+        expect(profileHTML).toContain("href=\"/~owner/atlas\"");
+        const remoteProfile = await control.service.remoteSnapshot(`${host.url}/~owner`);
+        expect(remoteProfile).toMatchObject({ kind: "directory", writable: false, name: "Owner changed on disk" });
+        expect(remoteProfile.document?.bodySource).toContain("Welcome, **friends**.");
+        expect(remoteProfile.children?.map((child) => child.name)).toContain("atlas");
+        const remoteNote = await control.service.remoteSnapshot(`${host.url}/~owner/atlas/note`);
+        expect(remoteNote).toMatchObject({ kind: "markdown", writable: false });
+        expect(remoteNote.document?.bodySource).toContain("External atlas");
       } finally {
         control.server.stop(true);
         await control.service[Symbol.asyncDispose]();

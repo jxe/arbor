@@ -29,7 +29,7 @@ interface CanonicalBoundary {
 
 The raw `arbor://tree/<TreeID>` form remains the identity fallback and does not by itself reveal an authority.
 
-The host's public HTTP projection treats a directory's `_index.md` as its authored page metadata. Its first level-one heading supplies the visible page and document title, with the canonical path segment used only as a fallback; `_index.md` remains hidden from the child listing.
+The host's public HTTP projection parses the same Arbor Markdown block model as TreeHopper and renders a no-JavaScript, non-editable document surface with matching content width, typography, block spacing, lists, child rows, code, images, toggles, footnotes, and safe raw-Markdown fallbacks. A directory's `_index.md` is its authored body; unmentioned accessible children are projected below it and `_index.md` is never a child row. Inaccessible nested boundaries are omitted. Extensionless URLs are canonical for Markdown pages. An HTTP request whose `Accept` header includes `text/markdown` receives the untouched stored Markdown instead of HTML. Untrusted authored HTML and unsafe URL schemes are escaped rather than executed.
 
 ## 2. Promotion and placement
 

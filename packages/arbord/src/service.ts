@@ -21,7 +21,7 @@ import { LOCAL_TREE, SYSTEM_TREE, canonicalJSONString, canonicalNodePath, revisi
 import { parseMarkdown } from "@arbor/editor";
 import { FsConflictError, MutationJournal } from "@arbor/fs";
 import { CommunityConfigStore, arborDataRoot } from "@arbor/stores";
-import { WireClient, materializeTree, snapshotDirectory, type RemoteTreeDescriptor } from "@arbor/wire";
+import { WireClient, decodeWireObject, materializeTree, snapshotDirectory, type RemoteTreeDescriptor } from "@arbor/wire";
 import { EventBus } from "./events.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
 import { TreeManager } from "./tree-manager.ts";
@@ -196,6 +196,121 @@ export class ArborService implements AsyncDisposable {
     if (scope.kind === "root") return scope.workspace.snapshot(scope.ref);
     if (scope.kind === "local") return this.localFs.snapshot(scope.path);
     return this.systemSnapshot(scope.path);
+  }
+
+  /** Resolve one unplaced canonical URL into a read-only, in-memory node. */
+  async remoteSnapshot(locatorInput: string): Promise<NodeSnapshot> {
+    let locator: URL;
+    try { locator = new URL(locatorInput); }
+    catch { throw new ProtocolError("invalid-reference", "Remote browsing requires an HTTP or Arbor URL", 400); }
+    if (!["http:", "https:", "arbor:"].includes(locator.protocol) || (locator.protocol === "arbor:" && locator.hostname === "tree")) {
+      throw new ProtocolError("invalid-reference", "Remote browsing requires a canonical community URL", 400);
+    }
+    const origin = locator.protocol === "arbor:"
+      ? `${locator.hostname === "localhost" || locator.hostname === "127.0.0.1" ? "http" : "https"}://${locator.host}`
+      : locator.origin;
+    const canonicalPath = `/${locator.pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`;
+    const configured = await this.communityConfig.get();
+    const client = new WireClient(origin, configured?.record.origin === origin ? configured.accountToken : undefined);
+    let remote: RemoteTreeDescriptor & { path: string };
+    try { remote = await client.resolve(canonicalPath || "/"); }
+    catch { throw new ProtocolError("not-found", `The Arbor page is unavailable: ${origin}${canonicalPath}`, 404); }
+
+    const parts = remote.path.split("/").filter(Boolean);
+    let hash = remote.ref;
+    let objectName = parts.at(-1) ?? remote.canonicalPath.split("/").filter(Boolean).at(-1) ?? "community";
+    for (const [index, part] of parts.entries()) {
+      const current = decodeWireObject(await client.object(hash));
+      if (current.type !== "directory") throw new ProtocolError("not-found", "The remote path is unavailable", 404);
+      const entry = current.entries.find((candidate) => candidate.name === part)
+        ?? current.entries.find((candidate) => candidate.name === `${part}.md`);
+      if (!entry?.hash) throw new ProtocolError("not-found", "The remote path is unavailable", 404);
+      if (index === parts.length - 1) objectName = entry.name;
+      hash = entry.hash;
+    }
+    const object = decodeWireObject(await client.object(hash));
+    const observedThrough = this.events.currentCursor();
+    const enclosingTree: TreeDescriptor = {
+      id: remote.id,
+      name: remote.canonicalPath.split("/").filter(Boolean).at(-1) ?? "community",
+      canonical: remote.arborURL,
+      canonicalPath: remote.canonicalPath,
+      httpURL: remote.httpURL,
+      endpoint: origin,
+      publicAccess: remote.publicAccess,
+      access: "read",
+      placement: "remote",
+      sync: "idle",
+    };
+    const base = {
+      tree: remote.id,
+      enclosingTree,
+      writable: false,
+      materialization: "available" as const,
+      observedThrough,
+      diagnostics: [],
+    };
+    if (object.type === "file") {
+      const markdown = objectName.endsWith(".md");
+      const source = new TextDecoder().decode(object.bytes);
+      const document = markdown ? parseMarkdown(source) : undefined;
+      const authoredTitle = document?.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
+      return {
+        ...base,
+        ref: { tree: remote.id, path: canonicalNodePath(remote.path) },
+        path: canonicalNodePath(remote.path),
+        name: authoredTitle || (markdown ? objectName.slice(0, -3) : objectName),
+        kind: markdown ? "markdown" : "file",
+        ...(markdown ? {
+          contentRevision: revisionOf(source),
+          bodyState: "stored" as const,
+          document,
+        } : {}),
+      };
+    }
+
+    const index = object.entries.find((entry) => entry.name === "_index.md" && entry.hash);
+    const indexObject = index?.hash ? decodeWireObject(await client.object(index.hash)) : null;
+    const source = indexObject?.type === "file" ? new TextDecoder().decode(indexObject.bytes) : "";
+    const document = parseMarkdown(source);
+    const authoredTitle = document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
+    const currentCanonicalPath = `${remote.canonicalPath === "/" ? "" : remote.canonicalPath}${remote.path === "/" ? "" : remote.path}` || "/";
+    const children = (await Promise.all(object.entries
+      .filter((entry) => entry.name !== "_index.md")
+      .map(async (entry) => {
+        const childObject = entry.hash ? decodeWireObject(await client.object(entry.hash)) : null;
+        const markdown = childObject?.type === "file" && entry.name.endsWith(".md");
+        const name = markdown ? entry.name.slice(0, -3) : entry.name;
+        if (entry.tree) {
+          const accessible = await client.resolve(`${currentCanonicalPath.replace(/\/$/, "")}/${name}`).then(() => true).catch(() => false);
+          if (!accessible) return null;
+        }
+        const path = canonicalNodePath(`${remote.path === "/" ? "" : remote.path}/${name}`);
+        const childDocument = markdown && childObject?.type === "file"
+          ? parseMarkdown(new TextDecoder().decode(childObject.bytes))
+          : null;
+        const pageID = childDocument && typeof childDocument.frontmatter.id === "string" ? childDocument.frontmatter.id : undefined;
+        return {
+          name,
+          path,
+          kind: entry.tree || childObject?.type === "directory" ? "directory" as const : markdown ? "markdown" as const : "file" as const,
+          materialization: "available" as const,
+          ...(pageID ? { pageID } : {}),
+        };
+      }))).filter((child): child is NonNullable<typeof child> => child !== null);
+    return {
+      ...base,
+      ref: { tree: remote.id, path: canonicalNodePath(remote.path) },
+      path: canonicalNodePath(remote.path),
+      name: authoredTitle || objectName,
+      kind: "directory",
+      contentRevision: revisionOf(source),
+      directoryRevision: revisionOf(children.map((child) => `${child.path}:${child.kind}`).join("\n")),
+      bodyState: indexObject?.type === "file" ? "stored" : "implicit",
+      ...(indexObject?.type === "file" ? { bodyOrigin: "index" as const } : {}),
+      document,
+      children,
+    };
   }
 
   async children(ref: NodeRef, cursor?: string | null): Promise<ChildrenPage> {
