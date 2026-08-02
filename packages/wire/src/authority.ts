@@ -436,6 +436,16 @@ export class WireAuthority implements AsyncDisposable {
     return row ? this.account(row.id) : null;
   }
 
+  resetAccountToken(handle: string, token: string): AuthorityAccount {
+    if (!/^arb_[a-f0-9]{64}$/.test(token)) {
+      throw new Error("A replacement account token must be arb_ followed by 64 lowercase hexadecimal characters");
+    }
+    const account = this.accountByHandle(handle);
+    if (!account) throw new Error(`Unknown account: ~${handle}`);
+    this.db.run("UPDATE accounts SET token_digest = ? WHERE id = ?", [sha256(token), account.id]);
+    return this.account(account.id)!;
+  }
+
   community(): AuthorityTree {
     const community = this.boundary("/");
     if (!community) throw new Error("Community profile is missing");

@@ -223,6 +223,15 @@ describe("community-mounted profiles and sharing", () => {
         operations: [{ op: "placeTree", tree: profile.id, path: profilePath }],
       });
       expect(await placedRemotePath(browseTarget(`${host.url}/~owner`), service)).toBe(await realpath(profilePath));
+      const stalePlacement = service.trees.placementFor(profile.id)!;
+      if (stalePlacement.source === "local") throw new Error("Expected a shared owner placement");
+      await service.trees.applySharedPlacement({ ...stalePlacement, access: "read" });
+      await service.executeMutation({
+        mutationID: "reconnect-owner",
+        operations: [{ op: "connectCommunity", origin: host.url, accountToken: ownerToken }],
+      });
+      const reconnectedPlacement = service.trees.placementFor(profile.id)!;
+      expect(reconnectedPlacement.source === "local" ? undefined : reconnectedPlacement.access).toBe("write");
       const promoted = await service.executeMutation({
         mutationID: "share-external-atlas",
         operations: [{
@@ -288,6 +297,10 @@ test("a fresh claim-first authority reserves and grants its first community writ
     const claimed = await authority.claim("joe", await snapshotDirectory(source));
     expect(claimed.tree.canonicalPath).toBe("/~joe");
     expect(authority.canWrite(claimed.account, authority.community().id)).toBe(true);
+    const replacementToken = `arb_${"a".repeat(64)}`;
+    authority.resetAccountToken("joe", replacementToken);
+    expect(authority.accountByToken(claimed.token)).toBeNull();
+    expect(authority.accountByToken(replacementToken)?.id).toBe(claimed.account.id);
     await expect(authority.claim("joe", await snapshotDirectory(source))).rejects.toThrow("already claimed");
   } finally {
     await authority[Symbol.asyncDispose]();

@@ -41,4 +41,6 @@ The first command warns that it created a private boundary. The second creates t
 - **`arbor connection set|test|remove <name>`** — administer safe database references while storing DSNs in the operating-system credential store.
 - **`arbor run <locator> [--input …]`**, **`arbor bake <locator>`**, and **`arbor deploy <locator> [--watch]`** retain their script/publication meanings.
 
-One host represents one community. Cross-community membership, multiple simultaneously active local identities, boundary aliases/moves, and claim recovery/reset are deferred.
+One host represents one community. Cross-community membership, multiple simultaneously active local identities, boundary aliases/moves, and end-user claim recovery/dispute resolution are deferred.
+
+An operator-controlled development escape hatch can rotate a known account credential without changing its profile tree: set `ARBOR_RESET_ACCOUNT=<handle>` and a replacement `ARBOR_ACCOUNT_TOKEN` on the host for one restart, then remove the reset variable. The replacement must be `arb_` followed by 64 lowercase hexadecimal characters. Arbor never prints it. This is deployment recovery plumbing, not end-user claim recovery or dispute resolution.

@@ -4,9 +4,18 @@ import { sha256 } from "@arbor/core";
 import { arborDataRoot, prepareArborDataRoot } from "./private-state.ts";
 
 const SERVICE = "org.arbor.community-account";
-const NAME = "active";
 const LEGACY_SERVICE = "org.arbor.personal-server";
 const LEGACY_NAME = "owner";
+
+export function communityCredentialName(dataRoot = arborDataRoot()): string {
+  return `active-${sha256(dataRoot).slice(0, 16)}`;
+}
+
+function credentialLocation(reference: string): { service: string; name: string } | null {
+  const separator = reference.lastIndexOf("/");
+  if (separator <= 0 || separator === reference.length - 1) return null;
+  return { service: reference.slice(0, separator), name: reference.slice(separator + 1) };
+}
 
 export interface CommunityAccountMetadata {
   id: string;
@@ -27,6 +36,7 @@ export interface SafeCommunityRecord extends CommunityAccountMetadata {
 export class CommunityConfigStore {
   private path = join(arborDataRoot(), "system", "community.md");
   private legacyPath = join(arborDataRoot(), "system", "server.md");
+  private credentialName = communityCredentialName();
 
   async set(
     originInput: string,
@@ -39,11 +49,11 @@ export class CommunityConfigStore {
     const record: SafeCommunityRecord = {
       ...metadata,
       origin,
-      credential: `${SERVICE}/${NAME}`,
+      credential: `${SERVICE}/${this.credentialName}`,
       tokenDigest: sha256(accountToken),
       connected: true,
     };
-    await Bun.secrets.set({ service: SERVICE, name: NAME, value: accountToken });
+    await Bun.secrets.set({ service: SERVICE, name: this.credentialName, value: accountToken });
     await mkdir(join(arborDataRoot(), "system"), { recursive: true, mode: 0o700 });
     await writeFile(this.path, [
       "---",
@@ -99,12 +109,16 @@ export class CommunityConfigStore {
   async get(): Promise<{ record: SafeCommunityRecord; accountToken: string } | null> {
     const record = await this.safe();
     if (!record) return null;
-    const accountToken = await Bun.secrets.get({ service: SERVICE, name: NAME });
-    return accountToken ? { record, accountToken } : null;
+    const location = credentialLocation(record.credential);
+    if (!location) return null;
+    const accountToken = await Bun.secrets.get(location);
+    return accountToken && sha256(accountToken) === record.tokenDigest ? { record, accountToken } : null;
   }
 
   async remove(): Promise<void> {
-    await Bun.secrets.delete({ service: SERVICE, name: NAME });
+    const record = await this.safe();
+    const location = record ? credentialLocation(record.credential) : null;
+    await Bun.secrets.delete(location ?? { service: SERVICE, name: this.credentialName });
     await rm(this.path, { force: true });
   }
 

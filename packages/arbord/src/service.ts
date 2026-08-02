@@ -714,6 +714,16 @@ export class ArborService implements AsyncDisposable {
     const origin = new URL(originInput).origin;
     const account = await new WireClient(origin, accountToken).account();
     await this.communityConfig.set(origin, accountToken, this.accountMetadata(account));
+    for (const writable of account.writableProfiles) {
+      const placement = this.trees.placementFor(writable.id);
+      if (!placement || placement.source === "local") continue;
+      await this.trees.applySharedPlacement({
+        ...placement,
+        ref: writable.ref,
+        access: "write",
+        publicAccess: writable.publicAccess,
+      });
+    }
     return [{ kind: "updated", tree: SYSTEM_TREE, path: "/community" }];
   }
 

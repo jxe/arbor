@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { browseTarget } from "../../packages/cli/src/index.ts";
 import { resolveUserPath } from "@arbor/arbord";
+import { communityCredentialName } from "@arbor/stores";
 
 describe("arbor browse operands", () => {
   test("resolves local filesystem paths", () => {
@@ -22,5 +23,12 @@ describe("arbor browse operands", () => {
 
   test("expands a typed home-relative profile path", () => {
     expect(resolveUserPath("~/.arbor/profile", "/Users/alice")).toBe("/Users/alice/.arbor/profile");
+  });
+
+  test("isolates active credentials by Arbor data home", () => {
+    expect(communityCredentialName("/Users/alice/.arbor"))
+      .not.toBe(communityCredentialName("/tmp/arbor-e2e-state"));
+    expect(communityCredentialName("/Users/alice/.arbor"))
+      .toBe(communityCredentialName("/Users/alice/.arbor"));
   });
 });

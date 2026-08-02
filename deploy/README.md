@@ -44,21 +44,37 @@ From this checkout on your own Mac:
 ```sh
 bun install
 bun run build:web
-bun run dev -- ~/Arbor
+bun run arbor browse https://garden.example.com/~joe
 ```
 
 In TreeHopper:
 
-1. Open the persistent profile control in the top-right corner.
-2. Paste the complete reserved profile URL, for example `https://garden.example.com/~joe`.
-3. Choose a visible local folder such as `/Users/joe/Arbor/joe`.
-4. Select **Claim profile**.
+1. Select **Claim profile** on the empty reserved profile.
+2. Choose a visible local folder such as `~/.arbor/profile`.
+3. Select **Claim profile** in the sheet.
 
 The local arbord creates or validates a `type: person` profile, submits it to the remote authority, stores the returned device credential in the operating-system credential store, and mounts the profile locally. No claim credential appears in the browser URL, shell history, Arbor content, or server logs.
 
 After claiming, create a small folder elsewhere on the Mac and use **Share** to publish it at `/~joe/test` with **Public read**. Verify `https://garden.example.com/~joe/test` remotely. The source folder should remain at its original OS path and should not appear as a duplicate inside the physical profile folder.
 
-First-claim-wins is deliberately the current v1 policy. Claim the first-writer profile promptly and treat this deployment as disposable until claim recovery and administrative reset exist.
+First-claim-wins is deliberately the current v1 policy. Claim the first-writer profile promptly and treat this deployment as disposable until end-user recovery and dispute resolution exist.
+
+### Development credential reset
+
+If a trial device credential is lost, the community operator can rotate that account's token without changing its profile tree or content:
+
+1. Generate a replacement locally and keep the resulting value private:
+
+   ```sh
+   printf 'arb_'; openssl rand -hex 32
+   ```
+
+2. Temporarily add two Railway service variables: `ARBOR_RESET_ACCOUNT=joe` and `ARBOR_ACCOUNT_TOKEN=<the replacement>`.
+3. Deploy the current Arbor version once. The server reports only that the credential was reset; it never prints the token.
+4. On the local device, run `arbor connect https://garden.example.com` and paste the replacement when prompted.
+5. Remove both temporary Railway variables and redeploy normally.
+
+This is an operator escape hatch for disposable development hosts, not a public recovery or claim-dispute protocol.
 
 ## VPS with Docker Compose
 
