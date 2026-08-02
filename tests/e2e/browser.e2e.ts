@@ -620,10 +620,9 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   await page.getByRole("button", { name: "Community and profile" }).click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Disconnect" }).click();
-  await page.goto(promotable(""));
+  await page.goto(`${promotable("")}?claim=${encodeURIComponent(`${HOST_ORIGIN}/~alice`)}`);
   await expect(page.getByRole("button", { name: "Share" })).toBeDisabled();
-  await page.getByRole("button", { name: "Community and profile" }).click();
-  await page.getByRole("textbox", { name: "Reserved profile URL" }).fill(`${HOST_ORIGIN}/~alice`);
+  await expect(page.getByRole("textbox", { name: "Reserved profile URL" })).toHaveValue(`${HOST_ORIGIN}/~alice`);
   await page.getByRole("textbox", { name: "Visible local profile folder" }).fill(ALICE_PROFILE);
   await page.getByRole("button", { name: "Claim profile", exact: true }).click();
   await expect(page.getByRole("button", { name: "Community and profile" })).toHaveText("~alice");

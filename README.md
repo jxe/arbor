@@ -7,7 +7,7 @@ A successor to the web built around three concepts: **a workspace**, the tree a 
 
 ## Current implementation
 
-The current implementation is a Bun workspace. `arbor browse <path>` opens the filesystem-wide TreeHopper React/BlockNote browser; ordinary files remain local until they are shared beneath a connected community profile. One host can serve many accounts in a mounted namespace: `/` is the community profile, `/~joe` and `/~editors` are complete person/group profile trees, and longer exact boundaries such as `/~editors/handbook` resolve by longest prefix. Sharing promotes a subtree in place into its own `TreeID`, sync, history, and access boundary without changing its URL. TreeHopper uses the REST v1 TypeScript client in `packages/client`; the matching Foundation-only Swift 6 client lives in `native/Packages/ArborClient`. Start from this checkout with:
+The current implementation is a Bun workspace. `arbor browse <path>` opens the filesystem-wide TreeHopper React/BlockNote browser; passing a reserved profile URL instead opens the local profile control with that claim address filled in. Ordinary files remain local until they are shared beneath a connected community profile. One host can serve many accounts in a mounted namespace: `/` is the community profile, `/~joe` and `/~editors` are complete person/group profile trees, and longer exact boundaries such as `/~editors/handbook` resolve by longest prefix. Sharing promotes a subtree in place into its own `TreeID`, sync, history, and access boundary without changing its URL. TreeHopper uses the REST v1 TypeScript client in `packages/client`; the matching Foundation-only Swift 6 client lives in `native/Packages/ArborClient`. Start from this checkout with:
 
 ```sh
 bun install

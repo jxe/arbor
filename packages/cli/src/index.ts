@@ -9,7 +9,7 @@ import { serveWireHost, WireClient, type CommunityBootstrapAccount } from "@arbo
 
 function usage(): never {
   console.error(`Usage:
-  arbor browse <path> [--port <number>] [--no-open]
+  arbor browse <local-path|reserved-profile-url> [--port <number>] [--no-open]
   arbor connect <community-url>
   arbor sync [--private] [-r <subject>] [-rw <subject>] [--remove <subject>] <local-path> <canonical-url>
   arbor sync <canonical-url> <local-path>
@@ -55,6 +55,20 @@ function canonicalTarget(input: string): CanonicalTarget {
     canonicalPath: canonicalPath === "/" ? "/" : canonicalPath.replace(/\/$/, ""),
     supplied: input.replace(/\/$/, ""),
   };
+}
+
+export interface BrowseTarget {
+  path: string;
+  claimURL?: string;
+}
+
+export function browseTarget(input: string, cwd = process.cwd()): BrowseTarget {
+  if (!/^(?:https?|arbor):\/\//.test(input)) return { path: resolve(cwd, input) };
+  const target = canonicalTarget(input);
+  if (!/^\/~[a-z0-9](?:[a-z0-9-]{0,62})$/.test(target.canonicalPath)) {
+    throw new Error("Remote browsing currently accepts a reserved profile URL; use arbor sync <canonical-url> <local-path> for shared content");
+  }
+  return { path: resolve(cwd), claimURL: target.supplied };
 }
 
 type CliAudienceOperation =
@@ -366,10 +380,11 @@ async function serveCommand(args: string[]): Promise<void> {
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (command === "browse") {
-    const path = args.find((arg) => !arg.startsWith("-")) ?? ".";
+    const input = args.find((arg) => !arg.startsWith("-")) ?? ".";
+    const target = browseTarget(input);
     const portIndex = args.indexOf("--port");
     const port = portIndex >= 0 ? Number(args[portIndex + 1]) : 4317;
-    const { service, workspace, server, start, url } = await serveArbor(resolve(path), { port });
+    const { service, workspace, server, start, url } = await serveArbor(target.path, { port });
     const descriptor = workspace.descriptor();
     const scope = descriptor.placement === "shared"
       ? `shared tree "${descriptor.name}"`
@@ -378,7 +393,9 @@ async function main(): Promise<void> {
         : "ordinary local files";
     console.log(`Arbor is browsing ${start} (${scope})`);
     console.log(url);
-    if (!args.includes("--no-open")) await openBrowser(`${url}/render${start}`);
+    const browserURL = new URL(`${url}/render${start}`);
+    if (target.claimURL) browserURL.searchParams.set("claim", target.claimURL);
+    if (!args.includes("--no-open")) await openBrowser(browserURL.toString());
     const shutdown = async () => {
       server.stop(true);
       await service[Symbol.asyncDispose]();
@@ -432,7 +449,9 @@ async function main(): Promise<void> {
   usage();
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

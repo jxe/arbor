@@ -148,6 +148,11 @@ function reservedProfileTarget(input: string): { origin: string; handle: string 
   }
 }
 
+function launchedClaimURL(): string {
+  const value = new URLSearchParams(location.search).get("claim")?.trim() ?? "";
+  return reservedProfileTarget(value) ? value : "";
+}
+
 export function App() {
   const [path, setPath] = useState(pathFromLocation);
   const [node, setNode] = useState<NodeSnapshot | null>(null);
@@ -175,8 +180,8 @@ export function App() {
   const [treeSlug, setTreeSlug] = useState("");
   const [serverOrigin, setServerOrigin] = useState("");
   const [accountToken, setAccountToken] = useState("");
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [claimURL, setClaimURL] = useState("");
+  const [profileOpen, setProfileOpen] = useState(() => Boolean(launchedClaimURL()));
+  const [claimURL, setClaimURL] = useState(launchedClaimURL);
   const [claimPath, setClaimPath] = useState("");
   const [groupHandle, setGroupHandle] = useState("");
   const [groupPath, setGroupPath] = useState("");

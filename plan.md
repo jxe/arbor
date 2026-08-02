@@ -152,7 +152,7 @@ The profile control owns connection, claim/initialization, public-profile editin
 arbor sync [--private] [-r <subject>] [-rw <subject>] [--remove <subject>] <local-path> <canonical-url>
 arbor sync <canonical-url> <local-path>
 arbor unsync <local-path> [<canonical-url>]
-arbor browse <path>
+arbor browse <local-path|reserved-profile-url>
 arbor serve [data-directory] [--community <handle>] [--first-writer <handle>]
 ```
 
