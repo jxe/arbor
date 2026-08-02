@@ -7,14 +7,26 @@ This file tracks implementation debt and incomplete invariants, not product feat
 
 ## REST protocol and reference clients
 
+### Confirmed v0.8 conformance gaps
+
+These are implementation violations of the aspirational specification. They are recorded here rather than weakening the public contract.
+
+1. **Keep access-link secrets out of loopback URLs and visit records.** Remote link browsing currently allows the raw secret to enter a local URL and durable visit metadata instead of keeping it out of band and sending `X-Arbor-Access` only to the wire host.
+2. **Reject mixed `removeTreePlacement` batches before durable intent.** The operation can pass early system-domain discrimination in a mixed batch and reach intent recording before later rejection.
+3. **Harden Swift projection and malformed-batch validation.** The Swift client can permit projected synthetic rows across the mutation boundary and accepts malformed system-operation batches that the REST contract rejects.
+4. **Retain explicit tree scope in projected children and Swift search.** Some projected child references and Swift search results fall back to path-only identity, becoming ambiguous across mounted boundaries.
+5. **Accept opaque `PageID`s.** Reference clients still treat the legacy six-character lowercase convention as the complete grammar in some paths.
+6. **Implement one-pass percent decoding and deterministic UTF-8 wire ordering.** URL handling must decode only at the external boundary, and directory-object ordering must compare UTF-8 bytes rather than `localeCompare`.
+7. **Expose the v0.8 `system:` shape.** The reference system tree does not yet expose `system:connections` and some records predate the consolidated tree-level profile/access shape.
+
+### Other REST and client debt
+
 1. **Specify copied-subtree identity and link semantics.** Copy correctly remints page IDs while move preserves them, but recursive copy does not yet define whether page-ID links between copied pages should be remapped to the new subtree or continue pointing at the originals. Make that choice normative and test duplicate-page and nested-directory copies before presenting copy as project/folder duplication.
 2. **Stop eagerly draining children when large directories need incremental presentation.** The TypeScript client's `node()` and observed-node view currently drain all fixed-size child pages to preserve TreeHopper's existing UI. Keep the fixed protocol page size, but introduce incremental or virtualized directory presentation before large trees make every navigation fetch the entire listing.
 3. **Share runtime protocol decoding only when another boundary needs it.** Arbord's handwritten validators are becoming substantial, particularly for recursive Markdown block values. If the CLI or another trusted client needs runtime decoding, colocate pure decoders with the browser-safe protocol types in `@arbor/core`; do not introduce schema generation or a general validation framework solely to remove repetition.
 
 4. **Split the wire `NodeSnapshot` from the hydrated client view.** The snapshot carries a top-level `path` duplicating `ref.path`, and an ergonomic `children?` field the wire never sends (clients populate it during hydration). Define the wire type minimally and let each client own its hydrated wrapper, so the REST fixtures describe exactly what crosses the boundary.
 5. **Unify the node-kind vocabulary.** `NodeKind` says `postgres` where `ProtocolNodeKind` says `database`, and `/v1/children` currently leaks raw fs kinds. Normalize to the protocol vocabulary at the arbord boundary (planned as part of the projection work) and collapse the two enums if nothing still needs the distinction.
-6. **State event-replay durability as contract.** The SSE replay window is in-memory and per-process-epoch by design; reconnecting across an epoch resyncs. Say this plainly in `spec/arbord-rest.md` as the permanent contract rather than an implementation limit, so clients are built resync-first and no one waits for persistent replay.
-
 ## Filesystem and structural editing
 
 1. **Make structural undo workspace-scoped.** The current undo stack lives in `PageEditor`, so it covers body-view mutations but is lost on navigation and does not include mutations initiated from the sidebar context menu. Move history ownership above individual page editors and store transaction descriptors rather than closures.

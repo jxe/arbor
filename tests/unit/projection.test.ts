@@ -8,7 +8,7 @@ import {
   type ProjectionInput,
 } from "@arbor/core";
 
-const fixturesDir = join(import.meta.dir, "../fixtures/protocol/projection");
+const fixturesDir = join(import.meta.dir, "../../spec/fixtures/projection");
 
 interface ProjectionFixture {
   name: string;

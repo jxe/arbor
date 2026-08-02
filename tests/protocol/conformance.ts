@@ -27,7 +27,7 @@ try {
     await run(
       ["swift", "test", "--package-path", "native/Packages/ArborClient"],
       {
-        ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../fixtures/protocol"),
+        ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../spec/fixtures"),
         ARBOR_TEST_URL: running.url,
       },
     );

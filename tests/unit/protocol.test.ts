@@ -13,7 +13,7 @@ import type {
 } from "@arbor/core";
 import { canonicalJSONString } from "@arbor/core";
 
-const fixtures = join(import.meta.dir, "../fixtures/protocol");
+const fixtures = join(import.meta.dir, "../../spec/fixtures");
 const json = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(fixtures, name), "utf8")) as T;
 
@@ -106,5 +106,29 @@ describe("REST v1 protocol fixtures", () => {
     const source = await readFile(join(fixtures, "malformed-event.sse"), "utf8");
     const data = JSON.parse(source.split(/\r?\n/).find((line) => line.startsWith("data:"))!.slice(5));
     expect(data.cursor).toBeUndefined();
+  });
+
+  test("publishes registry and wire endpoint conformance vectors", async () => {
+    const registry = await json<{ cases: Array<{ name: string }> }>("trees-yaml.json");
+    const endpoints = await json<{ cases: Array<{ name: string; response: { status: number } }> }>("wire-endpoints.json");
+    expect(registry.cases.map((item) => item.name)).toEqual(expect.arrayContaining([
+      "valid-empty",
+      "valid-shared",
+      "comments-and-order-survive-edit",
+      "duplicate-key",
+      "unknown-field",
+      "source-tree-mismatch",
+      "noncanonical-path",
+      "malformed-replacement-retains-active",
+      "nested-placement-excluded-from-parent",
+      "remove-placement-preserves-data",
+    ]));
+    expect(endpoints.cases.map((item) => item.name)).toEqual([
+      "read-ref",
+      "push-conflict",
+      "link-read",
+      "watch-ref",
+    ]);
+    expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 409, 200, 200]);
   });
 });

@@ -13,6 +13,24 @@ import {
 } from "@arbor/wire";
 
 describe("canonical tree objects", () => {
+  test("matches the language-neutral canonical object vectors", async () => {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/fixtures/wire-objects.json"), "utf8")) as {
+      objects: Array<{
+        model: { type: "file"; bytesBase64: string } | { type: "directory"; entries: Array<{ name: string; hash?: string; tree?: string }> };
+        canonicalCborBase64: string;
+        hash: string;
+      }>;
+    };
+    for (const vector of fixture.objects) {
+      const object = vector.model.type === "file"
+        ? { type: "file" as const, bytes: Uint8Array.from(Buffer.from(vector.model.bytesBase64, "base64")) }
+        : vector.model;
+      const bytes = encodeWireObject(object);
+      expect(Buffer.from(bytes).toString("base64")).toBe(vector.canonicalCborBase64);
+      expect(hashObject(bytes)).toBe(vector.hash);
+    }
+  });
+
   test("encodes maps deterministically and hashes exact DAG-CBOR bytes", () => {
     const left = encodeCanonicalCBOR({ z: 1, a: { y: true, x: "value" } });
     const right = encodeCanonicalCBOR({ a: { x: "value", y: true }, z: 1 });

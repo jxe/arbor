@@ -40,11 +40,13 @@ The implemented foundation is summarized here only to establish what later miles
 The durable product contracts live in the topic specifications rather than this roadmap:
 
 - [wire and community authority](spec/wire.md) owns canonical boundaries, promotion, profiles, claims, access, objects, refs, and HTTP projection;
-- [locators](spec/locators.md) owns canonical names, raw TreeID fallback, revision pins, and resolution;
-- [browser](spec/browser.md) owns browsing, profile control, Claim, Share, and access UI;
+- [locators](spec/locators.md) owns canonical names, raw TreeID fallback, immutable revision selection, and resolution;
+- [client](spec/client.md) owns UI-independent resolution, source preservation, projection, provenance, retry/resync, and secret handling;
+- [TreeHopper reference design](docs/treehopper.md) owns profile controls, Claim, Share, labels, Home, and interaction design;
 - [CLI](spec/cli.md) owns command forms and deployment arguments;
-- [`system:` and placements](spec/system.md) owns safe account state, credentials, placements, overlays, and local ceilings;
+- [`system:` and placements](spec/system.md) owns the data home, `trees.yaml`, safe account state, credentials, visits, nested placements, and local durability;
 - [arbord REST](spec/arbord-rest.md) owns the local client and mutation boundary.
+- [stores](spec/stores.md), [scripts](spec/scripts.md), and [agents](spec/agents.md) own their respective authored/runtime contracts.
 
 ---
 
@@ -172,6 +174,18 @@ Unless an accepted milestone supplies a concrete need:
 - no universal durable identity for every ordinary local file;
 - no generic store, transport, credential, or deployment plugin framework;
 - no production HA, horizontal-scaling, or retention subsystem.
+
+## Open problems
+
+These are unresolved design questions, not hidden implementation status:
+
+1. **Shared-tree recovery and endpoint movement.** A stable `TreeID` needs a durable, verifiable way to refresh endpoint hints without recreating a central registry.
+2. **Identity and recovery UX.** Device replacement, profile recovery, and disputes need understandable proof-of-control flows without turning local arbord into a multi-user account service.
+3. **Merge semantics.** Text has three-way merge; structured collections and whole-database SQLite revisions need backing-appropriate logical conflict semantics.
+4. **Determinism discipline.** Query and agent-tool runtimes must keep clock, randomness, I/O, and runtime upgrades from changing supposedly deterministic results.
+5. **Compiler correctness.** Handle extraction, validator generation, realm separation, and access inference are security boundaries and need independent verification.
+6. **Schema evolution.** Mounted consumers may remain on older shapes while a shared tree or external database changes schema.
+7. **Consent precision.** Prefix declarations are enforcement-true but may be broader than actual reads/writes; computed paths must remain visibly broad rather than producing false reassurance.
 
 ## Planning reference
 

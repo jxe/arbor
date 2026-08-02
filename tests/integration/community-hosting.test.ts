@@ -455,6 +455,29 @@ describe("community-mounted profiles and sharing", () => {
       await service[Symbol.asyncDispose]();
     }
   });
+
+  test("coalesces a sibling Markdown body with its directory in remote snapshots", async () => {
+    const state = join(sandbox, "sibling-remote-state");
+    process.env.ARBOR_DATA_HOME = state;
+    const source = join(sandbox, "sibling-remote-source");
+    await mkdir(join(source, "guide"), { recursive: true });
+    await writeFile(join(source, "guide.md"), "---\nid: guide-page\n---\n\n# Remote guide\n\nVisible sibling body.\n");
+    await writeFile(join(source, "guide", "chapter.md"), "# Chapter\n");
+    await owner.create("/~owner/sibling-remote", await snapshotDirectory(source), { publicAccess: "read" });
+
+    const service = await ArborService.openControl();
+    try {
+      const snapshot = await service.remoteSnapshot(`${host.url}/~owner/sibling-remote/guide`);
+      expect(snapshot.bodyState).toBe("stored");
+      expect(snapshot.bodyOrigin).toBe("sibling");
+      expect(snapshot.document?.frontmatter.id).toBe("guide-page");
+      expect(snapshot.document?.bodySource).toContain("Visible sibling body.");
+      expect(snapshot.children?.map((child) => child.name)).toEqual(["chapter"]);
+    } finally {
+      await service[Symbol.asyncDispose]();
+      await new CommunityConfigStore().remove();
+    }
+  });
 });
 
 test("a fresh claim-first authority reserves and grants its first community writer", async () => {

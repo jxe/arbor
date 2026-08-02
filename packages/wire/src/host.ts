@@ -13,7 +13,7 @@ import {
   type TreeAccess,
 } from "./authority.ts";
 import { WireClient, type RemoteAccountDescriptor, type RemoteTreeDescriptor } from "./client.ts";
-import { decodeWireObject, type ObjectHash } from "./objects.ts";
+import { decodeWireObject, resolveWireLogicalNode, type ObjectHash } from "./objects.ts";
 import { renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
 
 function json(value: unknown, status = 200): Response {
@@ -363,29 +363,11 @@ export async function serveWireHost(options: {
               ? linkBootstrap()
               : new Response("Not found", { status: 404 });
           }
-          const parts = resolved.path.split("/").filter(Boolean);
           let tree = resolved.tree;
-          let hash = tree.ref;
-          let objectName = parts.at(-1) ?? tree.canonicalPath.split("/").at(-1) ?? "Arbor";
-          for (const [index, part] of parts.entries()) {
-            const current = decodeWireObject(await authority.object(hash));
-            if (current.type !== "directory") return new Response("Not found", { status: 404 });
-            const entry = current.entries.find((candidate) => candidate.name === part)
-              ?? current.entries.find((candidate) => candidate.name === `${part}.md`);
-            if (!entry) return new Response("Not found", { status: 404 });
-            if (index === parts.length - 1) objectName = entry.name;
-            if (entry.tree) {
-              const nested = authority.get(entry.tree);
-              if (!nested || !authority.canRead(account, nested.id, linkDigest(request))) return new Response("Not found", { status: 404 });
-              tree = nested;
-              hash = tree.ref;
-              continue;
-            }
-            if (!entry.hash) return new Response("Not found", { status: 404 });
-            hash = entry.hash;
-            if (index < parts.length - 1) continue;
-          }
-          const objectValue = decodeWireObject(await authority.object(hash));
+          const logical = await resolveWireLogicalNode(tree.ref, resolved.path, (hash) => authority.object(hash));
+          if (!logical) return new Response("Not found", { status: 404 });
+          const objectValue = logical.object;
+          const objectName = logical.objectName || tree.canonicalPath.split("/").at(-1) || "Arbor";
           if (objectValue.type === "file") {
             const body = new TextDecoder().decode(objectValue.bytes);
             if (objectName.endsWith(".md")) {
@@ -409,9 +391,7 @@ export async function serveWireHost(options: {
             ) as ArrayBuffer);
           }
           const prefix = url.pathname.replace(/\/$/, "");
-          const index = objectValue.entries.find((entry) => entry.name === "_index.md" && entry.hash);
-          const indexObject = index?.hash ? decodeWireObject(await authority.object(index.hash)) : null;
-          const source = indexObject?.type === "file" ? new TextDecoder().decode(indexObject.bytes) : "";
+          const source = logical.body ? new TextDecoder().decode(logical.body.bytes) : "";
           if (request.headers.get("accept")?.includes("text/markdown")) {
             return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
           }
@@ -433,7 +413,7 @@ export async function serveWireHost(options: {
             }))).filter((child): child is PublicPageChild => child !== null);
           return html(renderPublicMarkdownPage({
             source,
-            fallbackTitle: parts.at(-1) ?? tree.canonicalPath.split("/").filter(Boolean).at(-1) ?? authority.communityHandle(),
+            fallbackTitle: resolved.path.split("/").filter(Boolean).at(-1) ?? tree.canonicalPath.split("/").filter(Boolean).at(-1) ?? authority.communityHandle(),
             origin: publicOrigin,
             treeCanonicalPath: tree.canonicalPath,
             documentPath: resolved.path,

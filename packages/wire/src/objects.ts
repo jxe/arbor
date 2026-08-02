@@ -24,6 +24,14 @@ export interface WireDirectory {
 
 export type WireObject = WireFile | WireDirectory;
 
+export interface ResolvedWireLogicalNode {
+  object: WireObject;
+  objectName: string;
+  body?: WireFile;
+  bodyOrigin?: "sibling" | "index";
+  duplicateBody: boolean;
+}
+
 export interface TreeSnapshot {
   root: ObjectHash;
   objects: Map<ObjectHash, Uint8Array>;
@@ -69,6 +77,88 @@ export function decodeWireObject(bytes: Uint8Array): WireObject {
     return { type: "directory", entries };
   }
   throw new Error("Unknown wire object");
+}
+
+async function loadWireObject(
+  hash: ObjectHash,
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+): Promise<WireObject> {
+  const bytes = await load(hash);
+  if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
+  return decodeWireObject(bytes);
+}
+
+async function directoryBody(
+  directory: WireDirectory,
+  sibling: WireDirectoryEntry | undefined,
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+): Promise<Pick<ResolvedWireLogicalNode, "body" | "bodyOrigin" | "duplicateBody">> {
+  const index = directory.entries.find((entry) => entry.name === "_index.md" && entry.hash);
+  const [siblingObject, indexObject] = await Promise.all([
+    sibling?.hash ? loadWireObject(sibling.hash, load) : null,
+    index?.hash ? loadWireObject(index.hash, load) : null,
+  ]);
+  if (siblingObject && siblingObject.type !== "file") throw new Error("Sibling Markdown body must be a file");
+  if (indexObject && indexObject.type !== "file") throw new Error("Directory _index.md body must be a file");
+  if (siblingObject?.type === "file") {
+    return {
+      body: siblingObject,
+      bodyOrigin: "sibling",
+      duplicateBody: indexObject?.type === "file",
+    };
+  }
+  if (indexObject?.type === "file") {
+    return { body: indexObject, bodyOrigin: "index", duplicateBody: false };
+  }
+  return { duplicateBody: false };
+}
+
+/**
+ * Resolve an extensionless logical path over the physical wire graph. A
+ * sibling `x.md` supplies `/x`'s body while `x/` supplies its children, with
+ * `x/_index.md` as fallback exactly as in the filesystem driver.
+ */
+export async function resolveWireLogicalNode(
+  root: ObjectHash,
+  path: string,
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+): Promise<ResolvedWireLogicalNode | null> {
+  const parts = path.split("/").filter(Boolean);
+  let object = await loadWireObject(root, load);
+  if (!parts.length) {
+    if (object.type !== "directory") return { object, objectName: "", duplicateBody: false };
+    return { object, objectName: "", ...await directoryBody(object, undefined, load) };
+  }
+
+  for (const [index, part] of parts.entries()) {
+    if (object.type !== "directory") return null;
+    const exact = object.entries.find((entry) => entry.name === part);
+    const sibling = object.entries.find((entry) => entry.name === `${part}.md`);
+    const last = index === parts.length - 1;
+
+    if (exact?.tree) return null;
+    if (exact?.hash) {
+      const next = await loadWireObject(exact.hash, load);
+      if (!last) {
+        object = next;
+        continue;
+      }
+      if (next.type === "directory") {
+        return {
+          object: next,
+          objectName: exact.name,
+          ...await directoryBody(next, sibling, load),
+        };
+      }
+      return { object: next, objectName: exact.name, duplicateBody: false };
+    }
+
+    if (!last || !sibling?.hash) return null;
+    const markdown = await loadWireObject(sibling.hash, load);
+    if (markdown.type !== "file") return null;
+    return { object: markdown, objectName: sibling.name, duplicateBody: false };
+  }
+  return null;
 }
 
 function cloudPlaceholderName(name: string): boolean {

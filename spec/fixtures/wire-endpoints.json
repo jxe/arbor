@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "tree": {
+    "id": "tr_atlas",
+    "canonicalPath": "/~alice/atlas",
+    "parentTree": "tr_alice",
+    "kind": "shared-subtree",
+    "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+    "publicAccess": "read",
+    "access": "write",
+    "httpURL": "https://community.example/~alice/atlas",
+    "arborURL": "arbor://community.example/~alice/atlas"
+  },
+  "cases": [
+    {
+      "name": "read-ref",
+      "request": {
+        "method": "GET",
+        "path": "/.arbor/trees/tr_atlas/ref",
+        "headers": { "Authorization": "Bearer <account-device-token>" }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "tr_atlas",
+          "canonicalPath": "/~alice/atlas",
+          "parentTree": "tr_alice",
+          "kind": "shared-subtree",
+          "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+          "publicAccess": "read",
+          "access": "write",
+          "httpURL": "https://community.example/~alice/atlas",
+          "arborURL": "arbor://community.example/~alice/atlas"
+        }
+      }
+    },
+    {
+      "name": "push-conflict",
+      "request": {
+        "method": "POST",
+        "path": "/.arbor/trees/tr_atlas/push",
+        "headers": { "Authorization": "Bearer <account-device-token>" },
+        "body": {
+          "expected": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+          "objects": []
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "ref-conflict",
+            "message": "Tree ref changed",
+            "retryable": false,
+            "tree": "tr_atlas",
+            "current": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b"
+          }
+        }
+      }
+    },
+    {
+      "name": "link-read",
+      "request": {
+        "method": "GET",
+        "path": "/.arbor/trees/tr_atlas/ref",
+        "headers": { "X-Arbor-Access": "<raw-link-secret>" }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "tr_atlas",
+          "canonicalPath": "/~alice/atlas",
+          "parentTree": "tr_alice",
+          "kind": "shared-subtree",
+          "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+          "publicAccess": "read",
+          "access": "read",
+          "httpURL": "https://community.example/~alice/atlas",
+          "arborURL": "arbor://community.example/~alice/atlas"
+        }
+      }
+    },
+    {
+      "name": "watch-ref",
+      "request": {
+        "method": "GET",
+        "path": "/.arbor/trees/tr_atlas/watch",
+        "headers": { "Last-Event-ID": "sha256:0000000000000000000000000000000000000000000000000000000000000000" }
+      },
+      "response": {
+        "status": 200,
+        "contentType": "text/event-stream; charset=utf-8",
+        "frame": "id: sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\nevent: ref\ndata: {\"id\":\"tr_atlas\",\"canonicalPath\":\"/~alice/atlas\",\"parentTree\":\"tr_alice\",\"kind\":\"shared-subtree\",\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"publicAccess\":\"read\",\"access\":\"write\",\"httpURL\":\"https://community.example/~alice/atlas\",\"arborURL\":\"arbor://community.example/~alice/atlas\"}\n\n"
+      }
+    }
+  ]
+}

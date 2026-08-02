@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "valid-empty",
+      "valid": true,
+      "source": "{}\n",
+      "placements": []
+    },
+    {
+      "name": "valid-shared",
+      "valid": true,
+      "source": "# Personal placement\n\"/srv/atlas\":\n  source: \"arbor://tree/tr_atlas/\"\n  tree: \"tr_atlas\"\n  canonical: \"arbor://community.example/~alice/atlas\"\n  endpoint: \"https://community.example\"\n  ref: \"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\"\n  access: write\n  publicAccess: read\n",
+      "placements": ["/srv/atlas"]
+    },
+    {
+      "name": "comments-and-order-survive-edit",
+      "valid": true,
+      "source": "# Keep this heading\n\"/srv/first\":\n  # Keep this field comment\n  source: local\n\"/srv/second\":\n  source: local\n",
+      "edit": { "remove": "/srv/second" },
+      "mustRetain": ["# Keep this heading", "# Keep this field comment", "/srv/first"]
+    },
+    {
+      "name": "duplicate-key",
+      "valid": false,
+      "source": "\"/srv/atlas\": { source: local }\n\"/srv/atlas\": { source: local }\n",
+      "diagnostic": "invalid-trees-yaml"
+    },
+    {
+      "name": "unknown-field",
+      "valid": false,
+      "source": "\"/srv/atlas\":\n  source: \"arbor://tree/tr_atlas/\"\n  tree: tr_atlas\n  canonical: \"arbor://community.example/~alice/atlas\"\n  endpoint: \"https://community.example\"\n  ref: \"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\"\n  access: write\n  overlay: local\n",
+      "diagnostic": "invalid-tree-placement"
+    },
+    {
+      "name": "source-tree-mismatch",
+      "valid": false,
+      "source": "\"/srv/atlas\":\n  source: \"arbor://tree/tr_other/\"\n  tree: tr_atlas\n  canonical: \"arbor://community.example/~alice/atlas\"\n  endpoint: \"https://community.example\"\n  ref: \"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\"\n  access: write\n",
+      "diagnostic": "invalid-tree-placement"
+    },
+    {
+      "name": "noncanonical-path",
+      "valid": false,
+      "source": "\"/srv/../srv/atlas\": { source: local }\n",
+      "diagnostic": "invalid-tree-path"
+    },
+    {
+      "name": "duplicate-tree-placement",
+      "valid": false,
+      "source": "\"/srv/atlas-a\":\n  source: \"arbor://tree/tr_atlas/\"\n  tree: tr_atlas\n  canonical: \"arbor://community.example/~alice/atlas\"\n  endpoint: \"https://community.example\"\n  ref: \"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\"\n  access: write\n\"/srv/atlas-b\":\n  source: \"arbor://tree/tr_atlas/\"\n  tree: tr_atlas\n  canonical: \"arbor://community.example/~alice/atlas\"\n  endpoint: \"https://community.example\"\n  ref: \"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\"\n  access: read\n",
+      "diagnostic": "duplicate-tree-placement"
+    },
+    {
+      "name": "malformed-replacement-retains-active",
+      "valid": false,
+      "source": "{ malformed",
+      "previousActive": "valid-shared",
+      "expectActive": "valid-shared",
+      "diagnostic": "invalid-trees-yaml"
+    },
+    {
+      "name": "nested-placement-excluded-from-parent",
+      "valid": true,
+      "source": "\"/srv/parent\":\n  source: \"arbor://tree/tr_parent/\"\n  tree: tr_parent\n  canonical: \"arbor://community.example/~alice/parent\"\n  endpoint: \"https://community.example\"\n  ref: \"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\"\n  access: write\n\"/srv/parent/child\":\n  source: \"arbor://tree/tr_child/\"\n  tree: tr_child\n  canonical: \"arbor://other.example/~bob/child\"\n  endpoint: \"https://other.example\"\n  ref: \"sha256:2c33ed526ed3f73ddc93a0107e374c5a69cb9c5588cbe3b4d0576527135efb2a\"\n  access: read\n",
+      "parentGraphMustOmit": ["child"]
+    },
+    {
+      "name": "remove-placement-preserves-data",
+      "valid": true,
+      "source": "{}\n",
+      "removedPath": "/srv/atlas",
+      "mustPreserve": ["local-files", "remote-tree", "history", "access", "canonical-boundary"]
+    }
+  ]
+}

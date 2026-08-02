@@ -36,6 +36,9 @@ beforeAll(async () => {
     "<script>alert('not executable')</script>",
     "",
   ].join("\n"));
+  await mkdir(join(source, "section"));
+  await writeFile(join(source, "section.md"), "---\nid: section-page\n---\n\n# Section body\n\nSibling prose.\n");
+  await writeFile(join(source, "section", "child.md"), "# Child\n");
   await writeFile(join(source, "nested", "secret.md"), "not inherited\n");
   await start();
 });
@@ -71,6 +74,16 @@ describe("personal wire authority", () => {
     expect(markdownHTML).toContain("<li><span>one</span>");
     expect(markdownHTML).toContain("&lt;script&gt;alert");
     expect(markdownHTML).not.toContain("<script>alert");
+    const section = await fetch(`${running.url}/~owner/notes/section`);
+    expect(section.status).toBe(200);
+    const sectionHTML = await section.text();
+    expect(sectionHTML).toContain("<h1>Section body</h1>");
+    expect(sectionHTML).toContain("Sibling prose.");
+    expect(sectionHTML).toContain("href=\"/~owner/notes/section/child\"");
+    const sectionSource = await fetch(`${running.url}/~owner/notes/section`, {
+      headers: { accept: "text/markdown" },
+    });
+    expect(await sectionSource.text()).toBe("---\nid: section-page\n---\n\n# Section body\n\nSibling prose.\n");
     expect((await fetch(`${running.url}/~owner/notes/nested/secret.md`)).status).toBe(404);
     expect((await fetch(`${running.url}/.arbor/objects/${initial.root}`)).status).toBe(200);
   });

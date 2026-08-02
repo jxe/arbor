@@ -9,7 +9,7 @@ final class ArborClientTests: XCTestCase {
         }
         return URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
-            .appending(path: "../../../../../tests/fixtures/protocol")
+            .appending(path: "../../../../../spec/fixtures")
             .standardizedFileURL
     }
 

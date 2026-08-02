@@ -50,7 +50,8 @@ Normative ownership:
 
 - [`spec/wire.md`](spec/wire.md)
 - [`spec/locators.md`](spec/locators.md)
-- [`spec/browser.md`](spec/browser.md)
+- [`spec/client.md`](spec/client.md)
+- [`docs/treehopper.md`](docs/treehopper.md)
 - [`spec/cli.md`](spec/cli.md)
 - [`spec/system.md`](spec/system.md)
 - [`spec/arbord-rest.md`](spec/arbord-rest.md)
@@ -134,7 +135,7 @@ Implemented in:
 - [`packages/arbord`](packages/arbord)
 - [`packages/client`](packages/client)
 - [`native/Packages/ArborClient`](native/Packages/ArborClient)
-- [`tests/fixtures/protocol`](tests/fixtures/protocol)
+- [`spec/fixtures`](spec/fixtures)
 
 Intentional limits:
 

@@ -1,46 +1,27 @@
-# CLI
-*Part of the [Arbor spec](../spec.md): the intended command surface. Implementation status belongs in [plan.md](../plan.md).*
+# Arbor CLI
+*Part of the [Arbor spec](../spec.md): the portable command surface. Implementation status and operator procedures live elsewhere.*
 
-Every content operand is an Arbor [locator](locators.md). The CLI resolves through arbord and has no private storage API.
+Every content operand is an Arbor [locator](locators.md). The CLI resolves through arbord or the wire and does not manipulate guessed private-state files.
 
-## Porcelain
+## Workspace and synchronization
 
-- **`arbor browse <locator>`** — open TreeHopper at a local, remote, live, or historical location. A reserved person-profile URL renders as an empty profile whose Claim action asks only for its local folder. If the resolved tree already has a local placement, Arbor opens that writable placement instead of its public web view.
-- **`arbor sync [audience-options] <local-path> <canonical-url>`** — idempotently promote/reconcile a local directory and its canonical boundary. A new boundary without audience options is private and produces a warning; an existing boundary without them retains its ACL unchanged.
-- **`arbor sync <canonical-url> <local-path>`** — idempotently place and follow a remote tree; a revision suffix produces a pinned read-only placement.
-- **`arbor unsync <local-path>`** — remove the placement at that local path without deleting files, remote identity, or history.
-- **`arbor unsync <local-path> <canonical-url>`** (in either order) — remove only that exact local/canonical placement pair. A mismatched pair is rejected without changing either side.
+- `arbor browse <locator>` opens the selected local, remote, live, historical, or `system:` location in the configured human client.
+- `arbor status [<locator>]` reports resolved tree/path, live or historical root, placement, effective/public access, pending synchronization, conflicts, diagnostics, and active safe account/community identity.
+- `arbor sync [--access <subject>=<level> ...] [--clear-access] <local-path> <canonical-locator>` promotes or reconciles a local directory and canonical boundary. A new boundary without access arguments is private; an existing boundary retains its ACL unless access arguments change it.
+- `arbor sync <tree-locator> <local-path>` places and follows a live shared tree. Historical revision locators are rejected for persistent placement.
+- `arbor unsync <local-path> [<canonical-locator>]` removes only the matching placement. It never deletes local files, remote identity/history, ACLs, or canonical boundaries.
+- `arbor connect <community-url>` activates an already-issued account/device credential using the isolated Arbor data home.
+- `arbor connection set|test|remove <name>` manages safe `system:connections` metadata while secrets remain in the credential facility.
 
-`--access` accepts one or more complete `<subject>=<level>` entries. Entries may be comma-separated inside one argument or supplied through repeated flags; both forms are equivalent, whitespace is trimmed, and the last occurrence of a subject wins. `public` names everyone; `~<handle>` names a person or group profile in the destination community. Levels are `read`, `write`, and `none`, where `none` removes that subject's entry. `--clear-access` removes every explicit entry before applying following access arguments. Options are written before the locators, and an assignment containing `~` is quoted as a whole so the shell cannot expand it. For a new boundary, Arbor compiles the resulting entries into one complete initial ACL and applies it atomically with promotion; it does not create the tree with only the first entry and patch the rest afterward.
+`--access` accepts repeated or comma-separated complete assignments. `public` means `everyone`; `~<handle>` means a person/group profile in the destination community. Levels are `read`, `write`, and `none`. `--clear-access` removes every explicit entry before applying following assignments. New-tree promotion compiles the complete initial audience and commits it atomically with identity/boundary creation.
 
-```sh
-arbor sync ~/projects/atlas arbor://garden.example/~alice/atlas
-arbor sync --access public=read ~/groups/editors arbor://garden.example/~editors
-arbor sync --access public=read ~/editors/handbook arbor://garden.example/~editors/handbook
-arbor sync --access '~editors=write' ~/projects/atlas arbor://garden.example/~alice/atlas
-arbor sync --access public=none ~/projects/atlas arbor://garden.example/~alice/atlas
-arbor sync --clear-access --access 'public=read,~editors=write' ~/projects/atlas arbor://garden.example/~alice/atlas
-arbor sync arbor://garden.example/~editors/handbook ~/work/handbook
-arbor unsync arbor://garden.example/~editors/handbook ~/work/handbook
-```
+## Serving and authored programs
 
-The first command warns that it created a private boundary. The second creates the Editors group profile when that folder's `_index.md` declares `type: group`; the next publishes its handbook for reading, followed by granting the Editors profile write access, removing public access alone, and replacing the entire explicit audience. Setting an existing `write` entry to `read` downgrades it. Promotion never moves an external folder into the profile directory. The canonical child is a virtual mount over the existing OS placement. Access-link creation and revocation remain in TreeHopper because the raw secret must be generated, displayed, and kept out of shell history. The former `-r`, `-rw`, `--remove`, and `--private` options remain accepted as compatibility aliases but are not the authored command surface.
+- `arbor serve [data-directory] [--community <handle>] [--first-writer <handle>] [--url <origin>] [--hostname <host>] [--port <port>]` runs one community authority and live HTTP projection. A fresh unattended host requires a community and reserved first writer; an existing host restarts from durable state without recreating identity.
+- `arbor run <script-or-agent-locator>[#handle] [--input <json>]` invokes the resolved script handle or agent after validation, confinement, and any required consent. Machine-readable results go to stdout; diagnostics go to stderr.
+- `arbor bake <locator> [--output <directory>]` emits a self-contained static ref/object/public projection that preserves links and Arbor crosslinks without live mutation handlers.
+- `arbor deploy <locator> [--watch] [--target <name>]` publishes the portable application/tree manifest to a configured adapter while preserving the same access and handler contracts.
 
-## Plumbing
+Commands return nonzero on unresolved locators, conflicts, rejected consent, incomplete durability, or partial deployment. `status`, `run`, `bake`, and `deploy` are normative even before a reference implementation ships them.
 
-- **`arbor serve [data-directory]`** — run one community authority/live HTTP gateway. A fresh server reserves a first-writer profile; no credential needs to be invented or copied:
-
-  ```sh
-  arbor serve ./garden --community garden --first-writer joe
-  # First writer profile: http://127.0.0.1:4318/~joe
-  ```
-
-  The first writer opens Arbor locally and claims that complete address through the profile control. `--community` and `--first-writer` are required when a fresh server starts unattended; its initial community display name is the handle and may be edited later. `--url` supplies an explicit stable public origin for unusual HTTP or nonstandard-port deployments; standard HTTPS hosting may set `ARBOR_DOMAIN`. `--hostname` and `--port` separately control the network listener. Interactive defaults are `./.arbor-community`, `http://127.0.0.1:4318`, and the current OS user as first writer. Existing data restarts without bootstrap arguments. Railway supplies the listener port and `RAILWAY_PUBLIC_DOMAIN` supplies a generated public URL automatically. `ARBOR_HOST_DATA` selects host storage. `ARBOR_ACCOUNTS_JSON` or an initial `ARBOR_ACCOUNT_TOKEN` remain migration inputs; the legacy owner-token name is migration input only.
-- **`arbor connect <community-url>`** — activate an already-issued account/device credential. It is recovery/account plumbing rather than onboarding.
-- **`arbor status [<locator>]`** — show active community/account, boundary resolution, placement, access, and sync state.
-- **`arbor connection set|test|remove <name>`** — administer safe database references while storing DSNs in the operating-system credential store.
-- **`arbor run <locator> [--input …]`**, **`arbor bake <locator>`**, and **`arbor deploy <locator> [--watch]`** retain their script/publication meanings.
-
-One host represents one community. Cross-community membership, multiple simultaneously active local identities, boundary aliases/moves, and end-user claim recovery/dispute resolution are deferred.
-
-An operator-controlled development escape hatch can rotate a known account credential without changing its profile tree: set `ARBOR_RESET_ACCOUNT=<handle>` and a replacement `ARBOR_ACCOUNT_TOKEN` on the host for one restart, then remove the reset variable. The replacement must be `arb_` followed by 64 lowercase hexadecimal characters. Arbor never prints it. This is deployment recovery plumbing, not end-user claim recovery or dispute resolution.
+Tutorials, compatibility aliases, provider detection, migration environment variables, credential reset procedures, and host-specific deployment recipes are not CLI contract. Reference deployment documentation may define them without changing this surface.

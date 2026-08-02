@@ -9,7 +9,7 @@ interface UrlCase {
   expected: ResolvedLink;
 }
 
-const fixtures = join(import.meta.dir, "../fixtures/protocol");
+const fixtures = join(import.meta.dir, "../../spec/fixtures");
 
 describe("logical URL resolution", () => {
   test("resolves every shared fixture case identically", async () => {

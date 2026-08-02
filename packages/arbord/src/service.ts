@@ -21,7 +21,7 @@ import { LOCAL_TREE, SYSTEM_TREE, canonicalJSONString, canonicalNodePath, revisi
 import { parseMarkdown } from "@arbor/editor";
 import { FsConflictError, MutationJournal } from "@arbor/fs";
 import { CommunityConfigStore, VisitedTreeStore, arborDataRoot } from "@arbor/stores";
-import { WireClient, decodeWireObject, materializeTree, snapshotDirectory, type RemoteTreeDescriptor } from "@arbor/wire";
+import { WireClient, decodeWireObject, materializeTree, resolveWireLogicalNode, snapshotDirectory, type RemoteTreeDescriptor } from "@arbor/wire";
 import { EventBus } from "./events.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
 import { TreeManager } from "./tree-manager.ts";
@@ -252,19 +252,10 @@ export class ArborService implements AsyncDisposable {
       throw new ProtocolError("not-found", `The Arbor page is unavailable: ${origin}${canonicalPath}`, 404);
     }
 
-    const parts = remote.path.split("/").filter(Boolean);
-    let hash = remote.ref;
-    let objectName = parts.at(-1) ?? remote.canonicalPath.split("/").filter(Boolean).at(-1) ?? "community";
-    for (const [index, part] of parts.entries()) {
-      const current = decodeWireObject(await client.object(hash));
-      if (current.type !== "directory") throw new ProtocolError("not-found", "The remote path is unavailable", 404);
-      const entry = current.entries.find((candidate) => candidate.name === part)
-        ?? current.entries.find((candidate) => candidate.name === `${part}.md`);
-      if (!entry?.hash) throw new ProtocolError("not-found", "The remote path is unavailable", 404);
-      if (index === parts.length - 1) objectName = entry.name;
-      hash = entry.hash;
-    }
-    const object = decodeWireObject(await client.object(hash));
+    const logical = await resolveWireLogicalNode(remote.ref, remote.path, (hash) => client.object(hash));
+    if (!logical) throw new ProtocolError("not-found", "The remote path is unavailable", 404);
+    const object = logical.object;
+    const objectName = logical.objectName || remote.canonicalPath.split("/").filter(Boolean).at(-1) || "community";
     const observedThrough = this.events.currentCursor();
     const enclosingTree: TreeDescriptor = {
       id: remote.id,
@@ -284,7 +275,12 @@ export class ArborService implements AsyncDisposable {
       writable: false,
       materialization: "available" as const,
       observedThrough,
-      diagnostics: [],
+      diagnostics: logical.duplicateBody ? [{
+        code: "duplicate-body-representation",
+        message: `${canonicalNodePath(remote.path)} has both a sibling Markdown body and _index.md; keep only one.`,
+        path: canonicalNodePath(remote.path),
+        severity: "error" as const,
+      }] : [],
     };
     if (object.type === "file") {
       const markdown = objectName.endsWith(".md");
@@ -305,9 +301,7 @@ export class ArborService implements AsyncDisposable {
       };
     }
 
-    const index = object.entries.find((entry) => entry.name === "_index.md" && entry.hash);
-    const indexObject = index?.hash ? decodeWireObject(await client.object(index.hash)) : null;
-    const source = indexObject?.type === "file" ? new TextDecoder().decode(indexObject.bytes) : "";
+    const source = logical.body ? new TextDecoder().decode(logical.body.bytes) : "";
     const document = parseMarkdown(source);
     const authoredTitle = document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
     const currentCanonicalPath = `${remote.canonicalPath === "/" ? "" : remote.canonicalPath}${remote.path === "/" ? "" : remote.path}` || "/";
@@ -342,8 +336,8 @@ export class ArborService implements AsyncDisposable {
       kind: "directory",
       contentRevision: revisionOf(source),
       directoryRevision: revisionOf(children.map((child) => `${child.path}:${child.kind}`).join("\n")),
-      bodyState: indexObject?.type === "file" ? "stored" : "implicit",
-      ...(indexObject?.type === "file" ? { bodyOrigin: "index" as const } : {}),
+      bodyState: logical.body ? "stored" : "implicit",
+      ...(logical.bodyOrigin ? { bodyOrigin: logical.bodyOrigin } : {}),
       document,
       children,
     };

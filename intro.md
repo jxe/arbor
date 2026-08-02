@@ -16,6 +16,8 @@ What I want to show you here is that solving these three problems doesn't just g
 
 This is an old dream with a real lineage. NFS and AFS let you mount remote filesystems into one local tree, so a lab full of machines saw a single namespace. Plan 9 went further: everything was a file, every process had its own namespace, and union mounts let you compose namespaces the way we compose code. Upspin revived the idea as a global path-shaped namespace — `ann@example.com/photos/vacation` — with modern crypto. These systems were right about the shape and wrong about the timing. They offered files without an app layer, in an era when the interesting software was moving into browsers and silos, and they had no sharing or syncing model that ordinary people wanted to use.
 
+Git supplies the mutable-ref/immutable-object split; atproto shows how replaceable domain names can front stable repositories and relays; IPFS demonstrates verifiable blocks over ordinary HTTP; Willow and Earthstar inform path-shaped partial synchronization and capability design. Notion, Anytype, and Tana validate tree-shaped structured content while also showing the cost of walled identity. For the app layer, TanStack Start, Encore, Convex, Astro content collections, and Prisma each contribute a useful idea—explicit compiler boundaries, runtime validation, reactive read sets, schema-over-files ergonomics, and a typed data-client feel. Eve and XSLT are cautions: elegant data/UI systems lose their advantage if ordinary authorship becomes ceremonial.
+
 Two things have changed. Agents made plain files the universal interface again — the folder of markdown *is* the state of the art, which is exactly the situation the universal-namespace systems were designed for. And local-first sync technology matured: we now know how to give a subtree an identity, a history, and a synchronization stream without a central server owning everything.
 
 ## Solving the three problems
@@ -73,12 +75,12 @@ Sharing also turns out to solve naming — the moment a folder becomes a shared 
 
 Inside Markdown, these are still ordinary link destinations. From the document `/projects/atlas`, `[Notes](notes)` points to its child and `[Roadmap](../roadmap)` to its sibling; `[Drift](arbor://notes.example.org/essays/drift#x7f3q2)` jumps to another shared tree. (That final fragment is the document's durable ID, which makes it so you can relocate files and directories and the links can heal to point to the right place.)
 
-The everyday command line is correspondingly small. Its arguments are **Arbor locators**: one input language for local paths, canonical HTTP/Arbor names, one-claim access links, and immutable historical revisions.
+The everyday command line is correspondingly small. Its arguments are **Arbor locators**: one input language for local paths, canonical HTTP/Arbor names, revocable access links, and immutable historical revisions.
 
 ```sh
 # Sync a subtree beneath a writable profile, optionally setting an ACL.
 arbor sync ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas
-arbor sync -r public ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas
+arbor sync --access public=read ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas
 
 # Resolve someone else's canonical tree and choose where it belongs locally.
 arbor sync https://garden.example.org/~alice/atlas ~/workspace/work/atlas
@@ -103,7 +105,7 @@ Now, plain filesystems don't actually stay orderly. But Notion, with the *same* 
 On the web, a document's address *is* its location — where something lives and what it's called are the same fact, which is why reorganizing a site breaks the world's links to it. Here name and position are decoupled, and a subtree can occupy several positions at once:
 
 - **A canonical position** — where the subtree officially lives in the global namespace. Your team's handbook belongs at `arbor://team.example.org/handbook`; that's its documented, citable home, the position that exists for everyone.
-- **Your local positions** — where *you* mount it. The handbook might sit at `work/handbook` in your workspace, while its style guide alone is also mounted at `desk/style`, next to the draft you're editing. Both are live views of the same tree.
+- **Your local position** — where *you* mount it. The handbook might sit at `work/handbook` in your workspace, while a separately shared style-guide subtree sits at `desk/style`, next to the draft you're editing. Each `TreeID` has one unambiguous local placement in the current contract.
 - **Per-agent positions** — when you launch an agent, you can assemble a namespace just for it, in the Plan 9 manner: just the material its job concerns, mounted at whatever paths make that agent's world simplest. The agent sees a small, purpose-built tree; you and your teammates each see your own arrangements; the global namespace sees the canonical one.
 
 Three kinds of position, one identity. Moving something in *your* tree never breaks anyone's links, because links resolve through names, not through your furniture arrangement.
@@ -128,7 +130,7 @@ export const schema = z.object({
 
 This is the Notion move — page properties quietly turning a subtree into a database — made explicit and typed. The records stay ordinary files you can edit by hand; arbord validates them against the schema on change and sync, and violations become diagnostics, not crashes.
 
-**Second: a real database, by placement.** When a file-backed collection outgrows its current representation, drop `_store.sqlite3` into its folder. That's it — that's the whole configuration. Arbord opens it through the SQLite driver, serves the folder's rows from it, introspects its tables to generate types, and watches committed changes. The folder keeps its path, its page, its schema, and every query pointed at it — the backing changed, nothing else did. The file remains canonical: you can still open it with any SQLite tool, back it up by copying it, and sync it to another machine like any other file in the tree.
+**Second: a real database, by placement.** When a file-backed collection outgrows its current representation, drop `_store.sqlite3` into its folder. That's it — that's the whole configuration. Arbord opens it through the SQLite driver, serves the folder's rows from it, introspects its tables to generate types, and watches committed changes. The folder keeps its path, its page, its schema, and every query pointed at it — the backing changed, nothing else did. The file remains canonical: you can still open it with any SQLite tool. Arbor snapshots a live database through SQLite's backup/checkpoint facilities rather than naïvely copying an unrelated main file and WAL.
 
 **Third: a connection to a database you already have.** An external database enters the tree as a small reference file:
 
@@ -223,7 +225,7 @@ Every document is editable, including every directory — a folder isn't a listi
 
 This browser is a strict superset of the web browser, and the claim rests on two supersets underneath it:
 
-**Sync is a superset of GET.** The web's fundamental verb fetches a document once; if it changes, that's your problem — refresh, poll, or bolt on a websocket. Here the fundamental verb is *subscribe*: opening a page means syncing it, and a page that never changes is just the degenerate case — a tree you're following at a pinned revision. Browsing an unfamiliar public name creates a transient mount; content arrives lazily; if you care, "add to workspace" makes it permanent. Back/forward returns you to the revision you actually saw, and "changed since you read it" is a visible state instead of a silent replacement.
+**Sync is a superset of GET.** The web's fundamental verb fetches a document once; if it changes, that's your problem — refresh, poll, or bolt on a websocket. Here the fundamental verb is *subscribe*: live opening follows a ref, while an immutable revision locator gives an explicitly historical read-only view. Browsing an unfamiliar public name creates a remote visit, not a placement or temporary directory; if you care, **Add to workspace** creates the durable placement. Back/forward retains the revision you actually saw, and "changed since you read it" is visible rather than a silent replacement.
 
 **Data-driven components are a superset of HTML.** The pages you browse aren't frozen render output; they're material — data plus the declared code that projects it — and your browser holds both, so it can re-project at any moment.
 
@@ -237,11 +239,11 @@ Several other things fall out that the web has always struggled with:
 
 **Multiplayer apps come for free.** On the web, making an app multiplayer is a rewrite: operational transforms or CRDTs, presence servers, conflict UX. Here, any component rendered over a shared tree *is* a multiplayer app, because synchronization is the substrate, not application code. The `ReadingRoom` above is multiplayer the moment its essays folder is shared.
 
-**Auth, login, and cookies are replaced.** The web makes you an account at every site, tracked by cookies, authenticated by passwords. Here there are no per-app accounts. A known person's public personal-tree locator receives access directly; someone new claims a link once, binds it to their personal tree, stores a device credential, and thereafter uses the ordinary canonical URL. Access is a short list attached to a whole tree—people, groups, links, and `everyone`—not a site session. Revocation changes one entry rather than sending anyone hunting through application settings.
+**Auth, login, and cookies are replaced.** The web makes you an account at every site, tracked by cookies, authenticated by passwords. Here there are no per-app accounts. A known person's profile `TreeID` receives access directly; a reserved community profile is claimed once and yields a device credential; a separately generated access link remains revocable by its entry. Access is a short list attached to a whole tree—people, groups, links, and `everyone`—not a site session. Revocation changes one entry rather than sending anyone hunting through application settings.
 
 **Customization replaces browser extensions.** The web renders the author's frozen output; changing it means fragile extensions scraping the DOM. Here, rendering is reader-wins: you can override the view on anything you've mounted, and your override is just another script in your tree. Authors propose presentation; readers dispose.
 
-**Forking is native.** Annotate a read-only tree and your edits become an overlay — local files shadowing the source, upstream untouched. "Propose upstream" is a diff of your overlay. Fork, annotate, and pull-request are the same primitive, and they work on *everything* in the space, not just code.
+**Forking stays legible.** Copy a read-only subtree into a new tree and the source remains untouched while the fork receives its own identity, history, and access. Proposals can be represented as an explicit diff between those trees rather than a hidden reader-local overlay. This works on everything in the space, not just code.
 
 **Offline is the default.** Your workspace is materialized locally and queries over it evaluate locally, so the network's absence degrades liveness, not function. (Upstream-hosted queries are the exception — offline, they show cached results with visible staleness.)
 

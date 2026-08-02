@@ -101,7 +101,9 @@ A workspace may contain local folders, SQLite databases, connected stores, and s
 Working documents:
 
 - **[intro.md](intro.md)** — narrative introduction and pitch: from the agent-playground problems (sharing/syncing, human interface, containment) to a universal dynamic material that supersedes the web.
-- **[spec.md](spec.md)** — spec overview, v0.7, with the complete intended reference system split into topic files under [spec/](spec/): on-disk format, Arbor locators, the `system:` tree/placements/durability, arbord REST and its TypeScript/Swift clients, scripts, the browser, shared trees and the wire, and the CLI.
+- **[spec.md](spec.md)** — aspirational spec overview, v0.8, split into public contracts for format, locators, `trees.yaml`/`system:`, arbord REST and clients, stores, scripts, agents, the wire, and the CLI.
+- **[docs/treehopper.md](docs/treehopper.md)** — non-normative TreeHopper interaction design.
+- **[docs/reference-implementation.md](docs/reference-implementation.md)** — replaceable Bun/TypeScript/Swift architecture, private-state mechanics, and verification details.
 - **[plan.md](plan.md)** — the forward roadmap: canonical hosting, community profiles/groups/sharing, workspace composition, scripts, agents, data, fuller publication, and non-blocking polish.
 - **[plan-history.md](plan-history.md)** — implemented browser/editor, REST/client, daily-driver, and tracked-root milestones with verification evidence.
 - **[plan-native.md](plan-native.md)** — the separate Swift/Hunch integration plan: adapting the Swift protocol client into provider/page-session boundaries, arbord-mediated macOS, direct Clamshell on iOS, migration, sidecars, and native product surfaces.

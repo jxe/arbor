@@ -1,142 +1,262 @@
-# Wire and community authority
-*Part of the [Arbor spec](../spec.md): canonical boundaries, identity, access, synchronization, and live HTTP projection.*
+# Arbor wire protocol
+*Part of the [Arbor spec](../spec.md): an independently implementable community authority, object, synchronization, access, and public-projection protocol.*
 
-## 1. Mounted canonical namespace
+An Arbor wire host represents one community. It owns canonical namespace boundaries, profile/account identity, claims, whole-tree access entries, one mutable ref per `TreeID`, immutable objects, and watch streams. It need not implement a local workspace, UI, scripts, or private local-state layout.
 
-One host represents one community:
+All `/.arbor/*` request and response JSON is UTF-8 with `content-type: application/json`. Unless stated otherwise responses use `cache-control: no-store`. Clients ignore unknown descriptive response fields but reject missing required fields and malformed values.
 
-```text
-/                       community profile tree
-/~joe/                  Joe's complete person profile
-/~editors/              Editors' complete group profile
-/~editors/handbook/     content or an independent shared subtree
-```
-
-The community root is a public-read `type: group` tree. Handles are unique, contain no `~`, and identify public-read person/group profile trees at `/~<handle>`. Profiles may contain arbitrary files and directories.
-
-Canonical boundaries are independent of local placements:
+## 1. Values and descriptors
 
 ```ts
-interface CanonicalBoundary {
-  path: string;
-  tree: TreeID;
-  parentTree: TreeID | null;
+type TreeID = string;                 // opaque, stable, non-empty
+type ProfileID = TreeID;
+type Hash = `sha256:${string}`;       // 64 lowercase hexadecimal SHA-256 digits
+type AccessLevel = "none" | "read" | "write";
+
+type TreeDescriptor = {
+  id: TreeID;
+  canonicalPath: string;             // decoded absolute authority path
+  parentTree?: TreeID;
   kind: "community-profile" | "person-profile" | "group-profile" | "shared-subtree";
-}
+  ref: Hash;
+  publicAccess: AccessLevel;
+  access: AccessLevel;               // effective access for this response
+  httpURL: string;
+  arborURL: string;
+};
+
+type AccountDescriptor = {
+  id: string;
+  handle: string;
+  profileTree: ProfileID;
+  profileURL: string | null;
+  community: TreeDescriptor;
+  writableProfiles: TreeDescriptor[];
+};
+
+type AccessEntry = {
+  id: string;
+  kind: "everyone" | "profile" | "link";
+  access: "read" | "write";
+  locator?: string;                  // safe profile locator; absent for link
+};
 ```
 
-`/.well-known/arbor/*` chooses the longest accessible boundary and walks the remaining path within that tree. A longer boundary is valid only when its parent graph contains a nested-tree entry at that exact path. An unrelated alias cannot shadow content.
+Public names are replaceable. `TreeID` identifies a shared tree and raw locator `arbor://tree/<TreeID>/`. `ProfileID` is the profile tree's `TreeID`; display names and handles never become authority identities.
 
-The raw `arbor://tree/<TreeID>` form remains the identity fallback and does not by itself reveal an authority.
+## 2. Authentication and access links
 
-The host's public HTTP projection parses the same Arbor Markdown block model as TreeHopper and renders a no-JavaScript, non-editable document surface with matching content width, typography, block spacing, lists, child rows, code, images, toggles, footnotes, and safe raw-Markdown fallbacks. A directory's `_index.md` is its authored body; unmentioned accessible children are projected below it and `_index.md` is never a child row. Inaccessible nested boundaries are omitted. Extensionless URLs are canonical for Markdown pages. An HTTP request whose `Accept` header includes `text/markdown` receives the untouched stored Markdown instead of HTML. Untrusted authored HTML and unsafe URL schemes are escaped rather than executed.
+Account/device requests use:
 
-## 2. Promotion and placement
-
-Sharing an ordinary visible directory promotes it in place:
-
-1. validate the requested canonical child path beneath a writable person/group profile;
-2. snapshot and validate the existing directory;
-3. create the child `TreeID`;
-4. replace or reserve the exact parent entry with a nested-tree boundary;
-5. apply the complete explicit initial public/person/group access rule set in the same authority transaction;
-6. record the existing local OS placement.
-
-The canonical URL and bytes remain stable while longest-prefix resolution changes the enclosing `TreeID`. `PageID`s in stored Markdown remain unchanged.
-
-An arbitrary external folder may be mounted as a virtual child beneath a writable profile. Its OS path remains unchanged. Arbor does not move it, duplicate it in the profile folder, or fabricate Markdown to represent the mount. TreeHopper and REST children/snapshot resolution expose the mounted child. Parent mutations that would replace a reserved mount fail with `reserved-boundary`.
-
-That canonical projection must not be confused with reader-local workspace composition. A reader may place an unrelated shared tree physically beneath another placement for personal organization. Local longest-prefix navigation enters the child, but the parent wire graph, ref, ACL, canonical URL, and every other reader remain unchanged. Snapshot and pull code omit that local mount root from the parent entirely; only an exact canonical nested boundary is encoded as a `tree` entry.
-
-Boundary moves, aliases, and cross-parent remounts are deferred.
-
-## 3. Accounts, profiles, membership, and claims
-
-The profile tree's `TreeID` is the stable person/group identity. `_index.md` is ordinary authored content:
-
-```yaml
-type: person
+```http
+Authorization: Bearer <account-device-token>
 ```
 
-or:
+An access-link request uses:
 
-```yaml
-type: group
-members:
-  - arbor://garden.example/~alice
-  - arbor://garden.example/~bob
+```http
+X-Arbor-Access: <raw-link-secret>
 ```
 
-Community membership is the `members` list in the community root. An unresolved same-community person locator reserves its handle. A claim supplies a valid visible profile snapshot. The authority atomically:
+A request may supply both; the host grants their maximum valid access. Tokens and raw link secrets never appear in URLs, redirects, response bodies, error messages, logs, refs, objects, access listings, or watch events. Only `sha256:<hex>` of the exact UTF-8 link secret is stored as a link subject.
 
-- verifies the reservation is still unresolved;
-- creates a public-read person profile tree;
-- mounts it at `/~<handle>`;
-- creates one account and device credential;
-- returns the credential once.
+Access is whole-tree and independently evaluated at every nested boundary. Levels are `none`, `read`, and `write`. A profile entry names a stable person/group profile `TreeID`. Group-derived authority evaluates verified current authored membership; membership alone does not grant write to the group tree. Revocation prevents future wire reads/writes but cannot erase bytes already materialized by a reader.
 
-The first successful submission wins. Concurrent/later submissions return `already-claimed`. There are no invitation secrets, approval queues, invitation records, dispute workflows, or administrative resets in v1.
+## 3. Errors and statuses
 
-Removing an unresolved locator releases the handle. Removing a claimed locator disables that account's future authenticated operations but does not delete its profile or descendant trees. User interfaces require confirmation for this removal.
+Every non-success JSON response is:
 
-Group profiles list existing same-community person locators. Writers of the group tree administer its content and namespace. Membership alone never grants write to the group. Direct members are used when another tree grants that group read or write. Nested groups and cross-community membership are deferred.
-
-The authority bootstraps the community root with one unresolved first-writer locator. The first successful browser claim creates that account/profile and grants it write to the community root. One host supports multiple accounts and identifies their writable namespaces by authenticated profile `TreeID`, never a process-wide owner token.
-
-## 4. Access
-
-Access is whole-tree. Entries have subjects:
-
-- `everyone`;
-- a person/group profile `TreeID`;
-- a secret-link digest.
-
-Levels are `none`, `read`, and `write`. “Private” means no `everyone` entry; public read/write are product labels for `everyone: read|write`. Each nested boundary is evaluated independently.
-
-A create request carries at most one `everyone` rule plus zero or more distinct same-community person/group profile rules. The host resolves profile locators to profile `TreeID`s before the authority transaction. Tree creation, the administering profile's implicit write entry, and every requested initial entry either commit together or do not exist. Secret-link entries are created only after the tree exists because their raw secrets remain client-side and must never enter durable mutation records.
-
-Profile access resolves locators to stable profile `TreeID`s. Group-derived access reads the current verified authored membership. Display names never become authority.
-
-Link secrets are generated client-side. Only `sha256:<digest>` is stored. The browser keeps the secret in a URL fragment and converts it to an authorization header; raw secrets do not enter normal request URLs, content, authority storage, journals, receipts, events, diagnostics, errors, or logs. Removing the digest entry revokes the link.
-
-Public write is explicit and subject to rate/storage limits. Revocation prevents future remote reads/writes; already materialized local files remain visible but stale/read-only.
-
-## 5. Objects, refs, and synchronization
-
-Each `TreeID` has one mutable current root and an append-only ref history. The graph below a root consists of deterministic immutable CBOR objects:
-
-- file object: raw bytes;
-- directory object: sorted name to object-hash or nested-`TreeID` entries.
-
-```text
-GET  /.arbor/trees/{TreeID}/ref
-POST /.arbor/trees/{TreeID}/push
-GET  /.arbor/trees/{TreeID}/watch
-GET  /.arbor/objects/{hash}
+```ts
+type WireError = {
+  error: {
+    code: string;
+    message: string;
+    retryable: boolean;
+    tree?: TreeID;
+    path?: string;
+    handle?: string;
+    current?: Hash;
+  };
+};
 ```
 
-Push is compare-and-swap. Authorities verify object hashes, complete reachability, names, quotas, profile schemas, permissions, and preservation of registered child boundaries before advancing a tip. A stale expected ref returns `ref-conflict`; replacing a child boundary returns `reserved-boundary`.
+Stable codes are `invalid-request`, `unauthenticated`, `permission-denied`, `not-found`, `already-claimed`, `ref-conflict`, `reserved-boundary`, `rate-limited`, `quota-exceeded`, and `internal-error`.
 
-Arbord pushes authored changes immediately and polls/watches for remote tips. If only one side advanced it fast-forwards; if both differ from the common ref it preserves local content and surfaces a conflict. Access does not alter the `TreeID` or URL.
+| Status | Codes/meaning |
+|---|---|
+| `200` | successful read or idempotent operation |
+| `201` | tree or claim created |
+| `400` | `invalid-request` |
+| `401` | `unauthenticated` |
+| `403` | `permission-denied` |
+| `404` | `not-found` |
+| `409` | `already-claimed`, `ref-conflict`, or `reserved-boundary` |
+| `413` | `quota-exceeded` for request/object size |
+| `429` | `rate-limited` or quota rate |
+| `500` | undeclared `internal-error` |
 
-## 6. Community/account endpoints
+`ref-conflict` includes `current`. Clients preserve unknown future codes and do not treat malformed error bodies as authorization.
 
-The reference host exposes:
+## 4. Endpoints
+
+### Account and tree discovery
 
 ```text
 GET  /.arbor/account
 GET  /.arbor/trees
 POST /.arbor/trees
-POST /.arbor/claims/{handle}
-GET  /.arbor/trees/{TreeID}/access
-POST /.arbor/trees/{TreeID}/access
-GET  /.well-known/arbor/*
 ```
 
-Account/device credentials authenticate one account. `/.arbor/account` returns safe account identity plus writable profile/group descriptors, never the credential. Claim is the only anonymous tree-creation route and is constrained by an authored reservation.
+`GET /.arbor/account` requires Bearer authentication and returns an `AccountDescriptor`. `GET /.arbor/trees` returns a `TreeDescriptor[]`, filtered to trees readable by the supplied authority.
 
-## 7. HTTP projection and data
+`POST /.arbor/trees` requires an account with write authority over the requested parent boundary:
 
-The canonical HTTP URL projects the current accessible tip. Markdown and ordinary files map directly. Directory listings retain mounted paths and enforce child access. Private content returns no bytes without account/profile/link authority.
+```ts
+type CreateTreeRequest = {
+  canonicalPath: string;
+  root: Hash;
+  objects: Array<{ hash: Hash; bytes: string }>;
+  kind?: "group-profile" | "shared-subtree";
+  publicAccess?: AccessLevel;
+  profileAccess?: Array<{ locator: string; access: "read" | "write" }>;
+};
+```
 
-Static baking and custom deployed applications remain separate publication profiles. SQLite is captured through checkpoint/backup as a whole-database CAS unit. Postgres remains externally authoritative; Arbor syncs only safe connection references while each device supplies its credential.
+The host resolves the parent boundary from `canonicalPath` and the authenticated account, then verifies complete object reachability, path availability, profile schema when applicable, unique subjects, and parent authority. Creation, boundary reservation, administering-profile authority, root ref, and initial access commit atomically. It returns `201 TreeDescriptor`.
+
+### Claims
+
+```text
+POST /.arbor/claims/{handle}
+```
+
+This route is anonymous only for an unresolved person locator reserved by current community-root content.
+
+```ts
+type ClaimRequest = {
+  root: Hash;
+  objects: Array<{ hash: Hash; bytes: string }>;
+};
+type ClaimResult = {
+  accountToken: string;              // returned once
+  account: AccountDescriptor;
+  tree: TreeDescriptor;
+};
+```
+
+The supplied reachable root must be a valid visible person-profile document. The authority atomically verifies the reservation, creates the public-read person profile at `/~<handle>`, creates its account/device credential, and returns `201 ClaimResult`. The first successful claim wins; later or concurrent claims return `already-claimed`. A response and all intermediaries use `cache-control: no-store`.
+
+### Refs, objects, push, and watch
+
+```text
+GET  /.arbor/trees/{TreeID}/ref
+POST /.arbor/trees/{TreeID}/push
+GET  /.arbor/trees/{TreeID}/watch
+GET  /.arbor/objects/{sha256}
+```
+
+`GET .../ref` returns a `TreeDescriptor`. Read access is required.
+
+`GET .../objects/{sha256}` returns exact canonical CBOR bytes with `content-type: application/vnd.ipld.dag-cbor`, `cache-control: public, immutable`, and an ETag equal to the quoted hash. The host verifies the request hash syntax. Possession of an object hash is not authorization: the host returns it only when it is reachable from at least one tree readable by the supplied Bearer/access-link authority.
+
+`POST .../push` requires write access:
+
+```ts
+type PushRequest = {
+  expected: Hash;
+  root: Hash;
+  objects: Array<{ hash: Hash; bytes: string }>; // standard padded base64
+};
+```
+
+Each base64 string decodes to exact canonical CBOR bytes whose SHA-256 equals `hash`. The host accepts already-known objects, verifies every object reachable from `root`, validates names and registered child boundaries, then compare-and-swaps the tree ref from `expected` to `root`. Success returns a `TreeDescriptor`. A stale `expected` returns `409 ref-conflict` with the current root and advances nothing. Supplying duplicate hashes with differing bytes is invalid.
+
+`GET .../watch` requires read access and returns `text/event-stream; charset=utf-8`. Frames are UTF-8 and blank-line separated:
+
+```text
+id: sha256:<new-root>
+event: ref
+data: {...TreeDescriptor...}
+
+```
+
+Only `event: ref` is normative. `id` is the new root. Multiple `data:` lines join with newline before JSON decoding; comments are keepalives. `Last-Event-ID` may name the last observed root. A host may immediately send the current descriptor when that root is no longer in its replay window. Watch is an invalidation channel: clients always verify the returned descriptor and fetch objects by hash.
+
+### Access
+
+```text
+GET  /.arbor/trees/{TreeID}/access
+POST /.arbor/trees/{TreeID}/access
+```
+
+Administration authority is required. `GET` returns an `AccessEntry[]`; link entries never include a raw secret or digest.
+
+```ts
+type SetAccessRequest = {
+  subject:
+    | { kind: "everyone" }
+    | { kind: "profile"; locator: string }
+    | { kind: "link"; digest: Hash }
+    | { kind: "entry"; id: string }
+    | { kind: "all" };
+  access: AccessLevel;
+};
+```
+
+`none` removes the matching entry. `{kind:"entry"}` revokes by stable entry ID. `{kind:"all"}` is valid only with `none` and removes every explicit audience entry. Setting an existing subject replaces its level without changing tree identity. The administering profile's implicit authority cannot be removed through this endpoint.
+
+### Well-known discovery
+
+```text
+GET /.well-known/arbor
+GET /.well-known/arbor/{canonical-path}
+```
+
+The bare route resolves the community root. A longer route percent-decodes the external path exactly once and performs longest canonical-boundary resolution. The response is a `TreeDescriptor` with an additional `path` containing the decoded absolute path inside that tree. Internal paths may contain literal percent characters.
+
+See [fixtures/wire-endpoints.json](fixtures/wire-endpoints.json) for language-neutral request/response vectors.
+
+## 5. Deterministic objects
+
+Objects are deterministic CBOR (RFC 8949 deterministic encoding profile) with no floats, tags, indefinite lengths, duplicate map keys, or non-text map keys.
+
+```ts
+type FileObject = {
+  type: "file";
+  bytes: Uint8Array;
+};
+
+type DirectoryObject = {
+  type: "directory";
+  entries: Array<
+    | { name: string; hash: Hash }
+    | { name: string; tree: TreeID }
+  >;
+};
+```
+
+Strings are UTF-8 and are not Unicode-normalized by the protocol. A filename is non-empty and is not `.`, `..`, `_index.md` as a projected duplicate, or a string containing `/`, `\`, NUL, or invalid Unicode scalar data. An entry has exactly one of `hash` or `tree`. Duplicate names are invalid.
+
+Directory `entries` are sorted by lexicographic comparison of their UTF-8 byte sequences, not locale, collation, case folding, or platform filesystem order. Map keys use deterministic CBOR key ordering: shorter encoded key first, then lexicographic encoded bytes.
+
+The object hash is `sha256:` followed by lowercase hexadecimal SHA-256 of the exact canonical CBOR byte sequence. JSON transport uses standard padded base64 of those exact bytes. Decoding and re-encoding must reproduce the same bytes; noncanonical encodings are rejected even if their data model is equivalent.
+
+A `tree` entry is a nested shared-tree boundary. Parent reachability stops at that entry; child objects, ref, history, and ACL are independent. A parent push must preserve a registered exact child boundary unless an authorized atomic boundary operation changes it; overwriting it as a file/directory returns `reserved-boundary`.
+
+Canonical byte and hash vectors are in [fixtures/wire-objects.json](fixtures/wire-objects.json).
+
+## 6. Namespace, identity, and convergence
+
+One host serves the public community root at `/`, person/group profile boundaries at `/~<handle>`, and longer exact child boundaries. Longest accessible boundary prefix selects the `TreeID`; the remainder is a path inside it. An inaccessible nested boundary is omitted rather than exposed through parent bytes.
+
+Promotion gives an existing subtree a new `TreeID` without changing stored Markdown `PageID`s. An external local folder may be projected at its canonical parent path without moving or copying its OS bytes. Reader-local nested placements never enter this graph.
+
+Each tree has one mutable ref and immutable reachable objects. Writers push with compare-and-swap. A client records the last common root, fast-forwards when only one side advances, and preserves local content plus a visible conflict when local and remote both diverge. It never overwrites either side merely because one clock is later. Successful convergence yields identical root hashes on all peers.
+
+## 7. Safe public HTTP projection
+
+The canonical HTTP URL projects the current accessible tree/path. Extensionless URLs are canonical for Markdown logical nodes. An `Accept` header including `text/markdown` returns the untouched stored Markdown bytes with an appropriate Markdown content type. Otherwise a host may return safe semantic HTML.
+
+Semantic HTML preserves headings, paragraphs, lists, code, images, toggles, footnotes, authored links, and accessible immediate-child navigation. `_index.md` is the directory body, not a child. Inaccessible nested boundaries and private children are omitted. Raw authored HTML, scripts, event handlers, and unsafe URL schemes are escaped or removed. Private content returns no bytes without valid account/profile/link authority.
+
+CSS fidelity, typography, exact layout, editor behavior, client refresh scheduling, polling intervals, and push timing are not wire requirements.

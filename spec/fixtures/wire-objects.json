@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "name": "file-hello",
+      "model": {
+        "type": "file",
+        "bytesBase64": "aGVsbG8K"
+      },
+      "canonicalCborBase64": "omR0eXBlZGZpbGVlYnl0ZXNGaGVsbG8K",
+      "hash": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b"
+    },
+    {
+      "name": "directory-utf8-order",
+      "model": {
+        "type": "directory",
+        "entries": [
+          { "name": "A", "tree": "tr_child" },
+          { "name": "z", "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000" },
+          { "name": "ä", "hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111" }
+        ]
+      },
+      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzg6JkbmFtZWFBZHRyZWVodHJfY2hpbGSiZGhhc2h4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwZG5hbWVheqJkaGFzaHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFkbmFtZWLDpA==",
+      "hash": "sha256:2c33ed526ed3f73ddc93a0107e374c5a69cb9c5588cbe3b4d0576527135efb2a"
+    }
+  ],
+  "invalid": [
+    { "name": "unsorted-directory", "reason": "entries are not lexicographically ordered by UTF-8 bytes" },
+    { "name": "duplicate-name", "reason": "directory entry names are not unique" },
+    { "name": "dual-target", "reason": "entry has both hash and tree" },
+    { "name": "noncanonical-cbor", "reason": "equivalent data model is not encoded canonically" }
+  ]
+}
