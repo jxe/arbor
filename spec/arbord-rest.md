@@ -223,10 +223,12 @@ type SystemOperation =
         | { kind: "profile"; locator: string; access: "read" | "write" };
     }
   | { op: "placeTree"; tree: TreeID; path: string; endpoint?: string; canonical?: string }
+  | { op: "removeTreePlacement"; path: string; endpoint?: string; canonicalPath?: string }
   | {
       op: "setTreeAccess";
       tree: TreeID;
       subject:
+        | { kind: "all" }
         | { kind: "everyone" }
         | { kind: "profile"; locator: string }
         | { kind: "link"; secret: string };
@@ -263,9 +265,11 @@ System operations are singleton because their authority and rollback domains dif
 
 `promoteTree` requires a mounted canonical path and an explicit initial audience. It snapshots the existing visible folder, creates the child `TreeID`, reserves/replaces the exact parent graph entry, records the existing OS placement, and refreshes locally placed ancestors. External folders become virtual profile children and are never moved or copied.
 
-`setTreeAccess` is whole-tree only. `everyone` is the underlying private/public state. A profile locator resolves to a stable person/group profile `TreeID`; group membership remains authored content. Link secrets are client-generated, hashed before durable intent, and absent from journals, receipts, events, diagnostics, errors, and logs. `none` removes the matching entry.
+`setTreeAccess` is whole-tree only. `everyone` is the underlying private/public state. A profile locator resolves to a stable person/group profile `TreeID`; group membership remains authored content. Link secrets are client-generated, hashed before durable intent, and absent from journals, receipts, events, diagnostics, errors, and logs. `none` removes the matching entry. The `all` subject is valid only with `none` and atomically removes every explicit audience entry; the administering profile's implicit authority remains.
 
 `placeTree` may carry the already-resolved wire endpoint and canonical name when the tree came from another person's URL. The daemon verifies that name against the resolved `TreeID`, materializes the current tip, and records an optional stricter local access ceiling. Reads of a read-only placement return `writable: false`, and authored mutation routes reject it with `read-only`; direct filesystem edits are local divergence rather than authority to push.
+
+`removeTreePlacement` deletes only the path-keyed local placement record. When `endpoint` and `canonicalPath` are supplied, both must match that placement in the same singleton mutation or nothing changes. Local files, authority boundaries, history, ACLs, and other placements are untouched.
 
 Mounted canonical children are visible through ordinary node/children calls even when the child's OS placement is elsewhere. A parent-scoped read at the mounted path resolves into the child `TreeID`. An operation that would create, rename, move, or trash the reserved mount itself returns `reserved-boundary`; operations inside the mounted child use the child's own scope and access.
 

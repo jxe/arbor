@@ -79,6 +79,7 @@ describe("REST v1 protocol fixtures", () => {
       "claimProfile",
       "disconnectCommunity",
       "createGroupProfile",
+      "removeTreePlacement",
     ]);
     expect(errors.map((value) => value.error.code)).toContain("internal-error");
     expect(errors.at(-1)?.error.code).toBe("future-error-code");

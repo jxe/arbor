@@ -209,6 +209,13 @@ export async function serveWireHost(options: {
             };
             const level = body.access as TreeAccess | "none";
             if (!["none", "read", "write"].includes(level)) throw new Error("Invalid access");
+            if (body.subject?.kind === "all" && level === "none") {
+              return json(descriptor(
+                publicOrigin,
+                authority.clearAccess(authenticated, treeID),
+                "write",
+              ));
+            }
             if (body.subject?.kind === "everyone") {
               return json(descriptor(
                 publicOrigin,

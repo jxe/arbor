@@ -23,7 +23,7 @@ export type EventCursor = string;
 export type TreeRef = string;
 export type TreeID = string;
 export type PublicAccess = "none" | "read" | "write";
-/** User-facing shorthand retained for CLI compatibility. */
+/** Initial audience selected when promoting a tree. */
 export type PublicationMode = "private" | "public-read" | "public-write";
 export type ShareAudience =
   | { kind: "private" }
@@ -200,10 +200,12 @@ export type SystemOperation =
   | { op: "createGroupProfile"; handle: string; path: string; displayName?: string }
   | { op: "promoteTree"; path: string; canonicalPath: string; audience: ShareAudience }
   | { op: "placeTree"; tree: TreeID; path: string; endpoint?: string; canonical?: string }
+  | { op: "removeTreePlacement"; path: string; endpoint?: string; canonicalPath?: string }
   | {
       op: "setTreeAccess";
       tree: TreeID;
       subject:
+        | { kind: "all" }
         | { kind: "everyone" }
         | { kind: "profile"; locator: string }
         | { kind: "link"; secret: string }

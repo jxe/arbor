@@ -153,9 +153,14 @@ export class WireClient {
     return this.setAccess(tree, { kind: "entry", id }, "none");
   }
 
+  async clearAccess(tree: string): Promise<RemoteTreeDescriptor> {
+    return this.setAccess(tree, { kind: "all" }, "none");
+  }
+
   async setAccess(
     tree: string,
     subject:
+      | { kind: "all" }
       | { kind: "everyone" }
       | { kind: "profile"; locator: string }
       | { kind: "link"; digest: string }

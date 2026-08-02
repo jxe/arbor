@@ -13,7 +13,7 @@ let stateA: string;
 let stateB: string;
 let host: Awaited<ReturnType<typeof serveWireHost>>;
 
-async function arbor(args: string[], state: string): Promise<string> {
+async function arborOutput(args: string[], state: string): Promise<{ stdout: string; stderr: string }> {
   const process = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
     cwd: join(import.meta.dir, "../.."),
     env: {
@@ -30,7 +30,11 @@ async function arbor(args: string[], state: string): Promise<string> {
     new Response(process.stderr).text(),
   ]);
   if (exit !== 0) throw new Error(stderr);
-  return stdout.trim();
+  return { stdout: stdout.trim(), stderr: stderr.trim() };
+}
+
+async function arbor(args: string[], state: string): Promise<string> {
+  return (await arborOutput(args, state)).stdout;
 }
 
 async function arborFailure(args: string[], env: Record<string, string>): Promise<string> {
@@ -79,7 +83,7 @@ describe("primary CLI sync forms", () => {
       RAILWAY_PROJECT_ID: "test-project",
       RAILWAY_PUBLIC_DOMAIN: "",
       RAILWAY_VOLUME_MOUNT_PATH: "",
-      ARBOR_PUBLIC_ORIGIN: "",
+      ARBOR_DOMAIN: "",
     });
     expect(noDomain).toContain("needs a public domain");
 
@@ -87,18 +91,56 @@ describe("primary CLI sync forms", () => {
       RAILWAY_PROJECT_ID: "test-project",
       RAILWAY_PUBLIC_DOMAIN: "garden.up.railway.app",
       RAILWAY_VOLUME_MOUNT_PATH: "",
-      ARBOR_PUBLIC_ORIGIN: "",
+      ARBOR_DOMAIN: "",
     });
     expect(noVolume).toContain("needs a persistent volume");
+  });
+
+  test("requires explicit bootstrap handles for a fresh unattended authority", async () => {
+    const bootstrapEnv = {
+      RAILWAY_PROJECT_ID: "",
+      RAILWAY_ENVIRONMENT_ID: "",
+      ARBOR_DOMAIN: "",
+      ARBOR_ACCOUNT_TOKEN: "",
+      ARBOR_OWNER_TOKEN: "",
+      ARBOR_ACCOUNTS_JSON: "",
+    };
+    const missingCommunity = await arborFailure(
+      ["serve", join(sandbox, "unattended-no-community")],
+      bootstrapEnv,
+    );
+    expect(missingCommunity).toContain("requires --community <handle>");
+
+    const missingFirstWriter = await arborFailure(
+      ["serve", join(sandbox, "unattended-no-writer"), "--community", "garden"],
+      bootstrapEnv,
+    );
+    expect(missingFirstWriter).toContain("requires --first-writer <handle>");
   });
 
   test("idempotently promotes and reconciles public access", async () => {
     const canonical = `${host.url}/~owner/notes`;
     expect(await arbor(["connect", host.url], stateA)).toContain("Connected as ~owner");
-    expect(await arbor(["sync", source, canonical, "-public-read"], stateA)).toContain("/~owner/notes");
-    expect(await arbor(["sync", source, canonical, "-public-read"], stateA)).toContain("/~owner/notes");
+    expect(await arbor(["sync", "-r", "public", source, canonical], stateA)).toContain("/~owner/notes");
+    expect(await arbor(["sync", source, canonical], stateA)).toContain("/~owner/notes");
     const shared = host.authority.boundary("/~owner/notes")!;
     expect(shared.publicAccess).toBe("read");
+
+    await arbor(["sync", "--read-write", "public", source, canonical], stateA);
+    expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("write");
+    await arbor(["sync", "--read", "public", source, canonical], stateA);
+    expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("read");
+
+    await arbor(["sync", "-rw", "~owner", source, canonical], stateA);
+    expect(host.authority.accessEntries(shared.id).some((entry) => entry.subjectKind === "profile")).toBe(true);
+    await arbor(["sync", "--private", "-r", "public", source, canonical], stateA);
+    expect(host.authority.accessEntries(shared.id).map((entry) => entry.subjectKind)).toEqual(["everyone", "profile"]);
+
+    await arbor(["sync", "--remove", "public", source, canonical], stateA);
+    expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("none");
+    await arbor(["sync", "-r", "public", source, canonical], stateA);
+    expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("read");
+
     const root = decodeWireObject(await host.authority.object(shared.ref));
     expect(root.type).toBe("directory");
     if (root.type === "directory") {
@@ -108,6 +150,23 @@ describe("primary CLI sync forms", () => {
     }
   });
 
+  test("warns when a new sync defaults to private and leaves existing ACLs unchanged", async () => {
+    const privateSource = join(sandbox, "private-source");
+    await mkdir(privateSource);
+    await writeFile(join(privateSource, "private.md"), "# Private\n");
+    const canonical = `${host.url}/~owner/private-notes`;
+
+    const created = await arborOutput(["sync", privateSource, canonical], stateA);
+    expect(created.stderr).toContain("no audience options supplied");
+    expect(created.stderr).toContain("private access");
+    expect(host.authority.boundary("/~owner/private-notes")!.publicAccess).toBe("none");
+
+    await arbor(["sync", "-r", "public", privateSource, canonical], stateA);
+    const repeated = await arborOutput(["sync", privateSource, canonical], stateA);
+    expect(repeated.stderr).toBe("");
+    expect(host.authority.boundary("/~owner/private-notes")!.publicAccess).toBe("read");
+  });
+
   test("idempotently places a canonical URL", async () => {
     const canonical = `${host.url}/~owner/notes`;
     expect(await arbor(["sync", canonical, destination], stateB)).toContain("(read)");
@@ -115,9 +174,9 @@ describe("primary CLI sync forms", () => {
     expect(await readFile(join(destination, "note.md"), "utf8")).toBe("# CLI sync\n");
 
     process.env.ARBOR_DATA_HOME = stateB;
+    const tree = host.authority.boundary("/~owner/notes")!.id;
     const service = await ArborService.open(destination);
     try {
-      const tree = host.authority.boundary("/~owner/notes")!.id;
       expect((await service.snapshot({ tree, path: "/note" })).writable).toBe(false);
       await expect(service.executeMutation({
         mutationID: "read-only-placement",
@@ -139,5 +198,17 @@ describe("primary CLI sync forms", () => {
     } finally {
       await service[Symbol.asyncDispose]();
     }
+
+    const mismatch = await arborFailure(
+      ["unsync", `${host.url}/~owner/private-notes`, destination],
+      { ARBOR_DATA_HOME: stateB, ARBOR_ACCOUNT_TOKEN: "cli-sync-owner" },
+    );
+    expect(mismatch).toContain("is not synced with");
+    expect(await readFile(join(destination, "note.md"), "utf8")).toBe("# CLI sync\n");
+
+    expect(await arbor(["unsync", canonical, destination], stateB)).toContain("↮");
+    expect(await readFile(join(destination, "note.md"), "utf8")).toBe("# CLI sync\n");
+    expect(await readFile(join(stateB, "trees.yaml"), "utf8")).not.toContain(destination);
+    expect(host.authority.boundary("/~owner/notes")?.id).toBe(tree);
   });
 });

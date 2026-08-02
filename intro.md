@@ -76,9 +76,9 @@ Inside Markdown, these are still ordinary link destinations. From the document `
 The everyday command line is correspondingly small. Its arguments are **Arbor locators**: one input language for local paths, canonical HTTP/Arbor names, one-claim access links, and immutable historical revisions.
 
 ```sh
-# Share a subtree beneath a writable profile with an explicit audience.
-arbor share ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas --private
-arbor share ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas --public-read
+# Sync a subtree beneath a writable profile, optionally setting an ACL.
+arbor sync ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas
+arbor sync -r public ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas
 
 # Resolve someone else's canonical tree and choose where it belongs locally.
 arbor sync https://garden.example.org/~alice/atlas ~/workspace/work/atlas

@@ -4,6 +4,7 @@ import { canonicalNodePath, type Diagnostic, type TreeDescriptor } from "@arbor/
 import {
   AmbiguousWorkspaceIdentityError,
   arborDataHomeDiagnostics,
+  deleteTreePlacement,
   legacySystemRootsExist,
   loadTreeRegistry,
   type TreePlacement,
@@ -464,6 +465,14 @@ export class TreeManager implements AsyncDisposable {
       throw new Error(`Could not activate shared tree placement at ${placement.path}`);
     }
     return (await this.descriptorFor(placement.tree))!;
+  }
+
+  async removeSharedPlacement(path: string): Promise<void> {
+    await deleteTreePlacement(path);
+    const snapshot = await loadTreeRegistry();
+    if (snapshot.diagnostics.length || !(await this.applyPlacements(snapshot.placements, true))) {
+      throw new Error(`Could not remove shared tree placement at ${path}`);
+    }
   }
 
   private async descriptorFor(tree: string): Promise<TreeDescriptor | undefined> {

@@ -140,5 +140,16 @@
         "path": "/Users/alice/Arbor/editors"
       }
     ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555562",
+    "operations": [
+      {
+        "op": "removeTreePlacement",
+        "path": "/Users/joe/notes",
+        "endpoint": "https://notes.example",
+        "canonicalPath": "/~joe/notes"
+      }
+    ]
   }
 ]

@@ -86,16 +86,18 @@ The ordinary command surface uses locators directly:
 
 ```text
 arbor browse <locator>
-arbor share <local-path> <canonical-url> <audience>
-arbor sync <source-locator> <destination-locator> [<audience>]
+arbor sync [audience-options] <source-locator> <destination-locator>
+arbor unsync <local-path> [<canonical-locator>]
 ```
 
 The local TreeHopper profile control claims a complete reserved person-profile locator and activates the returned device credential. `connect` is account plumbing for activating an already-issued credential. `browse` accepts any resolvable locator. `sync` has two defined directions:
 
-- live local path → named canonical child beneath a writable profile: create or reconcile identity, sync, and explicit access;
+- live local path → named canonical child beneath a writable profile: create or reconcile identity and sync, optionally changing ACL entries;
 - live or pinned remote locator → local path: create or reconcile a following or pinned placement.
 
-Two local operands or two remote operands are invalid until a distinct copy/transfer operation is specified. Audience belongs only to the local-to-canonical direction. Repeating either valid form is idempotent.
+Two local operands or two remote operands are invalid until a distinct copy/transfer operation is specified. Audience options (`-r`, `-rw`, `--remove`, and `--private`) belong only to the local-to-canonical direction and are conventionally written before the locators. `public` is the everyone subject; `~<handle>` resolves in the destination community. A new boundary without audience options is private and warns; an existing boundary without them preserves its audience. Repeating either valid form is idempotent.
+
+`unsync` removes a local placement relationship, never its local files or remote tree. Its one-operand form identifies the placement by local path. Its two-operand form accepts the local path and canonical locator in either order and removes the relationship only if both identify the same pair.
 
 Markdown link destinations use the same logical and global forms, but portable shared content does not author OS-absolute or `system:` locators. Relative destinations resolve from the containing logical document as a directory-like base, independent of whether `x.md`, `x/_index.md`, or an implicit directory supplies its body. Storage suffixes are accepted as compatibility input and immediately canonicalized away.
 

@@ -12,19 +12,18 @@ The current implementation is a Bun workspace. `arbor browse <path>` opens the f
 ```sh
 bun install
 bun run build:web
-bun link
-arbor browse /path/to/workspace
+bun run dev -- /path/to/workspace
 ```
 
-The tree path may be absolute, relative to the current directory, or shell-expanded with `~`; omit it to browse the current directory. From this checkout, `bun run dev -- <path>` is equivalent and does not require linking the command.
+The tree path may be absolute, relative to the current directory, or shell-expanded with `~`; omit it to browse the current directory. `bun install` creates the repo-local `arbor` executable, which Bun exposes as `bun run arbor`; it does not put a bare `arbor` command on the surrounding shell's global path. `bun link` remains an optional convenience if you want that global command.
 
 Launch a new local community without preparing credentials or environment variables:
 
 ```sh
-arbor serve ./garden --name "Garden" --first-writer joe
+bun run host -- ./garden --community garden --first-writer joe
 ```
 
-Arbor creates the community, reserves `/~joe`, and prints that complete profile address. Open Arbor locally, use the profile control to paste the address and choose a visible local profile folder. The first successful claim activates that device and becomes the initial community writer. Running the same command again restarts the existing authority without another bootstrap. `--url` sets its stable public canonical URL; `--hostname` and `--port` separately control the listener. Railway's public domain and port are detected automatically. Environment-based account bootstrap remains available for unattended deployment and legacy migration. See [Remote trial deployment](deploy/README.md) for Railway and VPS instructions.
+Arbor creates the `garden` community, reserves `/~joe`, and prints that complete profile address. Its initial display name is the handle and Joe can edit the community profile later. Open Arbor locally, use the profile control to paste the address and choose a visible local profile folder. The first successful claim activates that device and becomes the initial community writer. Running the same command again restarts the existing authority without another bootstrap. `--url` sets an explicit public origin for unusual HTTP or nonstandard-port deployments; standard HTTPS hosting uses `ARBOR_DOMAIN`. `--hostname` and `--port` separately control the listener, while Railway's generated public domain and port are detected automatically. Environment-based account bootstrap remains available for legacy migration. See [Remote trial deployment](deploy/README.md) for Railway and VPS instructions.
 
 Arbor keeps its local state in `~/.arbor`. The human-editable [`trees.yaml`](spec/system.md) registry records local placements, while canonical boundaries are authority records independent of those placements. `system:community` stores only safe account/community metadata and an operating-system credential reference; raw account and link credentials never enter content, journals, receipts, events, diagnostics, errors, or logs. One local Arbor data home has one active personal identity. Private per-tree indexes, journals, and recovery state remain under `~/.arbor/workspaces/`. `ARBOR_DATA_HOME` selects an isolated alternate root.
 
@@ -55,7 +54,7 @@ For hands-on testing without modifying the checked-in fixture, copy it to a scra
 ```sh
 test_root="$(mktemp -d)"
 cp -R tests/fixtures/workspace/. "$test_root/"
-bun packages/cli/src/index.ts browse "$test_root" --port 4317 --no-open
+bun run arbor browse "$test_root" --port 4317 --no-open
 ```
 
 Open `http://127.0.0.1:4317`. Check that the sidebar shows `notes` without `.md`; while reading it, the sidebar should still list its containing directory. Toggle it with the header control and Cmd-\, then verify a narrow window uses the overlay drawer. Its inline link and authored `Book subpage` row should both navigate to `books/one`, and an auto-generated directory-child row on the root page should open its child. Entering `/render/notes.md` should immediately canonicalize to `/render/notes`. Expand and collapse its toggle without producing an authored change, then type `▸ ` in an empty paragraph and confirm BlockNote converts it in one undo step. Open the Properties disclosure, edit a property and body block, and verify the contextual status progresses from pending/saving to the visually quiet saved state without remounting or losing the current editor position; inspect the copied Markdown for a six-character `id` plus a minimal source diff. Make a clean external file edit and confirm the open BlockNote instance reconciles it without adding an authored undo step. On a directory page, drag one child row by BlockNote's native handle between prose blocks and verify only that row moves, with the normal BlockNote drop target visible; a stale or removed insertion target should fail rather than append the row elsewhere. Check Undo, Redo, and Recover in the page menu and filesystem actions in the directory/sidebar menus. Open `books` to edit its Markdown-backed row. CSV/JSONL/Postgres collection cells should remain read-only.

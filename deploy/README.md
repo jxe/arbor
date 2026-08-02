@@ -10,21 +10,19 @@ The repository already contains `Dockerfile.host` and `railway.toml`. Railway bu
 2. In Railway, create a project and add a service from that repository. The first attempted start may fail safely while the required domain and volume are absent.
 3. Attach a volume to the service at `/data`. Railway then supplies `RAILWAY_VOLUME_MOUNT_PATH`; Arbor stores its SQLite authority and immutable objects there.
 4. Under **Networking**, either generate a Railway domain or add your own domain. For a custom domain, add both the CNAME and TXT records Railway shows. Railway terminates TLS.
-5. Add these service variables:
+5. Under **Settings → Deploy**, set the start command, choosing your own community and first-writer handles:
 
-   ```text
-   ARBOR_COMMUNITY_HANDLE=garden
-   ARBOR_COMMUNITY_NAME=Garden
-   ARBOR_FIRST_WRITER_HANDLE=joe
+   ```sh
+   bun run arbor serve --community garden --first-writer joe
    ```
 
-   With a Railway-provided domain, Arbor derives the canonical URL from `RAILWAY_PUBLIC_DOMAIN`. For a custom domain, also set the stable canonical address explicitly:
+   Arbor initially uses `garden` as the community profile's display name; its writer can edit that profile later. With a Railway-provided domain, Arbor derives the canonical URL from `RAILWAY_PUBLIC_DOMAIN`. For a custom domain, add one service variable containing the hostname (without a scheme):
 
    ```text
-   ARBOR_PUBLIC_ORIGIN=https://garden.example.com
+   ARBOR_DOMAIN=garden.example.com
    ```
 
-   Do not set an owner token or account JSON for the claim-first trial.
+   Do not set an owner token or account JSON for the claim-first trial. If an unusual deployment really needs plain HTTP or a nonstandard public port, pass a complete `--url` in the start command instead of setting `ARBOR_DOMAIN`.
 6. Redeploy. Keep the service at one replica: this reference authority uses SQLite and one mounted volume.
 7. Verify the deployment:
 
@@ -46,8 +44,7 @@ From this checkout on your own Mac:
 ```sh
 bun install
 bun run build:web
-bun link
-arbor browse ~/Arbor
+bun run dev -- ~/Arbor
 ```
 
 In TreeHopper:
@@ -72,7 +69,7 @@ cd deploy
 cp .env.example .env
 ```
 
-Edit `.env` so `ARBOR_DOMAIN` and `ARBOR_PUBLIC_ORIGIN` use the real domain and the community/first-writer values are correct. Start the service:
+Edit `.env` so `ARBOR_DOMAIN` is the real hostname and `COMMUNITY_HANDLE` and `FIRST_WRITER_HANDLE` have the values you want. Compose passes the latter two to `arbor serve` as arguments. Start the service:
 
 ```sh
 docker compose up -d --build

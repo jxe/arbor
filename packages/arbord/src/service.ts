@@ -609,7 +609,7 @@ export class ArborService implements AsyncDisposable {
 
   private isSystemMutation(operations: readonly WorkspaceOperation[]): operations is [SystemOperation] {
     return operations.length === 1
-      && ["connectCommunity", "disconnectCommunity", "claimProfile", "createGroupProfile", "promoteTree", "placeTree", "setTreeAccess"].includes(operations[0]!.op);
+      && ["connectCommunity", "disconnectCommunity", "claimProfile", "createGroupProfile", "promoteTree", "placeTree", "removeTreePlacement", "setTreeAccess"].includes(operations[0]!.op);
   }
 
   private safeSystemOperation(operation: SystemOperation): SystemOperation | Record<string, unknown> {
@@ -648,6 +648,8 @@ export class ArborService implements AsyncDisposable {
       effects = await this.promoteTree(operation.path, operation.canonicalPath, operation.audience);
     } else if (operation.op === "placeTree") {
       effects = await this.placeTree(operation.tree, operation.path, operation.endpoint, operation.canonical);
+    } else if (operation.op === "removeTreePlacement") {
+      effects = await this.removeTreePlacement(operation.path, operation.endpoint, operation.canonicalPath);
     } else {
       effects = await this.setTreeAccess(operation.tree, operation.subject, operation.access);
     }
@@ -853,6 +855,7 @@ export class ArborService implements AsyncDisposable {
   private async setTreeAccess(
     tree: string,
     subject:
+      | { kind: "all" }
       | { kind: "everyone" }
       | { kind: "profile"; locator: string }
       | { kind: "link"; secret: string }
@@ -862,7 +865,9 @@ export class ArborService implements AsyncDisposable {
     const placement = this.trees.placementFor(tree);
     if (!placement || placement.source === "local") throw new ProtocolError("not-found", `Unknown shared tree: ${tree}`, 404);
     const { client } = await this.configuredWire();
-    const remote = subject.kind === "entry"
+    const remote = subject.kind === "all"
+      ? await client.clearAccess(tree)
+      : subject.kind === "entry"
       ? await client.revokeAccess(tree, subject.id)
       : await client.setAccess(
           tree,
@@ -873,6 +878,24 @@ export class ArborService implements AsyncDisposable {
         );
     await this.trees.applySharedPlacement({ ...placement, publicAccess: remote.publicAccess, ref: remote.ref });
     return [{ kind: "updated", tree: SYSTEM_TREE, path: `/trees/${tree}` }];
+  }
+
+  private async removeTreePlacement(
+    path: string,
+    endpoint?: string,
+    canonicalPath?: string,
+  ): Promise<MutationReceipt["effects"]> {
+    const placement = this.trees.sharedPlacements().find((candidate) => candidate.path === path);
+    if (!placement) throw new ProtocolError("not-found", `No shared tree placement at ${path}`, 404);
+    if (
+      endpoint !== undefined
+      && canonicalPath !== undefined
+      && (placement.endpoint !== endpoint || new URL(placement.canonical).pathname.replace(/\/$/, "") !== canonicalPath.replace(/\/$/, ""))
+    ) {
+      throw new ProtocolError("invalid-reference", `${path} is not synced with ${endpoint}${canonicalPath}`, 409);
+    }
+    await this.trees.removeSharedPlacement(path);
+    return [{ kind: "deleted", tree: SYSTEM_TREE, path: `/trees/${placement.tree}` }];
   }
 
   private async pushWorkspace(workspace: Workspace): Promise<void> {

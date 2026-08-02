@@ -5,6 +5,15 @@ services:
       dockerfile: Dockerfile.host
     restart: unless-stopped
     env_file: .env
+    command:
+      - bun
+      - run
+      - arbor
+      - serve
+      - --community
+      - ${COMMUNITY_HANDLE}
+      - --first-writer
+      - ${FIRST_WRITER_HANDLE}
     volumes:
       - arbor-data:/data
     expose:

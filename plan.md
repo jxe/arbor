@@ -45,7 +45,7 @@ The reference host and local arbord now implement the first community-hosting sl
 - authored community reservations and atomic first-claim-wins person profiles;
 - authored group membership, with group writers administering membership and membership alone granting no write;
 - `everyone`, person/group profile, and link access with revocation;
-- browser Profile and Share surfaces, plus claim-first `claim`, `share`, `sync`, and `browse` CLI primitives; `connect` remains account-import plumbing.
+- browser Profile and Share surfaces, plus `sync` and `browse` CLI primitives; `connect` remains account-import plumbing.
 
 Revision-pinned locators, production deployment, recovery/reset for disputed claims, multiple active local identities, nested groups, and cross-community membership remain outside this slice.
 
@@ -149,14 +149,14 @@ The profile control owns connection, claim/initialization, public-profile editin
 ### Implemented control surface
 
 ```text
-arbor share <local-path> <canonical-url> <explicit-audience>
-arbor sync <local-path> <canonical-url> [audience]
+arbor sync [--private] [-r <subject>] [-rw <subject>] [--remove <subject>] <local-path> <canonical-url>
 arbor sync <canonical-url> <local-path>
+arbor unsync <local-path> [<canonical-url>]
 arbor browse <path>
-arbor serve [data-directory] [--first-writer <handle>]
+arbor serve [data-directory] [--community <handle>] [--first-writer <handle>]
 ```
 
-The browser claim stores and activates the returned device credential, so `connect` is not a new-member prerequisite. A fresh `serve` reserves the first writer and that claim grants community write; environment-supplied accounts remain available for unattended bootstrap and legacy migration. Singleton arbord operations are `connectCommunity`, `disconnectCommunity`, `claimProfile`, `createGroupProfile`, `promoteTree`, `placeTree`, and `setTreeAccess`. `system:community` stores only safe account/community metadata and a credential reference.
+The browser claim stores and activates the returned device credential, so `connect` is not a new-member prerequisite. A fresh `serve` reserves the first writer and that claim grants community write; environment-supplied accounts remain available for unattended bootstrap and legacy migration. Singleton arbord operations are `connectCommunity`, `disconnectCommunity`, `claimProfile`, `createGroupProfile`, `promoteTree`, `placeTree`, `removeTreePlacement`, and `setTreeAccess`. `system:community` stores only safe account/community metadata and a credential reference.
 
 ### Reference-slice verification
 

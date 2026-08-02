@@ -329,12 +329,25 @@ function validateOperation(value: unknown): void {
         throw new ProtocolError("invalid-reference", "placeTree requires a TreeID and absolute path", 400);
       }
       return;
+    case "removeTreePlacement":
+      if (
+        typeof value.path !== "string"
+        || !value.path.startsWith("/")
+        || (value.endpoint === undefined) !== (value.canonicalPath === undefined)
+        || (value.endpoint !== undefined && typeof value.endpoint !== "string")
+        || (value.canonicalPath !== undefined
+          && (typeof value.canonicalPath !== "string" || !value.canonicalPath.startsWith("/")))
+      ) {
+        throw new ProtocolError("invalid-reference", "removeTreePlacement requires an absolute path and an optional canonical pair", 400);
+      }
+      return;
     case "setTreeAccess":
       if (
         typeof value.tree !== "string"
         || !value.tree.startsWith("tr_")
         || !isRecord(value.subject)
-        || !["everyone", "profile", "link", "entry"].includes(String(value.subject.kind))
+        || !["all", "everyone", "profile", "link", "entry"].includes(String(value.subject.kind))
+        || (value.subject.kind === "all" && value.access !== "none")
         || (value.subject.kind === "profile" && typeof value.subject.locator !== "string")
         || (value.subject.kind === "link" && typeof value.subject.secret !== "string")
         || (value.subject.kind === "entry" && (typeof value.subject.id !== "string" || value.access !== "none"))

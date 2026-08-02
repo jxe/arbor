@@ -533,6 +533,15 @@ export class WireAuthority implements AsyncDisposable {
     return this.get(treeID)!;
   }
 
+  clearAccess(account: AuthorityAccount, treeID: string): AuthorityTree {
+    if (!this.canAdminister(account, treeID)) throw new Error("Access administration is not allowed");
+    this.db.run(
+      "DELETE FROM access WHERE tree_id = ? AND NOT (subject_kind = 'profile' AND subject = ?)",
+      [treeID, account.profileTree],
+    );
+    return this.get(treeID)!;
+  }
+
   private setAccessInternal(
     treeID: string,
     subjectKind: AuthorityAccessEntry["subjectKind"],
