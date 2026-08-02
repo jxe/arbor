@@ -376,6 +376,7 @@ REST v1 defines codes for:
 
 - `invalid-reference`;
 - `not-found`;
+- `credential-unavailable`;
 - `duplicate-page-id`;
 - `duplicate-body-representation`;
 - `stale-content-revision`;
@@ -391,7 +392,7 @@ REST v1 defines codes for:
 - `resync-required`;
 - `internal-error`.
 
-Fields not relevant to a code are omitted: `owners` belongs to duplicate identity/body errors, `anchor` to placement conflicts, `current` to stale revisions, and `mutationID` to idempotency failures. Physical transaction paths, filesystem internals, and credential values are never returned. Clients preserve and present unknown future codes without crashing.
+Fields not relevant to a code are omitted: `owners` belongs to duplicate identity/body errors, `anchor` to placement conflicts, `current` to stale revisions, and `mutationID` to idempotency failures. `credential-unavailable` means safe account metadata remains but the referenced OS credential is missing or fails its digest check; its message may identify the safe community origin and recovery command but never credential material. Physical transaction paths, filesystem internals, and credential values are never returned. Clients preserve and present unknown future codes without crashing.
 
 [`tests/fixtures/protocol/error.json`](../tests/fixtures/protocol/error.json) deliberately uses an unknown code to prove forward-compatible decoding.
 

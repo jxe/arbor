@@ -22,7 +22,7 @@ system:diagnostics
 
 Safe changes emit ordinary ordered `tree: "system"` events. Concrete `SystemOperation` mutations use the same durable IDs, receipts, retries, and conflicts as content mutations, but cannot be batched with filesystem/content operations because their authority and rollback domains differ ([arbord-rest.md](arbord-rest.md)).
 
-`connectCommunity` sends an account/device token directly to the OS credential store. Each Arbor data home uses a distinct credential-store key, so an isolated `ARBOR_DATA_HOME` cannot overwrite the default account. Durable state contains only normalized origin, safe account/community metadata, credential reference, and digest; a digest mismatch is treated as credential absence. `setTreeAccess` hashes a link secret before durable intent. Logs, receipts, events, diagnostics, and errors never expose raw credentials. The same rule applies to database DSNs.
+`connectCommunity` sends an account/device token directly to the OS credential store. Each Arbor data home uses a distinct credential-store key, so an isolated `ARBOR_DATA_HOME` cannot overwrite the default account. A still-valid process-wide legacy credential is copied into the selected data home's isolated slot on first use. Durable state contains only normalized origin, safe account/community metadata, credential reference, and digest; a missing credential or digest mismatch is reported as credential absence without discarding the safe identity record. `setTreeAccess` hashes a link secret before durable intent. Logs, receipts, events, diagnostics, and errors never expose raw credentials. The same rule applies to database DSNs.
 
 ## 2. From local paths to shared-tree placements
 

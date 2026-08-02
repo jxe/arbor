@@ -90,6 +90,23 @@ function html(value: string, status = 200, headers: HeadersInit = {}): Response 
   });
 }
 
+async function directoryHeading(
+  authority: WireAuthority,
+  entries: Array<{ name: string; hash?: string }>,
+  fallback: string,
+): Promise<string> {
+  const index = entries.find((entry) => entry.name === "_index.md");
+  if (!index?.hash) return fallback;
+  try {
+    const object = decodeWireObject(await authority.object(index.hash));
+    if (object.type !== "file") return fallback;
+    const source = new TextDecoder().decode(object.bytes);
+    return source.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function bodySnapshot(body: { root?: unknown; objects?: unknown }) {
   if (typeof body.root !== "string") throw new Error("Snapshot root is required");
   const objects = WireClient.decodeObjects(body.objects);
@@ -397,7 +414,12 @@ export async function serveWireHost(options: {
           const entries = objectValue.entries.filter((entry) => entry.name !== "_index.md").map((entry) =>
             `<li><a href="${prefix}/${encodeURIComponent(entry.name)}${escapeHTML(url.search)}">${escapeHTML(entry.name)}</a></li>`
           ).join("");
-          return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Arbor</title><style>body{max-width:760px;margin:64px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}a{color:inherit}li{margin:8px 0}</style><h1>${escapeHTML(parts.at(-1) ?? tree.canonicalPath.split("/").filter(Boolean).at(-1) ?? authority.communityHandle())}</h1><ul>${entries}</ul>`);
+          const heading = await directoryHeading(
+            authority,
+            objectValue.entries,
+            parts.at(-1) ?? tree.canonicalPath.split("/").filter(Boolean).at(-1) ?? authority.communityHandle(),
+          );
+          return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHTML(heading)}</title><style>body{max-width:760px;margin:64px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}a{color:inherit}li{margin:8px 0}</style><h1>${escapeHTML(heading)}</h1><ul>${entries}</ul>`);
         }
         return new Response("Not found", { status: 404 });
       } catch (error) {

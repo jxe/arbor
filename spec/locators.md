@@ -95,7 +95,7 @@ The local TreeHopper profile control claims a complete reserved person-profile l
 - live local path → named canonical child beneath a writable profile: create or reconcile identity and sync, optionally changing ACL entries;
 - live or pinned remote locator → local path: create or reconcile a following or pinned placement.
 
-Two local operands or two remote operands are invalid until a distinct copy/transfer operation is specified. Audience options (`-r`, `-rw`, `--remove`, and `--private`) belong only to the local-to-canonical direction and are conventionally written before the locators. `public` is the everyone subject; `~<handle>` resolves in the destination community. A new boundary without audience options is private and warns; an existing boundary without them preserves its audience. Repeating either valid form is idempotent.
+Two local operands or two remote operands are invalid until a distinct copy/transfer operation is specified. Audience options (`--access` and `--clear-access`) belong only to the local-to-canonical direction and are conventionally written before the locators. One `--access` value may contain comma-separated `<subject>=<read|write|none>` entries, and the flag itself may be repeated. `public` is the everyone subject; `~<handle>` resolves in the destination community. A new boundary without audience options is private and warns; an existing boundary without them preserves its audience. Repeating either valid form is idempotent.
 
 `unsync` removes a local placement relationship, never its local files or remote tree. Its one-operand form identifies the placement by local path. Its two-operand form accepts the local path and canonical locator in either order and removes the relationship only if both identify the same pair.
 

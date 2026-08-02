@@ -11,7 +11,7 @@ function usage(): never {
   console.error(`Usage:
   arbor browse <locator> [--port <number>] [--no-open]
   arbor connect <community-url>
-  arbor sync [--private] [-r <subject>] [-rw <subject>] [--remove <subject>] <local-path> <canonical-url>
+  arbor sync [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
   arbor sync <canonical-url> <local-path>
   arbor unsync <local-path> [<canonical-url>]
   arbor unsync <canonical-url> <local-path>
@@ -108,12 +108,40 @@ type CliAudienceOperation =
   | { kind: "clear" }
   | { kind: "set"; subject: string; access: "none" | "read" | "write" };
 
+function accessOperations(value: string): CliAudienceOperation[] {
+  if (!value.trim()) throw new Error("--access requires at least one subject=read|write|none entry");
+  return value.split(",").map((entry) => {
+    const assignment = entry.trim();
+    const separator = assignment.indexOf("=");
+    if (separator <= 0 || assignment.indexOf("=", separator + 1) !== -1) {
+      throw new Error(`Invalid access entry: ${assignment || "(empty)"}. Expected subject=read|write|none`);
+    }
+    const subject = assignment.slice(0, separator).trim();
+    const access = assignment.slice(separator + 1).trim();
+    if (!subject || !["none", "read", "write"].includes(access)) {
+      throw new Error(`Invalid access entry: ${assignment}. Expected subject=read|write|none`);
+    }
+    return { kind: "set" as const, subject, access: access as "none" | "read" | "write" };
+  });
+}
+
 function syncArguments(args: string[]): { operands: string[]; audience: CliAudienceOperation[] } {
   const operands: string[] = [];
   const audience: CliAudienceOperation[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
-    if (["-r", "--read", "-rw", "--read-write", "--remove"].includes(arg)) {
+    if (arg === "--access" || arg.startsWith("--access=")) {
+      const inline = arg.startsWith("--access=") ? arg.slice("--access=".length) : undefined;
+      const value = inline ?? args[index + 1];
+      if (value === undefined || (!inline && value.startsWith("-"))) {
+        throw new Error("--access requires subject=read|write|none");
+      }
+      audience.push(...accessOperations(value));
+      if (inline === undefined) index += 1;
+    } else if (arg === "--clear-access") {
+      audience.push({ kind: "clear" });
+    } else if (["-r", "--read", "-rw", "--read-write", "--remove"].includes(arg)) {
+      // Compatibility aliases for the pre-ACL-builder command surface.
       const subject = args[index + 1];
       if (!subject || subject.startsWith("-")) throw new Error(`${arg} requires public or ~<handle>`);
       audience.push({
@@ -123,6 +151,7 @@ function syncArguments(args: string[]): { operands: string[]; audience: CliAudie
       });
       index += 1;
     } else if (arg === "--private") {
+      // Compatibility alias for --clear-access.
       audience.push({ kind: "clear" });
     } else if (arg.startsWith("-")) {
       throw new Error(`Unknown sync option: ${arg}`);

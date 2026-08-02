@@ -96,11 +96,11 @@ export class ArborService implements AsyncDisposable {
   }
 
   /** Open system/account authority without attaching Arbor to a filesystem session. */
-  static async openControl(): Promise<ArborService> {
+  static async openControl(options: { autoSync?: boolean } = {}): Promise<ArborService> {
     const events = new EventBus();
     const trees = new TreeManager(events);
     await trees.init();
-    const service = new ArborService(events, trees, { autoSync: false });
+    const service = new ArborService(events, trees, { autoSync: options.autoSync ?? false });
     await service.migrateLegacyCommunityConfig();
     return service;
   }
@@ -574,7 +574,8 @@ export class ArborService implements AsyncDisposable {
       return { segment: "device", record: { source: `---\nhome: ${JSON.stringify(homedir())}\n---\n\n# Device\n` } };
     }
     if (path === "/community") {
-      const record = await this.communityConfig.safe();
+      const status = await this.communityConfig.status();
+      const record = status?.record;
       return {
         segment: "community",
         record: {
@@ -590,6 +591,7 @@ export class ArborService implements AsyncDisposable {
                 `communityURL: ${JSON.stringify(record.communityURL)}`,
                 `credential: ${JSON.stringify(record.credential)}`,
                 "connected: true",
+                `credentialAvailable: ${status.credentialAvailable}`,
                 "---",
                 "",
                 "# Community",
@@ -608,12 +610,12 @@ export class ArborService implements AsyncDisposable {
       };
     }
     if (path === "/credentials") {
-      const configured = await this.communityConfig.safe();
+      const status = await this.communityConfig.status();
       return {
         segment: "credentials",
         record: {
-          source: configured
-            ? `---\ncommunityAccount: connected\ncredential: ${JSON.stringify(configured.credential)}\n---\n\n# Credentials\n\nSecrets are held by the operating system.\n`
+          source: status
+            ? `---\ncommunityAccount: connected\ncredential: ${JSON.stringify(status.record.credential)}\ncredentialAvailable: ${status.credentialAvailable}\n---\n\n# Credentials\n\nSecrets are held by the operating system.\n`
             : "---\ncommunityAccount: missing\n---\n\n# Credentials\n",
         },
       };
@@ -695,7 +697,18 @@ export class ArborService implements AsyncDisposable {
 
   private async configuredWire(): Promise<{ client: WireClient; origin: string }> {
     const configured = await this.communityConfig.get();
-    if (!configured) throw new ProtocolError("not-found", "Connect to an Arbor community first", 409, { path: "system:community" });
+    if (!configured) {
+      const record = await this.communityConfig.safe();
+      if (record) {
+        throw new ProtocolError(
+          "credential-unavailable",
+          `The credential for ~${record.handle} is unavailable. Run arbor connect ${record.origin} to restore it.`,
+          409,
+          { path: "system:credentials" },
+        );
+      }
+      throw new ProtocolError("not-found", "Connect to an Arbor community first", 409, { path: "system:community" });
+    }
     return {
       client: new WireClient(configured.record.origin, configured.accountToken),
       origin: configured.record.origin,

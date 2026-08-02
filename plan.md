@@ -143,14 +143,14 @@ An unresolved same-community person locator reserves its handle. Anyone may brow
 Group profiles list existing person locators as members. Writers of the group tree administer its namespace and membership; membership alone does not grant write. Resource trees may independently grant the group read or write access.
 Creating a group uses ordinary content and sync rather than a dedicated account-panel form: author a folder whose root `_index.md` declares `type: group`, then sync it with public-read access to an available `/~<handle>` boundary.
 
-**Share** promotes a visible subtree in place. It is disabled until the current local account is connected and has a profile. Every new share uses an additive access builder with a locked profile-writers row and requires either one or more explicit public/person/group rules or an explicit Private choice. The complete initial rule set is applied atomically with promotion. Existing boundaries reopen the builder for public/person/group/link access and revocation. An external folder chooses an available child path beneath a writable profile and remains at its existing OS path as a virtual mounted child.
+**Share** promotes a visible subtree in place. It is disabled until the current local account is connected, its credential is available, and it has a profile. Missing credentials retain safe identity metadata and point to `arbor connect <origin>` recovery; Share-sheet mutation errors remain visible. Every new share uses an additive access builder with a locked profile-writers row and requires either one or more explicit public/person/group rules or an explicit Private choice. The complete initial rule set is applied atomically with promotion. Existing boundaries reopen the builder for public/person/group/link access and revocation. An external folder chooses an available child path beneath a writable profile and remains at its existing OS path as a virtual mounted child.
 
 The profile control owns public-profile editing, writable profile/group namespaces, group creation, and disconnect. Claiming belongs to the browsed empty profile; credential activation remains CLI recovery plumbing. Credentials never appear in content, journals, receipts, events, errors, diagnostics, or logs.
 
 ### Implemented control surface
 
 ```text
-arbor sync [--private] [-r <subject>] [-rw <subject>] [--remove <subject>] <local-path> <canonical-url>
+arbor sync [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
 arbor sync <canonical-url> <local-path>
 arbor unsync <local-path> [<canonical-url>]
 arbor browse <locator>

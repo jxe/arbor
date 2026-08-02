@@ -121,24 +121,24 @@ describe("primary CLI sync forms", () => {
   test("idempotently promotes and reconciles public access", async () => {
     const canonical = `${host.url}/~owner/notes`;
     expect(await arbor(["connect", host.url], stateA)).toContain("Connected as ~owner");
-    expect(await arbor(["sync", "-r", "public", source, canonical], stateA)).toContain("/~owner/notes");
+    expect(await arbor(["sync", "--access", "public=read", source, canonical], stateA)).toContain("/~owner/notes");
     expect(await arbor(["sync", source, canonical], stateA)).toContain("/~owner/notes");
     const shared = host.authority.boundary("/~owner/notes")!;
     expect(shared.publicAccess).toBe("read");
 
-    await arbor(["sync", "--read-write", "public", source, canonical], stateA);
+    await arbor(["sync", "--access=public=write", source, canonical], stateA);
     expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("write");
-    await arbor(["sync", "--read", "public", source, canonical], stateA);
+    await arbor(["sync", "--access", "public=write, public=read", source, canonical], stateA);
     expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("read");
 
-    await arbor(["sync", "-rw", "~owner", source, canonical], stateA);
+    await arbor(["sync", "--access", "~owner=write", source, canonical], stateA);
     expect(host.authority.accessEntries(shared.id).some((entry) => entry.subjectKind === "profile")).toBe(true);
-    await arbor(["sync", "--private", "-r", "public", source, canonical], stateA);
+    await arbor(["sync", "--clear-access", "--access", "public=read", source, canonical], stateA);
     expect(host.authority.accessEntries(shared.id).map((entry) => entry.subjectKind)).toEqual(["everyone", "profile"]);
 
-    await arbor(["sync", "--remove", "public", source, canonical], stateA);
+    await arbor(["sync", "--access", "public=none", source, canonical], stateA);
     expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("none");
-    await arbor(["sync", "-r", "public", source, canonical], stateA);
+    await arbor(["sync", "--access", "public=read", source, canonical], stateA);
     expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("read");
 
     const root = decodeWireObject(await host.authority.object(shared.ref));
@@ -148,6 +148,16 @@ describe("primary CLI sync forms", () => {
         if (entry.hash) expect((await fetch(`${host.url}/.arbor/objects/${entry.hash}`)).status).toBe(200);
       }
     }
+  });
+
+  test("rejects malformed access assignments before syncing", async () => {
+    const canonical = `${host.url}/~owner/invalid-access`;
+    const error = await arborFailure(
+      ["sync", "--access", "public=reader,~editors", source, canonical],
+      { ARBOR_DATA_HOME: stateA, ARBOR_ACCOUNT_TOKEN: "cli-sync-owner" },
+    );
+    expect(error).toContain("Expected subject=read|write|none");
+    expect(host.authority.boundary("/~owner/invalid-access")).toBeNull();
   });
 
   test("connect does not browse or index the current directory", async () => {
@@ -194,7 +204,7 @@ describe("primary CLI sync forms", () => {
     expect(created.stderr).toContain("private access");
     expect(host.authority.boundary("/~owner/private-notes")!.publicAccess).toBe("none");
 
-    await arbor(["sync", "-r", "public", privateSource, canonical], stateA);
+    await arbor(["sync", "--access", "public=read", privateSource, canonical], stateA);
     const repeated = await arborOutput(["sync", privateSource, canonical], stateA);
     expect(repeated.stderr).toBe("");
     expect(host.authority.boundary("/~owner/private-notes")!.publicAccess).toBe("read");
@@ -215,7 +225,7 @@ describe("primary CLI sync forms", () => {
     ].join("\n"));
     const canonical = `${host.url}/~editors`;
 
-    expect(await arbor(["sync", "-r", "public", groupSource, canonical], stateA)).toContain("/~editors");
+    expect(await arbor(["sync", "--access", "public=read", groupSource, canonical], stateA)).toContain("/~editors");
     expect(host.authority.boundary("/~editors")).toMatchObject({
       kind: "group-profile",
       publicAccess: "read",
@@ -225,7 +235,7 @@ describe("primary CLI sync forms", () => {
     await mkdir(sharedSource);
     await writeFile(join(sharedSource, "brief.md"), "# Brief\n");
     const sharedCanonical = `${host.url}/~owner/group-brief`;
-    await arbor(["sync", "-r", "public", "-rw", "~editors", sharedSource, sharedCanonical], stateA);
+    await arbor(["sync", "--access", "public=read,~editors=write", sharedSource, sharedCanonical], stateA);
     const shared = host.authority.boundary("/~owner/group-brief")!;
     expect(shared.publicAccess).toBe("read");
     expect(host.authority.accessEntries(shared.id)).toEqual(expect.arrayContaining([

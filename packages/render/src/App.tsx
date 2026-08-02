@@ -233,12 +233,13 @@ export function App() {
   const [systemCursor, setSystemCursor] = useState<string | null>(null);
   const [server, setServer] = useState<{
     configured: boolean;
+    credentialAvailable: boolean;
     origin?: string;
     handle?: string;
     profileTree?: string;
     profileURL?: string;
     communityURL?: string;
-  }>({ configured: false });
+  }>({ configured: false, credentialAvailable: false });
   const [treeControl, setTreeControl] = useState<{ path: string; tree?: TreeDescriptor } | null>(null);
   const [treeSlug, setTreeSlug] = useState("");
   const [remoteLocation, setRemoteLocation] = useState<RemoteLocation | null>(launchedRemoteLocation);
@@ -271,9 +272,11 @@ export function App() {
       setHome(typeof deviceHome === "string" ? deviceHome : null);
       const community = serverNode.document?.frontmatter ?? {};
       const configured = community.connected === true;
+      const credentialAvailable = community.credentialAvailable === true;
       const origin = community.origin;
       setServer({
         configured,
+        credentialAvailable,
         ...(typeof origin === "string" ? { origin } : {}),
         ...(typeof community.handle === "string" ? { handle: community.handle } : {}),
         ...(typeof community.profileTree === "string" ? { profileTree: community.profileTree } : {}),
@@ -595,6 +598,7 @@ export function App() {
   }, [navigate, path, refreshSidebar, sidebar, sidebarApi, sidebarMenu]);
 
   const openTreeControl = useCallback((osPath: string, tree?: TreeDescriptor, proposedCanonicalPath?: string) => {
+    setError(null);
     const current = tree ? trees.find((candidate) => candidate.id === tree.id) : undefined;
     const controlledTree = tree && current ? { ...tree, ...current } : tree;
     const profilePath = server.profileURL ? new URL(server.profileURL).pathname.replace(/\/$/, "") : "";
@@ -916,15 +920,21 @@ export function App() {
         <div className="header-trailing">
           {currentTree?.osPath && <button
             className="track-button"
-            disabled={!server.configured || !server.profileTree}
-            title={!server.profileTree ? "Claim or initialize your profile before sharing" : "Manage sharing"}
+            disabled={!server.configured || !server.credentialAvailable || !server.profileTree}
+            title={!server.profileTree
+              ? "Claim or initialize your profile before sharing"
+              : !server.credentialAvailable
+                ? "Restore your community credential before sharing"
+                : "Manage sharing"}
             onClick={() => openTreeControl(currentTree.osPath!, currentTree)}
           >Share</button>}
           {canPromoteHere && node && <button
             className="track-button"
-            disabled={!server.configured || !server.profileTree}
+            disabled={!server.configured || !server.credentialAvailable || !server.profileTree}
             title={!server.configured || !server.profileTree
               ? "Claim or initialize your profile before sharing"
+              : !server.credentialAvailable
+                ? "Restore your community credential before sharing"
               : "Share this subtree at a stable community address"}
             onClick={() => openTreeControl(
               nodeUrl(node),
@@ -1060,6 +1070,7 @@ export function App() {
           {server.profileURL && <div><span>Profile</span><code>{server.profileURL}</code><button onClick={() => void navigator.clipboard.writeText(server.profileURL!)}>Copy</button></div>}
         </div>
         <p className="tree-control-intro">Your public profile is a complete tree. Writable profile and group namespaces appear on Arbor’s home screen.</p>
+        {!server.credentialAvailable && server.origin && <p className="control-error" role="alert">This device’s credential is unavailable. Run <code>arbor connect {server.origin}</code>, then return to Arbor.</p>}
         {trees.filter((tree) => tree.access === "write" && tree.canonicalPath?.startsWith("/~")).map((tree) =>
           <button className="profile-namespace" key={tree.id} onClick={() => {
             if (tree.osPath) navigate(tree.osPath);
@@ -1148,6 +1159,7 @@ export function App() {
           </div>
           {linkURL && <div className="url-preview"><span>{linkURL}</span><small>This private link has been copied and is shown once.</small><button className="quiet" onClick={() => void revokeLink(treeControl.tree!)}>Revoke this link</button></div>}
         </section>
+        {error && <p className="control-error" role="alert">{error}</p>}
       </> : <>
         <div className="tree-control-heading">
           <div>
@@ -1202,6 +1214,7 @@ export function App() {
             </div>
           </>}
         </section>
+        {error && <p className="control-error" role="alert">{error}</p>}
         <div className="modal-actions">
           <button className="quiet" disabled={treeBusy} onClick={() => setTreeControl(null)}>Cancel</button>
           <button className="primary" disabled={treeBusy || !treeSlug || !shareAccessValid} onClick={() => void promoteTree()}>{treeBusy ? "Sharing…" : "Share"}</button>

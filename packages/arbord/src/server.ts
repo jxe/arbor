@@ -639,7 +639,9 @@ export async function serveArbor(
 
 /** Serve TreeHopper's remote/account surfaces without inventing a local workspace. */
 export async function serveArborControl(options: Omit<ArborServerOptions, "faultInjector"> = {}) {
-  const service = await ArborService.openControl();
+  // Remote browsing must not invent a filesystem session, but it still owns
+  // background reconciliation for the user's explicitly tracked placements.
+  const service = await ArborService.openControl({ autoSync: true });
   try {
     return { mode: "control" as const, service, ...startArborServer(service, undefined, options) };
   } catch (error) {

@@ -278,6 +278,7 @@ export type ArbordErrorCode =
   | "invalid-reference"
   | "reserved-boundary"
   | "not-found"
+  | "credential-unavailable"
   | "duplicate-page-id"
   | "duplicate-body-representation"
   | "stale-content-revision"

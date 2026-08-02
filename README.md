@@ -32,7 +32,7 @@ members:
 Then sync the folder to an available group handle, with the audience options before the locators:
 
 ```sh
-arbor sync -r public ~/groups/editors arbor://garden.example/~editors
+arbor sync --access public=read ~/groups/editors arbor://garden.example/~editors
 ```
 
 The folder stays where it is. Its new `TreeID` becomes the stable group identity, its members remain ordinary authored locators, and membership alone does not grant write access to the group tree.

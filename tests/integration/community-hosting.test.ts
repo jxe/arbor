@@ -3,10 +3,10 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { ArborService } from "@arbor/arbord";
+import { ArborService, serveArborControl } from "@arbor/arbord";
 import { browseTarget, isReservedProfile, placedRemotePath } from "../../packages/cli/src/index.ts";
 import { sha256 } from "@arbor/core";
-import { CommunityConfigStore } from "@arbor/stores";
+import { communityCredentialName, CommunityConfigStore } from "@arbor/stores";
 import { serveWireHost, snapshotDirectory, WireAuthority, WireClient } from "@arbor/wire";
 
 const ownerToken = "community-owner-device";
@@ -286,6 +286,42 @@ describe("community-mounted profiles and sharing", () => {
         mutationID: "trash-reserved-atlas",
         operations: [{ op: "trash", refs: [{ tree: profile.id, path: "/atlas" }] }],
       })).rejects.toMatchObject({ code: "reserved-boundary" });
+
+      const profileIndex = join(profilePath, "_index.md");
+      const beforeDiskEdit = await readFile(profileIndex, "utf8");
+      await writeFile(profileIndex, beforeDiskEdit.replace(/^# .+$/m, "# Owner changed on disk"));
+      const control = await serveArborControl({ port: 0 });
+      try {
+        let published = "";
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          published = await fetch(`${host.url}/~owner/_index.md`).then((response) => response.text());
+          if (published.includes("Owner changed on disk")) break;
+          await Bun.sleep(100);
+        }
+        expect(published).toContain("Owner changed on disk");
+        expect(await fetch(`${host.url}/~owner`).then((response) => response.text()))
+          .toContain("<h1>Owner changed on disk</h1>");
+      } finally {
+        control.server.stop(true);
+        await control.service[Symbol.asyncDispose]();
+      }
+
+      await Bun.secrets.delete({
+        service: "org.arbor.community-account",
+        name: communityCredentialName(state),
+      });
+      expect((await service.snapshot({ tree: "system", path: "/community" })).document?.frontmatter)
+        .toMatchObject({ connected: true, credentialAvailable: false });
+      await expect(service.executeMutation({
+        mutationID: "missing-community-credential",
+        operations: [{ op: "setTreeAccess", tree: atlasTree, subject: { kind: "everyone" }, access: "none" }],
+      })).rejects.toMatchObject({ code: "credential-unavailable" });
+      await service.executeMutation({
+        mutationID: "restore-community-credential",
+        operations: [{ op: "connectCommunity", origin: host.url, accountToken: ownerToken }],
+      });
+      expect((await service.snapshot({ tree: "system", path: "/community" })).document?.frontmatter)
+        .toMatchObject({ connected: true, credentialAvailable: true });
     } finally {
       await service[Symbol.asyncDispose]();
       await new CommunityConfigStore().remove();

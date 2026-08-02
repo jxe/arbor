@@ -38,6 +38,10 @@ export class CommunityConfigStore {
   private legacyPath = join(arborDataRoot(), "system", "server.md");
   private credentialName = communityCredentialName();
 
+  private credentialReference(): string {
+    return `${SERVICE}/${this.credentialName}`;
+  }
+
   async set(
     originInput: string,
     accountToken: string,
@@ -49,7 +53,7 @@ export class CommunityConfigStore {
     const record: SafeCommunityRecord = {
       ...metadata,
       origin,
-      credential: `${SERVICE}/${this.credentialName}`,
+      credential: this.credentialReference(),
       tokenDigest: sha256(accountToken),
       connected: true,
     };
@@ -111,8 +115,34 @@ export class CommunityConfigStore {
     if (!record) return null;
     const location = credentialLocation(record.credential);
     if (!location) return null;
-    const accountToken = await Bun.secrets.get(location);
-    return accountToken && sha256(accountToken) === record.tokenDigest ? { record, accountToken } : null;
+    const accountToken = await Bun.secrets.get(location).catch(() => null);
+    if (!accountToken || sha256(accountToken) !== record.tokenDigest) return null;
+    if (record.credential === this.credentialReference()) return { record, accountToken };
+
+    // Older Arbor versions used one process-wide credential name. Migrate a
+    // still-valid legacy reference into this data home's isolated slot.
+    try {
+      const migrated = await this.set(record.origin, accountToken, {
+        id: record.id,
+        handle: record.handle,
+        profileTree: record.profileTree,
+        profileURL: record.profileURL,
+        communityTree: record.communityTree,
+        communityURL: record.communityURL,
+      });
+      return { record: migrated, accountToken };
+    } catch {
+      // The referenced credential is still usable even if its opportunistic
+      // migration could not be persisted during this read.
+      return { record, accountToken };
+    }
+  }
+
+  async status(): Promise<{ record: SafeCommunityRecord; credentialAvailable: boolean } | null> {
+    const configured = await this.get();
+    if (configured) return { record: configured.record, credentialAvailable: true };
+    const record = await this.safe();
+    return record ? { record, credentialAvailable: false } : null;
   }
 
   async remove(): Promise<void> {

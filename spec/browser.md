@@ -7,7 +7,7 @@ TreeHopper is a view and editing surface over arbord, never an independent stora
 
 TreeHopper browses ordinary local files, placed shared trees, transient remote visits, historical revisions, and safe `system:` records. A remote HTTP or Arbor locator opens in the same browser location model; an unresolved person-profile reservation renders as an empty, claimable profile rather than a connection form. Opening a location does not invent identity. Source-preserving Markdown, projected directories, collections, and ordinary files follow [format.md](format.md); synthetic projection rows and virtual mounts never persist as fabricated Markdown or duplicate filesystem content.
 
-A transient remote visit runs against arbord's account/system control authority and does not create an empty temporary directory or placeholder local workspace. If that remote tree already has a local placement, longest-prefix resolution opens the real placement. A successful profile claim creates and places the chosen local directory, after which the same sessionless browser authority can open it as a tracked tree.
+A transient remote visit runs against arbord's account/system control authority and does not create an empty temporary directory or placeholder local workspace. The control authority reconciles only explicit tracked placements, so direct local edits to a placed profile or shared tree continue syncing without crawling an unrelated launch directory. If that remote tree already has a local placement, longest-prefix resolution opens the real placement. A successful profile claim creates and places the chosen local directory, after which the same sessionless browser authority can open it as a tracked tree.
 
 Opening an ordinary untracked local directory is shallow and demand-driven. Startup discovers only the selected directory; entering a child enumerates that child directly. Arbor does not recursively crawl, index, generate types for, or install a recursive watcher on the whole local tree merely because it was browsed. An unreadable descendant is isolated to that location rather than failing the surrounding browse. Promotion or an existing tracked placement activates complete discovery, indexing, type generation, and watching for that tree.
 
@@ -23,7 +23,7 @@ One persistent profile icon owns account and public-identity tasks:
 - list writable person and group namespaces;
 - disconnect or switch the active local account.
 
-One local Arbor data home has one active personal identity. New-member onboarding begins by browsing the complete reserved profile URL. The empty profile view owns the Claim action; its sheet asks only for a visible local profile folder, creates that folder if absent, and accepts `~` as the local home directory. Activating an already-issued device credential remains CLI recovery plumbing rather than browser onboarding UI. Raw credentials go directly to the operating-system credential store and never appear in content or durable diagnostics.
+One local Arbor data home has one active personal identity. New-member onboarding begins by browsing the complete reserved profile URL. The empty profile view owns the Claim action; its sheet asks only for a visible local profile folder, creates that folder if absent, and accepts `~` as the local home directory. Activating an already-issued device credential remains CLI recovery plumbing rather than browser onboarding UI. When safe account metadata exists but its credential is unavailable, the profile control retains the known identity, shows the exact `arbor connect <origin>` recovery command, and disables authenticated actions. Raw credentials go directly to the operating-system credential store and never appear in content or durable diagnostics.
 
 Person and group profiles are whole trees at `/~<handle>`, not single pages. The profile icon distinguishes public profile editing from sharing an arbitrary subtree.
 Groups use the ordinary authoring flow rather than a special account-panel form: create a folder whose `_index.md` declares `type: group`, then sync it to an available `/~<handle>` address with explicit public-read access.
@@ -32,7 +32,7 @@ An unresolved same-community person locator in the community document is a claim
 
 ## 3. Share
 
-Eligible subtrees always show **Share**, but the action is disabled until the current account is connected and has an initialized profile. The terms “Give this subtree a URL,” “Canonical tree,” and embedded server credentials are not separate surfaces.
+Eligible subtrees always show **Share**, but the action is disabled until the current account is connected, its device credential is available, and it has an initialized profile. Mutation errors remain visible inside the Share sheet. The terms “Give this subtree a URL,” “Canonical tree,” and embedded server credentials are not separate surfaces.
 
 The Share sheet:
 

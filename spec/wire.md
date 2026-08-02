@@ -29,6 +29,8 @@ interface CanonicalBoundary {
 
 The raw `arbor://tree/<TreeID>` form remains the identity fallback and does not by itself reveal an authority.
 
+The host's public HTTP projection treats a directory's `_index.md` as its authored page metadata. Its first level-one heading supplies the visible page and document title, with the canonical path segment used only as a fallback; `_index.md` remains hidden from the child listing.
+
 ## 2. Promotion and placement
 
 Sharing an ordinary visible directory promotes it in place:

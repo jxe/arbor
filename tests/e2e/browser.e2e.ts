@@ -598,6 +598,31 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   await shareSheet.getByLabel("Audience 2", { exact: true }).selectOption("profile");
   await shareSheet.getByLabel("Person or group 2").fill("~editors");
   await shareSheet.getByLabel("Audience 2 permission").selectOption("write");
+  let injectedCredentialFailure = false;
+  await page.route("**/v1/mutations", async (route) => {
+    const request = route.request();
+    const operation = request.postDataJSON()?.operations?.[0];
+    if (!injectedCredentialFailure && operation?.op === "promoteTree") {
+      injectedCredentialFailure = true;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: {
+            code: "credential-unavailable",
+            message: "The credential for ~owner is unavailable. Run arbor connect to restore it.",
+            retryable: false,
+            path: "system:credentials",
+          },
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await shareSheet.getByRole("button", { name: "Share", exact: true }).click();
+  await expect(shareSheet.getByRole("alert")).toContainText("Run arbor connect");
+  await expect(shareSheet).toBeVisible();
   await shareSheet.getByRole("button", { name: "Share", exact: true }).click();
   await expect(page.locator(".scope-chip")).toHaveText(/public read/);
 

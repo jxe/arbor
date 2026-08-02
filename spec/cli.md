@@ -11,20 +11,20 @@ Every content operand is an Arbor [locator](locators.md). The CLI resolves throu
 - **`arbor unsync <local-path>`** — remove the placement at that local path without deleting files, remote identity, or history.
 - **`arbor unsync <local-path> <canonical-url>`** (in either order) — remove only that exact local/canonical placement pair. A mismatched pair is rejected without changing either side.
 
-Audience options set exact entries and may be repeated. `public` names everyone; `~<handle>` names a person or group profile in the destination community. `-r`/`--read` sets read access, `-rw`/`--read-write` sets read/write, `--remove` removes one entry, and `--private` first removes every explicit audience entry. Options are written before the locators. For a new boundary, Arbor compiles all supplied entries after the last `--private` into one complete initial ACL and applies it atomically with promotion; it does not create the tree with only the first entry and patch the rest afterward.
+`--access` accepts one or more complete `<subject>=<level>` entries. Entries may be comma-separated inside one argument or supplied through repeated flags; both forms are equivalent, whitespace is trimmed, and the last occurrence of a subject wins. `public` names everyone; `~<handle>` names a person or group profile in the destination community. Levels are `read`, `write`, and `none`, where `none` removes that subject's entry. `--clear-access` removes every explicit entry before applying following access arguments. Options are written before the locators, and an assignment containing `~` is quoted as a whole so the shell cannot expand it. For a new boundary, Arbor compiles the resulting entries into one complete initial ACL and applies it atomically with promotion; it does not create the tree with only the first entry and patch the rest afterward.
 
 ```sh
 arbor sync ~/projects/atlas arbor://garden.example/~alice/atlas
-arbor sync -r public ~/groups/editors arbor://garden.example/~editors
-arbor sync -r public ~/editors/handbook arbor://garden.example/~editors/handbook
-arbor sync -rw '~editors' ~/projects/atlas arbor://garden.example/~alice/atlas
-arbor sync --remove public ~/projects/atlas arbor://garden.example/~alice/atlas
-arbor sync --private -r public -rw '~editors' ~/projects/atlas arbor://garden.example/~alice/atlas
+arbor sync --access public=read ~/groups/editors arbor://garden.example/~editors
+arbor sync --access public=read ~/editors/handbook arbor://garden.example/~editors/handbook
+arbor sync --access '~editors=write' ~/projects/atlas arbor://garden.example/~alice/atlas
+arbor sync --access public=none ~/projects/atlas arbor://garden.example/~alice/atlas
+arbor sync --clear-access --access 'public=read,~editors=write' ~/projects/atlas arbor://garden.example/~alice/atlas
 arbor sync arbor://garden.example/~editors/handbook ~/work/handbook
 arbor unsync arbor://garden.example/~editors/handbook ~/work/handbook
 ```
 
-The first command warns that it created a private boundary. The second creates the Editors group profile when that folder's `_index.md` declares `type: group`; the next publishes its handbook for reading, followed by granting the Editors profile write access, removing public access alone, and replacing the entire explicit audience. `-r` also downgrades an existing read/write entry to read. Promotion never moves an external folder into the profile directory. The canonical child is a virtual mount over the existing OS placement. Access-link creation and revocation remain in TreeHopper because the raw secret must be generated, displayed, and kept out of shell history.
+The first command warns that it created a private boundary. The second creates the Editors group profile when that folder's `_index.md` declares `type: group`; the next publishes its handbook for reading, followed by granting the Editors profile write access, removing public access alone, and replacing the entire explicit audience. Setting an existing `write` entry to `read` downgrades it. Promotion never moves an external folder into the profile directory. The canonical child is a virtual mount over the existing OS placement. Access-link creation and revocation remain in TreeHopper because the raw secret must be generated, displayed, and kept out of shell history. The former `-r`, `-rw`, `--remove`, and `--private` options remain accepted as compatibility aliases but are not the authored command surface.
 
 ## Plumbing
 

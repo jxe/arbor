@@ -1,6 +1,7 @@
 [
   { "error": { "code": "invalid-reference", "message": "Invalid reference", "retryable": false } },
   { "error": { "code": "not-found", "message": "Not found", "retryable": false, "path": "/missing" } },
+  { "error": { "code": "credential-unavailable", "message": "Credential unavailable", "retryable": false, "path": "system:credentials" } },
   { "error": { "code": "duplicate-page-id", "message": "Duplicate ID", "retryable": false, "owners": ["/a", "/b"] } },
   { "error": { "code": "duplicate-body-representation", "message": "Duplicate body", "retryable": false, "path": "/page" } },
   { "error": { "code": "stale-content-revision", "message": "Stale content", "retryable": false, "path": "/page" } },
