@@ -2,7 +2,7 @@
 import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { serveArbor } from "@arbor/arbord";
+import { serveArbor, type ArborService } from "@arbor/arbord";
 import { ArbordClient } from "@arbor/client";
 import type { ShareAudience } from "@arbor/core";
 import { ConnectionStore } from "@arbor/stores";
@@ -87,6 +87,21 @@ export async function isReservedProfile(target: BrowseTarget): Promise<boolean> 
     return (await response.text()).includes("has not been claimed");
   } catch {
     return false;
+  }
+}
+
+export async function placedRemotePath(target: BrowseTarget, service: ArborService): Promise<string | null> {
+  if (!target.remoteURL) return null;
+  try {
+    const canonical = canonicalTarget(target.remoteURL);
+    const account = await service.communityConfig.get();
+    const token = account?.record.origin === canonical.endpoint ? account.accountToken : undefined;
+    const remote = await new WireClient(canonical.endpoint, token).resolve(canonical.canonicalPath);
+    const placement = service.trees.placementFor(remote.id);
+    if (!placement || placement.source === "local") return null;
+    return `${placement.path}${remote.path === "/" ? "" : remote.path}`;
+  } catch {
+    return null;
   }
 }
 
@@ -420,10 +435,12 @@ async function main(): Promise<void> {
         : "ordinary local files";
     console.log(target.remoteURL ? `Arbor is browsing ${target.remoteURL}` : `Arbor is browsing ${start} (${scope})`);
     console.log(url);
-    const browserURL = new URL(`${url}/render${start}`);
+    const claimable = target.remoteURL ? await isReservedProfile(target) : false;
+    const placedPath = target.remoteURL && !claimable ? await placedRemotePath(target, service) : null;
+    const browserURL = new URL(`${url}/render${placedPath ?? start}`);
     if (target.remoteURL) {
-      browserURL.searchParams.set("browse", target.remoteURL);
-      if (await isReservedProfile(target)) browserURL.searchParams.set("claimable", "true");
+      if (!placedPath) browserURL.searchParams.set("browse", target.remoteURL);
+      if (claimable) browserURL.searchParams.set("claimable", "true");
     }
     if (!args.includes("--no-open")) await openBrowser(browserURL.toString());
     const shutdown = async () => {

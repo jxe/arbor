@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { ArborService } from "@arbor/arbord";
-import { browseTarget, isReservedProfile } from "../../packages/cli/src/index.ts";
+import { browseTarget, isReservedProfile, placedRemotePath } from "../../packages/cli/src/index.ts";
 import { sha256 } from "@arbor/core";
 import { CommunityConfigStore } from "@arbor/stores";
 import { serveWireHost, snapshotDirectory, WireAuthority, WireClient } from "@arbor/wire";
@@ -95,6 +95,8 @@ describe("community-mounted profiles and sharing", () => {
     aliceToken = claimed.accountToken;
     expect(claimed.tree.canonicalPath).toBe("/~alice");
     expect(host.authority.boundary("/~alice")?.id).toBe(claimed.tree.id);
+    const claimedPage = await fetch(`${host.url}/~alice`);
+    expect(await claimedPage.text()).not.toContain("/~alice/_index.md");
 
     await authorCommunity(
       [`arbor://${new URL(host.url).host}/~owner`],
@@ -220,6 +222,7 @@ describe("community-mounted profiles and sharing", () => {
         mutationID: "place-owner-profile",
         operations: [{ op: "placeTree", tree: profile.id, path: profilePath }],
       });
+      expect(await placedRemotePath(browseTarget(`${host.url}/~owner`), service)).toBe(await realpath(profilePath));
       const promoted = await service.executeMutation({
         mutationID: "share-external-atlas",
         operations: [{

@@ -376,7 +376,7 @@ export async function serveWireHost(options: {
             ) as ArrayBuffer);
           }
           const prefix = url.pathname.replace(/\/$/, "");
-          const entries = objectValue.entries.map((entry) =>
+          const entries = objectValue.entries.filter((entry) => entry.name !== "_index.md").map((entry) =>
             `<li><a href="${prefix}/${encodeURIComponent(entry.name)}${escapeHTML(url.search)}">${escapeHTML(entry.name)}</a></li>`
           ).join("");
           return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Arbor</title><style>body{max-width:760px;margin:64px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}a{color:inherit}li{margin:8px 0}</style><h1>${escapeHTML(parts.at(-1) ?? tree.canonicalPath.split("/").filter(Boolean).at(-1) ?? authority.communityHandle())}</h1><ul>${entries}</ul>`);

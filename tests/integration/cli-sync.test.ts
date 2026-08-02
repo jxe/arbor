@@ -167,6 +167,28 @@ describe("primary CLI sync forms", () => {
     expect(host.authority.boundary("/~owner/private-notes")!.publicAccess).toBe("read");
   });
 
+  test("creates a group profile by syncing an ordinary group folder", async () => {
+    const groupSource = join(sandbox, "editors");
+    await mkdir(groupSource);
+    await writeFile(join(groupSource, "_index.md"), [
+      "---",
+      "type: group",
+      "members:",
+      `  - arbor://${new URL(host.url).host}/~owner`,
+      "---",
+      "",
+      "# Editors",
+      "",
+    ].join("\n"));
+    const canonical = `${host.url}/~editors`;
+
+    expect(await arbor(["sync", "-r", "public", groupSource, canonical], stateA)).toContain("/~editors");
+    expect(host.authority.boundary("/~editors")).toMatchObject({
+      kind: "group-profile",
+      publicAccess: "read",
+    });
+  });
+
   test("idempotently places a canonical URL", async () => {
     const canonical = `${host.url}/~owner/notes`;
     expect(await arbor(["sync", canonical, destination], stateB)).toContain("(read)");

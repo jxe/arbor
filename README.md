@@ -17,6 +17,26 @@ bun run dev -- /path/to/workspace
 
 The tree path may be absolute, relative to the current directory, or shell-expanded with `~`; omit it to browse the current directory. `bun install` creates the repo-local `arbor` executable, which Bun exposes as `bun run arbor`; it does not put a bare `arbor` command on the surrounding shell's global path. `bun link` remains an optional convenience if you want that global command.
 
+To create a group after joining a community, make an ordinary folder with an `_index.md` such as:
+
+```md
+---
+type: group
+members:
+  - arbor://garden.example/~joe
+---
+
+# Editors
+```
+
+Then sync the folder to an available group handle, with the audience options before the locators:
+
+```sh
+arbor sync -r public ~/groups/editors arbor://garden.example/~editors
+```
+
+The folder stays where it is. Its new `TreeID` becomes the stable group identity, its members remain ordinary authored locators, and membership alone does not grant write access to the group tree.
+
 Launch a new local community without preparing credentials or environment variables:
 
 ```sh

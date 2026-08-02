@@ -148,6 +148,15 @@ function reservedProfileTarget(input: string): { origin: string; handle: string 
   }
 }
 
+function localUserPath(input: string, home: string | null): string | null {
+  const value = input.trim();
+  if (value.startsWith("/")) return value;
+  if (!home) return null;
+  if (value === "~") return home;
+  if (value.startsWith("~/")) return `${home}/${value.slice(2)}`;
+  return null;
+}
+
 interface RemoteLocation {
   url: string;
   claimable: boolean;
@@ -201,8 +210,6 @@ export function App() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [claimURL, setClaimURL] = useState("");
   const [claimPath, setClaimPath] = useState("");
-  const [groupHandle, setGroupHandle] = useState("");
-  const [groupPath, setGroupPath] = useState("");
   const [profileLocator, setProfileLocator] = useState("");
   const [linkURL, setLinkURL] = useState("");
   const [linkSecret, setLinkSecret] = useState("");
@@ -697,7 +704,11 @@ export function App() {
 
   const claimProfile = useCallback(async () => {
     const target = reservedProfileTarget(claimURL);
-    if (!target || !claimPath.trim()) return;
+    const profilePath = localUserPath(claimPath, home);
+    if (!target || !profilePath) {
+      setError("Choose an absolute path or a path beginning with ~/.");
+      return;
+    }
     try {
       setTreeBusy(true);
       setError(null);
@@ -705,17 +716,18 @@ export function App() {
         op: "claimProfile",
         origin: target.origin,
         handle: target.handle,
-        path: claimPath.trim(),
+        path: profilePath,
       });
       await refreshSystem();
       setProfileOpen(false);
-      setRemoteLocation((current) => current ? { ...current, claimable: false } : current);
+      setRemoteLocation(null);
+      navigate(profilePath);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     } finally {
       setTreeBusy(false);
     }
-  }, [claimPath, claimURL, refreshSystem]);
+  }, [claimPath, claimURL, home, navigate, refreshSystem]);
 
   const disconnectCommunity = useCallback(async () => {
     if (!confirm("Disconnect this Arbor account on this device? Local files remain in place.")) return;
@@ -727,26 +739,6 @@ export function App() {
       setError(error instanceof Error ? error.message : String(error));
     }
   }, [refreshSystem]);
-
-  const createGroup = useCallback(async () => {
-    if (!groupHandle.trim() || !groupPath.trim()) return;
-    try {
-      setTreeBusy(true);
-      setError(null);
-      await api.system({
-        op: "createGroupProfile",
-        handle: groupHandle.trim(),
-        path: groupPath.trim(),
-      });
-      setGroupHandle("");
-      setGroupPath("");
-      await refreshSystem();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setTreeBusy(false);
-    }
-  }, [groupHandle, groupPath, refreshSystem]);
 
   const placeRemoteTree = useCallback(async (tree: TreeDescriptor) => {
     const destination = prompt(`Where should ${tree.name} live on this machine?`, home ? `${home}/${tree.name}` : "");
@@ -982,7 +974,7 @@ export function App() {
           {server.communityURL && <div><span>Community</span><a href={server.communityURL.replace(/^arbor:/, location.protocol)} target="_blank" rel="noreferrer">{server.communityURL}</a></div>}
           {server.profileURL && <div><span>Profile</span><code>{server.profileURL}</code><button onClick={() => void navigator.clipboard.writeText(server.profileURL!)}>Copy</button></div>}
         </div>
-        <p className="tree-control-intro">Your public profile is a complete tree. Profile and group namespaces you can write appear on Arbor’s home screen.</p>
+        <p className="tree-control-intro">Your public profile is a complete tree. Writable profile and group namespaces appear on Arbor’s home screen.</p>
         {trees.filter((tree) => tree.access === "write" && tree.canonicalPath?.startsWith("/~")).map((tree) =>
           <button className="profile-namespace" key={tree.id} onClick={() => {
             if (tree.osPath) navigate(tree.osPath);
@@ -993,10 +985,6 @@ export function App() {
             <small>{tree.osPath ?? "Choose a local folder…"}</small>
           </button>
         )}
-        <div className="modal-separator"><span>Create a group profile</span></div>
-        <label className="control-field"><span>Group handle</span><div className="handle-field"><span>~</span><input placeholder="editors" pattern="[a-z0-9][a-z0-9-]*" value={groupHandle} onChange={(event) => setGroupHandle(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} /></div></label>
-        <label className="control-field"><span>Visible local group folder</span><input placeholder="/Users/alice/Arbor/editors" value={groupPath} onChange={(event) => setGroupPath(event.target.value)} /></label>
-        <button className="quiet create-group-button" disabled={treeBusy || !groupHandle || !groupPath} onClick={() => void createGroup()}>Create group</button>
         <div className="modal-actions">
           <button className="quiet danger" onClick={() => void disconnectCommunity()}>Disconnect</button>
           {server.profileURL && <a className="primary link-button" href={server.profileURL.replace(/^arbor:/, location.protocol)} target="_blank" rel="noreferrer">View public profile</a>}

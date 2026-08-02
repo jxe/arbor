@@ -1156,7 +1156,6 @@ td input { width: 100%; min-width: 120px; border: 0; background: transparent; co
   text-align: left;
 }
 .profile-namespace small { color: var(--arbor-muted); }
-.create-group-button { margin-top: 10px; }
 .compact-actions { margin-top: 12px; }
 .modal-separator {
   display: flex;

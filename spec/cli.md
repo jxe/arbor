@@ -5,7 +5,7 @@ Every content operand is an Arbor [locator](locators.md). The CLI resolves throu
 
 ## Porcelain
 
-- **`arbor browse <locator>`** — open TreeHopper at a local, remote, live, or historical location. A reserved person-profile URL renders as an empty profile whose Claim action asks only for its local folder.
+- **`arbor browse <locator>`** — open TreeHopper at a local, remote, live, or historical location. A reserved person-profile URL renders as an empty profile whose Claim action asks only for its local folder. If the resolved tree already has a local placement, Arbor opens that writable placement instead of its public web view.
 - **`arbor sync [audience-options] <local-path> <canonical-url>`** — idempotently promote/reconcile a local directory and its canonical boundary. A new boundary without audience options is private and produces a warning; an existing boundary without them retains its ACL unchanged.
 - **`arbor sync <canonical-url> <local-path>`** — idempotently place and follow a remote tree; a revision suffix produces a pinned read-only placement.
 - **`arbor unsync <local-path>`** — remove the placement at that local path without deleting files, remote identity, or history.
@@ -15,6 +15,7 @@ Audience options set exact entries and may be repeated. `public` names everyone;
 
 ```sh
 arbor sync ~/projects/atlas arbor://garden.example/~alice/atlas
+arbor sync -r public ~/groups/editors arbor://garden.example/~editors
 arbor sync -r public ~/editors/handbook arbor://garden.example/~editors/handbook
 arbor sync -rw '~editors' ~/projects/atlas arbor://garden.example/~alice/atlas
 arbor sync --remove public ~/projects/atlas arbor://garden.example/~alice/atlas
@@ -23,7 +24,7 @@ arbor sync arbor://garden.example/~editors/handbook ~/work/handbook
 arbor unsync arbor://garden.example/~editors/handbook ~/work/handbook
 ```
 
-The first command warns that it created a private boundary. The second publishes for reading, the third grants the Editors profile write access without changing other entries, the fourth removes public access alone, and the fifth replaces the entire explicit audience. `-r` also downgrades an existing read/write entry to read. Promotion never moves an external folder into the profile directory. The canonical child is a virtual mount over the existing OS placement. Access-link creation and revocation remain in TreeHopper because the raw secret must be generated, displayed, and kept out of shell history.
+The first command warns that it created a private boundary. The second creates the Editors group profile when that folder's `_index.md` declares `type: group`; the next publishes its handbook for reading, followed by granting the Editors profile write access, removing public access alone, and replacing the entire explicit audience. `-r` also downgrades an existing read/write entry to read. Promotion never moves an external folder into the profile directory. The canonical child is a virtual mount over the existing OS placement. Access-link creation and revocation remain in TreeHopper because the raw secret must be generated, displayed, and kept out of shell history.
 
 ## Plumbing
 

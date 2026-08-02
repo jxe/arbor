@@ -631,6 +631,22 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   await claimSheet.getByRole("textbox", { name: "Local profile folder" }).fill(ALICE_PROFILE);
   await claimSheet.getByRole("button", { name: "Claim profile", exact: true }).click();
   await expect(page.getByRole("button", { name: "Community and profile" })).toHaveText("~alice");
-  await expect(page.locator(".remote-browser-frame")).toHaveAttribute("src", `${HOST_ORIGIN}/~alice`);
+  const canonicalProfilePath = realpathSync(ALICE_PROFILE);
+  await expect(page).toHaveURL(new RegExp(`/render${canonicalProfilePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+  await expect(page.locator(".remote-browser-frame")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /_index\.md/ })).toHaveCount(0);
+  const profileHeading = page.getByRole("heading", { name: "alice", level: 1 });
+  await expect(profileHeading).toBeVisible();
+  await profileHeading.click();
+  await page.keyboard.press("Home");
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("End");
+  await page.keyboard.up("Shift");
+  await page.keyboard.type("Alice");
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  expect(await page.evaluate(async (path) => {
+    const snapshot = await fetch(`/v1/node?tree=local&path=${encodeURIComponent(path)}`).then((value) => value.json());
+    return snapshot.document.bodySource as string;
+  }, ALICE_PROFILE)).toContain("# Alice");
   await expect(page.getByRole("button", { name: "Share" })).toBeEnabled();
 });

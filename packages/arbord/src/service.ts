@@ -760,10 +760,16 @@ export class ArborService implements AsyncDisposable {
     kind: "shared-subtree" | "group-profile" = "shared-subtree",
   ): Promise<MutationReceipt["effects"]> {
     const path = await realpath(resolveUserPath(inputPath));
+    const profileIndex = await readFile(join(path, "_index.md"), "utf8").catch(() => "");
+    const effectiveKind = kind === "shared-subtree"
+      && /^\/~[a-z0-9][a-z0-9-]{0,62}$/.test(canonicalPath)
+      && /^type:\s*group\s*$/m.test(profileIndex)
+      ? "group-profile"
+      : kind;
     const { client, origin } = await this.configuredWire();
     const snapshot = await snapshotDirectory(path, this.trees.sharedBoundariesWithin(path));
     const remote = await client.create(canonicalPath, snapshot, {
-      kind,
+      kind: effectiveKind,
       publicAccess: audience.kind === "everyone" ? audience.access : "none",
     });
     if (audience.kind === "profile") {
