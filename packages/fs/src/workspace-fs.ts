@@ -234,15 +234,23 @@ export class WorkspaceFS implements AsyncDisposable {
     const instance = new WorkspaceFS(root, options);
     await mkdir(instance.transactionDirectory, { recursive: true });
     await instance.recoverTransactions();
-    instance.initialDiscovery = await discoverWorkspace(root);
+    instance.initialDiscovery = await discoverWorkspace(root, { recursive: options.discovery !== "shallow" });
     instance.loadPageIDs(instance.initialDiscovery);
-    await instance.startWatcher();
+    if (options.discovery !== "shallow") await instance.startWatcher();
     return instance;
   }
 
   startupDiscovery(): WorkspaceDiscovery {
     if (!this.initialDiscovery) throw new Error("Workspace discovery is unavailable");
     return this.initialDiscovery;
+  }
+
+  async discoverRecursively(): Promise<WorkspaceDiscovery> {
+    const discovery = await discoverWorkspace(this.root);
+    this.initialDiscovery = discovery;
+    this.loadPageIDs(discovery);
+    if (!this.subscription) await this.startWatcher();
+    return discovery;
   }
 
   subscribe(listener: (event: FsEvent) => void): () => void {

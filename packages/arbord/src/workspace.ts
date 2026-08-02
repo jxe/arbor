@@ -61,6 +61,8 @@ export interface WorkspaceOptions {
   /** Derived from the root `_index.md`; basename fallback. */
   displayName?: string;
   tracking?: "tracked" | "session";
+  /** Untracked browsing starts shallow; tracked trees require complete discovery. */
+  discovery?: "recursive" | "shallow";
   treeDescriptor?: Partial<TreeDescriptor>;
 }
 
@@ -102,6 +104,7 @@ export class Workspace implements AsyncDisposable {
   private idOwnerSets = new Map<string, readonly string[]>();
   private displayName: string;
   private treeDescriptor: Partial<TreeDescriptor>;
+  private discovery: "recursive" | "shallow";
   /** Inverted unambiguous owner index: path -> pageID. */
   private pathPageIDs = new Map<string, string>();
   private healingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -114,6 +117,7 @@ export class Workspace implements AsyncDisposable {
     this.tree = options.tree ?? `rt_${sha256(root).slice(0, 10)}`;
     this.displayName = options.displayName ?? basename(root);
     this.treeDescriptor = options.treeDescriptor ?? {};
+    this.discovery = options.discovery ?? "recursive";
     this.tracking = options.tracking ?? "session";
     this.stateDirectory = stateDirectory;
     this.fs = fs;
@@ -126,7 +130,11 @@ export class Workspace implements AsyncDisposable {
   static async open(path: string, options: WorkspaceOptions = {}): Promise<Workspace> {
     const state = await workspaceState(path);
     const stateDirectory = state.directory;
-    const fs = await WorkspaceFS.open(path, { stateDirectory, faultInjector: options.faultInjector });
+    const fs = await WorkspaceFS.open(path, {
+      stateDirectory,
+      faultInjector: options.faultInjector,
+      discovery: options.discovery,
+    });
     const discovery = fs.startupDiscovery();
     const index = new WorkspaceIndex(fs.root, join(stateDirectory, "index.sqlite"));
     const workspace = new Workspace(fs.root, stateDirectory, fs, index, {
@@ -135,7 +143,9 @@ export class Workspace implements AsyncDisposable {
       displayName: options.displayName ?? await rootDisplayName(fs.root),
     });
     workspace.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
-    await Promise.all([index.rebuild(discovery), workspace.generateTypes(discovery)]);
+    if (workspace.discovery === "recursive") {
+      await Promise.all([index.rebuild(discovery), workspace.generateTypes(discovery)]);
+    }
     await workspace.finishRecoveredMutations();
     return workspace;
   }
@@ -153,6 +163,14 @@ export class Workspace implements AsyncDisposable {
 
   updateTreeDescriptor(descriptor: Partial<TreeDescriptor>): void {
     this.treeDescriptor = { ...this.treeDescriptor, ...descriptor };
+  }
+
+  async activateRecursiveDiscovery(): Promise<void> {
+    if (this.discovery === "recursive") return;
+    const discovery = await this.fs.discoverRecursively();
+    this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
+    await Promise.all([this.index.rebuild(discovery), this.generateTypes(discovery)]);
+    this.discovery = "recursive";
   }
 
   async refreshDisplayName(): Promise<string> {

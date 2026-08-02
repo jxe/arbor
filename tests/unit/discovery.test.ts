@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { discoverWorkspace, WorkspaceFS } from "@arbor/fs";
@@ -55,6 +55,36 @@ describe("workspace discovery", () => {
       expect((await fs.list("/")).map((entry) => entry.name)).not.toContain("external");
     } finally {
       await fs[Symbol.asyncDispose]();
+    }
+  });
+
+  test("supports shallow startup discovery and skips unreadable descendants", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-discovery-shallow-"));
+    const state = await mkdtemp(join(tmpdir(), "arbor-discovery-shallow-state-"));
+    const nested = join(root, "nested");
+    const protectedDirectory = join(root, "protected");
+    temporaryPaths.push(root, state);
+    await mkdir(nested);
+    await mkdir(protectedDirectory);
+    await writeFile(join(root, "root.md"), "# Root\n");
+    await writeFile(join(nested, "deep.md"), "# Deep\n");
+    await chmod(protectedDirectory, 0o000);
+    try {
+      const shallow = await WorkspaceFS.open(root, { stateDirectory: state, discovery: "shallow" });
+      try {
+        expect(shallow.startupDiscovery().files.map((file) => file.treePath)).toEqual(["/root.md"]);
+        expect(shallow.startupDiscovery().directories.map((directory) => directory.treePath)).toEqual(["/"]);
+        expect((await shallow.list("/")).map((entry) => entry.name)).toContain("nested");
+        expect((await shallow.list("/nested")).map((entry) => entry.name)).toContain("deep");
+      } finally {
+        await shallow[Symbol.asyncDispose]();
+      }
+
+      const recursive = await discoverWorkspace(root);
+      expect(recursive.files.map((file) => file.treePath)).toContain("/nested/deep.md");
+      expect(recursive.directories.map((directory) => directory.treePath)).not.toContain("/protected");
+    } finally {
+      await chmod(protectedDirectory, 0o700);
     }
   });
 });

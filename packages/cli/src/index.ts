@@ -2,7 +2,7 @@
 import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { serveArbor, type ArborService } from "@arbor/arbord";
+import { ArborService, serveArbor } from "@arbor/arbord";
 import { ArbordClient } from "@arbor/client";
 import type { ShareAudience } from "@arbor/core";
 import { ConnectionStore } from "@arbor/stores";
@@ -178,11 +178,18 @@ async function connectCommand(args: string[]): Promise<void> {
   const target = canonicalTarget(args[0]!);
   const token = process.env.ARBOR_ACCOUNT_TOKEN ?? await readSecret(`Account/device credential for ${target.endpoint}: `);
   if (!token) throw new Error("No account credential supplied");
-  await withArbord(process.cwd(), async (client) => {
-    await client.mutateSystem({ op: "connectCommunity", origin: target.endpoint, accountToken: token });
-    const record = await communityRecord(client);
+  const service = await ArborService.openControl();
+  try {
+    await service.executeMutation({
+      mutationID: crypto.randomUUID(),
+      operations: [{ op: "connectCommunity", origin: target.endpoint, accountToken: token }],
+    });
+    const record = await service.communityConfig.safe();
+    if (!record) throw new Error("The community connection was not saved");
     console.log(`Connected as ~${record.handle} to ${record.communityURL ?? target.endpoint}`);
-  });
+  } finally {
+    await service[Symbol.asyncDispose]();
+  }
 }
 
 async function promoteLocal(

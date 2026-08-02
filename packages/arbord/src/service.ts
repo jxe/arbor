@@ -71,13 +71,15 @@ export class ArborService implements AsyncDisposable {
   private syncing = false;
   private syncConflicts = new Set<string>();
 
-  private constructor(events: EventBus, trees: TreeManager) {
+  private constructor(events: EventBus, trees: TreeManager, options: { autoSync?: boolean } = {}) {
     this.events = events;
     this.trees = trees;
     this.localFs = new FilesystemService(events);
-    this.syncTimer = setInterval(() => { void this.syncAll(); }, 2_000);
-    this.syncTimer.unref?.();
-    setTimeout(() => { void this.syncAll(); }, 0);
+    if (options.autoSync !== false) {
+      this.syncTimer = setInterval(() => { void this.syncAll(); }, 2_000);
+      this.syncTimer.unref?.();
+      setTimeout(() => { void this.syncAll(); }, 0);
+    }
   }
 
   static async open(
@@ -89,6 +91,16 @@ export class ArborService implements AsyncDisposable {
     await trees.init();
     await trees.openSession(sessionPath, options);
     const service = new ArborService(events, trees);
+    await service.migrateLegacyCommunityConfig();
+    return service;
+  }
+
+  /** Open system/account authority without attaching Arbor to a filesystem session. */
+  static async openControl(): Promise<ArborService> {
+    const events = new EventBus();
+    const trees = new TreeManager(events);
+    await trees.init();
+    const service = new ArborService(events, trees, { autoSync: false });
     await service.migrateLegacyCommunityConfig();
     return service;
   }

@@ -177,10 +177,11 @@ export class TreeManager implements AsyncDisposable {
     }
 
     for (const candidate of candidates) {
-      const open = this.workspaces.get(candidate.id);
+      let open = this.workspaces.get(candidate.id);
       if (open && open.root !== candidate.osPath) {
         await open[Symbol.asyncDispose]();
         this.workspaces.delete(candidate.id);
+        open = undefined;
       }
       this.known.set(candidate.id, {
         placement: candidate.placement,
@@ -189,6 +190,7 @@ export class TreeManager implements AsyncDisposable {
         name: candidate.name,
       });
       if (open) {
+        await open.activateRecursiveDiscovery();
         open.tracking = "tracked";
         open.updateTreeDescriptor(candidate.placement.source === "local" ? {
           legacy: true,
@@ -249,6 +251,7 @@ export class TreeManager implements AsyncDisposable {
       tree: trackedID,
       displayName: tracked?.name,
       tracking: tracked ? "tracked" : "session",
+      discovery: tracked ? "recursive" : "shallow",
       treeDescriptor: tracked?.placement?.source === "local" ? { legacy: true } : tracked?.placement ? {
         canonical: tracked.placement.canonical,
         canonicalPath: new URL(tracked.placement.canonical).pathname,
@@ -292,6 +295,7 @@ export class TreeManager implements AsyncDisposable {
       tree,
       displayName: root.name,
       tracking: "tracked",
+      discovery: "recursive",
       treeDescriptor: root.placement?.source === "local" ? { legacy: true } : root.placement ? {
         canonical: root.placement.canonical,
         canonicalPath: new URL(root.placement.canonical).pathname,

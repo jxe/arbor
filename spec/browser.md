@@ -6,6 +6,9 @@ TreeHopper is a view and editing surface over arbord, never an independent stora
 ## 1. Browsing and editing
 
 TreeHopper browses ordinary local files, placed shared trees, transient remote visits, historical revisions, and safe `system:` records. A remote HTTP or Arbor locator opens in the same browser location model; an unresolved person-profile reservation renders as an empty, claimable profile rather than a connection form. Opening a location does not invent identity. Source-preserving Markdown, projected directories, collections, and ordinary files follow [format.md](format.md); synthetic projection rows and virtual mounts never persist as fabricated Markdown or duplicate filesystem content.
+
+Opening an ordinary untracked local directory is shallow and demand-driven. Startup discovers only the selected directory; entering a child enumerates that child directly. Arbor does not recursively crawl, index, generate types for, or install a recursive watcher on the whole local tree merely because it was browsed. An unreadable descendant is isolated to that location rather than failing the surrounding browse. Promotion or an existing tracked placement activates complete discovery, indexing, type generation, and watching for that tree.
+
 When a canonical remote locator resolves to a tree already placed on this device, TreeHopper opens the local placement. This keeps a person's own claimed profile editable while the same address remains a public-read view for visitors.
 
 A canonical boundary shows its canonical path, `TreeID`, placement, effective/public access, revision, and sync/conflict state. Resolution uses the longest accessible boundary. An unavailable or private nested tree is not exposed through its parent.

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ServerConfigStore } from "@arbor/stores";
@@ -147,6 +147,39 @@ describe("primary CLI sync forms", () => {
       for (const entry of root.entries) {
         if (entry.hash) expect((await fetch(`${host.url}/.arbor/objects/${entry.hash}`)).status).toBe(200);
       }
+    }
+  });
+
+  test("connect does not browse or index the current directory", async () => {
+    const current = join(sandbox, "connect-current-directory");
+    const protectedChild = join(current, "protected");
+    await mkdir(protectedChild, { recursive: true });
+    await chmod(protectedChild, 0o000);
+    try {
+      const child = Bun.spawn([
+        "bun",
+        join(import.meta.dir, "../../packages/cli/src/index.ts"),
+        "connect",
+        host.url,
+      ], {
+        cwd: current,
+        env: {
+          ...Bun.env,
+          ARBOR_DATA_HOME: stateA,
+          ARBOR_ACCOUNT_TOKEN: "cli-sync-owner",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exit, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+      expect(stdout).toContain("Connected as ~owner");
+    } finally {
+      await chmod(protectedChild, 0o700);
     }
   });
 

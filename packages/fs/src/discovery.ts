@@ -49,7 +49,10 @@ export function isIgnoredWorkspaceDirectory(name: string): boolean {
   return IGNORED_WORKSPACE_DIRECTORIES.has(name);
 }
 
-export async function discoverWorkspace(path: string): Promise<WorkspaceDiscovery> {
+export async function discoverWorkspace(
+  path: string,
+  options: { recursive?: boolean } = {},
+): Promise<WorkspaceDiscovery> {
   const root = await realpath(path);
   const files: DiscoveredWorkspaceFile[] = [];
   const directories: DiscoveredWorkspaceDirectory[] = [];
@@ -57,7 +60,11 @@ export async function discoverWorkspace(path: string): Promise<WorkspaceDiscover
   const pageIDOwners = new Map<string, string[]>();
 
   const walk = async (absoluteDirectory: string): Promise<void> => {
-    const entries = await readdir(absoluteDirectory, { withFileTypes: true });
+    const entries = await readdir(absoluteDirectory, { withFileTypes: true }).catch((error) => {
+      if (absoluteDirectory === root) throw error;
+      return null;
+    });
+    if (!entries) return;
     const directoryTreePath = toTreePath(root, absoluteDirectory);
     directories.push({
       absolutePath: absoluteDirectory,
@@ -70,7 +77,7 @@ export async function discoverWorkspace(path: string): Promise<WorkspaceDiscover
       if (entry.isSymbolicLink()) continue;
       const absolutePath = join(absoluteDirectory, entry.name);
       if (entry.isDirectory()) {
-        if (!isIgnoredWorkspaceDirectory(entry.name)) await walk(absolutePath);
+        if (options.recursive !== false && !isIgnoredWorkspaceDirectory(entry.name)) await walk(absolutePath);
         continue;
       }
       if (!entry.isFile()) continue;

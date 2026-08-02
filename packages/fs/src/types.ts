@@ -105,6 +105,7 @@ export interface FsEvent {
 
 export interface WorkspaceFSOptions {
   stateDirectory: string;
+  discovery?: "recursive" | "shallow";
   settleDelayMs?: number;
   faultInjector?: (point: string) => void | Promise<void>;
 }
