@@ -8,7 +8,6 @@ describe("arbor browse operands", () => {
 
   test("opens reserved profile URLs through the local claim flow", () => {
     expect(browseTarget("https://garden.example/~alice/", "/Users/alice")).toEqual({
-      path: "/Users/alice",
       claimURL: "https://garden.example/~alice",
     });
   });

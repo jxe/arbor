@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-import { mkdir, realpath, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { serveArbor } from "@arbor/arbord";
 import { ArbordClient } from "@arbor/client";
@@ -58,7 +59,7 @@ function canonicalTarget(input: string): CanonicalTarget {
 }
 
 export interface BrowseTarget {
-  path: string;
+  path?: string;
   claimURL?: string;
 }
 
@@ -68,7 +69,7 @@ export function browseTarget(input: string, cwd = process.cwd()): BrowseTarget {
   if (!/^\/~[a-z0-9](?:[a-z0-9-]{0,62})$/.test(target.canonicalPath)) {
     throw new Error("Remote browsing currently accepts a reserved profile URL; use arbor sync <canonical-url> <local-path> for shared content");
   }
-  return { path: resolve(cwd), claimURL: target.supplied };
+  return { claimURL: target.supplied };
 }
 
 type CliAudienceOperation =
@@ -384,7 +385,15 @@ async function main(): Promise<void> {
     const target = browseTarget(input);
     const portIndex = args.indexOf("--port");
     const port = portIndex >= 0 ? Number(args[portIndex + 1]) : 4317;
-    const { service, workspace, server, start, url } = await serveArbor(target.path, { port });
+    const claimSession = target.claimURL ? await mkdtemp(join(tmpdir(), "arbor-claim-")) : undefined;
+    let running: Awaited<ReturnType<typeof serveArbor>>;
+    try {
+      running = await serveArbor(target.path ?? claimSession!, { port });
+    } catch (error) {
+      if (claimSession) await rm(claimSession, { recursive: true, force: true });
+      throw error;
+    }
+    const { service, workspace, server, start, url } = running;
     const descriptor = workspace.descriptor();
     const scope = descriptor.placement === "shared"
       ? `shared tree "${descriptor.name}"`
@@ -399,6 +408,7 @@ async function main(): Promise<void> {
     const shutdown = async () => {
       server.stop(true);
       await service[Symbol.asyncDispose]();
+      if (claimSession) await rm(claimSession, { recursive: true, force: true });
       process.exit(0);
     };
     process.on("SIGINT", shutdown);
