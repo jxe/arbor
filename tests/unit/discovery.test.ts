@@ -87,4 +87,17 @@ describe("workspace discovery", () => {
       await chmod(protectedDirectory, 0o700);
     }
   });
+
+  test("omits reader-local mounted roots from parent discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-composed-parent-"));
+    temporaryPaths.push(root);
+    const mounted = join(root, "friends");
+    await mkdir(mounted, { recursive: true });
+    await writeFile(join(root, "parent.md"), "# Parent\n");
+    await writeFile(join(mounted, "child.md"), "# Child\n");
+
+    const discovery = await discoverWorkspace(root, { excludedRoots: [mounted] });
+    expect(discovery.files.map((file) => file.name)).toEqual(["parent.md"]);
+    expect(discovery.directories[0]?.childNames.has("friends")).toBe(false);
+  });
 });

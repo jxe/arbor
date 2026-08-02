@@ -14,7 +14,7 @@ system:profiles/<ProfileTreeID>
 system:trees/<TreeID>
 system:trees/<TreeID>/access/<AccessID>
 system:credentials
-system:visited
+system:visited/<VisitID>
 system:diagnostics
 ```
 
@@ -47,18 +47,20 @@ The authored placement registry is `~/.arbor/trees.yaml`, keyed by canonical loc
   publicAccess: none
 ```
 
-The source names identity, not local position. The key is the reader's placement. `access` is a local ceiling, `publicAccess` projects the `everyone` entry, ref is the last common tip, and endpoint is replaceable. Canonical boundary records live at the community authority independently of these local placements.
+The source names identity, not local position. The key is the reader's placement. `access` is the effective remote access observed for this account, `publicAccess` projects the `everyone` entry, ref is the last common tip, and endpoint is replaceable. Canonical boundary records live at the community authority independently of these local placements.
 
-One tree may appear in multiple positions, and distinct nested trees may occupy overlapping prefixes because nested boundaries are real identities. Longest-boundary resolution selects the innermost accessible tree. An external local placement may project as a virtual child beneath a profile whose physical folder is elsewhere; no duplicate directory or synthetic Markdown is created. A parent graph stores only the nested child `TreeID`; parent rights do not cross into it, and ordinary writes that replace its reserved path fail with `reserved-boundary`.
+Distinct trees may occupy nested local paths. This is reader-local workspace composition: longest-prefix resolution enters the innermost placed `TreeID`, Home shows the placement nesting, and node/children calls project the child at that local path. The child is excluded from the parent's discovery, watcher, index, generated types, wire snapshot, and pull deletion. Adding or removing that placement changes only this reader's layout; it does not change either canonical URL, either ACL, the parent's revision/graph, or another reader's workspace. V1 requires the mount path to be absent or empty before placement, treats the mount itself as reserved, and supports one local placement per `TreeID`. Multiple placements of the same tree are deferred.
+
+A canonical nested boundary is different. Promotion authors the exact child `TreeID` into its canonical parent graph, even when the child's physical folder lives elsewhere; no duplicate directory or synthetic Markdown is created. Parent rights do not cross into it, and ordinary writes that replace either kind of mounted root fail with `reserved-boundary`.
 
 Arbord materializes shared trees as ordinary files for editors and agents. Userfs/FUSE is not required. The registry is atomically replaced and fully validated before activation; invalid YAML, incomplete shared records, unsafe moves, and ambiguous identity produce `system:diagnostics` while the last valid configuration remains active.
 
-Overlays shadow a read-only placement with reader-local files. Visited trees use a private TTL cache until **Add to workspace** creates a durable placement. History records `(TreeID, path, revision)`. Agent confinement assembles a process-specific namespace from only the placements and controls that agent may use.
+Visited remote nodes are recorded under `system:visited` with locator, `TreeID`, canonical address, visit time, and a private credential-free read cache. A transport failure may reopen that cached read-only projection; **Add to workspace** materializes the current tree at an absent/empty chosen path and creates a durable placement. Reader-local content overlays, several placements of one `TreeID`, placement-specific ceilings, and pinned historical placements are deferred. Agent confinement assembles a process-specific namespace from only the placements and controls that agent may use.
 
 Effective access is:
 
 ```text
-remote tree access ∩ local placement ceiling ∩ process/component ceiling
+remote tree access ∩ process/component ceiling
 ```
 
 ## 3. Local durability, Trash, and recovery
@@ -68,5 +70,7 @@ Each shared tree has private per-device workspace state for its journal, search 
 External editor or agent writes are observed as external snapshots, not falsely claimed as Arbor-authored intent. A block removed through Arbor is intentionally purged; a block absent after an external rewrite is lost. Both remain recoverable, and neither leaks into the tree, search, sync, or publication.
 
 Deleting a node is a soft move to the tree's `Trash/`, preserving identity and original location. Recovery queries are per tree/subtree and combine Trash with lost/purged Markdown history. Cross-device changes arrive as wire revisions and are journaled on local application so stale local state cannot resurrect a peer deletion.
+
+Workspace-wide search, backlinks, Trash, and recovery are client compositions over the visible tree set. Results always retain their source `TreeID`; cross-tree backlinks use explicit `arbor://tree/<TreeID>/…` targets. There is no fabricated aggregate tree and no workspace-wide mutation or recovery transaction.
 
 Unpromoted local scope intentionally has a smaller contract: byte-CAS Markdown edits and plain filesystem structural actions remain safe, but durable page identity, indexing, recovery, Trash, synchronization, and permissions begin only after promotion.

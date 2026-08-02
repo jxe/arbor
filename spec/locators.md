@@ -69,7 +69,7 @@ Bodyless directories begin path-only. Arbor minimally materializes Markdown iden
 
 Resolution produces a concrete tree, logical path, optional immutable root hash, and optional document/export identity:
 
-1. Normalize a local path. If it lies within a shared placement, resolve it to that placement's `TreeID` and tree-relative path; otherwise it remains local filesystem scope.
+1. Normalize a local path. If it lies within one or more shared placements, choose the longest local placement prefix and resolve it to that placement's `TreeID` and tree-relative path; otherwise it remains local filesystem scope. Nested local placements are the reader's layout only and do not imply a canonical boundary in the enclosing tree.
 2. Resolve named HTTP/Arbor locations through a local placement or visit first, then `/.well-known/arbor/*`. Choose the longest accessible registered boundary and walk the remainder inside that tree.
 3. Resolve an access link by retaining its secret outside durable content and presenting it only as authorization. A revoked link stops resolving.
 4. Resolve `arbor://tree/<TreeID>/…` from a known placement, visit, credential, or signed endpoint hint. A TreeID alone does not reveal its authority.

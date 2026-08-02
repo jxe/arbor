@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { access, cp, mkdir, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
-import { basename, dirname, extname, join, relative } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import * as watcher from "@parcel/watcher";
 import type { Diagnostic, MarkdownDocument } from "@arbor/core";
 import {
@@ -217,6 +217,7 @@ export class WorkspaceFS implements AsyncDisposable {
   private pendingDiagnostics: Diagnostic[] = [];
   private recoveredMutationResults: Array<{ mutationID: string; result: FsMutationResult }> = [];
   private initialDiscovery?: WorkspaceDiscovery;
+  private excludedRoots: string[];
 
   private constructor(root: string, options: WorkspaceFSOptions) {
     this.root = root;
@@ -225,6 +226,7 @@ export class WorkspaceFS implements AsyncDisposable {
     this.transactionDirectory = join(options.stateDirectory, "fs-transactions");
     this.settleDelayMs = options.settleDelayMs ?? 250;
     this.faultInjector = options.faultInjector;
+    this.excludedRoots = (options.excludedRoots ?? []).map((item) => resolve(item));
   }
 
   static async open(path: string, options: WorkspaceFSOptions): Promise<WorkspaceFS> {
@@ -234,7 +236,10 @@ export class WorkspaceFS implements AsyncDisposable {
     const instance = new WorkspaceFS(root, options);
     await mkdir(instance.transactionDirectory, { recursive: true });
     await instance.recoverTransactions();
-    instance.initialDiscovery = await discoverWorkspace(root, { recursive: options.discovery !== "shallow" });
+    instance.initialDiscovery = await discoverWorkspace(root, {
+      recursive: options.discovery !== "shallow",
+      excludedRoots: instance.excludedRoots,
+    });
     instance.loadPageIDs(instance.initialDiscovery);
     if (options.discovery !== "shallow") await instance.startWatcher();
     return instance;
@@ -246,11 +251,27 @@ export class WorkspaceFS implements AsyncDisposable {
   }
 
   async discoverRecursively(): Promise<WorkspaceDiscovery> {
-    const discovery = await discoverWorkspace(this.root);
+    const discovery = await discoverWorkspace(this.root, { excludedRoots: this.excludedRoots });
     this.initialDiscovery = discovery;
     this.loadPageIDs(discovery);
     if (!this.subscription) await this.startWatcher();
     return discovery;
+  }
+
+  async setExcludedRoots(roots: readonly string[]): Promise<WorkspaceDiscovery> {
+    this.excludedRoots = roots.map((item) => resolve(item));
+    const discovery = await discoverWorkspace(this.root, {
+      recursive: this.subscription !== undefined,
+      excludedRoots: this.excludedRoots,
+    });
+    this.initialDiscovery = discovery;
+    this.loadPageIDs(discovery);
+    return discovery;
+  }
+
+  private isExcludedAbsolute(absolutePath: string): boolean {
+    const candidate = resolve(absolutePath);
+    return this.excludedRoots.some((root) => candidate === root || candidate.startsWith(`${root}${sep}`));
   }
 
   subscribe(listener: (event: FsEvent) => void): () => void {
@@ -270,6 +291,19 @@ export class WorkspaceFS implements AsyncDisposable {
       ensureContainedPath(this.root, path, this.root),
       ensureContainedPath(this.root, siblingTreePath, this.root),
     ]);
+    if (path !== "/" && (this.isExcludedAbsolute(direct) || this.isExcludedAbsolute(sibling))) {
+      return {
+        path,
+        kind: "missing",
+        absolutePath: direct,
+        directoryPath: null,
+        bodyPath: null,
+        bodySource: null,
+        writable: false,
+        materialization: "available",
+        diagnostics: [],
+      };
+    }
     const directPlaceholder = iCloudPlaceholderPath(direct);
     const siblingPlaceholder = iCloudPlaceholderPath(sibling);
     const [directInfo, siblingInfo, directPlaceholderInfo, siblingPlaceholderInfo] = await Promise.all([
@@ -408,6 +442,7 @@ export class WorkspaceFS implements AsyncDisposable {
     const paths = new Set<string>();
     for (const entry of entries) {
       if (IGNORED.has(entry.name) || RESERVED.has(entry.name) || isTransactionTemporary(entry.name)) continue;
+      if (this.isExcludedAbsolute(join(node.directoryPath, entry.name))) continue;
       const logicalName = iCloudPlaceholderLogicalName(entry.name) ?? entry.name;
       const physical = `${node.path === "/" ? "" : node.path}/${logicalName}`;
       paths.add(logicalName.endsWith(".md") ? canonicalNodePath(physical) : normalizeTreePath(physical));
@@ -1274,6 +1309,7 @@ export class WorkspaceFS implements AsyncDisposable {
 
   private queueWatch(absolute: string, type: watcher.EventType): void {
     if (isTransactionTemporary(absolute)) return;
+    if (this.isExcludedAbsolute(absolute)) return;
     let treePath: string;
     const placeholderName = iCloudPlaceholderLogicalName(basename(absolute));
     const logicalAbsolute = placeholderName ? join(dirname(absolute), placeholderName) : absolute;

@@ -1,5 +1,5 @@
 import { realpath, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
 import { canonicalNodePath, type Diagnostic, type TreeDescriptor } from "@arbor/core";
 import {
   AmbiguousWorkspaceIdentityError,
@@ -206,6 +206,9 @@ export class TreeManager implements AsyncDisposable {
         });
       }
     }
+    for (const [tree, workspace] of this.workspaces) {
+      await workspace.updateExcludedRoots(this.compositionFor(tree).excludedRoots);
+    }
     if (reboundSession) {
       const root = this.known.get(reboundSession.id);
       if (!root) throw new Error(`Could not rebind the active session to ${reboundSession.id}`);
@@ -261,6 +264,7 @@ export class TreeManager implements AsyncDisposable {
         access: tracked.placement.access,
         placement: "shared",
       } : undefined,
+      excludedRoots: trackedID ? this.compositionFor(trackedID).excludedRoots : [],
     });
     this.sessionID = workspace.tree;
     this.workspaces.set(workspace.tree, workspace);
@@ -305,6 +309,7 @@ export class TreeManager implements AsyncDisposable {
         access: root.placement.access,
         placement: "shared",
       } : undefined,
+      excludedRoots: this.compositionFor(tree).excludedRoots,
     });
     this.workspaces.set(tree, workspace);
     return workspace;
@@ -392,29 +397,99 @@ export class TreeManager implements AsyncDisposable {
     this.syncStates.set(tree, state);
   }
 
-  sharedBoundariesWithin(osPath: string): Map<string, string> {
-    const result = new Map<string, string>();
-    const prefix = osPath.endsWith("/") ? osPath : `${osPath}/`;
-    for (const [tree, root] of this.known) {
-      if (root.placement?.source === "local" || !root.placement || root.missing) continue;
-      if (root.osPath.startsWith(prefix)) result.set(root.osPath, tree);
-    }
-    const parent = [...this.known.entries()].find(([, root]) =>
-      root.placement?.source !== "local" && root.osPath === osPath
-    );
-    const parentPlacement = parent?.[1].placement;
-    const parentCanonical = parentPlacement && parentPlacement.source !== "local"
-      ? new URL(parentPlacement.canonical).pathname.replace(/\/$/, "")
-      : null;
-    if (parentCanonical && parent) {
-      for (const [tree, root] of this.known) {
-        if (tree === parent[0] || root.placement?.source === "local" || !root.placement?.canonical) continue;
-        const childCanonical = new URL(root.placement.canonical).pathname;
-        if (!childCanonical.startsWith(`${parentCanonical}/`)) continue;
-        result.set(join(osPath, childCanonical.slice(parentCanonical.length + 1)), tree);
+  private canonicalPath(root: KnownRoot): string | null {
+    if (!root.placement || root.placement.source === "local") return null;
+    return new URL(root.placement.canonical).pathname.replace(/\/$/, "") || "/";
+  }
+
+  private canonicalParentOf(tree: string): string | null {
+    const child = this.known.get(tree);
+    const childPath = child ? this.canonicalPath(child) : null;
+    if (!childPath) return null;
+    let best: { tree: string; length: number } | null = null;
+    for (const [candidateTree, candidate] of this.known) {
+      if (candidateTree === tree) continue;
+      const candidatePath = this.canonicalPath(candidate);
+      if (!candidatePath) continue;
+      const contains = candidatePath === "/"
+        ? childPath !== "/"
+        : childPath.startsWith(`${candidatePath}/`);
+      if (contains && (!best || candidatePath.length > best.length)) {
+        best = { tree: candidateTree, length: candidatePath.length };
       }
     }
-    return result;
+    return best?.tree ?? null;
+  }
+
+  compositionFor(tree: string): { boundaries: Map<string, string>; excludedRoots: string[] } {
+    const boundaries = new Map<string, string>();
+    const excludedRoots: string[] = [];
+    const parent = this.known.get(tree);
+    if (!parent || parent.missing) return { boundaries, excludedRoots };
+    const parentCanonical = this.canonicalPath(parent);
+
+    for (const [childTree, child] of this.known) {
+      if (childTree === tree || child.missing || !child.placement || child.placement.source === "local") continue;
+      const childCanonical = this.canonicalPath(child);
+      if (parentCanonical && childCanonical && this.canonicalParentOf(childTree) === tree) {
+        const relativeCanonical = parentCanonical === "/"
+          ? childCanonical.slice(1)
+          : childCanonical.slice(parentCanonical.length + 1);
+        if (relativeCanonical) boundaries.set(join(parent.osPath, relativeCanonical), childTree);
+      }
+    }
+
+    const prefix = parent.osPath.endsWith("/") ? parent.osPath : `${parent.osPath}/`;
+    for (const [childTree, child] of this.known) {
+      if (childTree === tree || child.missing || !child.placement || child.placement.source === "local") continue;
+      if (!child.osPath.startsWith(prefix)) continue;
+      if (boundaries.get(child.osPath) !== childTree) excludedRoots.push(child.osPath);
+    }
+    return { boundaries, excludedRoots: excludedRoots.sort((a, b) => a.length - b.length) };
+  }
+
+  sharedBoundariesWithin(osPath: string): Map<string, string> {
+    const parent = [...this.known.entries()].find(([, root]) => root.osPath === osPath);
+    return parent ? this.compositionFor(parent[0]).boundaries : new Map();
+  }
+
+  excludedMountsWithin(osPath: string): string[] {
+    const parent = [...this.known.entries()].find(([, root]) => root.osPath === osPath);
+    return parent ? this.compositionFor(parent[0]).excludedRoots : [];
+  }
+
+  localMountBoundary(tree: string, treePath: string): { tree: string; treePath: string; exact: boolean } | null {
+    const parent = this.known.get(tree);
+    if (!parent) return null;
+    const candidate = canonicalNodePath(treePath);
+    let best: { tree: string; mountPath: string; treePath: string; exact: boolean } | null = null;
+    const excluded = new Set(this.compositionFor(tree).excludedRoots);
+    for (const [childTree, child] of this.known) {
+      if (!excluded.has(child.osPath)) continue;
+      const mountPath = canonicalNodePath(`/${relative(parent.osPath, child.osPath).split(/[/\\]/).join("/")}`);
+      if (candidate !== mountPath && !candidate.startsWith(`${mountPath}/`)) continue;
+      if (!best || mountPath.length > best.mountPath.length) {
+        const remainder = candidate === mountPath ? "/" : candidate.slice(mountPath.length);
+        best = { tree: childTree, mountPath, treePath: canonicalNodePath(remainder), exact: candidate === mountPath };
+      }
+    }
+    return best ? { tree: best.tree, treePath: best.treePath, exact: best.exact } : null;
+  }
+
+  localMountedChildren(tree: string, treePath: string): Array<{ name: string; path: string; tree: string }> {
+    const parent = this.known.get(tree);
+    if (!parent) return [];
+    const directory = canonicalNodePath(treePath);
+    const excluded = new Set(this.compositionFor(tree).excludedRoots);
+    const result: Array<{ name: string; path: string; tree: string }> = [];
+    for (const [childTree, child] of this.known) {
+      if (!excluded.has(child.osPath)) continue;
+      const mountPath = canonicalNodePath(`/${relative(parent.osPath, child.osPath).split(/[/\\]/).join("/")}`);
+      const parentPath = mountPath.slice(0, mountPath.lastIndexOf("/")) || "/";
+      if (parentPath !== directory) continue;
+      result.push({ name: basename(mountPath), path: mountPath, tree: childTree });
+    }
+    return result.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   reservedBoundary(tree: string, treePath: string): { tree: string; path: string; treePath: string; exact: boolean } | null {

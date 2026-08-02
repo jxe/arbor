@@ -1,5 +1,5 @@
 import { readFile, readdir, realpath } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { isPageID, nodePathFromPhysical, toTreePath } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 
@@ -51,29 +51,38 @@ export function isIgnoredWorkspaceDirectory(name: string): boolean {
 
 export async function discoverWorkspace(
   path: string,
-  options: { recursive?: boolean } = {},
+  options: { recursive?: boolean; excludedRoots?: readonly string[] } = {},
 ): Promise<WorkspaceDiscovery> {
   const root = await realpath(path);
+  const excludedRoots = await Promise.all((options.excludedRoots ?? []).map(async (item) =>
+    realpath(item).catch(() => resolve(item))
+  ));
+  const isExcluded = (absolutePath: string): boolean => excludedRoots.some((excluded) => {
+    const remainder = relative(excluded, resolve(absolutePath));
+    return remainder === "" || (!remainder.startsWith("..") && remainder !== "..");
+  });
   const files: DiscoveredWorkspaceFile[] = [];
   const directories: DiscoveredWorkspaceDirectory[] = [];
   const pagePathsByID = new Map<string, string>();
   const pageIDOwners = new Map<string, string[]>();
 
   const walk = async (absoluteDirectory: string): Promise<void> => {
+    if (absoluteDirectory !== root && isExcluded(absoluteDirectory)) return;
     const entries = await readdir(absoluteDirectory, { withFileTypes: true }).catch((error) => {
       if (absoluteDirectory === root) throw error;
       return null;
     });
     if (!entries) return;
     const directoryTreePath = toTreePath(root, absoluteDirectory);
+    const visibleEntries = entries.filter((entry) => !isExcluded(join(absoluteDirectory, entry.name)));
     directories.push({
       absolutePath: absoluteDirectory,
       treePath: directoryTreePath,
       name: absoluteDirectory === root ? basename(root) : basename(absoluteDirectory),
-      childNames: new Set(entries.map((entry) => entry.name)),
+      childNames: new Set(visibleEntries.map((entry) => entry.name)),
     });
 
-    for (const entry of entries) {
+    for (const entry of visibleEntries) {
       if (entry.isSymbolicLink()) continue;
       const absolutePath = join(absoluteDirectory, entry.name);
       if (entry.isDirectory()) {

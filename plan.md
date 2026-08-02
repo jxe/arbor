@@ -1,234 +1,116 @@
 # Build plan
-*Forward roadmap for Arbor and the reference implementation. Completed earlier milestones and their evidence live in [plan-history.md](plan-history.md). [plan-native.md](plan-native.md) owns native TreeHopper, Hunch migration, Clamshell, and iCloud-native integration.*
-
-## How to use this plan
-
-The topic specs describe the complete intended product. This file alone records implementation order, temporary cuts, placeholders, and current status.
-
-- **Implemented** means the focused behavior and listed acceptance checks pass in the current source.
-- **Partial** means an end-to-end slice exists but a listed gate or external prerequisite remains.
-- **Next** is the immediate architectural milestone.
-- **Planned** has an accepted product contract but no complete reference slice.
-- Completed older work moves to [plan-history.md](plan-history.md) with source pointers and evidence.
-
-Future agents must inspect source, tests, and `git status` before trusting a status label. Do not rewrite a partial implementation as future work, and do not weaken a future-product topic spec to match a staged UI.
-
-## Reference-implementation discipline
-
-Implement the smallest end-to-end system that proves a visible product feature while preserving data, durable acknowledgement, conflict safety, deterministic protocol behavior, and cross-language agreement. Prefer direct readable code and fixtures to version adapters, generic provider actions, plugin frameworks, or production administration. Introduce an abstraction only when a second concrete implementation needs it.
-
-Vocabulary:
-
-- **workspace** — the tree a person/process sees;
-- **shared tree / `TreeID`** — an independently identified sync/history/permission boundary;
-- **tree placement** — a reader-local canonical path for a shared tree;
-- **`PageID`** — durable identity of a materialized Markdown document;
-- **arbord** — local workspace/runtime authority;
-- **wire authority** — always-on owner of tree tips, aliases, access entries, claims, and immutable objects;
-- **TreeHopper** — browser/editor;
-- **script** — a `.tsx` component/query/mutation file.
-
-There is no new durable local-only tree concept. Legacy `source: local` records are migration material, not the product model.
-
-## Current state
-
-The local daily driver is implemented: filesystem-wide browsing/editing, source-preserving Markdown, projected directories, collections, durable REST mutations and event handoff, TypeScript/Swift clients, search/backlinks/recovery, and safe cloud-placeholder handling.
-
-The reference host and local arbord now implement the first community-hosting slice:
-
-- one public-read `type: group` community tree at `/`;
-- complete person and group profile trees mounted at `/~<handle>`;
-- arbitrary nested shared-tree boundaries resolved by longest accessible prefix;
-- in-place promotion that preserves the canonical path while changing the enclosing `TreeID`;
-- virtual mounted children for external local folders, without moving or copying filesystem content;
-- account/device credentials and one active local community account instead of a process-wide owner token;
-- authored community reservations and atomic first-claim-wins person profiles;
-- authored group membership, with group writers administering membership and membership alone granting no write;
-- `everyone`, person/group profile, and link access with revocation;
-- browser Profile and Share surfaces, plus `sync` and `browse` CLI primitives; `connect` remains account-import plumbing.
-
-Revision-pinned locators, production deployment, recovery/reset for disputed claims, multiple active local identities, nested groups, and cross-community membership remain outside this slice.
-
-## Accepted architecture
-
-One host represents one community and exposes one mounted canonical namespace:
-
-```text
-/                       community profile tree
-/~joe/                  Joe's complete profile tree
-/~editors/              Editors' complete group profile
-/~editors/handbook/     ordinary content or an independent shared subtree
-```
-
-A canonical boundary is a separate record from local placement:
-
-```ts
-interface CanonicalBoundary {
-  path: string;
-  tree: TreeID;
-  parentTree: TreeID | null;
-  kind: "community-profile" | "person-profile" | "group-profile" | "shared-subtree";
-}
-```
-
-Resolution chooses the longest accessible boundary and walks the remainder within that tree. A longer boundary is valid only when the parent graph contains that exact nested-tree entry; an unrelated alias cannot shadow content. Promotion replaces or reserves the exact parent entry atomically. Parent pushes that would overwrite a mounted child fail with `reserved-boundary`.
-
-Profiles are whole trees, not distinguished single pages. Their `TreeID` is the stable person/group identity; `_index.md` supplies mutable authored profile content. Community and group membership are ordinary locators in the profile document. Same-community unresolved person locators reserve handles. First claim creates and mounts the person profile and returns a device credential; later attempts return `already-claimed`.
+*Forward roadmap for Arbor and the reference implementation. Delivered work and evidence live in [plan-history.md](plan-history.md); [plan-native.md](plan-native.md) owns native TreeHopper, Hunch migration, Clamshell, and iCloud-native integration.*
 
 ## Status at a glance
 
+The local daily driver and the reference community-hosting foundation are implemented. Arbor can browse and edit the local filesystem, promote ordinary folders into canonical shared trees, host person and group profiles, claim reserved profiles, synchronize placements, and apply whole-tree access through the browser and CLI.
+
+Workspace composition is now implemented. The roadmap begins with data and SQLite rather than the operational and account-lifecycle follow-ups left by the community-hosting foundation.
+
 | Status | Milestone | Outcome |
 |---|---|---|
-| **Partial** | 1. Canonical tree hosting | Merkle trees, CAS sync, live HTTP projection, canonical boundaries, and raw TreeID fallback; pinned locators and production deployment remain. |
-| **Partial** | 2. Community hosting | Multi-account profiles, claims, groups, Share/access, longest-prefix mounts, and virtual external folders have a reference slice; production pairing/recovery and the complete cross-language/browser gate remain. |
-| **Planned** | 3. Workspace composition | Multiple placements, local ceilings, overlays, visits, and merged workspace views. |
-| **Planned** | 4. Scripts and agents | Colocated components/queries/mutations, isolation, then file-defined agents. |
-| **Planned** | 5. Data and SQLite | Transaction-safe SQLite backing and backing-independent collection mutations. |
-| **Planned** | 6. Fuller publication profiles | Static baking, custom deployed applications, and provider adapters beyond canonical live publication. |
-| **Polish** | 7. Daily-driver hardening | Focused ordinary-file, provider, accessibility, and scale work. |
+| **Implemented** | 1. Workspace composition | Distinct trees mount in a reader-local layout; visits and merged surfaces preserve provenance. |
+| **Next** | 2. Data and SQLite | Transaction-safe SQLite backing and backing-independent collection mutations. |
+| **Planned** | 3. Agents | File-defined agents using built-in Arbor operations over restricted composed namespaces. |
+| **Planned** | 4. Scripts runtime | Colocated components, queries, mutations, and custom agent tools with typed handles, isolation, and reactive execution. |
+| **Planned** | 5. Deployable applications | Static baking, portable application manifests, live handlers, and deployment adapters. |
+| **Later** | 6. Account lifecycle and hosting administration | Pairing, identity switching, recovery, disputes, and production operational tooling. |
+
+Milestone numbers express product priority, not a claim that every implementation task is serial. Data and SQLite come first to establish one backing-independent collection mutation contract. Agents then begin with Arbor's built-in tree operations rather than waiting for the general scripts runtime; that runtime follows the first agent slice and consumes the collection contract established by Milestone 2.
 
 ```text
-canonical identity + self-sync + live publication
-                         │
-                         ▼
-        community profiles + groups + sharing
-                         │
-                         ▼
-               workspace composition
-            │                         │
-            ▼                         ▼
-     scripts + agents          data + SQLite
-            │                         │
-            └──────────┬──────────────┘
-                       ▼
-          fuller publication profiles
+implemented local + community-hosting foundation + workspace composition
+   └── data + SQLite ── agents ── scripts runtime ── deployable applications
+
+account lifecycle, hosting administration, and hardening follow
+without blocking those forward product capabilities
 ```
 
----
+## Implemented foundation
 
-## Milestone 1 — canonical tree hosting
+The implemented foundation is summarized here only to establish what later milestones may depend on. Source ownership, intentional limits, and verification evidence belong in [plan-history.md](plan-history.md).
 
-**Status: Partial. The live local/URL slice exists; revision-pinned locators plus a permanent hostname and hosted-volume restart check remain.**
+- The local daily driver provides filesystem-wide browsing/editing, source-preserving Markdown, projected directories, collections, durable REST mutations and event handoff, TypeScript/Swift clients, search/backlinks/recovery, and safe cloud-placeholder handling.
+- Shared trees have stable `TreeID`s, immutable deterministic objects, CAS synchronization, canonical HTTP/Arbor names, raw TreeID fallback, whole-tree access, and independently accessed nested boundaries.
+- One host represents one community with a public root profile, complete person/group profile trees at `/~<handle>`, authored reservations and membership, atomic first-claim-wins profiles, and account/device credentials.
+- Share promotes a visible subtree in place without changing its URL or OS location. External folders appear as virtual mounted children, and longer accessible boundaries resolve by longest prefix.
+- TreeHopper supplies profile, claim, and Share surfaces; `browse`, `sync`, `unsync`, `serve`, and recovery-oriented `connect` plumbing provide the CLI surface.
+- Reader-local nested placements compose distinct trees without entering a parent graph or revision. Home includes durable remote visits, **Add to workspace**, nested placements, and provenance-correct search, backlinks, Trash, and recovery surfaces.
 
-One mutable root hash belongs to each `TreeID`, with immutable deterministic objects beneath it. CAS push/watch/ref/object endpoints validate graphs, hashes, reachability, and quotas. HTTP and `arbor://` spellings name the same canonical path; raw `arbor://tree/<TreeID>` remains the durable fallback.
+The durable product contracts live in the topic specifications rather than this roadmap:
 
-The milestone now uses mounted paths rather than one-segment slugs. Public access is an `everyone` entry (`none`, `read`, or `write`), not a parallel publication column. Nested boundaries never inherit access. Immediate push, background pull, offline divergence preservation, restart recovery, and read-only remote placement remain as implemented.
-
-Remaining work:
-
-- shared parsing for immutable revision suffixes and pinned browse/sync;
-- permanent deployed hostname, mounted volume, graceful restart, and private/public verification;
-- static bake and custom applications remain in fuller publication profiles.
-
----
-
-## Milestone 2 — community hosting
-
-**Status: Partial. The reference TypeScript host, arbord, CLI, browser, and focused integration coverage exist.**
-
-### Product contract
-
-The community is the public-read group profile at `/`. Person and group profiles are complete public-read trees at `/~<handle>`. Handles are unique and exclude `~`.
-
-Membership is authored directly:
-
-```yaml
-members:
-  - arbor://garden.example/~joe
-  - arbor://garden.example/~alice
-```
-
-An unresolved same-community person locator reserves its handle. Anyone may browse that URL as an empty profile. Its Claim action asks only for a visible local folder, which may be new or use `~`; the browsed location already supplies the community and handle. The first successful submission creates `type: person` profile content, mounts the new `TreeID`, and stores the returned device credential. Removing a pending locator releases the handle. Removing a claimed locator disables future authenticated operations without deleting its tree.
-
-Group profiles list existing person locators as members. Writers of the group tree administer its namespace and membership; membership alone does not grant write. Resource trees may independently grant the group read or write access.
-Creating a group uses ordinary content and sync rather than a dedicated account-panel form: author a folder whose root `_index.md` declares `type: group`, then sync it with public-read access to an available `/~<handle>` boundary.
-
-**Share** promotes a visible subtree in place. It is disabled until the current local account is connected, its credential is available, and it has a profile. Missing credentials retain safe identity metadata and point to `arbor connect <origin>` recovery; Share-sheet mutation errors remain visible. Every new share uses an additive access builder with a locked profile-writers row and requires either one or more explicit public/person/group rules or an explicit Private choice. The complete initial rule set is applied atomically with promotion. Existing boundaries reopen the builder for public/person/group/link access and revocation. An external folder chooses an available child path beneath a writable profile and remains at its existing OS path as a virtual mounted child.
-
-The profile control owns public-profile editing, writable profile/group namespaces, group creation, and disconnect. Claiming belongs to the browsed empty profile; credential activation remains CLI recovery plumbing. Credentials never appear in content, journals, receipts, events, errors, diagnostics, or logs.
-
-### Implemented control surface
-
-```text
-arbor sync [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
-arbor sync <canonical-url> <local-path>
-arbor unsync <local-path> [<canonical-url>]
-arbor browse <locator>
-arbor serve [data-directory] [--community <handle>] [--first-writer <handle>]
-```
-
-The browser claim stores and activates the returned device credential, so `connect` is not a new-member prerequisite. A fresh `serve` reserves the first writer and that claim grants community write; environment-supplied accounts remain available for unattended bootstrap and legacy migration. Singleton arbord operations are `connectCommunity`, `disconnectCommunity`, `claimProfile`, `createGroupProfile`, `promoteTree`, `placeTree`, `removeTreePlacement`, and `setTreeAccess`. `system:community` stores only safe account/community metadata and a credential reference.
-
-Browsing an ordinary untracked directory is shallow and demand-driven. Recursive discovery, indexing, type generation, and filesystem watching begin only when a folder is tracked or synced. Account-only operations such as `connect` and transient remote browser visits open arbord's control authority without attaching a filesystem session or creating a placeholder workspace. Unplaced remote visits proxy raw wire objects into a non-writable node and use TreeHopper's read-only BlockNote presentation without an iframe; ordinary host HTML uses the server-safe Arbor Markdown renderer.
-
-### Reference-slice verification
-
-- promote `/~editors/handbook` and preserve its URL, bytes, and `PageID` while longest-prefix resolution changes its enclosing `TreeID`;
-- reject unrelated shadowing and a parent push that overwrites the reserved mount;
-- share an external folder as `/~owner/atlas`, preserve its real OS path, project it through TreeHopper APIs, and create no duplicate profile folder;
-- win one concurrent `~alice` claim and return `already-claimed` thereafter;
-- release a pending member and disable a removed claimed member without deleting the profile boundary;
-- isolate accounts and nested access; keep group membership separate from group authorship;
-- exercise public, person, group, and link access plus revocation;
-- keep raw account/link credentials out of durable text.
-
-### Remaining work
-
-- extend browser E2E coverage from claim/share/disconnect to group creation and access-entry revocation, plus a visual/accessibility pass;
-- historical/recovery UI for access changes;
-- production device pairing, account switching among stored identities, claim recovery/disputes, and administrator reset;
-- confirmed removal UX for claimed members;
-- execute the documented Railway/custom-domain deployment and hosted-volume restart check; broaden malformed/partial legacy-state recovery coverage.
-
-Nested groups, cross-community membership, boundary moves/aliases, multiple active local identities, and broader workspace overlays remain deferred.
+- [wire and community authority](spec/wire.md) owns canonical boundaries, promotion, profiles, claims, access, objects, refs, and HTTP projection;
+- [locators](spec/locators.md) owns canonical names, raw TreeID fallback, revision pins, and resolution;
+- [browser](spec/browser.md) owns browsing, profile control, Claim, Share, and access UI;
+- [CLI](spec/cli.md) owns command forms and deployment arguments;
+- [`system:` and placements](spec/system.md) owns safe account state, credentials, placements, overlays, and local ceilings;
+- [arbord REST](spec/arbord-rest.md) owns the local client and mutation boundary.
 
 ---
 
-## Milestone 3 — workspace composition
+## Milestone 1 — workspace composition
 
-**Status: Planned.**
+**Status: Implemented on 2026-08-02. See [plan-history.md](plan-history.md#workspace-composition-forward-milestone-1).**
 
-- Allow one `TreeID` to have multiple local placements with correct identity, events, and provenance.
-- Add an optional stricter read-only ceiling per placement; it never creates remote authority.
-- Add reader-local overlays for annotations and proposals over read-only or historical content.
-- Support transient visits, placement promotion, and pinned historical placements through the common locator resolver.
-- Merge browser search and recovery results across visible trees without inventing aggregate REST resources.
-- Preserve cached and overlay work across offline periods and access restoration.
+Outcome: a workspace can mount distinct local and shared trees wherever they make sense, while navigation and cross-tree surfaces retain exact provenance and remote authority.
 
-Completion gate: Alice places one tree twice, makes one placement locally read-only, annotates it in an overlay, visits an unplaced tree, and sees provenance-correct search/recovery results without changing remote access.
+- Distinct shared `TreeID`s can occupy nested local paths; longest-prefix navigation enters the child while parent discovery, watching, indexing, snapshots, pulls, and revisions exclude it.
+- Home presents nested placements, account-visible trees, durable remote visits, **Add to workspace**, and merged recovery surfaces without fabricating aggregate content.
+- Search, explicit cross-tree backlinks, Trash, and recovery retain the originating `TreeID` and local placement.
+- Remote visits persist safe metadata and a credential-free read cache for ordinary offline reopening.
 
----
+Completion gate: Alice mounts two different shared trees at locally meaningful paths, visits a third unplaced tree, adds it to her workspace, and sees provenance-correct search, backlinks, Trash, and recovery results without changing remote access or duplicating mounted content.
 
-## Milestone 4 — scripts and agents
+## Milestone 2 — data and SQLite
 
-**Status: Planned.**
+**Status: Next.**
 
-- Recognize explicit query/mutation constructors while retaining ordinary TypeScript inference.
-- Generate validators and stable typed handles; infer literal read/write prefixes and require declarations for computed paths.
-- Run deterministic handlers in isolated workers with a scoped tree client as their only authority.
-- Track read sets and rerun affected subscriptions; render components as sandboxed TreeHopper islands.
-- Add `arbor run` over the same handle identity.
-- Define agents as Markdown prompt/config pages whose context and tools are query/mutation references.
-- Assemble restricted namespaces from shared-tree placements and process ceilings; render the same agent in CLI/browser with inspectable ordinary-tree transcripts.
-
-Completion gate: one `.tsx` colocates component/query/mutation over two backings; client bundles contain handles but no handler code; invalid input and undeclared paths fail before data access; a file-defined agent uses the same handles and visible consent.
-
-## Milestone 5 — data and SQLite
-
-**Status: Planned.**
+Outcome: file and SQLite collections use the same typed query/mutation surface while retaining backing-appropriate durability.
 
 - Recognize `_store.sqlite3` collections and bare database nodes.
 - Introspect tables and expose the same typed collection surface.
 - Observe commits and run row mutations inside SQLite transactions.
-- Snapshot through backup/checkpoint APIs; never copy a live main/WAL pair naïvely.
-- Re-run the backing-independent collection corpus on SQLite.
+- Snapshot through backup/checkpoint APIs; never copy a live main/WAL pair naively.
+- Run the backing-independent collection corpus on SQLite.
 - Preserve concurrent revisions as whole-database conflicts until logical changesets exist.
 
-Completion gate: changing a file collection to SQLite changes no backing-independent query call sites; external SQLite writes remain observable and snapshots remain consistent during WAL activity.
+Completion gate: changing a file collection to SQLite changes no backing-independent query or mutation call sites; external SQLite writes remain observable and snapshots remain consistent during WAL activity.
 
-## Milestone 6 — fuller publication profiles
+## Milestone 3 — agents
 
-**Status: Planned. Canonical live HTTP publication already belongs to Milestone 1.**
+**Status: Planned. Depends on the implemented workspace composition and is scheduled after Data and SQLite, but not on the general scripts runtime.**
+
+Outcome: a Markdown-defined agent runs against a legible, permission-bounded view of the same workspace humans browse.
+
+- Define agents as Markdown prompt/config pages whose initial tools are Arbor's built-in read, search, navigation, and mutation operations.
+- Assemble restricted namespaces from visible shared-tree placements, remote access, and explicit process ceilings.
+- Run agents in an isolated process/runtime that can address only its assembled namespace.
+- Render the same agent in CLI and TreeHopper with inspectable ordinary-tree transcripts and effects.
+- Present the effective read/write namespace and built-in operations as a concrete consent statement before execution.
+
+Completion gate: a file-defined agent can research and update two mounted trees with explicit consent, cannot address content outside its assembled namespace, and leaves a readable versioned transcript of its actions.
+
+## Milestone 4 — scripts runtime
+
+**Status: Planned. Follows the first built-in-tool agent slice and uses the backing-independent collection contract from Milestone 2.**
+
+Outcome: ordinary `.tsx` files can safely read, render, and mutate workspace content through generated, inspectable boundaries, and their handles can become optional agent tools.
+
+- Recognize explicit query/mutation constructors while retaining ordinary TypeScript inference.
+- Generate validators and stable typed handles; infer literal read/write prefixes and require declarations for computed paths.
+- Run deterministic handlers in isolated workers with a scoped tree client as their only authority.
+- Track read sets and rerun affected subscriptions.
+- Render components as sandboxed TreeHopper islands.
+- Add `arbor run` over the same handle identity.
+- Allow an agent configuration to name typed query/mutation handles as additional tools without widening its namespace.
+
+Completion gate: one `.tsx` file colocates a component, query, and mutation over two existing backings; client bundles contain handles but no handler code; invalid input and undeclared paths fail before data access; one agent safely uses a generated mutation handle.
+
+## Milestone 5 — deployable applications
+
+**Status: Planned. Canonical live HTTP publication is already part of the implemented foundation.**
+
+Outcome: the same tree and script application can be published statically or run on supported live hosts from one portable description.
 
 - `arbor bake` emits a static ref/object directory for a dumb host.
 - Compile one portable application manifest for pages, assets, static query results, and live handlers.
@@ -236,27 +118,70 @@ Completion gate: changing a file collection to SQLite changes no backing-indepen
 - Protect deployed handlers with the same tree access and process validators as local execution.
 - Emit `<link rel="arbor">` and `Arbor-Tree` crosslinks.
 
-Completion gate: one tree publishes statically with working links/assets and one custom live script deploys to both chosen targets from the same manifest.
+Completion gate: one tree publishes statically with working links/assets, and one custom live script deploys to both chosen live targets from the same manifest.
 
-## Milestone 7 — polish and hardening
+## Milestone 6 — account lifecycle and hosting administration
 
-**Status: Polish; non-blocking.**
+**Status: Later. These follow-ups do not block the forward workspace, script, data, or application milestones.**
 
-- richer bounded ordinary-file metadata and safe previews;
-- provider-specific materialization controls where reliable;
-- focused accessibility/responsive audits;
-- measured cold/warm behavior on representative large trees;
-- extension-aware lazy indexing that never parses binary or placeholder bytes.
+Outcome: communities can recover identities and operate persistent hosts without relying on development escape hatches or manually transferred raw credentials.
+
+- Pair another device through an end-user flow while keeping raw credentials out of content and diagnostics.
+- Switch among stored identities while retaining one explicit active identity per Arbor data home.
+- Define understandable claim recovery, dispute resolution, and administrator reset without changing profile `TreeID` identity.
+- Add confirmed removal and restoration flows for claimed community members.
+- Add historical/recovery UI for access changes and revocation.
+- Productize permanent-domain, persistent-volume, graceful-restart, backup/restore, and migration diagnostics for community hosts.
+
+Completion gate: an operator restores a persistent community on a replacement host, and a member with a lost device recovers the same profile identity onto a new device through an auditable user-facing flow.
+
+Nested groups, cross-community membership, boundary moves/aliases, simultaneous active local identities, and production HA remain deferred unless this milestone explicitly adopts them.
+
+## Deferred workspace extensions
+
+These are not required for mounting distinct trees together, visits, aggregate workspace surfaces, or the first agent/runtime milestones:
+
+- placing the same `TreeID` at several local OS paths simultaneously;
+- placement-specific read-only ceilings, which become meaningful when one tree has several placements;
+- durable pinned placements of immutable historical revisions;
+- reader-local annotation/proposal overlays that shadow or augment a mounted tree.
+
+Historical revisions may still be browsed transiently when revision locators are implemented. A nested mount is path composition, not a reader-local overlay: longest-prefix resolution enters the mounted child tree instead of merging two versions of the same file.
+
+## Continuous hardening
+
+Hardening is not a numbered product dependency:
+
+- expand browser coverage for group creation, access revocation, disconnect, and restoration flows;
+- perform focused accessibility and responsive audits;
+- strengthen malformed and partial legacy-state recovery;
+- add richer bounded ordinary-file metadata and safe previews;
+- add provider-specific materialization controls where reliable;
+- measure cold/warm behavior on representative large trees;
+- keep lazy indexing extension-aware so it never parses binary or placeholder bytes.
 
 ## Deliberate absences
 
 Unless an accepted milestone supplies a concrete need:
 
-- no separate local multi-tenant account or group-administration database; groups are authored Markdown files;
-- no REST v2 or compatibility adapter for this in-place v1 change;
+- no path-scoped remote access: a subtree with different access is a nested shared tree;
+- no separate local multi-tenant account or group-administration database: groups are authored trees;
+- no REST v2 or compatibility adapter for in-place REST v1 changes;
 - no SDK generation or universal capability negotiation;
 - no persisted event replay across daemon epochs;
-- no production HA/horizontal scaling/retention subsystem;
 - no universal durable identity for every ordinary local file;
-- no generic store, transport, credential, or deployment plugin framework.
-- no path-scoped remote access: a subtree with different access is a nested shared tree.
+- no generic store, transport, credential, or deployment plugin framework;
+- no production HA, horizontal-scaling, or retention subsystem.
+
+## Planning reference
+
+The topic specs describe the complete intended product. This file records implementation order, temporary cuts, completion gates, and current status. [plan-history.md](plan-history.md) records completed evidence; [plan-native.md](plan-native.md) contains platform-specific native work.
+
+- **Implemented** means the focused behavior and its acceptance checks pass in current source.
+- **Next** identifies the immediate substantial product milestone.
+- **Planned** has an accepted product contract but no complete reference slice.
+- **Later** is accepted follow-up work intentionally placed behind the forward product capabilities.
+
+Implement the smallest end-to-end system that proves a visible product feature while preserving data, durable acknowledgement, conflict safety, deterministic protocol behavior, and cross-language agreement. Prefer direct readable code and fixtures to version adapters, generic provider actions, plugin frameworks, or production administration. Introduce an abstraction only when a second concrete implementation needs it.
+
+Future agents must inspect source, tests, and `git status` before trusting a status label. Do not rewrite a partial implementation as future work, and do not weaken a future-product topic spec to match a staged reference UI.

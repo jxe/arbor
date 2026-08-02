@@ -46,6 +46,8 @@ The canonical URL and bytes remain stable while longest-prefix resolution change
 
 An arbitrary external folder may be mounted as a virtual child beneath a writable profile. Its OS path remains unchanged. Arbor does not move it, duplicate it in the profile folder, or fabricate Markdown to represent the mount. TreeHopper and REST children/snapshot resolution expose the mounted child. Parent mutations that would replace a reserved mount fail with `reserved-boundary`.
 
+That canonical projection must not be confused with reader-local workspace composition. A reader may place an unrelated shared tree physically beneath another placement for personal organization. Local longest-prefix navigation enters the child, but the parent wire graph, ref, ACL, canonical URL, and every other reader remain unchanged. Snapshot and pull code omit that local mount root from the parent entirely; only an exact canonical nested boundary is encoded as a `tree` entry.
+
 Boundary moves, aliases, and cross-parent remounts are deferred.
 
 ## 3. Accounts, profiles, membership, and claims

@@ -32,6 +32,88 @@ Important constraints:
 - CSV/JSONL/Postgres rows are not edited through the Markdown editor.
 - `.claude` remains workspace content; only known generated/build directories are excluded.
 
+## Canonical and community-hosting foundation
+
+**Status: Implemented as a reference slice on 2026-08-02.**
+
+Delivered:
+
+- deterministic immutable wire objects, mutable CAS tree refs, immediate push/background pull, conflict preservation, and raw `TreeID` fallback;
+- one mounted community namespace with complete person/group profile trees and longest-accessible-prefix resolution;
+- in-place nested promotion that preserves canonical URLs, Markdown bytes, `PageID`s, and external OS folder locations;
+- independently evaluated public, person, group, and link access with revocation and reserved-boundary protection;
+- multi-account authority credentials, authored member reservations, atomic first-claim-wins person profiles, and authored group membership;
+- browser profile, Claim, and additive Share surfaces plus `browse`, `sync`, `unsync`, `serve`, and credential-recovery CLI plumbing;
+- shallow untracked browsing, sessionless remote visits, writable reopening of local placements, read-only BlockNote remote rendering, and server-rendered public Markdown without iframes.
+
+Normative ownership:
+
+- [`spec/wire.md`](spec/wire.md)
+- [`spec/locators.md`](spec/locators.md)
+- [`spec/browser.md`](spec/browser.md)
+- [`spec/cli.md`](spec/cli.md)
+- [`spec/system.md`](spec/system.md)
+- [`spec/arbord-rest.md`](spec/arbord-rest.md)
+
+The delivered slice intentionally does not claim end-user device pairing, claim recovery/dispute resolution, multiple active local identities, nested or cross-community groups, boundary moves/aliases, or production hosting administration. Those follow-ups have their own position in the forward roadmap rather than keeping the foundation permanently partial.
+
+Verification on 2026-08-02:
+
+```text
+bun run typecheck       passed
+bun test                167 passed, 0 failed
+bun run test:protocol   7 TypeScript fixture tests and 10 Swift live tests passed
+bun run build           passed
+bun run test:e2e        13 passed
+git diff --check        passed
+```
+
+Delivered across the community-hosting series ending at `001ea16`.
+
+## Workspace composition (forward Milestone 1)
+
+**Status: Implemented on 2026-08-02.**
+
+Delivered:
+
+- distinct shared trees can be placed at nested, locally meaningful paths and resolve by longest local prefix;
+- a reader-local mount is excluded from the parent's discovery, watcher, page-ID map, search index, generated types, wire snapshot, and pull deletion, so it never changes the parent graph/ref, canonical URL, ACL, or another reader's layout;
+- canonical nested boundaries remain separately authored graph entries, including virtual external-folder projections;
+- mounted roots are protected by structured `reserved-boundary` conflicts, placement requires an absent/empty destination, and unsyncing leaves local files untouched;
+- remote visits persist safe `system:visited` records and private credential-free node snapshots, reopen read-only during transport outages, and expose **Add to workspace**;
+- Home renders nested placements, recently visited trees, and a provenance-correct merged recovery inventory; existing all-tree search now excludes locally mounted children from their parent index;
+- backlinks fan out across visible trees for explicit `arbor://tree/<TreeID>/…` links and retain the referring tree on every result.
+
+Primary ownership:
+
+- [`packages/arbord/src/tree-manager.ts`](packages/arbord/src/tree-manager.ts)
+- [`packages/arbord/src/service.ts`](packages/arbord/src/service.ts)
+- [`packages/fs/src/discovery.ts`](packages/fs/src/discovery.ts)
+- [`packages/fs/src/workspace-fs.ts`](packages/fs/src/workspace-fs.ts)
+- [`packages/wire/src/objects.ts`](packages/wire/src/objects.ts)
+- [`packages/stores/src/visits.ts`](packages/stores/src/visits.ts)
+- [`packages/stores/src/indexer.ts`](packages/stores/src/indexer.ts)
+- [`packages/render/src/App.tsx`](packages/render/src/App.tsx)
+
+Intentional limits:
+
+- one local placement per `TreeID`; several placements of the same tree remain deferred;
+- no reader-local content overlay or shadowing of occupied parent content;
+- no pinned historical placements or placement-specific local access ceiling;
+- merged recovery remains a client-side set of per-tree operations, not a cross-tree transaction or fabricated aggregate tree;
+- cross-tree backlink indexing recognizes stable raw TreeID locators; DNS canonical-link matching can be added when the index has a durable authority mapping.
+
+Verification on 2026-08-02:
+
+```text
+bun run typecheck       passed
+bun test                171 passed, 0 failed
+bun run test:protocol   7 TypeScript fixture tests and 10 Swift tests passed
+bun run build           passed
+bun run test:e2e        13 passed
+git diff --check        passed
+```
+
 ## Milestone 1 — REST v1 and both reference clients
 
 **Status: Implemented on 2026-07-25.**
@@ -143,7 +225,7 @@ Outcome:
 Implemented in:
 
 - [`packages/arbord/src/service.ts`](packages/arbord/src/service.ts)
-- [`packages/arbord/src/roots.ts`](packages/arbord/src/roots.ts)
+- `packages/arbord/src/roots.ts` (historical; later consolidated into `service.ts`)
 - [`packages/arbord/src/fs-service.ts`](packages/arbord/src/fs-service.ts)
 - [`packages/stores/src/trees.ts`](packages/stores/src/trees.ts)
 - [`packages/stores/src/private-state.ts`](packages/stores/src/private-state.ts)
@@ -154,7 +236,7 @@ Implemented in:
 Coverage:
 
 - [`tests/integration/fs-scope.test.ts`](tests/integration/fs-scope.test.ts)
-- [`tests/integration/roots.test.ts`](tests/integration/roots.test.ts)
+- `tests/integration/roots.test.ts` (historical; coverage later consolidated into `fs-scope.test.ts`)
 - shared tree-qualified protocol fixtures decoded by TypeScript and Swift;
 - filesystem-wide browser end-to-end coverage.
 

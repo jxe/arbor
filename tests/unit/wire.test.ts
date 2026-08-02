@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -8,6 +8,7 @@ import {
   encodeCanonicalCBOR,
   encodeWireObject,
   hashObject,
+  materializeTree,
   snapshotDirectory,
 } from "@arbor/wire";
 
@@ -51,5 +52,26 @@ describe("canonical tree objects", () => {
     const afterHash = hashObject(after);
     const objects = new Map([[hashA, fileA], [hashB, fileB], [beforeHash, before], [afterHash, after]]);
     expect(await changedPaths(beforeHash, afterHash, async (hash) => objects.get(hash)!)).toEqual(["/note.md"]);
+  });
+
+  test("keeps reader-local mounts out of snapshots and pull deletion", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-reader-layout-"));
+    try {
+      const mounted = join(root, "friends");
+      await mkdir(mounted, { recursive: true });
+      await writeFile(join(root, "parent.md"), "# Parent\n");
+      await writeFile(join(mounted, "private-layout.md"), "# Mounted elsewhere\n");
+
+      const snapshot = await snapshotDirectory(root, new Map(), [mounted]);
+      const rootObject = decodeWireObject(snapshot.objects.get(snapshot.root)!);
+      expect(rootObject.type).toBe("directory");
+      if (rootObject.type !== "directory") throw new Error("Expected a directory");
+      expect(rootObject.entries.map((entry) => entry.name)).toEqual(["parent.md"]);
+
+      await materializeTree(root, snapshot.root, async (hash) => snapshot.objects.get(hash)!, undefined, [mounted]);
+      expect(await readFile(join(mounted, "private-layout.md"), "utf8")).toContain("Mounted elsewhere");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

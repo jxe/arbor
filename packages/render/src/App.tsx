@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectedDocument, PublicAccess, SearchResult, ShareAudience, TreeChild, TreeDescriptor } from "@arbor/core";
+import type { ProjectedDocument, PublicAccess, RecoveryEntry, SearchResult, ShareAudience, TreeChild, TreeDescriptor } from "@arbor/core";
 import type { NodeRef, NodeSnapshot, ProjectedNodeUpdate, ProjectedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { projectSnapshot } from "@arbor/client";
@@ -20,6 +20,15 @@ interface SidebarMenuState {
   target: TreeChild | null;
   mode: SidebarMenuMode;
   value: string;
+}
+
+interface VisitedTreeSummary {
+  id: string;
+  tree: string;
+  name: string;
+  locator: string;
+  canonical?: string;
+  visitedAt: string;
 }
 
 /**
@@ -230,6 +239,8 @@ export function App() {
   const [results, setResults] = useState<Array<SearchResult & { url: string }>>([]);
   const [searchScope, setSearchScope] = useState<"root" | "all">("root");
   const [trees, setTrees] = useState<TreeDescriptor[]>([]);
+  const [visits, setVisits] = useState<VisitedTreeSummary[]>([]);
+  const [recoverable, setRecoverable] = useState<Array<{ tree: TreeDescriptor; entry: RecoveryEntry }>>([]);
   const [home, setHome] = useState<string | null>(null);
   const [systemCursor, setSystemCursor] = useState<string | null>(null);
   const [server, setServer] = useState<{
@@ -266,10 +277,11 @@ export function App() {
   const sidebarRequest = useRef(0);
   const refreshSystem = useCallback(async () => {
     try {
-      const [device, serverNode, treeDirectory] = await Promise.all([
+      const [device, serverNode, treeDirectory, visitedDirectory] = await Promise.all([
         api.node({ tree: "system", path: "/device" }),
         api.node({ tree: "system", path: "/community" }),
         api.node({ tree: "system", path: "/trees" }),
+        api.node({ tree: "system", path: "/visited" }),
       ]);
       const deviceHome = device.document?.frontmatter.home;
       setHome(typeof deviceHome === "string" ? deviceHome : null);
@@ -289,7 +301,7 @@ export function App() {
       const records = await Promise.all((treeDirectory.children ?? []).map((child) =>
         api.node({ tree: "system", path: child.path })
       ));
-      setTrees(records.flatMap((record): TreeDescriptor[] => {
+      const nextTrees = records.flatMap((record): TreeDescriptor[] => {
         const values = record.document?.frontmatter;
         if (!values || typeof values.id !== "string" || typeof values.placement !== "string") return [];
         return [{
@@ -310,6 +322,27 @@ export function App() {
             : {}),
           ...(typeof values.sync === "string" ? { sync: values.sync as TreeDescriptor["sync"] } : {}),
           ...(values.legacy === true ? { legacy: true } : {}),
+        }];
+      });
+      setTrees(nextTrees);
+      const recoveryPages = await Promise.all(nextTrees.filter((tree) => tree.osPath && !tree.missing).map(async (tree) => {
+        try { return (await api.scoped(tree.id).recovery("/", true)).map((entry) => ({ tree, entry })); }
+        catch { return []; }
+      }));
+      setRecoverable(recoveryPages.flat().sort((a, b) => b.entry.changedAt - a.entry.changedAt));
+      const visitRecords = await Promise.all((visitedDirectory.children ?? []).map((child) =>
+        api.node({ tree: "system", path: child.path })
+      ));
+      setVisits(visitRecords.flatMap((record): VisitedTreeSummary[] => {
+        const values = record.document?.frontmatter;
+        if (!values || typeof values.id !== "string" || typeof values.tree !== "string" || typeof values.locator !== "string") return [];
+        return [{
+          id: values.id,
+          tree: values.tree,
+          name: record.name,
+          locator: values.locator,
+          visitedAt: typeof values.visitedAt === "string" ? values.visitedAt : "",
+          ...(typeof values.canonical === "string" ? { canonical: values.canonical } : {}),
         }];
       }));
       setSystemCursor(treeDirectory.observedThrough);
@@ -860,13 +893,35 @@ export function App() {
     if (!destination) return;
     try {
       setError(null);
-      await api.system({ op: "placeTree", tree: tree.id, path: destination });
+      await api.system({
+        op: "placeTree",
+        tree: tree.id,
+        path: destination,
+        ...(tree.endpoint ? { endpoint: tree.endpoint } : {}),
+        ...(tree.canonical ? { canonical: tree.canonical } : {}),
+      });
       await refreshSystem();
       navigate(destination);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     }
   }, [home, navigate, refreshSystem]);
+
+  const homeTreeRows = useMemo(() => {
+    const placed = trees.filter((tree) => tree.osPath && !tree.missing);
+    const depthOf = (tree: TreeDescriptor): number => {
+      const parent = placed
+        .filter((candidate) => candidate.id !== tree.id && tree.osPath!.startsWith(`${candidate.osPath}/`))
+        .sort((a, b) => b.osPath!.length - a.osPath!.length)[0];
+      return parent ? depthOf(parent) + 1 : 0;
+    };
+    return [...trees].sort((a, b) => {
+      if (a.osPath && b.osPath) return a.osPath.localeCompare(b.osPath);
+      if (a.osPath) return -1;
+      if (b.osPath) return 1;
+      return a.name.localeCompare(b.name);
+    }).map((tree) => ({ tree, depth: tree.osPath ? depthOf(tree) : 0 }));
+  }, [trees]);
 
   const toggleSidebar = () => {
     if (matchMedia("(max-width: 760px)").matches) setMobileSidebarOpen((value) => !value);
@@ -982,6 +1037,9 @@ export function App() {
               nestedCanonicalPath,
             )}
           >Share</button>}
+          {remoteNode?.enclosingTree && !trees.some((tree) => tree.id === remoteNode.enclosingTree!.id && tree.osPath)
+            ? <button className="quiet" onClick={() => void placeRemoteTree(remoteNode.enclosingTree!)}>Add to workspace…</button>
+            : null}
           {remoteNode ? <span className="scope-chip tracked">remote · read-only</span> : chip && <span className={chip.className}>{chip.label}</span>}
           {(remoteNode ?? node) && <span className="kind">
             {(remoteNode ?? node)!.document && ["markdown", "directory", "collection"].includes((remoteNode ?? node)!.kind) ? "ArborNote · " : ""}
@@ -1013,7 +1071,7 @@ export function App() {
         <h1>Arbor</h1>
         <p className="home-hint">Browse ordinary files anywhere. Claim your profile, then share a subtree at a stable community address.</p>
         <div className="home-roots">
-          {trees.map((tree) => <div className="home-root" key={tree.id}>
+          {homeTreeRows.map(({ tree, depth }) => <div className="home-root" key={tree.id} style={{ marginLeft: `${depth * 28}px` }}>
             <button className="home-root-open" disabled={!tree.osPath || tree.missing} onClick={() => tree.osPath && navigate(tree.osPath)}>
               <strong>{tree.name}</strong>
               <small>{tree.osPath
@@ -1025,10 +1083,54 @@ export function App() {
             </span>
             <button className="quiet" onClick={() => navigate(`/system:trees/${tree.id}`)}>record</button>
             {tree.legacy && tree.osPath && <button className="quiet" disabled={!server.profileTree} onClick={() => openTreeControl(tree.osPath!, tree)}>Share</button>}
-            {!tree.legacy && !tree.osPath && <button className="quiet" onClick={() => void placeRemoteTree(tree)}>Sync here…</button>}
+            {!tree.legacy && !tree.osPath && <button className="quiet" onClick={() => void placeRemoteTree(tree)}>Add to workspace…</button>}
             {!tree.legacy && tree.osPath && <button className="quiet" onClick={() => openTreeControl(tree.osPath!, tree)}>Share</button>}
           </div>)}
         </div>
+        {visits.length > 0 && <div className="home-visits">
+          <h2>Recently visited</h2>
+          {visits.map((visit) => {
+            const placed = trees.find((tree) => tree.id === visit.tree && tree.osPath);
+            const remoteTree: TreeDescriptor = {
+              id: visit.tree,
+              name: visit.name,
+              canonical: visit.canonical,
+              endpoint: (() => { try { return new URL(visit.locator).origin; } catch { return undefined; } })(),
+              placement: "remote",
+            };
+            return <div className="home-root" key={visit.id}>
+              <button className="home-root-open" onClick={() => {
+                history.pushState({}, "", `/render?browse=${encodeURIComponent(visit.locator)}`);
+                setRemoteLocation({ url: visit.locator, claimable: false });
+              }}>
+                <strong>{visit.name}</strong>
+                <small>{visit.locator}</small>
+              </button>
+              {placed
+                ? <button className="quiet" onClick={() => navigate(placed.osPath!)}>Open local copy</button>
+                : <button className="quiet" onClick={() => void placeRemoteTree(remoteTree)}>Add to workspace…</button>}
+            </div>;
+          })}
+        </div>}
+        {recoverable.length > 0 && <div className="home-visits">
+          <h2>Recoverable across your workspace</h2>
+          {recoverable.map(({ tree, entry }) => <div className="home-root" key={`${tree.id}:${entry.kind}:${entry.ref.path}:${entry.kind === "block" ? entry.hash : entry.changedAt}`}>
+            <button className="home-root-open" onClick={() => tree.osPath && navigate(`${tree.osPath}${entry.kind === "trash" ? entry.originalPath : entry.ref.path}`)}>
+              <strong>{entry.kind === "trash" ? entry.originalPath : entry.ref.path}</strong>
+              <small>{tree.name} · {entry.kind === "trash" ? `Trash · ${entry.nodeKind}` : `${entry.status} block`}</small>
+            </button>
+            <button className="quiet" onClick={async () => {
+              try {
+                const scoped = api.scoped(tree.id);
+                if (entry.kind === "trash") await scoped.restoreTrash(entry.ref);
+                else await scoped.restoreBlock(entry.ref, entry.hash);
+                await refreshSystem();
+              } catch (restoreError) {
+                setError(restoreError instanceof Error ? restoreError.message : String(restoreError));
+              }
+            }}>Restore</button>
+          </div>)}
+        </div>}
         {home && <button className="quiet home-browse" onClick={() => navigate(home)}>Browse home directory (~)</button>}
         {lastLocation && lastLocation !== path && <button className="quiet home-browse" onClick={() => navigate(lastLocation)}>Continue where you left off: {home && lastLocation.startsWith(home) ? `~${lastLocation.slice(home.length)}` : lastLocation}</button>}
       </div> : error ? <div className="empty error">{error}</div> : !node ? <div className="empty">Loading…</div> : <>

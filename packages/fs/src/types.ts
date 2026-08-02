@@ -106,6 +106,8 @@ export interface FsEvent {
 export interface WorkspaceFSOptions {
   stateDirectory: string;
   discovery?: "recursive" | "shallow";
+  /** Physically nested trees projected by the reader's workspace, not owned by this tree. */
+  excludedRoots?: readonly string[];
   settleDelayMs?: number;
   faultInjector?: (point: string) => void | Promise<void>;
 }

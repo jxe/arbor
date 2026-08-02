@@ -26,6 +26,7 @@ export interface BacklinkIndexResult {
 interface IndexedLink {
   targetPath: string | null;
   targetPageID: string | null;
+  targetTreeID: string | null;
   context: string;
 }
 
@@ -38,11 +39,16 @@ function indexedLinks(sourcePath: string, body: string): IndexedLink[] {
     const resolved = resolveLogicalURL(sourcePath, href);
     let targetPath: string | null = null;
     let targetPageID: string | null = null;
+    let targetTreeID: string | null = null;
     if (resolved?.kind === "local") {
       targetPath = resolved.path;
       targetPageID = resolved.pageID ?? null;
     } else if (resolved?.kind === "fragment") {
       targetPageID = resolved.pageID;
+    } else if (resolved?.kind === "arbor" && "treeID" in resolved.authority) {
+      targetPath = resolved.path;
+      targetPageID = resolved.pageID ?? null;
+      targetTreeID = resolved.authority.treeID;
     } else {
       continue;
     }
@@ -52,6 +58,7 @@ function indexedLinks(sourcePath: string, body: string): IndexedLink[] {
     links.push({
       targetPath,
       targetPageID,
+      targetTreeID,
       context: body.slice(lineStart, lineEnd === -1 ? body.length : lineEnd).trim(),
     });
   }
@@ -64,15 +71,16 @@ export class WorkspaceIndex {
     this.database = new Database(databasePath, { create: true });
     this.database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     const oldFiles = this.database.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'files'").get() as { sql: string } | null;
-    const oldLinks = this.database.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'links'").get();
-    if (oldFiles && (!oldFiles.sql.includes("title TEXT") || !oldLinks)) {
+    const oldLinks = this.database.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'links'").get() as { sql: string } | null;
+    if (oldFiles && (!oldFiles.sql.includes("title TEXT") || !oldLinks?.sql.includes("target_tree_id"))) {
       this.database.exec("DROP TABLE IF EXISTS docs; DROP TABLE IF EXISTS links; DROP TABLE files;");
     }
     this.database.exec("CREATE TABLE IF NOT EXISTS files(path TEXT UNIQUE NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL);");
     this.database.exec("CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(path UNINDEXED, title, body, content='files', content_rowid='rowid', tokenize='unicode61');");
-    this.database.exec("CREATE TABLE IF NOT EXISTS links(source_path TEXT NOT NULL, target_path TEXT, target_page_id TEXT, context TEXT NOT NULL);");
+    this.database.exec("CREATE TABLE IF NOT EXISTS links(source_path TEXT NOT NULL, target_path TEXT, target_page_id TEXT, target_tree_id TEXT, context TEXT NOT NULL);");
     this.database.exec("CREATE INDEX IF NOT EXISTS links_target_path ON links(target_path);");
     this.database.exec("CREATE INDEX IF NOT EXISTS links_target_page_id ON links(target_page_id);");
+    this.database.exec("CREATE INDEX IF NOT EXISTS links_target_tree_id ON links(target_tree_id);");
   }
 
   async rebuild(discovery?: WorkspaceDiscovery): Promise<void> {
@@ -142,16 +150,35 @@ export class WorkspaceIndex {
     return rows.map((row) => ({ path: row.path, title: row.title, excerpt: row.excerpt, score: -row.rank }));
   }
 
-  backlinks(targetPath: string, targetPageID: string | undefined, limit = 30, offset = 0): BacklinkIndexResult[] {
+  backlinks(
+    targetPath: string,
+    targetPageID: string | undefined,
+    targetTreeID: string,
+    includeLocal: boolean,
+    limit = 30,
+    offset = 0,
+  ): BacklinkIndexResult[] {
     const rows = this.database.query(
       `SELECT l.source_path AS path, f.title AS title, MIN(l.context) AS context
        FROM links l
        JOIN files f ON f.path = l.source_path
-       WHERE l.target_path = ? OR (? IS NOT NULL AND l.target_page_id = ?)
+       WHERE ((? = 1 AND l.target_tree_id IS NULL AND l.target_path = ?)
+         OR (l.target_tree_id = ? AND l.target_path = ?)
+         OR (? IS NOT NULL AND l.target_tree_id = ? AND l.target_page_id = ?))
        GROUP BY l.source_path, f.title
        ORDER BY l.source_path
        LIMIT ? OFFSET ?`,
-    ).all(targetPath, targetPageID ?? null, targetPageID ?? null, limit, offset) as BacklinkIndexResult[];
+    ).all(
+      includeLocal ? 1 : 0,
+      targetPath,
+      targetTreeID,
+      targetPath,
+      targetPageID ?? null,
+      targetTreeID,
+      targetPageID ?? null,
+      limit,
+      offset,
+    ) as BacklinkIndexResult[];
     return rows;
   }
 
@@ -221,10 +248,10 @@ export class WorkspaceIndex {
   private replaceLinks(sourcePath: string, links: IndexedLink[]): void {
     this.database.prepare("DELETE FROM links WHERE source_path = ?").run(sourcePath);
     const insert = this.database.prepare(
-      "INSERT INTO links(source_path, target_path, target_page_id, context) VALUES (?, ?, ?, ?)",
+      "INSERT INTO links(source_path, target_path, target_page_id, target_tree_id, context) VALUES (?, ?, ?, ?, ?)",
     );
     for (const link of links) {
-      insert.run(sourcePath, link.targetPath, link.targetPageID, link.context);
+      insert.run(sourcePath, link.targetPath, link.targetPageID, link.targetTreeID, link.context);
     }
   }
 }

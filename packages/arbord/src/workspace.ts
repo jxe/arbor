@@ -3,6 +3,7 @@ import { basename, dirname, join, posix, relative } from "node:path";
 import type {
   ArborBlock,
   ArbordErrorCode,
+  BacklinkEntry,
   BacklinksPage,
   ChildrenPage,
   CollectionPage,
@@ -35,7 +36,6 @@ import {
   sha256,
 } from "@arbor/core";
 import {
-  discoverWorkspace,
   type FsEvent,
   FsConflictError,
   FsInjectedCrashError,
@@ -64,6 +64,8 @@ export interface WorkspaceOptions {
   /** Untracked browsing starts shallow; tracked trees require complete discovery. */
   discovery?: "recursive" | "shallow";
   treeDescriptor?: Partial<TreeDescriptor>;
+  /** Reader-local child placements which are not content owned by this tree. */
+  excludedRoots?: readonly string[];
 }
 
 export class RevisionConflictError extends Error {
@@ -105,6 +107,7 @@ export class Workspace implements AsyncDisposable {
   private displayName: string;
   private treeDescriptor: Partial<TreeDescriptor>;
   private discovery: "recursive" | "shallow";
+  private excludedRoots: string[];
   /** Inverted unambiguous owner index: path -> pageID. */
   private pathPageIDs = new Map<string, string>();
   private healingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -118,6 +121,7 @@ export class Workspace implements AsyncDisposable {
     this.displayName = options.displayName ?? basename(root);
     this.treeDescriptor = options.treeDescriptor ?? {};
     this.discovery = options.discovery ?? "recursive";
+    this.excludedRoots = [...(options.excludedRoots ?? [])].sort();
     this.tracking = options.tracking ?? "session";
     this.stateDirectory = stateDirectory;
     this.fs = fs;
@@ -134,6 +138,7 @@ export class Workspace implements AsyncDisposable {
       stateDirectory,
       faultInjector: options.faultInjector,
       discovery: options.discovery,
+      excludedRoots: options.excludedRoots,
     });
     const discovery = fs.startupDiscovery();
     const index = new WorkspaceIndex(fs.root, join(stateDirectory, "index.sqlite"));
@@ -171,6 +176,17 @@ export class Workspace implements AsyncDisposable {
     this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
     await Promise.all([this.index.rebuild(discovery), this.generateTypes(discovery)]);
     this.discovery = "recursive";
+  }
+
+  async updateExcludedRoots(roots: readonly string[]): Promise<void> {
+    const next = [...roots].sort();
+    if (next.length === this.excludedRoots.length && next.every((root, index) => root === this.excludedRoots[index])) return;
+    this.excludedRoots = next;
+    const discovery = await this.fs.setExcludedRoots(next);
+    this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
+    if (this.discovery === "recursive") {
+      await Promise.all([this.index.rebuild(discovery), this.generateTypes(discovery)]);
+    }
   }
 
   async refreshDisplayName(): Promise<string> {
@@ -224,7 +240,7 @@ export class Workspace implements AsyncDisposable {
       ? target.document.frontmatter.id
       : this.pathPageIDs.get(path);
     const offset = this.decodePageCursor(cursor, `backlinks:${path}:${pageID ?? ""}`);
-    const entries = this.index.backlinks(path, pageID, 30, offset).map((entry) => {
+    const entries = this.index.backlinks(path, pageID, this.tree, true, 30, offset).map((entry) => {
       const sourcePageID = this.pathPageIDs.get(entry.path);
       return {
         ref: {
@@ -244,6 +260,21 @@ export class Workspace implements AsyncDisposable {
         : null,
       observedThrough,
     };
+  }
+
+  backlinksTo(target: { tree: string; path: string; pageID?: string }, limit = 30): BacklinkEntry[] {
+    return this.index.backlinks(target.path, target.pageID, target.tree, false, limit, 0).map((entry) => {
+      const sourcePageID = this.pathPageIDs.get(entry.path);
+      return {
+        ref: {
+          tree: this.tree,
+          path: entry.path,
+          ...(sourcePageID ? { pageID: sourcePageID } : {}),
+        },
+        title: entry.title,
+        context: entry.context,
+      };
+    });
   }
 
   async collectionPage(ref: NodeRef, cursor?: string | null, table?: string): Promise<CollectionResultPage> {
@@ -853,7 +884,7 @@ export class Workspace implements AsyncDisposable {
   }
 
   private async effectsFromFsResult(result: Awaited<ReturnType<WorkspaceFS["mutate"]>>): Promise<MutationEffect[]> {
-    const discovery = await discoverWorkspace(this.root);
+    const discovery = await this.fs.discoverRecursively();
     this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
     return Promise.all(result.changes.map(async (change) => {
       let snapshot: TreeNode | null = null;
@@ -1045,7 +1076,7 @@ export class Workspace implements AsyncDisposable {
     let schemaIndex = 0;
     let databaseIndex = 0;
     let temporaryFailure = false;
-    const snapshot = discovery ?? await discoverWorkspace(this.root);
+    const snapshot = discovery ?? await this.fs.discoverRecursively();
     for (const directory of snapshot.directories) {
       if (directory.absolutePath === this.root) continue;
       if (directory.childNames.has("schema.ts") || directory.childNames.has("_store.postgres")) {
@@ -1199,7 +1230,7 @@ export class Workspace implements AsyncDisposable {
     };
     if (event.type === "batch") {
       try {
-        const discovery = await discoverWorkspace(this.root);
+        const discovery = await this.fs.discoverRecursively();
         this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
         await Promise.all([
           this.index.rebuild(discovery),

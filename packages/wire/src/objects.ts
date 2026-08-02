@@ -1,5 +1,5 @@
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, normalize, relative, resolve } from "node:path";
+import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, normalize, relative, resolve, sep } from "node:path";
 import { sha256 } from "@arbor/core";
 import { IGNORED_WORKSPACE_DIRECTORIES } from "@arbor/fs";
 import { decodeCBOR, encodeCanonicalCBOR } from "./cbor.ts";
@@ -78,8 +78,21 @@ function cloudPlaceholderName(name: string): boolean {
 export async function snapshotDirectory(
   inputRoot: string,
   boundaries: ReadonlyMap<string, string> = new Map(),
+  excludedRoots: readonly string[] = [],
 ): Promise<TreeSnapshot> {
-  const root = resolve(inputRoot);
+  const resolvedInputRoot = resolve(inputRoot);
+  const root = await realpath(inputRoot);
+  const normalizedBoundaries = new Map([...boundaries].map(([path, tree]) => [
+    join(root, relative(resolvedInputRoot, resolve(path))),
+    tree,
+  ]));
+  const exclusions = await Promise.all(excludedRoots.map(async (item) =>
+    realpath(item).catch(() => resolve(item))
+  ));
+  const isExcluded = (path: string): boolean => {
+    const candidate = resolve(path);
+    return exclusions.some((excluded) => candidate === excluded || candidate.startsWith(`${excluded}${sep}`));
+  };
   if (!(await stat(root)).isDirectory()) throw new Error(`Tree root is not a directory: ${root}`);
   const objects = new Map<ObjectHash, Uint8Array>();
 
@@ -98,7 +111,8 @@ export async function snapshotDirectory(
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory() && IGNORED_WORKSPACE_DIRECTORIES.has(entry.name)) continue;
       const absolute = join(directory, entry.name);
-      const boundary = boundaries.get(absolute);
+      if (isExcluded(absolute)) continue;
+      const boundary = normalizedBoundaries.get(absolute);
       if (boundary) {
         entries.push({ name: entry.name, tree: boundary });
         seen.add(entry.name);
@@ -111,7 +125,7 @@ export async function snapshotDirectory(
       }
     }
     const virtualChildren = new Map<string, string | null>();
-    for (const [boundaryPath, tree] of boundaries) {
+    for (const [boundaryPath, tree] of normalizedBoundaries) {
       const remainder = relative(directory, boundaryPath);
       if (!remainder || remainder === ".." || remainder.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) continue;
       const [name, ...rest] = remainder.split(/[\\/]/);
@@ -128,7 +142,7 @@ export async function snapshotDirectory(
 
   const walkVirtual = async (directory: string): Promise<ObjectHash> => {
     const children = new Map<string, string | null>();
-    for (const [boundaryPath, tree] of boundaries) {
+    for (const [boundaryPath, tree] of normalizedBoundaries) {
       const remainder = relative(directory, boundaryPath);
       if (!remainder || remainder === ".." || remainder.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) continue;
       const [name, ...rest] = remainder.split(/[\\/]/);
@@ -157,10 +171,20 @@ export async function materializeTree(
   rootHash: ObjectHash,
   load: (hash: ObjectHash) => Promise<Uint8Array>,
   onBoundary?: (path: string, tree: string) => Promise<void>,
+  excludedRoots: readonly string[] = [],
 ): Promise<void> {
   const destination = resolve(root);
   await mkdir(destination, { recursive: true });
+  const canonicalDestination = await realpath(destination);
+  const exclusions = await Promise.all(excludedRoots.map(async (item) =>
+    realpath(item).catch(() => resolve(item))
+  ));
+  const isExcluded = (path: string): boolean => {
+    const candidate = resolve(path);
+    return exclusions.some((excluded) => candidate === excluded || candidate.startsWith(`${excluded}${sep}`));
+  };
   const visit = async (path: string, hash: ObjectHash): Promise<void> => {
+    if (isExcluded(path)) return;
     const bytes = await load(hash);
     if (hashObject(bytes) !== hash) throw new Error(`Object hash mismatch: ${hash}`);
     const object = decodeWireObject(bytes);
@@ -172,16 +196,17 @@ export async function materializeTree(
     await mkdir(path, { recursive: true });
     const expected = new Set(object.entries.map((entry) => entry.name));
     for (const existing of await readdir(path, { withFileTypes: true })) {
-      if (IGNORED_WORKSPACE_DIRECTORIES.has(existing.name) || expected.has(existing.name)) continue;
-      await rm(contained(destination, join(path, existing.name)), { recursive: true, force: true });
+      if (IGNORED_WORKSPACE_DIRECTORIES.has(existing.name) || expected.has(existing.name) || isExcluded(join(path, existing.name))) continue;
+      await rm(contained(canonicalDestination, join(path, existing.name)), { recursive: true, force: true });
     }
     for (const entry of object.entries) {
-      const target = contained(destination, join(path, entry.name));
+      const target = contained(canonicalDestination, join(path, entry.name));
+      if (isExcluded(target)) continue;
       if (entry.tree) await onBoundary?.(target, entry.tree);
       else if (entry.hash) await visit(target, entry.hash);
     }
   };
-  await visit(destination, rootHash);
+  await visit(canonicalDestination, rootHash);
 }
 
 export async function changedPaths(

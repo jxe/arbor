@@ -339,6 +339,122 @@ describe("community-mounted profiles and sharing", () => {
       await new CommunityConfigStore().remove();
     }
   });
+
+  test("composes an unrelated tree into the reader's layout without changing its parent", async () => {
+    const state = join(sandbox, "composition-state");
+    process.env.ARBOR_DATA_HOME = state;
+    const parentPath = join(sandbox, "composition-owner");
+    await mkdir(parentPath, { recursive: true });
+    const readingSource = await profileFolder("reading-group-source", "group");
+    await writeFile(join(readingSource, "welcome.md"), "# Reading room\n");
+    const reading = await owner.create("/~reading-room", await snapshotDirectory(readingSource), {
+      kind: "group-profile",
+      publicAccess: "read",
+    });
+    const ownerProfile = host.authority.boundary("/~owner")!;
+    const service = await ArborService.openControl();
+    try {
+      await service.executeMutation({
+        mutationID: "composition-connect",
+        operations: [{ op: "connectCommunity", origin: host.url, accountToken: ownerToken }],
+      });
+      await service.executeMutation({
+        mutationID: "composition-place-parent",
+        operations: [{ op: "placeTree", tree: ownerProfile.id, path: parentPath }],
+      });
+      const parentLayoutBefore = service.trees.compositionFor(ownerProfile.id);
+      const parentSnapshotBefore = await snapshotDirectory(
+        parentPath,
+        parentLayoutBefore.boundaries,
+        parentLayoutBefore.excludedRoots,
+      );
+      const mountPath = join(parentPath, "reading");
+      await service.executeMutation({
+        mutationID: "composition-place-child",
+        operations: [{ op: "placeTree", tree: reading.id, path: mountPath }],
+      });
+
+      expect((await service.children({ tree: ownerProfile.id, path: "/" })).items.map((item) => item.name)).toContain("reading");
+      expect((await service.snapshot({ tree: ownerProfile.id, path: "/reading/welcome" })).tree).toBe(reading.id);
+      await expect(service.executeMutation({
+        mutationID: "composition-replace-mount",
+        operations: [{ op: "createDirectory", tree: ownerProfile.id, path: "/reading" }],
+      })).rejects.toMatchObject({ code: "reserved-boundary" });
+      const layout = service.trees.compositionFor(ownerProfile.id);
+      expect(layout.excludedRoots).toEqual([await realpath(mountPath)]);
+      expect((await snapshotDirectory(parentPath, layout.boundaries, layout.excludedRoots)).root).toBe(parentSnapshotBefore.root);
+
+      await writeFile(join(mountPath, "local-only.md"), "# Local child edit\n");
+      expect((await snapshotDirectory(parentPath, layout.boundaries, layout.excludedRoots)).root).toBe(parentSnapshotBefore.root);
+      await writeFile(
+        join(mountPath, "owner-link.md"),
+        `# Link from reading\n\n[Owner](arbor://tree/${ownerProfile.id}/)\n`,
+      );
+      let backlinks: Awaited<ReturnType<typeof service.backlinksPage>>["entries"] = [];
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await Bun.sleep(25);
+        backlinks = (await service.backlinksPage({ tree: ownerProfile.id, path: "/" })).entries;
+        if (backlinks.some((entry) => entry.ref.tree === reading.id)) break;
+      }
+      expect(backlinks).toEqual(expect.arrayContaining([
+        expect.objectContaining({ ref: expect.objectContaining({ tree: reading.id, path: "/owner-link" }) }),
+      ]));
+      expect((await service.searchPage(ownerProfile.id, "Local child edit")).results).toHaveLength(0);
+      expect((await service.searchPage(reading.id, "Local child edit")).results).toEqual(expect.arrayContaining([
+        expect.objectContaining({ tree: reading.id, path: "/local-only" }),
+      ]));
+      await service.executeMutation({
+        mutationID: "composition-remove-child",
+        operations: [{ op: "removeTreePlacement", path: await realpath(mountPath) }],
+      });
+      expect(await readFile(join(mountPath, "local-only.md"), "utf8")).toContain("Local child edit");
+    } finally {
+      await service[Symbol.asyncDispose]();
+      await new CommunityConfigStore().remove();
+    }
+  });
+
+  test("persists remote visits and serves their cached read-only copy while offline", async () => {
+    const state = join(sandbox, "visited-state");
+    process.env.ARBOR_DATA_HOME = state;
+    const remote = await serveWireHost({
+      dataRoot: join(sandbox, "visited-host"),
+      publicOrigin: "http://127.0.0.1:0",
+      community: { handle: "visitors", name: "Visitors" },
+      accounts: [{ handle: "owner", token: "visited-owner", name: "Owner", communityWriter: true }],
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    const service = await ArborService.openControl();
+    const locator = `${remote.url}/~owner`;
+    try {
+      const online = await service.remoteSnapshot(locator);
+      expect(online.enclosingTree?.placement).toBe("remote");
+      expect((await service.children({ tree: "system", path: "/visited" })).items).toHaveLength(1);
+      const addedPath = join(sandbox, "visited-added-to-workspace");
+      await service.executeMutation({
+        mutationID: "visited-add-to-workspace",
+        operations: [{
+          op: "placeTree",
+          tree: online.enclosingTree!.id,
+          path: addedPath,
+          endpoint: new URL(locator).origin,
+          canonical: online.enclosingTree!.httpURL,
+        }],
+      });
+      expect((await service.snapshot({ tree: online.enclosingTree!.id, path: "/" })).enclosingTree?.osPath)
+        .toBe(await realpath(addedPath));
+      remote.server.stop(true);
+      const cached = await service.remoteSnapshot(locator);
+      expect(cached.diagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "cached-remote-visit" }),
+      ]));
+    } finally {
+      remote.server.stop(true);
+      await remote.authority[Symbol.asyncDispose]();
+      await service[Symbol.asyncDispose]();
+    }
+  });
 });
 
 test("a fresh claim-first authority reserves and grants its first community writer", async () => {

@@ -20,7 +20,7 @@ import type { ArbordErrorCode } from "@arbor/core";
 import { LOCAL_TREE, SYSTEM_TREE, canonicalJSONString, canonicalNodePath, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { FsConflictError, MutationJournal } from "@arbor/fs";
-import { CommunityConfigStore, arborDataRoot } from "@arbor/stores";
+import { CommunityConfigStore, VisitedTreeStore, arborDataRoot } from "@arbor/stores";
 import { WireClient, decodeWireObject, materializeTree, snapshotDirectory, type RemoteTreeDescriptor } from "@arbor/wire";
 import { EventBus } from "./events.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
@@ -66,6 +66,7 @@ export class ArborService implements AsyncDisposable {
   readonly trees: TreeManager;
   readonly localFs: FilesystemService;
   readonly communityConfig = new CommunityConfigStore();
+  readonly visitedTrees = new VisitedTreeStore();
   private systemMutations = new MutationJournal(join(arborDataRoot(), "system", "journal", "mutations"));
   private syncTimer?: ReturnType<typeof setInterval>;
   private syncing = false;
@@ -128,7 +129,8 @@ export class ArborService implements AsyncDisposable {
     const workspace = await this.trees.workspaceByTree(tree);
     if (workspace) {
       if ("path" in ref) {
-        const mounted = this.trees.reservedBoundary(tree, canonicalNodePath(ref.path));
+        const mounted = this.trees.reservedBoundary(tree, canonicalNodePath(ref.path))
+          ?? this.trees.localMountBoundary(tree, canonicalNodePath(ref.path));
         if (mounted) {
           const mountedWorkspace = await this.trees.workspaceByTree(mounted.tree);
           if (mountedWorkspace) {
@@ -156,7 +158,8 @@ export class ArborService implements AsyncDisposable {
       const real = await realOsPath(canonical);
       const owner = await this.trees.ownerOf(real);
       if (owner) {
-        const mounted = this.trees.reservedBoundary(owner.workspace.tree, canonicalNodePath(owner.treePath));
+        const mounted = this.trees.reservedBoundary(owner.workspace.tree, canonicalNodePath(owner.treePath))
+          ?? this.trees.localMountBoundary(owner.workspace.tree, canonicalNodePath(owner.treePath));
         if (mounted) {
           const mountedWorkspace = await this.trees.workspaceByTree(mounted.tree);
           if (mountedWorkspace) {
@@ -198,8 +201,38 @@ export class ArborService implements AsyncDisposable {
     return this.systemSnapshot(scope.path);
   }
 
-  /** Resolve one unplaced canonical URL into a read-only, in-memory node. */
   async remoteSnapshot(locatorInput: string): Promise<NodeSnapshot> {
+    const locator = (() => {
+      try { return new URL(locatorInput).href; }
+      catch { return locatorInput; }
+    })();
+    try {
+      const snapshot = await this.fetchRemoteSnapshot(locatorInput);
+      await this.visitedTrees.remember(locator, snapshot);
+      this.events.emit({ tree: SYSTEM_TREE, kind: "updated", path: "/visited", origin: "external" });
+      return snapshot;
+    } catch (error) {
+      const cached = await this.visitedTrees.get(locator);
+      if (cached && (error instanceof TypeError || (error instanceof ProtocolError && error.code === "not-found"))) {
+        return {
+          ...cached.snapshot,
+          diagnostics: [
+            ...cached.snapshot.diagnostics,
+            {
+              code: "cached-remote-visit",
+              message: `Showing the copy visited on ${cached.visitedAt}; the community is currently unavailable.`,
+              path: cached.snapshot.path,
+              severity: "warning",
+            },
+          ],
+        };
+      }
+      throw error;
+    }
+  }
+
+  /** Resolve one unplaced canonical URL into a read-only, in-memory node. */
+  private async fetchRemoteSnapshot(locatorInput: string): Promise<NodeSnapshot> {
     let locator: URL;
     try { locator = new URL(locatorInput); }
     catch { throw new ProtocolError("invalid-reference", "Remote browsing requires an HTTP or Arbor URL", 400); }
@@ -214,7 +247,10 @@ export class ArborService implements AsyncDisposable {
     const client = new WireClient(origin, configured?.record.origin === origin ? configured.accountToken : undefined);
     let remote: RemoteTreeDescriptor & { path: string };
     try { remote = await client.resolve(canonicalPath || "/"); }
-    catch { throw new ProtocolError("not-found", `The Arbor page is unavailable: ${origin}${canonicalPath}`, 404); }
+    catch (error) {
+      if (error instanceof TypeError) throw error;
+      throw new ProtocolError("not-found", `The Arbor page is unavailable: ${origin}${canonicalPath}`, 404);
+    }
 
     const parts = remote.path.split("/").filter(Boolean);
     let hash = remote.ref;
@@ -318,7 +354,10 @@ export class ArborService implements AsyncDisposable {
     if (scope.kind === "root") {
       const page = await scope.workspace.children(scope.ref, cursor);
       if (!("path" in scope.ref)) return page;
-      const mounted = this.trees.mountedChildren(scope.workspace.tree, canonicalNodePath(scope.ref.path));
+      const mounted = [
+        ...this.trees.mountedChildren(scope.workspace.tree, canonicalNodePath(scope.ref.path)),
+        ...this.trees.localMountedChildren(scope.workspace.tree, canonicalNodePath(scope.ref.path)),
+      ];
       if (!mounted.length) return page;
       const existing = new Set(page.items.map((item) => item.path));
       return {
@@ -347,7 +386,27 @@ export class ArborService implements AsyncDisposable {
 
   async backlinksPage(ref: NodeRef, cursor?: string | null): Promise<BacklinksPage> {
     const scope = await this.resolveScope(ref);
-    if (scope.kind === "root") return scope.workspace.backlinksPage(scope.ref, cursor);
+    if (scope.kind === "root") {
+      const primary = await scope.workspace.backlinksPage(scope.ref, cursor);
+      if (cursor) return primary;
+      const target = primary.target;
+      if (!target.tree) return primary;
+      const crossTree = (await this.trees.openAll())
+        .filter((workspace) => workspace.tree !== scope.workspace.tree)
+        .flatMap((workspace) => workspace.backlinksTo({
+          tree: target.tree!,
+          path: target.path,
+          ...(target.pageID ? { pageID: target.pageID } : {}),
+        }));
+      const seen = new Set<string>();
+      const entries = [...primary.entries, ...crossTree].filter((entry) => {
+        const key = `${entry.ref.tree}:${entry.ref.path}:${entry.context}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).slice(0, 30);
+      return { ...primary, entries };
+    }
     throw new ProtocolError(
       "unsupported-operation",
       "Backlinks require a shared tree: give the enclosing subtree a URL to enable them",
@@ -546,14 +605,16 @@ export class ArborService implements AsyncDisposable {
         diagnostics: [],
       };
     }
-    if (path === "/trees") {
-      const listing = await this.systemTreeChildren();
-      const revision = revisionOf(listing.map((entry) => entry.name).join("\n"));
+    if (path === "/trees" || path === "/visited") {
+      const listing = path === "/trees"
+        ? await this.systemTreeChildren()
+        : (await this.visitedTrees.list()).map((visit) => visit.id);
+      const revision = revisionOf(listing.map((entry) => typeof entry === "string" ? entry : entry.name).join("\n"));
       return {
         ...base,
-        ref: { tree: SYSTEM_TREE, path: "/trees" },
-        path: "/trees",
-        name: "trees",
+        ref: { tree: SYSTEM_TREE, path },
+        path,
+        name: path.slice(1),
         kind: "directory",
         contentRevision: revision,
         directoryRevision: revision,
@@ -590,7 +651,7 @@ export class ArborService implements AsyncDisposable {
           { name: "community", path: "/community", kind: "markdown", materialization: "available" },
           { name: "trees", path: "/trees", kind: "directory", materialization: "available" },
           { name: "credentials", path: "/credentials", kind: "markdown", materialization: "available" },
-          { name: "visited", path: "/visited", kind: "markdown", materialization: "available" },
+          { name: "visited", path: "/visited", kind: "directory", materialization: "available" },
           { name: "diagnostics", path: "/diagnostics", kind: "markdown", materialization: "available" },
         ],
         nextCursor: null,
@@ -601,6 +662,20 @@ export class ArborService implements AsyncDisposable {
       return {
         parent: { tree: SYSTEM_TREE, path: "/trees" },
         items: await this.systemTreeChildren(),
+        nextCursor: null,
+        observedThrough,
+      };
+    }
+    if (path === "/visited") {
+      const visits = await this.visitedTrees.list();
+      return {
+        parent: { tree: SYSTEM_TREE, path: "/visited" },
+        items: visits.map((visit) => ({
+          name: visit.name,
+          path: `/visited/${visit.id}`,
+          kind: "markdown" as const,
+          materialization: "available" as const,
+        })),
         nextCursor: null,
         observedThrough,
       };
@@ -735,10 +810,26 @@ export class ArborService implements AsyncDisposable {
         },
       };
     }
-    if (path === "/visited") {
+    const visitedMatch = /^\/visited\/([^/]+)$/.exec(path);
+    if (visitedMatch) {
+      const visit = (await this.visitedTrees.list()).find((candidate) => candidate.id === visitedMatch[1]);
+      if (!visit) return null;
       return {
-        segment: "visited",
-        record: { source: "---\ncount: 0\n---\n\n# Visited trees\n" },
+        segment: visit.name,
+        record: {
+          source: [
+            "---",
+            `id: ${JSON.stringify(visit.id)}`,
+            `tree: ${JSON.stringify(visit.tree)}`,
+            `locator: ${JSON.stringify(visit.locator)}`,
+            ...(visit.canonical ? [`canonical: ${JSON.stringify(visit.canonical)}`] : []),
+            `visitedAt: ${JSON.stringify(visit.visitedAt)}`,
+            "---",
+            "",
+            `# ${visit.name}`,
+            "",
+          ].join("\n"),
+        },
       };
     }
     const match = /^\/trees\/([^/]+)$/.exec(path);
@@ -921,7 +1012,11 @@ export class ArborService implements AsyncDisposable {
       ? "group-profile"
       : kind;
     const { client, origin } = await this.configuredWire();
-    const snapshot = await snapshotDirectory(path, this.trees.sharedBoundariesWithin(path));
+    const snapshot = await snapshotDirectory(
+      path,
+      this.trees.sharedBoundariesWithin(path),
+      this.trees.excludedMountsWithin(path),
+    );
     const rules = audience.kind === "rules"
       ? audience.rules
       : audience.kind === "private"
@@ -1083,7 +1178,11 @@ export class ArborService implements AsyncDisposable {
       configured?.record.origin === placement.endpoint ? configured.accountToken : undefined,
     );
     this.trees.setSyncState(workspace.tree, "pushing");
-    const snapshot = await snapshotDirectory(workspace.root, this.trees.sharedBoundariesWithin(workspace.root));
+    const snapshot = await snapshotDirectory(
+      workspace.root,
+      this.trees.sharedBoundariesWithin(workspace.root),
+      this.trees.excludedMountsWithin(workspace.root),
+    );
     if (snapshot.root === placement.ref) {
       this.trees.setSyncState(workspace.tree, "idle");
       return;
@@ -1123,7 +1222,11 @@ export class ArborService implements AsyncDisposable {
             };
             await this.trees.applySharedPlacement(activePlacement);
           }
-          const local = await snapshotDirectory(workspace.root, this.trees.sharedBoundariesWithin(workspace.root));
+          const local = await snapshotDirectory(
+            workspace.root,
+            this.trees.sharedBoundariesWithin(workspace.root),
+            this.trees.excludedMountsWithin(workspace.root),
+          );
           if (remote.ref === activePlacement.ref) {
             if (local.root !== activePlacement.ref && activePlacement.access === "write") await this.pushWorkspace(workspace);
             else if (local.root !== activePlacement.ref) this.trees.setSyncState(activePlacement.tree, "conflict");
@@ -1139,7 +1242,13 @@ export class ArborService implements AsyncDisposable {
             continue;
           }
           this.trees.setSyncState(activePlacement.tree, "pulling");
-          await materializeTree(workspace.root, remote.ref, (hash) => client.object(hash));
+          await materializeTree(
+            workspace.root,
+            remote.ref,
+            (hash) => client.object(hash),
+            undefined,
+            this.trees.excludedMountsWithin(workspace.root),
+          );
           await this.trees.applySharedPlacement({ ...activePlacement, ref: remote.ref });
           this.trees.setSyncState(activePlacement.tree, "idle");
           this.syncConflicts.delete(activePlacement.tree);
@@ -1193,6 +1302,12 @@ export class ArborService implements AsyncDisposable {
             path: ref.path,
           });
         }
+        const localMount = this.trees.localMountBoundary(ref.tree, canonicalNodePath(ref.path));
+        if (localMount?.exact) {
+          throw new ProtocolError("reserved-boundary", "Reader-local tree mounts are managed from Home", 409, {
+            path: ref.path,
+          });
+        }
         return;
       }
       if (ref.tree === LOCAL_TREE) {
@@ -1202,6 +1317,12 @@ export class ArborService implements AsyncDisposable {
         const mounted = this.trees.reservedBoundary(owner.workspace.tree, canonicalNodePath(owner.treePath));
         if (mounted?.exact) {
           throw new ProtocolError("reserved-boundary", `Canonical mount is reserved: ${mounted.path}`, 409, {
+            path: ref.path,
+          });
+        }
+        const localMount = this.trees.localMountBoundary(owner.workspace.tree, canonicalNodePath(owner.treePath));
+        if (localMount?.exact) {
+          throw new ProtocolError("reserved-boundary", "Reader-local tree mounts are managed from Home", 409, {
             path: ref.path,
           });
         }
