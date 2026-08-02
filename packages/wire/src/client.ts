@@ -79,7 +79,11 @@ export class WireClient {
   async create(
     canonicalPath: string,
     snapshot: TreeSnapshot,
-    options: { kind?: Exclude<BoundaryKind, "community-profile" | "person-profile">; publicAccess?: PublicAccess } = {},
+    options: {
+      kind?: Exclude<BoundaryKind, "community-profile" | "person-profile">;
+      publicAccess?: PublicAccess;
+      profileAccess?: Array<{ locator: string; access: TreeAccess }>;
+    } = {},
   ): Promise<RemoteTreeDescriptor> {
     const response = await this.checked(await fetch(`${this.origin}/.arbor/trees`, {
       method: "POST",
@@ -88,6 +92,7 @@ export class WireClient {
         canonicalPath,
         kind: options.kind ?? "shared-subtree",
         publicAccess: options.publicAccess ?? "none",
+        profileAccess: options.profileAccess ?? [],
         ...encodedSnapshot(snapshot),
       }),
     }));

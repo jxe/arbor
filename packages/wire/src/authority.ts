@@ -631,6 +631,7 @@ export class WireAuthority implements AsyncDisposable {
     kind: Exclude<BoundaryKind, "community-profile">,
     snapshot: TreeSnapshot,
     publicAccess: PublicAccess = "none",
+    profileAccess: Array<{ profile: string; access: TreeAccess }> = [],
   ): Promise<AuthorityTree> {
     const path = normalizeBoundaryPath(canonicalPath);
     if (this.boundary(path)) throw new Error(`Canonical boundary already exists: ${path}`);
@@ -642,6 +643,15 @@ export class WireAuthority implements AsyncDisposable {
       throw new Error(`Cannot publish beneath ${parent?.canonicalPath ?? "/"}`);
     }
     if (kind === "person-profile") throw new Error("Person profiles are created only through claim");
+    const initialProfiles = new Set<string>();
+    for (const rule of profileAccess) {
+      const profile = this.get(rule.profile);
+      if (!profile || !["person-profile", "group-profile"].includes(profile.kind)) {
+        throw new Error("Access subject must be a profile tree");
+      }
+      if (initialProfiles.has(rule.profile)) throw new Error("Duplicate profile access rule");
+      initialProfiles.add(rule.profile);
+    }
     if (kind === "group-profile") {
       if (parent.kind !== "community-profile" || profileHandle(path) === null) {
         throw new Error("Group profiles must use an available /~handle path");
@@ -668,6 +678,7 @@ export class WireAuthority implements AsyncDisposable {
       parent.id,
       (treeID) => {
         if (account.profileTree) this.setAccessInternal(treeID, "profile", account.profileTree, "write");
+        for (const rule of profileAccess) this.setAccessInternal(treeID, "profile", rule.profile, rule.access);
       },
     );
   }

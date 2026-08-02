@@ -220,6 +220,17 @@ describe("primary CLI sync forms", () => {
       kind: "group-profile",
       publicAccess: "read",
     });
+
+    const sharedSource = join(sandbox, "group-shared-source");
+    await mkdir(sharedSource);
+    await writeFile(join(sharedSource, "brief.md"), "# Brief\n");
+    const sharedCanonical = `${host.url}/~owner/group-brief`;
+    await arbor(["sync", "-r", "public", "-rw", "~editors", sharedSource, sharedCanonical], stateA);
+    const shared = host.authority.boundary("/~owner/group-brief")!;
+    expect(shared.publicAccess).toBe("read");
+    expect(host.authority.accessEntries(shared.id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ subjectKind: "profile", subject: host.authority.boundary("/~editors")!.id, access: "write" }),
+    ]));
   });
 
   test("idempotently places a canonical URL", async () => {

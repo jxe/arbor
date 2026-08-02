@@ -505,7 +505,7 @@ export class ArborService implements AsyncDisposable {
         client.list().catch(() => []),
         client.account().then((account) => new Set(account.writableProfiles.map((tree) => tree.id))).catch(() => new Set<string>()),
       ]);
-      await Promise.all(remote.filter((tree) => writable.has(tree.id)).map(async (tree) => {
+      await Promise.all(remote.map(async (tree) => {
         const entries = await client.access(tree.id).catch(() => []);
         remoteAccess.set(tree.id, entries);
       }));
@@ -794,13 +794,21 @@ export class ArborService implements AsyncDisposable {
       : kind;
     const { client, origin } = await this.configuredWire();
     const snapshot = await snapshotDirectory(path, this.trees.sharedBoundariesWithin(path));
+    const rules = audience.kind === "rules"
+      ? audience.rules
+      : audience.kind === "private"
+        ? []
+        : audience.kind === "everyone"
+          ? [{ subject: { kind: "everyone" as const }, access: audience.access }]
+          : [{ subject: { kind: "profile" as const, locator: audience.locator }, access: audience.access }];
+    const everyone = rules.find((rule) => rule.subject.kind === "everyone");
     const remote = await client.create(canonicalPath, snapshot, {
       kind: effectiveKind,
-      publicAccess: audience.kind === "everyone" ? audience.access : "none",
+      publicAccess: everyone?.access ?? "none",
+      profileAccess: rules.flatMap((rule) => rule.subject.kind === "profile"
+        ? [{ locator: rule.subject.locator, access: rule.access }]
+        : []),
     });
-    if (audience.kind === "profile") {
-      await client.setAccess(remote.id, { kind: "profile", locator: audience.locator }, audience.access);
-    }
     await this.trees.applySharedPlacement({
       path,
       source: `arbor://tree/${remote.id}/` as const,

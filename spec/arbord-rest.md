@@ -220,7 +220,14 @@ type SystemOperation =
       audience:
         | { kind: "private" }
         | { kind: "everyone"; access: "read" | "write" }
-        | { kind: "profile"; locator: string; access: "read" | "write" };
+        | { kind: "profile"; locator: string; access: "read" | "write" }
+        | {
+            kind: "rules";
+            rules: Array<
+              | { subject: { kind: "everyone" }; access: "read" | "write" }
+              | { subject: { kind: "profile"; locator: string }; access: "read" | "write" }
+            >;
+          };
     }
   | { op: "placeTree"; tree: TreeID; path: string; endpoint?: string; canonical?: string }
   | { op: "removeTreePlacement"; path: string; endpoint?: string; canonicalPath?: string }
@@ -263,7 +270,7 @@ References carry their `tree` per §2; path-literal creates carry the same optio
 
 System operations are singleton because their authority and rollback domains differ from content/filesystem transactions. `connectCommunity` stores the raw account/device token directly in the OS credential store and journals only safe origin/account metadata plus a digest. `claimProfile` creates/validates visible `type: person` content and performs the authority's atomic first-claim-wins transition. Promoting an ordinary folder whose `_index.md` declares `type: group` to an available top-level `/~handle` creates a group-profile boundary, so the primary group-creation flow remains ordinary `sync`; `createGroupProfile` is equivalent lower-level plumbing.
 
-`promoteTree` requires a mounted canonical path and an explicit initial audience. It snapshots the existing visible folder, creates the child `TreeID`, reserves/replaces the exact parent graph entry, records the existing OS placement, and refreshes locally placed ancestors. External folders become virtual profile children and are never moved or copied.
+`promoteTree` requires a mounted canonical path and an explicit initial audience. `private` is an explicit empty ACL; `everyone` and `profile` are compatibility forms for a single rule; `rules` is the complete explicit initial ACL and rejects duplicate subjects. The authority creates the child `TreeID`, reserves/replaces the exact parent graph entry, and applies all initial public/person/group rules in one transaction. Arbord then records the existing OS placement and refreshes locally placed ancestors. External folders become virtual profile children and are never moved or copied.
 
 `setTreeAccess` is whole-tree only. `everyone` is the underlying private/public state. A profile locator resolves to a stable person/group profile `TreeID`; group membership remains authored content. Link secrets are client-generated, hashed before durable intent, and absent from journals, receipts, events, diagnostics, errors, and logs. `none` removes the matching entry. The `all` subject is valid only with `none` and atomically removes every explicit audience entry; the administering profile's implicit authority remains.
 

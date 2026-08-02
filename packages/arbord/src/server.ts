@@ -108,6 +108,31 @@ function isLocalUserPath(value: unknown): value is string {
     && (value.startsWith("/") || value === "~" || value.startsWith("~/"));
 }
 
+function isShareAudience(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.kind === "private") return true;
+  if (value.kind === "everyone") return ["read", "write"].includes(String(value.access));
+  if (value.kind === "profile") {
+    return typeof value.locator === "string" && ["read", "write"].includes(String(value.access));
+  }
+  if (value.kind !== "rules" || !Array.isArray(value.rules) || value.rules.length === 0) return false;
+  let everyone = 0;
+  const profiles = new Set<string>();
+  for (const rule of value.rules) {
+    if (!isRecord(rule) || !isRecord(rule.subject) || !["read", "write"].includes(String(rule.access))) return false;
+    if (rule.subject.kind === "everyone") {
+      everyone += 1;
+      if (everyone > 1) return false;
+    } else if (rule.subject.kind === "profile" && typeof rule.subject.locator === "string" && rule.subject.locator) {
+      if (profiles.has(rule.subject.locator)) return false;
+      profiles.add(rule.subject.locator);
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
 function validateRef(value: unknown, field: string): asserts value is NodeRef {
   if (!isRecord(value)) {
     throw new ProtocolError("invalid-reference", `${field} must be a node reference`, 400);
@@ -309,12 +334,7 @@ function validateOperation(value: unknown): void {
         !isLocalUserPath(value.path)
         || typeof value.canonicalPath !== "string"
         || !value.canonicalPath.startsWith("/")
-        || !isRecord(value.audience)
-        || !["private", "everyone", "profile"].includes(String(value.audience.kind))
-        || (value.audience.kind === "everyone" && !["read", "write"].includes(String(value.audience.access)))
-        || (value.audience.kind === "profile"
-          && (typeof value.audience.locator !== "string"
-            || !["read", "write"].includes(String(value.audience.access))))
+        || !isShareAudience(value.audience)
       ) {
         throw new ProtocolError("invalid-reference", "promoteTree requires path, canonicalPath, and an explicit audience", 400);
       }

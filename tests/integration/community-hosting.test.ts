@@ -237,10 +237,21 @@ describe("community-mounted profiles and sharing", () => {
           op: "promoteTree",
           path: externalPath,
           canonicalPath: "/~owner/atlas",
-          audience: { kind: "private" },
+          audience: {
+            kind: "rules",
+            rules: [
+              { subject: { kind: "everyone" }, access: "read" },
+              { subject: { kind: "profile", locator: `${host.url}/~editors` }, access: "write" },
+            ],
+          },
         }],
       });
       const atlasTree = promoted.effects.find((effect) => effect.tree?.startsWith("tr_"))!.tree!;
+      const initialAccess = await owner.access(atlasTree);
+      expect(initialAccess).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "everyone", access: "read" }),
+        expect.objectContaining({ kind: "profile", locator: expect.stringContaining("/~editors"), access: "write" }),
+      ]));
       const rawLinkSecret = "must-not-enter-durable-state";
       await service.executeMutation({
         mutationID: "safe-link-secret",

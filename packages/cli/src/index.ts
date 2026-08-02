@@ -143,12 +143,22 @@ function accessSubject(subject: string, target: CanonicalTarget): { kind: "every
 
 function initialAudience(operations: CliAudienceOperation[], target: CanonicalTarget): ShareAudience {
   const afterLastClear = operations.slice(operations.findLastIndex((operation) => operation.kind === "clear") + 1);
-  const first = afterLastClear.find((operation) => operation.kind === "set" && operation.access !== "none");
-  if (!first || first.kind !== "set" || first.access === "none") return { kind: "private" };
-  const subject = accessSubject(first.subject, target);
-  return subject.kind === "everyone"
-    ? { kind: "everyone", access: first.access }
-    : { kind: "profile", locator: subject.locator, access: first.access };
+  const access = new Map<string, "read" | "write">();
+  for (const operation of afterLastClear) {
+    if (operation.kind !== "set") continue;
+    if (operation.access === "none") access.delete(operation.subject);
+    else access.set(operation.subject, operation.access);
+  }
+  if (!access.size) return { kind: "private" };
+  return {
+    kind: "rules",
+    rules: [...access].map(([name, permission]) => {
+      const subject = accessSubject(name, target);
+      return subject.kind === "everyone"
+        ? { subject: { kind: "everyone" as const }, access: permission }
+        : { subject: { kind: "profile" as const, locator: subject.locator }, access: permission };
+    }),
+  };
 }
 
 async function systemTrees(client: ArbordClient): Promise<Array<Record<string, unknown>>> {
@@ -222,7 +232,7 @@ async function promoteLocal(
       tree = receipt.effects.find((effect) => effect.tree?.startsWith("tr_"))?.tree;
       if (!tree) throw new Error("Sharing did not return a TreeID");
     }
-    if (tree) {
+    if (tree && !isNew) {
       for (const operation of audience) {
         if (operation.kind === "clear") {
           await client.mutateSystem({ op: "setTreeAccess", tree, subject: { kind: "all" }, access: "none" });

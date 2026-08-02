@@ -585,7 +585,7 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   await expect(page.getByText("Search begins when this subtree has durable identity.")).toBeVisible();
   await page.keyboard.press("Escape");
 
-  // Sharing uses the connected profile, requires an audience, and keeps the local folder in place.
+  // Sharing uses an additive ACL builder, requires an explicit choice, and keeps the local folder in place.
   await page.goto(promotable(""));
   await page.getByRole("button", { name: "Share" }).click();
   const shareSheet = page.locator(".tree-control-modal");
@@ -593,17 +593,21 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   await expect(shareSheet.locator(".url-preview")).toContainText(`${HOST_ORIGIN}/~owner/garden`);
   await expect(shareSheet.locator(".url-preview")).toContainText(`arbor://127.0.0.1:${E2E_PORT + 1}/~owner/garden`);
   await expect(shareSheet.getByRole("button", { name: "Share", exact: true })).toBeDisabled();
-  await shareSheet.getByText("Private", { exact: true }).click();
+  await shareSheet.getByLabel("Audience 1", { exact: true }).selectOption("everyone");
+  await shareSheet.getByRole("button", { name: "Add another audience" }).click();
+  await shareSheet.getByLabel("Audience 2", { exact: true }).selectOption("profile");
+  await shareSheet.getByLabel("Person or group 2").fill("~editors");
+  await shareSheet.getByLabel("Audience 2 permission").selectOption("write");
   await shareSheet.getByRole("button", { name: "Share", exact: true }).click();
-  await expect(page.locator(".scope-chip")).toHaveText(/private/);
+  await expect(page.locator(".scope-chip")).toHaveText(/public read/);
 
   // The same Share sheet manages canonical addresses, public/profile/link access, and revocation.
   await page.getByRole("button", { name: "Share" }).click();
-  await expect(page.getByText("People and groups")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create and copy read link" })).toBeEnabled();
+  await expect(page.getByText("Profile writers")).toBeVisible();
+  await expect(page.getByText("~editors")).toBeVisible();
+  await expect(page.getByLabel("~editors permission")).toHaveValue("write");
   await expect(page.locator(".canonical-addresses")).toContainText(`${HOST_ORIGIN}/~owner/garden`);
-  await page.getByText("Public read", { exact: true }).click();
-  await expect(page.getByRole("radio", { name: /^Public read Anyone/ })).toBeChecked();
+  await expect(page.getByLabel("Everyone permission")).toHaveValue("read");
   await page.getByRole("button", { name: "Close" }).click();
 
   await page.getByRole("button", { name: "Arbor", exact: true }).click();

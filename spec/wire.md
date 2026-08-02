@@ -37,7 +37,7 @@ Sharing an ordinary visible directory promotes it in place:
 2. snapshot and validate the existing directory;
 3. create the child `TreeID`;
 4. replace or reserve the exact parent entry with a nested-tree boundary;
-5. apply the explicit initial audience;
+5. apply the complete explicit initial public/person/group access rule set in the same authority transaction;
 6. record the existing local OS placement.
 
 The canonical URL and bytes remain stable while longest-prefix resolution changes the enclosing `TreeID`. `PageID`s in stored Markdown remain unchanged.
@@ -88,6 +88,8 @@ Access is whole-tree. Entries have subjects:
 - a secret-link digest.
 
 Levels are `none`, `read`, and `write`. “Private” means no `everyone` entry; public read/write are product labels for `everyone: read|write`. Each nested boundary is evaluated independently.
+
+A create request carries at most one `everyone` rule plus zero or more distinct same-community person/group profile rules. The host resolves profile locators to profile `TreeID`s before the authority transaction. Tree creation, the administering profile's implicit write entry, and every requested initial entry either commit together or do not exist. Secret-link entries are created only after the tree exists because their raw secrets remain client-side and must never enter durable mutation records.
 
 Profile access resolves locators to stable profile `TreeID`s. Group-derived access reads the current verified authored membership. Display names never become authority.
 

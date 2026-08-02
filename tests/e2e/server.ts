@@ -2,7 +2,7 @@ import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArbor } from "@arbor/arbord";
-import { serveWireHost } from "@arbor/wire";
+import { serveWireHost, snapshotDirectory, WireClient } from "@arbor/wire";
 import { build } from "vite";
 
 await build({ configFile: join(import.meta.dir, "../../packages/render/vite.config.ts"), logLevel: "error" });
@@ -13,11 +13,13 @@ const promotableRoot = join(tmpdir(), "arbor-e2e-promotable");
 const state = join(tmpdir(), "arbor-e2e-state");
 const hostState = join(tmpdir(), "arbor-e2e-host-state");
 const aliceProfile = join(tmpdir(), "arbor-e2e-alice-profile");
+const editorsProfile = join(tmpdir(), "arbor-e2e-editors-profile");
 await rm(root, { recursive: true, force: true });
 await rm(promotableRoot, { recursive: true, force: true });
 await rm(state, { recursive: true, force: true });
 await rm(hostState, { recursive: true, force: true });
 await rm(aliceProfile, { recursive: true, force: true });
+await rm(editorsProfile, { recursive: true, force: true });
 await mkdir(root, { recursive: true });
 await mkdir(promotableRoot, { recursive: true });
 await mkdir(state, { recursive: true });
@@ -40,6 +42,13 @@ const host = await serveWireHost({
   hostname: "127.0.0.1",
   port: port + 1,
 });
+await mkdir(editorsProfile, { recursive: true });
+await writeFile(join(editorsProfile, "_index.md"), "---\ntype: group\n---\n\n# Editors\n");
+await new WireClient(host.url, "e2e-owner-token").create(
+  "/~editors",
+  await snapshotDirectory(editorsProfile),
+  { kind: "group-profile", publicAccess: "read" },
+);
 const running = await serveArbor(root, { port });
 await running.service.executeMutation({
   mutationID: "e2e-configure-host",
@@ -71,6 +80,7 @@ async function shutdown() {
   await rm(state, { recursive: true, force: true });
   await rm(hostState, { recursive: true, force: true });
   await rm(aliceProfile, { recursive: true, force: true });
+  await rm(editorsProfile, { recursive: true, force: true });
   process.exit(0);
 }
 process.on("SIGINT", shutdown);

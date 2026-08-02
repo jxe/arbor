@@ -11,7 +11,7 @@ Every content operand is an Arbor [locator](locators.md). The CLI resolves throu
 - **`arbor unsync <local-path>`** — remove the placement at that local path without deleting files, remote identity, or history.
 - **`arbor unsync <local-path> <canonical-url>`** (in either order) — remove only that exact local/canonical placement pair. A mismatched pair is rejected without changing either side.
 
-Audience options set exact entries and may be repeated. `public` names everyone; `~<handle>` names a person or group profile in the destination community. `-r`/`--read` sets read access, `-rw`/`--read-write` sets read/write, `--remove` removes one entry, and `--private` first removes every explicit audience entry. Options are written before the locators:
+Audience options set exact entries and may be repeated. `public` names everyone; `~<handle>` names a person or group profile in the destination community. `-r`/`--read` sets read access, `-rw`/`--read-write` sets read/write, `--remove` removes one entry, and `--private` first removes every explicit audience entry. Options are written before the locators. For a new boundary, Arbor compiles all supplied entries after the last `--private` into one complete initial ACL and applies it atomically with promotion; it does not create the tree with only the first entry and patch the rest afterward.
 
 ```sh
 arbor sync ~/projects/atlas arbor://garden.example/~alice/atlas

@@ -156,18 +156,36 @@ export async function serveWireHost(options: {
               canonicalPath?: unknown;
               kind?: unknown;
               publicAccess?: unknown;
+              profileAccess?: unknown;
               root?: unknown;
               objects?: unknown;
             };
             if (typeof body.canonicalPath !== "string") throw new Error("canonicalPath is required");
             const kind = (body.kind ?? "shared-subtree") as BoundaryKind;
             if (kind !== "shared-subtree" && kind !== "group-profile") throw new Error("Invalid tree kind");
+            const rawProfileAccess = body.profileAccess ?? [];
+            if (!Array.isArray(rawProfileAccess)) throw new Error("profileAccess must be an array");
+            const profileAccess = rawProfileAccess.map((entry) => {
+              if (
+                !entry || typeof entry !== "object"
+                || typeof (entry as { locator?: unknown }).locator !== "string"
+                || !["read", "write"].includes(String((entry as { access?: unknown }).access))
+              ) throw new Error("Invalid profile access rule");
+              const locator = new URL((entry as { locator: string }).locator);
+              if (locator.host !== new URL(publicOrigin).host) throw new Error("Profile access must use this community");
+              const profile = authority.resolve(locator.pathname)?.tree;
+              if (!profile || !["person-profile", "group-profile"].includes(profile.kind)) {
+                throw new Error("Profile access rule does not resolve to a profile");
+              }
+              return { profile: profile.id, access: (entry as { access: TreeAccess }).access };
+            });
             const tree = await authority.create(
               authenticated,
               body.canonicalPath,
               kind,
               bodySnapshot(body),
               publicAccess(body.publicAccess ?? "none"),
+              profileAccess,
             );
             return json(descriptor(publicOrigin, tree, "write"), 201);
           }

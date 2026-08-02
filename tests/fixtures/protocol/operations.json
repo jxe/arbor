@@ -87,7 +87,13 @@
         "op": "promoteTree",
         "path": "/Users/joe/notes",
         "canonicalPath": "/~joe/notes",
-        "audience": { "kind": "private" }
+        "audience": {
+          "kind": "rules",
+          "rules": [
+            { "subject": { "kind": "everyone" }, "access": "read" },
+            { "subject": { "kind": "profile", "locator": "https://notes.example/~editors" }, "access": "write" }
+          ]
+        }
       }
     ]
   },

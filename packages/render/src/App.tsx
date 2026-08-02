@@ -163,6 +163,41 @@ interface RemoteLocation {
   handle?: string;
 }
 
+type AccessPermission = "read" | "write";
+type AccessSubjectKind = "" | "everyone" | "profile";
+type ExistingAccessSubjectKind = AccessSubjectKind | "link";
+
+interface DraftAccessRule {
+  id: string;
+  subject: AccessSubjectKind;
+  locator: string;
+  access: AccessPermission;
+}
+
+function emptyAccessRule(): DraftAccessRule {
+  return { id: crypto.randomUUID(), subject: "", locator: "", access: "read" };
+}
+
+function canonicalProfileLocator(input: string, community: string | undefined): string {
+  const value = input.trim();
+  if (!value.startsWith("~")) return value;
+  if (!/^~[a-z0-9][a-z0-9-]{0,62}$/.test(value) || !community) return value;
+  const url = new URL(community);
+  url.pathname = `/${value}`;
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
+function profileLabel(locator: string): string {
+  try {
+    const path = new URL(locator).pathname;
+    return /^\/~[a-z0-9][a-z0-9-]{0,62}$/.test(path) ? path.slice(1) : locator;
+  } catch {
+    return locator;
+  }
+}
+
 function launchedRemoteLocation(): RemoteLocation | null {
   const parameters = new URLSearchParams(location.search);
   const value = parameters.get("browse")?.trim() ?? "";
@@ -213,8 +248,11 @@ export function App() {
   const [profileLocator, setProfileLocator] = useState("");
   const [linkURL, setLinkURL] = useState("");
   const [linkSecret, setLinkSecret] = useState("");
-  const [shareAudience, setShareAudience] = useState<"" | "private" | "public-read" | "public-write" | "profile">("");
+  const [sharePrivate, setSharePrivate] = useState(false);
+  const [shareRules, setShareRules] = useState<DraftAccessRule[]>(() => [emptyAccessRule()]);
   const [treeBusy, setTreeBusy] = useState(false);
+  const [accessDraftKind, setAccessDraftKind] = useState<ExistingAccessSubjectKind>("");
+  const [accessDraftPermission, setAccessDraftPermission] = useState<AccessPermission>("read");
   const [crumbsExpanded, setCrumbsExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -562,23 +600,47 @@ export function App() {
     const profilePath = server.profileURL ? new URL(server.profileURL).pathname.replace(/\/$/, "") : "";
     const suggested = osPath.split("/").filter(Boolean).at(-1)?.toLowerCase().replace(/[^a-z0-9-]+/g, "-") ?? "shared";
     setTreeSlug(controlledTree?.canonicalPath ?? proposedCanonicalPath ?? (profilePath ? `${profilePath}/${suggested}` : ""));
-    setShareAudience("");
+    setSharePrivate(false);
+    setShareRules([emptyAccessRule()]);
     setProfileLocator("");
+    setAccessDraftKind("");
+    setAccessDraftPermission("read");
     setLinkURL("");
     setLinkSecret("");
     setTreeControl({ path: osPath, tree: controlledTree });
   }, [server.profileURL, trees]);
 
+  const normalizedShareRules = useMemo(() => shareRules.map((rule) => ({
+    ...rule,
+    locator: rule.subject === "profile"
+      ? canonicalProfileLocator(rule.locator, server.communityURL ?? server.origin)
+      : "",
+  })), [server.communityURL, server.origin, shareRules]);
+  const shareRuleKeys = normalizedShareRules.map((rule) => rule.subject === "everyone" ? "everyone" : rule.locator);
+  const shareAccessValid = sharePrivate || (
+    normalizedShareRules.length > 0
+    && normalizedShareRules.every((rule) => rule.subject === "everyone" || (rule.subject === "profile" && /^\w+:\/\//.test(rule.locator)))
+    && new Set(shareRuleKeys).size === shareRuleKeys.length
+  );
+
   const promoteTree = useCallback(async () => {
-    if (!treeControl || !treeSlug.trim() || !shareAudience) return;
+    if (!treeControl || !treeSlug.trim() || !shareAccessValid) return;
     try {
       setTreeBusy(true);
       setError(null);
-      const selected: ShareAudience = shareAudience === "private"
+      const selected: ShareAudience = sharePrivate
         ? { kind: "private" }
-        : shareAudience === "profile"
-          ? { kind: "profile", locator: profileLocator.trim(), access: "read" }
-          : { kind: "everyone", access: shareAudience === "public-write" ? "write" : "read" };
+        : {
+            kind: "rules",
+            rules: normalizedShareRules.map((rule) => rule.subject === "everyone"
+              ? { subject: { kind: "everyone" as const }, access: rule.access }
+              : { subject: { kind: "profile" as const, locator: rule.locator }, access: rule.access }),
+          };
+      if (
+        selected.kind === "rules"
+        && selected.rules.some((rule) => rule.subject.kind === "everyone" && rule.access === "write")
+        && !confirm("Anyone can create, edit, move, and trash content in this tree. Allow public write access?")
+      ) return;
       await api.system({
         op: "promoteTree",
         path: treeControl.path,
@@ -593,46 +655,62 @@ export function App() {
     } finally {
       setTreeBusy(false);
     }
-  }, [load, path, profileLocator, refreshSystem, shareAudience, treeControl, treeSlug]);
+  }, [load, normalizedShareRules, path, refreshSystem, shareAccessValid, sharePrivate, treeControl, treeSlug]);
 
-  const setPublicAccess = useCallback(async (tree: TreeDescriptor, access: PublicAccess) => {
-    if (access === "write" && !confirm("Anyone can create, edit, move, and trash content in this tree. Allow public write access?")) return;
+  const reloadTreeAccess = useCallback(async (tree: TreeDescriptor) => {
+    await refreshSystem();
+    const record = await api.node({ tree: "system", path: `/trees/${tree.id}` });
+    const values = record.document?.frontmatter ?? {};
+    const publicAccess = values.publicAccess === "read" || values.publicAccess === "write" ? values.publicAccess : "none";
+    const accessEntries = Array.isArray(values.accessEntries)
+      ? values.accessEntries as NonNullable<TreeDescriptor["accessEntries"]>
+      : [];
+    setTreeControl((current) => current?.tree?.id === tree.id
+      ? { ...current, tree: { ...current.tree, publicAccess, accessEntries } }
+      : current);
+  }, [refreshSystem]);
+
+  const setPublicAccess = useCallback(async (tree: TreeDescriptor, access: PublicAccess): Promise<boolean> => {
+    if (access === "write" && !confirm("Anyone can create, edit, move, and trash content in this tree. Allow public write access?")) return false;
     try {
       setTreeBusy(true);
       setError(null);
       await api.system({ op: "setTreeAccess", tree: tree.id, subject: { kind: "everyone" }, access });
-      await refreshSystem();
-      setTreeControl((current) => current?.tree?.id === tree.id
-        ? { ...current, tree: { ...tree, publicAccess: access } }
-        : current);
+      await reloadTreeAccess(tree);
+      return true;
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setTreeBusy(false);
     }
-  }, [refreshSystem]);
+  }, [reloadTreeAccess]);
 
-  const setProfileAccess = useCallback(async (tree: TreeDescriptor, access: "none" | "read") => {
-    if (!profileLocator.trim()) return;
+  const setProfileAccess = useCallback(async (tree: TreeDescriptor, locatorInput: string, access: "none" | AccessPermission): Promise<boolean> => {
+    const locator = canonicalProfileLocator(locatorInput, server.communityURL ?? server.origin);
+    if (!locator) return false;
     try {
       setTreeBusy(true);
       setError(null);
       await api.system({
         op: "setTreeAccess",
         tree: tree.id,
-        subject: { kind: "profile", locator: profileLocator.trim() },
+        subject: { kind: "profile", locator },
         access,
       });
       setProfileLocator("");
+      await reloadTreeAccess(tree);
+      return true;
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setTreeBusy(false);
     }
-  }, [profileLocator]);
+  }, [reloadTreeAccess, server.communityURL, server.origin]);
 
-  const createReadLink = useCallback(async (tree: TreeDescriptor) => {
-    if (!tree.httpURL) return;
+  const createLink = useCallback(async (tree: TreeDescriptor, access: AccessPermission): Promise<boolean> => {
+    if (!tree.httpURL) return false;
     const secret = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
     try {
       setTreeBusy(true);
@@ -641,22 +719,24 @@ export function App() {
         op: "setTreeAccess",
         tree: tree.id,
         subject: { kind: "link", secret },
-        access: "read",
+        access,
       });
       const url = new URL(tree.httpURL);
       url.hash = `arbor-access=${encodeURIComponent(secret)}`;
       setLinkURL(url.toString());
       setLinkSecret(secret);
       await navigator.clipboard.writeText(url.toString()).catch(() => {});
-      await refreshSystem();
+      await reloadTreeAccess(tree);
+      return true;
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setTreeBusy(false);
     }
-  }, [refreshSystem]);
+  }, [reloadTreeAccess]);
 
-  const revokeReadLink = useCallback(async (tree: TreeDescriptor) => {
+  const revokeLink = useCallback(async (tree: TreeDescriptor) => {
     if (!linkSecret) return;
     try {
       setTreeBusy(true);
@@ -668,12 +748,13 @@ export function App() {
       });
       setLinkURL("");
       setLinkSecret("");
+      await reloadTreeAccess(tree);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     } finally {
       setTreeBusy(false);
     }
-  }, [linkSecret]);
+  }, [linkSecret, reloadTreeAccess]);
 
   const revokeAccessEntry = useCallback(async (tree: TreeDescriptor, id: string) => {
     try {
@@ -685,22 +766,26 @@ export function App() {
         subject: { kind: "entry", id },
         access: "none",
       });
-      setTreeControl((current) => current?.tree?.id === tree.id
-        ? {
-            ...current,
-            tree: {
-              ...current.tree,
-              accessEntries: current.tree.accessEntries?.filter((entry) => entry.id !== id),
-            },
-          }
-        : current);
-      await refreshSystem();
+      await reloadTreeAccess(tree);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     } finally {
       setTreeBusy(false);
     }
-  }, [refreshSystem]);
+  }, [reloadTreeAccess]);
+
+  const addAccessEntry = useCallback(async (tree: TreeDescriptor) => {
+    const added = accessDraftKind === "everyone"
+      ? await setPublicAccess(tree, accessDraftPermission)
+      : accessDraftKind === "profile"
+        ? await setProfileAccess(tree, profileLocator, accessDraftPermission)
+        : accessDraftKind === "link"
+          ? await createLink(tree, accessDraftPermission)
+          : false;
+    if (!added) return;
+    setAccessDraftKind("");
+    setAccessDraftPermission("read");
+  }, [accessDraftKind, accessDraftPermission, createLink, profileLocator, setProfileAccess, setPublicAccess]);
 
   const claimProfile = useCallback(async () => {
     const target = reservedProfileTarget(claimURL);
@@ -1017,33 +1102,51 @@ export function App() {
           <span className={`sync-dot ${treeControl.tree.sync ?? "idle"}`} />
           <span>{treeControl.tree.sync === "pushing" || treeControl.tree.sync === "pulling" ? "Syncing…" : treeControl.tree.sync === "error" || treeControl.tree.sync === "conflict" ? "Needs attention" : treeControl.tree.sync === "offline" ? "Offline" : "Up to date"}</span>
         </div>
-        <fieldset className="access-control" disabled={treeBusy}>
-          <legend>Everyone</legend>
-          {([
-            ["none", "Private", "No public access"],
-            ["read", "Public read", "Anyone can read"],
-            ["write", "Public read/write", "Anyone can change current content"],
-          ] as const).map(([mode, label, detail]) => <label key={mode}>
-            <input type="radio" name="public-access" checked={(treeControl.tree!.publicAccess ?? "none") === mode} onChange={() => void setPublicAccess(treeControl.tree!, mode)} />
-            <span><strong>{label}</strong><small>{detail}</small></span>
-          </label>)}
-        </fieldset>
-        <section className="sharing-section">
-          <div><h3>People and groups</h3></div>
-          <p>Grant read access to an existing person or group profile.</p>
-          <div className="access-entry-list">
-            {treeControl.tree.accessEntries?.filter((entry) => entry.kind !== "everyone").map((entry) => <div key={entry.id}>
-              <span><strong>{entry.kind === "link" ? "Secret link" : entry.locator ?? "Unavailable profile"}</strong><small>{entry.access}</small></span>
-              <button disabled={treeBusy} onClick={() => void revokeAccessEntry(treeControl.tree!, entry.id)}>Revoke</button>
-            </div>)}
+        <section className="access-builder" aria-labelledby="access-builder-title">
+          <div className="access-builder-heading">
+            <div><h3 id="access-builder-title">Access</h3><p>Rules are additive. People may receive access directly or through a group.</p></div>
           </div>
-          <div className="sharing-preview">
-            <input placeholder="arbor://garden.example/~alice" value={profileLocator} onChange={(event) => setProfileLocator(event.target.value)} />
-            <button disabled={treeBusy || !profileLocator} onClick={() => void setProfileAccess(treeControl.tree!, "read")}>Add</button>
-            <button disabled={treeBusy || !profileLocator} onClick={() => void setProfileAccess(treeControl.tree!, "none")}>Revoke</button>
+          <div className="access-rule locked">
+            <span className="access-subject"><strong>Profile writers</strong><small>Always retained</small></span>
+            <span className="access-permission">Can edit</span>
+            <span className="access-lock" aria-label="Required access">●</span>
           </div>
-          <button className="sharing-link-button" disabled={treeBusy || !treeControl.tree.httpURL} onClick={() => void createReadLink(treeControl.tree!)}>Create and copy read link</button>
-          {linkURL && <div className="url-preview"><span>{linkURL}</span><small>This secret is shown once.</small><button className="quiet" onClick={() => void revokeReadLink(treeControl.tree!)}>Revoke this link</button></div>}
+          {(treeControl.tree.publicAccess ?? "none") !== "none" && <div className="access-rule">
+            <span className="access-subject"><strong>Everyone</strong><small>Public access</small></span>
+            <select aria-label="Everyone permission" value={treeControl.tree.publicAccess} disabled={treeBusy} onChange={(event) => void setPublicAccess(treeControl.tree!, event.target.value as AccessPermission)}>
+              <option value="read">Can view</option>
+              <option value="write">Can edit</option>
+            </select>
+            <button className="access-remove" aria-label="Remove everyone" disabled={treeBusy} onClick={() => void setPublicAccess(treeControl.tree!, "none")}>×</button>
+          </div>}
+          {treeControl.tree.accessEntries?.filter((entry) =>
+            entry.kind !== "everyone"
+            && !(entry.kind === "profile" && entry.access === "write" && entry.locator === server.profileURL)
+          ).map((entry) => <div className="access-rule" key={entry.id}>
+            <span className="access-subject"><strong>{entry.kind === "link" ? "Anyone with this private link" : profileLabel(entry.locator ?? "Unavailable profile")}</strong><small>{entry.kind === "link" ? "Secret link" : "Person or group"}</small></span>
+            {entry.kind === "profile" && entry.locator ? <select aria-label={`${profileLabel(entry.locator)} permission`} value={entry.access} disabled={treeBusy} onChange={(event) => void setProfileAccess(treeControl.tree!, entry.locator!, event.target.value as AccessPermission)}>
+              <option value="read">Can view</option>
+              <option value="write">Can edit</option>
+            </select> : <span className="access-permission">{entry.access === "write" ? "Can edit" : "Can view"}</span>}
+            <button className="access-remove" aria-label={`Remove ${entry.kind === "link" ? "private link" : profileLabel(entry.locator ?? "profile")}`} disabled={treeBusy} onClick={() => void revokeAccessEntry(treeControl.tree!, entry.id)}>×</button>
+          </div>)}
+          <div className="access-rule access-rule-draft">
+            <div className="access-subject-editor">
+              <select aria-label="New audience" value={accessDraftKind} disabled={treeBusy} onChange={(event) => setAccessDraftKind(event.target.value as ExistingAccessSubjectKind)}>
+                <option value="">Choose an audience…</option>
+                <option value="everyone" disabled={(treeControl.tree.publicAccess ?? "none") !== "none"}>Everyone</option>
+                <option value="profile">A person or group</option>
+                <option value="link" disabled={!treeControl.tree.httpURL}>Anyone with a private link</option>
+              </select>
+              {accessDraftKind === "profile" && <input aria-label="Person or group" placeholder="~alice or ~editors" value={profileLocator} onChange={(event) => setProfileLocator(event.target.value)} />}
+            </div>
+            <select aria-label="New audience permission" value={accessDraftPermission} disabled={treeBusy || !accessDraftKind} onChange={(event) => setAccessDraftPermission(event.target.value as AccessPermission)}>
+              <option value="read">Can view</option>
+              <option value="write">Can edit</option>
+            </select>
+            <button className="access-add" disabled={treeBusy || !accessDraftKind || (accessDraftKind === "profile" && !profileLocator.trim())} onClick={() => void addAccessEntry(treeControl.tree!)}>Add</button>
+          </div>
+          {linkURL && <div className="url-preview"><span>{linkURL}</span><small>This private link has been copied and is shown once.</small><button className="quiet" onClick={() => void revokeLink(treeControl.tree!)}>Revoke this link</button></div>}
         </section>
       </> : <>
         <div className="tree-control-heading">
@@ -1060,22 +1163,48 @@ export function App() {
           <span>{server.origin.replace(/\/$/, "")}{treeSlug}</span>
           <span>arbor://{server.origin.replace(/^https?:\/\//, "").split("/")[0]}{treeSlug}</span>
         </div>}
-        <fieldset className="access-control" disabled={treeBusy}>
-          <legend>Audience <small>(required)</small></legend>
-          {([
-            ["private", "Private", "Only profile writers"],
-            ["public-read", "Public read", "Anyone can read"],
-            ["public-write", "Public read/write", "Anyone can change current content"],
-            ["profile", "A person or group", "Grant one profile read access"],
-          ] as const).map(([mode, label, detail]) => <label key={mode}>
-            <input type="radio" name="new-share-audience" checked={shareAudience === mode} onChange={() => setShareAudience(mode)} />
-            <span><strong>{label}</strong><small>{detail}</small></span>
-          </label>)}
-        </fieldset>
-        {shareAudience === "profile" && <label className="control-field"><span>Profile URL</span><input placeholder="arbor://garden.example/~alice" value={profileLocator} onChange={(event) => setProfileLocator(event.target.value)} /></label>}
+        <section className="access-builder" aria-labelledby="new-access-builder-title">
+          <div className="access-builder-heading">
+            <div><h3 id="new-access-builder-title">Access</h3><p>Add everyone, individual people, or groups. Rules are additive.</p></div>
+            <small>Required</small>
+          </div>
+          <div className="access-rule locked">
+            <span className="access-subject"><strong>Profile writers</strong><small>Always retained</small></span>
+            <span className="access-permission">Can edit</span>
+            <span className="access-lock" aria-label="Required access">●</span>
+          </div>
+          {sharePrivate ? <div className="access-rule private-rule">
+            <span className="access-subject"><strong>Private</strong><small>No additional access</small></span>
+            <span className="access-permission">Profile writers only</span>
+            <button className="access-remove" aria-label="Change private access" disabled={treeBusy} onClick={() => { setSharePrivate(false); setShareRules([emptyAccessRule()]); }}>×</button>
+          </div> : <>
+            {shareRules.map((rule, index) => <div className="access-rule access-rule-draft" key={rule.id}>
+              <div className="access-subject-editor">
+                <select aria-label={`Audience ${index + 1}`} value={rule.subject} disabled={treeBusy} onChange={(event) => {
+                  const subject = event.target.value as AccessSubjectKind;
+                  setShareRules((current) => current.map((item) => item.id === rule.id ? { ...item, subject, locator: "" } : item));
+                }}>
+                  <option value="">Choose an audience…</option>
+                  <option value="everyone" disabled={shareRules.some((item) => item.id !== rule.id && item.subject === "everyone")}>Everyone</option>
+                  <option value="profile">A person or group</option>
+                </select>
+                {rule.subject === "profile" && <input aria-label={`Person or group ${index + 1}`} placeholder="~alice or ~editors" value={rule.locator} onChange={(event) => setShareRules((current) => current.map((item) => item.id === rule.id ? { ...item, locator: event.target.value } : item))} />}
+              </div>
+              <select aria-label={`Audience ${index + 1} permission`} value={rule.access} disabled={treeBusy || !rule.subject} onChange={(event) => setShareRules((current) => current.map((item) => item.id === rule.id ? { ...item, access: event.target.value as AccessPermission } : item))}>
+                <option value="read">Can view</option>
+                <option value="write">Can edit</option>
+              </select>
+              <button className="access-remove" aria-label={`Remove audience ${index + 1}`} disabled={treeBusy} onClick={() => setShareRules((current) => current.filter((item) => item.id !== rule.id))}>×</button>
+            </div>)}
+            <div className="access-builder-actions">
+              <button disabled={treeBusy} onClick={() => setShareRules((current) => [...current, emptyAccessRule()])}>+ Add another audience</button>
+              <button disabled={treeBusy} onClick={() => { setShareRules([]); setSharePrivate(true); }}>Keep private instead</button>
+            </div>
+          </>}
+        </section>
         <div className="modal-actions">
           <button className="quiet" disabled={treeBusy} onClick={() => setTreeControl(null)}>Cancel</button>
-          <button className="primary" disabled={treeBusy || !treeSlug || !shareAudience || (shareAudience === "profile" && !profileLocator)} onClick={() => void promoteTree()}>{treeBusy ? "Sharing…" : "Share"}</button>
+          <button className="primary" disabled={treeBusy || !treeSlug || !shareAccessValid} onClick={() => void promoteTree()}>{treeBusy ? "Sharing…" : "Share"}</button>
         </div>
       </>}
     </section></div>}

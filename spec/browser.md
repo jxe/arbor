@@ -36,11 +36,13 @@ Eligible subtrees always show **Share**, but the action is disabled until the cu
 
 The Share sheet:
 
-- requires an explicit audience, including an explicit Private choice;
+- uses an additive access-rule builder with a locked **Profile writers · Can edit** row;
+- requires either one or more complete rules or an explicit Private choice;
+- lets each **Everyone** or person/group row choose **Can view** or **Can edit**, rejects duplicate subjects, and applies the complete initial rule set atomically with promotion;
 - previews the canonical child path beneath a writable person/group profile;
 - promotes an already canonical subtree at the same path;
 - mounts an arbitrary external folder as a virtual child without moving, copying, or representing it as synthetic Markdown;
-- reopens for an existing boundary to show HTTP/Arbor addresses, raw TreeID fallback, sync state, access, and revocation.
+- reopens for an existing boundary to show HTTP/Arbor addresses, raw TreeID fallback, sync state, and the same builder for adding, changing, or removing public/person/group/link entries.
 
 Access is whole-tree and supports:
 
@@ -50,6 +52,7 @@ Access is whole-tree and supports:
 - a secret-bearing read/write link whose authority record stores only a digest.
 
 Public write requires an explicit warning. Person/group access uses stable profile `TreeID`s, never mutable display names. Group membership is authored in the group profile; membership alone does not grant write to that group tree.
+Private-link secrets are generated only after promotion or from an existing boundary, copied and shown once, and never projected back from durable state.
 
 Sharing a nested subtree promotes it in place to a longer canonical boundary. Parent access never leaks into the child and child access never reveals its parent. Writes that would replace a reserved mount return a structured conflict.
 

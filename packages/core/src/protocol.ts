@@ -28,7 +28,14 @@ export type PublicationMode = "private" | "public-read" | "public-write";
 export type ShareAudience =
   | { kind: "private" }
   | { kind: "everyone"; access: "read" | "write" }
-  | { kind: "profile"; locator: string; access: "read" | "write" };
+  | { kind: "profile"; locator: string; access: "read" | "write" }
+  | {
+      kind: "rules";
+      rules: Array<
+        | { subject: { kind: "everyone" }; access: "read" | "write" }
+        | { subject: { kind: "profile"; locator: string }; access: "read" | "write" }
+      >;
+    };
 
 export const LOCAL_TREE: TreeRef = "local";
 export const SYSTEM_TREE: TreeRef = "system";
