@@ -80,10 +80,13 @@ function escapeHTML(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
-function html(value: string, status = 200): Response {
+function html(value: string, status = 200, headers: HeadersInit = {}): Response {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set("content-type", "text/html; charset=utf-8");
+  responseHeaders.set("cache-control", "no-cache");
   return new Response(value, {
     status,
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
+    headers: responseHeaders,
   });
 }
 
@@ -332,7 +335,7 @@ export async function serveWireHost(options: {
           const pendingProfile = /^\/~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(decodeURIComponent(url.pathname));
           if (pendingProfile && authority.isReservedHandle(pendingProfile[1]!)) {
             const profileURL = `${publicOrigin}/~${pendingProfile[1]!}`;
-            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Claim ~${escapeHTML(pendingProfile[1]!)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>Claim ~${escapeHTML(pendingProfile[1]!)}</h1><p>This profile is reserved by the ${escapeHTML(authority.communityHandle())} community and has not been claimed.</p><ol><li>Open Arbor locally.</li><li>Open the profile control.</li><li>Paste this reserved profile URL and choose a visible local profile folder.</li></ol><code>${escapeHTML(profileURL)}</code><p>The first successful claim wins.</p>`);
+            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingProfile[1]!)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingProfile[1]!)}</h1><p>This is an empty profile reserved by the ${escapeHTML(authority.communityHandle())} community. It has not been claimed.</p><p>Open it in Arbor to claim it:</p><code>arbor browse ${escapeHTML(profileURL)}</code><p>The first successful claim wins.</p>`, 200, { "x-arbor-profile-state": "reserved" });
           }
           const resolved = authority.resolve(decodeURIComponent(url.pathname));
           if (!resolved) return new Response("Not found", { status: 404 });

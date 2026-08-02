@@ -47,6 +47,13 @@ type ResolvedScope =
   | { kind: "local"; path: string; ref: NodeRef }
   | { kind: "system"; path: string };
 
+export function resolveUserPath(input: string, home = homedir()): string {
+  const value = input.trim();
+  if (value === "~") return home;
+  if (value.startsWith("~/")) return resolve(home, value.slice(2));
+  return resolve(value);
+}
+
 /**
  * The daemon's top-level authority: one process-wide event bus, a root
  * manager owning N per-root Workspaces, and a filesystem service for the
@@ -717,7 +724,7 @@ export class ArborService implements AsyncDisposable {
     displayName?: string,
   ): Promise<MutationReceipt["effects"]> {
     const origin = new URL(originInput).origin;
-    const requested = resolve(inputPath);
+    const requested = resolveUserPath(inputPath);
     await mkdir(requested, { recursive: true });
     const path = await realpath(requested);
     const index = join(path, "_index.md");
@@ -752,7 +759,7 @@ export class ArborService implements AsyncDisposable {
     audience: import("@arbor/core").ShareAudience,
     kind: "shared-subtree" | "group-profile" = "shared-subtree",
   ): Promise<MutationReceipt["effects"]> {
-    const path = await realpath(inputPath);
+    const path = await realpath(resolveUserPath(inputPath));
     const { client, origin } = await this.configuredWire();
     const snapshot = await snapshotDirectory(path, this.trees.sharedBoundariesWithin(path));
     const remote = await client.create(canonicalPath, snapshot, {
@@ -794,7 +801,7 @@ export class ArborService implements AsyncDisposable {
     inputPath: string,
     displayName?: string,
   ): Promise<MutationReceipt["effects"]> {
-    const requested = resolve(inputPath);
+    const requested = resolveUserPath(inputPath);
     await mkdir(requested, { recursive: true });
     const path = await realpath(requested);
     const index = join(path, "_index.md");
@@ -813,7 +820,7 @@ export class ArborService implements AsyncDisposable {
     endpoint?: string,
     canonical?: string,
   ): Promise<MutationReceipt["effects"]> {
-    const requested = resolve(inputPath);
+    const requested = resolveUserPath(inputPath);
     const destination = await realpath(requested).catch(async () =>
       join(await realpath(join(requested, "..")), basename(requested))
     );

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { ArborService } from "@arbor/arbord";
+import { browseTarget, isReservedProfile } from "../../packages/cli/src/index.ts";
 import { sha256 } from "@arbor/core";
 import { CommunityConfigStore } from "@arbor/stores";
 import { serveWireHost, snapshotDirectory, WireAuthority, WireClient } from "@arbor/wire";
@@ -73,9 +74,11 @@ describe("community-mounted profiles and sharing", () => {
     );
     const pendingPage = await fetch(`${host.url}/~alice`);
     expect(pendingPage.status).toBe(200);
+    expect(pendingPage.headers.get("x-arbor-profile-state")).toBe("reserved");
     const pendingSource = await pendingPage.text();
-    expect(pendingSource).toContain("Open Arbor locally");
+    expect(pendingSource).toContain("Open it in Arbor");
     expect(pendingSource).toContain(`${host.url}/~alice`);
+    expect(await isReservedProfile(browseTarget(`${host.url}/~alice`))).toBe(true);
     await expect(new WireClient(host.url).claim("mallory", await snapshotDirectory(await profileFolder("mallory-source", "person"))))
       .rejects.toThrow("not reserved");
     const aliceSource = await profileFolder("alice-source", "person");
@@ -88,6 +91,7 @@ describe("community-mounted profiles and sharing", () => {
     const failed = attempts.find((attempt) => attempt.status === "rejected") as PromiseRejectedResult;
     expect(String(failed.reason)).toContain("already-claimed");
     const claimed = (attempts.find((attempt) => attempt.status === "fulfilled") as PromiseFulfilledResult<Awaited<ReturnType<WireClient["claim"]>>>).value;
+    expect(await isReservedProfile(browseTarget(`${host.url}/~alice`))).toBe(false);
     aliceToken = claimed.accountToken;
     expect(claimed.tree.canonicalPath).toBe("/~alice");
     expect(host.authority.boundary("/~alice")?.id).toBe(claimed.tree.id);

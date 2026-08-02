@@ -138,13 +138,13 @@ members:
   - arbor://garden.example/~alice
 ```
 
-An unresolved same-community person locator reserves its handle. Anyone may browse that URL; the intended claim flow is the local TreeHopper profile control, which accepts the complete reserved profile URL and a visible local folder. The first successful submission creates `type: person` profile content, mounts the new `TreeID`, and stores the returned device credential. Removing a pending locator releases the handle. Removing a claimed locator disables future authenticated operations without deleting its tree.
+An unresolved same-community person locator reserves its handle. Anyone may browse that URL as an empty profile. Its Claim action asks only for a visible local folder, which may be new or use `~`; the browsed location already supplies the community and handle. The first successful submission creates `type: person` profile content, mounts the new `TreeID`, and stores the returned device credential. Removing a pending locator releases the handle. Removing a claimed locator disables future authenticated operations without deleting its tree.
 
 Group profiles list existing person locators as members. Writers of the group tree administer its namespace and membership; membership alone does not grant write. Resource trees may independently grant the group read or write access.
 
 **Share** promotes a visible subtree in place. It is disabled until the current local account is connected and has a profile. Every new share requires an explicit audience, including Private. An external folder chooses an available child path beneath a writable profile and remains at its existing OS path as a virtual mounted child.
 
-The profile control owns connection, claim/initialization, public-profile editing, writable profile/group namespaces, group creation, disconnect, and account switching. Credentials never appear in content, journals, receipts, events, errors, diagnostics, or logs.
+The profile control owns public-profile editing, writable profile/group namespaces, group creation, and disconnect. Claiming belongs to the browsed empty profile; credential activation remains CLI recovery plumbing. Credentials never appear in content, journals, receipts, events, errors, diagnostics, or logs.
 
 ### Implemented control surface
 
@@ -152,7 +152,7 @@ The profile control owns connection, claim/initialization, public-profile editin
 arbor sync [--private] [-r <subject>] [-rw <subject>] [--remove <subject>] <local-path> <canonical-url>
 arbor sync <canonical-url> <local-path>
 arbor unsync <local-path> [<canonical-url>]
-arbor browse <local-path|reserved-profile-url>
+arbor browse <locator>
 arbor serve [data-directory] [--community <handle>] [--first-writer <handle>]
 ```
 

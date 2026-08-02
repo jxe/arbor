@@ -53,7 +53,7 @@ The host is not assumed to belong to one person. It represents a community at `/
 /~editors/handbook/       content, or a separately shared subtree
 ```
 
-Profiles may contain arbitrary files and directories; they are not single special pages. The profile tree's stable identity and device credentials prove control, while its ordinary `_index.md` supplies the readable profile. The community document authors member locators. An unresolved locator reserves that handle. The first person to open Arbor locally, paste that reserved profile URL, and choose a visible profile folder claims it. First-claim-wins is intentionally simple in the first version.
+Profiles may contain arbitrary files and directories; they are not single special pages. The profile tree's stable identity and device credentials prove control, while its ordinary `_index.md` supplies the readable profile. The community document authors member locators. An unresolved locator reserves that handle. Browsing it in Arbor shows an empty profile with a Claim action; the first person to choose a local profile folder and submit claims it. First-claim-wins is intentionally simple in the first version.
 
 I can stop with Atlas private and use it only for myself. I can give `everyone` read or write access, add Alice's profile locator, grant the Editors group access, or create a revocable link. Alice places the tree wherever it makes sense in *her* workspace:
 

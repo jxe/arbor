@@ -103,6 +103,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isLocalUserPath(value: unknown): value is string {
+  return typeof value === "string"
+    && (value.startsWith("/") || value === "~" || value.startsWith("~/"));
+}
+
 function validateRef(value: unknown, field: string): asserts value is NodeRef {
   if (!isRecord(value)) {
     throw new ProtocolError("invalid-reference", `${field} must be a node reference`, 400);
@@ -280,11 +285,10 @@ function validateOperation(value: unknown): void {
         typeof value.origin !== "string"
         || typeof value.handle !== "string"
         || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(value.handle)
-        || typeof value.path !== "string"
-        || !value.path.startsWith("/")
+        || !isLocalUserPath(value.path)
         || (value.displayName !== undefined && typeof value.displayName !== "string")
       ) {
-        throw new ProtocolError("invalid-reference", "claimProfile requires origin, handle, and absolute path", 400);
+        throw new ProtocolError("invalid-reference", "claimProfile requires origin, handle, and an absolute or home-relative path", 400);
       }
       try { new URL(value.origin); } catch {
         throw new ProtocolError("invalid-reference", "claimProfile origin must be a URL", 400);
@@ -294,17 +298,15 @@ function validateOperation(value: unknown): void {
       if (
         typeof value.handle !== "string"
         || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(value.handle)
-        || typeof value.path !== "string"
-        || !value.path.startsWith("/")
+        || !isLocalUserPath(value.path)
         || (value.displayName !== undefined && typeof value.displayName !== "string")
       ) {
-        throw new ProtocolError("invalid-reference", "createGroupProfile requires a handle and absolute path", 400);
+        throw new ProtocolError("invalid-reference", "createGroupProfile requires a handle and an absolute or home-relative path", 400);
       }
       return;
     case "promoteTree":
       if (
-        typeof value.path !== "string"
-        || !value.path.startsWith("/")
+        !isLocalUserPath(value.path)
         || typeof value.canonicalPath !== "string"
         || !value.canonicalPath.startsWith("/")
         || !isRecord(value.audience)
@@ -321,12 +323,11 @@ function validateOperation(value: unknown): void {
       if (
         typeof value.tree !== "string"
         || !value.tree.startsWith("tr_")
-        || typeof value.path !== "string"
-        || !value.path.startsWith("/")
+        || !isLocalUserPath(value.path)
         || (value.endpoint !== undefined && typeof value.endpoint !== "string")
         || (value.canonical !== undefined && typeof value.canonical !== "string")
       ) {
-        throw new ProtocolError("invalid-reference", "placeTree requires a TreeID and absolute path", 400);
+        throw new ProtocolError("invalid-reference", "placeTree requires a TreeID and an absolute or home-relative path", 400);
       }
       return;
     case "removeTreePlacement":

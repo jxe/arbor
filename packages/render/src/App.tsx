@@ -148,9 +148,28 @@ function reservedProfileTarget(input: string): { origin: string; handle: string 
   }
 }
 
-function launchedClaimURL(): string {
-  const value = new URLSearchParams(location.search).get("claim")?.trim() ?? "";
-  return reservedProfileTarget(value) ? value : "";
+interface RemoteLocation {
+  url: string;
+  claimable: boolean;
+  handle?: string;
+}
+
+function launchedRemoteLocation(): RemoteLocation | null {
+  const parameters = new URLSearchParams(location.search);
+  const value = parameters.get("browse")?.trim() ?? "";
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    const profile = reservedProfileTarget(value);
+    return {
+      url: url.toString(),
+      claimable: parameters.get("claimable") === "true" && Boolean(profile),
+      ...(profile ? { handle: profile.handle } : {}),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function App() {
@@ -178,10 +197,9 @@ export function App() {
   }>({ configured: false });
   const [treeControl, setTreeControl] = useState<{ path: string; tree?: TreeDescriptor } | null>(null);
   const [treeSlug, setTreeSlug] = useState("");
-  const [serverOrigin, setServerOrigin] = useState("");
-  const [accountToken, setAccountToken] = useState("");
-  const [profileOpen, setProfileOpen] = useState(() => Boolean(launchedClaimURL()));
-  const [claimURL, setClaimURL] = useState(launchedClaimURL);
+  const [remoteLocation, setRemoteLocation] = useState<RemoteLocation | null>(launchedRemoteLocation);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [claimURL, setClaimURL] = useState("");
   const [claimPath, setClaimPath] = useState("");
   const [groupHandle, setGroupHandle] = useState("");
   const [groupPath, setGroupPath] = useState("");
@@ -217,7 +235,6 @@ export function App() {
         ...(typeof community.profileURL === "string" ? { profileURL: community.profileURL } : {}),
         ...(typeof community.communityURL === "string" ? { communityURL: community.communityURL } : {}),
       });
-      if (typeof origin === "string") setServerOrigin(origin);
       const records = await Promise.all((treeDirectory.children ?? []).map((child) =>
         api.node({ tree: "system", path: child.path })
       ));
@@ -678,21 +695,6 @@ export function App() {
     }
   }, [refreshSystem]);
 
-  const connectCommunity = useCallback(async () => {
-    if (!serverOrigin.trim() || !accountToken) return;
-    try {
-      setTreeBusy(true);
-      setError(null);
-      await api.system({ op: "connectCommunity", origin: serverOrigin.trim(), accountToken });
-      setAccountToken("");
-      await refreshSystem();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setTreeBusy(false);
-    }
-  }, [accountToken, refreshSystem, serverOrigin]);
-
   const claimProfile = useCallback(async () => {
     const target = reservedProfileTarget(claimURL);
     if (!target || !claimPath.trim()) return;
@@ -706,6 +708,8 @@ export function App() {
         path: claimPath.trim(),
       });
       await refreshSystem();
+      setProfileOpen(false);
+      setRemoteLocation((current) => current ? { ...current, claimable: false } : current);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -781,7 +785,7 @@ export function App() {
     ? home ? `${home}${query.slice(1)}` : null
     : query.startsWith("system:") ? `/${query}` : query;
 
-  return <div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}`}>
+  return <div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}${remoteLocation ? " remote-browse" : ""}`}>
     <button className="sidebar-backdrop" aria-label="Close workspace sidebar" onClick={() => setMobileSidebarOpen(false)} />
     <aside className="workspace-sidebar" id="workspace-sidebar">
       <div className="sidebar-heading">
@@ -825,25 +829,25 @@ export function App() {
             title="Toggle sidebar (⌘\\)"
             onClick={toggleSidebar}
           ><span aria-hidden="true">☰</span></button>
-          <div className="breadcrumbs">
+          {remoteLocation ? <a className="remote-location" href={remoteLocation.url} target="_blank" rel="noreferrer">{remoteLocation.url}</a> : <div className="breadcrumbs">
             {visibleCrumbs.map((crumb, index) => <span key={crumb.url} className="crumb-group">
               {collapseCrumbs && index === 1 && <button className="crumb-ellipsis" title="Show full path" onClick={() => setCrumbsExpanded(true)}>…</button>}
               <button onClick={() => navigate(crumb.url)}>{crumb.label}</button>
             </span>)}
-          </div>
+          </div>}
         </div>
         <div className="header-trailing">
           {currentTree?.osPath && <button
             className="track-button"
             disabled={!server.configured || !server.profileTree}
-            title={!server.profileTree ? "Connect and initialize your profile before sharing" : "Manage sharing"}
+            title={!server.profileTree ? "Claim or initialize your profile before sharing" : "Manage sharing"}
             onClick={() => openTreeControl(currentTree.osPath!, currentTree)}
           >Share</button>}
           {canPromoteHere && node && <button
             className="track-button"
             disabled={!server.configured || !server.profileTree}
             title={!server.configured || !server.profileTree
-              ? "Connect and initialize your profile before sharing"
+              ? "Claim or initialize your profile before sharing"
               : "Share this subtree at a stable community address"}
             onClick={() => openTreeControl(
               nodeUrl(node),
@@ -859,14 +863,24 @@ export function App() {
           <button
             className="profile-button"
             aria-label="Community and profile"
-            title={server.handle ? `Profile: ~${server.handle}` : "Connect or claim a profile"}
+            title={server.handle ? `Profile: ~${server.handle}` : "No active profile"}
             onClick={() => setProfileOpen(true)}
           >{server.handle ? `~${server.handle}` : "◉"}</button>
         </div>
       </header>
-      {!path ? <div className="home-surface">
+      {remoteLocation ? remoteLocation.claimable ? <div className="remote-profile-surface">
+        <span className="eyebrow">Reserved profile</span>
+        <h1>~{remoteLocation.handle}</h1>
+        <p>This is an empty profile reserved by its community. It has not been claimed yet.</p>
+        <button className="primary" onClick={() => {
+          setError(null);
+          setClaimURL(remoteLocation.url);
+          setProfileOpen(true);
+        }}>Claim profile</button>
+        <small>First successful claim wins.</small>
+      </div> : <iframe className="remote-browser-frame" title={remoteLocation.url} src={remoteLocation.url} /> : !path ? <div className="home-surface">
         <h1>Arbor</h1>
-        <p className="home-hint">Browse ordinary files anywhere. Connect your profile, then share a subtree at a stable community address.</p>
+        <p className="home-hint">Browse ordinary files anywhere. Claim your profile, then share a subtree at a stable community address.</p>
         <div className="home-roots">
           {trees.map((tree) => <div className="home-root" key={tree.id}>
             <button className="home-root-open" disabled={!tree.osPath || tree.missing} onClick={() => tree.osPath && navigate(tree.osPath)}>
@@ -959,7 +973,7 @@ export function App() {
       <div className="tree-control-heading">
         <div>
           <span className="eyebrow">Community account</span>
-          <h2>{server.handle ? `~${server.handle}` : "Connect or claim"}</h2>
+          <h2>{server.handle ? `~${server.handle}` : reservedProfileTarget(claimURL) ? `Claim ~${reservedProfileTarget(claimURL)!.handle}` : "No active profile"}</h2>
         </div>
         <button className="modal-close" aria-label="Close" onClick={() => setProfileOpen(false)}>×</button>
       </div>
@@ -987,21 +1001,14 @@ export function App() {
           <button className="quiet danger" onClick={() => void disconnectCommunity()}>Disconnect</button>
           {server.profileURL && <a className="primary link-button" href={server.profileURL.replace(/^arbor:/, location.protocol)} target="_blank" rel="noreferrer">View public profile</a>}
         </div>
-      </> : <>
-        <p className="tree-control-intro">Paste the complete profile address reserved for you by a community. Claiming creates your public profile from a visible local folder and activates this device.</p>
-        <label className="control-field"><span>Reserved profile URL</span><input autoFocus type="url" placeholder="https://garden.example/~alice" value={claimURL} onChange={(event) => setClaimURL(event.target.value)} /></label>
-        <label className="control-field"><span>Visible local profile folder</span><input placeholder="/Users/alice/Arbor/alice" value={claimPath} onChange={(event) => setClaimPath(event.target.value)} /></label>
-        {claimURL && !reservedProfileTarget(claimURL) && <small className="control-error">Use a complete person profile URL such as https://garden.example/~alice.</small>}
+      </> : claimURL ? <>
+        <p className="tree-control-intro">Choose where this public profile should live on this device. Arbor will create the folder if it does not exist.</p>
+        <label className="control-field"><span>Local profile folder</span><input autoFocus placeholder="~/.arbor/profile" value={claimPath} onChange={(event) => setClaimPath(event.target.value)} /></label>
+        {error && <p className="control-error" role="alert">{error}</p>}
         <div className="modal-actions">
-          <button className="primary" disabled={treeBusy || !reservedProfileTarget(claimURL) || !claimPath} onClick={() => void claimProfile()}>{treeBusy ? "Claiming…" : "Claim profile"}</button>
+          <button className="primary" disabled={treeBusy || !claimPath.trim()} onClick={() => void claimProfile()}>{treeBusy ? "Claiming…" : "Claim profile"}</button>
         </div>
-        <div className="modal-separator"><span>Activate an existing device credential</span></div>
-        <label className="control-field"><span>Community</span><input type="url" placeholder="https://garden.example" value={serverOrigin} onChange={(event) => setServerOrigin(event.target.value)} /></label>
-        <label className="control-field"><span>Account/device credential</span><input type="password" autoComplete="off" value={accountToken} onChange={(event) => setAccountToken(event.target.value)} /><small>Stored in the operating-system credential store, outside Arbor content and journals.</small></label>
-        <div className="modal-actions compact-actions">
-          <button className="quiet" disabled={treeBusy || !serverOrigin || !accountToken} onClick={() => void connectCommunity()}>{treeBusy ? "Activating…" : "Activate"}</button>
-        </div>
-      </>}
+      </> : <p className="tree-control-intro">No profile is active on this device. Browse a reserved profile address to claim it.</p>}
     </section></div>}
     {treeControl && <div className="modal-backdrop" onMouseDown={() => !treeBusy && setTreeControl(null)}><section className="tree-control-modal" onMouseDown={(event) => event.stopPropagation()}>
       {treeControl.tree && !treeControl.tree.legacy ? <>

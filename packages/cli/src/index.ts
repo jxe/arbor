@@ -10,7 +10,7 @@ import { serveWireHost, WireClient, type CommunityBootstrapAccount } from "@arbo
 
 function usage(): never {
   console.error(`Usage:
-  arbor browse <local-path|reserved-profile-url> [--port <number>] [--no-open]
+  arbor browse <locator> [--port <number>] [--no-open]
   arbor connect <community-url>
   arbor sync [--private] [-r <subject>] [-rw <subject>] [--remove <subject>] <local-path> <canonical-url>
   arbor sync <canonical-url> <local-path>
@@ -60,16 +60,34 @@ function canonicalTarget(input: string): CanonicalTarget {
 
 export interface BrowseTarget {
   path?: string;
-  claimURL?: string;
+  remoteURL?: string;
+  profile?: { origin: string; handle: string; path: string };
 }
 
 export function browseTarget(input: string, cwd = process.cwd()): BrowseTarget {
   if (!/^(?:https?|arbor):\/\//.test(input)) return { path: resolve(cwd, input) };
   const target = canonicalTarget(input);
-  if (!/^\/~[a-z0-9](?:[a-z0-9-]{0,62})$/.test(target.canonicalPath)) {
-    throw new Error("Remote browsing currently accepts a reserved profile URL; use arbor sync <canonical-url> <local-path> for shared content");
+  const source = new URL(input);
+  const remoteURL = source.protocol === "arbor:"
+    ? `${target.endpoint}${source.pathname}${source.search}${source.hash}`
+    : source.toString();
+  const profile = /^\/~([a-z0-9](?:[a-z0-9-]{0,62}))\/?$/.exec(target.canonicalPath);
+  return {
+    remoteURL,
+    ...(profile ? { profile: { origin: target.endpoint, handle: profile[1]!, path: target.canonicalPath } } : {}),
+  };
+}
+
+export async function isReservedProfile(target: BrowseTarget): Promise<boolean> {
+  if (!target.profile || !target.remoteURL) return false;
+  try {
+    const response = await fetch(target.remoteURL, { headers: { accept: "text/html" } });
+    if (!response.ok) return false;
+    if (response.headers.get("x-arbor-profile-state") === "reserved") return true;
+    return (await response.text()).includes("has not been claimed");
+  } catch {
+    return false;
   }
-  return { claimURL: target.supplied };
 }
 
 type CliAudienceOperation =
@@ -385,12 +403,12 @@ async function main(): Promise<void> {
     const target = browseTarget(input);
     const portIndex = args.indexOf("--port");
     const port = portIndex >= 0 ? Number(args[portIndex + 1]) : 4317;
-    const claimSession = target.claimURL ? await mkdtemp(join(tmpdir(), "arbor-claim-")) : undefined;
+    const remoteSession = target.remoteURL ? await mkdtemp(join(tmpdir(), "arbor-browse-")) : undefined;
     let running: Awaited<ReturnType<typeof serveArbor>>;
     try {
-      running = await serveArbor(target.path ?? claimSession!, { port });
+      running = await serveArbor(target.path ?? remoteSession!, { port });
     } catch (error) {
-      if (claimSession) await rm(claimSession, { recursive: true, force: true });
+      if (remoteSession) await rm(remoteSession, { recursive: true, force: true });
       throw error;
     }
     const { service, workspace, server, start, url } = running;
@@ -400,15 +418,18 @@ async function main(): Promise<void> {
       : descriptor.legacy
         ? `"${descriptor.name}" needs a URL`
         : "ordinary local files";
-    console.log(`Arbor is browsing ${start} (${scope})`);
+    console.log(target.remoteURL ? `Arbor is browsing ${target.remoteURL}` : `Arbor is browsing ${start} (${scope})`);
     console.log(url);
     const browserURL = new URL(`${url}/render${start}`);
-    if (target.claimURL) browserURL.searchParams.set("claim", target.claimURL);
+    if (target.remoteURL) {
+      browserURL.searchParams.set("browse", target.remoteURL);
+      if (await isReservedProfile(target)) browserURL.searchParams.set("claimable", "true");
+    }
     if (!args.includes("--no-open")) await openBrowser(browserURL.toString());
     const shutdown = async () => {
       server.stop(true);
       await service[Symbol.asyncDispose]();
-      if (claimSession) await rm(claimSession, { recursive: true, force: true });
+      if (remoteSession) await rm(remoteSession, { recursive: true, force: true });
       process.exit(0);
     };
     process.on("SIGINT", shutdown);

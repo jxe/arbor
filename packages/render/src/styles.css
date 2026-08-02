@@ -75,6 +75,8 @@ button:focus-visible, summary:focus-visible, a:focus-visible, input:focus-visibl
   transition: grid-template-columns 180ms ease;
 }
 .app.sidebar-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
+.app.remote-browse { grid-template-columns: minmax(0, 1fr); }
+.remote-browse .workspace-sidebar, .remote-browse .sidebar-backdrop, .remote-browse .sidebar-toggle { display: none; }
 .workspace-sidebar {
   position: sticky;
   z-index: 40;
@@ -206,6 +208,16 @@ nav small { margin-left: auto; color: var(--arbor-warning); }
 .breadcrumbs .crumb-ellipsis { max-width: 30px; }
 .breadcrumbs .crumb-ellipsis::after { content: "/"; margin-left: 8px; color: var(--arbor-border); }
 .breadcrumbs button:hover { background: var(--arbor-hover); color: var(--arbor-foreground); }
+.remote-location {
+  max-width: min(720px, calc(100vw - 180px));
+  overflow: hidden;
+  color: var(--arbor-muted);
+  font-size: 13px;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remote-location:hover { color: var(--arbor-foreground); }
 .kind {
   color: var(--arbor-muted);
   font-size: 10px;
@@ -277,6 +289,25 @@ nav small { margin-left: auto; color: var(--arbor-warning); }
 .quiet { border: 0; background: transparent; color: var(--arbor-muted); cursor: pointer; text-align: left; }
 .properties-grid > .quiet { grid-column: 2; padding: 5px 7px; border-radius: 4px; }
 .quiet:hover { color: var(--arbor-foreground); background: var(--arbor-hover); }
+
+.remote-profile-surface {
+  display: grid;
+  justify-items: start;
+  width: min(620px, calc(100% - 48px));
+  margin: 96px auto;
+}
+.remote-profile-surface h1 { margin: 8px 0 10px; font-size: 34px; }
+.remote-profile-surface p { max-width: 520px; margin: 0 0 24px; color: var(--arbor-muted); }
+.remote-profile-surface .primary {
+  padding: 9px 14px;
+  border: 1px solid var(--arbor-link);
+  border-radius: 7px;
+  background: var(--arbor-link);
+  color: white;
+  cursor: pointer;
+}
+.remote-profile-surface small { margin-top: 12px; color: var(--arbor-muted); }
+.remote-browser-frame { width: 100%; height: calc(100vh - 45px); border: 0; background: white; }
 
 .page-actions-menu { position: absolute; z-index: 12; top: 0; right: 0; }
 .page-actions-menu summary {

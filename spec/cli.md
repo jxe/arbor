@@ -5,7 +5,7 @@ Every content operand is an Arbor [locator](locators.md). The CLI resolves throu
 
 ## Porcelain
 
-- **`arbor browse <locator>`** — open TreeHopper at a live or historical location. The current claim flow accepts a reserved person-profile URL and opens the local profile control with that address filled in.
+- **`arbor browse <locator>`** — open TreeHopper at a local, remote, live, or historical location. A reserved person-profile URL renders as an empty profile whose Claim action asks only for its local folder.
 - **`arbor sync [audience-options] <local-path> <canonical-url>`** — idempotently promote/reconcile a local directory and its canonical boundary. A new boundary without audience options is private and produces a warning; an existing boundary without them retains its ACL unchanged.
 - **`arbor sync <canonical-url> <local-path>`** — idempotently place and follow a remote tree; a revision suffix produces a pinned read-only placement.
 - **`arbor unsync <local-path>`** — remove the placement at that local path without deleting files, remote identity, or history.
