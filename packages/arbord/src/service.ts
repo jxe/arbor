@@ -106,7 +106,11 @@ export class ArborService implements AsyncDisposable {
   }
 
   get session(): Workspace {
-    return this.trees.session;
+    try {
+      return this.trees.session;
+    } catch {
+      throw new ProtocolError("not-found", "No local browsing session is active", 409);
+    }
   }
 
   /** Resolve a reference's scope, canonicalizing placed refs into owning trees. */
@@ -119,7 +123,7 @@ export class ArborService implements AsyncDisposable {
         const workspace = await this.pageIDWorkspace(ref.pageID);
         return { kind: "root", workspace, ref };
       }
-      return { kind: "root", workspace: this.trees.session, ref };
+      return { kind: "root", workspace: this.session, ref };
     }
     const workspace = await this.trees.workspaceByTree(tree);
     if (workspace) {
@@ -247,7 +251,7 @@ export class ArborService implements AsyncDisposable {
   }
 
   async searchPage(tree: TreeRef | undefined, query: string, cursor?: string | null): Promise<SearchPage> {
-    if (tree === undefined) return this.trees.session.searchPage(query, cursor);
+    if (tree === undefined) return this.session.searchPage(query, cursor);
     const workspace = await this.trees.workspaceByTree(tree);
     if (workspace) return workspace.searchPage(query, cursor);
     if (tree === LOCAL_TREE || tree === SYSTEM_TREE) {
@@ -272,7 +276,7 @@ export class ArborService implements AsyncDisposable {
     if (scopeKey === SYSTEM_TREE) {
       throw new ProtocolError("unsupported-operation", "The system scope is read-only", 422);
     }
-    const workspace = (scopeKey === undefined ? undefined : await this.trees.workspaceByTree(scopeKey)) ?? this.trees.session;
+    const workspace = (scopeKey === undefined ? undefined : await this.trees.workspaceByTree(scopeKey)) ?? this.session;
     return this.inWorkspace(workspace, async () => {
       const receipt = await workspace.executeMutation(translated);
       await this.pushWorkspace(workspace).catch((error) => {
@@ -399,7 +403,7 @@ export class ArborService implements AsyncDisposable {
         ),
       });
     }
-    return owners[0]?.workspace ?? this.trees.session;
+    return owners[0]?.workspace ?? this.session;
   }
 
   /** Safe `system:` projections; changes use concrete system mutations. */

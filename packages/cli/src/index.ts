@@ -1,8 +1,7 @@
 #!/usr/bin/env bun
-import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { ArborService, serveArbor } from "@arbor/arbord";
+import { ArborService, serveArbor, serveArborControl } from "@arbor/arbord";
 import { ArbordClient } from "@arbor/client";
 import type { ShareAudience } from "@arbor/core";
 import { ConnectionStore } from "@arbor/stores";
@@ -431,22 +430,23 @@ async function main(): Promise<void> {
     const target = browseTarget(input);
     const portIndex = args.indexOf("--port");
     const port = portIndex >= 0 ? Number(args[portIndex + 1]) : 4317;
-    const remoteSession = target.remoteURL ? await mkdtemp(join(tmpdir(), "arbor-browse-")) : undefined;
-    let running: Awaited<ReturnType<typeof serveArbor>>;
-    try {
-      running = await serveArbor(target.path ?? remoteSession!, { port });
-    } catch (error) {
-      if (remoteSession) await rm(remoteSession, { recursive: true, force: true });
-      throw error;
+    const running = target.remoteURL
+      ? await serveArborControl({ port })
+      : await serveArbor(target.path!, { port });
+    const { service, server, url } = running;
+    let start = "";
+    if (running.mode === "workspace") {
+      start = running.start;
+      const descriptor = running.workspace.descriptor();
+      const scope = descriptor.placement === "shared"
+        ? `shared tree "${descriptor.name}"`
+        : descriptor.legacy
+          ? `"${descriptor.name}" needs a URL`
+          : "ordinary local files";
+      console.log(`Arbor is browsing ${start} (${scope})`);
+    } else {
+      console.log(`Arbor is browsing ${target.remoteURL}`);
     }
-    const { service, workspace, server, start, url } = running;
-    const descriptor = workspace.descriptor();
-    const scope = descriptor.placement === "shared"
-      ? `shared tree "${descriptor.name}"`
-      : descriptor.legacy
-        ? `"${descriptor.name}" needs a URL`
-        : "ordinary local files";
-    console.log(target.remoteURL ? `Arbor is browsing ${target.remoteURL}` : `Arbor is browsing ${start} (${scope})`);
     console.log(url);
     const claimable = target.remoteURL ? await isReservedProfile(target) : false;
     const placedPath = target.remoteURL && !claimable ? await placedRemotePath(target, service) : null;
@@ -459,7 +459,6 @@ async function main(): Promise<void> {
     const shutdown = async () => {
       server.stop(true);
       await service[Symbol.asyncDispose]();
-      if (remoteSession) await rm(remoteSession, { recursive: true, force: true });
       process.exit(0);
     };
     process.on("SIGINT", shutdown);

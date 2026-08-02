@@ -207,11 +207,10 @@ describe("community-mounted profiles and sharing", () => {
     process.env.ARBOR_DATA_HOME = state;
     const profilePath = join(sandbox, "local-owner-profile");
     const externalPath = join(sandbox, "external-atlas");
-    const launchPath = join(sandbox, "launch");
-    await Promise.all([profilePath, externalPath, launchPath].map((path) => mkdir(path, { recursive: true })));
+    await Promise.all([profilePath, externalPath].map((path) => mkdir(path, { recursive: true })));
     await writeFile(join(externalPath, "note.md"), "# External atlas\n");
     const original = await realpath(externalPath);
-    const service = await ArborService.open(launchPath);
+    const service = await ArborService.openControl();
     try {
       await service.executeMutation({
         mutationID: "connect-owner",

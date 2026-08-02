@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveWorkspace } from "@arbor/arbord";
+import { serveArborControl, serveWorkspace } from "@arbor/arbord";
 import { ArbordClient, type MutationRequest, type WorkspaceEvent } from "@arbor/client";
 import { canonicalJSONString, sha256 } from "@arbor/core";
 import type { Workspace } from "@arbor/arbord";
@@ -42,6 +42,20 @@ afterAll(async () => {
 });
 
 describe("arbord REST v1", () => {
+  test("serves remote/account surfaces without a local browsing session", async () => {
+    const running = await serveArborControl({ port: 0 });
+    try {
+      const controlClient = new ArbordClient({ baseURL: running.url });
+      expect((await controlClient.node({ tree: "system", path: "/device" })).tree).toBe("system");
+      const response = await fetch(`${running.url}/v1/node?path=%2F`);
+      expect(response.status).toBe(409);
+      expect((await response.json() as any).error.code).toBe("not-found");
+    } finally {
+      running.server.stop(true);
+      await running.service[Symbol.asyncDispose]();
+    }
+  });
+
   test("reads and idempotently writes a Markdown node", async () => {
     const node = await client.node({ path: "/page" });
     const blocks = structuredClone(node.document!.blocks);

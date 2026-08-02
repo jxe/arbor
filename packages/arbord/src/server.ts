@@ -11,7 +11,7 @@ import { PathEscapeError } from "@arbor/core";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
 import { ResyncRequiredError } from "./events.ts";
 import { ArborService, fsErrorCode } from "./service.ts";
-import { ProtocolError, RevisionConflictError } from "./workspace.ts";
+import { ProtocolError, RevisionConflictError, type Workspace } from "./workspace.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -431,16 +431,20 @@ async function decodeImport(request: Request): Promise<{
   return { mutationID: metadata.mutationID, destination: metadata.destination as NodeRef, entries };
 }
 
-export async function serveArbor(
-  startPath: string,
+interface ArborServerOptions {
+  port?: number;
+  hostname?: string;
+  faultInjector?: (stage: string) => void | Promise<void>;
+}
+
+function startArborServer(
+  service: ArborService,
+  workspace: Workspace | undefined,
   options: {
     port?: number;
     hostname?: string;
-    faultInjector?: (stage: string) => void | Promise<void>;
   } = {},
 ) {
-  const service = await ArborService.open(startPath, { faultInjector: options.faultInjector });
-  const workspace = service.session;
   const renderRoot = join(import.meta.dir, "../../render/dist");
   const server = Bun.serve({
     port: options.port ?? 4317,
@@ -573,12 +577,12 @@ export async function serveArbor(
           return errorResponse("resync-required", error.message, 409, { retryable: true });
         }
         if (error instanceof RevisionConflictError) {
-          const current = await workspace.snapshot({ path: error.current.path });
+          const current = workspace ? await workspace.snapshot({ path: error.current.path }) : undefined;
           return errorResponse("stale-content-revision", error.message, 409, { path: error.current.path, current });
         }
         if (error instanceof FsConflictError) {
           const mapped = fsErrorCode(error);
-          const current = error.details.current
+          const current = workspace && error.details.current
             ? await workspace.snapshot({ path: error.details.current.node.path }).catch(() => undefined)
             : undefined;
           return errorResponse(mapped.code, error.message, mapped.status, {
@@ -594,8 +598,34 @@ export async function serveArbor(
       }
     },
   });
-  const start = await realpath(startPath).catch(() => workspace.root);
-  return { service, workspace, server, start, url: `http://${server.hostname}:${server.port}` };
+  return { server, url: `http://${server.hostname}:${server.port}` };
+}
+
+export async function serveArbor(
+  startPath: string,
+  options: ArborServerOptions = {},
+) {
+  const service = await ArborService.open(startPath, { faultInjector: options.faultInjector });
+  const workspace = service.session;
+  try {
+    const running = startArborServer(service, workspace, options);
+    const start = await realpath(startPath).catch(() => workspace.root);
+    return { mode: "workspace" as const, service, workspace, ...running, start };
+  } catch (error) {
+    await service[Symbol.asyncDispose]();
+    throw error;
+  }
+}
+
+/** Serve TreeHopper's remote/account surfaces without inventing a local workspace. */
+export async function serveArborControl(options: Omit<ArborServerOptions, "faultInjector"> = {}) {
+  const service = await ArborService.openControl();
+  try {
+    return { mode: "control" as const, service, ...startArborServer(service, undefined, options) };
+  } catch (error) {
+    await service[Symbol.asyncDispose]();
+    throw error;
+  }
 }
 
 /** Deprecated alias: the daemon serves the whole filesystem; the path is a starting location. */
