@@ -1,1 +1,15 @@
-{"name":"@arbor/stores","version":"0.1.0","type":"module","exports":"./src/index.ts"}
+{
+  "name": "@arbor/stores",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@arbor/core": "workspace:*",
+    "@arbor/editor": "workspace:*",
+    "@arbor/fs": "workspace:*",
+    "csv-parse": "6.1.0",
+    "quickjs-emscripten": "0.32.0",
+    "yaml": "2.8.2",
+    "zod": "4.3.6"
+  }
+}

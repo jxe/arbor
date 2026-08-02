@@ -1,1 +1,14 @@
-{"name":"@arbor/arbord","version":"0.1.0","type":"module","exports":"./src/index.ts"}
+{
+  "name": "@arbor/arbord",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@arbor/core": "workspace:*",
+    "@arbor/editor": "workspace:*",
+    "@arbor/fs": "workspace:*",
+    "@arbor/stores": "workspace:*",
+    "@arbor/wire": "workspace:*",
+    "zod": "4.3.6"
+  }
+}

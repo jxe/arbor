@@ -1,1 +1,10 @@
-{"name":"@arbor/editor","version":"0.1.0","type":"module","exports":"./src/index.ts"}
+{
+  "name": "@arbor/editor",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@arbor/core": "workspace:*",
+    "yaml": "2.8.2"
+  }
+}

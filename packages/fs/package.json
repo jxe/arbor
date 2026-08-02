@@ -1,1 +1,11 @@
-{"name":"@arbor/fs","version":"0.1.0","type":"module","exports":"./src/index.ts"}
+{
+  "name": "@arbor/fs",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@arbor/core": "workspace:*",
+    "@arbor/editor": "workspace:*",
+    "@parcel/watcher": "2.5.1"
+  }
+}

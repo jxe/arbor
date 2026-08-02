@@ -1,1 +1,15 @@
-{"name":"@arbor/cli","version":"0.1.0","type":"module","bin":{"arbor":"./src/index.ts"}}
+{
+  "name": "@arbor/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "arbor": "./src/index.ts"
+  },
+  "dependencies": {
+    "@arbor/arbord": "workspace:*",
+    "@arbor/client": "workspace:*",
+    "@arbor/core": "workspace:*",
+    "@arbor/stores": "workspace:*",
+    "@arbor/wire": "workspace:*"
+  }
+}
