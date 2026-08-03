@@ -2,6 +2,8 @@
 
 The quickest realistic trial is one Railway service with one persistent volume and one public domain. The hosted process is only the community authority and wire gateway. Profile claiming and editing happen in TreeHopper running locally on your own machine.
 
+For multi-machine synchronization, outage, and conflict testing rather than a single-user trial, use the deliberately small [hcloud sync lab](hcloud-sync-lab.md): one disposable community VM, three client VMs, Tailscale, and no infrastructure framework.
+
 ## Railway
 
 The repository already contains `Dockerfile.host` and `railway.toml`. Railway builds that image, checks `/.arbor/health`, supplies `PORT`, and restarts a failed process. Arbor refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral authority state.
