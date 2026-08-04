@@ -10,33 +10,36 @@ Many people have observed that there's room for a successor to Dropbox, or to Gi
 
 What I want to show you here is that solving these three problems doesn't just get you a better Dropbox or a better GitHub. It gets you something that could come to replace the web — replace HTML, and websites — with a kind of **universal dynamic material** living in a **shared universal file space**.
 
-This is an old dream: NFS and AFS let you mount remote filesystems into one local tree, so a lab full of machines saw a single namespace. Plan 9 made everything a file, giving every process its own namespace, and let you compose namespaces. Upspin revived the idea as a global path-shaped namespace (`ann@example.com/photos/vacation`).
+The argument runs in three steps. First, a small daemon and protocol turn scattered folders into a shared universal file space, solving sharing and containment; a browser/editor gives that space a human surface. Second, structured data and code turn it from storage into a dynamic material. Third, that material subsumes the web's stack: sync subsumes GET, capabilities on trees subsume auth, content addressing subsumes the CDN, and publishing collapses into saving.
+
+Much of this is an old dream: NFS and AFS let you mount remote filesystems into one local tree, so a lab full of machines saw a single namespace. Plan 9 made everything a file, giving every process its own namespace, and let you compose namespaces. Upspin revived the idea as a global path-shaped namespace (`ann@example.com/photos/vacation`).
 
 Now is the time to realize some of these goals.
 
-## Solving the three problems
+# Part 1: A Shared Universal File Space
 
 Imagine there was a thing with this kind of structure on your disk:
 
 ```text
 ~/workspace/
   projects/
-    atlas/
-      notes.md
-      app.sqlite3
-      atlas.tsx
+    atlas/               # a little publication I run with two friends
+      _index.md
+      essays/
+        drift.md
+        fidelity.md
+      submissions/
   reading/
     railton/             # someone else's tree, mounted here read-only
   library/               # a public tree, mounted from a domain name
 ```
 
-Everything is ordinary files. And imagine a background process — call it arbord — that watches this tree and does three jobs.
+Everything is ordinary files. And imagine a background process — call it arbord — that watches this tree and does two jobs.
 
 **It handles syncing and sharing.** Take `projects/atlas`, an ordinary folder. It starts as locally browsable files. But I can share it, and arbord gives it a stable `TreeID` and a canonical URL, uploads its first revision, and begins synchronization. The folder is still at `projects/atlas`, but it now has an identity and a canonical home:
 
 ```text
 https://garden.example.org/~joe/atlas
-arbor://garden.example.org/~joe/atlas
 arbor://tree/tr_7k3m…          # identity fallback if it moves
 ```
 
@@ -53,21 +56,20 @@ Inside Markdown, these are still ordinary link destinations. From the document `
 I have a little CLI tool to manage all this:
 
 ```sh
-# Sync a subtree beneath a writable profile, optionally setting an ACL.
+# Share Atlas.
 arbor sync ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas
-arbor sync --access public=read ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas
 
-# Resolve someone else's canonical tree and choose where it belongs locally.
+# Place Alice’s Atlas tree in my workspace.
 arbor sync https://garden.example.org/~alice/atlas ~/workspace/work/atlas
-
-# Browse or place one exact historical root without following later changes.
-arbor browse 'arbor://garden.example.org/~joe/atlas@{sha256:7db4…}'
-arbor sync 'https://garden.example.org/~alice/atlas@{sha256:7db4…}' ~/workspace/archive/atlas
 ```
 
 **It handles containment.** Firstly, the endless pool of project folders becomes one navigable tree, where everything has a place. You mount a collaborator's tree under `work/`, a public library under `reading/`, an archive off to the side. You can scope an agent to exactly the subtrees its job concerns, and it sees a small tree assembled for it.
 
-That gets us to the level of plain filesystems, but we can do better. Filesystems often get messy, whereas Notion, with the *same* hierarchical structure, doesn't so easily. Why? 
+That gets us to the level of plain filesystems, but we can do better. At this point, two of the three problems are solved: folders can be shared, and they compose into one navigable tree. The remaining problem is what this tree looks like to a person.
+
+# Part 2 - A Dynamic Material
+
+Filesystems often get messy, whereas Notion, with the *same* hierarchical structure, doesn't so easily. Why? 
 
 * First, a directory in Notion isn't a bare listing; it's a document that *contains* its children, so you can group them under headings, fold the stale ones into a toggle, annotate the important ones. The folder explains itself and is malleable. In arbor, we do the same even with your local directories: an `_index.md` allows you to mark up a directory's children.
 * Second, page properties mean a subtree of similar pages can become a database: past meeting agendas, say, each with a date and attendees; here that's frontmatter, hardened by an optional `schema.ts` to keep things orderly and allow queries.
@@ -81,9 +83,7 @@ Now, remember the second problem: humans have been reading all this in code edit
 
 This browser is a superset of a web browser, because sync is a superset of GET. The web's fundamental verb fetches a document once; if it changes, that's your problem — refresh, poll, or bolt on a websocket. Here the verb is *subscribe*. You can take any remote tree and **add to workspace** to make a durable placement on your own machine.
 
-# But wait, there's more
-
-I believe this can be a universal dynamic material, not just a better Dropbox.
+Now the same workspace works for agents and humans. But it is still mostly a collection of documents. To become a dynamic material, it needs data and behavior.
 
 ## Let's put data in it
 
@@ -105,7 +105,7 @@ export const schema = z.object({
 
 This is how Notion turns page properties into a database.
 
-**Second: a real database.** When you outgrow this, drop `_store.sqlite3` into the same folder. Arbord opens it, serves the folder's rows from it, introspects its tables to generate types, and watches changes. The folder keeps its path, its page, its schema, and every query pointed at it.
+**Second: a real database.** Submissions pile up faster than essays — a few hundred a month, each with review state, notes, and an author to reply to. When frontmatter files stop being fun, drop `_store.sqlite3` into `submissions/`. Arbord opens it, serves the folder's rows from it, introspects its tables to generate types, and watches changes. The folder keeps its path, its page, its schema, and every query pointed at it.
 
 **Third: a connection to a database you already have.** An external database enters the tree as a small reference file:
 
@@ -131,13 +131,13 @@ import type { Submission } from "./submissions/schema";
 
 export const recentEssays = query(async ({ tag }: { tag: string }) => {
   return tree("./essays")
-    .filter(essay => essay.tag === tag && essay.status === "published")
-    .sortBy(essay => essay.date, "desc")
+    .filter(e => e.tag === tag && e.status === "published")
+    .sortBy(e => e.date, "desc")
     .take(20);
 });
 
-export const submitEssay = mutation(async (submission: Submission) => {
-  return tree("arbor://paxmachina.org/inbox").append(submission);
+export const submitEssay = mutation(async (s: Submission) => {
+  return tree("./submissions").append(s);
 });
 
 export default function ReadingRoom() {
@@ -157,7 +157,7 @@ A paragraph containing a link to a `.tsx` script renders that script's component
 This offers similar benefits to a modern web app, but with different tradeoffs:
 
 - **Live components, not pages.** The web's unit of delivery is the page — a finished document. Any actual data is either baked invisibly into markup at render time, or trapped behind the site's private API. Here, data and live components are first class: a typed projection of data can sit inside any page, next to prose. Components are stateful and interactive from the start, and are live against the data they declare: every component is a standing subscription.
-- **Security through declaration, not isolation.** The browser's answer to hostile code is the origin sandbox. Browsers isolate code *by site*. That means your data has to live on their site, with their code, under their account system. Here, code arrives with no network and no filesystem. It states what it reads and writes and the runtime enforces that. "this component reads `essays` and appends to `arbor://paxmachina.org/inbox`"
+- **Security through declaration, not isolation.** The browser's answer to hostile code is the origin sandbox. Browsers isolate code *by site*. That means your data has to live on their site, with their code, under their account system. Here, code arrives with no network and no filesystem. It states what it reads and writes and the runtime enforces that. "this component reads `essays` and appends to `submissions`" -- the write set could just as well name a tree you don't own — `tree("arbor://paxmachina.org/inbox")` — and the consent statement would say so.
 - **Isomorphic by construction.** With arbor, there's no server vs client. There's a tree that exists somewhere, and a component that runs against it. The same component can run in the host that owns the tree, or in a reader's arbord if they have it synced.
 
 ## Agents and tools live in the tree
@@ -166,23 +166,38 @@ We can reuse similar infrastructure of queries and mutations to make AI agents t
 
 Represent an AI agent as a markdown file in the tree. The prompt is the body. The frontmatter sets the model, the tools it can call as well as references to mutations in `.tsx` files, and the extra context it can see as references to queries:
 
-```md
+Just add to our file earlier:
+
+```tsx
+export const pendingSubmissions = query(async () =>
+  tree("./submissions").filter(s => s.status === "pending"));
+
+export const acceptSubmission = mutation(async ({ id }: { id: string }) => {
+  const s = await tree("./submissions").get(id);
+  return tree("./essays").append({ ...s, status: "published" });
+});
+```
+
+and we can do this!
+
+```markdown
 ---
 model: claude-fable-5
 tools:
-  - ./editorial.tsx#submitEssay
-  - ./editorial.tsx#tagEssay
+  - ./atlas.tsx#acceptSubmission
+  - ./atlas.tsx#tagEssay
 context:
-  - ./editorial.tsx#recentEssays
+  - ./atlas.tsx#pendingSubmissions
 ---
 
-You are the reading-room editor. Review each submission for fit
-with the current issue's theme, tag it, and file it in the inbox.
+You are atlas's first reader. Review each submission for fit with the
+current issue's theme, tag it, and accept or decline it with a short
+note to the author.
 ```
 
 Thusly, agents are versioned via revisions; agents are shareable; agent capabilities are the same computed consent statement as with component's: this agent reads recent essays and can append to the inbox, nothing more. Agent confinement falls out of the mount model: an agent scoped to a subtree simply cannot see or touch anything else.
 
-## What you get
+# Part 3 - What this does to the web
 
 Put together, you have something that is kind of like the filesystem, kind of like Notion, and kind of like the web at once. An editable surface everywhere, agent-native plain files underneath, ordinary relative links nearby, absolute `arbor://` links across shared trees, and lazy access to trees you haven't mounted. **And there's no more `deploy`**: save a file and it is live, immediately, for everyone the tree is shared with, because publishing is just sync.
 
@@ -208,7 +223,16 @@ There's no build step between you and production, because there's no "production
 - **Deploy pipelines.** CI-to-CDN, environment promotion, cache purging, preview URLs. Publishing is sync; a "preview environment" is a fork.
 - **The CMS/database/file-storage split.** One tree is all three.
 
-## The wire
+And there's an adoption bridge hiding here. Since this whole thing is, among other things, a web framework, a tree can also be deployed as an ordinary website — on Vercel, on Cloudflare, wherever. So imagine one tool that deploys both surfaces at once: the same tree becomes a normal website at your URL *and* a shared tree in the global namespace, crosslinked — the website carries a meta tag or header (`<link rel="arbor" …>`, or an `Arbor-Tree:` response header) naming the tree, so an Arbor-aware browser landing on the website silently upgrades to the live, editable, syncing version, while every legacy browser sees plain HTML. You never have to ask anyone to leave the web. Their browser just discovers the better path is available.
+
+# Who wants to build this?
+
+I've built a reference implementation over here — the [spec](spec.md). But I'm too busy running MAI to turn this into a startup. Who wants to?
+
+It can definitely become a powerhouse. It's time for a new Dropbox, or GitHub, or Vercel — and this is all of them combined, plus the Notion layer on top. The business models are the proven ones: hosted endpoints and managed shared trees, team permissions and audit, and eventually a marketplace of views, scripts, and agents that runs on the same rails. Every company adopting agents is about to hit all three of the problems this essay opened with, at once, this year. If someone builds this, there are definitely lots of ways to make money.
+
+
+# Appendix A - wire protocol sketch
 
 I've avoided saying how synchronization actually works. Here's the sketch — and it's small.
 
@@ -229,15 +253,7 @@ This split unlocks the whole content-centric networking agenda, almost as a side
 - **Static publication is trivial.** `arbor bake` emits a tree's refs and objects as plain files for nginx, S3, or GitHub Pages. A dumb HTTP host becomes a read-only origin.
 - **Global caching beats a CDN.** Deploying doesn't exist, and yet cache behavior is *better* than the web's: immutable objects never need invalidation — no purges, no `Cache-Control` guesswork — and the only live data is refs, which are a few bytes. The CDN's hard problem was always invalidation; content addressing deletes the problem.
 
-And there's an adoption bridge hiding here. Since this whole thing is, among other things, a web framework, a tree can also be deployed as an ordinary website — on Vercel, on Cloudflare, wherever. So imagine one tool that deploys both surfaces at once: the same tree becomes a normal website at your URL *and* a shared tree in the global namespace, crosslinked — the website carries a meta tag or header (`<link rel="arbor" …>`, or an `Arbor-Tree:` response header) naming the tree, so an Arbor-aware browser landing on the website silently upgrades to the live, editable, syncing version, while every legacy browser sees plain HTML. You never have to ask anyone to leave the web. Their browser just discovers the better path is available.
-
-## Who wants to build this?
-
-I've built a reference implementation over here — the [spec](spec.md), the [core build plan](plan.md), and the [native build plan](plan-native.md) are in this repo. But I'm too busy running MAI to turn this into a startup. Who wants to?
-
-It can definitely become a powerhouse. It's time for a new Dropbox, or GitHub, or Vercel — and this is all of them combined, plus the Notion layer on top. The business models are the proven ones: hosted endpoints and managed shared trees, team permissions and audit, and eventually a marketplace of views, scripts, and agents that runs on the same rails. Every company adopting agents is about to hit all three of the problems this essay opened with, at once, this year. If someone builds this, there are definitely lots of ways to make money.
-
-## Coda: what I punted on
+# Appendix B - materialized views, query language, and a successor to React
 
 The TypeScript/React layer here is a pragmatic choice, but I think we can do better in v2.
 
@@ -299,6 +315,6 @@ And this is how the TSX layer eventually retires. A `.tsx` island needs a JavaSc
 
 But adoption is the first challenge, and this whole thing already asks for a real shift in mental models about the namespace. Asking people to learn a new language at the same time would sink it. So v1 speaks TypeScript and React, and earns the right to replace them later.
 
-# Thanks
+# Credits
 
 Git supplies the mutable-ref/immutable-object split; atproto shows how replaceable domain names can front stable repositories and relays; IPFS demonstrates verifiable blocks over ordinary HTTP; Willow and Earthstar inform path-shaped partial synchronization and capability design. Notion, Anytype, and Tana validate tree-shaped structured content while also showing the cost of walled identity. For the app layer, TanStack Start, Encore, Convex, Astro content collections, and Prisma each contribute a useful idea—explicit compiler boundaries, runtime validation, reactive read sets, schema-over-files ergonomics, and a typed data-client feel. Eve and XSLT are cautions: elegant data/UI systems lose their advantage if ordinary authorship becomes ceremonial.
