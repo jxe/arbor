@@ -68,6 +68,6 @@ These recognizers do not make generated declarations, compiled bundles, database
 - `_store.*` names select the enclosing collection's backing and are not ordinary row children.
 - `Trash` is a recovery namespace owned by the enclosing local durability domain; it is not synchronized as an ordinary user directory unless explicitly authored outside that role.
 - `Assets` is the conventional destination for imported binary assets and remains ordinary content.
-- `.arbor` is reserved for implementation-maintained material. Generated files under it must be reproducible, must not be treated as authored content, and must not be synchronized unless another specification explicitly says so.
+- `.arbor` is reserved so legacy or implementation-maintained material cannot be mistaken for authored content. Its presence is not required, and it must not be synchronized unless another specification explicitly says so.
 
 Credentials, access-link secrets, private indexes, journals, recovery databases, and device identity records are never portable authored format.

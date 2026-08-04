@@ -50,7 +50,7 @@ The referenced system record contains a safe label and connection metadata; its 
 
 ## Schema and generated types
 
-Schema information is mapped to canonical tree-rooted collection paths so scripts remain portable across local placements. Relative script references resolve against the script's tree/path before use. Database schema and file-schema changes refresh generated authoring support. If a schema or connection is temporarily invalid, the last valid generated types remain available but are marked stale and accompanied by a diagnostic.
+Schema information is mapped to canonical tree-rooted collection paths so scripts remain portable across local placements. Relative script references resolve against the script's tree/path before use. Database schema and file-schema changes refresh generated authoring support. Arbor-aware compiler and language-service hosts may include private generated declarations without placing them in authored trees or exposing their machine-local paths to scripts. If a schema or connection is temporarily invalid, the last valid generated types remain available but are marked stale and accompanied by a diagnostic.
 
 Generated declarations, caches, and introspection artifacts are reproducible private/reference output, not portable authored content. Their syntax, location, and generator implementation are not part of this specification.
 

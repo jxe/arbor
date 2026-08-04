@@ -14,13 +14,13 @@ TreeHopper web uses React and BlockNote. Markdown remains canonical; BlockNote b
 
 The current schema/script direction uses isolated JavaScript workers, with QuickJS/Wasm available for deterministic evaluation. Only declared libraries such as `zod` are bundled into a schema realm. Time, stack, and memory limits and the absence of filesystem/network/process authority enforce the public store/script contracts.
 
-Generated TypeScript declarations may live under `.arbor`, including a tree registry such as `.arbor/tree.gen.d.ts`. Bundles, code hashes, validators, manifests, caches, and generated database declarations are reproducible output. Their names and locations may change without changing authored formats.
+Generated TypeScript declarations live with the per-workspace private state, including a tree registry at `workspaces/<stateID>/types/tree.gen.d.ts`; arbord never needs to create a generated directory inside the browsed tree. Arbor-owned TypeScript compiler and language-service hosts include that declaration as an extra root file, so scripts do not name its machine-local path or require an authored `tsconfig` change. Bundles, code hashes, validators, manifests, caches, and generated database declarations are reproducible output. Their names and locations may change without changing authored formats.
 
 ## Durability and observation
 
 The local implementation uses a private intent journal, recovery bookkeeping, filesystem observation, and a 1,024-event in-memory SSE replay buffer. Completed mutation identities currently remain available indefinitely through the existing journal. A daemon restart changes the event epoch and clients resynchronize.
 
-Current private paths include `workspaces.json`, per-workspace directories under `workspaces/<stateID>/`, `journal/` and `journal/mutations/`, `index.sqlite`, safe system records under `system/`, and platform credential-store references. These names are documented for maintainers and migration tooling only. Other implementations may choose a different layout, and ordinary clients must not depend on it.
+Current private paths include `workspaces.json`, per-workspace directories under `workspaces/<stateID>/`, `journal/` and `journal/mutations/`, `index.sqlite`, `types/tree.gen.d.ts`, safe system records under `system/`, and platform credential-store references. These names are documented for maintainers and migration tooling only. Other implementations may choose a different layout, and ordinary clients must not depend on it.
 
 The exact journal records, replay-window size, retry count, temporary filenames, watcher classifications, recovery database schema, and credential reference layout are tuning/implementation choices. They must still satisfy durable acknowledgement, idempotent retry, lossless resync, secrecy, and last-valid control-file behavior.
 
