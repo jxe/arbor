@@ -153,6 +153,11 @@ function statePath(runId: string): string {
   return join(STATE_ROOT, `${runId}.json`);
 }
 
+function knownHostsPath(runId: string): string {
+  statePath(runId);
+  return join(STATE_ROOT, `${runId}.known_hosts`);
+}
+
 function validateState(state: LabState): LabState {
   statePath(state.runId);
   if (
@@ -309,6 +314,7 @@ function sshBase(state: LabState, node: LabNode): string[] {
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=10",
     "-o", "StrictHostKeyChecking=accept-new",
+    "-o", `UserKnownHostsFile=${knownHostsPath(state.runId)}`,
     `root@${node.ipv4}`,
   ];
 }
@@ -522,6 +528,7 @@ async function download(state: LabState, role: Role, remote: string, local: stri
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=10",
     "-o", "StrictHostKeyChecking=accept-new",
+    "-o", `UserKnownHostsFile=${knownHostsPath(state.runId)}`,
     `root@${node.ipv4}:${remote}`, local,
   ]);
 }
