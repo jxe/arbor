@@ -1236,6 +1236,17 @@ export class ArborService implements AsyncDisposable {
             this.trees.sharedBoundariesWithin(workspace.root),
             this.trees.excludedMountsWithin(workspace.root),
           );
+          // A newly placed canonical child can make the parent snapshot match
+          // the authority even while its persisted placement ref is stale.
+          if (local.root === remote.ref) {
+            if (activePlacement.ref !== remote.ref) {
+              activePlacement = { ...activePlacement, ref: remote.ref };
+              await this.trees.applySharedPlacement(activePlacement);
+            }
+            this.trees.setSyncState(activePlacement.tree, "idle");
+            this.syncConflicts.delete(activePlacement.tree);
+            continue;
+          }
           if (remote.ref === activePlacement.ref) {
             if (local.root !== activePlacement.ref && activePlacement.access === "write") await this.pushWorkspace(workspace);
             else if (local.root !== activePlacement.ref) this.trees.setSyncState(activePlacement.tree, "conflict");

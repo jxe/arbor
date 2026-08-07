@@ -15,6 +15,15 @@ let host: Awaited<ReturnType<typeof serveWireHost>>;
 let owner: WireClient;
 let aliceToken: string;
 
+async function waitFor(read: () => Promise<boolean>, timeout = 4_000): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    if (await read()) return;
+    await Bun.sleep(50);
+  }
+  throw new Error("Timed out waiting for community sync");
+}
+
 async function profileFolder(
   name: string,
   type: "person" | "group",
@@ -410,6 +419,73 @@ describe("community-mounted profiles and sharing", () => {
       expect(await readFile(join(mountPath, "local-only.md"), "utf8")).toContain("Local child edit");
     } finally {
       await service[Symbol.asyncDispose]();
+      await new CommunityConfigStore().remove();
+    }
+  });
+
+  test("adopts an advanced parent ref when nested placement already makes local content identical", async () => {
+    const state = join(sandbox, "nested-ref-reconciliation-state");
+    process.env.ARBOR_DATA_HOME = state;
+    const parentPath = join(sandbox, "nested-ref-reconciliation-parent");
+    const parentSource = await profileFolder("nested-ref-reconciliation-source", "group");
+    await writeFile(join(parentSource, "parent.md"), "# Parent\n");
+    const childSource = join(sandbox, "nested-ref-reconciliation-child");
+    await mkdir(childSource, { recursive: true });
+    await writeFile(join(childSource, "child.md"), "# Child\n");
+
+    const parent = await owner.create(
+      "/~nested-ref-reconciliation",
+      await snapshotDirectory(parentSource),
+      { kind: "group-profile", publicAccess: "none" },
+    );
+    const staleParentRef = parent.ref;
+    const child = await owner.create(
+      "/~nested-ref-reconciliation/nested",
+      await snapshotDirectory(childSource),
+      { publicAccess: "none" },
+    );
+    const currentParent = await owner.ref(parent.id);
+    expect(currentParent.ref).not.toBe(staleParentRef);
+
+    let setup: ArborService | undefined;
+    let syncing: ArborService | undefined;
+    try {
+      setup = await ArborService.openControl({ autoSync: false });
+      await setup.executeMutation({
+        mutationID: "nested-ref-connect",
+        operations: [{ op: "connectCommunity", origin: host.url, accountToken: ownerToken }],
+      });
+      await setup.executeMutation({
+        mutationID: "nested-ref-place-parent",
+        operations: [{ op: "placeTree", tree: parent.id, path: parentPath }],
+      });
+      await setup.executeMutation({
+        mutationID: "nested-ref-place-child",
+        operations: [{ op: "placeTree", tree: child.id, path: join(parentPath, "nested") }],
+      });
+
+      const parentPlacement = setup.trees.placementFor(parent.id)!;
+      if (parentPlacement.source === "local") throw new Error("Expected a shared parent placement");
+      await setup.trees.applySharedPlacement({ ...parentPlacement, ref: staleParentRef });
+      const layout = setup.trees.compositionFor(parent.id);
+      const canonicalParentPath = await realpath(parentPath);
+      expect([...layout.boundaries]).toEqual([[join(canonicalParentPath, "nested"), child.id]]);
+      const localParent = await snapshotDirectory(canonicalParentPath, layout.boundaries, layout.excludedRoots);
+      expect(localParent.root).toBe(currentParent.ref);
+      expect(setup.trees.placementFor(parent.id)).toMatchObject({ ref: staleParentRef });
+
+      await setup[Symbol.asyncDispose]();
+      setup = undefined;
+      syncing = await ArborService.openControl({ autoSync: true });
+      await waitFor(async () => {
+        const placement = syncing!.trees.placementFor(parent.id);
+        return placement?.source !== "local" && placement?.ref === currentParent.ref;
+      });
+      expect((await syncing.snapshot({ tree: "system", path: `/trees/${parent.id}` })).document?.frontmatter.sync)
+        .toBe("idle");
+    } finally {
+      await setup?.[Symbol.asyncDispose]();
+      await syncing?.[Symbol.asyncDispose]();
       await new CommunityConfigStore().remove();
     }
   });
