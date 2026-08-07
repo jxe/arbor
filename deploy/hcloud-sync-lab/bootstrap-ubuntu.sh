@@ -11,7 +11,7 @@ esac
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y \
-  ca-certificates curl git jq openssl sqlite3 sudo ufw \
+  ca-certificates curl git jq openssl sqlite3 sudo ufw unzip \
   iptables iproute2 libsecret-1-0 gnome-keyring dbus-x11
 
 if ! id arbor >/dev/null 2>&1; then
