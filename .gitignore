@@ -3,6 +3,7 @@ dist/
 packages/render/dist/
 playwright-report/
 test-results/
+.arbor-lab/
 .DS_Store
 .env
 native/Packages/*/.build/

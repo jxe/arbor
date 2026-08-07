@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveWireHost, snapshotDirectory, WireClient } from "@arbor/wire";
+import { decodeWireObject, serveWireHost, snapshotDirectory, WireClient } from "@arbor/wire";
 
 const token = "owner-test-token";
 let dataRoot: string;
@@ -136,5 +136,38 @@ describe("personal wire authority", () => {
     const restored = (await client.list()).find((item) => item.id === tree.id)!;
     expect(restored.ref).toBe(next.root);
     expect(restored.publicAccess).toBe("write");
+  });
+
+  test("bounds unavailable-authority requests", async () => {
+    const stalled = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch() {
+        await new Promise(() => {});
+        return new Response();
+      },
+    });
+    const started = performance.now();
+    try {
+      await expect(new WireClient(stalled.url.origin, undefined, { timeoutMs: 50 }).list())
+        .rejects.toMatchObject({ name: "WireTransportError" });
+      expect(performance.now() - started).toBeLessThan(1_000);
+    } finally {
+      stalled.stop(true);
+    }
+  });
+
+  test("fails health when a reachable immutable object is corrupt", async () => {
+    const tree = (await client.list()).find((item) => item.canonicalPath === "/~owner/notes")!;
+    const root = decodeWireObject(await running.authority.object(tree.ref));
+    expect(root.type).toBe("directory");
+    if (root.type !== "directory") throw new Error("Expected directory root");
+    const target = root.entries.find((entry) => entry.hash)?.hash!;
+    const objectPath = join(dataRoot, "objects", target.slice(7, 9), target.slice(9));
+    await writeFile(objectPath, "truncated");
+
+    const health = await fetch(`${running.url}/.arbor/health`);
+    expect(health.status).toBe(503);
+    expect(await health.json()).toEqual({ status: "error", reason: "integrity-check-failed" });
   });
 });

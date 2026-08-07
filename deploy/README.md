@@ -2,7 +2,7 @@
 
 The quickest realistic trial is one Railway service with one persistent volume and one public domain. The hosted process is only the community authority and wire gateway. Profile claiming and editing happen in TreeHopper running locally on your own machine.
 
-For multi-machine synchronization, outage, and conflict testing rather than a single-user trial, use the deliberately small [hcloud sync lab](hcloud-sync-lab.md): one disposable community VM, three client VMs, Tailscale, and no infrastructure framework.
+For multi-machine synchronization, outage, and conflict testing rather than a single-user trial, use the deliberately small [hcloud sync lab](hcloud-sync-lab.md): one disposable community VM, three client VMs, Tailscale, and no infrastructure framework. Its checked-in `bun run lab:hcloud` runner supports preflight, resumable provisioning, evidence collection, and exact-ID teardown.
 
 ## Railway
 

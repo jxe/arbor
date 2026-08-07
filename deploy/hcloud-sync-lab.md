@@ -53,6 +53,36 @@ The context command prompts for the project API token. Do not put that token in 
 
 Register an existing SSH public key with the project if it is not already present. Confirm the exact flag names with `hcloud ssh-key create --help`; `hcloud` was not installed on the development Mac when this plan was written, so the live CLI help is authoritative.
 
+## Recommended rerunnable workflow
+
+The repository includes a resumable runner for the ordinary four-VM workflow. It uses the direct `hcloud` CLI described below; it does not introduce an infrastructure framework. The default names and paths match this document.
+
+```sh
+bun run lab:hcloud preflight
+bun run lab:hcloud run
+```
+
+`run` creates the four machines, installs the pinned Bun version from `.bun-version`, deploys the exact committed Git revision, initiates Tailscale login, and prints each node's approval URL (with an SSH command as a fallback). Approve those nodes interactively, then continue without recreating anything:
+
+```sh
+bun run lab:hcloud resume
+bun run lab:hcloud test
+```
+
+The smoke test creates a private tree on Alice, places it on Bob and Carol through their connected account credentials, and requires identical SHA-256 manifests plus a healthy authority. Continue with the fault and conflict scenarios below after it passes.
+
+Local resume data lives in the ignored `.arbor-lab/<run-id>.json`. It contains exact server IDs, IP addresses, configuration, revision, and completed phases, but no Hetzner, Tailscale, or Arbor credentials. The disposable Arbor account token is generated and retained only in the authority's root-readable environment file; clients receive it over SSH on standard input while being configured.
+
+Useful lifecycle commands are:
+
+```sh
+bun run lab:hcloud status
+bun run lab:hcloud collect
+bun run lab:hcloud down
+```
+
+`down` makes a best-effort evidence collection first, requests Tailscale logout, verifies every recorded server's name and run labels, and deletes only the four recorded Hetzner server IDs. If a run must be selected explicitly, add `--run-id <id>`. The underlying manual commands remain documented below as the recovery and inspection path.
+
 ## Create the four VMs
 
 Use four small x86 Ubuntu machines in one location. `CX23`, `ubuntu-24.04`, and `nbg1` are reasonable starting values, but verify availability with `hcloud server-type list`, `hcloud image list`, and `hcloud location list` before creation.
@@ -79,7 +109,7 @@ On each VM:
 2. Install Tailscale and authenticate it interactively. Avoid putting a reusable Tailscale auth key in cloud-init or this repository.
 3. Give the node its matching hostname (`arbor-community`, `arbor-alice`, and so on).
 4. Verify `tailscale ping arbor-community` from every client.
-5. Install Git, Bun at the version used by this checkout, and the small fault-injection tools `iptables` and `iproute2`.
+5. Install Git, Bun at the version pinned in `.bun-version`, and the small fault-injection tools `iptables` and `iproute2`.
 6. Clone or copy the same Arbor revision to `/opt/arbor`, run `bun install --frozen-lockfile`, and record `git rev-parse HEAD`.
 
 Keep public key-only SSH available as a recovery path during network experiments. Restrict Arbor's ports to `tailscale0`; the community gateway must not be reachable over the public interface. Once Tailscale works, a minimal UFW policy is sufficient:
@@ -114,7 +144,7 @@ On each client:
 
 1. Create its content path from the table above.
 2. Run `bun run arbor connect http://arbor-community:4318` and paste the same disposable credential.
-3. Run one persistent headless arbord process using `bun run arbor browse <content-path> --no-open` under systemd.
+3. Install `libsecret-1-0`, `gnome-keyring`, and `dbus-x11`, unlock a disposable login keyring inside a D-Bus session, and run one persistent headless arbord process using `bun run arbor browse <content-path> --no-open` under systemd. The checked-in runner configures this Secret Service environment for `Bun.secrets` automatically.
 
 Stop the client service before adding a new placement with `arbor sync`, then start it again. This avoids two arbord processes mutating the same private state while the scenario is being prepared.
 

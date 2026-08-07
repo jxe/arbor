@@ -135,4 +135,15 @@ describe("system tree control", () => {
     };
     expect((await textFiles(state)).join("\n")).not.toContain(rawToken);
   });
+
+  test("returns bounded local tree state and marks placements offline", async () => {
+    host.server.stop(true);
+    const started = performance.now();
+    const trees = await client.node({ tree: "system", path: "/trees" });
+    const shared = await Promise.all((trees.children ?? []).map((child) =>
+      client.node({ tree: "system", path: child.path })
+    ));
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(shared.some((record) => record.document?.frontmatter.sync === "offline")).toBe(true);
+  });
 });

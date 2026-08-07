@@ -70,8 +70,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  process.env.ARBOR_DATA_HOME = stateA;
-  await new ServerConfigStore().remove();
+  for (const state of [stateA, stateB]) {
+    process.env.ARBOR_DATA_HOME = state;
+    await new ServerConfigStore().remove();
+  }
   host.server.stop(true);
   await host.authority[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
@@ -286,5 +288,19 @@ describe("primary CLI sync forms", () => {
     expect(await readFile(join(destination, "note.md"), "utf8")).toBe("# CLI sync\n");
     expect(await readFile(join(stateB, "trees.yaml"), "utf8")).not.toContain(destination);
     expect(host.authority.boundary("/~owner/notes")?.id).toBe(tree);
+  });
+
+  test("places a private canonical tree with the connected account", async () => {
+    const privateSource = join(sandbox, "account-only-source");
+    const privateDestination = join(sandbox, "account-only-destination");
+    await mkdir(privateSource);
+    await writeFile(join(privateSource, "private.md"), "# Account-only\n");
+    const canonical = `${host.url}/~owner/account-only`;
+
+    expect(await arbor(["sync", privateSource, canonical], stateA)).toContain("/~owner/account-only");
+    expect((await fetch(canonical)).status).toBe(404);
+    expect(await arbor(["connect", host.url], stateB)).toContain("Connected as ~owner");
+    expect(await arbor(["sync", canonical, privateDestination], stateB)).toContain("(write)");
+    expect(await readFile(join(privateDestination, "private.md"), "utf8")).toBe("# Account-only\n");
   });
 });

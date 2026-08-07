@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+  exec dbus-run-session -- "$0" "$@"
+fi
+
+# The disposable lab uses an empty-password login keyring so Bun.secrets has a
+# Secret Service backend even though no graphical login session exists.
+printf '\n' | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+exec "$@"

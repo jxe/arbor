@@ -27,6 +27,8 @@ import { FilesystemService, realOsPath } from "./fs-service.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { ProtocolError, RevisionConflictError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 
+const SYSTEM_REMOTE_TIMEOUT_MS = 1_000;
+
 export function fsErrorCode(error: FsConflictError): { code: ArbordErrorCode; status: number; retryable?: boolean } {
   switch (error.details.code) {
     case "stale-revision": return { code: "stale-content-revision", status: 409 };
@@ -678,22 +680,35 @@ export class ArborService implements AsyncDisposable {
   }
 
   private async systemTreeSegments() {
-    const local = await this.trees.descriptors();
     const configured = await this.communityConfig.get();
     let remote: RemoteTreeDescriptor[] = [];
     let writable = new Set<string>();
     const remoteAccess = new Map<string, import("@arbor/wire").RemoteAccessEntry[]>();
     if (configured) {
-      const client = new WireClient(configured.record.origin, configured.accountToken);
-      [remote, writable] = await Promise.all([
-        client.list().catch(() => []),
-        client.account().then((account) => new Set(account.writableProfiles.map((tree) => tree.id))).catch(() => new Set<string>()),
-      ]);
+      const client = new WireClient(configured.record.origin, configured.accountToken, {
+        timeoutMs: SYSTEM_REMOTE_TIMEOUT_MS,
+      });
+      const [listed, account] = await Promise.allSettled([client.list(), client.account()]);
+      if (listed.status === "fulfilled") remote = listed.value;
+      if (account.status === "fulfilled") {
+        writable = new Set(account.value.writableProfiles.map((tree) => tree.id));
+      }
+      if (
+        (listed.status === "rejected" && listed.reason instanceof TypeError)
+        || (account.status === "rejected" && account.reason instanceof TypeError)
+      ) {
+        for (const placement of this.trees.sharedPlacements()) {
+          if (placement.endpoint === configured.record.origin) this.trees.setSyncState(placement.tree, "offline");
+        }
+      }
       await Promise.all(remote.map(async (tree) => {
         const entries = await client.access(tree.id).catch(() => []);
         remoteAccess.set(tree.id, entries);
       }));
     }
+    // Read local descriptors after the bounded remote refresh so any transport
+    // failure above is visible immediately as `sync: offline`.
+    const local = await this.trees.descriptors();
     const byID = new Map<string, TreeDescriptor>(local.map((tree) => [tree.id, tree]));
     for (const tree of remote) {
       const current = byID.get(tree.id);

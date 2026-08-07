@@ -140,7 +140,13 @@ export async function serveWireHost(options: {
       const account = accountFor(request, authority);
       try {
         if (request.method === "GET" && url.pathname === "/.arbor/health") {
-          return json({ status: "ok" });
+          try {
+            await authority.verifyIntegrity();
+            return json({ status: "ok" });
+          } catch (error) {
+            console.error("Arbor authority integrity check failed", error);
+            return json({ status: "error", reason: "integrity-check-failed" }, 503);
+          }
         }
         if (request.method === "GET" && url.pathname === "/.arbor/account") {
           return json(accountDescriptor(publicOrigin, authority, requireAccount(request, authority)));

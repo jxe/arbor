@@ -40,6 +40,16 @@ export interface RemoteAccessEntry {
   locator?: string;
 }
 
+export class WireTransportError extends TypeError {
+  override readonly cause: unknown;
+
+  constructor(message: string, cause: unknown) {
+    super(message);
+    this.name = "WireTransportError";
+    this.cause = cause;
+  }
+}
+
 function bytesBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64");
 }
@@ -56,7 +66,15 @@ function encodedSnapshot(snapshot: TreeSnapshot) {
 }
 
 export class WireClient {
-  constructor(readonly origin: string, private accountToken?: string) {}
+  private readonly timeoutMs: number;
+
+  constructor(
+    readonly origin: string,
+    private accountToken?: string,
+    options: { timeoutMs?: number } = {},
+  ) {
+    this.timeoutMs = options.timeoutMs ?? 5_000;
+  }
 
   private headers(json = false): HeadersInit {
     return {
@@ -71,8 +89,19 @@ export class WireClient {
     throw new Error(`${response.url}: ${body || `${response.status} ${response.statusText}`}`);
   }
 
+  private async request(path: string, init: RequestInit = {}): Promise<Response> {
+    try {
+      return await fetch(`${this.origin}${path}`, {
+        ...init,
+        signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (error) {
+      throw new WireTransportError(`Could not reach Arbor authority at ${this.origin}`, error);
+    }
+  }
+
   async account(): Promise<RemoteAccountDescriptor> {
-    const response = await this.checked(await fetch(`${this.origin}/.arbor/account`, { headers: this.headers() }));
+    const response = await this.checked(await this.request("/.arbor/account", { headers: this.headers() }));
     return response.json();
   }
 
@@ -85,7 +114,7 @@ export class WireClient {
       profileAccess?: Array<{ locator: string; access: TreeAccess }>;
     } = {},
   ): Promise<RemoteTreeDescriptor> {
-    const response = await this.checked(await fetch(`${this.origin}/.arbor/trees`, {
+    const response = await this.checked(await this.request("/.arbor/trees", {
       method: "POST",
       headers: this.headers(true),
       body: JSON.stringify({
@@ -100,7 +129,7 @@ export class WireClient {
   }
 
   async claim(handle: string, snapshot: TreeSnapshot): Promise<ClaimResult> {
-    const response = await this.checked(await fetch(`${this.origin}/.arbor/claims/${encodeURIComponent(handle)}`, {
+    const response = await this.checked(await this.request(`/.arbor/claims/${encodeURIComponent(handle)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(encodedSnapshot(snapshot)),
@@ -109,12 +138,12 @@ export class WireClient {
   }
 
   async list(): Promise<RemoteTreeDescriptor[]> {
-    const response = await this.checked(await fetch(`${this.origin}/.arbor/trees`, { headers: this.headers() }));
+    const response = await this.checked(await this.request("/.arbor/trees", { headers: this.headers() }));
     return response.json();
   }
 
   async ref(tree: string): Promise<RemoteTreeDescriptor> {
-    const response = await this.checked(await fetch(`${this.origin}/.arbor/trees/${encodeURIComponent(tree)}/ref`, {
+    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/ref`, {
       headers: this.headers(),
     }));
     return response.json();
@@ -122,7 +151,7 @@ export class WireClient {
 
   async resolve(path: string): Promise<RemoteTreeDescriptor & { path: string }> {
     const canonical = path === "/" ? "" : `/${path.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
-    const response = await this.checked(await fetch(`${this.origin}/.well-known/arbor${canonical}`, {
+    const response = await this.checked(await this.request(`/.well-known/arbor${canonical}`, {
       headers: this.headers(),
     }));
     return response.json();
@@ -134,7 +163,7 @@ export class WireClient {
       root: snapshot.root,
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
     };
-    const response = await this.checked(await fetch(`${this.origin}/.arbor/trees/${encodeURIComponent(tree)}/push`, {
+    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/push`, {
       method: "POST",
       headers: this.headers(true),
       body: JSON.stringify({
@@ -147,8 +176,8 @@ export class WireClient {
   }
 
   async access(tree: string): Promise<RemoteAccessEntry[]> {
-    const response = await this.checked(await fetch(
-      `${this.origin}/.arbor/trees/${encodeURIComponent(tree)}/access`,
+    const response = await this.checked(await this.request(
+      `/.arbor/trees/${encodeURIComponent(tree)}/access`,
       { headers: this.headers() },
     ));
     return response.json();
@@ -172,8 +201,8 @@ export class WireClient {
       | { kind: "entry"; id: string },
     access: TreeAccess | "none",
   ): Promise<RemoteTreeDescriptor> {
-    const response = await this.checked(await fetch(
-      `${this.origin}/.arbor/trees/${encodeURIComponent(tree)}/access`,
+    const response = await this.checked(await this.request(
+      `/.arbor/trees/${encodeURIComponent(tree)}/access`,
       {
         method: "POST",
         headers: this.headers(true),
@@ -188,7 +217,7 @@ export class WireClient {
   }
 
   async object(hash: string): Promise<Uint8Array> {
-    const response = await this.checked(await fetch(`${this.origin}/.arbor/objects/${hash}`, {
+    const response = await this.checked(await this.request(`/.arbor/objects/${hash}`, {
       headers: this.headers(),
     }));
     return new Uint8Array(await response.arrayBuffer());

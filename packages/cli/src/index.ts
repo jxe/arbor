@@ -201,10 +201,13 @@ async function communityRecord(client: ArbordClient): Promise<Record<string, unk
   return (await client.node({ tree: "system", path: "/community" })).document?.frontmatter ?? {};
 }
 
-async function withArbord<T>(path: string, run: (client: ArbordClient) => Promise<T>): Promise<T> {
+async function withArbord<T>(
+  path: string,
+  run: (client: ArbordClient, service: ArborService) => Promise<T>,
+): Promise<T> {
   const running = await serveArbor(path, { port: 0 });
   try {
-    return await run(new ArbordClient({ baseURL: running.url }));
+    return await run(new ArbordClient({ baseURL: running.url }), running.service);
   } finally {
     running.server.stop(true);
     await running.service[Symbol.asyncDispose]();
@@ -294,13 +297,15 @@ async function syncCommand(args: string[]): Promise<void> {
   }
   if (audience.length) throw new Error("The remote-to-local sync form does not take audience options");
   const target = canonicalTarget(first);
-  const remote = await new WireClient(target.endpoint).resolve(target.canonicalPath);
   const requestedDestination = resolve(second);
   await mkdir(dirname(requestedDestination), { recursive: true });
   const destination = await realpath(requestedDestination).catch(async () =>
     join(await realpath(dirname(requestedDestination)), basename(requestedDestination))
   );
-  await withArbord(dirname(destination), async (client) => {
+  await withArbord(dirname(destination), async (client, service) => {
+    const configured = await service.communityConfig.get();
+    const accountToken = configured?.record.origin === target.endpoint ? configured.accountToken : undefined;
+    const remote = await new WireClient(target.endpoint, accountToken).resolve(target.canonicalPath);
     const existing = (await systemTrees(client)).find((record) => record.id === remote.id && record.path === destination);
     if (!existing) {
       await client.mutateSystem({
@@ -311,7 +316,7 @@ async function syncCommand(args: string[]): Promise<void> {
         canonical: remote.arborURL,
       });
     }
-    console.log(`${remote.arborURL} ↔ ${destination} (${remote.publicAccess === "write" ? "write" : "read"})`);
+    console.log(`${remote.arborURL} ↔ ${destination} (${remote.access})`);
   });
 }
 

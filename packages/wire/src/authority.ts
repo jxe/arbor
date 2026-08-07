@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { link, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { sha256 } from "@arbor/core";
@@ -121,6 +121,15 @@ function profileHandle(path: string): string | null {
 
 function sameOrDescendant(path: string, parent: string): boolean {
   return path === parent || parent === "/" || path.startsWith(`${parent}/`);
+}
+
+async function syncDirectory(path: string): Promise<void> {
+  const handle = await open(path, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
 }
 
 function directSnapshot(source: string): TreeSnapshot {
@@ -772,6 +781,25 @@ export class WireAuthority implements AsyncDisposable {
     return bytes;
   }
 
+  /** Verify SQLite plus every object reachable from a current authority ref. */
+  async verifyIntegrity(): Promise<void> {
+    const rows = this.db.query("PRAGMA quick_check").all() as Array<Record<string, unknown>>;
+    if (rows.length !== 1 || Object.values(rows[0] ?? {})[0] !== "ok") {
+      throw new Error("Authority SQLite integrity check failed");
+    }
+    const pending = this.list().map((tree) => tree.ref);
+    const seen = new Set<ObjectHash>();
+    while (pending.length) {
+      const hash = pending.pop()!;
+      if (seen.has(hash)) continue;
+      seen.add(hash);
+      const object = decodeWireObject(await this.object(hash));
+      if (object.type === "directory") {
+        for (const entry of object.entries) if (entry.hash) pending.push(entry.hash);
+      }
+    }
+  }
+
   async isReadableObject(hash: ObjectHash, account: AuthorityAccount | null, linkDigest?: string): Promise<boolean> {
     for (const tree of this.list()) {
       if (!this.canRead(account, tree.id, linkDigest)) continue;
@@ -1057,10 +1085,38 @@ export class WireAuthority implements AsyncDisposable {
     for (const object of objects) {
       if (hashObject(object.bytes) !== object.hash) throw new Error(`Object hash mismatch: ${object.hash}`);
       const path = this.objectPath(object.hash);
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, object.bytes, { flag: "wx" }).catch((error) => {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      });
+      const directory = dirname(path);
+      await mkdir(directory, { recursive: true });
+      const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+      try {
+        const file = await open(temporary, "wx", 0o600);
+        try {
+          await file.writeFile(object.bytes);
+          await file.sync();
+        } finally {
+          await file.close();
+        }
+        try {
+          // A hard link publishes the fully flushed inode without ever replacing
+          // an immutable object that another writer may have published first.
+          await link(temporary, path);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+          const existing = new Uint8Array(await readFile(path));
+          if (hashObject(existing) !== object.hash) {
+            throw new Error(`Stored object hash mismatch: ${object.hash}`);
+          }
+        }
+        await unlink(temporary);
+        await syncDirectory(directory);
+        // The two-hex-character shard may itself have been created for this
+        // object, so flush its entry in the stable objects directory too.
+        await syncDirectory(dirname(directory));
+      } finally {
+        await unlink(temporary).catch((error) => {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        });
+      }
     }
   }
 
