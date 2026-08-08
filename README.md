@@ -104,10 +104,14 @@ Working documents:
 - **[spec.md](spec.md)** — aspirational spec overview, v0.8, split into public contracts for format, locators, `trees.yaml`/`system:`, arbord REST and clients, stores, scripts, agents, the wire, and the CLI.
 - **[docs/treehopper.md](docs/treehopper.md)** — non-normative TreeHopper interaction design.
 - **[docs/reference-implementation.md](docs/reference-implementation.md)** — replaceable Bun/TypeScript/Swift architecture, private-state mechanics, and verification details.
-- **[plan.md](plan.md)** — the forward roadmap: canonical hosting, community profiles/groups/sharing, workspace composition, scripts, agents, data, fuller publication, and non-blocking polish.
-- **[plan-history.md](plan-history.md)** — implemented browser/editor, REST/client, daily-driver, and tracked-root milestones with verification evidence.
-- **[plan-native.md](plan-native.md)** — the separate Swift/Hunch integration plan: adapting the Swift protocol client into provider/page-session boundaries, arbord-mediated macOS, direct Clamshell on iOS, migration, sidecars, and native product surfaces.
-- **[social-networking.md](social-networking.md)** — a thought experiment: with Arbor ubiquitous and the wire lowered to the transport layer, what remains of atproto, and how relays, AppViews, feeds, and labelers collapse into trees, watches, and queries.
+- **[plan/roadmap.md](plan/roadmap.md)** — the forward roadmap: canonical hosting, community profiles/groups/sharing, workspace composition, scripts, agents, data, fuller publication, and non-blocking polish.
+- **[plan/history.md](plan/history.md)** — implemented browser/editor, REST/client, daily-driver, and tracked-root milestones with verification evidence.
+- **[plan/native.md](plan/native.md)** — the separate Swift/Hunch integration plan: adapting the Swift protocol client into provider/page-session boundaries, arbord-mediated macOS, direct Clamshell on iOS, migration, sidecars, and native product surfaces.
+- **[plan/technical-debt.md](plan/technical-debt.md)** — known conformance gaps between the spec and the reference implementation.
+- **[plan/editor-todo.md](plan/editor-todo.md)** — editor/product backlog with difficulty ratings.
+- **[plan/generated/](plan/generated/README.md)** — machine-generated remediation plans (audited defects with executor instructions).
+- **[docs/notes/social-networking.md](docs/notes/social-networking.md)** — a thought experiment: with Arbor ubiquitous and the wire lowered to the transport layer, what remains of atproto, and how relays, AppViews, feeds, and labelers collapse into trees, watches, and queries.
+- **[docs/archive/](docs/archive/arbord-projection-outline.md)** — completed implementation outlines kept for reference.
 
 Placeholder names throughout: **Arbor** (system), **workspace** (the visible local tree), **shared tree** (independent sync root), **arbord** (the daemon: local workspace/runtime), **wire** (shared-tree protocol), and **TreeHopper** (the browser — web and native). All remain provisional.
 

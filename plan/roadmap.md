@@ -1,5 +1,5 @@
 # Build plan
-*Forward roadmap for Arbor and the reference implementation. Delivered work and evidence live in [plan-history.md](plan-history.md); [plan-native.md](plan-native.md) owns native TreeHopper, Hunch migration, Clamshell, and iCloud-native integration.*
+*Forward roadmap for Arbor and the reference implementation. Delivered work and evidence live in [history.md](history.md); [native.md](native.md) owns native TreeHopper, Hunch migration, Clamshell, and iCloud-native integration.*
 
 ## Status at a glance
 
@@ -28,7 +28,7 @@ without blocking those forward product capabilities
 
 ## Implemented foundation
 
-The implemented foundation is summarized here only to establish what later milestones may depend on. Source ownership, intentional limits, and verification evidence belong in [plan-history.md](plan-history.md).
+The implemented foundation is summarized here only to establish what later milestones may depend on. Source ownership, intentional limits, and verification evidence belong in [history.md](history.md).
 
 - The local daily driver provides filesystem-wide browsing/editing, source-preserving Markdown, projected directories, collections, durable REST mutations and event handoff, TypeScript/Swift clients, search/backlinks/recovery, and safe cloud-placeholder handling.
 - Shared trees have stable `TreeID`s, immutable deterministic objects, CAS synchronization, canonical HTTP/Arbor names, raw TreeID fallback, whole-tree access, and independently accessed nested boundaries.
@@ -39,20 +39,20 @@ The implemented foundation is summarized here only to establish what later miles
 
 The durable product contracts live in the topic specifications rather than this roadmap:
 
-- [wire and community authority](spec/wire.md) owns canonical boundaries, promotion, profiles, claims, access, objects, refs, and HTTP projection;
-- [locators](spec/locators.md) owns canonical names, raw TreeID fallback, immutable revision selection, and resolution;
-- [client](spec/client.md) owns UI-independent resolution, source preservation, projection, provenance, retry/resync, and secret handling;
-- [TreeHopper reference design](docs/treehopper.md) owns profile controls, Claim, Share, labels, Home, and interaction design;
-- [CLI](spec/cli.md) owns command forms and deployment arguments;
-- [`system:` and placements](spec/system.md) owns the data home, `trees.yaml`, safe account state, credentials, visits, nested placements, and local durability;
-- [arbord REST](spec/arbord-rest.md) owns the local client and mutation boundary.
-- [stores](spec/stores.md), [scripts](spec/scripts.md), and [agents](spec/agents.md) own their respective authored/runtime contracts.
+- [wire and community authority](../spec/wire.md) owns canonical boundaries, promotion, profiles, claims, access, objects, refs, and HTTP projection;
+- [locators](../spec/locators.md) owns canonical names, raw TreeID fallback, immutable revision selection, and resolution;
+- [client](../spec/client.md) owns UI-independent resolution, source preservation, projection, provenance, retry/resync, and secret handling;
+- [TreeHopper reference design](../docs/treehopper.md) owns profile controls, Claim, Share, labels, Home, and interaction design;
+- [CLI](../spec/cli.md) owns command forms and deployment arguments;
+- [`system:` and placements](../spec/system.md) owns the data home, `trees.yaml`, safe account state, credentials, visits, nested placements, and local durability;
+- [arbord REST](../spec/arbord-rest.md) owns the local client and mutation boundary.
+- [stores](../spec/stores.md), [scripts](../spec/scripts.md), and [agents](../spec/agents.md) own their respective authored/runtime contracts.
 
 ---
 
 ## Milestone 1 — workspace composition
 
-**Status: Implemented on 2026-08-02. See [plan-history.md](plan-history.md#workspace-composition-forward-milestone-1).**
+**Status: Implemented on 2026-08-02. See [history.md](history.md#workspace-composition-forward-milestone-1).**
 
 Outcome: a workspace can mount distinct local and shared trees wherever they make sense, while navigation and cross-tree surfaces retain exact provenance and remote authority.
 
@@ -189,7 +189,7 @@ These are unresolved design questions, not hidden implementation status:
 
 ## Planning reference
 
-The topic specs describe the complete intended product. This file records implementation order, temporary cuts, completion gates, and current status. [plan-history.md](plan-history.md) records completed evidence; [plan-native.md](plan-native.md) contains platform-specific native work.
+The topic specs describe the complete intended product. This file records implementation order, temporary cuts, completion gates, and current status. [history.md](history.md) records completed evidence; [native.md](native.md) contains platform-specific native work.
 
 - **Implemented** means the focused behavior and its acceptance checks pass in current source.
 - **Next** identifies the immediate substantial product milestone.

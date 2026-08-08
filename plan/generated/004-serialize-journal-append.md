@@ -4,7 +4,7 @@
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
 > report — do not improvise. When done, update the status row for this plan
-> in `plans/README.md`.
+> in `plan/generated/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/fs/src/journal.ts packages/fs/src/workspace-fs.ts`
 > Also run `git status --short` on those paths. If the excerpts under "Current
@@ -278,7 +278,7 @@ ALL must hold:
 - [ ] `grep -n "private tails" packages/fs/src/journal.ts` returns a match
 - [ ] `packages/fs/src/workspace-fs.ts` is unmodified (`git status --short`)
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plans/README.md` status row for 004 updated
+- [ ] `plan/generated/README.md` status row for 004 updated
 
 ## STOP conditions
 

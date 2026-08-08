@@ -1,9 +1,9 @@
 # Native build plan
-*The Swift/Hunch integration track for TreeHopper native. [plan.md](plan.md) owns arbord, REST v1, and both reference protocol clients—including the UI-independent Swift `ArborClient` package. This file owns the adapter from that client into native workspace/editor behavior, plus migration, Clamshell, iCloud compatibility, and native product surfaces.*
+*The Swift/Hunch integration track for TreeHopper native. [roadmap.md](roadmap.md) owns arbord, REST v1, and both reference protocol clients—including the UI-independent Swift `ArborClient` package. This file owns the adapter from that client into native workspace/editor behavior, plus migration, Clamshell, iCloud compatibility, and native product surfaces.*
 
 **Base REST/client dependency: Satisfied. Shared projection/URL/parity-read dependency: Satisfied. Native provider/app integration: Planned.**
 
-The Foundation-only Swift package now lives at [`native/Packages/ArborClient`](native/Packages/ArborClient) in this repository and passes the shared fixture/live-server conformance runner. No Hunch source, native app target, `WorkspaceProvider`, or editor-session integration has moved here yet. The reserved future layout is `native/App` with native project configuration beside `native/Packages`.
+The Foundation-only Swift package now lives at [`native/Packages/ArborClient`](../native/Packages/ArborClient) in this repository and passes the shared fixture/live-server conformance runner. No Hunch source, native app target, `WorkspaceProvider`, or editor-session integration has moved here yet. The reserved future layout is `native/App` with native project configuration beside `native/Packages`.
 
 ## Founding architecture
 
@@ -52,7 +52,7 @@ Materialized files stay canonical in both cases. Finder, git, agents, and extern
 - **`EditorHost`** is narrower than Hunch's current host: it handles editor-to-shell behavior such as document/link activation, compatible-document pickers, pasteboard conventions, transcription, and forwarding editor commits. It is not the browser's navigation or storage owner.
 - **`WorkspaceProvider`** handles native access to logical workspace capabilities: node references and canonical paths, heterogeneous node snapshots, listing, search, collections, create/move/copy/trash/restore, assets, recovery, and change observation.
 - **`WorkspaceDocumentSession`** is optional for nodes with a Markdown/document surface. It bridges a live native `Editor.Document` and its managed-child manifest to the active durability authority.
-- **Swift `ArborClient`** is lower-level protocol plumbing from `plan.md`: REST values, requests, mutation retries, SSE, and resync. It knows nothing about editor documents, windows, or Clamshell.
+- **Swift `ArborClient`** is lower-level protocol plumbing from `roadmap.md`: REST values, requests, mutation retries, SSE, and resync. It knows nothing about editor documents, windows, or Clamshell.
 
 The session is the essential piece. Hunch's editor commit callback is synchronous: once it returns, a following `flush` must already know that the generation exists. A provider offering only async CRUD would leave a false-quiescence race.
 
@@ -89,7 +89,7 @@ protocol WorkspaceDocumentSession: AnyObject {
 }
 ```
 
-`WorkspaceReference` is the native-facing equivalent of REST `NodeRef`: a `tree` scope plus a logical path or durable document `PageID` with a path hint. `tree` is `"local"` for the plain filesystem, `"system"` for the read-only control scope, or a shared/visited `TreeID` ([spec/arbord-rest.md](spec/arbord-rest.md) §2). Navigation, history, selection, and drag state retain path and ID when available; the ID wins after a move while the path remains the readable current location. It is not a promise that every ordinary file has a stable `NodeID`.
+`WorkspaceReference` is the native-facing equivalent of REST `NodeRef`: a `tree` scope plus a logical path or durable document `PageID` with a path hint. `tree` is `"local"` for the plain filesystem, `"system"` for the read-only control scope, or a shared/visited `TreeID` ([spec/arbord-rest.md](../spec/arbord-rest.md) §2). Navigation, history, selection, and drag state retain path and ID when available; the ID wins after a move while the path remains the readable current location. It is not a promise that every ordinary file has a stable `NodeID`.
 
 This node-first split is intentional. Hunch currently treats a Clamshell workspace as one level of Markdown pages; Arbor exposes Markdown documents, bodyless directories, collections, databases, scripts, and ordinary files in one logical hierarchy. `openDocument` cannot be the provider's universal read primitive. The Clamshell provider may initially expose only its page-shaped subset, while the arbord provider returns the full node model.
 
@@ -108,7 +108,7 @@ The exact Swift spelling may evolve, but the invariants may not:
 
 This plan implements exactly two native workspace backends: arbord on macOS and Clamshell on iOS or in deliberate arbord-less mode. It does not need a general backend plugin framework.
 
-The Swift `ArborClient` package is an implemented deliverable of [plan.md](plan.md) at [`native/Packages/ArborClient`](native/Packages/ArborClient). This plan:
+The Swift `ArborClient` package is an implemented deliverable of [roadmap.md](roadmap.md) at [`native/Packages/ArborClient`](../native/Packages/ArborClient). This plan:
 
 - imports that package rather than copying its Codable REST values;
 - converts protocol snapshots into `Editor.Document` values;
@@ -139,7 +139,7 @@ Once provider conformance is complete, Clamshell's application-facing API can sh
 
 Feature parity means that TreeHopper native and ArborNote expose the same authored workspace behavior through arbord; it does not require pixel-identical controls or replacing native interaction patterns.
 
-- **Navigation:** filesystem-wide traversal across shared-tree boundaries ([spec/client.md](spec/client.md#resolution-and-provenance)) — the launch or default locator is a starting point, never a boundary; contextual directory children, parent/back/forward across boundaries to `/`, home as a preference, per-tree search with a client-merged all-trees scope, durable-ID move continuity, and live or historical Arbor locators.
+- **Navigation:** filesystem-wide traversal across shared-tree boundaries ([spec/client.md](../spec/client.md#resolution-and-provenance)) — the launch or default locator is a starting point, never a boundary; contextual directory children, parent/back/forward across boundaries to `/`, home as a preference, per-tree search with a client-merged all-trees scope, durable-ID move continuity, and live or historical Arbor locators.
 - **Markdown:** the same frontmatter, source-preserving block model, inline Markdown, links, hard breaks, toggles, footnotes, LaTeX, raw fallback, and explicit source view. Native may use its own controls, typography, selection, and accessibility.
 - **Directories:** the same body-plus-all-children projection, managed-child identity, authored placement, synthetic fallback rows, structural drag/reorder/rename/trash behavior, and lazy `_index.md`/ID materialization.
 - **Workspace operations:** create, move/place, copy, import, assets, trash/restore, recovery, external-change reconciliation, conflicts, and durable flush before navigation or shutdown.
@@ -247,11 +247,11 @@ Use concrete arbord reads/mutations where the capability is workspace truth; oth
 
 ## Dependency on the core plan
 
-This track consumes the implemented REST v1 contract, projection/parity reads, and in-repo Swift `ArborClient` package recorded in [`plan-history.md`](plan-history.md). Those platform-neutral dependencies are satisfied: shared projection fixtures, managed-row manifests, logical relative/`arbor://` resolution, lazy identity materialization, backlinks, subtree recovery/Trash, and safe ordinary-file reads. This plan consumes that layer rather than independently recreating it in Hunch. It does not redefine endpoints, Codable transport values, event fields, mutation receipts, durability semantics, or logical workspace operations here.
+This track consumes the implemented REST v1 contract, projection/parity reads, and in-repo Swift `ArborClient` package recorded in [`history.md`](history.md). Those platform-neutral dependencies are satisfied: shared projection fixtures, managed-row manifests, logical relative/`arbor://` resolution, lazy identity materialization, backlinks, subtree recovery/Trash, and safe ordinary-file reads. This plan consumes that layer rather than independently recreating it in Hunch. It does not redefine endpoints, Codable transport values, event fields, mutation receipts, durability semantics, or logical workspace operations here.
 
 Provider extraction and the node-first arbord adapter may begin against the completed client now. The macOS cutover still requires implementing and testing the native provider/session/editor mapping; satisfying transport or projection dependencies does not complete Hunch migration or native integration. Later native mounts, collections, scripts, sharing, and provenance begin only when their corresponding core capability exists.
 
-`ArbordWorkspaceProvider` translates `ArborClient` into `WorkspaceProvider` and `WorkspaceDocumentSession`. REST lifecycle and transport design remain owned by `plan.md`; editor lifecycle remains owned here.
+`ArbordWorkspaceProvider` translates `ArborClient` into `WorkspaceProvider` and `WorkspaceDocumentSession`. REST lifecycle and transport design remain owned by `roadmap.md`; editor lifecycle remains owned here.
 
 ## Delivery order
 
@@ -276,7 +276,7 @@ This is complete when Hunch's navigation, tabs, search, and menus no longer requ
 
 ### C. Package arbord and prove a read-only Arbor tree
 
-1. Add the Swift `ArborClient` package delivered by `plan.md` as an app dependency without exposing it to the `Editor` package.
+1. Add the Swift `ArborClient` package delivered by `roadmap.md` as an app dependency without exposing it to the `Editor` package.
 2. Package and supervise one macOS arbord authority with readiness, restart/resync, version reporting, safe logs, and clean shutdown. The first spike must prove that the sandboxed app's security-scoped workspace bookmark remains valid for the bundled child process; if sandbox extension inheritance is unreliable, use a signed XPC/helper boundary rather than restoring direct filesystem access in Hunch.
 3. Keep the security-scope lease alive for arbord's lifetime and make helper failure a visible reconnect/restart state. Never allow the helper and Clamshell to author the same macOS subtree simultaneously.
 4. Implement `ArbordWorkspaceProvider` read-only first: node resolution, children, search, collections, diagnostics, placeholders, ordinary-file metadata/open/preview, events, and resync.
@@ -294,7 +294,7 @@ This is complete when native TreeHopper can browse the same heterogeneous nested
 6. Preserve Hunch's multi-document workflow ordering, banners, voice transcription, native selection/undo, menus, and interaction behavior.
 7. Ensure shutdown, navigation, tabs, and structural actions drain affected sessions before process exit or mutation.
 
-This is complete when TreeHopper native and web can edit the same open document through arbord, derive the same complete directory projection and managed-child identities, and route the same editor gestures to the same content/structural operations without false quiescence, a missed snapshot/event handoff, source churn, or a clobbered external revision. Protocol fixture and transport correctness remain tested in `plan.md`; this plan tests the provider/session/editor mapping.
+This is complete when TreeHopper native and web can edit the same open document through arbord, derive the same complete directory projection and managed-child identities, and route the same editor gestures to the same content/structural operations without false quiescence, a missed snapshot/event handoff, source churn, or a clobbered external revision. Protocol fixture and transport correctness remain tested in `roadmap.md`; this plan tests the provider/session/editor mapping.
 
 ### E. Migrate the one Clamshell
 
@@ -408,7 +408,7 @@ The early integration is complete when:
 - each tab has independent reference-based history and presentation state while duplicate opens share one ordered per-document coordination stream;
 - back/forward/parent, breadcrumbs/location, contextual sidebar, home, Search Workspace, and focused menus work for documents, directories, collections, ordinary files, placeholders, and diagnostics;
 - a commit admitted immediately before blur/navigation is included in `flush`;
-- the Swift `ArborClient` has already passed the REST fixtures and live-server scenarios owned by `plan.md`;
+- the Swift `ArborClient` has already passed the REST fixtures and live-server scenarios owned by `roadmap.md`;
 - `ArbordWorkspaceProvider` and `ClamshellWorkspaceProvider` pass the native provider/session cases for node resolution, optional document open, enqueue, flush, close, external update, conflict, rename, trash/restore, assets, and recovery;
 - web and native produce the same body-plus-children projection and managed-child manifest from shared fixtures, including a bodyless directory and more than one child page;
 - the shared Markdown corpus proves untouched source/frontmatter preservation plus raw fallback, H4–H6 fallback, footnotes, LaTeX, inline formatting, and edited-block-only normalization;

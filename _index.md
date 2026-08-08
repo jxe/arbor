@@ -5,15 +5,15 @@ id: 6r6ov1
 
 [intro](intro)
 
-[editor-todo](editor-todo)
+[editor-todo](plan/editor-todo)
 
 [README](README)
 
-[technical-debt](technical-debt)
+[technical-debt](plan/technical-debt)
 
-[plan-native](plan-native)
+[plan-native](plan/native)
 
-[plan](plan)
+[plan](plan/roadmap)
 
 [spec](spec)
 
@@ -41,6 +41,6 @@ id: 6r6ov1
 
 # etc
 
-[social-networking](social-networking)
+[social-networking](docs/notes/social-networking)
 
 [tools](/arbor/tools)
