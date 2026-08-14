@@ -115,7 +115,7 @@ button:focus-visible, summary:focus-visible, a:focus-visible, input:focus-visibl
   color: var(--arbor-muted);
   cursor: pointer;
 }
-.sidebar-close svg {
+.sidebar-close svg, .sidebar-toggle svg {
   width: 18px;
   height: 18px;
   fill: none;
@@ -188,7 +188,6 @@ nav small { margin-left: auto; color: var(--arbor-warning); }
   backdrop-filter: blur(12px);
 }
 .header-leading { display: flex; align-items: center; min-width: 0; gap: 6px; }
-.sidebar-toggle span { transform: translateY(-1px); font-size: 14px; }
 .breadcrumbs { display: flex; min-width: 0; align-items: center; }
 .breadcrumbs button {
   max-width: 220px;
@@ -310,7 +309,8 @@ nav small { margin-left: auto; color: var(--arbor-warning); }
 .read-only-page .bn-editor { cursor: default; }
 .read-only-page .bn-block-content { cursor: default; }
 
-.page-actions-menu { position: fixed; z-index: 30; top: 8px; right: 16px; }
+.page-actions-host { display: flex; align-items: center; }
+.page-actions-menu { position: relative; z-index: 30; }
 .page-actions-menu summary {
   display: grid;
   place-items: center;
@@ -320,8 +320,8 @@ nav small { margin-left: auto; color: var(--arbor-warning); }
   color: var(--arbor-muted);
   cursor: pointer;
   list-style: none;
-  letter-spacing: 1px;
 }
+.page-actions-menu summary svg { width: 18px; height: 18px; stroke-width: 1.75; }
 .page-actions-menu summary::-webkit-details-marker { display: none; }
 .page-actions-menu summary:hover, .page-actions-menu[open] summary { background: var(--arbor-hover); color: var(--arbor-foreground); }
 .page-actions-menu > div, .sidebar-context-menu {
@@ -950,7 +950,6 @@ td input { width: 100%; min-width: 120px; border: 0; background: transparent; co
   }
   .mobile-sidebar-open .sidebar-backdrop { opacity: 1; pointer-events: auto; }
   .app-header { padding-right: 12px; }
-  .page-actions-menu { right: 12px; }
   .kind { display: none; }
   .editor-shell {
     --arbor-page-gutter: 20px;
@@ -975,7 +974,6 @@ td input { width: 100%; min-width: 120px; border: 0; background: transparent; co
 
 /* Filesystem-wide browsing: scope chips, canonical trees, home surface. */
 .header-trailing { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.workspace-main:has(.page-actions-menu) .header-trailing { padding-right: 46px; }
 .header-trailing > button { flex: 0 0 auto; }
 .scope-chip {
   min-width: 0;

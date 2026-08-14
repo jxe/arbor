@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Ellipsis } from "lucide-react";
 import { BlockNoteEditor, getNodeId } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extensions";
@@ -206,10 +208,11 @@ function inverseMoves(moved: BrowserMutationResult["moved"]): StructuralWorkspac
   }));
 }
 
-export function PageEditor({ node, projection, updates, onSaved, navigate }: {
+export function PageEditor({ node, projection, updates, pageActionsHost, onSaved, navigate }: {
   node: NodeSnapshot;
   projection: ProjectedDocument | null;
   updates: AsyncIterable<ProjectedNodeUpdate>;
+  pageActionsHost: HTMLDivElement | null;
   onSaved: (node: NodeSnapshot) => void;
   navigate: (target: string | NodeRef) => void;
 }) {
@@ -1169,8 +1172,8 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
         }}>+ property</button>
       </div>
     </details>
-    <details className="page-actions-menu" ref={pageActionsMenu}>
-      <summary aria-label="Page actions" title="Page actions">•••</summary>
+    {pageActionsHost && createPortal(<details className="page-actions-menu" ref={pageActionsMenu}>
+      <summary aria-label="Page actions" title="Page actions"><Ellipsis aria-hidden="true" /></summary>
       <div role="menu">
         <button role="menuitem" disabled={!coordinator.canUndo} title="Undo (⌘Z)" onClick={() => { closePageActions(); void undo(); }}>Undo</button>
         <button role="menuitem" disabled={!coordinator.canRedo} title="Redo (⇧⌘Z)" onClick={() => { closePageActions(); void redo(); }}>Redo</button>
@@ -1187,7 +1190,7 @@ export function PageEditor({ node, projection, updates, onSaved, navigate }: {
           <button role="menuitem" title="Move to Trash (⌘⌫)" disabled={!selected.size} className="danger" onClick={() => { closePageActions(); void trashSelection(); }}>Move selected page to Trash</button>
         </>}
       </div>
-    </details>
+    </details>, pageActionsHost)}
     <div className={`editor-status${saveState === "saved" && !message ? " editor-status-saved" : ""}`}>
       {message && <span className="warning">{message}</span>}
       {saveState === "conflict" && <button onClick={async () => {

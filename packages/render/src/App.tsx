@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PanelLeft, Share } from "lucide-react";
 import type { ProjectedDocument, PublicAccess, RecoveryEntry, SearchResult, ShareAudience, TreeChild, TreeDescriptor } from "@arbor/core";
 import type { NodeRef, NodeSnapshot, ProjectedNodeUpdate, ProjectedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
@@ -232,6 +233,7 @@ export function App() {
   const [node, setNode] = useState<NodeSnapshot | null>(null);
   const [projection, setProjection] = useState<ProjectedDocument | null>(null);
   const [nodeUpdates, setNodeUpdates] = useState<AsyncIterable<ProjectedNodeUpdate> | null>(null);
+  const [pageActionsHost, setPageActionsHost] = useState<HTMLDivElement | null>(null);
   const [sidebar, setSidebar] = useState<NodeSnapshot | null>(null);
   const [sidebarMenu, setSidebarMenu] = useState<SidebarMenuState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1022,7 +1024,7 @@ export function App() {
             aria-controls="workspace-sidebar"
             title="Toggle sidebar (⌘\\)"
             onClick={toggleSidebar}
-          ><span aria-hidden="true">☰</span></button>
+          ><PanelLeft aria-hidden="true" /></button>
           {remoteLocation ? <a className="remote-location" href={remoteLocation.url} target="_blank" rel="noreferrer">{remoteLocation.url}</a> : <div className="breadcrumbs">
             {visibleCrumbs.map((crumb, index) => <span key={crumb.url} className="crumb-group">
               {collapseCrumbs && index === 1 && <button className="crumb-ellipsis" title="Show full path" onClick={() => setCrumbsExpanded(true)}>…</button>}
@@ -1031,6 +1033,7 @@ export function App() {
           </div>}
         </div>
         <div className="header-trailing">
+          <div className="page-actions-host" ref={setPageActionsHost} />
           {remoteNode?.enclosingTree && !trees.some((tree) => tree.id === remoteNode.enclosingTree!.id && tree.osPath)
             ? <button className="quiet" onClick={() => void placeRemoteTree(remoteNode.enclosingTree!)}>Add to workspace…</button>
             : null}
@@ -1044,9 +1047,7 @@ export function App() {
                   disabled={sharingDisabled}
                   title={chip.iconOnly && !sharingDisabled ? "Share this subtree" : sharingTitle}
                   onClick={() => openTreeControl(sharingTarget.path, sharingTarget.tree, sharingTarget.proposedCanonicalPath)}
-                >{chip.iconOnly ? <svg aria-hidden="true" viewBox="0 0 20 20">
-                  <path d="M10 12V3m0 0L6.5 6.5M10 3l3.5 3.5M5 9v7h10V9" />
-                </svg> : chip.label}</button>
+                >{chip.iconOnly ? <Share aria-hidden="true" /> : chip.label}</button>
               : chip && <span className={chip.className}>{chip.label}</span>}
           {displayedNode?.kind === "collection" && <span className="kind">
             Collection{displayedNode.collection ? ` · ${displayedNode.collection.backing}` : ""}
@@ -1146,7 +1147,7 @@ export function App() {
           <h1>{node.name}</h1>
           <p>This file is stored by a cloud provider but is not materialized on this device.</p>
         </div> : <>
-          {(node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") && node.document && nodeUpdates && <PageEditor node={node} projection={projection} updates={nodeUpdates} onSaved={acceptNode} navigate={navigateFromNode} />}
+          {(node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") && node.document && nodeUpdates && <PageEditor node={node} projection={projection} updates={nodeUpdates} pageActionsHost={pageActionsHost} onSaved={acceptNode} navigate={navigateFromNode} />}
           {node.kind === "file" && <div className="file-surface">
             <div className="file-glyph">◇</div>
             <h1>{node.name}</h1>

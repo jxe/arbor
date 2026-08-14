@@ -47,7 +47,7 @@ test("canonicalizes Markdown storage aliases", async ({ page }) => {
   expect(profileBox).not.toBeNull();
   expect(actionsBox!.y).toBeGreaterThanOrEqual(headerBox!.y);
   expect(actionsBox!.y + actionsBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height);
-  expect(actionsBox!.x).toBeGreaterThan(profileBox!.x + profileBox!.width);
+  expect(actionsBox!.x + actionsBox!.width).toBeLessThanOrEqual(profileBox!.x);
 
   await pageActions.click();
   const menu = page.getByRole("menu");
@@ -625,6 +625,16 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   // Sharing uses an additive ACL builder, requires an explicit choice, and keeps the local folder in place.
   await page.goto(promotable(""));
   const sharingControl = page.locator(".header-trailing .share-control");
+  const [actionsBox, sharingBox, profileBox] = await Promise.all([
+    page.getByLabel("Page actions").boundingBox(),
+    sharingControl.boundingBox(),
+    page.getByRole("button", { name: "Community and profile" }).boundingBox(),
+  ]);
+  expect(actionsBox).not.toBeNull();
+  expect(sharingBox).not.toBeNull();
+  expect(profileBox).not.toBeNull();
+  expect(actionsBox!.x + actionsBox!.width).toBeLessThanOrEqual(sharingBox!.x);
+  expect(sharingBox!.x + sharingBox!.width).toBeLessThanOrEqual(profileBox!.x);
   await sharingControl.click();
   const shareSheet = page.locator(".tree-control-modal");
   await shareSheet.getByLabel("Canonical path").fill("/~owner/garden");
