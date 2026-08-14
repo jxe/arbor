@@ -130,13 +130,14 @@ function crumbsFor(url: string, home: string | null): Crumb[] {
   return crumbs;
 }
 
-function scopeChip(node: NodeSnapshot): { label: string; className: string } | null {
-  if (node.tree === "local") return { label: "untracked", className: "scope-chip untracked" };
-  if (node.tree === "system") return { label: "system · read-only", className: "scope-chip system" };
+function scopeChip(node: NodeSnapshot): { label: string; className: string; iconOnly?: boolean } | null {
+  if (node.tree === "local") return { label: "Share", className: "scope-chip untracked", iconOnly: true };
+  if (node.tree === "system") return { label: "System · Read-only", className: "scope-chip system" };
   if (node.enclosingTree) {
     return {
-      label: node.enclosingTree.legacy ? `▣ ${node.enclosingTree.name} · not shared` : `▣ ${node.enclosingTree.name} · ${node.enclosingTree.publicAccess === "none" ? "private" : `public ${node.enclosingTree.publicAccess ?? "read"}`}`,
+      label: node.enclosingTree.legacy ? "Share" : `${node.enclosingTree.name} · ${node.enclosingTree.publicAccess === "none" ? "Private" : `Public ${node.enclosingTree.publicAccess ?? "read"}`}`,
       className: `scope-chip ${node.enclosingTree.legacy ? "session" : "tracked"}`,
+      iconOnly: node.enclosingTree.legacy,
     };
   }
   return null;
@@ -939,6 +940,23 @@ export function App() {
   const nestedCanonicalPath = node?.enclosingTree?.canonicalPath && node.path !== "/"
     ? `${node.enclosingTree.canonicalPath.replace(/\/$/, "")}${node.path}`
     : undefined;
+  const sharingTarget = !remoteLocation && currentTree?.osPath
+    ? { path: currentTree.osPath, tree: currentTree, proposedCanonicalPath: undefined }
+    : !remoteLocation && canPromoteHere && node
+      ? {
+          path: nodeUrl(node),
+          tree: node.enclosingTree?.legacy ? node.enclosingTree : undefined,
+          proposedCanonicalPath: nestedCanonicalPath,
+        }
+      : null;
+  const sharingDisabled = !server.configured || !server.credentialAvailable || !server.profileTree;
+  const sharingTitle = !server.profileTree
+    ? "Claim or initialize your profile before sharing"
+    : !server.credentialAvailable
+      ? "Restore your community credential before sharing"
+      : "Share or manage access";
+  const displayedNode = remoteLocation ? remoteNode : node;
+  const profileMark = server.handle ? `~${server.handle.slice(0, 1)}` : "◉";
   const lastLocation = (() => {
     try { return localStorage.getItem(LAST_LOCATION_KEY); } catch { return null; }
   })();
@@ -1013,44 +1031,32 @@ export function App() {
           </div>}
         </div>
         <div className="header-trailing">
-          {currentTree?.osPath && <button
-            className="track-button"
-            disabled={!server.configured || !server.credentialAvailable || !server.profileTree}
-            title={!server.profileTree
-              ? "Claim or initialize your profile before sharing"
-              : !server.credentialAvailable
-                ? "Restore your community credential before sharing"
-                : "Manage sharing"}
-            onClick={() => openTreeControl(currentTree.osPath!, currentTree)}
-          >Share</button>}
-          {canPromoteHere && node && <button
-            className="track-button"
-            disabled={!server.configured || !server.credentialAvailable || !server.profileTree}
-            title={!server.configured || !server.profileTree
-              ? "Claim or initialize your profile before sharing"
-              : !server.credentialAvailable
-                ? "Restore your community credential before sharing"
-              : "Share this subtree at a stable community address"}
-            onClick={() => openTreeControl(
-              nodeUrl(node),
-              node.enclosingTree?.legacy ? node.enclosingTree : undefined,
-              nestedCanonicalPath,
-            )}
-          >Share</button>}
           {remoteNode?.enclosingTree && !trees.some((tree) => tree.id === remoteNode.enclosingTree!.id && tree.osPath)
             ? <button className="quiet" onClick={() => void placeRemoteTree(remoteNode.enclosingTree!)}>Add to workspace…</button>
             : null}
-          {remoteNode ? <span className="scope-chip tracked">remote · read-only</span> : chip && <span className={chip.className}>{chip.label}</span>}
-          {(remoteNode ?? node) && <span className="kind">
-            {(remoteNode ?? node)!.document && ["markdown", "directory", "collection"].includes((remoteNode ?? node)!.kind) ? "ArborNote · " : ""}
-            {(remoteNode ?? node)!.kind}{(remoteNode ?? node)!.collection ? ` · ${(remoteNode ?? node)!.collection!.backing}` : ""}
+          {remoteLocation
+            ? <span className="scope-chip tracked">Remote · {remoteLocation.claimable ? "Reserved" : "Read-only"}</span>
+            : chip && sharingTarget
+              ? <button
+                  type="button"
+                  className={`${chip.className} share-control${chip.iconOnly ? " icon-only" : ""}`}
+                  aria-label={chip.iconOnly ? chip.label : undefined}
+                  disabled={sharingDisabled}
+                  title={chip.iconOnly && !sharingDisabled ? "Share this subtree" : sharingTitle}
+                  onClick={() => openTreeControl(sharingTarget.path, sharingTarget.tree, sharingTarget.proposedCanonicalPath)}
+                >{chip.iconOnly ? <svg aria-hidden="true" viewBox="0 0 20 20">
+                  <path d="M10 12V3m0 0L6.5 6.5M10 3l3.5 3.5M5 9v7h10V9" />
+                </svg> : chip.label}</button>
+              : chip && <span className={chip.className}>{chip.label}</span>}
+          {displayedNode?.kind === "collection" && <span className="kind">
+            Collection{displayedNode.collection ? ` · ${displayedNode.collection.backing}` : ""}
           </span>}
           <button
             className="profile-button"
             aria-label="Community and profile"
             title={server.handle ? `Profile: ~${server.handle}` : "No active profile"}
             onClick={() => setProfileOpen(true)}
-          >{server.handle ? `~${server.handle}` : "◉"}</button>
+          >{profileMark}</button>
         </div>
       </header>
       {remoteLocation ? remoteLocation.claimable ? <div className="remote-profile-surface">

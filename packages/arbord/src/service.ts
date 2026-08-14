@@ -16,33 +16,18 @@ import type {
   TreeRef,
   WorkspaceOperation,
 } from "@arbor/core";
-import type { ArbordErrorCode } from "@arbor/core";
 import { LOCAL_TREE, SYSTEM_TREE, canonicalJSONString, canonicalNodePath, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { FsConflictError, MutationJournal } from "@arbor/fs";
 import { CommunityConfigStore, VisitedTreeStore, arborDataRoot } from "@arbor/stores";
 import { WireClient, decodeWireObject, materializeTree, resolveWireLogicalNode, snapshotDirectory, type RemoteTreeDescriptor } from "@arbor/wire";
 import { EventBus } from "./events.ts";
+import { fsErrorCode } from "./fs-errors.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { ProtocolError, RevisionConflictError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 
 const SYSTEM_REMOTE_TIMEOUT_MS = 1_000;
-
-export function fsErrorCode(error: FsConflictError): { code: ArbordErrorCode; status: number; retryable?: boolean } {
-  switch (error.details.code) {
-    case "stale-revision": return { code: "stale-content-revision", status: 409 };
-    case "missing-insertion-anchor": return { code: "missing-insertion-anchor", status: 409 };
-    case "occupied-destination": return { code: "occupied-destination", status: 409 };
-    case "duplicate-body": return { code: "duplicate-body-representation", status: 409 };
-    case "unsafe-path":
-    case "recursive-move": return { code: "unsafe-path", status: 400 };
-    case "not-found": return { code: "not-found", status: 404 };
-    case "read-only": return { code: "read-only", status: 422 };
-    case "offline": return { code: "not-materialized", status: 409, retryable: true };
-    default: return { code: "invalid-reference", status: 400 };
-  }
-}
 
 type ResolvedScope =
   | { kind: "root"; workspace: Workspace; ref: NodeRef }
@@ -405,7 +390,7 @@ export class ArborService implements AsyncDisposable {
     }
     throw new ProtocolError(
       "unsupported-operation",
-      "Backlinks require a shared tree: give the enclosing subtree a URL to enable them",
+      "Backlinks are unavailable outside a managed workspace",
       422,
     );
   }
@@ -415,7 +400,7 @@ export class ArborService implements AsyncDisposable {
     if (scope.kind === "root") return scope.workspace.recoveryPage(scope.ref, recursive, cursor);
     throw new ProtocolError(
       "unsupported-operation",
-      "Recovery requires a shared tree: give the enclosing subtree a URL to enable it",
+      "Recovery is unavailable outside a managed workspace",
       422,
     );
   }
@@ -427,7 +412,7 @@ export class ArborService implements AsyncDisposable {
     if (tree === LOCAL_TREE || tree === SYSTEM_TREE) {
       throw new ProtocolError(
         "unsupported-operation",
-        "Search requires a shared tree: give the enclosing subtree a URL to enable it",
+        "Search is unavailable outside a managed workspace",
         422,
       );
     }
@@ -468,7 +453,7 @@ export class ArborService implements AsyncDisposable {
     if (scope.kind !== "root") {
       throw new ProtocolError(
         "unsupported-operation",
-        "Assets require a shared tree: give the enclosing subtree a URL to enable them",
+        "Assets are unavailable outside a managed workspace",
         422,
       );
     }
@@ -484,7 +469,7 @@ export class ArborService implements AsyncDisposable {
     if (scope.kind !== "root") {
       throw new ProtocolError(
         "unsupported-operation",
-        "Imports require a shared tree: give the enclosing subtree a URL to enable them",
+        "Imports are unavailable outside a managed workspace",
         422,
       );
     }
@@ -1383,6 +1368,7 @@ export class ArborService implements AsyncDisposable {
 
   async [Symbol.asyncDispose](): Promise<void> {
     if (this.syncTimer) clearInterval(this.syncTimer);
+    await this.localFs[Symbol.asyncDispose]();
     await this.trees[Symbol.asyncDispose]();
   }
 }

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArbor } from "@arbor/arbord";
@@ -20,10 +20,18 @@ beforeAll(async () => {
   root = join(outer, "workspace");
   await mkdir(root);
   await writeFile(join(root, "inside.md"), "Inside the session root\n");
+  await mkdir(join(root, "ordered"));
+  await writeFile(join(root, "ordered", "_index.md"), "[First](first)\n\n[Second](second)\n");
+  await writeFile(join(root, "ordered", "first.md"), "First\n");
+  await writeFile(join(root, "ordered", "second.md"), "Second\n");
   await mkdir(join(outer, "stray"));
   await writeFile(join(outer, "stray", "note.md"), "Untracked note\n");
   await writeFile(join(outer, "stray", "photo.png"), new TextEncoder().encode("PNG"));
   await writeFile(join(outer, "stray", ".offline.txt.icloud"), "provider marker");
+  await mkdir(join(outer, "stray", "ordered"));
+  await writeFile(join(outer, "stray", "ordered", "_index.md"), "[First](first)\n\n[Second](second)\n");
+  await writeFile(join(outer, "stray", "ordered", "first.md"), "First\n");
+  await writeFile(join(outer, "stray", "ordered", "second.md"), "Second\n");
   await symlink(join(root, "inside.md"), join(outer, "stray", "link-into-root.md"));
   const running = await serveArbor(root, { port: 0 });
   base = running.url;
@@ -103,20 +111,82 @@ describe("the local filesystem scope", () => {
     expect(await (await fetch(`${base}${path}`)).text()).not.toContain("provider marker");
   });
 
-  test("keeps an unpromoted launch directory in local scope", async () => {
+  test("canonicalizes an absolute path inside the launch workspace", async () => {
     const viaLocal = await client.node({ tree: "local", path: join(root, "inside") });
-    expect(viaLocal.tree).toBe("local");
-    expect(viaLocal.path).toBe(join(root, "inside"));
-    expect(viaLocal.enclosingTree).toBeUndefined();
+    expect(viaLocal.tree).not.toBe("local");
+    expect(viaLocal.path).toBe("/inside");
+    expect(viaLocal.enclosingTree).toMatchObject({
+      placement: "local",
+      legacy: true,
+      osPath: root,
+    });
   });
 
-  test("follows a symlink into the unpromoted launch directory without minting a tree", async () => {
+  test("uses WorkspaceFS authored ordering through an absolute browser path", async () => {
+    const absolute = join(root, "ordered");
+    const directory = await client.node({ tree: "local", path: absolute });
+    expect(directory.tree).not.toBe("local");
+    expect(directory.path).toBe("/ordered");
+    const first = directory.document!.blocks.find((block) => block.type === "standaloneLink" && block.props?.path === "first");
+    expect(first).toBeDefined();
+
+    await client.mutate({
+      mutationID: "workspace-absolute-authored-order",
+      operations: [{
+        op: "move",
+        refs: [{ tree: directory.tree, path: "/ordered/second" }],
+        destination: { tree: directory.tree, path: "/ordered" },
+        placement: "authored",
+        beforeBlockID: first!.id,
+        baseDirectoryRevision: directory.directoryRevision,
+      }],
+    });
+
+    const reordered = await client.node({ tree: "local", path: absolute });
+    expect(reordered.document!.blocks
+      .filter((block) => block.type === "standaloneLink")
+      .map((block) => block.props?.path)).toEqual(["second", "first"]);
+  });
+
+  test("canonicalizes a symlink from untracked space into the launch workspace", async () => {
     const viaLink = await client.node({ tree: "local", path: join(outer, "stray", "link-into-root") });
-    expect(viaLink.tree).toBe("local");
-    expect(viaLink.path).toBe(join(outer, "stray", "link-into-root"));
+    expect(viaLink.tree).not.toBe("local");
+    expect(viaLink.path).toBe("/inside");
+    expect(viaLink.kind).toBe("markdown");
+    expect(viaLink.enclosingTree).toMatchObject({ placement: "local", legacy: true, osPath: root });
   });
 
-  test("refuses shared-tree capabilities outside a promoted boundary", async () => {
+  test("uses the shared authored-order engine without minting identity in untracked space", async () => {
+    const absolute = join(outer, "stray", "ordered");
+    const directory = await client.node({ tree: "local", path: absolute });
+    expect(directory.tree).toBe("local");
+    expect(directory.document?.frontmatter.id).toBeUndefined();
+    const first = directory.document!.blocks.find((block) => block.type === "standaloneLink" && block.props?.path === "first");
+    expect(first).toBeDefined();
+
+    await client.mutate({
+      mutationID: "untracked-authored-order",
+      operations: [{
+        op: "move",
+        refs: [{ tree: "local", path: join(absolute, "second") }],
+        destination: { tree: "local", path: absolute },
+        placement: "authored",
+        beforeBlockID: first!.id,
+        baseDirectoryRevision: directory.directoryRevision,
+      }],
+    });
+
+    const reordered = await client.node({ tree: "local", path: absolute });
+    expect(reordered.document!.blocks
+      .filter((block) => block.type === "standaloneLink")
+      .map((block) => block.props?.path)).toEqual([
+        "second",
+        "first",
+      ]);
+    expect(await readFile(join(absolute, "_index.md"), "utf8")).not.toContain("id:");
+  });
+
+  test("refuses managed-workspace capabilities in untracked space", async () => {
     for (const url of [
       `${base}/v1/search?tree=local&q=note`,
       `${base}/v1/recovery?tree=local&path=${encodeURIComponent(join(outer, "stray"))}`,
@@ -125,7 +195,7 @@ describe("the local filesystem scope", () => {
       expect(response.status).toBe(422);
       const body = await response.json() as { error: { code: string; message: string } };
       expect(body.error.code).toBe("unsupported-operation");
-      expect(body.error.message).toContain("shared tree");
+      expect(body.error.message).toContain("managed workspace");
     }
     const trash: MutationRequest = {
       mutationID: "fs-trash-refused",
@@ -160,7 +230,10 @@ describe("the local filesystem scope", () => {
         { op: "createMarkdown", tree: "local", path: join(dir, "draft") },
       ],
     });
-    expect(created.effects.map((effect) => effect.kind)).toEqual(["created", "created"]);
+    expect(created.effects.filter((effect) => effect.kind === "created").map((effect) => effect.path)).toEqual([
+      dir,
+      join(dir, "draft"),
+    ]);
     const renamed = await client.mutate({
       mutationID: "fs-rename-1",
       operations: [{ op: "rename", ref: { tree: "local", path: join(dir, "draft") }, name: "final" }],

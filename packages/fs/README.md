@@ -53,3 +53,5 @@ Tests should use temporary workspace and state directories and inject faults at 
 ## Public surface
 
 `WorkspaceFS.open(root, { stateDirectory })` returns an instance with `resolve`, `read`, `list`, `writeMarkdown`, `writeFile`, `mutate`, `recovery`, `restoreBlock`, `subscribe`, and `drain`. `mutate` accepts a discriminated `FsMutation` batch and returns a transaction ID plus logical created, updated, moved, and deleted paths. Failed preconditions throw `FsConflictError` with structured details suitable for HTTP 409 responses.
+
+Managed workspaces use the default durable-identity profile. Filesystem-wide browsing opens the same engine with `discovery: "none"` and `identity: "path-only"`: logical resolution and atomic/authored mutations stay shared, while browsing does not recursively scan, watch, mint IDs in, or recovery-reconcile arbitrary files.

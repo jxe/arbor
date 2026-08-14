@@ -10,7 +10,8 @@ import type {
 import { PathEscapeError } from "@arbor/core";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
 import { ResyncRequiredError } from "./events.ts";
-import { ArborService, fsErrorCode } from "./service.ts";
+import { fsErrorCode } from "./fs-errors.ts";
+import { ArborService } from "./service.ts";
 import { ProtocolError, RevisionConflictError, type Workspace } from "./workspace.ts";
 
 const MIME: Record<string, string> = {

@@ -371,7 +371,12 @@ export class TreeManager implements AsyncDisposable {
   async ownerOf(osPath: string): Promise<{ workspace: Workspace; treePath: string } | null> {
     let best: { tree: string; root: KnownRoot } | null = null;
     for (const [tree, root] of this.known) {
-      if (root.missing || !root.placement) continue;
+      // The active launch workspace owns its filesystem subtree even before
+      // it is registered or shared. Absolute browser URLs can therefore use
+      // the same WorkspaceFS implementation as launch-relative API refs,
+      // while paths outside every workspace remain in the reduced local
+      // filesystem scope.
+      if (root.missing || (!root.placement && tree !== this.sessionID)) continue;
       const prefix = root.osPath.endsWith("/") ? root.osPath : `${root.osPath}/`;
       if (osPath !== root.osPath && !osPath.startsWith(prefix)) continue;
       if (best && best.root.osPath.length >= root.osPath.length) continue;

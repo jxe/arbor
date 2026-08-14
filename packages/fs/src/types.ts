@@ -33,7 +33,8 @@ export interface FsReadResult {
 }
 
 export interface FsWriteResult extends FsReadResult {
-  pageID: string;
+  /** Present when the document already has, or this filesystem profile mints, durable identity. */
+  pageID?: string;
   generation: number;
 }
 
@@ -105,7 +106,9 @@ export interface FsEvent {
 
 export interface WorkspaceFSOptions {
   stateDirectory: string;
-  discovery?: "recursive" | "shallow";
+  discovery?: "recursive" | "shallow" | "none";
+  /** `path-only` preserves existing frontmatter but never mints or reconciles document IDs. */
+  identity?: "durable" | "path-only";
   /** Physically nested trees projected by the reader's workspace, not owned by this tree. */
   excludedRoots?: readonly string[];
   settleDelayMs?: number;

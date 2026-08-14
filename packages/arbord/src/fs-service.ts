@@ -1,8 +1,6 @@
-import { access, cp, mkdir, readdir, readFile, realpath, rename, stat } from "node:fs/promises";
-import { constants } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type {
-  ArborBlock,
   ChildrenPage,
   CollectionResultPage,
   Diagnostic,
@@ -18,46 +16,21 @@ import {
   LOCAL_TREE,
   canonicalJSONString,
   canonicalNodePath,
-  directoryIndexTreePath,
   nodeDisplayName,
   normalizeTreePath,
-  revisionOf,
   sha256,
-  siblingMarkdownTreePath,
 } from "@arbor/core";
-import { parseMarkdown, serializeMarkdown } from "@arbor/editor";
-import {
-  IGNORED_WORKSPACE_DIRECTORIES,
-  iCloudPlaceholderLogicalName,
-  iCloudPlaceholderPath,
-  pathExists,
-  writeAtomic,
-} from "@arbor/fs";
-import { CollectionStore } from "@arbor/stores";
+import { FsConflictError, type FsMutation, WorkspaceFS } from "@arbor/fs";
+import { CollectionStore, arborDataRoot } from "@arbor/stores";
 import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import type { EventBus } from "./events.ts";
+import { fsErrorCode } from "./fs-errors.ts";
 import { ProtocolError } from "./workspace.ts";
-
-const RESERVED = new Set(["schema.ts", "_store.csv", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
-const EMPTY_REVISION = revisionOf("");
-
-interface ResolvedLocalNode {
-  path: string;
-  kind: "markdown" | "directory" | "file" | "missing";
-  absolutePath: string;
-  directoryPath: string | null;
-  bodyPath: string | null;
-  bodySource: "sibling" | "index" | null;
-  writable: boolean;
-  materialization: "available" | "placeholder";
-  diagnostics: Diagnostic[];
-}
 
 function isSystemError(error: unknown): error is NodeJS.ErrnoException {
   return Boolean(error) && typeof error === "object" && "code" in (error as object);
 }
 
-/** Map OS access failures to the protocol's permission-denied. */
 function mapOsError(error: unknown, path: string): never {
   if (isSystemError(error)) {
     if (error.code === "EACCES" || error.code === "EPERM") {
@@ -94,164 +67,50 @@ export async function realOsPath(inputPath: string): Promise<string> {
 }
 
 /**
- * The untracked `local` scope: browse, read, and CAS-edit the plain
- * filesystem with the same logical node shape as a shared tree, but with
- * no journal, no durable identity, no watcher, and no per-tree affordances
- * (search, backlinks, Trash, recovery). Authored mutations still publish
- * events on the shared bus so other tabs revalidate.
+ * Protocol adapter for paths outside every managed workspace. Logical node
+ * resolution, Markdown persistence, and atomic structural mutations all use
+ * WorkspaceFS in its path-only profile. This adapter adds only absolute-path
+ * scope, protocol receipts/events, pagination, and collection projection.
  */
-export class FilesystemService {
+export class FilesystemService implements AsyncDisposable {
   private collections = new CollectionStore();
   private receipts = new Map<string, { requestHash: string; receipt: MutationReceipt }>();
+  private engine = WorkspaceFS.open("/", {
+    stateDirectory: join(arborDataRoot(), "system", "untracked-fs"),
+    discovery: "none",
+    identity: "path-only",
+  });
 
   constructor(private events: EventBus) {}
 
-  private async isWritable(path: string): Promise<boolean> {
-    try {
-      await access(path, constants.W_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  async resolve(inputPath: string): Promise<ResolvedLocalNode> {
-    const path = canonicalNodePath(inputPath);
-    const sibling = siblingMarkdownTreePath(path);
-    const directPlaceholder = iCloudPlaceholderPath(path);
-    const siblingPlaceholder = iCloudPlaceholderPath(sibling);
-    let directInfo = null;
-    try {
-      directInfo = await stat(path);
-    } catch (error) {
-      if (isSystemError(error) && (error.code === "EACCES" || error.code === "EPERM")) mapOsError(error, path);
-    }
-    let siblingInfo = null;
-    if (path !== "/") {
-      try {
-        siblingInfo = await stat(sibling);
-      } catch {}
-    }
-    const directPlaceholderInfo = path === "/" ? null : await stat(directPlaceholder).catch(() => null);
-    const siblingPlaceholderInfo = path === "/" ? null : await stat(siblingPlaceholder).catch(() => null);
-
-    if (directInfo?.isDirectory()) {
-      const indexPath = join(path, "_index.md");
-      const hasIndex = await pathExists(indexPath);
-      const hasSibling = Boolean(siblingInfo?.isFile());
-      const diagnostics: Diagnostic[] = hasSibling && hasIndex ? [{
-        code: "duplicate-body-representation",
-        message: `${path} has competing bodies at ${sibling} and ${directoryIndexTreePath(path)}; keep only one.`,
-        path,
-        severity: "error",
-      }] : [];
-      const bodyPath = hasSibling ? sibling : hasIndex ? indexPath : null;
-      return {
-        path,
-        kind: "directory",
-        absolutePath: path,
-        directoryPath: path,
-        bodyPath,
-        bodySource: hasSibling ? "sibling" : hasIndex ? "index" : null,
-        writable: await this.isWritable(path) && (!bodyPath || await this.isWritable(bodyPath)),
-        materialization: "available",
-        diagnostics,
-      };
-    }
-
-    if (siblingInfo?.isFile() || siblingPlaceholderInfo?.isFile()) {
-      const placeholder = !siblingInfo?.isFile() && Boolean(siblingPlaceholderInfo?.isFile());
-      const physicalBody = placeholder ? siblingPlaceholder : sibling;
-      const diagnostics: Diagnostic[] = directInfo ? [{
-        code: "duplicate-node-representation",
-        message: `${path} is occupied by both a file and a Markdown page.`,
-        path,
-        severity: "error",
-      }] : [];
-      return {
-        path,
-        kind: "markdown",
-        absolutePath: physicalBody,
-        directoryPath: null,
-        bodyPath: physicalBody,
-        bodySource: "sibling",
-        writable: !placeholder && await this.isWritable(sibling),
-        materialization: placeholder ? "placeholder" : "available",
-        diagnostics,
-      };
-    }
-
-    if (directInfo || directPlaceholderInfo?.isFile()) {
-      const placeholder = !directInfo && Boolean(directPlaceholderInfo?.isFile());
-      return {
-        path,
-        kind: "file",
-        absolutePath: placeholder ? directPlaceholder : path,
-        directoryPath: null,
-        bodyPath: null,
-        bodySource: null,
-        writable: !placeholder && await this.isWritable(path),
-        materialization: placeholder ? "placeholder" : "available",
-        diagnostics: [],
-      };
-    }
-
-    return {
-      path,
-      kind: "missing",
-      absolutePath: path,
-      directoryPath: null,
-      bodyPath: null,
-      bodySource: null,
-      writable: await this.isWritable(dirname(path)),
-      materialization: "available",
-      diagnostics: [],
-    };
-  }
-
   private async node(inputPath: string): Promise<TreeNode> {
-    const resolved = await this.resolve(inputPath);
+    const fs = await this.engine;
+    const read = await fs.read(inputPath);
+    const resolved = read.node;
     if (resolved.kind === "missing") {
       throw new ProtocolError("not-found", `Node not found: ${resolved.path}`, 404, { path: resolved.path });
     }
-    if (resolved.materialization === "placeholder") {
+    if (resolved.kind === "file" || resolved.materialization === "placeholder") {
       return {
         path: resolved.path,
         name: nodeDisplayName(resolved.path),
         kind: resolved.kind,
-        revision: revisionOf(`placeholder:${resolved.path}`),
-        writable: false,
-        materialization: "placeholder",
-        diagnostics: resolved.diagnostics,
-      };
-    }
-    if (resolved.kind === "file") {
-      const bytes = await readFile(resolved.absolutePath).catch((error) => mapOsError(error, resolved.path));
-      return {
-        path: resolved.path,
-        name: nodeDisplayName(resolved.path),
-        kind: "file",
-        revision: revisionOf(new Uint8Array(bytes)),
-        writable: resolved.writable,
+        revision: read.byteRevision,
+        writable: resolved.materialization === "placeholder" ? false : resolved.writable,
         materialization: resolved.materialization,
         diagnostics: resolved.diagnostics,
       };
     }
-    const source = resolved.bodyPath
-      ? await readFile(resolved.bodyPath, "utf8").catch((error) => mapOsError(error, resolved.path))
-      : "";
-    const document = parseMarkdown(source);
-    const revision = revisionOf(source);
     if (resolved.kind === "markdown") {
       return {
         path: resolved.path,
         name: nodeDisplayName(resolved.path),
         kind: "markdown",
-        revision,
+        revision: read.byteRevision,
         writable: resolved.writable,
         materialization: resolved.materialization,
         bodyOrigin: resolved.bodySource ?? undefined,
-        document,
+        document: read.document,
         diagnostics: resolved.diagnostics,
       };
     }
@@ -261,11 +120,11 @@ export class FilesystemService {
       path: resolved.path,
       name: resolved.path === "/" ? "/" : nodeDisplayName(resolved.path),
       kind: collection ? "collection" : "directory",
-      revision,
+      revision: read.byteRevision,
       writable: resolved.writable,
       materialization: resolved.materialization,
       bodyOrigin: resolved.bodySource ?? undefined,
-      document,
+      document: read.document,
       children: children.children,
       collection: collection ?? undefined,
       diagnostics: [...resolved.diagnostics, ...children.diagnostics],
@@ -276,38 +135,23 @@ export class FilesystemService {
     path: string,
     virtualTables: string[],
   ): Promise<{ children: TreeChild[]; diagnostics: Diagnostic[] }> {
-    const entries = await readdir(path, { withFileTypes: true }).catch((error) => mapOsError(error, path));
-    const paths = new Set<string>();
-    for (const entry of entries) {
-      if (IGNORED_WORKSPACE_DIRECTORIES.has(entry.name) || RESERVED.has(entry.name)) continue;
-      if (entry.name.includes(".arbor-txn-") || entry.name.includes(".arbor-write-")) continue;
-      const logicalName = iCloudPlaceholderLogicalName(entry.name) ?? entry.name;
-      const physical = `${path === "/" ? "" : path}/${logicalName}`;
-      try {
-        paths.add(logicalName.endsWith(".md") ? canonicalNodePath(physical) : normalizeTreePath(physical));
-      } catch {}
-    }
+    const fs = await this.engine;
+    const entries = await fs.list(path);
     const children: TreeChild[] = [];
     const diagnostics: Diagnostic[] = [];
-    for (const childPath of paths) {
-      let child: ResolvedLocalNode;
-      try {
-        child = await this.resolve(childPath);
-      } catch {
-        continue;
-      }
-      if (child.kind === "missing") continue;
-      let kind: TreeChild["kind"] = child.kind;
-      if (child.kind === "directory" && child.directoryPath) {
-        if (await this.collections.summary(child.directoryPath).catch(() => null)) kind = "collection";
+    for (const entry of entries) {
+      let kind: TreeChild["kind"] = entry.kind;
+      if (entry.kind === "directory") {
+        const resolved = await fs.resolve(entry.path);
+        if (resolved.directoryPath && await this.collections.summary(resolved.directoryPath).catch(() => null)) kind = "collection";
       }
       children.push({
-        name: nodeDisplayName(child.path),
-        path: child.path,
+        name: entry.name,
+        path: entry.path,
         kind,
-        materialization: child.materialization,
+        materialization: entry.materialization,
       });
-      diagnostics.push(...child.diagnostics);
+      diagnostics.push(...entry.diagnostics);
     }
     for (const table of virtualTables) {
       children.push({
@@ -340,64 +184,149 @@ export class FilesystemService {
     };
   }
 
+  private async withErrors<T>(run: () => Promise<T>, operation?: WorkspaceOperation): Promise<T> {
+    try {
+      return await run();
+    } catch (error) {
+      if (error instanceof ProtocolError) throw error;
+      if (error instanceof FsConflictError) {
+        if (error.details.code === "missing-insertion-anchor" && operation?.op === "move") {
+          throw new ProtocolError("missing-insertion-anchor", error.message, 409, {
+            path: error.details.path,
+            anchor: { beforePath: operation.beforePath, beforeBlockID: operation.beforeBlockID },
+          });
+        }
+        if (error.details.code === "stale-revision" && operation?.op === "move" && operation.baseDirectoryRevision !== undefined) {
+          const current = await this.snapshot(error.details.path).catch(() => undefined);
+          throw new ProtocolError("stale-directory-revision", error.message, 409, { path: error.details.path, current });
+        }
+        const mapped = fsErrorCode(error);
+        const current = error.details.current
+          ? await this.snapshot(error.details.current.node.path).catch(() => undefined)
+          : undefined;
+        throw new ProtocolError(mapped.code, error.message, mapped.status, {
+          path: error.details.path,
+          retryable: mapped.retryable ?? false,
+          current,
+        });
+      }
+      if (isSystemError(error)) mapOsError(error, operation && "path" in operation ? operation.path : "/");
+      throw error;
+    }
+  }
+
   async snapshot(path: string): Promise<NodeSnapshot> {
-    const observedThrough = this.events.currentCursor();
-    return this.snapshotFromTree(await this.node(path), observedThrough);
+    return this.withErrors(async () => {
+      const observedThrough = this.events.currentCursor();
+      return this.snapshotFromTree(await this.node(path), observedThrough);
+    });
   }
 
   async children(path: string, cursor?: string | null): Promise<ChildrenPage> {
-    const observedThrough = this.events.currentCursor();
-    const node = await this.node(path);
-    if (node.kind !== "directory" && node.kind !== "collection") {
-      throw new ProtocolError("invalid-reference", `${node.path} does not have children`, 400, { path: node.path });
-    }
-    const offset = decodePageCursor(cursor, `children:local:${node.path}`);
-    const items = (node.children ?? []).slice(offset, offset + 100);
-    const nextOffset = offset + items.length;
-    return {
-      parent: { tree: LOCAL_TREE, path: node.path },
-      items,
-      nextCursor: nextOffset < (node.children?.length ?? 0)
-        ? encodePageCursor(`children:local:${node.path}`, nextOffset)
-        : null,
-      observedThrough,
-    };
+    return this.withErrors(async () => {
+      const observedThrough = this.events.currentCursor();
+      const node = await this.node(path);
+      if (node.kind !== "directory" && node.kind !== "collection") {
+        throw new ProtocolError("invalid-reference", `${node.path} does not have children`, 400, { path: node.path });
+      }
+      const offset = decodePageCursor(cursor, `children:local:${node.path}`);
+      const items = (node.children ?? []).slice(offset, offset + 100);
+      const nextOffset = offset + items.length;
+      return {
+        parent: { tree: LOCAL_TREE, path: node.path },
+        items,
+        nextCursor: nextOffset < (node.children?.length ?? 0)
+          ? encodePageCursor(`children:local:${node.path}`, nextOffset)
+          : null,
+        observedThrough,
+      };
+    });
   }
 
   async collectionPage(path: string, cursor?: string | null, table?: string): Promise<CollectionResultPage> {
-    const observedThrough = this.events.currentCursor();
-    const treePath = canonicalNodePath(path);
-    const resolved = await this.resolve(treePath);
-    let absolute = resolved.directoryPath;
-    let effectiveTable = table;
-    if (!absolute) {
-      const parent = await this.resolve(treePath.slice(0, treePath.lastIndexOf("/")) || "/");
-      absolute = parent.directoryPath;
-      effectiveTable ??= treePath.slice(treePath.lastIndexOf("/") + 1);
-    }
-    if (!absolute) throw new ProtocolError("invalid-reference", `${treePath} is not a collection`, 400, { path: treePath });
-    const offset = decodePageCursor(cursor, `collection:local:${treePath}:${effectiveTable ?? ""}`);
-    return { ...(await this.collections.page(absolute, treePath, offset, 100, effectiveTable)), observedThrough };
+    return this.withErrors(async () => {
+      const observedThrough = this.events.currentCursor();
+      const fs = await this.engine;
+      const treePath = canonicalNodePath(path);
+      const resolved = await fs.resolve(treePath);
+      let absolute = resolved.directoryPath;
+      let effectiveTable = table;
+      if (!absolute) {
+        const parent = await fs.resolve(treePath.slice(0, treePath.lastIndexOf("/")) || "/");
+        absolute = parent.directoryPath;
+        effectiveTable ??= treePath.slice(treePath.lastIndexOf("/") + 1);
+      }
+      if (!absolute) throw new ProtocolError("invalid-reference", `${treePath} is not a collection`, 400, { path: treePath });
+      const offset = decodePageCursor(cursor, `collection:local:${treePath}:${effectiveTable ?? ""}`);
+      return { ...(await this.collections.page(absolute, treePath, offset, 100, effectiveTable)), observedThrough };
+    });
   }
 
-  /** Ordinary-file bytes (or a document's stored body under `raw`). */
   async fileSurface(inputPath: string, raw: boolean): Promise<{ bytes: Uint8Array; revision: string; path: string } | null> {
-    let resolved: ResolvedLocalNode;
-    try {
-      resolved = await this.resolve(inputPath);
-    } catch {
+    return this.withErrors(async () => {
+      const read = await (await this.engine).read(inputPath);
+      if (read.node.kind === "file" && read.bytes) {
+        return { bytes: read.bytes, revision: read.byteRevision, path: read.node.absolutePath };
+      }
+      if (raw && (read.node.kind === "markdown" || read.node.kind === "directory") && read.bytes && read.node.bodyPath) {
+        return { bytes: read.bytes, revision: read.byteRevision, path: read.node.bodyPath };
+      }
       return null;
+    });
+  }
+
+  private refPath(ref: { path: string } | { pageID: string; pathHint?: string }): string {
+    if (!("path" in ref)) {
+      throw new ProtocolError("invalid-reference", "Durable identity resolution requires a managed workspace", 400);
     }
-    if (resolved.materialization === "placeholder") return null;
-    if (resolved.kind === "file") {
-      const bytes = new Uint8Array(await readFile(resolved.absolutePath).catch((error) => mapOsError(error, resolved.path)));
-      return { bytes, revision: revisionOf(bytes), path: resolved.absolutePath };
+    return canonicalNodePath(ref.path);
+  }
+
+  private unsupported(what: string): never {
+    throw new ProtocolError("unsupported-operation", `${what} is unavailable outside a managed workspace`, 422);
+  }
+
+  private toFsOperation(operation: WorkspaceOperation): FsMutation {
+    switch (operation.op) {
+      case "createDirectory": return { op: "createDirectory", path: operation.path };
+      case "createMarkdown": return { op: "createMarkdown", path: operation.path, blocks: operation.blocks };
+      case "rename": return { op: "rename", path: this.refPath(operation.ref), name: operation.name };
+      case "move": return {
+        op: "move",
+        paths: operation.refs.map((ref) => this.refPath(ref)),
+        destination: this.refPath(operation.destination),
+        placement: operation.placement,
+        beforePath: operation.beforePath,
+        beforeBlockId: operation.beforeBlockID,
+        directoryRevision: operation.baseDirectoryRevision,
+      };
+      case "copy": return {
+        op: "copy",
+        paths: operation.refs.map((ref) => this.refPath(ref)),
+        destination: this.refPath(operation.destination),
+      };
+      case "trash": return this.unsupported("Trash");
+      case "restore": return this.unsupported("Restore");
+      case "restoreRecovery": return this.unsupported("Recovery");
+      case "ensureDocumentIdentity": return this.unsupported("Durable document identity");
+      default: throw new ProtocolError("unsupported-operation", `Unsupported operation: ${(operation as { op: string }).op}`, 422);
     }
-    if (raw && (resolved.kind === "markdown" || resolved.kind === "directory") && resolved.bodyPath) {
-      const bytes = new Uint8Array(await readFile(resolved.bodyPath).catch((error) => mapOsError(error, resolved.path)));
-      return { bytes, revision: revisionOf(bytes), path: resolved.bodyPath };
-    }
-    return null;
+  }
+
+  private async effectsFromChanges(changes: Awaited<ReturnType<WorkspaceFS["mutate"]>>["changes"]): Promise<MutationEffect[]> {
+    return Promise.all(changes.map(async (change) => {
+      const snapshot = await this.node(change.path).catch(() => null);
+      return {
+        kind: change.kind,
+        tree: LOCAL_TREE,
+        path: change.path,
+        previousPath: change.previousPath,
+        contentRevision: snapshot?.revision,
+        directoryRevision: snapshot && (snapshot.kind === "directory" || snapshot.kind === "collection")
+          ? snapshot.revision
+          : undefined,
+      };
+    }));
   }
 
   async executeMutation(request: MutationRequest): Promise<MutationReceipt> {
@@ -411,10 +340,30 @@ export class FilesystemService {
       }
       return existing.receipt;
     }
-    const effects: MutationEffect[] = [];
-    for (const operation of request.operations) {
-      effects.push(...await this.performOperation(operation));
+    const content = request.operations.filter((operation) => operation.op === "writeMarkdown");
+    if (content.length && (content.length !== 1 || request.operations.length !== 1)) {
+      throw new ProtocolError("unsupported-operation", "A content mutation cannot be mixed with structural operations", 422);
     }
+    const operation = request.operations[0];
+    const effects = await this.withErrors(async () => {
+      if (content.length === 1) {
+        const write = content[0]!;
+        const result = await (await this.engine).writeMarkdown(this.refPath(write.ref), {
+          baseRevision: write.baseContentRevision,
+          frontmatterPatch: write.frontmatterPatch,
+          blocks: write.blocks,
+        });
+        return [{
+          kind: "updated" as const,
+          tree: LOCAL_TREE,
+          path: result.node.path,
+          contentRevision: result.byteRevision,
+          directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
+        }];
+      }
+      const fsOperations = request.operations.map((item) => this.toFsOperation(item));
+      return this.effectsFromChanges((await (await this.engine).mutate({ operations: fsOperations })).changes);
+    }, operation);
     let eventCursor = this.events.currentCursor();
     for (const effect of effects) {
       eventCursor = this.events.emit({
@@ -433,219 +382,7 @@ export class FilesystemService {
     return receipt;
   }
 
-  private unsupported(what: string): never {
-    throw new ProtocolError(
-      "unsupported-operation",
-      `${what} requires a shared tree: give the enclosing subtree a URL to enable it`,
-      422,
-    );
-  }
-
-  private async performOperation(operation: WorkspaceOperation): Promise<MutationEffect[]> {
-    switch (operation.op) {
-      case "writeMarkdown": {
-        if (!("path" in operation.ref)) {
-          throw new ProtocolError("invalid-reference", "Durable identity resolution requires a live root", 400);
-        }
-        return [await this.writeMarkdown(operation.ref.path, operation.baseContentRevision, operation.blocks, operation.frontmatterPatch)];
-      }
-      case "createMarkdown": {
-        const path = canonicalNodePath(operation.path);
-        const target = siblingMarkdownTreePath(path);
-        if ((await this.resolve(path)).kind !== "missing" || await pathExists(target)) {
-          throw new ProtocolError("occupied-destination", `${path} already exists`, 409, { path });
-        }
-        const document = parseMarkdown("");
-        const output = serializeMarkdown(document, operation.blocks ?? []);
-        try {
-          await writeAtomic(target, output);
-        } catch (error) {
-          mapOsError(error, path);
-        }
-        return [{ kind: "created", tree: LOCAL_TREE, path, contentRevision: revisionOf(output) }];
-      }
-      case "createDirectory": {
-        const path = normalizeTreePath(operation.path);
-        if ((await this.resolve(path)).kind !== "missing") {
-          throw new ProtocolError("occupied-destination", `${path} already exists`, 409, { path });
-        }
-        try {
-          await mkdir(path, { recursive: false });
-        } catch (error) {
-          mapOsError(error, path);
-        }
-        return [{
-          kind: "created",
-          tree: LOCAL_TREE,
-          path,
-          contentRevision: EMPTY_REVISION,
-          directoryRevision: EMPTY_REVISION,
-        }];
-      }
-      case "rename": {
-        if (!("path" in operation.ref)) {
-          throw new ProtocolError("invalid-reference", "Durable identity resolution requires a live root", 400);
-        }
-        const resolved = await this.resolve(operation.ref.path);
-        if (resolved.kind === "missing") {
-          throw new ProtocolError("not-found", `Node not found: ${resolved.path}`, 404, { path: resolved.path });
-        }
-        const destination = `${dirname(resolved.path) === "/" ? "" : dirname(resolved.path)}/${operation.name}`;
-        return this.relocate(resolved, canonicalNodePath(destination));
-      }
-      case "move": {
-        if (operation.placement === "authored" || operation.beforePath !== undefined || operation.beforeBlockID !== undefined || operation.baseDirectoryRevision !== undefined) {
-          this.unsupported("Authored placement");
-        }
-        const destination = operation.destination;
-        if (!("path" in destination)) {
-          throw new ProtocolError("invalid-reference", "Durable identity resolution requires a live root", 400);
-        }
-        const destinationNode = await this.resolve(destination.path);
-        if (destinationNode.kind !== "directory") {
-          throw new ProtocolError("invalid-reference", `${destination.path} is not a directory`, 400, { path: destination.path });
-        }
-        const effects: MutationEffect[] = [];
-        for (const ref of operation.refs) {
-          if (!("path" in ref)) {
-            throw new ProtocolError("invalid-reference", "Durable identity resolution requires a live root", 400);
-          }
-          const source = await this.resolve(ref.path);
-          if (source.kind === "missing") {
-            throw new ProtocolError("not-found", `Node not found: ${source.path}`, 404, { path: source.path });
-          }
-          const target = canonicalNodePath(
-            `${destinationNode.path === "/" ? "" : destinationNode.path}/${basename(source.path)}`,
-          );
-          effects.push(...await this.relocate(source, target));
-        }
-        return effects;
-      }
-      case "copy": {
-        const destination = operation.destination;
-        if (!("path" in destination)) {
-          throw new ProtocolError("invalid-reference", "Durable identity resolution requires a live root", 400);
-        }
-        const destinationNode = await this.resolve(destination.path);
-        if (destinationNode.kind !== "directory") {
-          throw new ProtocolError("invalid-reference", `${destination.path} is not a directory`, 400, { path: destination.path });
-        }
-        const effects: MutationEffect[] = [];
-        for (const ref of operation.refs) {
-          if (!("path" in ref)) {
-            throw new ProtocolError("invalid-reference", "Durable identity resolution requires a live root", 400);
-          }
-          const source = await this.resolve(ref.path);
-          if (source.kind === "missing") {
-            throw new ProtocolError("not-found", `Node not found: ${source.path}`, 404, { path: source.path });
-          }
-          const target = canonicalNodePath(
-            `${destinationNode.path === "/" ? "" : destinationNode.path}/${basename(source.path)}`,
-          );
-          if ((await this.resolve(target)).kind !== "missing") {
-            throw new ProtocolError("occupied-destination", `${target} already exists`, 409, { path: target });
-          }
-          try {
-            for (const pair of this.physicalPair(source, target)) {
-              if (await pathExists(pair.from)) await cp(pair.from, pair.to, { recursive: true, errorOnExist: true, force: false });
-            }
-          } catch (error) {
-            mapOsError(error, target);
-          }
-          effects.push({ kind: "created", tree: LOCAL_TREE, path: target });
-        }
-        return effects;
-      }
-      case "trash":
-      case "restore":
-        this.unsupported("Trash");
-        break;
-      case "restoreRecovery":
-        this.unsupported("Recovery");
-        break;
-      case "ensureDocumentIdentity":
-        this.unsupported("Durable document identity");
-        break;
-      default:
-        throw new ProtocolError("unsupported-operation", `Unsupported operation: ${(operation as { op: string }).op}`, 422);
-    }
-  }
-
-  /** The physical representations that travel together for a logical node. */
-  private physicalPair(source: ResolvedLocalNode, target: string): Array<{ from: string; to: string }> {
-    if (source.kind === "markdown") {
-      const pairs = [{ from: source.bodyPath!, to: siblingMarkdownTreePath(target) }];
-      return pairs;
-    }
-    if (source.kind === "directory") {
-      const pairs = [{ from: source.directoryPath!, to: target }];
-      if (source.bodySource === "sibling") pairs.push({ from: source.bodyPath!, to: siblingMarkdownTreePath(target) });
-      return pairs;
-    }
-    return [{ from: source.absolutePath, to: target }];
-  }
-
-  private async relocate(source: ResolvedLocalNode, target: string): Promise<MutationEffect[]> {
-    if (target === source.path) return [];
-    if (source.kind === "directory" && (target === source.path || target.startsWith(`${source.path}/`))) {
-      throw new ProtocolError("unsafe-path", "A directory cannot move into itself", 400, { path: source.path });
-    }
-    if ((await this.resolve(target)).kind !== "missing") {
-      throw new ProtocolError("occupied-destination", `${target} already exists`, 409, { path: target });
-    }
-    try {
-      for (const pair of this.physicalPair(source, target)) {
-        if (await pathExists(pair.from)) await rename(pair.from, pair.to);
-      }
-    } catch (error) {
-      mapOsError(error, target);
-    }
-    return [{ kind: "moved", tree: LOCAL_TREE, path: target, previousPath: source.path }];
-  }
-
-  private async writeMarkdown(
-    inputPath: string,
-    baseContentRevision: string,
-    blocks: ArborBlock[],
-    frontmatterPatch?: Record<string, unknown | null>,
-  ): Promise<MutationEffect> {
-    const resolved = await this.resolve(inputPath);
-    if (resolved.kind === "file") {
-      throw new ProtocolError("unsupported-operation", "Only Markdown and directory nodes accept Markdown writes", 422);
-    }
-    if (!resolved.writable && resolved.kind !== "missing") {
-      throw new ProtocolError("read-only", `${resolved.path} is not writable`, 422, { path: resolved.path });
-    }
-    const target = resolved.kind === "directory"
-      ? resolved.bodyPath ?? directoryIndexTreePath(resolved.path)
-      : resolved.kind === "markdown"
-        ? resolved.bodyPath!
-        : siblingMarkdownTreePath(resolved.path);
-    const current = await readFile(target, "utf8").catch((error) => {
-      if (isSystemError(error) && error.code === "ENOENT") return "";
-      mapOsError(error, resolved.path);
-    }) ?? "";
-    if (revisionOf(current) !== baseContentRevision) {
-      const snapshot = await this.snapshot(resolved.path).catch(() => undefined);
-      throw new ProtocolError("stale-content-revision", "The file changed since it was opened", 409, {
-        path: resolved.path,
-        current: snapshot,
-      });
-    }
-    const document = parseMarkdown(current);
-    const output = serializeMarkdown(document, blocks, frontmatterPatch ?? {});
-    try {
-      await writeAtomic(target, output);
-    } catch (error) {
-      mapOsError(error, resolved.path);
-    }
-    const revision = revisionOf(output);
-    return {
-      kind: "updated",
-      tree: LOCAL_TREE,
-      path: resolved.path,
-      contentRevision: revision,
-      directoryRevision: resolved.kind === "directory" ? revision : undefined,
-    };
+  async [Symbol.asyncDispose](): Promise<void> {
+    await (await this.engine)[Symbol.asyncDispose]();
   }
 }

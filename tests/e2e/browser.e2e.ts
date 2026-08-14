@@ -33,13 +33,36 @@ test("canonicalizes Markdown storage aliases", async ({ page }) => {
   await expect(page).toHaveURL(atUrl("/notes"));
   await expect(page.getByRole("button", { name: "· notes" })).toBeVisible();
   await expect(page.getByText("Research ideas")).toBeVisible();
+
+  const header = page.locator(".app-header");
+  const pageActions = page.getByLabel("Page actions");
+  const profile = page.getByRole("button", { name: "Community and profile" });
+  const [headerBox, actionsBox, profileBox] = await Promise.all([
+    header.boundingBox(),
+    pageActions.boundingBox(),
+    profile.boundingBox(),
+  ]);
+  expect(headerBox).not.toBeNull();
+  expect(actionsBox).not.toBeNull();
+  expect(profileBox).not.toBeNull();
+  expect(actionsBox!.y).toBeGreaterThanOrEqual(headerBox!.y);
+  expect(actionsBox!.y + actionsBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height);
+  expect(actionsBox!.x).toBeGreaterThan(profileBox!.x + profileBox!.width);
+
+  await pageActions.click();
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  const menuBox = await menu.boundingBox();
+  expect(menuBox).not.toBeNull();
+  expect(menuBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);
 });
 
 test("reuses loaded nodes for navigation and ignores stale sidebar responses", async ({ page }) => {
   const treeRequests: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.pathname === "/v1/node") treeRequests.push(url.searchParams.get("path") ?? "");
+    const requestPath = url.searchParams.get("path") ?? "";
+    if (url.pathname === "/v1/node" && requestPath.startsWith(ROOT)) treeRequests.push(requestPath);
   });
 
   await page.goto(r(""));
@@ -437,7 +460,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto(r("/math-notes"));
 
-  await expect(page.locator(".kind")).toContainText("ArborNote");
+  await expect(page.locator(".kind")).toHaveCount(0);
   await expect(page.locator(".inline-math .katex")).toHaveCount(2);
   const criterionMath = page.locator('.inline-math[title="$e_B : \\\\prod_{i \\\\in B} \\\\mathcal{S}_i \\\\to \\\\{0,1\\\\}$ — double-click to edit"]');
   await expect(criterionMath).toHaveCount(1);
@@ -532,6 +555,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
 test("renders a Markdown collection and opens a record", async ({ page }) => {
   await page.goto(r(""));
   await page.getByRole("button", { name: /books/ }).click();
+  await expect(page.locator(".kind")).toContainText("Collection");
   await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible();
   await expect(page.locator('input[value="The Dispossessed"]')).toBeVisible();
   await page.getByRole("button", { name: "Open" }).click();
@@ -584,13 +608,13 @@ test("tracks an open page through a page-ID rename without replacing the editor"
 
 test("browses ordinary files and shares a subtree beneath the active profile", async ({ page }) => {
   await page.goto(promotable(""));
-  await expect(page.locator(".scope-chip")).toHaveText(/untracked/);
+  await expect(page.getByRole("button", { name: "Share" })).toBeVisible();
 
   // The parent action escapes the launch root into the untracked filesystem.
   await page.getByRole("button", { name: "↑ Parent directory" }).click();
   const parent = PROMOTABLE_ROOT.slice(0, PROMOTABLE_ROOT.lastIndexOf("/"));
   await expect(page).toHaveURL(new RegExp(`/render${parent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
-  await expect(page.locator(".scope-chip")).toHaveText(/untracked/);
+  await expect(page.getByRole("button", { name: "Share" })).toBeVisible();
   await expect(page.getByRole("button", { name: "▸ arbor-e2e-promotable", exact: true })).toBeVisible();
 
   // Search begins at a shared-tree boundary; local scope offers promotion.
@@ -600,7 +624,8 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
 
   // Sharing uses an additive ACL builder, requires an explicit choice, and keeps the local folder in place.
   await page.goto(promotable(""));
-  await page.getByRole("button", { name: "Share" }).click();
+  const sharingControl = page.locator(".header-trailing .share-control");
+  await sharingControl.click();
   const shareSheet = page.locator(".tree-control-modal");
   await shareSheet.getByLabel("Canonical path").fill("/~owner/garden");
   await expect(shareSheet.locator(".url-preview")).toContainText(`${HOST_ORIGIN}/~owner/garden`);
@@ -637,10 +662,10 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   await expect(shareSheet.getByRole("alert")).toContainText("Run arbor connect");
   await expect(shareSheet).toBeVisible();
   await shareSheet.getByRole("button", { name: "Share", exact: true }).click();
-  await expect(page.locator(".scope-chip")).toHaveText(/public read/);
+  await expect(sharingControl).toHaveText(/Public read/);
 
   // The same Share sheet manages canonical addresses, public/profile/link access, and revocation.
-  await page.getByRole("button", { name: "Share" }).click();
+  await sharingControl.click();
   await expect(page.getByText("Profile writers")).toBeVisible();
   await expect(page.getByText("~editors")).toBeVisible();
   await expect(page.getByLabel("~editors permission")).toHaveValue("write");
@@ -656,14 +681,15 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   // The record is browsable read-only through the ordinary system tree.
   await garden.getByRole("button", { name: "record" }).click();
   await expect(page).toHaveURL(/\/render\/system:trees\//);
-  await expect(page.locator(".scope-chip")).toHaveText(/system/);
+  await expect(page.locator(".scope-chip")).toHaveText(/System/);
 
-  // Share stays visible but disabled while this local data home has no active profile.
+  // Remote browsing replaces local sharing controls with the remote state.
   await page.getByRole("button", { name: "Community and profile" }).click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Disconnect" }).click();
   await page.goto(`${promotable("")}?browse=${encodeURIComponent(`${HOST_ORIGIN}/~alice`)}&claimable=true`);
-  await expect(page.getByRole("button", { name: "Share" })).toBeDisabled();
+  await expect(page.locator(".header-trailing .share-control")).toHaveCount(0);
+  await expect(page.locator(".header-trailing .scope-chip")).toHaveText("Remote · Reserved");
   await expect(page.getByRole("heading", { name: "~alice" })).toBeVisible();
   await expect(page.getByText("This is an empty profile reserved by its community.")).toBeVisible();
   await page.getByRole("button", { name: "Claim profile", exact: true }).click();
@@ -672,7 +698,8 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   await expect(claimSheet.getByRole("textbox", { name: "Reserved profile URL" })).toHaveCount(0);
   await claimSheet.getByRole("textbox", { name: "Local profile folder" }).fill(ALICE_PROFILE);
   await claimSheet.getByRole("button", { name: "Claim profile", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Community and profile" })).toHaveText("~alice");
+  await expect(page.getByRole("button", { name: "Community and profile" })).toHaveText("~a");
+  await expect(page.getByRole("button", { name: "Community and profile" })).toHaveAttribute("title", "Profile: ~alice");
   const canonicalProfilePath = realpathSync(ALICE_PROFILE);
   await expect(page).toHaveURL(new RegExp(`/render${canonicalProfilePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
   await expect(page.locator(".remote-browser-frame")).toHaveCount(0);
@@ -690,5 +717,5 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
     const snapshot = await fetch(`/v1/node?tree=local&path=${encodeURIComponent(path)}`).then((value) => value.json());
     return snapshot.document.bodySource as string;
   }, ALICE_PROFILE)).toContain("# Alice");
-  await expect(page.getByRole("button", { name: "Share" })).toBeEnabled();
+  await expect(page.locator(".header-trailing .share-control")).toBeEnabled();
 });

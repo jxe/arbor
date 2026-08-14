@@ -218,6 +218,7 @@ export class WorkspaceFS implements AsyncDisposable {
   private recoveredMutationResults: Array<{ mutationID: string; result: FsMutationResult }> = [];
   private initialDiscovery?: WorkspaceDiscovery;
   private excludedRoots: string[];
+  private durableIdentity: boolean;
 
   private constructor(root: string, options: WorkspaceFSOptions) {
     this.root = root;
@@ -227,6 +228,7 @@ export class WorkspaceFS implements AsyncDisposable {
     this.settleDelayMs = options.settleDelayMs ?? 250;
     this.faultInjector = options.faultInjector;
     this.excludedRoots = (options.excludedRoots ?? []).map((item) => resolve(item));
+    this.durableIdentity = options.identity !== "path-only";
   }
 
   static async open(path: string, options: WorkspaceFSOptions): Promise<WorkspaceFS> {
@@ -236,12 +238,14 @@ export class WorkspaceFS implements AsyncDisposable {
     const instance = new WorkspaceFS(root, options);
     await mkdir(instance.transactionDirectory, { recursive: true });
     await instance.recoverTransactions();
-    instance.initialDiscovery = await discoverWorkspace(root, {
-      recursive: options.discovery !== "shallow",
-      excludedRoots: instance.excludedRoots,
-    });
+    instance.initialDiscovery = options.discovery === "none"
+      ? { root, files: [], directories: [], pagePathsByID: new Map(), pageIDOwners: new Map() }
+      : await discoverWorkspace(root, {
+        recursive: options.discovery !== "shallow",
+        excludedRoots: instance.excludedRoots,
+      });
     instance.loadPageIDs(instance.initialDiscovery);
-    if (options.discovery !== "shallow") await instance.startWatcher();
+    if (options.discovery !== "shallow" && options.discovery !== "none") await instance.startWatcher();
     return instance;
   }
 
@@ -419,7 +423,7 @@ export class WorkspaceFS implements AsyncDisposable {
     if (node.kind === "file") return { node, bytes, byteRevision };
     let document = parseMarkdown(new TextDecoder().decode(bytes));
     const pageID = isPageID(document.frontmatter.id) ? document.frontmatter.id : null;
-    if (pageID) {
+    if (pageID && this.durableIdentity) {
       this.knownIDs.add(pageID);
       if (!this.pagePathsByID.has(pageID)) this.pagePathsByID.set(pageID, node.path);
       const mtime = (await stat(path)).mtimeMs / 1_000;
@@ -505,17 +509,17 @@ export class WorkspaceFS implements AsyncDisposable {
       const document = parseMarkdown(current);
       const patch = { ...(request.frontmatterPatch ?? {}) };
       let pageID = isPageID(document.frontmatter.id) ? document.frontmatter.id : undefined;
-      if (!pageID) {
+      if (!pageID && this.durableIdentity) {
         pageID = mintPageID(this.knownIDs);
         patch.id = pageID;
         this.knownIDs.add(pageID);
       }
-      this.pagePathsByID.set(pageID, path);
-      if (this.coordinators.get(path) === coordinator) {
+      if (pageID && this.durableIdentity) this.pagePathsByID.set(pageID, path);
+      if (pageID && this.durableIdentity && this.coordinators.get(path) === coordinator) {
         this.coordinators.delete(path);
         this.coordinators.set(`id:${pageID}`, coordinator);
       }
-      await this.journal.commit(pageID, document.blocks, request.blocks);
+      if (pageID && this.durableIdentity) await this.journal.commit(pageID, document.blocks, request.blocks);
       const output = serializeMarkdown(document, request.blocks, patch);
       const bytes = new TextEncoder().encode(output);
       const parsed = parseMarkdown(output);
@@ -539,7 +543,7 @@ export class WorkspaceFS implements AsyncDisposable {
       }
       await commitPrepared(temporary, target);
       await this.fault("write:replaced");
-      await this.journal.markMaterialized(pageID);
+      if (pageID && this.durableIdentity) await this.journal.markMaterialized(pageID);
       const result = { node: await this.resolve(path), bytes, byteRevision, bodyRevision: bodyRevision(parsed), document: parsed, pageID, generation };
       await onMaterialized?.(result);
       coordinator.remember({ revision: byteRevision, bytes, bodyPath: target, generation }, this.settleDelayMs, transactionId
@@ -831,7 +835,7 @@ export class WorkspaceFS implements AsyncDisposable {
         try {
           if (snapshot.bytes) await writeAtomic(snapshot.bodyPath, snapshot.bytes);
           else await removeIfExists(snapshot.bodyPath);
-          if (snapshot.pageID && isPageID(snapshot.pageID)) await this.journal.markMaterialized(snapshot.pageID);
+          if (this.durableIdentity && snapshot.pageID && isPageID(snapshot.pageID)) await this.journal.markMaterialized(snapshot.pageID);
           this.suppress(snapshot.path);
         } catch { rollbackFailed = true; }
       }
@@ -893,11 +897,11 @@ export class WorkspaceFS implements AsyncDisposable {
       validateLogicalName(nodeDisplayName(path));
       const destination = resolveTreePath(this.root, siblingMarkdownTreePath(path));
       await this.assertDestinationFree(path, [destination, resolveTreePath(this.root, path)], destinations);
-      const pageID = mintPageID(this.knownIDs);
-      this.knownIDs.add(pageID);
       const blocks = operation.blocks ?? [];
-      const output = serializeMarkdown(parseMarkdown(""), blocks, { id: pageID });
-      await this.journal.commit(pageID, [], blocks);
+      const pageID = this.durableIdentity ? mintPageID(this.knownIDs) : undefined;
+      if (pageID) this.knownIDs.add(pageID);
+      const output = serializeMarkdown(parseMarkdown(""), blocks, pageID ? { id: pageID } : {});
+      if (pageID) await this.journal.commit(pageID, [], blocks);
       const stagedParent = await this.stagedParent(dirname(destination), transactionId, steps, destinations);
       if (stagedParent) {
         this.recordParentMaterialization(dirname(destination), changes);
@@ -1159,13 +1163,14 @@ export class WorkspaceFS implements AsyncDisposable {
     if (!read.document) return null;
     const existing = read.document.frontmatter.id;
     if (isPageID(existing)) return existing;
+    if (!this.durableIdentity) return null;
     if (read.node.bodySource === null && !options.materializeImplicit) return null;
     const result = await this.writeMarkdownInternal(
       path,
       { baseRevision: read.byteRevision, blocks: read.document.blocks },
       transactionId,
     );
-    return result.pageID;
+    return result.pageID ?? null;
   }
 
   private async assertDestinationFree(logicalPath: string, physicalPaths: string[], destinations: Set<string>): Promise<void> {
@@ -1182,6 +1187,7 @@ export class WorkspaceFS implements AsyncDisposable {
     kind: "file" | "directory",
     destinationPath: string,
   ): Promise<void> {
+    if (!this.durableIdentity) return;
     if (kind === "directory") {
       const entries = await readdir(physicalPath, { withFileTypes: true });
       entries.sort((a, b) => a.name.localeCompare(b.name));
