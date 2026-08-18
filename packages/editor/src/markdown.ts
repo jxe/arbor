@@ -332,6 +332,7 @@ export function parseMarkdown(source: string): MarkdownDocument {
     } catch {}
   }
   return {
+    source,
     frontmatter,
     frontmatterSource: envelope.frontmatterSource,
     bodySource: envelope.body,

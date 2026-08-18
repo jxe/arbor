@@ -5,9 +5,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./logical-path": "./src/logical-path.ts",
-    "./logical-url": "./src/logical-url.ts",
-    "./projection": "./src/projection.ts",
-    "./structural-rows": "./src/structural-rows.ts"
+    "./logical-url": "./src/logical-url.ts"
   },
   "dependencies": {
     "@noble/hashes": "^2.2.0"

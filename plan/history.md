@@ -32,6 +32,48 @@ Important constraints:
 - CSV/JSONL/Postgres rows are not edited through the Markdown editor.
 - `.claude` remains workspace content; only known generated/build directories are excluded.
 
+## Exact-source and complete-directory foundation
+
+**Status: Implemented on 2026-08-18.**
+
+Delivered:
+
+- `MarkdownDocument.source` is authoritative on REST, TypeScript, and Swift reads; `writeMarkdown` accepts only exact `source` plus `baseContentRevision`, and `createMarkdown` accepts optional exact source;
+- arbord/filesystem providers parse submitted source internally for indexing, backlinks, rendering, recovery, and validation rather than trusting client-authored block arrays;
+- every physical directory returns provider-owned complete operational Markdown: the first eligible standalone link represents each immediate child and deterministic ordinary links are appended for unmatched children without read materialization;
+- directory content revisions include exact stored bytes plus canonical immediate-child descriptors, so child-set changes conflict while enumeration reorder does not;
+- child-link order is a content edit, while physical moves carry only sources and a destination; obsolete placement and Markdown anchor fields are rejected;
+- the web editor, TypeScript client, and Foundation-only Swift client consume this contract directly; client projection types, synthetic rows, manifests, and projection fixtures were removed;
+- PageID handling now accepts opaque non-empty values in both logical URL implementations.
+
+This supersedes the client-projection architecture recorded in the historical Milestone 2 section below. That section remains as delivery history rather than current guidance.
+
+Primary ownership:
+
+- [`spec/format.md`](../spec/format.md)
+- [`spec/arbord-rest.md`](../spec/arbord-rest.md)
+- [`packages/editor/src/directory-document.ts`](../packages/editor/src/directory-document.ts)
+- [`packages/fs/src/workspace-fs.ts`](../packages/fs/src/workspace-fs.ts)
+- [`packages/arbord`](../packages/arbord)
+- [`packages/client`](../packages/client)
+- [`native/Packages/ArborClient`](../native/Packages/ArborClient)
+- [`packages/render`](../packages/render)
+
+Quagmire/Hunch API work remains in `/Users/joe/src/hunch`; it is not part of this Arbor delivery.
+
+Verification recorded with this delivery:
+
+```text
+bun run typecheck       passed
+bun test                175 passed, 0 failed
+bun run test:protocol   8 TypeScript fixtures and 9 live Swift tests passed
+bun run build           passed
+bun run test:e2e        13 passed
+swift test --package-path native/Packages/ArborClient
+                        9 passed, 1 live-server test skipped as designed
+git diff --check        passed
+```
+
 ## Canonical and community-hosting foundation
 
 **Status: Implemented as a reference slice on 2026-08-02.**
@@ -163,7 +205,7 @@ Commit: `0cb565c`.
 
 Outcome:
 
-- complete directory documents are pure client projections over a storage-shaped node plus the fully paginated child listing;
+- complete directory documents were originally delivered as pure client projections over a storage-shaped node plus the fully paginated child listing (superseded by the provider-owned contract above);
 - managed-row manifests preserve child identity/origin/kind/materialization without serializing synthetic rows;
 - one logical URL resolver handles child, sibling, rooted, identity-bearing, and global Arbor destinations in TypeScript and Swift;
 - bodyless directories remain side-effect free until authored body/order/identity requires materialization;
@@ -175,7 +217,7 @@ Outcome:
 
 Implemented in:
 
-- [`packages/core/src/projection.ts`](../packages/core/src/projection.ts)
+- `packages/core/src/projection.ts` (historical; removed by the provider-owned complete-directory foundation)
 - [`packages/core/src/logical-url.ts`](../packages/core/src/logical-url.ts)
 - [`packages/client/src/index.ts`](../packages/client/src/index.ts)
 - [`native/Packages/ArborClient`](../native/Packages/ArborClient)

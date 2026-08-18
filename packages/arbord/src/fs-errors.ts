@@ -4,7 +4,6 @@ import { FsConflictError } from "@arbor/fs";
 export function fsErrorCode(error: FsConflictError): { code: ArbordErrorCode; status: number; retryable?: boolean } {
   switch (error.details.code) {
     case "stale-revision": return { code: "stale-content-revision", status: 409 };
-    case "missing-insertion-anchor": return { code: "missing-insertion-anchor", status: 409 };
     case "occupied-destination": return { code: "occupied-destination", status: 409 };
     case "duplicate-body": return { code: "duplicate-body-representation", status: 409 };
     case "unsafe-path":

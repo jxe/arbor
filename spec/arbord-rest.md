@@ -27,7 +27,7 @@ type ResolvedNodeRef = {
 
 Six-character lowercase `PageID`s are legacy values, not validation grammar. A `revision` selects immutable read-only history. An external URL is percent-decoded exactly once by the external parser; `LogicalPath` values in REST are already decoded and may contain literal percent characters.
 
-Every reference leaving arbord retains its resolved `tree`. A mounted or projected child never inherits a parent's scope by omission. If both `path` and `pageID` are supplied, the ID is authoritative within the explicit tree; arbord returns the current readable path. Ambiguous or duplicate identity fails rather than choosing a candidate.
+Every reference leaving arbord retains its resolved `tree`. A mounted or composed child never inherits a parent's scope by omission. If both `path` and `pageID` are supplied, the ID is authoritative within the explicit tree; arbord returns the current readable path. Ambiguous or duplicate identity fails rather than choosing a candidate.
 
 ```text
 GET /v1/resolve?locator={ArborLocator}
@@ -85,6 +85,14 @@ type TreeDescriptor = {
 
 type BodyState = "stored" | "implicit";
 
+type MarkdownDocument = {
+  source: string; // authoritative complete operational Markdown, including frontmatter
+  frontmatter: Record<string, unknown>; // provider-derived read view
+  frontmatterSource?: string;
+  bodySource: string;
+  blocks: ArborBlock[]; // provider-derived read view; never authored mutation input
+};
+
 type NodeSnapshot = {
   ref: ResolvedNodeRef;
   tree: TreeRef;
@@ -120,7 +128,7 @@ type Page<T> = {
 };
 ```
 
-`canonicalPath` is the tree's current public boundary path, distinct from its full canonical locator. `accessEntries` carries safe entry metadata; link secrets never appear. `bodyOrigin` is optional diagnostic provenance and is meaningful only when a body is stored. `bodyState: "implicit"` means no authored body bytes exist; clients must not fabricate them.
+`canonicalPath` is the tree's current public boundary path, distinct from its full canonical locator. `accessEntries` carries safe entry metadata; link secrets never appear. `bodyOrigin` is optional diagnostic provenance and is meaningful only when a body is stored. `bodyState: "implicit"` means no body bytes exist yet, although `document.source` is still the complete operational directory Markdown. Reading it never materializes a file.
 
 `MarkdownDocument`, `CollectionSummary`, and `Diagnostic` use the corresponding language-neutral shapes in the fixtures. Children, search hits, backlinks, collection rows, and recovery results carry explicit `ResolvedNodeRef` or equivalent explicit `tree` and path fields. Pagination cursors are opaque and scoped to their route and query. A cursor from another query is invalid.
 
@@ -137,23 +145,11 @@ Normative examples:
 | collection | [collection.json](fixtures/collection.json) |
 | recovery | [recovery.json](fixtures/recovery.json) |
 
-## 3. Projected directory view
+## 3. Complete directory source
 
-The wire snapshot contains authored body state and paginated physical children; it does not contain a second canonical projected document. A client combines them according to [format.md](format.md#complete-directory-projection).
+For a physical directory, `document.source` already contains the stored/implicit body plus one ordinary appended link for each immediate child not represented by its first eligible standalone link. The deterministic rules are in [format.md](format.md#complete-directory-documents). Clients do not hydrate or project another document.
 
-A managed row retains:
-
-```ts
-type ManagedChild = {
-  blockID: string;
-  target: NodeRef;
-  kind: TreeChild["kind"];
-  origin: "authored" | "synthetic";
-  materialized: boolean;
-};
-```
-
-`managed:` identifiers and synthetic rows are client/session values. They never appear in authored Markdown or as `beforeBlockID` mutation anchors. Projection vectors live in [fixtures/projection](fixtures/projection).
+For directory-backed nodes, `contentRevision` is an opaque hash over exact stored body bytes and canonical immediate-child descriptors. A successful write returns the exact accepted complete source and a new revision. `directoryRevision` may mirror this value for structural consumers, but it is not a separate index-ordering API.
 
 ## 4. Mutations
 
@@ -181,8 +177,7 @@ type ContentOperation =
       op: "writeMarkdown";
       ref: NodeRef;
       baseContentRevision: Hash;
-      frontmatterPatch?: Record<string, unknown | null>;
-      blocks: ArborBlock[];
+      source: string;
     }
   | { op: "restoreRecovery"; ref: NodeRef; hash: Hash; baseContentRevision?: Hash }
   | { op: "ensureDocumentIdentity"; ref: NodeRef; baseContentRevision: Hash };
@@ -193,23 +188,15 @@ Structural operations are:
 ```ts
 type StructuralOperation =
   | { op: "createDirectory"; tree?: TreeRef; path: LogicalPath }
-  | { op: "createMarkdown"; tree?: TreeRef; path: LogicalPath; blocks?: ArborBlock[] }
+  | { op: "createMarkdown"; tree?: TreeRef; path: LogicalPath; source?: string }
   | { op: "rename"; ref: NodeRef; name: string }
-  | {
-      op: "move";
-      refs: NodeRef[];
-      destination: NodeRef;
-      placement?: "natural" | "authored";
-      beforePath?: LogicalPath;
-      beforeBlockID?: string;
-      baseDirectoryRevision?: Hash;
-    }
+  | { op: "move"; refs: NodeRef[]; destination: NodeRef }
   | { op: "copy"; refs: NodeRef[]; destination: NodeRef }
   | { op: "trash"; refs: NodeRef[] }
   | { op: "restore"; refs: NodeRef[] };
 ```
 
-Reference arrays are non-empty. Structural operations use explicit scopes and relevant directory preconditions. An anchor that no longer exists returns `missing-insertion-anchor`; arbord never silently appends. Cross-tree transfer is explicit and cannot occur by placing two scopes in one batch.
+Reference arrays are non-empty. Structural operations use explicit scopes. Physical move names sources and a destination container; exact child-link placement is a subsequent `writeMarkdown` source mutation. Cross-tree transfer is explicit and cannot occur by placing two scopes in one batch.
 
 System operations include:
 
@@ -294,7 +281,7 @@ type ArbordError = {
 
 Stable v1 codes are:
 
-`invalid-reference`, `not-found`, `credential-unavailable`, `duplicate-page-id`, `duplicate-body-representation`, `stale-content-revision`, `stale-directory-revision`, `missing-insertion-anchor`, `occupied-destination`, `reserved-boundary`, `unsafe-path`, `mutation-mismatch`, `read-only`, `permission-denied`, `not-materialized`, `unsupported-operation`, `resync-required`, and `internal-error`.
+`invalid-reference`, `not-found`, `credential-unavailable`, `duplicate-page-id`, `duplicate-body-representation`, `stale-content-revision`, `stale-directory-revision`, `occupied-destination`, `reserved-boundary`, `unsafe-path`, `mutation-mismatch`, `read-only`, `permission-denied`, `not-materialized`, `unsupported-operation`, `resync-required`, and `internal-error`.
 
 Clients preserve unknown future codes. Errors and diagnostics never expose raw credentials, access-link secrets, transaction paths, or private-state layout. [error.json](fixtures/error.json) deliberately uses an unknown code.
 
@@ -339,6 +326,6 @@ Events are invalidations and observations, not replacement snapshots. An unavail
 
 ## 8. Conformance
 
-Language-neutral REST, locator, projection, and error fixtures live in [spec/fixtures](fixtures). TypeScript and Swift conformance suites consume the same files. Required-field rejection and unknown-field compatibility are tested at the live boundary.
+Language-neutral REST, locator, exact-source, and error fixtures live in [spec/fixtures](fixtures). TypeScript and Swift conformance suites consume the same files. Required-field rejection, obsolete block-write rejection, and unknown-field compatibility are tested at the live boundary.
 
 The portable contract is the schemas and behavior in this document, not a reference client's internal structure, retry count, concurrency model, HTTP library, or verification machinery. Generic client invariants are specified separately in [client.md](client.md).

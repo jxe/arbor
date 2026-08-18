@@ -17,11 +17,13 @@ Directory children, search results, backlinks, Trash/recovery rows, visited tree
 
 A remote visit does not invent local identity, a placement, or a temporary directory. If the same shared tree has a local placement, arbord may resolve the visit to it without changing the tree/path identity.
 
-## Source-preserving Markdown and projection
+## Source-preserving Markdown
 
-Authored Markdown remains canonical. An untouched document must be returned byte-for-byte. A structured editor may change only the source constructs represented by an authored edit; unrelated frontmatter order, whitespace, syntax, and unsupported Markdown remain intact or enter a clear raw-source mode.
+`MarkdownDocument.source` is the authoritative operational Markdown, including frontmatter. Parsed frontmatter and blocks are read conveniences derived by the provider; clients never submit them as authored truth. A structured editor may change only the source constructs represented by an authored edit; unrelated frontmatter order, whitespace, syntax, and unsupported Markdown remain intact or enter a clear raw-source mode.
 
-A client constructs complete directory documents from the stored/implicit body plus the full child listing. Synthetic managed rows carry explicit provenance and never persist. Before mutation, the client separates body/property edits from structural row operations and maps synthetic anchors to real child references rather than sending session block IDs.
+Arbord returns directory documents already complete under [format.md](format.md#complete-directory-documents). A client edits and submits that source with `baseContentRevision`; it does not construct a second projection. Child-link reorder is a content write. Physical create/move/rename/copy/Trash remains structural, and ordinary link deletion never implies a structural mutation. The confirming node response becomes the next source/revision base because a provider may have appended newly required child links.
+
+An untouched operational document must be returned byte-for-byte. In a block editor, an unchanged document envelope, raw block, or structured block remains exact; an edited or new block may be canonically regenerated in isolation. Reordering an unchanged block at a compatible nesting depth reuses its exact source. Token-level preservation inside an edited block is not required.
 
 ## Mutation retry and resynchronization
 
@@ -39,4 +41,4 @@ Revocation uses the stable access-entry ID where available. A client distinguish
 
 ## Human-client baseline
 
-A conforming human client makes provenance, read-only/historical state, conflicts, diagnostics, pending durable mutations, and stale/offline content understandable. It provides a way to inspect authored source and does not present synthetic projection bytes as source. Exact controls, wording, panes, sheets, gestures, editor libraries, and responsive layout are outside the specification.
+A conforming human client makes provenance, read-only/historical state, conflicts, diagnostics, pending durable mutations, and stale/offline content understandable. It provides a way to inspect the exact accepted operational source. Exact controls, wording, panes, sheets, gestures, editor libraries, and responsive layout are outside the specification.

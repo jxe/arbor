@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
-import type { NodeSnapshot, ProjectedDocument } from "@arbor/client";
+import type { NodeSnapshot } from "@arbor/client";
 import { resolveLogicalURL } from "@arbor/core/logical-url";
 import {
   ManagedRowsContext,
@@ -11,12 +11,11 @@ import {
   type ManagedRowsController,
 } from "./blocks.tsx";
 
-export function ReadOnlyPage({ node, projection, navigate }: {
+export function ReadOnlyPage({ node, navigate }: {
   node: NodeSnapshot;
-  projection: ProjectedDocument | null;
   navigate: (path: string) => void;
 }) {
-  const blocks = projection?.visibleBlocks ?? node.document?.blocks ?? [];
+  const blocks = node.document?.blocks ?? [];
   const editor = useMemo(() => {
     const instance = BlockNoteEditor.create({
       schema: arborSchema,

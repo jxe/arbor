@@ -274,7 +274,7 @@ const FootnoteDefinitionBlock = createReactBlockSpec(
 )();
 
 export interface ManagedRowsController {
-  resolve(rawPath: string): string | null;
+  resolve(rawPath: string, blockID: string): string | null;
   kind(path: string): "file" | "markdown" | "directory" | "collection" | "postgres" | null;
   selected(path: string): boolean;
   select(path: string, event: React.MouseEvent): void;
@@ -319,7 +319,7 @@ function ArborDragHandleMenu() {
     selector: (state) => state?.block,
   });
   const path = block?.type === "standaloneLink"
-    ? controller?.resolve(String(block.props.path ?? "")) ?? null
+    ? controller?.resolve(String(block.props.path ?? ""), block.id) ?? null
     : null;
   if (!controller || !Components || !path) return null;
 
@@ -339,7 +339,7 @@ export function ArborSideMenu() {
     selector: (state) => state?.block,
   });
   const path = block?.type === "standaloneLink"
-    ? controller?.resolve(String(block.props.path ?? "")) ?? null
+    ? controller?.resolve(String(block.props.path ?? ""), block.id) ?? null
     : null;
 
   if (!controller || !block || !path) return <SideMenu />;
@@ -357,7 +357,7 @@ const ChildPageBlock = createReactBlockSpec(
   {
     render: ({ block, contentRef }) => {
       const controller = useContext(ManagedRowsContext);
-      const path = controller?.resolve(block.props.path) ?? null;
+      const path = controller?.resolve(block.props.path, block.id) ?? null;
       const kind = path ? controller?.kind(path) ?? null : null;
       if (!controller || !path || !kind) {
         return <a className="child-page" href={block.props.path} title={block.props.path}><span className="child-page-kind"><ChildPageIcon /></span><span ref={contentRef} /><small>{block.props.path}</small></a>;

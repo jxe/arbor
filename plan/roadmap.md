@@ -30,7 +30,7 @@ without blocking those forward product capabilities
 
 The implemented foundation is summarized here only to establish what later milestones may depend on. Source ownership, intentional limits, and verification evidence belong in [history.md](history.md).
 
-- The local daily driver provides filesystem-wide browsing/editing, source-preserving Markdown, projected directories, collections, durable REST mutations and event handoff, TypeScript/Swift clients, search/backlinks/recovery, and safe cloud-placeholder handling.
+- The local daily driver provides filesystem-wide browsing/editing, exact-source Markdown writes, provider-owned complete directory documents, collections, durable REST mutations and event handoff, TypeScript/Swift clients, search/backlinks/recovery, and safe cloud-placeholder handling.
 - Shared trees have stable `TreeID`s, immutable deterministic objects, CAS synchronization, canonical HTTP/Arbor names, raw TreeID fallback, whole-tree access, and independently accessed nested boundaries.
 - One host represents one community with a public root profile, complete person/group profile trees at `/~<handle>`, authored reservations and membership, atomic first-claim-wins profiles, and account/device credentials.
 - Share promotes a visible subtree in place without changing its URL or OS location. External folders appear as virtual mounted children, and longer accessible boundaries resolve by longest prefix.
@@ -41,7 +41,7 @@ The durable product contracts live in the topic specifications rather than this 
 
 - [wire and community authority](../spec/wire.md) owns canonical boundaries, promotion, profiles, claims, access, objects, refs, and HTTP projection;
 - [locators](../spec/locators.md) owns canonical names, raw TreeID fallback, immutable revision selection, and resolution;
-- [client](../spec/client.md) owns UI-independent resolution, source preservation, projection, provenance, retry/resync, and secret handling;
+- [client](../spec/client.md) owns UI-independent resolution, exact-source preservation, provenance, retry/resync, and secret handling;
 - [TreeHopper reference design](../docs/treehopper.md) owns profile controls, Claim, Share, labels, Home, and interaction design;
 - [CLI](../spec/cli.md) owns command forms and deployment arguments;
 - [`system:` and placements](../spec/system.md) owns the data home, `trees.yaml`, safe account state, credentials, visits, nested placements, and local durability;

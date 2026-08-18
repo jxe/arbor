@@ -27,11 +27,11 @@ Ordinary unpromoted files are browsable as `tree: "local"`, without gaining a du
 
 | File | Public contract |
 |---|---|
-| [format](spec/format.md) | Portable authored formats, logical nodes, projected directories, profile documents, and reserved names |
+| [format](spec/format.md) | Portable authored formats, logical nodes, complete directory documents, profile documents, and reserved names |
 | [locators](spec/locators.md) | Local, canonical, raw-identity, revision, fragment, and `system:` locators |
 | [system](spec/system.md) | Arbor data home, `trees.yaml`, placements, `system:` records, local durability, visits, and nested mounts |
 | [arbord REST](spec/arbord-rest.md) | REST v1 schemas, resolution, reads, mutations, receipts, errors, events, and conformance rules |
-| [client](spec/client.md) | Client resolution, source preservation, projection, provenance, retry/resync, secrets, and persistence authority |
+| [client](spec/client.md) | Client resolution, exact-source preservation, provenance, retry/resync, secrets, and persistence authority |
 | [stores](spec/stores.md) | Markdown, CSV, JSONL, SQLite, and Postgres collection behavior |
 | [scripts](spec/scripts.md) | Script authoring, compilation boundaries, queries, mutations, components, confinement, and consent |
 | [agents](spec/agents.md) | Agent files, tools, context, confinement, consent, effects, and transcripts |

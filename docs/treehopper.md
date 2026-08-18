@@ -20,7 +20,7 @@ Navigation retains back/forward history, breadcrumbs, mounted-boundary provenanc
 
 ## Editing
 
-TreeHopper presents a directory as its authored/implicit body plus immediate managed child rows. Authored child links may be reordered among prose; otherwise children receive synthetic rows. Source view shows actual Markdown and clearly distinguishes projected rows.
+TreeHopper presents the complete operational Markdown returned by arbord. The first standalone link to an immediate physical child represents that child; arbord appends ordinary Markdown links for unmatched children without materializing on read. Reordering those rows edits source, so Source view and the block editor always describe the same document.
 
 Web currently uses BlockNote as the interactive layer. This is a reference choice: Markdown remains canonical, unsupported syntax has a raw/source path, and untouched source is preserved. Properties, body edits, and structural operations show pending, saving, saved, conflict, read-only, and diagnostic states without claiming persistence before arbord returns a durable receipt.
 
@@ -57,7 +57,7 @@ TreeHopper favors user-facing nouns and effects:
 - **Recover** restores a selected recoverable item; **Trash** does not imply immediate destruction.
 - mounted child rows show their own tree/profile provenance rather than appearing to belong to the parent graph.
 
-File menus provide ordinary rename, move, copy, Trash, restore, and asset import where the resolved node permits them. Actions on projected rows use their explicit child reference; they never derive tree scope from the visible parent path.
+File menus provide ordinary rename, move, copy, Trash, restore, and asset import where the resolved node permits them. Actions on child links resolve an explicit child reference and retain its tree scope; deleting an ordinary link never implies Trash.
 
 ## Agents
 

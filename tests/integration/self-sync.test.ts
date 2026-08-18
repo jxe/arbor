@@ -94,7 +94,7 @@ describe("private self-sync", () => {
       op: "writeMarkdown",
       ref: { tree, path: "/note" },
       baseContentRevision: note.contentRevision!,
-      blocks: [{ id: "sync-edit", type: "heading", props: { level: 1 }, content: "From A", children: [] }],
+      source: "# From A\n",
     });
     await author.close();
 

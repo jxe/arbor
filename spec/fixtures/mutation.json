@@ -4,9 +4,7 @@
     {
       "op": "move",
       "refs": [{ "pageID": "abc123", "pathHint": "/notes/old" }],
-      "destination": { "path": "/archive" },
-      "beforePath": "/archive/later",
-      "baseDirectoryRevision": "sha256:directory"
+      "destination": { "path": "/archive" }
     }
   ]
 }

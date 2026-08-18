@@ -2,8 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { transformStructuralRows, type ArborBlock } from "@arbor/core";
-import { FsConflictError, FsInjectedCrashError, type FsMutation, WorkspaceFS } from "@arbor/fs";
+import { FsConflictError, FsInjectedCrashError, WorkspaceFS } from "@arbor/fs";
 
 const opened: WorkspaceFS[] = [];
 const directories: string[] = [];
@@ -38,10 +37,10 @@ describe("@arbor/fs logical nodes", () => {
     });
 
     expect((await fs.resolve("/sibling")).bodySource).toBe("sibling");
-    expect(new TextDecoder().decode((await fs.read("/sibling")).bytes!)).toBe("Sibling\n");
+    expect(new TextDecoder().decode((await fs.read("/sibling")).bytes!)).toBe("Sibling\n\n[child](child)\n");
     expect((await fs.resolve("/index")).bodySource).toBe("index");
     expect((await fs.resolve("/implicit")).bodyPath).toBeNull();
-    expect((await fs.read("/implicit")).document?.bodySource).toBe("");
+    expect((await fs.read("/implicit")).document?.bodySource).toBe("[child.txt](child.txt)\n");
     expect((await fs.resolve("/duplicate")).diagnostics[0]?.code).toBe("duplicate-body-representation");
     expect((await fs.list("/")).filter((entry) => entry.path === "/sibling")).toHaveLength(1);
   });
@@ -50,7 +49,7 @@ describe("@arbor/fs logical nodes", () => {
     const { root, fs } = await workspace({ "page.md": "Page body\n" });
     await fs.mutate({ operations: [{ op: "createMarkdown", path: "/page/child" }] });
     expect(await readFile(join(root, "page.md"), "utf8")).toBe("Page body\n");
-    expect(await readFile(join(root, "page", "child.md"), "utf8")).toContain("id:");
+    expect(await readFile(join(root, "page", "child.md"), "utf8")).toBe("");
     expect((await fs.resolve("/page")).kind).toBe("directory");
     expect((await fs.resolve("/page")).bodySource).toBe("sibling");
   });
@@ -94,84 +93,40 @@ describe("@arbor/fs logical nodes", () => {
     expect(await readFile(join(root, "Trash", "renamed", "child.md"), "utf8")).toBe("Child\n");
   });
 
-  test("moves managed rows between prose blocks without regrouping the other children", async () => {
-    const { fs } = await workspace({ "a.md": "A\n", "b.md": "B\n", "_index.md": "Initial\n" });
+  test("accepts exact directory Markdown and uses its first child link as the authored position", async () => {
+    const { root: workspaceRoot, fs } = await workspace({ "a.md": "A\n", "b.md": "B\n", "_index.md": "Initial\n" });
     const root = await fs.read("/");
     const written = await fs.writeMarkdown("/", {
       baseRevision: root.byteRevision,
-      blocks: [
-        { id: "heading-one", type: "heading", content: "One", props: { level: 2 }, children: [] },
-        { id: "heading-two", type: "heading", content: "Two", props: { level: 2 }, children: [] },
-        { id: "child-a", type: "standaloneLink", content: "a", props: { path: "a" }, children: [] },
-        { id: "child-b", type: "standaloneLink", content: "b", props: { path: "b" }, children: [] },
-      ],
+      source: "## One\n\n[b](b)\n\n## Two\n\n[a](a)\n",
     });
-
-    const headingTwoID = (await fs.read("/")).document!.blocks.find((block) => block.type === "heading" && block.content === "Two")!.id;
-    await fs.mutate({ operations: [{
-      op: "move",
-      paths: ["/b"],
-      destination: "/",
-      beforeBlockId: headingTwoID,
-      directoryRevision: written.byteRevision,
-    }] });
-    const blocks = (await fs.read("/")).document!.blocks;
-    expect(blocks.map((block) => `${block.type}:${block.content}`)).toEqual([
-      "heading:One",
-      "standaloneLink:b",
-      "heading:Two",
-      "standaloneLink:a",
-    ]);
+    expect(written.document?.source).toBe("## One\n\n[b](b)\n\n## Two\n\n[a](a)\n");
+    expect(await readFile(join(workspaceRoot, "_index.md"), "utf8")).toBe("## One\n\n[b](b)\n\n## Two\n\n[a](a)\n");
   });
 
-  test("rejects stale and missing structural insertion anchors", async () => {
-    const { fs } = await workspace({ "a.md": "A\n", "b.md": "B\n", "_index.md": "[a](a)\n[b](b)\n" });
+  test("directory revisions include exact index bytes and physical child add, rename, and removal", async () => {
+    const { fs } = await workspace({ "a.md": "A\n", "_index.md": "[a](a)\n" });
     const current = await fs.read("/");
-    const anchored: FsMutation = { op: "move", paths: ["/b"], destination: "/", beforeBlockId: "missing" };
+    await fs.mutate({ operations: [{ op: "createMarkdown", path: "/b", source: "B\n" }] });
+    const afterChild = await fs.read("/");
+    expect(afterChild.byteRevision).not.toBe(current.byteRevision);
+    await expect(fs.writeMarkdown("/", { baseRevision: current.byteRevision, source: current.document!.source })).rejects.toBeInstanceOf(FsConflictError);
 
-    await expect(fs.mutate({ operations: [anchored] })).rejects.toMatchObject({
-      details: { code: "stale-revision" },
-    });
-    await expect(fs.mutate({ operations: [{ ...anchored, directoryRevision: "stale" }] })).rejects.toMatchObject({
-      details: { code: "stale-revision" },
-    });
-    await expect(fs.mutate({ operations: [{ ...anchored, directoryRevision: current.byteRevision }] })).rejects.toMatchObject({
-      details: { code: "missing-insertion-anchor" },
-    });
+    await fs.mutate({ operations: [{ op: "rename", path: "/b", name: "renamed" }] });
+    const afterRename = await fs.read("/");
+    expect(afterRename.byteRevision).not.toBe(afterChild.byteRevision);
+    await expect(fs.writeMarkdown("/", { baseRevision: afterChild.byteRevision, source: afterChild.document!.source })).rejects.toBeInstanceOf(FsConflictError);
+
+    await fs.mutate({ operations: [{ op: "trash", paths: ["/renamed"] }] });
+    const afterRemoval = await fs.read("/");
+    expect(afterRemoval.byteRevision).not.toBe(afterRename.byteRevision);
+    await expect(fs.writeMarkdown("/", { baseRevision: afterRename.byteRevision, source: afterRename.document!.source })).rejects.toBeInstanceOf(FsConflictError);
   });
 
-  test("uses the shared structural-row transform for nested prose placement", () => {
-    const blocks: ArborBlock[] = [
-      {
-        id: "heading",
-        type: "heading",
-        content: "Section",
-        props: { level: 2 },
-        children: [{
-          id: "anchor",
-          type: "paragraph",
-          content: "Anchor",
-          props: {},
-          children: [],
-        }],
-      },
-      { id: "child-a", type: "standaloneLink", content: "a", props: { path: "a" }, children: [] },
-      { id: "child-b", type: "standaloneLink", content: "b", props: { path: "b" }, children: [] },
-    ];
-    const transformed = transformStructuralRows(blocks, {
-      directory: "/",
-      removePaths: ["/b"],
-      insertMoves: [{ oldPath: "/b", newPath: "/b" }],
-      beforeBlockId: "anchor",
-    });
-    expect(transformed.anchor).toBe("found");
-    expect(transformed.blocks[0]?.children.map((block) => block.id)).toEqual(["child-b", "anchor"]);
-    expect(transformStructuralRows(blocks, {
-      directory: "/",
-      removePaths: ["/b"],
-      insertMoves: [{ oldPath: "/b", newPath: "/b" }],
-      beforeBlockId: "gone",
-    }).anchor).toBe("missing");
+  test("directory revision ignores filesystem enumeration order", async () => {
+    const first = await workspace({ "b.md": "B\n", "a.md": "A\n" });
+    const second = await workspace({ "a.md": "A\n", "b.md": "B\n" });
+    expect((await first.fs.read("/")).byteRevision).toBe((await second.fs.read("/")).byteRevision);
   });
 
   test("rejects duplicate bodies, occupied destinations, and recursive moves", async () => {
@@ -182,7 +137,7 @@ describe("@arbor/fs logical nodes", () => {
       "folder/child.md": "Child\n",
     });
     const duplicate = await fs.read("/duplicate");
-    await expect(fs.writeMarkdown("/duplicate", { baseRevision: duplicate.byteRevision, blocks: [] })).rejects.toBeInstanceOf(FsConflictError);
+    await expect(fs.writeMarkdown("/duplicate", { baseRevision: duplicate.byteRevision, source: "" })).rejects.toBeInstanceOf(FsConflictError);
     await expect(fs.mutate({ operations: [{ op: "move", paths: ["/folder/child"], destination: "/destination" }] })).rejects.toThrow("Destination already exists");
     await expect(fs.mutate({ operations: [{ op: "move", paths: ["/folder"], destination: "/folder" }] })).rejects.toThrow("itself");
     await expect(fs.mutate({ operations: [{ op: "createDirectory", path: "/schema.ts" }] })).rejects.toThrow("Invalid workspace name");
@@ -222,7 +177,7 @@ describe("@arbor/fs logical nodes", () => {
     });
   }
 
-  test("rolls a structural move and its directory rows forward together", async () => {
+  test("rolls a structural move forward without rewriting authored directory Markdown", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-fs-row-crash-"));
     const state = await mkdtemp(join(tmpdir(), "arbor-fs-row-crash-state-"));
     directories.push(root, state);
@@ -233,17 +188,17 @@ describe("@arbor/fs logical nodes", () => {
       stateDirectory: state,
       faultInjector: (point) => { if (point === "mutation:destination-committed") throw new Error("power loss"); },
     });
-    await expect(crashing.mutate({ operations: [{ op: "move", paths: ["/page"], destination: "/folder", placement: "authored" }] })).rejects.toBeInstanceOf(FsInjectedCrashError);
+    await expect(crashing.mutate({ operations: [{ op: "move", paths: ["/page"], destination: "/folder" }] })).rejects.toBeInstanceOf(FsInjectedCrashError);
     await crashing[Symbol.asyncDispose]();
 
     const recovered = await WorkspaceFS.open(root, { stateDirectory: state });
     opened.push(recovered);
     expect(await readFile(join(root, "folder", "page.md"), "utf8")).toContain("Page\n");
     expect((await recovered.read("/folder")).document?.blocks.some((block) => block.type === "standaloneLink" && block.content === "page")).toBe(true);
-    expect(await readFile(join(root, "_index.md"), "utf8")).not.toContain("](page)");
+    expect(await readFile(join(root, "_index.md"), "utf8")).toBe("[page](page)\n");
   });
 
-  test("a natural move strips source rows without materializing destination ordering", async () => {
+  test("a move leaves authored links ordinary and does not materialize a destination index", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-fs-natural-move-"));
     const state = await mkdtemp(join(tmpdir(), "arbor-fs-natural-move-state-"));
     directories.push(root, state);
@@ -254,13 +209,13 @@ describe("@arbor/fs logical nodes", () => {
     opened.push(fs);
     await fs.mutate({ operations: [{ op: "move", paths: ["/page"], destination: "/folder" }] });
     expect(await readFile(join(root, "folder", "page.md"), "utf8")).toContain("Page\n");
-    expect(await readFile(join(root, "_index.md"), "utf8")).not.toContain("](page)");
+    expect(await readFile(join(root, "_index.md"), "utf8")).toBe("[page](page)\n");
     await expect(stat(join(root, "folder", "_index.md"))).rejects.toThrow();
   });
 
-  test("a rename never materializes a row for a previously synthetic child", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-fs-rename-synthetic-"));
-    const state = await mkdtemp(join(tmpdir(), "arbor-fs-rename-synthetic-state-"));
+  test("a rename never materializes the provider-completed directory source", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-fs-rename-complete-"));
+    const state = await mkdtemp(join(tmpdir(), "arbor-fs-rename-complete-state-"));
     directories.push(root, state);
     await mkdir(join(root, "folder"));
     await writeFile(join(root, "folder", "draft.md"), "Draft\n");
@@ -271,26 +226,13 @@ describe("@arbor/fs logical nodes", () => {
     await expect(stat(join(root, "folder", "_index.md"))).rejects.toThrow();
   });
 
-  test("anchoring before a synthetic child materializes the anchor row too", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-fs-anchor-synth-"));
-    const state = await mkdtemp(join(tmpdir(), "arbor-fs-anchor-synth-state-"));
-    directories.push(root, state);
-    await writeFile(join(root, "page.md"), "Page\n");
-    await mkdir(join(root, "folder"));
-    await writeFile(join(root, "folder", "existing.md"), "Existing\n");
-    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
-    opened.push(fs);
-    const revision = (await fs.read("/folder")).byteRevision;
-    await fs.mutate({ operations: [{
-      op: "move",
-      paths: ["/page"],
-      destination: "/folder",
-      beforePath: "/folder/existing",
-      directoryRevision: revision,
-    }] });
-    const body = await readFile(join(root, "folder", "_index.md"), "utf8");
-    expect(body.indexOf("](page)")).toBeGreaterThanOrEqual(0);
-    expect(body.indexOf("](existing)")).toBeGreaterThan(body.indexOf("](page)"));
+  test("completes missing child links on read and persists the accepted source on write", async () => {
+    const { root, fs } = await workspace({ "folder/_index.md": "Intro\n", "folder/b.md": "B\n", "folder/a.md": "A\n" });
+    const projected = await fs.read("/folder");
+    expect(projected.document?.source).toBe("Intro\n\n[a](a)\n\n[b](b)\n");
+    expect(await readFile(join(root, "folder", "_index.md"), "utf8")).toBe("Intro\n");
+    await fs.writeMarkdown("/folder", { baseRevision: projected.byteRevision, source: projected.document!.source });
+    expect(await readFile(join(root, "folder", "_index.md"), "utf8")).toBe("Intro\n\n[a](a)\n\n[b](b)\n");
   });
 
   test("reasserts only unsettled authored stomps and observes settled rewrites", async () => {
@@ -306,12 +248,12 @@ describe("@arbor/fs logical nodes", () => {
     const initial = await fs.read("/page");
     const first = await fs.writeMarkdown("/page", {
       baseRevision: initial.byteRevision,
-      blocks: [{ id: "first", type: "paragraph", content: "First", props: {}, children: [] }],
+      source: "---\nid: abc123\n---\nFirst\n",
     });
     await new Promise((resolve) => setTimeout(resolve, 320));
     const second = await fs.writeMarkdown("/page", {
       baseRevision: first.byteRevision,
-      blocks: [{ id: "second", type: "paragraph", content: "Second", props: {}, children: [] }],
+      source: "---\nid: abc123\n---\nSecond\n",
     });
     await writeFile(join(root, "page.md"), first.bytes!);
     await new Promise((resolve) => setTimeout(resolve, 180));

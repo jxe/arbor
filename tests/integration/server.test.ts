@@ -58,22 +58,21 @@ describe("arbord REST v1", () => {
 
   test("reads and idempotently writes a Markdown node", async () => {
     const node = await client.node({ path: "/page" });
-    const blocks = structuredClone(node.document!.blocks);
-    blocks[0]!.content = "Changed through REST v1";
+    const source = node.document!.source.replace("Hello API", "Changed through REST v1");
     const request: MutationRequest = {
       mutationID: "write-page-1",
       operations: [{
         op: "writeMarkdown",
         ref: { path: "/page" },
         baseContentRevision: node.contentRevision!,
-        blocks,
+        source,
       }],
     };
     const first = await client.mutate(request);
     const retry = await client.mutate(request);
     expect(retry).toEqual(first);
     const saved = await client.node({ path: "/page" });
-    expect(saved.document?.frontmatter.id).toMatch(/^[a-z0-9]{6}$/);
+    expect(saved.document?.source).toBe(source);
     expect(saved.document?.bodySource).toContain("Changed through REST v1");
     durableWriteRequest = request;
     durableWriteReceipt = first;
@@ -96,6 +95,7 @@ describe("arbord REST v1", () => {
     ));
     for (const body of [
       fixture,
+      { mutationID: "old-write-shape", operations: [{ op: "writeMarkdown", ref: { path: "/page" }, baseContentRevision: "sha256:old", blocks: [] }] },
       { mutationID: "bad-ref", operations: [{ op: "rename", ref: { path: "/renamed", pageID: "both" }, name: "nope" }] },
       { mutationID: "bad-move", operations: [{ op: "move", refs: [], destination: { path: "/" } }] },
     ]) {
@@ -117,9 +117,9 @@ describe("arbord REST v1", () => {
   });
 
   test("resolves renamed Markdown pages by opaque page ID", async () => {
-    const before = await client.node({ path: "/page" });
-    await client.mutateStructural([{ op: "rename", ref: { pageID: before.ref.pageID!, pathHint: "/page" }, name: "renamed" }], "rename-page");
-    const after = await client.node({ pageID: before.ref.pageID!, pathHint: "/page" });
+    await client.mutateStructural([{ op: "rename", ref: { path: "/page" }, name: "renamed" }], "rename-page");
+    const renamed = await client.node({ path: "/renamed" });
+    const after = await client.node({ pageID: renamed.ref.pageID!, pathHint: "/page" });
     expect(after.path).toBe("/renamed");
   });
 
@@ -147,50 +147,38 @@ describe("arbord REST v1", () => {
     expect(byID.entries).toEqual(byPath.entries);
   });
 
-  test("commits structural batches atomically and exposes directory conflicts", async () => {
+  test("commits structural batches atomically and rejects obsolete ordering fields", async () => {
     const receipt = await client.mutateStructural([
       { op: "createDirectory", path: "/folder" },
       { op: "createMarkdown", path: "/other" },
     ], "create-batch");
     expect(receipt.effects.filter((effect) => effect.kind === "created").map((effect) => effect.path)).toEqual(["/folder", "/other"]);
 
-    const directory = await client.node({ path: "/" });
-    await expect(client.mutateStructural([{
-      op: "move",
-      refs: [{ path: "/other" }],
-      destination: { path: "/" },
-      beforeBlockID: "vanished-block",
-      baseDirectoryRevision: directory.directoryRevision,
-    }], "missing-anchor")).rejects.toMatchObject({
-      status: 409,
-      value: {
-        code: "missing-insertion-anchor",
-        anchor: { beforeBlockID: "vanished-block" },
-      },
+    const response = await fetch(`${base}/v1/mutations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mutationID: "obsolete-ordering",
+        operations: [{
+          op: "move",
+          refs: [{ path: "/other" }],
+          destination: { path: "/" },
+          beforeBlockID: "vanished-block",
+        }],
+      }),
     });
-    expect((await client.node({ path: "/other" })).path).toBe("/other");
-
-    await expect(client.mutateStructural([{
-      op: "move",
-      refs: [{ path: "/other" }],
-      destination: { path: "/" },
-      beforePath: "/folder",
-      baseDirectoryRevision: "sha256:stale-directory",
-    }], "stale-directory")).rejects.toMatchObject({
-      status: 409,
-      value: { code: "stale-directory-revision" },
-    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: "invalid-reference" } });
   });
 
   test("rejects mixed and multiple-content batches before recording intent", async () => {
     const before = await client.node({ path: "/renamed" });
-    const blocks = structuredClone(before.document!.blocks);
-    blocks[0]!.content = "Must not materialize";
+    const source = before.document!.source.replace(before.document!.bodySource, "Must not materialize\n");
     const content = {
       op: "writeMarkdown",
       ref: { pageID: before.ref.pageID!, pathHint: "/renamed" },
       baseContentRevision: before.contentRevision!,
-      blocks,
+      source,
     };
     const mixedFixture = JSON.parse(await readFile(
       join(import.meta.dir, "../../spec/fixtures/mixed-mutation.json"),
@@ -198,7 +186,7 @@ describe("arbord REST v1", () => {
     ));
     mixedFixture.operations[0].ref = { pageID: before.ref.pageID!, pathHint: "/renamed" };
     mixedFixture.operations[0].baseContentRevision = before.contentRevision!;
-    mixedFixture.operations[0].blocks = blocks;
+    mixedFixture.operations[0].source = source;
     mixedFixture.operations[1].path = "/mixed-success";
     for (const [mutationID, operations] of [
       [mixedFixture.mutationID, mixedFixture.operations],
@@ -206,7 +194,7 @@ describe("arbord REST v1", () => {
         op: "writeMarkdown",
         ref: { pageID: before.ref.pageID!, pathHint: "/renamed" },
         baseContentRevision: before.contentRevision!,
-        blocks,
+        source,
       }]],
     ] as const) {
       const response = await fetch(`${base}/v1/mutations`, {
@@ -385,20 +373,19 @@ describe("arbord REST v1", () => {
 
     const before = await client.node({ path: "/renamed" });
     const pageRef = { pageID: before.ref.pageID!, pathHint: before.path };
-    const recoveryBlocks = structuredClone(before.document!.blocks);
-    recoveryBlocks[0]!.content = "Recovery source";
+    const recoverySourceText = before.document!.source.replace(before.document!.bodySource, "Recovery source\n");
     await client.mutateContent({
       op: "writeMarkdown",
       ref: pageRef,
       baseContentRevision: before.contentRevision!,
-      blocks: recoveryBlocks,
+      source: recoverySourceText,
     }, "recovery-source");
     const recoverySource = await client.node(pageRef);
     await client.mutateContent({
       op: "writeMarkdown",
       ref: pageRef,
       baseContentRevision: recoverySource.contentRevision!,
-      blocks: [],
+      source: recoverySource.document!.frontmatterSource ?? "",
     }, "purge-for-recovery");
     const empty = await client.node(pageRef);
     const recovery = await client.recovery(pageRef);
@@ -418,7 +405,7 @@ describe("arbord REST v1", () => {
     await client.mutateStructural([{ op: "createMarkdown", path: "/discarded" }], "create-discarded");
     await client.mutateStructural([{ op: "trash", refs: [{ path: "/discarded" }] }], "trash-discarded");
     const subtree = await client.recovery({ path: "/" }, { recursive: true });
-    expect(subtree.entries).toContainEqual(expect.objectContaining({
+    expect(subtree.entries).not.toContainEqual(expect.objectContaining({
       kind: "block",
       ref: expect.objectContaining({ path: "/renamed" }),
     }));
@@ -510,7 +497,7 @@ describe("arbord REST v1", () => {
         op: "writeMarkdown",
         ref: { pageID: written.ref.pageID!, pathHint: "/renamed" },
         baseContentRevision: "sha256:pre-crash-base",
-        blocks: written.document!.blocks,
+        source: written.document!.source,
       }],
     };
     const recoveredWriteHash = sha256(canonicalJSONString(recoveredWriteRequest));

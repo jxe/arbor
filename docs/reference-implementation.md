@@ -4,11 +4,11 @@ This document records replaceable architecture and operating choices in the curr
 
 ## Repository and runtimes
 
-The reference implementation is a Bun/TypeScript workspace. Major packages separate core logical/protocol types, filesystem projection and mutation, local arbord HTTP service, stores and private state, wire authority/object handling, TypeScript client, CLI, server rendering, and the TreeHopper React application.
+The reference implementation is a Bun/TypeScript workspace. Major packages separate core logical/protocol types, provider-owned filesystem documents and mutation, local arbord HTTP service, stores and private state, wire authority/object handling, TypeScript client, CLI, server rendering, and the TreeHopper React application.
 
 The Apple reference client is a Foundation-only Swift 6 package under `native/Packages/ArborClient`. Native TreeHopper and Hunch integrate that package without making SwiftUI, Clamshell, actor structure, `URLSession`, or package paths part of REST v1.
 
-TreeHopper web uses React and BlockNote. Markdown remains canonical; BlockNote blocks and `managed:` projection rows are interactive/session values.
+TreeHopper web uses React and BlockNote. Markdown remains canonical: arbord returns complete operational directory source, BlockNote edits a server-derived block view, and the browser serializes exact/block-granular source for every content write. Child-link reorder is a source write; physical moves remain structural.
 
 ## Sandboxes and generated files
 
@@ -36,7 +36,7 @@ The reference `arbor serve` can run locally or behind a deployment provider. Pro
 
 The TypeScript and Swift clients are hand-maintained against common fixtures. They currently allow three total attempts for an ambiguous transport outcome, prepare mutations once, reuse their bytes and mutation ID, and expose observation helpers that buffer from a snapshot cursor before draining child pages. The Swift client uses actors and `AsyncThrowingStream`; the TypeScript client supplies the browser-facing wrapper.
 
-Exact attempt counts, backoff timing, actor/class names, hydration wrappers, and editor session coordinators are replaceable. Both clients must preserve explicit tree scope, opaque PageIDs, one-pass URL decoding, unknown errors, projection provenance, and resync-first behavior.
+Exact attempt counts, backoff timing, actor/class names, and editor session coordinators are replaceable. Both clients must preserve exact accepted source, explicit tree scope, opaque PageIDs, one-pass URL decoding, unknown errors, provider-owned directory completeness, and resync-first behavior.
 
 ## Verification machinery
 

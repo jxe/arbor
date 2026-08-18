@@ -131,6 +131,8 @@ public struct ArborBlock: Codable, Sendable, Equatable {
 }
 
 public struct MarkdownDocument: Codable, Sendable, Equatable {
+    /// Exact authoritative Markdown source, including frontmatter.
+    public var source: String
     public var frontmatter: [String: JSONValue]
     public var frontmatterSource: String?
     public var bodySource: String
@@ -261,14 +263,8 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
     public var path: String?
     public var name: String?
     public var destination: NodeRef?
-    /// "natural" (default) or "authored" — whether a move places a stored destination row.
-    public var placement: String?
-    public var beforePath: String?
-    public var beforeBlockID: String?
     public var baseContentRevision: String?
-    public var baseDirectoryRevision: String?
-    public var frontmatterPatch: [String: JSONValue]?
-    public var blocks: [ArborBlock]?
+    public var source: String?
     public var hash: String?
     public var origin: String?
     public var accountToken: String?
@@ -289,13 +285,8 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         path: String? = nil,
         name: String? = nil,
         destination: NodeRef? = nil,
-        placement: String? = nil,
-        beforePath: String? = nil,
-        beforeBlockID: String? = nil,
         baseContentRevision: String? = nil,
-        baseDirectoryRevision: String? = nil,
-        frontmatterPatch: [String: JSONValue]? = nil,
-        blocks: [ArborBlock]? = nil,
+        source: String? = nil,
         hash: String? = nil,
         origin: String? = nil,
         accountToken: String? = nil,
@@ -315,13 +306,8 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         self.path = path
         self.name = name
         self.destination = destination
-        self.placement = placement
-        self.beforePath = beforePath
-        self.beforeBlockID = beforeBlockID
         self.baseContentRevision = baseContentRevision
-        self.baseDirectoryRevision = baseDirectoryRevision
-        self.frontmatterPatch = frontmatterPatch
-        self.blocks = blocks
+        self.source = source
         self.hash = hash
         self.origin = origin
         self.accountToken = accountToken
@@ -399,11 +385,6 @@ public struct ObservedNodeView: Sendable {
     }
 }
 
-public struct ArbordErrorAnchor: Codable, Sendable, Equatable {
-    public var beforePath: String?
-    public var beforeBlockID: String?
-}
-
 public struct ArbordErrorValue: Codable, Sendable, Equatable {
     public var code: String
     public var message: String
@@ -411,7 +392,6 @@ public struct ArbordErrorValue: Codable, Sendable, Equatable {
     public var path: String?
     public var current: NodeSnapshot?
     public var owners: [String]?
-    public var anchor: ArbordErrorAnchor?
     public var mutationID: String?
 }
 

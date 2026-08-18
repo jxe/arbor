@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { access, cp, mkdir, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import * as watcher from "@parcel/watcher";
-import type { Diagnostic, MarkdownDocument } from "@arbor/core";
+import type { Diagnostic, MarkdownDocument, TreeChild } from "@arbor/core";
 import {
   canonicalNodePath,
   isPageID,
@@ -12,14 +12,13 @@ import {
   nodePathFromPhysical,
   normalizeTreePath,
   PathEscapeError,
-  transformStructuralRows,
   resolveTreePath,
   revisionOf,
   sha256,
   siblingMarkdownTreePath,
   toTreePath,
 } from "@arbor/core";
-import { mintPageID, parseMarkdown, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
+import { completeDirectoryDocument, mintPageID, parseMarkdown, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
 import { commitPrepared, pathExists, prepareAtomic, removeIfExists, syncDirectory, transactionTemporaryPath, writeAtomic } from "./file-ops.ts";
 import {
   discoverWorkspace,
@@ -127,40 +126,26 @@ interface TransactionRecord {
   phase: "prepared" | "committing" | "committed" | "interrupted";
   steps: TransactionStep[];
   changes: FsChange[];
-  rowPlans?: SerializedRows[];
   message?: string;
-}
-
-interface PlannedRows {
-  sources: Map<string, string[]>;
-  destination?: string;
-  moved: Array<{ oldPath: string; newPath: string }>;
-  insertMode?: "insert" | "update-existing";
-  beforePath?: string;
-  beforeBlockId?: string;
-  expectedDirectoryRevision?: string;
-  revisions?: Map<string, string>;
-}
-
-interface SerializedRows {
-  sources: Array<[string, string[]]>;
-  destination?: string;
-  moved: Array<{ oldPath: string; newPath: string }>;
-  insertMode?: "insert" | "update-existing";
-  beforePath?: string;
-  beforeBlockId?: string;
-  revisions?: Array<[string, string]>;
-}
-
-interface RowSnapshot {
-  path: string;
-  bodyPath: string;
-  bytes: Uint8Array | null;
-  pageID?: string;
 }
 
 function bodyRevision(document: MarkdownDocument): string {
   return sha256(document.bodySource);
+}
+
+function compareUTF8(left: string, right: string): number {
+  return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
+}
+
+function directoryContentRevision(storedSource: string, children: readonly TreeChild[]): string {
+  const descriptors = children
+    .map((child) => ({
+      path: canonicalNodePath(child.path),
+      kind: child.kind,
+      pageID: child.pageID ?? null,
+    }))
+    .sort((left, right) => compareUTF8(left.path, right.path));
+  return revisionOf(`${storedSource}\0${JSON.stringify(descriptors)}`);
 }
 
 function isTransactionTemporary(path: string): boolean {
@@ -407,23 +392,25 @@ export class WorkspaceFS implements AsyncDisposable {
     };
   }
 
-  async read(inputPath: string): Promise<FsReadResult> {
+  async read(
+    inputPath: string,
+    options: { includeDirectoryChild?: (entry: FsDirectoryEntry) => boolean } = {},
+  ): Promise<FsReadResult> {
     const node = await this.resolve(inputPath);
     if (node.kind === "missing") return { node, bytes: null, byteRevision: EMPTY_REVISION };
     if (node.materialization === "placeholder") {
       return { node, bytes: null, byteRevision: revisionOf(`placeholder:${node.path}`) };
     }
     const path = node.kind === "directory" ? node.bodyPath : node.kind === "markdown" ? node.bodyPath : node.absolutePath;
-    if (!path) {
-      const document = parseMarkdown("");
-      return { node, bytes: null, byteRevision: EMPTY_REVISION, bodyRevision: bodyRevision(document), document };
+    if (node.kind === "file") {
+      const bytes = new Uint8Array(await readFile(path!));
+      return { node, bytes, byteRevision: revisionOf(bytes) };
     }
-    let bytes = new Uint8Array(await readFile(path));
-    const byteRevision = revisionOf(bytes);
-    if (node.kind === "file") return { node, bytes, byteRevision };
-    let document = parseMarkdown(new TextDecoder().decode(bytes));
+    let storedBytes = path ? new Uint8Array(await readFile(path)) : null;
+    let storedSource = storedBytes ? new TextDecoder().decode(storedBytes) : "";
+    let document = parseMarkdown(storedSource);
     const pageID = isPageID(document.frontmatter.id) ? document.frontmatter.id : null;
-    if (pageID && this.durableIdentity) {
+    if (pageID && this.durableIdentity && path) {
       this.knownIDs.add(pageID);
       if (!this.pagePathsByID.has(pageID)) this.pagePathsByID.set(pageID, node.path);
       const mtime = (await stat(path)).mtimeMs / 1_000;
@@ -432,11 +419,42 @@ export class WorkspaceFS implements AsyncDisposable {
         const repaired = serializeMarkdown(document, reconciled.blocks);
         await writeAtomic(path, repaired);
         await this.journal.markMaterialized(pageID);
-        bytes = new TextEncoder().encode(repaired);
+        storedBytes = new TextEncoder().encode(repaired);
+        storedSource = repaired;
         document = parseMarkdown(repaired);
       }
     }
-    return { node, bytes, byteRevision: revisionOf(bytes), bodyRevision: bodyRevision(document), document };
+    const storedByteRevision = revisionOf(storedSource);
+    if (node.kind !== "directory") {
+      return {
+        node,
+        bytes: storedBytes,
+        storedBytes,
+        byteRevision: storedByteRevision,
+        storedByteRevision,
+        bodyRevision: bodyRevision(document),
+        document,
+      };
+    }
+    const entries = (await this.list(node.path)).filter((entry) => options.includeDirectoryChild?.(entry) ?? true);
+    const children: TreeChild[] = entries.map((entry) => ({
+      name: entry.name,
+      path: entry.path,
+      kind: entry.kind,
+      materialization: entry.materialization,
+      ...(entry.pageID ? { pageID: entry.pageID } : {}),
+    }));
+    const complete = completeDirectoryDocument(node.path, storedSource, children);
+    const bytes = new TextEncoder().encode(complete.source);
+    return {
+      node,
+      bytes,
+      storedBytes,
+      byteRevision: directoryContentRevision(storedSource, children),
+      storedByteRevision,
+      bodyRevision: bodyRevision(complete.document),
+      document: complete.document,
+    };
   }
 
   async list(inputPath: string): Promise<FsDirectoryEntry[]> {
@@ -464,6 +482,7 @@ export class WorkspaceFS implements AsyncDisposable {
         name: nodeDisplayName(child.path),
         kind: child.kind,
         materialization: child.materialization,
+        ...await this.pageIDForNode(child).then((pageID) => pageID ? { pageID } : {}),
         diagnostics: child.diagnostics,
       };
     }));
@@ -472,15 +491,28 @@ export class WorkspaceFS implements AsyncDisposable {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  private async pageIDForNode(node: ResolvedFsNode): Promise<string | undefined> {
+    const known = [...this.pagePathsByID].find(([, owner]) => owner === node.path)?.[0];
+    if (known) return known;
+    if ((node.kind !== "markdown" && node.kind !== "directory") || !node.bodyPath || node.materialization === "placeholder") {
+      return undefined;
+    }
+    const source = await readFile(node.bodyPath, "utf8").catch(() => null);
+    if (source === null) return undefined;
+    const value = parseMarkdown(source).frontmatter.id;
+    return isPageID(value) ? value : undefined;
+  }
+
   writeMarkdown(
     inputPath: string,
     request: MarkdownWriteRequest,
     options: {
       onPrepared?: (result: FsWriteResult) => void | Promise<void>;
       onMaterialized?: (result: FsWriteResult) => void | Promise<void>;
+      includeDirectoryChild?: (entry: FsDirectoryEntry) => boolean;
     } = {},
   ): Promise<FsWriteResult> {
-    return this.writeMarkdownInternal(inputPath, request, undefined, options.onMaterialized, options.onPrepared);
+    return this.writeMarkdownInternal(inputPath, request, undefined, options.onMaterialized, options.onPrepared, options.includeDirectoryChild);
   }
 
   private async writeMarkdownInternal(
@@ -489,6 +521,7 @@ export class WorkspaceFS implements AsyncDisposable {
     transactionId?: string,
     onMaterialized?: (result: FsWriteResult) => void | Promise<void>,
     onPrepared?: (result: FsWriteResult) => void | Promise<void>,
+    includeDirectoryChild?: (entry: FsDirectoryEntry) => boolean,
   ): Promise<FsWriteResult> {
     const path = canonicalNodePath(inputPath);
     const coordinator = this.coordinator(path);
@@ -501,33 +534,43 @@ export class WorkspaceFS implements AsyncDisposable {
         : resolved.kind === "markdown"
           ? resolved.bodyPath!
           : resolveTreePath(this.root, siblingMarkdownTreePath(path));
-      const current = await readFile(target, "utf8").catch(() => "");
-      const currentRevision = revisionOf(current);
-      if (request.baseRevision !== currentRevision) {
-        throw new FsConflictError({ code: "stale-revision", path, current: await this.read(path) }, "The file changed since it was opened");
+      const readOptions = { includeDirectoryChild };
+      const current = await this.read(path, readOptions);
+      if (request.baseRevision !== current.byteRevision) {
+        throw new FsConflictError({ code: "stale-revision", path, current: await this.read(path, readOptions) }, "The file changed since it was opened");
       }
-      const document = parseMarkdown(current);
-      const patch = { ...(request.frontmatterPatch ?? {}) };
-      let pageID = isPageID(document.frontmatter.id) ? document.frontmatter.id : undefined;
-      if (!pageID && this.durableIdentity) {
-        pageID = mintPageID(this.knownIDs);
-        patch.id = pageID;
-        this.knownIDs.add(pageID);
+      const previousDocument = current.document ?? parseMarkdown("");
+      let output = request.source;
+      let parsed = parseMarkdown(output);
+      let children: TreeChild[] = [];
+      if (resolved.kind === "directory") {
+        children = (await this.list(path)).filter((child) => includeDirectoryChild?.(child) ?? true).map((child) => ({
+          name: child.name,
+          path: child.path,
+          kind: child.kind,
+          materialization: child.materialization,
+          ...(child.pageID ? { pageID: child.pageID } : {}),
+        }));
+        const complete = completeDirectoryDocument(path, output, children);
+        output = complete.source;
+        parsed = complete.document;
       }
+      const pageID = isPageID(parsed.frontmatter.id) ? parsed.frontmatter.id : undefined;
       if (pageID && this.durableIdentity) this.pagePathsByID.set(pageID, path);
       if (pageID && this.durableIdentity && this.coordinators.get(path) === coordinator) {
         this.coordinators.delete(path);
         this.coordinators.set(`id:${pageID}`, coordinator);
       }
-      if (pageID && this.durableIdentity) await this.journal.commit(pageID, document.blocks, request.blocks);
-      const output = serializeMarkdown(document, request.blocks, patch);
       const bytes = new TextEncoder().encode(output);
-      const parsed = parseMarkdown(output);
-      const byteRevision = revisionOf(bytes);
+      const byteRevision = resolved.kind === "directory"
+        ? directoryContentRevision(output, children)
+        : revisionOf(bytes);
       const preview = {
         node: await this.resolve(path),
         bytes,
+        storedBytes: bytes,
         byteRevision,
+        storedByteRevision: revisionOf(bytes),
         bodyRevision: bodyRevision(parsed),
         document: parsed,
         pageID,
@@ -536,23 +579,29 @@ export class WorkspaceFS implements AsyncDisposable {
       await onPrepared?.(preview);
       const temporary = await prepareAtomic(target, bytes);
       await this.fault("write:prepared");
-      const justBefore = await readFile(target, "utf8").catch(() => "");
-      if (revisionOf(justBefore) !== currentRevision) {
+      const justBefore = await this.read(path, readOptions);
+      if (justBefore.byteRevision !== current.byteRevision) {
         await removeIfExists(temporary);
-        throw new FsConflictError({ code: "stale-revision", path, current: await this.read(path) }, "The file changed while the write was being prepared");
+        throw new FsConflictError({ code: "stale-revision", path, current: await this.read(path, readOptions) }, "The file changed while the write was being prepared");
       }
+      // Journal after the final source CAS check but before materialization.
+      // Reading after an add record is durable intentionally performs crash
+      // recovery, so committing earlier would make our own CAS read restore the
+      // pending blocks into the still-old file.
+      if (pageID && this.durableIdentity) await this.journal.commit(pageID, previousDocument.blocks, parsed.blocks);
       await commitPrepared(temporary, target);
       await this.fault("write:replaced");
       if (pageID && this.durableIdentity) await this.journal.markMaterialized(pageID);
-      const result = { node: await this.resolve(path), bytes, byteRevision, bodyRevision: bodyRevision(parsed), document: parsed, pageID, generation };
+      const accepted = await this.read(path, readOptions);
+      const result = { ...accepted, pageID, generation };
       await onMaterialized?.(result);
-      coordinator.remember({ revision: byteRevision, bytes, bodyPath: target, generation }, this.settleDelayMs, transactionId
+      coordinator.remember({ revision: result.byteRevision, bytes: result.bytes ?? bytes, bodyPath: target, generation }, this.settleDelayMs, transactionId
         ? () => {}
         : () => this.emit({
-          type: current ? "updated" : "created",
+          type: current.storedBytes ? "updated" : "created",
           path,
-          byteRevision,
-          bodyRevision: bodyRevision(parsed),
+          byteRevision: result.byteRevision,
+          bodyRevision: result.bodyRevision,
           origin: "local-api",
           classification: "echo",
           generation,
@@ -619,7 +668,8 @@ export class WorkspaceFS implements AsyncDisposable {
     const id = current.document?.frontmatter.id;
     if (!isPageID(id)) throw new Error("Page has no durable identity");
     const blocks = await this.journal.restore(id, hash, current.document!.blocks);
-    return this.writeMarkdown(inputPath, { baseRevision: current.byteRevision, blocks }, options);
+    const source = serializeMarkdown(current.document!, blocks);
+    return this.writeMarkdown(inputPath, { baseRevision: current.byteRevision, source }, options);
   }
 
   async restoreMarkdownBytesForRollback(inputPath: string, bytes: Uint8Array | null): Promise<void> {
@@ -726,46 +776,10 @@ export class WorkspaceFS implements AsyncDisposable {
     const id = crypto.randomUUID();
     const steps: TransactionStep[] = [];
     const changes: FsChange[] = [];
-    const rowPlans: PlannedRows[] = [];
     const destinations = new Set<string>();
 
     for (const operation of request.operations) {
-      await this.planOperation(operation, id, steps, changes, rowPlans, destinations);
-    }
-    for (const plan of rowPlans) {
-      const directories = new Set([...plan.sources.keys(), ...(plan.destination ? [canonicalNodePath(plan.destination)] : [])]);
-      plan.revisions = new Map();
-      for (const directory of directories) {
-        const current = await this.read(directory);
-        if (
-          plan.destination
-          && directory === canonicalNodePath(plan.destination)
-          && plan.expectedDirectoryRevision !== undefined
-          && current.byteRevision !== plan.expectedDirectoryRevision
-        ) {
-          throw new FsConflictError(
-            { code: "stale-revision", path: directory, current },
-            `Directory body changed before mutation: ${directory}`,
-          );
-        }
-        plan.revisions.set(directory, current.byteRevision);
-      }
-    }
-    const rowSnapshots: RowSnapshot[] = [];
-    const snapshottedRows = new Set<string>();
-    for (const plan of rowPlans) {
-      for (const directory of new Set([...plan.sources.keys(), ...(plan.destination ? [canonicalNodePath(plan.destination)] : [])])) {
-        if (snapshottedRows.has(directory)) continue;
-        snapshottedRows.add(directory);
-        const current = await this.read(directory);
-        const pageID = typeof current.document?.frontmatter.id === "string" ? current.document.frontmatter.id : undefined;
-        rowSnapshots.push({
-          path: directory,
-          bodyPath: current.node.bodyPath ?? resolveTreePath(this.root, directoryIndexTreePath(directory)),
-          bytes: current.bytes,
-          pageID,
-        });
-      }
+      await this.planOperation(operation, id, steps, changes, destinations);
     }
     for (const step of steps) step.fingerprint = await this.fingerprint(step.source ?? step.temporary, step.kind);
 
@@ -775,15 +789,6 @@ export class WorkspaceFS implements AsyncDisposable {
       phase: "prepared",
       steps,
       changes,
-      rowPlans: rowPlans.map((plan) => ({
-        sources: [...plan.sources],
-        destination: plan.destination,
-        moved: plan.moved,
-        insertMode: plan.insertMode,
-        beforePath: plan.beforePath,
-        beforeBlockId: plan.beforeBlockId,
-        revisions: plan.revisions ? [...plan.revisions] : undefined,
-      })),
     };
     const recordPath = this.transactionPath(id);
     await writeAtomic(recordPath, JSON.stringify(record));
@@ -806,8 +811,6 @@ export class WorkspaceFS implements AsyncDisposable {
         if (dirname(step.temporary) !== dirname(step.destination)) await syncDirectory(dirname(step.temporary));
         await this.fault("mutation:destination-committed");
       }
-      for (const plan of rowPlans) await this.applyRowPlan(plan, id);
-      await this.fault("mutation:rows-applied");
       record.phase = "committed";
       await writeAtomic(recordPath, JSON.stringify(record));
       await this.fault("mutation:committed");
@@ -829,14 +832,6 @@ export class WorkspaceFS implements AsyncDisposable {
             await removeIfExists(step.destination);
             await removeIfExists(step.temporary);
           }
-        } catch { rollbackFailed = true; }
-      }
-      for (const snapshot of rowSnapshots) {
-        try {
-          if (snapshot.bytes) await writeAtomic(snapshot.bodyPath, snapshot.bytes);
-          else await removeIfExists(snapshot.bodyPath);
-          if (this.durableIdentity && snapshot.pageID && isPageID(snapshot.pageID)) await this.journal.markMaterialized(snapshot.pageID);
-          this.suppress(snapshot.path);
         } catch { rollbackFailed = true; }
       }
       if (rollbackFailed) {
@@ -871,7 +866,6 @@ export class WorkspaceFS implements AsyncDisposable {
     transactionId: string,
     steps: TransactionStep[],
     changes: FsChange[],
-    rowPlans: PlannedRows[],
     destinations: Set<string>,
   ): Promise<void> {
     if (operation.op === "createDirectory") {
@@ -897,11 +891,7 @@ export class WorkspaceFS implements AsyncDisposable {
       validateLogicalName(nodeDisplayName(path));
       const destination = resolveTreePath(this.root, siblingMarkdownTreePath(path));
       await this.assertDestinationFree(path, [destination, resolveTreePath(this.root, path)], destinations);
-      const blocks = operation.blocks ?? [];
-      const pageID = this.durableIdentity ? mintPageID(this.knownIDs) : undefined;
-      if (pageID) this.knownIDs.add(pageID);
-      const output = serializeMarkdown(parseMarkdown(""), blocks, pageID ? { id: pageID } : {});
-      if (pageID) await this.journal.commit(pageID, [], blocks);
+      const output = operation.source ?? "";
       const stagedParent = await this.stagedParent(dirname(destination), transactionId, steps, destinations);
       if (stagedParent) {
         this.recordParentMaterialization(dirname(destination), changes);
@@ -944,17 +934,6 @@ export class WorkspaceFS implements AsyncDisposable {
       const source = canonicalNodePath(operation.path);
       await this.ensureIdentityBeforePathChange(source, transactionId, { materializeImplicit: false });
       await this.planMove([source], parentPath(source), operation.name, transactionId, steps, changes, destinations);
-      if (operation.updateDirectoryRows !== false) {
-        const next = `${parentPath(source) === "/" ? "" : parentPath(source)}/${operation.name}`;
-        // A rename updates an existing authored row but never materializes one
-        // for a previously synthetic child.
-        rowPlans.push({
-          sources: new Map([[parentPath(source), [source]]]),
-          destination: parentPath(source),
-          moved: [{ oldPath: source, newPath: canonicalNodePath(next) }],
-          insertMode: "update-existing",
-        });
-      }
       return;
     }
     if (operation.op === "move") {
@@ -962,60 +941,10 @@ export class WorkspaceFS implements AsyncDisposable {
       const destination = canonicalNodePath(operation.destination);
       const destinationNode = await this.resolve(destination);
       if (destinationNode.kind !== "directory") throw new FsConflictError({ code: "not-found", path: destination }, `Move destination is not a directory: ${destination}`);
-      if (paths.every((path) => parentPath(path) === destination)) {
-        if ((operation.beforePath || operation.beforeBlockId) && operation.directoryRevision === undefined) {
-          const current = await this.read(destination);
-          throw new FsConflictError(
-            { code: "stale-revision", path: destination, current },
-            `A directory revision is required for anchored placement in ${destination}`,
-          );
-        }
-        rowPlans.push({
-          sources: new Map([[destination, paths]]),
-          destination,
-          moved: paths.map((path) => ({ oldPath: path, newPath: path })),
-          beforePath: operation.beforePath,
-          beforeBlockId: operation.beforeBlockId,
-          expectedDirectoryRevision: operation.directoryRevision,
-        });
-        changes.push({ path: destination, kind: "updated" });
-        return;
-      }
-      // An anchor implies authored placement; otherwise the caller's choice,
-      // defaulting to natural (no stored destination row is materialized —
-      // pre-existing rows naming the moved node are still rewritten).
-      const placement = operation.beforePath || operation.beforeBlockId
-        ? "authored"
-        : operation.placement ?? "natural";
       for (const path of paths) {
-        await this.ensureIdentityBeforePathChange(path, transactionId, { materializeImplicit: placement === "authored" });
+        await this.ensureIdentityBeforePathChange(path, transactionId, { materializeImplicit: false });
       }
       await this.planMove(paths, destination, undefined, transactionId, steps, changes, destinations);
-      if (operation.updateDirectoryRows !== false) {
-        const sources = new Map<string, string[]>();
-        const moved = paths.map((path) => {
-          const group = sources.get(parentPath(path)) ?? [];
-          group.push(path);
-          sources.set(parentPath(path), group);
-          return { oldPath: path, newPath: canonicalNodePath(`${destination === "/" ? "" : destination}/${nodeDisplayName(path)}`) };
-        });
-        if ((operation.beforePath || operation.beforeBlockId) && operation.directoryRevision === undefined) {
-          const current = await this.read(destination);
-          throw new FsConflictError(
-            { code: "stale-revision", path: destination, current },
-            `A directory revision is required for anchored placement in ${destination}`,
-          );
-        }
-        rowPlans.push({
-          sources,
-          destination,
-          moved,
-          insertMode: placement === "authored" ? "insert" : "update-existing",
-          beforePath: operation.beforePath,
-          beforeBlockId: operation.beforeBlockId,
-          expectedDirectoryRevision: operation.directoryRevision,
-        });
-      }
       return;
     }
     if (operation.op === "trash") {
@@ -1024,13 +953,6 @@ export class WorkspaceFS implements AsyncDisposable {
         await this.ensureIdentityBeforePathChange(path, transactionId, { materializeImplicit: false });
       }
       await this.planMove(paths, "/Trash", undefined, transactionId, steps, changes, destinations, true);
-      const sources = new Map<string, string[]>();
-      for (const path of paths) {
-        const group = sources.get(parentPath(path)) ?? [];
-        group.push(path);
-        sources.set(parentPath(path), group);
-      }
-      rowPlans.push({ sources, moved: [] });
       return;
     }
     if (operation.op === "restore") {
@@ -1165,9 +1087,12 @@ export class WorkspaceFS implements AsyncDisposable {
     if (isPageID(existing)) return existing;
     if (!this.durableIdentity) return null;
     if (read.node.bodySource === null && !options.materializeImplicit) return null;
+    const pageID = mintPageID(this.knownIDs);
+    this.knownIDs.add(pageID);
+    const source = `${patchFrontmatter(read.document.frontmatterSource, { id: pageID }) ?? ""}${read.document.bodySource}`;
     const result = await this.writeMarkdownInternal(
       path,
-      { baseRevision: read.byteRevision, blocks: read.document.blocks },
+      { baseRevision: read.byteRevision, source },
       transactionId,
     );
     return result.pageID ?? null;
@@ -1253,53 +1178,6 @@ export class WorkspaceFS implements AsyncDisposable {
       }
       steps.push({ temporary, destination: target, kind: topIsFile ? "file" : "directory" });
       changes.push({ path: targetLogical, kind: "created" });
-    }
-  }
-
-  private async applyRowPlan(plan: PlannedRows, transactionId: string): Promise<void> {
-    const destination = plan.destination ? canonicalNodePath(plan.destination) : null;
-    const allParents = new Set([...plan.sources.keys(), ...(destination ? [destination] : [])]);
-    for (const directory of allParents) {
-      const current = await this.read(directory);
-      if (!current.document) continue;
-      const insertMoves = destination && directory === destination ? plan.moved : [];
-      let transformed = transformStructuralRows(current.document.blocks, {
-        directory,
-        removePaths: plan.sources.get(directory) ?? [],
-        insertMoves,
-        insertMode: plan.insertMode,
-        beforePath: plan.beforePath,
-        beforeBlockId: plan.beforeBlockId,
-      });
-      if (transformed.anchor === "missing" && plan.beforePath && !plan.beforeBlockId) {
-        // The anchor child exists but has no stored row (synthetic). Rather
-        // than fail, materialize an authored row for the anchor too, keeping
-        // the moved rows ahead of it at the end of the stored body.
-        const anchorPath = canonicalNodePath(plan.beforePath);
-        const anchorNode = await this.resolve(anchorPath);
-        if (anchorNode.kind !== "missing" && parentPath(anchorPath) === directory) {
-          transformed = transformStructuralRows(current.document.blocks, {
-            directory,
-            removePaths: plan.sources.get(directory) ?? [],
-            insertMoves: [...insertMoves, { oldPath: anchorPath, newPath: anchorPath }],
-            insertMode: plan.insertMode,
-          });
-        }
-      }
-      if (transformed.anchor === "missing") {
-        throw new FsConflictError(
-          { code: "missing-insertion-anchor", path: directory, current },
-          `Insertion anchor no longer exists in ${directory}`,
-        );
-      }
-      const blocks = transformed.blocks;
-      if (JSON.stringify(blocks) !== JSON.stringify(current.document.blocks)) {
-        const expectedRevision = plan.revisions?.get(directory);
-        if (expectedRevision !== undefined && current.byteRevision !== expectedRevision) {
-          throw new FsConflictError({ code: "stale-revision", path: directory, current }, `Directory body changed during mutation: ${directory}`);
-        }
-        await this.writeMarkdownInternal(directory, { baseRevision: current.byteRevision, blocks }, transactionId);
-      }
     }
   }
 
@@ -1458,21 +1336,6 @@ export class WorkspaceFS implements AsyncDisposable {
           await mkdir(dirname(step.destination), { recursive: true });
           await rename(step.source, step.destination);
         } else interrupted = true;
-      }
-      if (!interrupted) {
-        for (const serialized of record.rowPlans ?? []) {
-          const plan: PlannedRows = {
-            sources: new Map(serialized.sources),
-            destination: serialized.destination,
-            moved: serialized.moved,
-            insertMode: serialized.insertMode,
-            beforePath: serialized.beforePath,
-            beforeBlockId: serialized.beforeBlockId,
-            revisions: serialized.revisions ? new Map(serialized.revisions) : undefined,
-          };
-          try { await this.applyRowPlan(plan, record.id); }
-          catch { interrupted = true; break; }
-        }
       }
       if (interrupted) {
         this.pendingDiagnostics.push(this.interruptedDiagnostic(record));

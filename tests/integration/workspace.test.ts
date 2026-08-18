@@ -65,21 +65,35 @@ describe("workspace service", () => {
     await expect(stat(join(root, ".arbor"))).rejects.toThrow();
   });
 
-  test("mints an ID and enforces revision CAS", async () => {
+  test("keeps Markdown collection rows out of the directory document", async () => {
+    const collection = join(root, "records");
+    await mkdir(collection);
+    await writeFile(join(collection, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ title: z.string() });\n');
+    await writeFile(join(collection, "_index.md"), "About the records.\n");
+    await writeFile(join(collection, "one.md"), "---\ntitle: One\n---\nRow body.\n");
+
+    const node = await workspace.node("/records");
+    expect(node.kind).toBe("collection");
+    expect(node.document?.source).toBe("About the records.\n");
+    expect(node.children?.some((child) => child.path === "/records/one")).toBe(true);
+  });
+
+  test("writes exact source and enforces revision CAS", async () => {
     const node = await workspace.node("/notes");
-    const blocks = node.document!.blocks;
-    blocks[0]!.content = "Changed";
-    const saved = await workspace.write("/notes", { baseRevision: node.revision, blocks });
-    expect(saved.document?.frontmatter.id).toMatch(/^[a-z0-9]{6}$/);
+    const source = "---\ntitle: Notes\n---\n▸ Changed\n  First\n";
+    const saved = await workspace.write("/notes", { baseRevision: node.revision, source });
+    expect(saved.document?.frontmatter.id).toBeUndefined();
+    expect(saved.document?.source).toBe(source);
     expect(await readFile(join(root, "notes.md"), "utf8")).toContain("▸ Changed");
-    await expect(workspace.write("/notes", { baseRevision: node.revision, blocks })).rejects.toBeInstanceOf(RevisionConflictError);
+    await expect(workspace.write("/notes", { baseRevision: node.revision, source })).rejects.toBeInstanceOf(RevisionConflictError);
   });
 
   test("materializes a directory page on first write", async () => {
     const node = await workspace.node("/folder");
-    const blocks = [{ id: "new-block", type: "paragraph" as const, content: "About this folder", props: {}, children: [] }];
-    await workspace.write("/folder", { baseRevision: node.revision, blocks });
-    expect(await readFile(join(root, "folder", "_index.md"), "utf8")).toContain("About this folder");
+    await workspace.write("/folder", { baseRevision: node.revision, source: "About this folder\n" });
+    const stored = await readFile(join(root, "folder", "_index.md"), "utf8");
+    expect(stored).toContain("About this folder");
+    expect(stored).toContain("[child](child)");
     expect((await workspace.node("/folder/_index.md")).path).toBe("/folder");
   });
 
@@ -87,7 +101,7 @@ describe("workspace service", () => {
     const notes = await workspace.snapshot({ path: "/notes" });
     expect(notes.bodyState).toBe("stored");
     expect(notes.bodyOrigin).toBe("sibling");
-    expect(notes.ref.pageID).toMatch(/^[a-z0-9]{6}$/);
+    expect(notes.ref.pageID).toBeUndefined();
 
     const materialized = await workspace.snapshot({ path: "/folder" });
     expect(materialized.bodyState).toBe("stored");
@@ -101,7 +115,7 @@ describe("workspace service", () => {
 
     const listing = await workspace.children({ path: "/" });
     const child = listing.items.find((item) => item.path === "/notes");
-    expect(child?.pageID).toBe(notes.ref.pageID!);
+    expect(child?.pageID).toBeUndefined();
     expect(listing.items.find((item) => item.path === "/plain")?.pageID).toBeUndefined();
   });
 
@@ -199,7 +213,7 @@ describe("workspace service", () => {
       expect(rootNode.children?.filter((child) => child.path === "/same")).toHaveLength(1);
       const same = await duplicateWorkspace.node("/same");
       expect(same.kind).toBe("directory");
-      expect(same.document?.bodySource).toBe("Leaf\n");
+      expect(same.document?.bodySource).toBe("Leaf\n\n[child](child)\n");
       await duplicateWorkspace[Symbol.asyncDispose]();
       duplicateWorkspace = null;
 
@@ -207,7 +221,7 @@ describe("workspace service", () => {
       duplicateWorkspace = await Workspace.open(duplicateRoot);
       const duplicate = await duplicateWorkspace.node("/same");
       expect(duplicate.diagnostics.some((item) => item.code === "duplicate-body-representation")).toBe(true);
-      await expect(duplicateWorkspace.write("/same", { baseRevision: duplicate.revision, blocks: duplicate.document?.blocks ?? [] })).rejects.toThrow("competing bodies");
+      await expect(duplicateWorkspace.write("/same", { baseRevision: duplicate.revision, source: duplicate.document?.source ?? "" })).rejects.toThrow("competing bodies");
     } finally {
       await duplicateWorkspace?.[Symbol.asyncDispose]();
       process.env.ARBOR_DATA_HOME = state;

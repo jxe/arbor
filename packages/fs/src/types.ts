@@ -1,4 +1,4 @@
-import type { ArborBlock, Diagnostic, MarkdownDocument, NodeWriteRequest } from "@arbor/core";
+import type { Diagnostic, MarkdownDocument, NodeWriteRequest } from "@arbor/core";
 
 export type FsBodySource = "sibling" | "index" | null;
 export type FsNodeKind = "missing" | "file" | "markdown" | "directory";
@@ -21,13 +21,17 @@ export interface FsDirectoryEntry {
   name: string;
   kind: Exclude<FsNodeKind, "missing">;
   materialization: FsMaterialization;
+  pageID?: string;
   diagnostics: Diagnostic[];
 }
 
 export interface FsReadResult {
   node: ResolvedFsNode;
   bytes: Uint8Array | null;
+  /** Exact stored body bytes before provider-owned directory completion. */
+  storedBytes?: Uint8Array | null;
   byteRevision: string;
+  storedByteRevision?: string;
   bodyRevision?: string;
   document?: MarkdownDocument;
 }
@@ -40,19 +44,13 @@ export interface FsWriteResult extends FsReadResult {
 
 export type FsMutation =
   | { op: "createDirectory"; path: string }
-  | { op: "createMarkdown"; path: string; blocks?: ArborBlock[] }
+  | { op: "createMarkdown"; path: string; source?: string }
   | { op: "createFile"; path: string; bytes: Uint8Array }
   | { op: "rename"; path: string; name: string; updateDirectoryRows?: boolean }
   | {
     op: "move";
     paths: string[];
     destination: string;
-    /** `natural` (default) inserts no destination row; an anchor implies `authored`. */
-    placement?: "natural" | "authored";
-    beforePath?: string;
-    beforeBlockId?: string;
-    directoryRevision?: string;
-    updateDirectoryRows?: boolean;
   }
   | { op: "copy"; paths: string[]; destination: string }
   | { op: "trash"; paths: string[] }
@@ -127,7 +125,6 @@ export interface FsConflictDetails {
     | "interrupted-transaction"
     | "recursive-move"
     | "not-found"
-    | "missing-insertion-anchor"
     | "invalid-name";
   path: string;
   current?: FsReadResult;

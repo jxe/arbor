@@ -1,6 +1,5 @@
 import {
   ArbordClient,
-  type ArborBlock,
   type BacklinkEntry,
   type MutationEffect,
   type MutationReceipt,
@@ -75,7 +74,6 @@ function makeApi(tree: TreeRef | undefined) {
     scoped: (nextTree: TreeRef | undefined) => makeApi(nextTree),
     node: (ref: string | NodeRef) => client.node(refOf(ref)),
     openNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openNodeView(refOf(ref), signal),
-    openProjectedNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openProjectedNodeView(refOf(ref), signal),
     collection: async (path: string, cursor?: string | null) => client.collection(refOf(path), cursor),
     search: async (query: string, scope?: TreeRef) => (await client.search(query, null, scope ?? tree)).results,
     system: (operation: import("@arbor/core").SystemOperation) => client.mutateSystem(operation),
@@ -83,16 +81,14 @@ function makeApi(tree: TreeRef | undefined) {
       ref: string | NodeRef,
       body: {
         baseContentRevision: string;
-        frontmatterPatch?: Record<string, unknown | null>;
-        blocks: ArborBlock[];
+        source: string;
       },
     ): Promise<NodeSnapshot> => {
       await client.mutateContent({
         op: "writeMarkdown",
         ref: refOf(ref),
         baseContentRevision: body.baseContentRevision,
-        frontmatterPatch: body.frontmatterPatch,
-        blocks: body.blocks,
+        source: body.source,
       });
       return client.node(refOf(ref));
     },

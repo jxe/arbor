@@ -7,6 +7,7 @@
   "materialization": "available",
   "contentRevision": "sha256:content",
   "document": {
+    "source": "---\nid: abc123\n---\nHello\n",
     "frontmatter": { "id": "abc123" },
     "frontmatterSource": "---\nid: abc123\n---\n",
     "bodySource": "Hello\n",

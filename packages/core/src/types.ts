@@ -37,6 +37,8 @@ export interface ArborBlock {
 }
 
 export interface MarkdownDocument {
+  /** Exact authoritative Markdown source, including frontmatter. */
+  source: string;
   frontmatter: Record<string, unknown>;
   frontmatterSource: string | null;
   bodySource: string;
@@ -105,8 +107,7 @@ export interface SearchResult {
 
 export interface NodeWriteRequest {
   baseRevision: string;
-  frontmatterPatch?: Record<string, unknown | null>;
-  blocks: ArborBlock[];
+  source: string;
 }
 
 export interface ArborEvent {

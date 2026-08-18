@@ -165,66 +165,6 @@ function optionalString(value: unknown, field: string): void {
   }
 }
 
-const BLOCK_TYPES = new Set([
-  "paragraph",
-  "heading",
-  "bulletListItem",
-  "numberedListItem",
-  "checkListItem",
-  "quote",
-  "codeBlock",
-  "image",
-  "divider",
-  "mathBlock",
-  "footnoteDefinition",
-  "toggle",
-  "standaloneLink",
-  // Accepted input alias for standaloneLink, normalized on decode.
-  "childPage",
-  "rawMarkdown",
-]);
-
-function normalizeBlockAliases(value: unknown): void {
-  if (!Array.isArray(value)) return;
-  for (const block of value) {
-    if (!isRecord(block)) continue;
-    if (block.type === "childPage") block.type = "standaloneLink";
-    normalizeBlockAliases(block.children);
-  }
-}
-
-function validateBlocks(value: unknown, field: string): void {
-  if (!Array.isArray(value)) {
-    throw new ProtocolError("invalid-reference", `${field} must be a block array`, 400);
-  }
-  value.forEach((block, index) => {
-    const name = `${field}[${index}]`;
-    if (
-      !isRecord(block)
-      || typeof block.id !== "string"
-      || !block.id
-      || typeof block.type !== "string"
-      || !BLOCK_TYPES.has(block.type)
-      || (block.content !== undefined && typeof block.content !== "string")
-      || (block.source !== undefined && typeof block.source !== "string")
-      || (block.sourceHash !== undefined && typeof block.sourceHash !== "string")
-    ) {
-      throw new ProtocolError("invalid-reference", `${name} is not a valid Arbor block`, 400);
-    }
-    if (block.props !== undefined) {
-      if (
-        !isRecord(block.props)
-        || Object.values(block.props).some((item) =>
-          typeof item !== "string" && typeof item !== "number" && typeof item !== "boolean"
-        )
-      ) {
-        throw new ProtocolError("invalid-reference", `${name}.props contains an invalid value`, 400);
-      }
-    }
-    validateBlocks(block.children, `${name}.children`);
-  });
-}
-
 function validateOperation(value: unknown): void {
   if (!isRecord(value) || typeof value.op !== "string" || !value.op) {
     throw new ProtocolError("invalid-reference", "Every operation requires an op discriminator", 400);
@@ -232,13 +172,11 @@ function validateOperation(value: unknown): void {
   switch (value.op) {
     case "writeMarkdown":
       validateRef(value.ref, "writeMarkdown.ref");
-      if (typeof value.baseContentRevision !== "string") {
-        throw new ProtocolError("invalid-reference", "writeMarkdown requires baseContentRevision and blocks", 400);
+      if (typeof value.baseContentRevision !== "string" || typeof value.source !== "string") {
+        throw new ProtocolError("invalid-reference", "writeMarkdown requires baseContentRevision and source", 400);
       }
-      validateBlocks(value.blocks, "writeMarkdown.blocks");
-      normalizeBlockAliases(value.blocks);
-      if (value.frontmatterPatch !== undefined && !isRecord(value.frontmatterPatch)) {
-        throw new ProtocolError("invalid-reference", "frontmatterPatch must be an object", 400);
+      if ("blocks" in value || "frontmatterPatch" in value) {
+        throw new ProtocolError("invalid-reference", "writeMarkdown accepts exact source, not blocks or frontmatterPatch", 400);
       }
       return;
     case "createDirectory":
@@ -250,13 +188,10 @@ function validateOperation(value: unknown): void {
       if (
         typeof value.path !== "string"
         || !value.path
-        || (value.blocks !== undefined && !Array.isArray(value.blocks))
+        || (value.source !== undefined && typeof value.source !== "string")
+        || "blocks" in value
       ) {
-        throw new ProtocolError("invalid-reference", "createMarkdown requires path and optional blocks", 400);
-      }
-      if (value.blocks !== undefined) {
-        validateBlocks(value.blocks, "createMarkdown.blocks");
-        normalizeBlockAliases(value.blocks);
+        throw new ProtocolError("invalid-reference", "createMarkdown requires path and optional source", 400);
       }
       return;
     case "rename":
@@ -268,12 +203,9 @@ function validateOperation(value: unknown): void {
     case "move":
       validateRefs(value.refs, "move.refs");
       validateRef(value.destination, "move.destination");
-      if (value.placement !== undefined && value.placement !== "natural" && value.placement !== "authored") {
-        throw new ProtocolError("invalid-reference", "move.placement must be \"natural\" or \"authored\"", 400);
+      if ("placement" in value || "beforePath" in value || "beforeBlockID" in value || "baseDirectoryRevision" in value) {
+        throw new ProtocolError("invalid-reference", "move ordering is authored by a separate Markdown source write", 400);
       }
-      optionalString(value.beforePath, "move.beforePath");
-      optionalString(value.beforeBlockID, "move.beforeBlockID");
-      optionalString(value.baseDirectoryRevision, "move.baseDirectoryRevision");
       return;
     case "copy":
       validateRefs(value.refs, "copy.refs");

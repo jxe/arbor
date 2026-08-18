@@ -6,17 +6,16 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extensions";
 import { TextSelection } from "@tiptap/pm/state";
 import { FormattingToolbarController, SideMenuController, SuggestionMenuController } from "@blocknote/react";
-import type { ArborBlock, BacklinkEntry, ProjectedDocument, RecoveryEntry } from "@arbor/core";
+import type { ArborBlock, BacklinkEntry, RecoveryEntry, TreeChild } from "@arbor/core";
 import type {
   NodeRef,
   NodeSnapshot,
-  ProjectedNodeUpdate,
+  ObservedNodeUpdate,
   StructuralWorkspaceOperation,
 } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { resolveLogicalURL } from "@arbor/core/logical-url";
-import { isSyntheticRowBlockID } from "@arbor/core/projection";
-import { resolveStructuralRowPath, transformStructuralRows } from "@arbor/core/structural-rows";
+import { reorderChildLinks, resolveChildLinkPath, serializeMarkdown } from "@arbor/editor";
 import { api, type BrowserMutationResult } from "./api.ts";
 import {
   EditorCoordinator,
@@ -194,6 +193,42 @@ function trashedPath(path: string): string {
   return canonicalNodePath(`/Trash${path}`);
 }
 
+interface ChildDocumentRow {
+  blockID: string;
+  ref: { path: string; pageID?: string };
+  kind: string;
+  materialization: string;
+}
+
+function childDocumentRows(directory: string, blocks: readonly ArborBlock[], children: readonly TreeChild[]): ChildDocumentRow[] {
+  const childByPath = new Map(children.map((child) => [canonicalNodePath(child.path), child]));
+  const childByPageID = new Map(children.flatMap((child) => child.pageID ? [[child.pageID, child] as const] : []));
+  const matched = new Set<TreeChild>();
+  const rows: ChildDocumentRow[] = [];
+  const walk = (items: readonly ArborBlock[]): void => {
+    for (const block of items) {
+      if (block.type === "standaloneLink") {
+        const link = resolveLogicalURL(directory, String(block.props?.path ?? ""));
+        const child = link?.kind === "local"
+          ? (link.pageID && childByPageID.get(link.pageID)) || childByPath.get(link.path)
+          : undefined;
+        if (child && !matched.has(child)) {
+          matched.add(child);
+          rows.push({
+            blockID: block.id,
+            ref: { path: canonicalNodePath(child.path), ...(child.pageID ? { pageID: child.pageID } : {}) },
+            kind: child.kind,
+            materialization: child.materialization,
+          });
+        }
+      }
+      walk(block.children);
+    }
+  };
+  walk(blocks);
+  return rows;
+}
+
 function inverseMoves(moved: BrowserMutationResult["moved"]): StructuralWorkspaceOperation[] {
   const byParent = new Map<string, string[]>();
   for (const item of moved) {
@@ -208,10 +243,9 @@ function inverseMoves(moved: BrowserMutationResult["moved"]): StructuralWorkspac
   }));
 }
 
-export function PageEditor({ node, projection, updates, pageActionsHost, onSaved, navigate }: {
+export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }: {
   node: NodeSnapshot;
-  projection: ProjectedDocument | null;
-  updates: AsyncIterable<ProjectedNodeUpdate>;
+  updates: AsyncIterable<ObservedNodeUpdate>;
   pageActionsHost: HTMLDivElement | null;
   onSaved: (node: NodeSnapshot) => void;
   navigate: (target: string | NodeRef) => void;
@@ -221,15 +255,12 @@ export function PageEditor({ node, projection, updates, pageActionsHost, onSaved
   const physicalChildren = node.children ?? [];
   const childrenRevision = physicalChildren.map((child) => `${child.path}:${child.kind}:${child.materialization}`).join("\0");
   const childrenByPath = useMemo(() => new Map(physicalChildren.map((child) => [child.path, child])), [childrenRevision]);
-  // The manifest-driven projected view: stored/authored blocks plus one
-  // synthetic row per unmatched child, derived by the shared client
-  // projection — never assembled locally.
-  const initial = projection?.visibleBlocks ?? authored;
-  const rowByBlockID = useMemo(
-    () => new Map((projection?.managedChildren ?? []).map((row) => [row.blockID, row])),
-    [projection],
+  const initial = authored;
+  const childRows = useMemo(
+    () => childDocumentRows(node.path, authored, physicalChildren),
+    [node.contentRevision, childrenRevision],
   );
-  const managedOrder = (projection?.managedChildren ?? []).map((row) => row.ref.path);
+  const managedOrder = childRows.map((row) => row.ref.path);
   const originals = useMemo(() => originalMap(initial), [node.contentRevision, childrenRevision]);
   const pageDirectory = isDirectory ? node.path : parentPath(node.path);
   const pageDirectoryRef = useRef(pageDirectory);
@@ -355,10 +386,6 @@ export function PageEditor({ node, projection, updates, pageActionsHost, onSaved
     });
     setFrontmatter(structuredClone(value.frontmatter));
   }, [editor]);
-  const stripSyntheticRows = useCallback((value: DocumentSnapshot): DocumentSnapshot => ({
-    ...value,
-    blocks: value.blocks.filter((block) => !isSyntheticRowBlockID(block.id)),
-  }), []);
   const coordinator = useMemo(() => new EditorCoordinator({
     path: node.path,
     revision: node.contentRevision!,
@@ -366,11 +393,9 @@ export function PageEditor({ node, projection, updates, pageActionsHost, onSaved
     baseFrontmatter: node.document?.frontmatter ?? {},
     initialSnapshot: { blocks: initial, frontmatter: node.document?.frontmatter ?? {} },
     capture: () => snapshotRef.current(),
-    toPersisted: stripSyntheticRows,
     write: (_path, baseRevision, value, base) => sapiRef.current.write(nodeReference, {
       baseContentRevision: baseRevision,
-      frontmatterPatch: frontmatterPatch(base.frontmatter, value.frontmatter),
-      blocks: value.blocks,
+      source: serializeMarkdown(node.document!, value.blocks, frontmatterPatch(base.frontmatter, value.frontmatter)),
     }),
     applySnapshot: replaceEditorSnapshot,
     acceptNode: onSavedPreservingScroll,
@@ -378,11 +403,9 @@ export function PageEditor({ node, projection, updates, pageActionsHost, onSaved
   }), [editor, nodeIdentity]);
   coordinator.configure({
     capture: () => snapshotRef.current(),
-    toPersisted: stripSyntheticRows,
     write: (_path, baseRevision, value, base) => sapiRef.current.write(nodeReference, {
       baseContentRevision: baseRevision,
-      frontmatterPatch: frontmatterPatch(base.frontmatter, value.frontmatter),
-      blocks: value.blocks,
+      source: serializeMarkdown(node.document!, value.blocks, frontmatterPatch(base.frontmatter, value.frontmatter)),
     }),
     applySnapshot: replaceEditorSnapshot,
     acceptNode: onSavedPreservingScroll,
@@ -532,14 +555,11 @@ export function PageEditor({ node, projection, updates, pageActionsHost, onSaved
   const runMutation = useCallback(async (
     operations: Parameters<typeof api.mutate>[0]["operations"],
     nextSelection: string[] = [],
-    beforeBlocksOverride?: ArborBlock[],
   ) => {
     try {
       setMessage(null);
       flushDocumentHistory();
       await flushAutosave();
-      const beforeOrder = [...managedOrder];
-      const beforeBlocks = beforeBlocksOverride ?? currentBlocks();
       const result = await sapiRef.current.mutate({ operations });
       await reload(nextSelection);
       let undoOperations: StructuralWorkspaceOperation[] = [];
@@ -557,48 +577,11 @@ export function PageEditor({ node, projection, updates, pageActionsHost, onSaved
         undoOperations = inverseMoves(result.moved);
         undoSelection = result.moved.map((item) => item.from);
         redoSelection = result.moved.map((item) => item.to);
-      } else {
-        const reorder = operations.find((operation): operation is Extract<StructuralWorkspaceOperation, { op: "move" }> => operation.op === "move");
-        const reorderPaths = reorder?.refs.flatMap((ref) => "path" in ref ? [ref.path] : []) ?? [];
-        const reorderDestination = reorder && "path" in reorder.destination ? reorder.destination.path : null;
-        if (reorder && reorderDestination && reorderPaths.length === reorder.refs.length && reorderPaths.every((path) => parentPath(path) === reorderDestination)) {
-          const selectedPaths = new Set(reorderPaths);
-          const lastIndex = Math.max(...reorderPaths.map((path) => beforeOrder.indexOf(path)));
-          const beforePath = beforeOrder.slice(lastIndex + 1).find((path) => !selectedPaths.has(path));
-          const selectedBlockIndexes = beforeBlocks.flatMap((block, index) => {
-            const path = block.type === "standaloneLink" ? resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) : null;
-            return path && selectedPaths.has(path) ? [index] : [];
-          });
-          const beforeBlockId = beforeBlocks.slice(Math.max(...selectedBlockIndexes, -1) + 1).find((block) => {
-            const path = block.type === "standaloneLink" ? resolveStructuralRowPath(node.path, String(block.props?.path ?? "")) : null;
-            return !path || !selectedPaths.has(path);
-          })?.id;
-          undoOperations = [{
-            op: "move",
-            refs: beforeOrder.filter((path) => selectedPaths.has(path)).map((path) => ({ path })),
-            destination: { path: reorderDestination },
-            beforePath,
-            // Synthetic row IDs are projection artifacts; the path anchor suffices.
-            beforeBlockID: beforeBlockId && !isSyntheticRowBlockID(beforeBlockId) ? beforeBlockId : undefined,
-          }];
-          undoSelection = reorderPaths;
-        }
       }
       if (undoOperations.length) {
         const execute = async (request: StructuralWorkspaceOperation[], selection: string[]) => {
           await flushAutosave();
-          const prepared = await Promise.all(request.map(async (operation) => {
-            if (
-              operation.op !== "move"
-              || operation.baseDirectoryRevision === undefined && !operation.beforePath && !operation.beforeBlockID
-            ) return operation;
-            if (!("path" in operation.destination)) return operation;
-            return {
-              ...operation,
-              baseDirectoryRevision: (await sapiRef.current.node(operation.destination.path)).directoryRevision,
-            };
-          }));
-          await sapiRef.current.mutate({ operations: prepared });
+          await sapiRef.current.mutate({ operations: request });
           await reloadRef.current(selection);
         };
         pushHistory({
@@ -683,7 +666,7 @@ export function PageEditor({ node, projection, updates, pageActionsHost, onSaved
     flushDocumentHistory();
     await flushAutosave();
     const before = currentBlocks();
-    const previewResult = transformStructuralRows(before, {
+    const previewResult = reorderChildLinks(before, {
       directory: node.path,
       removePaths: paths,
       insertMoves: paths.map((path) => ({ oldPath: path, newPath: path })),
@@ -691,36 +674,14 @@ export function PageEditor({ node, projection, updates, pageActionsHost, onSaved
       beforeBlockId,
     });
     if (previewResult.anchor === "missing") throw new Error("The insertion target is no longer present.");
-    const preview = previewResult.blocks;
-    coordinator.applyNormalizationSnapshot({ blocks: preview, frontmatter });
-    // Synthetic managed-row IDs never cross the wire: an anchor on a
-    // synthetic row is translated to that child's path.
-    let wireBeforePath = beforePath;
-    let wireBeforeBlockID = beforeBlockId;
-    if (wireBeforeBlockID && isSyntheticRowBlockID(wireBeforeBlockID)) {
-      wireBeforePath ??= rowByBlockID.get(wireBeforeBlockID)?.ref.path;
-      wireBeforeBlockID = undefined;
-      if (!wireBeforePath) throw new Error("The insertion target is no longer present.");
-    }
-    try {
-      return await runMutation(
-        [{
-          op: "move",
-          refs: paths.map((path) => ({ path })),
-          destination: { path: node.path },
-          placement: "authored",
-          beforePath: wireBeforePath,
-          beforeBlockID: wireBeforeBlockID,
-          baseDirectoryRevision: coordinator.currentRevision,
-        }],
-        paths,
-        before,
-      );
-    } catch (error) {
-      coordinator.applyNormalizationSnapshot({ blocks: before, frontmatter });
-      throw error;
-    }
-  }, [coordinator, flushAutosave, flushDocumentHistory, frontmatter, node.path, rowByBlockID, runMutation]);
+    const next = { blocks: previewResult.blocks, frontmatter };
+    replaceEditorSnapshot(next);
+    recordDocumentSnapshot(next);
+    flushDocumentHistory();
+    await flushAutosave();
+    setSelected(new Set(paths));
+    setSelectionAnchor(paths.at(-1) ?? null);
+  }, [flushAutosave, flushDocumentHistory, frontmatter, recordDocumentSnapshot, replaceEditorSnapshot]);
 
   const drop = useCallback(async (targetPath: string, position: "before" | "after" | "inside", event: React.DragEvent) => {
     event.preventDefault();
@@ -737,7 +698,6 @@ export function PageEditor({ node, projection, updates, pageActionsHost, onSaved
         op: "move",
         refs: paths.map((path) => ({ path })),
         destination: { path: targetPath },
-        placement: "natural",
       }], moved);
       return;
     }
@@ -1091,9 +1051,23 @@ export function PageEditor({ node, projection, updates, pageActionsHost, onSaved
   }, [isDirectory, redo, startRename, trashSelection, undo]);
 
   const managedRows = useMemo<ManagedRowsController>(() => ({
-    resolve: (rawPath) => {
-      const path = resolveStructuralRowPath(node.path, rawPath);
-      return path && childrenByPath.has(path) ? path : null;
+    resolve: (rawPath, blockID) => {
+      const path = resolveChildLinkPath(node.path, rawPath);
+      if (!path || !childrenByPath.has(path)) return null;
+      const firstClaimingBlockID = (blocks: readonly any[]): string | null => {
+        for (const block of blocks) {
+          if (
+            block.type === "standaloneLink"
+            && resolveChildLinkPath(node.path, String(block.props?.path ?? "")) === path
+          ) {
+            return String(block.id);
+          }
+          const nested = firstClaimingBlockID(block.children ?? []);
+          if (nested) return nested;
+        }
+        return null;
+      };
+      return firstClaimingBlockID(editor.document) === blockID ? path : null;
     },
     kind: (path) => childrenByPath.get(path)?.kind ?? null,
     selected: (path) => selected.has(path),
@@ -1106,7 +1080,7 @@ export function PageEditor({ node, projection, updates, pageActionsHost, onSaved
     setRenameValue,
     commitRename: () => { void commitRename(); },
     cancelRename: () => setRenamingPath(null),
-  }), [beginRename, childrenByPath, commitRename, drop, node.path, renameValue, renamingPath, selectRow, selected, trashSelection]);
+  }), [beginRename, childrenByPath, commitRename, drop, editor, node.path, renameValue, renamingPath, selectRow, selected, trashSelection]);
 
   const keys = Object.keys(frontmatter);
   const openInternalLink = (event: React.MouseEvent) => {

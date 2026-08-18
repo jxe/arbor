@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 // The browser URL space is OS-shaped: /render/<absolute path>. The server
 // serves the fixture workspace at this fixed session root.
 const ROOT = realpathSync(join(tmpdir(), "arbor-e2e-workspace"));
-const PROMOTABLE_ROOT = realpathSync(join(tmpdir(), "arbor-e2e-promotable"));
+const PROMOTABLE_ROOT = realpathSync(join(tmpdir(), "arbor-e2e-untracked", "arbor-e2e-promotable"));
 const ALICE_PROFILE = join(tmpdir(), "arbor-e2e-alice-profile");
 const E2E_PORT = Number(process.env.ARBOR_E2E_PORT ?? 4321);
 const HOST_ORIGIN = `http://127.0.0.1:${E2E_PORT + 1}`;
@@ -120,7 +120,7 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
   await expect(page.getByRole("button", { name: "· one" })).toBeVisible();
 });
 
-test("opens authored and auto-generated subpage rows", async ({ page }) => {
+test("opens authored and provider-completed child links", async ({ page }) => {
   await page.goto(r(""));
   const generated = page.locator('.managed-child-page a[href="books"]');
   await expect(generated).toBeVisible();
@@ -135,12 +135,12 @@ test("opens authored and auto-generated subpage rows", async ({ page }) => {
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
 });
 
-test("adds a Markdown title above the first row and reuses an empty starter block", async ({ page }) => {
+test("adds a Markdown title above the first provider-completed child row", async ({ page }) => {
   await page.goto(r("/title-first"));
-  const syntheticRow = page.locator('[data-managed-row="/title-first/child"]');
+  const childRow = page.locator('[data-managed-row="/title-first/child"]');
   const addTitle = page.getByRole("button", { name: "Add page title" });
   const topLevelBlocks = page.locator(".bn-editor > .bn-block-group > .bn-block-outer");
-  await expect(syntheticRow).toBeVisible();
+  await expect(childRow).toBeVisible();
   await expect(addTitle).toBeVisible();
   await expect(topLevelBlocks.first().locator('[data-managed-row="/title-first/child"]')).toBeVisible();
 
@@ -158,12 +158,12 @@ test("adds a Markdown title above the first row and reuses an empty starter bloc
     return node.document.bodySource as string;
   });
   expect(await titleFirstBody()).toMatch(/^# Synthetic title/);
-  expect(await titleFirstBody()).not.toContain("](child)");
+  expect(await titleFirstBody()).toContain("](child)");
   expect(await titleFirstBody()).not.toContain("managed:");
 
   await page.keyboard.press("Meta+z");
   await expect(page.getByRole("button", { name: "Add page title" })).toBeVisible();
-  await expect(syntheticRow).toBeVisible();
+  await expect(childRow).toBeVisible();
   await expect(page.getByRole("status")).toHaveText("Saved");
   expect(await titleFirstBody()).not.toContain("Synthetic title");
 
@@ -173,7 +173,7 @@ test("adds a Markdown title above the first row and reuses an empty starter bloc
   await expect(page.getByRole("status")).toHaveText("Saved");
   await page.reload();
   await expect(page.getByRole("heading", { name: "Synthetic title", level: 1 })).toBeVisible();
-  await expect(syntheticRow).toBeVisible();
+  await expect(childRow).toBeVisible();
 
   await page.emulateMedia({ colorScheme: "dark" });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -210,12 +210,12 @@ test("adds a Markdown title above the first row and reuses an empty starter bloc
   await expect(page.getByRole("button", { name: "Add block" })).toBeVisible();
 });
 
-test("drops a managed row immediately after a prose block", async ({ page }) => {
-  const moveOperations: Array<{ beforeBlockID?: string }> = [];
+test("reorders a child row by writing the complete directory Markdown", async ({ page }) => {
+  const operations: Array<{ op?: string; source?: string }> = [];
   page.on("request", (request) => {
     if (request.method() !== "POST" || new URL(request.url()).pathname !== "/v1/mutations") return;
-    const body = request.postDataJSON() as { operations?: Array<{ op?: string; beforeBlockID?: string }> };
-    moveOperations.push(...(body.operations ?? []).filter((operation) => operation.op === "move"));
+    const body = request.postDataJSON() as { operations?: Array<{ op?: string; source?: string }> };
+    operations.push(...(body.operations ?? []));
   });
   await page.goto(r("/drag-order"));
   const source = page.locator('[data-managed-row="/drag-order/simulacra"]');
@@ -244,7 +244,8 @@ test("drops a managed row immediately after a prose block", async ({ page }) => 
   expect(dropCursorBox!.y + dropCursorBox!.height / 2).toBeGreaterThan(headingBox!.y + headingBox!.height);
   await page.mouse.up();
 
-  await expect.poll(() => moveOperations.length).toBe(1);
+  await expect.poll(() => operations.filter((operation) => operation.op === "writeMarkdown").length).toBe(1);
+  expect(operations.some((operation) => operation.op === "move")).toBe(false);
   const bodySource = async () => page.evaluate(async () => {
     const response = await fetch("/v1/node?path=%2Fdrag-order");
     const node = await response.json();
@@ -294,9 +295,9 @@ test("browses, searches, and edits toggle Markdown", async ({ page }) => {
   await expect(page.getByRole("status")).toHaveText("Saved");
 });
 
-test("a prose edit in a directory never persists its synthetic rows", async ({ page }) => {
+test("a prose edit persists the provider-completed directory source", async ({ page }) => {
   await page.goto(r("/garden"));
-  // The child has no authored link, so it appears as a projected synthetic row.
+  // The stored body lacks this link, so arbord appends it to operational source.
   const row = page.locator('[data-managed-row="/garden/rose"]');
   await expect(row).toBeVisible();
 
@@ -313,7 +314,7 @@ test("a prose edit in a directory never persists its synthetic rows", async ({ p
   });
   expect(bodySource.bodyState).toBe("stored");
   expect(bodySource.body).toContain("Garden prose.");
-  expect(bodySource.body).not.toContain("](rose)");
+  expect(bodySource.body).toContain("](rose)");
   expect(bodySource.body).not.toContain("managed:");
   await expect(row).toBeVisible();
 });
@@ -580,7 +581,9 @@ test("tracks an open page through a page-ID rename without replacing the editor"
         mutationID: "e2e-external-rename",
         operations: [{
           op: "rename",
-          ref: { pageID: snapshot.ref.pageID, pathHint: "/notes" },
+          ref: snapshot.ref.pageID
+            ? { pageID: snapshot.ref.pageID, pathHint: "/notes" }
+            : { path: "/notes" },
           name: "renamed-notes",
         }],
       }),
@@ -601,6 +604,7 @@ test("tracks an open page through a page-ID rename without replacing the editor"
   await expect(page.getByRole("status")).toHaveText("Saved");
   const source = await page.evaluate(async () => {
     const snapshot = await fetch("/v1/node?path=%2Frenamed-notes").then((value) => value.json());
+    if (!snapshot.ref.pageID) throw new Error("rename did not mint a durable PageID");
     return snapshot.document.bodySource as string;
   });
   expect(source).toContain("Apple orchard notes are searchable. after rename");

@@ -48,7 +48,8 @@ import {
   WorkspaceFS,
   writeAtomic,
 } from "@arbor/fs";
-import { CollectionStore, WorkspaceIndex, workspaceState } from "@arbor/stores";
+import { mintPageID, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
+import { CollectionStore, detectCollection, WorkspaceIndex, workspaceState } from "@arbor/stores";
 import { EventBus } from "./events.ts";
 import { rootDisplayName } from "./root-title.ts";
 
@@ -84,7 +85,6 @@ export class ProtocolError extends Error {
       path: string;
       current: NodeSnapshot;
       owners: string[];
-      anchor: { beforePath?: string; beforeBlockID?: string };
       mutationID: string;
       retryable: boolean;
     }> = {},
@@ -445,7 +445,7 @@ export class Workspace implements AsyncDisposable {
   }
 
   async node(inputPath: string): Promise<TreeNode> {
-    const read = await this.fs.read(inputPath);
+    const read = await this.fs.read(inputPath, await this.directoryDocumentOptions(inputPath));
     const resolved = read.node;
     if (resolved.kind === "missing") {
       const virtual = await this.postgresVirtualNode(resolved.path);
@@ -544,7 +544,10 @@ export class Workspace implements AsyncDisposable {
     options: Parameters<WorkspaceFS["writeMarkdown"]>[2] = {},
   ): Promise<TreeNode> {
     try {
-      await this.fs.writeMarkdown(inputPath, request, options);
+      await this.fs.writeMarkdown(inputPath, request, {
+        ...options,
+        ...await this.directoryDocumentOptions(inputPath),
+      });
       return this.node(inputPath);
     } catch (error) {
       if (error instanceof FsConflictError && error.details.code === "stale-revision") {
@@ -595,7 +598,7 @@ export class Workspace implements AsyncDisposable {
    * browsing surface instead.
    */
   async fileSurface(inputPath: string, raw: boolean): Promise<{ bytes: Uint8Array; revision: string; path: string } | null> {
-    const read = await this.fs.read(inputPath);
+    const read = await this.fs.read(inputPath, await this.directoryDocumentOptions(inputPath));
     if (read.node.kind === "file") {
       return read.bytes ? { bytes: read.bytes, revision: read.byteRevision, path: read.node.path } : null;
     }
@@ -606,6 +609,20 @@ export class Workspace implements AsyncDisposable {
   }
 
   recovery(inputPath: string) { return this.fs.recovery(inputPath); }
+
+  private async directoryDocumentOptions(
+    inputPath: string,
+  ): Promise<Parameters<WorkspaceFS["read"]>[1]> {
+    const resolved = await this.fs.resolve(inputPath);
+    if (resolved.kind !== "directory" || !resolved.directoryPath) return {};
+    const definition = await detectCollection(resolved.directoryPath).catch(() => null);
+    const rows = new Set((definition?.markdownPaths ?? []).map((path) =>
+      canonicalNodePath(`${resolved.path === "/" ? "" : resolved.path}/${basename(path, ".md")}`)
+    ));
+    return rows.size
+      ? { includeDirectoryChild: (entry) => !rows.has(entry.path) }
+      : {};
+  }
 
   private async blockRecoveryEntries(path: string): Promise<RecoveryEntry[]> {
     const pageID = this.pathPageIDs.get(path);
@@ -703,36 +720,7 @@ export class Workspace implements AsyncDisposable {
             : undefined,
         },
       ));
-    } catch (error) {
-      if (
-        error instanceof FsConflictError
-        && error.details.code === "missing-insertion-anchor"
-      ) {
-        const operation = structuralOperations.find((candidate) =>
-          candidate.op === "move"
-          && (candidate.beforePath !== undefined || candidate.beforeBlockID !== undefined)
-        ) as Extract<WorkspaceOperation, { op: "move" }> | undefined;
-        throw new ProtocolError("missing-insertion-anchor", error.message, 409, {
-          path: error.details.path,
-          anchor: operation ? {
-            beforePath: operation.beforePath,
-            beforeBlockID: operation.beforeBlockID,
-          } : undefined,
-        });
-      }
-      if (
-        error instanceof FsConflictError
-        && error.details.code === "stale-revision"
-        && structuralOperations.some((operation) => operation.op === "move" && operation.baseDirectoryRevision !== undefined)
-      ) {
-        const current = await this.snapshot({ path: error.details.path }).catch(() => undefined);
-        throw new ProtocolError("stale-directory-revision", error.message, 409, {
-          path: error.details.path,
-          current,
-        });
-      }
-      throw error;
-    }
+    } catch (error) { throw error; }
   }
 
   private async performContentOperation(
@@ -760,9 +748,11 @@ export class Workspace implements AsyncDisposable {
       if (current.revision !== operation.baseContentRevision) {
         throw new RevisionConflictError(current);
       }
+      const pageID = mintPageID(new Set(this.idOwners.keys()));
+      const source = `${patchFrontmatter(current.document.frontmatterSource, { id: pageID }) ?? ""}${current.document.bodySource}`;
       const saved = await this.write(path, {
         baseRevision: operation.baseContentRevision,
-        blocks: current.document.blocks,
+        source,
       }, {
         onPrepared: onExpected
           ? async (result) => onExpected([{
@@ -795,8 +785,7 @@ export class Workspace implements AsyncDisposable {
     if (operation.op === "writeMarkdown") {
       saved = await this.write(path, {
         baseRevision: operation.baseContentRevision,
-        frontmatterPatch: operation.frontmatterPatch,
-        blocks: operation.blocks,
+        source: operation.source,
       }, {
         onPrepared: onExpected
           ? async (result) => onExpected([{
@@ -864,10 +853,6 @@ export class Workspace implements AsyncDisposable {
           op: "move",
           paths: await Promise.all(operation.refs.map((ref) => this.resolveRef(ref))),
           destination: await this.resolveRef(operation.destination),
-          placement: operation.placement,
-          beforePath: operation.beforePath,
-          beforeBlockId: operation.beforeBlockID,
-          directoryRevision: operation.baseDirectoryRevision,
         };
       case "copy":
         return {
@@ -1191,7 +1176,7 @@ export class Workspace implements AsyncDisposable {
         const resolved = await this.fs.resolve(entry.path);
         if (resolved.directoryPath && await this.collections.summary(resolved.directoryPath).catch(() => null)) kind = "collection";
       }
-      const pageID = this.pathPageIDs.get(entry.path);
+      const pageID = entry.pageID ?? this.pathPageIDs.get(entry.path);
       children.push({
         name: entry.name,
         path: entry.path,
@@ -1326,7 +1311,7 @@ export class Workspace implements AsyncDisposable {
     if (!blocks.some((block, index) => block !== document.blocks[index])) return;
     const timer = setTimeout(async () => {
       this.healingTimers.delete(treePath);
-      try { await this.write(treePath, { baseRevision: revision, blocks }); } catch {}
+      try { await this.write(treePath, { baseRevision: revision, source: serializeMarkdown(document, blocks) }); } catch {}
     }, 750);
     this.healingTimers.set(treePath, timer);
   }

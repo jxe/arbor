@@ -73,7 +73,7 @@ describe("the local filesystem scope", () => {
         op: "writeMarkdown",
         ref: { tree: "local", path },
         baseContentRevision: node.contentRevision!,
-        blocks: node.document!.blocks,
+        source: node.document!.source,
       }],
     };
     const receipt = await client.mutate(noop);
@@ -90,7 +90,7 @@ describe("the local filesystem scope", () => {
         op: "writeMarkdown",
         ref: { tree: "local", path },
         baseContentRevision: "sha256:not-current",
-        blocks: node.document!.blocks,
+        source: node.document!.source,
       }],
     };
     expect(client.mutate(stale)).rejects.toThrow();
@@ -130,17 +130,12 @@ describe("the local filesystem scope", () => {
     const first = directory.document!.blocks.find((block) => block.type === "standaloneLink" && block.props?.path === "first");
     expect(first).toBeDefined();
 
-    await client.mutate({
-      mutationID: "workspace-absolute-authored-order",
-      operations: [{
-        op: "move",
-        refs: [{ tree: directory.tree, path: "/ordered/second" }],
-        destination: { tree: directory.tree, path: "/ordered" },
-        placement: "authored",
-        beforeBlockID: first!.id,
-        baseDirectoryRevision: directory.directoryRevision,
-      }],
-    });
+    await client.mutateContent({
+      op: "writeMarkdown",
+      ref: { tree: directory.tree, path: "/ordered" },
+      baseContentRevision: directory.contentRevision!,
+      source: "[second](second)\n\n[first](first)\n\n",
+    }, "workspace-absolute-authored-order");
 
     const reordered = await client.node({ tree: "local", path: absolute });
     expect(reordered.document!.blocks
@@ -164,17 +159,12 @@ describe("the local filesystem scope", () => {
     const first = directory.document!.blocks.find((block) => block.type === "standaloneLink" && block.props?.path === "first");
     expect(first).toBeDefined();
 
-    await client.mutate({
-      mutationID: "untracked-authored-order",
-      operations: [{
-        op: "move",
-        refs: [{ tree: "local", path: join(absolute, "second") }],
-        destination: { tree: "local", path: absolute },
-        placement: "authored",
-        beforeBlockID: first!.id,
-        baseDirectoryRevision: directory.directoryRevision,
-      }],
-    });
+    await client.mutateContent({
+      op: "writeMarkdown",
+      ref: { tree: "local", path: absolute },
+      baseContentRevision: directory.contentRevision!,
+      source: "[second](second)\n\n[first](first)\n\n",
+    }, "untracked-authored-order");
 
     const reordered = await client.node({ tree: "local", path: absolute });
     expect(reordered.document!.blocks
@@ -250,7 +240,7 @@ describe("the local filesystem scope", () => {
     expect(await served.text()).toBe("PNG");
   });
 
-  test("projects an untracked directory the same shape as a root-scope directory", async () => {
+  test("completes an untracked directory in the same shape as a root-scope directory", async () => {
     const node = await client.node({ tree: "local", path: join(outer, "stray") }) as NodeSnapshot;
     expect(node.bodyState).toBe("implicit");
     expect(node.directoryRevision).toBeDefined();

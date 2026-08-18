@@ -6,7 +6,7 @@ import { canonicalNodePath, nodeDisplayName, PathEscapeError } from "./logical-p
  *
  * Every Markdown document resolves relative destinations from its canonical
  * logical address as a directory-like base, regardless of whether the body is
- * `x.md`, `x/_index.md`, or an implicit projection. Compatibility spellings
+ * `x.md`, `x/_index.md`, or an implicit directory body. Compatibility spellings
  * (`.md`, `/_index.md`, `tree:tr_…`) are accepted on input and canonicalized;
  * they are never emitted.
  */
@@ -26,8 +26,6 @@ export type ResolvedLink =
   | null;
 
 const SCHEME_PATTERN = /^([a-z][a-z0-9+.-]*):/i;
-const PAGE_ID_PATTERN = /^[a-z0-9]{6}$/;
-
 function splitFragment(href: string): { destination: string; fragment: string | null } {
   const index = href.indexOf("#");
   if (index === -1) return { destination: href, fragment: null };
@@ -35,7 +33,7 @@ function splitFragment(href: string): { destination: string; fragment: string | 
 }
 
 function fragmentPageID(fragment: string | null): PageID | undefined {
-  return fragment && PAGE_ID_PATTERN.test(fragment) ? fragment : undefined;
+  return fragment || undefined;
 }
 
 /**

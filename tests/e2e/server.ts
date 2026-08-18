@@ -9,13 +9,14 @@ await build({ configFile: join(import.meta.dir, "../../packages/render/vite.conf
 
 // A fixed location so the test file can compute the same OS-shaped URLs.
 const root = join(tmpdir(), "arbor-e2e-workspace");
-const promotableRoot = join(tmpdir(), "arbor-e2e-promotable");
+const untrackedRoot = join(tmpdir(), "arbor-e2e-untracked");
+const promotableRoot = join(untrackedRoot, "arbor-e2e-promotable");
 const state = join(tmpdir(), "arbor-e2e-state");
 const hostState = join(tmpdir(), "arbor-e2e-host-state");
 const aliceProfile = join(tmpdir(), "arbor-e2e-alice-profile");
 const editorsProfile = join(tmpdir(), "arbor-e2e-editors-profile");
 await rm(root, { recursive: true, force: true });
-await rm(promotableRoot, { recursive: true, force: true });
+await rm(untrackedRoot, { recursive: true, force: true });
 await rm(state, { recursive: true, force: true });
 await rm(hostState, { recursive: true, force: true });
 await rm(aliceProfile, { recursive: true, force: true });
@@ -77,7 +78,7 @@ async function shutdown() {
   host.server.stop(true);
   await host.authority[Symbol.asyncDispose]();
   await rm(root, { recursive: true, force: true });
-  await rm(promotableRoot, { recursive: true, force: true });
+  await rm(untrackedRoot, { recursive: true, force: true });
   await rm(state, { recursive: true, force: true });
   await rm(hostState, { recursive: true, force: true });
   await rm(aliceProfile, { recursive: true, force: true });

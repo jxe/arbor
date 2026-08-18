@@ -9,6 +9,7 @@
   "contentRevision": "sha256:root-record",
   "bodyState": "stored",
   "document": {
+    "source": "---\nid: tr_notes7f3q2ab7c\nplacement: shared\npath: \"/Users/joe/notes\"\ncanonical: \"arbor://notes.example/~joe/notes\"\ncanonicalPath: \"/~joe/notes\"\npublicAccess: none\n---\n",
     "frontmatter": {
       "id": "tr_notes7f3q2ab7c",
       "placement": "shared",

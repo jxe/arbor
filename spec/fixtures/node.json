@@ -25,6 +25,7 @@
   "bodyState": "stored",
   "bodyOrigin": "sibling",
   "document": {
+    "source": "---\nid: abc123\ntitle: Today\n---\nHello\n",
     "frontmatter": { "id": "abc123", "title": "Today" },
     "frontmatterSource": "---\nid: abc123\ntitle: Today\n---\n",
     "bodySource": "Hello\n",

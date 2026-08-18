@@ -150,6 +150,7 @@ export class FilesystemService implements AsyncDisposable {
         path: entry.path,
         kind,
         materialization: entry.materialization,
+        ...(entry.pageID ? { pageID: entry.pageID } : {}),
       });
       diagnostics.push(...entry.diagnostics);
     }
@@ -190,16 +191,6 @@ export class FilesystemService implements AsyncDisposable {
     } catch (error) {
       if (error instanceof ProtocolError) throw error;
       if (error instanceof FsConflictError) {
-        if (error.details.code === "missing-insertion-anchor" && operation?.op === "move") {
-          throw new ProtocolError("missing-insertion-anchor", error.message, 409, {
-            path: error.details.path,
-            anchor: { beforePath: operation.beforePath, beforeBlockID: operation.beforeBlockID },
-          });
-        }
-        if (error.details.code === "stale-revision" && operation?.op === "move" && operation.baseDirectoryRevision !== undefined) {
-          const current = await this.snapshot(error.details.path).catch(() => undefined);
-          throw new ProtocolError("stale-directory-revision", error.message, 409, { path: error.details.path, current });
-        }
         const mapped = fsErrorCode(error);
         const current = error.details.current
           ? await this.snapshot(error.details.current.node.path).catch(() => undefined)
@@ -289,16 +280,12 @@ export class FilesystemService implements AsyncDisposable {
   private toFsOperation(operation: WorkspaceOperation): FsMutation {
     switch (operation.op) {
       case "createDirectory": return { op: "createDirectory", path: operation.path };
-      case "createMarkdown": return { op: "createMarkdown", path: operation.path, blocks: operation.blocks };
+      case "createMarkdown": return { op: "createMarkdown", path: operation.path, source: operation.source };
       case "rename": return { op: "rename", path: this.refPath(operation.ref), name: operation.name };
       case "move": return {
         op: "move",
         paths: operation.refs.map((ref) => this.refPath(ref)),
         destination: this.refPath(operation.destination),
-        placement: operation.placement,
-        beforePath: operation.beforePath,
-        beforeBlockId: operation.beforeBlockID,
-        directoryRevision: operation.baseDirectoryRevision,
       };
       case "copy": return {
         op: "copy",
@@ -350,8 +337,7 @@ export class FilesystemService implements AsyncDisposable {
         const write = content[0]!;
         const result = await (await this.engine).writeMarkdown(this.refPath(write.ref), {
           baseRevision: write.baseContentRevision,
-          frontmatterPatch: write.frontmatterPatch,
-          blocks: write.blocks,
+          source: write.source,
         });
         return [{
           kind: "updated" as const,

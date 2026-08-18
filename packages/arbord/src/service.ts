@@ -17,7 +17,7 @@ import type {
   WorkspaceOperation,
 } from "@arbor/core";
 import { LOCAL_TREE, SYSTEM_TREE, canonicalJSONString, canonicalNodePath, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
-import { parseMarkdown } from "@arbor/editor";
+import { completeDirectoryDocument, parseMarkdown } from "@arbor/editor";
 import { FsConflictError, MutationJournal } from "@arbor/fs";
 import { CommunityConfigStore, VisitedTreeStore, arborDataRoot } from "@arbor/stores";
 import { WireClient, decodeWireObject, materializeTree, resolveWireLogicalNode, snapshotDirectory, type RemoteTreeDescriptor } from "@arbor/wire";
@@ -289,8 +289,6 @@ export class ArborService implements AsyncDisposable {
     }
 
     const source = logical.body ? new TextDecoder().decode(logical.body.bytes) : "";
-    const document = parseMarkdown(source);
-    const authoredTitle = document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
     const currentCanonicalPath = `${remote.canonicalPath === "/" ? "" : remote.canonicalPath}${remote.path === "/" ? "" : remote.path}` || "/";
     const children = (await Promise.all(object.entries
       .filter((entry) => entry.name !== "_index.md")
@@ -315,17 +313,28 @@ export class ArborService implements AsyncDisposable {
           ...(pageID ? { pageID } : {}),
         };
       }))).filter((child): child is NonNullable<typeof child> => child !== null);
+    const isCollectionDirectory = object.entries.some((entry) =>
+      entry.name === "schema.ts" || ["_store.csv", "_store.jsonl", "_store.sqlite3", "_store.postgres"].includes(entry.name)
+    );
+    const operationalChildren = isCollectionDirectory
+      ? children.filter((child) => child.kind !== "markdown")
+      : children;
+    const complete = completeDirectoryDocument(remote.path, source, operationalChildren);
+    const authoredTitle = complete.document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
+    const descriptors = operationalChildren
+      .map((child) => ({ path: canonicalNodePath(child.path), kind: child.kind, pageID: child.pageID ?? null }))
+      .sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
     return {
       ...base,
       ref: { tree: remote.id, path: canonicalNodePath(remote.path) },
       path: canonicalNodePath(remote.path),
       name: authoredTitle || objectName,
       kind: "directory",
-      contentRevision: revisionOf(source),
-      directoryRevision: revisionOf(children.map((child) => `${child.path}:${child.kind}`).join("\n")),
+      contentRevision: revisionOf(`${source}\0${JSON.stringify(descriptors)}`),
+      directoryRevision: revisionOf(operationalChildren.map((child) => `${child.path}:${child.kind}`).join("\n")),
       bodyState: logical.body ? "stored" : "implicit",
       ...(logical.bodyOrigin ? { bodyOrigin: logical.bodyOrigin } : {}),
-      document,
+      document: complete.document,
       children,
     };
   }

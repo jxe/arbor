@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { blockFingerprint, parseMarkdown, serializeMarkdown } from "@arbor/editor";
+import {
+  blockFingerprint,
+  documentIcon,
+  parseMarkdown,
+  serializeMarkdown,
+  sourceSettingDocumentIcon,
+} from "@arbor/editor";
 
 describe("Markdown source preservation", () => {
   test("a no-op round trip is byte-identical", () => {
@@ -14,6 +20,24 @@ describe("Markdown source preservation", () => {
     const output = serializeMarkdown(document, document.blocks, { status: "published" });
     expect(output).toContain("title: Kept # comment");
     expect(output).toContain("status: published");
+  });
+});
+
+describe("portable document icons", () => {
+  test("reads and replaces the leading emoji of the first H1 only", () => {
+    const source = "---\ntitle: Kept # comment\n---\n# 🌳 Atlas\n\nBody with  two spaces.\n";
+    const document = parseMarkdown(source);
+    expect(documentIcon(document)).toBe("🌳");
+    expect(sourceSettingDocumentIcon(document, "📚", "ignored", () => "new-heading")).toBe(
+      "---\ntitle: Kept # comment\n---\n# 📚 Atlas\n\nBody with  two spaces.\n",
+    );
+  });
+
+  test("prepends an H1 when setting an icon on an implicit body", () => {
+    const document = parseMarkdown("[child](child)\n");
+    expect(sourceSettingDocumentIcon(document, "🪴", "Garden", () => "new-heading")).toBe(
+      "# 🪴 Garden\n\n[child](child)\n",
+    );
   });
 });
 

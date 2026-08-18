@@ -1,9 +1,0 @@
-{
-  "name": "implicit directory with no children",
-  "input": { "path": "/notes", "document": null, "children": [] },
-  "expected": {
-    "bodyState": "implicit",
-    "visibleBlocks": [],
-    "managedChildren": []
-  }
-}

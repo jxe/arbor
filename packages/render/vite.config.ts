@@ -9,9 +9,7 @@ export default defineConfig({
     alias: [
       { find: "@arbor/client", replacement: resolve(import.meta.dirname, "../client/src/index.ts") },
       { find: "@arbor/core/logical-path", replacement: resolve(import.meta.dirname, "../core/src/logical-path.ts") },
-      { find: "@arbor/core/structural-rows", replacement: resolve(import.meta.dirname, "../core/src/structural-rows.ts") },
       { find: "@arbor/core/logical-url", replacement: resolve(import.meta.dirname, "../core/src/logical-url.ts") },
-      { find: "@arbor/core/projection", replacement: resolve(import.meta.dirname, "../core/src/projection.ts") },
       { find: "@arbor/core", replacement: resolve(import.meta.dirname, "../core/src/index.ts") },
       { find: "@arbor/editor", replacement: resolve(import.meta.dirname, "../editor/src/index.ts") },
     ],

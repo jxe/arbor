@@ -34,6 +34,7 @@ final class ArborClientTests: XCTestCase {
         let systemTree = try decode(NodeSnapshot.self, "node-system-tree.json")
 
         XCTAssertEqual(node.ref, ResolvedNodeRef(path: "/notes/today", pageID: "abc123", tree: "tr_notes7f3q2ab7c"))
+        XCTAssertEqual(node.document?.source, "---\nid: abc123\ntitle: Today\n---\nHello\n")
         XCTAssertEqual(node.tree, "tr_notes7f3q2ab7c")
         XCTAssertEqual(node.enclosingTree?.osPath, "/Users/joe/notes")
         XCTAssertEqual(node.enclosingTree?.accessEntries?.first?.locator, "arbor://notes.example/~alice")
@@ -55,12 +56,7 @@ final class ArborClientTests: XCTestCase {
             operationRequests.flatMap(\.operations).map(\.op),
             ["writeMarkdown", "createMarkdown", "createDirectory", "rename", "move", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity", "connectCommunity", "promoteTree", "placeTree", "setTreeAccess", "claimProfile", "disconnectCommunity", "createGroupProfile", "removeTreePlacement"]
         )
-        XCTAssertEqual(
-            operationRequests.flatMap(\.operations).first(where: { $0.placement != nil })?.placement,
-            "authored"
-        )
         XCTAssertEqual(errors.last?.error.code, "future-error-code")
-        XCTAssertEqual(errors.first(where: { $0.error.code == "missing-insertion-anchor" })?.error.anchor?.beforeBlockID, "gone")
         XCTAssertEqual(unknownNode.ref.pageID, "abc123")
     }
 
@@ -87,46 +83,6 @@ final class ArborClientTests: XCTestCase {
         let dataLine = try XCTUnwrap(source.split(separator: "\n").first(where: { $0.hasPrefix("data:") }))
         let data = Data(dataLine.dropFirst(5).trimmingCharacters(in: .whitespaces).utf8)
         XCTAssertThrowsError(try JSONDecoder().decode(WorkspaceEvent.self, from: data))
-    }
-
-    private struct ProjectionFixture: Decodable {
-        struct Input: Decodable {
-            var path: String
-            var document: MarkdownDocument?
-            var children: [TreeChild]
-        }
-        struct Expected: Decodable {
-            var bodyState: String
-            var visibleBlocks: [ArborBlock]
-            var managedChildren: [ManagedChildRow]
-        }
-        var name: String
-        var input: Input
-        var expected: Expected
-    }
-
-    func testSharedProjectionFixturesProjectIdentically() throws {
-        let directory = fixtures.appending(path: "projection")
-        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-            .filter { $0.hasSuffix(".json") }
-            .sorted()
-        // Both languages must consume the same fixture set; the TS suite
-        // asserts the same minimum count.
-        XCTAssertGreaterThanOrEqual(names.count, 9)
-        for name in names {
-            let fixture = try JSONDecoder().decode(
-                ProjectionFixture.self,
-                from: Data(contentsOf: directory.appending(path: name))
-            )
-            let projected = projectDirectoryDocument(
-                path: fixture.input.path,
-                document: fixture.input.document,
-                children: fixture.input.children
-            )
-            XCTAssertEqual(projected.bodyState, fixture.expected.bodyState, name)
-            XCTAssertEqual(projected.visibleBlocks, fixture.expected.visibleBlocks, name)
-            XCTAssertEqual(projected.managedChildren, fixture.expected.managedChildren, name)
-        }
     }
 
     private struct URLFixture: Decodable {
@@ -255,7 +211,7 @@ final class ArborClientTests: XCTestCase {
             op: "writeMarkdown",
             ref: .path("/page"),
             baseContentRevision: "sha256:content",
-            blocks: []
+            source: "Updated\n"
         )
         do {
             _ = try await client.prepareStructuralMutation([

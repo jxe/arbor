@@ -110,9 +110,10 @@ export class WriteJournal {
     if (!entry) throw new Error("Recovery entry not found");
     const block = parseMarkdown(entry.markdown).blocks[0];
     if (!block) throw new Error("Recovery entry could not be parsed");
-    const next = [...blocks, block];
-    await this.commit(pageID, blocks, next);
-    return next;
+    // The subsequent exact-source write journals this transition after its
+    // final CAS check. Recording it here would make the read performed by the
+    // write path recover the block before that CAS can succeed.
+    return [...blocks, block];
   }
 
   private async append(pageID: string, entries: Array<Omit<JournalRecord, "c" | "t">>): Promise<void> {

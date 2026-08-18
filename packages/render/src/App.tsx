@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Share } from "lucide-react";
-import type { ProjectedDocument, PublicAccess, RecoveryEntry, SearchResult, ShareAudience, TreeChild, TreeDescriptor } from "@arbor/core";
-import type { NodeRef, NodeSnapshot, ProjectedNodeUpdate, ProjectedNodeView } from "@arbor/client";
+import type { PublicAccess, RecoveryEntry, SearchResult, ShareAudience, TreeChild, TreeDescriptor } from "@arbor/core";
+import type { NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
-import { projectSnapshot } from "@arbor/client";
 import { api } from "./api.ts";
 import { CollectionView } from "./CollectionView.tsx";
 import { PageEditor } from "./PageEditor.tsx";
@@ -231,8 +230,7 @@ function launchedRemoteLocation(): RemoteLocation | null {
 export function App() {
   const [path, setPath] = useState(pathFromLocation);
   const [node, setNode] = useState<NodeSnapshot | null>(null);
-  const [projection, setProjection] = useState<ProjectedDocument | null>(null);
-  const [nodeUpdates, setNodeUpdates] = useState<AsyncIterable<ProjectedNodeUpdate> | null>(null);
+  const [nodeUpdates, setNodeUpdates] = useState<AsyncIterable<ObservedNodeUpdate> | null>(null);
   const [pageActionsHost, setPageActionsHost] = useState<HTMLDivElement | null>(null);
   const [sidebar, setSidebar] = useState<NodeSnapshot | null>(null);
   const [sidebarMenu, setSidebarMenu] = useState<SidebarMenuState | null>(null);
@@ -259,7 +257,6 @@ export function App() {
   const [treeSlug, setTreeSlug] = useState("");
   const [remoteLocation, setRemoteLocation] = useState<RemoteLocation | null>(launchedRemoteLocation);
   const [remoteNode, setRemoteNode] = useState<NodeSnapshot | null>(null);
-  const [remoteProjection, setRemoteProjection] = useState<ProjectedDocument | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [claimURL, setClaimURL] = useState("");
   const [claimPath, setClaimPath] = useState("");
@@ -275,7 +272,7 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const nodeRequest = useRef(0);
-  const nodeView = useRef<ProjectedNodeView | null>(null);
+  const nodeView = useRef<ObservedNodeView | null>(null);
   const pendingRef = useRef<NodeRef | null>(null);
   const sidebarRequest = useRef(0);
   const refreshSystem = useCallback(async () => {
@@ -355,18 +352,15 @@ export function App() {
   useEffect(() => {
     if (!remoteLocation || remoteLocation.claimable) {
       setRemoteNode(null);
-      setRemoteProjection(null);
       return;
     }
     const request = ++nodeRequest.current;
     setError(null);
     setRemoteNode(null);
-    setRemoteProjection(null);
     api.client.remoteNode(remoteLocation.url).then(
       (loaded) => {
         if (request !== nodeRequest.current) return;
         setRemoteNode(loaded);
-        setRemoteProjection(projectSnapshot(loaded));
       },
       (remoteError) => {
         if (request === nodeRequest.current) setError(remoteError instanceof Error ? remoteError.message : String(remoteError));
@@ -401,7 +395,7 @@ export function App() {
       // through the history correction below.
       const target = pendingRef.current ?? urlToRef(next);
       pendingRef.current = null;
-      const view = await api.openProjectedNodeView(target);
+      const view = await api.openNodeView(target);
       if (request !== nodeRequest.current) {
         view.close();
         return;
@@ -410,7 +404,6 @@ export function App() {
       nodeView.current = view;
       const loaded = view.snapshot;
       setNodeUpdates(view.updates);
-      setProjection(view.projection);
       const url = nodeUrl(loaded);
       if (url !== next) {
         history.replaceState({}, "", `/render${url}`);
@@ -438,7 +431,6 @@ export function App() {
     nodeView.current?.close();
     nodeView.current = null;
     setNodeUpdates(null);
-    setProjection(null);
     sidebarRequest.current += 1;
     history.pushState({}, "", `/render${next || "/"}`);
     setPath(next); setNode(null);
@@ -465,7 +457,6 @@ export function App() {
       history.replaceState({}, "", `/render${url}`);
       setPath(url);
     }
-    setProjection(projectSnapshot(loaded));
     setNode(loaded);
   }, [path]);
 
@@ -475,7 +466,6 @@ export function App() {
       nodeView.current = null;
       setNode(null);
       setNodeUpdates(null);
-      setProjection(null);
       void refreshSystem();
       return;
     }
@@ -1072,7 +1062,7 @@ export function App() {
         <small>First successful claim wins.</small>
       </div> : error ? <div className="empty error">{error}</div> : !remoteNode ? <div className="empty">Loading…</div>
         : remoteNode.document && (remoteNode.kind === "markdown" || remoteNode.kind === "directory")
-          ? <ReadOnlyPage node={remoteNode} projection={remoteProjection} navigate={navigateRemote} />
+          ? <ReadOnlyPage node={remoteNode} navigate={navigateRemote} />
           : <div className="file-surface"><div className="file-glyph">◇</div><h1>{remoteNode.name}</h1><p>This remote file is not a Markdown document.</p></div>
       : !path ? <div className="home-surface">
         <h1>Arbor</h1>
@@ -1147,7 +1137,7 @@ export function App() {
           <h1>{node.name}</h1>
           <p>This file is stored by a cloud provider but is not materialized on this device.</p>
         </div> : <>
-          {(node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") && node.document && nodeUpdates && <PageEditor node={node} projection={projection} updates={nodeUpdates} pageActionsHost={pageActionsHost} onSaved={acceptNode} navigate={navigateFromNode} />}
+          {(node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") && node.document && nodeUpdates && <PageEditor node={node} updates={nodeUpdates} pageActionsHost={pageActionsHost} onSaved={acceptNode} navigate={navigateFromNode} />}
           {node.kind === "file" && <div className="file-surface">
             <div className="file-glyph">◇</div>
             <h1>{node.name}</h1>

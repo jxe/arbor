@@ -22,19 +22,23 @@ title: Atlas
 # Atlas
 ```
 
-Authored Markdown is canonical. A client may parse it into an interactive model, but an untouched document must round-trip byte-for-byte. Generated presentation state, editor block IDs, synthetic rows, and caches are not authored Markdown.
+Authored Markdown is canonical. A client may parse it into an interactive model, but an untouched document must round-trip byte-for-byte. Editor block IDs and caches are not authored Markdown.
 
-## Complete directory projection
+## Complete directory documents
 
-A client presents a directory document as:
+Every physical directory has one operational Markdown document. The provider forms it from the stored sibling/index body, or an empty implicit body, as follows:
 
-1. its stored body and properties, or an empty implicit body;
-2. the first eligible authored standalone link to each immediate child, in authored position;
-3. one synthetic managed row for every otherwise unmentioned immediate child, in stable directory order.
+1. Walk standalone links in source order. The first link that resolves to each immediate physical child represents that child at its authored position. Inline links never qualify, and later standalone links to the same child remain ordinary duplicate links.
+2. Append one ordinary standalone Markdown link for every otherwise-unmentioned immediate physical child. Sort unmatched children by unsigned lexicographic UTF-8 bytes of canonical logical path, never locale or filesystem enumeration order.
+3. Preserve the stored source exactly before those additions. Reading, indexing, rendering, searching, backlinks, hosted output, and future export all consume this same complete operational source.
 
-Additional links remain ordinary prose links. Projected rows carry out-of-band target provenance, including resolved tree scope and `PageID` where available. Synthetic rows never persist as Markdown and never cross a mutation or wire boundary as if authored. Reordering or acting on a managed row is a structural mutation; editing prose or properties is a content mutation. A client must split those intentions before persistence.
+Reading an implicit or incomplete body does not materialize it. The first authored write persists the exact source accepted by the provider, including required missing-child links. For a directory, `contentRevision` covers the exact stored body bytes plus canonical descriptors of immediate physical children (durable ID when present, path, and kind), so child add/remove/rename/identity/kind changes invalidate a concurrent write while enumeration reorder does not.
+
+Link ordering, nesting, labels, and deletion are ordinary source edits. Physical create, move, rename, copy, Trash, and restore are explicit structural operations. Deleting a link never trashes its target. Directory-backed collections may expose their physical directory document as an About/index facet; collection records—whether physical Markdown row files or virtual/query-backed rows—plus tables, database records, mounted boundaries, and query results do not become child links. This collection exception is explicitly under reconsideration in [`plan/technical-debt.md`](../plan/technical-debt.md).
 
 Links use [Arbor locators](locators.md). Relative and tree-rooted logical paths are valid within a resolved tree; cross-tree links use canonical or raw TreeID locators. A Markdown link may carry a `PageID` fragment. When a path and valid ID disagree, the ID identifies the document and the readable path may be healed through an ordinary authored mutation. Ordinary non-Markdown files remain path-identified.
+
+The leading emoji grapheme of the first H1 is the portable document icon. Setting or clearing it is an exact-source edit to that H1. When setting an icon on a document with no H1, prepend an H1 using the node display name; for an implicit directory, that one accepted write materializes both the heading and the complete required child-link set.
 
 ## Profiles and groups
 

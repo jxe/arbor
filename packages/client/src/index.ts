@@ -24,10 +24,6 @@ import type {
   TreeRef,
   WorkspaceEvent,
 } from "@arbor/core";
-import type { ProjectedDocument } from "@arbor/core";
-// Value imports come from the browser-safe deep module; the core index also
-// re-exports Node-only path helpers that must stay out of browser bundles.
-import { isSyntheticRowBlockID, projectDirectoryDocument } from "@arbor/core/projection";
 
 export type {
   ArborBlock,
@@ -46,11 +42,9 @@ export type {
   MutationEffect,
   MutationReceipt,
   MutationRequest,
-  ManagedChildRow,
   NodeRef,
   NodeSnapshot,
   PageID,
-  ProjectedDocument,
   RecoveryEntry,
   RecoveryPage,
   SearchPage,
@@ -108,32 +102,6 @@ export interface ObservedNodeView {
   snapshot: NodeSnapshot;
   updates: AsyncIterable<ObservedNodeUpdate>;
   close(): void;
-}
-
-export type ProjectedNodeUpdate =
-  | { kind: "event"; event: WorkspaceEvent }
-  | { kind: "resync"; snapshot: NodeSnapshot; projection: ProjectedDocument | null };
-
-export interface ProjectedNodeView {
-  /** The hydrated raw snapshot. `document` never contains synthetic rows. */
-  snapshot: NodeSnapshot;
-  /** The derived directory projection; null for non-directory nodes. */
-  projection: ProjectedDocument | null;
-  updates: AsyncIterable<ProjectedNodeUpdate>;
-  close(): void;
-}
-
-/**
- * Derive the projected directory document from a hydrated snapshot. Returns
- * null for nodes without a child-bearing surface. Never mutates the snapshot.
- */
-export function projectSnapshot(snapshot: NodeSnapshot): ProjectedDocument | null {
-  if (snapshot.kind !== "directory" && snapshot.kind !== "collection") return null;
-  return projectDirectoryDocument({
-    path: snapshot.path,
-    document: snapshot.bodyState === "implicit" ? null : snapshot.document ?? null,
-    children: snapshot.children ?? [],
-  });
 }
 
 /** A pageID-bearing reference to a listed child, preferring durable identity. */
@@ -247,30 +215,6 @@ export class ArbordClient {
     return this.request(`/v1/remote?url=${encodeURIComponent(locator)}`);
   }
 
-  /**
-   * Open a node with its derived directory projection. The raw view's
-   * snapshot/event handoff is preserved: observation starts at the initial
-   * snapshot's cursor before children are drained, so child changes during
-   * hydration surface as buffered events after the initial projection.
-   * Resync updates arrive re-hydrated and re-projected.
-   */
-  async openProjectedNodeView(ref: NodeRef, signal?: AbortSignal): Promise<ProjectedNodeView> {
-    const view = await this.openNodeView(ref, signal);
-    const updates = async function* (): AsyncGenerator<ProjectedNodeUpdate> {
-      for await (const update of view.updates) {
-        if (update.kind === "resync") {
-          yield { kind: "resync", snapshot: update.snapshot, projection: projectSnapshot(update.snapshot) };
-        } else yield update;
-      }
-    }();
-    return {
-      snapshot: view.snapshot,
-      projection: projectSnapshot(view.snapshot),
-      updates,
-      close: view.close,
-    };
-  }
-
   async openNodeView(ref: NodeRef, signal?: AbortSignal): Promise<ObservedNodeView> {
     const snapshot = await this.nodeSnapshot(ref);
     const observedRef: NodeRef = snapshot.ref.pageID
@@ -347,7 +291,6 @@ export class ArbordClient {
 
   async mutate(request: MutationRequest): Promise<MutationReceipt> {
     this.assertMutationDomain(request);
-    this.assertNoSyntheticRowIDs(request);
     this.rememberAuthored(request.mutationID);
     return this.retryMutation(
       request,
@@ -391,27 +334,8 @@ export class ArbordClient {
     return { pageID: effect.pageID, contentRevision: effect.contentRevision };
   }
 
-  /** A move that lets the node appear naturally, materializing no stored destination row. */
-  moveNatural(refs: NodeRef[], destination: NodeRef, mutationID?: string): Promise<MutationReceipt> {
-    return this.mutateStructural([{ op: "move", refs, destination, placement: "natural" }], mutationID);
-  }
-
-  /** A move that places a stored row in the destination directory document. */
-  moveAuthored(
-    refs: NodeRef[],
-    destination: NodeRef,
-    anchor?: { beforePath?: LogicalPath; beforeBlockID?: string; baseDirectoryRevision: DirectoryRevision },
-    mutationID?: string,
-  ): Promise<MutationReceipt> {
-    return this.mutateStructural([{
-      op: "move",
-      refs,
-      destination,
-      placement: "authored",
-      beforePath: anchor?.beforePath,
-      beforeBlockID: anchor?.beforeBlockID,
-      baseDirectoryRevision: anchor?.baseDirectoryRevision,
-    }], mutationID);
+  move(refs: NodeRef[], destination: NodeRef, mutationID?: string): Promise<MutationReceipt> {
+    return this.mutateStructural([{ op: "move", refs, destination }], mutationID);
   }
 
   async asset(
@@ -536,25 +460,6 @@ export class ArbordClient {
     ).length;
     if (contentCount > 0 && (contentCount !== 1 || request.operations.length !== 1)) {
       throw new TypeError("A content mutation contains exactly one operation and cannot be mixed with structural operations");
-    }
-  }
-
-  /**
-   * Synthetic managed-row IDs (`managed:` prefix) are an editor-only
-   * projection artifact and must never cross the wire — neither as anchors
-   * nor inside persisted blocks. Anchor on the child's `beforePath` instead.
-   */
-  private assertNoSyntheticRowIDs(request: MutationRequest): void {
-    const blocksContainSynthetic = (blocks: readonly { id: string; children: readonly unknown[] }[]): boolean =>
-      blocks.some((block) => isSyntheticRowBlockID(block.id)
-        || blocksContainSynthetic(block.children as { id: string; children: readonly unknown[] }[]));
-    for (const operation of request.operations) {
-      if (operation.op === "move" && operation.beforeBlockID && isSyntheticRowBlockID(operation.beforeBlockID)) {
-        throw new TypeError("A synthetic managed-row ID cannot anchor a move; use the child's beforePath");
-      }
-      if ("blocks" in operation && operation.blocks && blocksContainSynthetic(operation.blocks)) {
-        throw new TypeError("Synthetic managed rows are projection artifacts and cannot be persisted");
-      }
     }
   }
 

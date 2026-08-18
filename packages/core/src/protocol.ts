@@ -1,5 +1,4 @@
 import type {
-  ArborBlock,
   CollectionPage,
   CollectionSummary,
   Diagnostic,
@@ -163,8 +162,7 @@ export type ContentWorkspaceOperation =
     op: "writeMarkdown";
     ref: NodeRef;
     baseContentRevision: ContentRevision;
-    frontmatterPatch?: Record<string, unknown | null>;
-    blocks: ArborBlock[];
+    source: string;
   }
   | {
     op: "restoreRecovery";
@@ -180,21 +178,12 @@ export type ContentWorkspaceOperation =
 
 export type StructuralWorkspaceOperation =
   | { op: "createDirectory"; tree?: TreeRef; path: LogicalPath }
-  | { op: "createMarkdown"; tree?: TreeRef; path: LogicalPath; blocks?: ArborBlock[] }
+  | { op: "createMarkdown"; tree?: TreeRef; path: LogicalPath; source?: string }
   | { op: "rename"; ref: NodeRef; name: string }
   | {
     op: "move";
     refs: NodeRef[];
     destination: NodeRef;
-    /**
-     * `natural` (the default) moves the node without inserting a stored
-     * destination row; `authored` places a row in the destination directory
-     * document. An anchor (`beforePath`/`beforeBlockID`) implies `authored`.
-     */
-    placement?: "natural" | "authored";
-    beforePath?: LogicalPath;
-    beforeBlockID?: string;
-    baseDirectoryRevision?: DirectoryRevision;
   }
   | { op: "copy"; refs: NodeRef[]; destination: NodeRef }
   | { op: "trash"; refs: NodeRef[] }
@@ -283,7 +272,6 @@ export type ArbordErrorCode =
   | "duplicate-body-representation"
   | "stale-content-revision"
   | "stale-directory-revision"
-  | "missing-insertion-anchor"
   | "occupied-destination"
   | "unsafe-path"
   | "mutation-mismatch"
@@ -302,7 +290,6 @@ export interface ArbordErrorValue {
   path?: LogicalPath;
   current?: NodeSnapshot;
   owners?: LogicalPath[];
-  anchor?: { beforePath?: LogicalPath; beforeBlockID?: string };
   mutationID?: string;
 }
 

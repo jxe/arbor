@@ -9,7 +9,9 @@
 - `x/_index.md` is the body only when `x.md` is absent. Both body files produce `duplicate-body-representation` and block content and structural mutation.
 - A sibling body and directory move, copy, rename, trash, and restore as one unit.
 - Destinations never overwrite, merge, or acquire an automatic suffix.
-- A structural insertion anchor is a compare-and-swap precondition: the request carries the directory body's full-byte revision, and a stale revision or missing `beforePath`/`beforeBlockId` rejects the complete batch.
+- Every physical directory has complete operational Markdown. Reads append ordinary links for otherwise-unmentioned immediate children without materializing a body; the first authored write persists the accepted complete source.
+- Directory content revisions cover exact stored body bytes plus canonically ordered immediate-child descriptors. Child-set changes invalidate content writes; filesystem enumeration reorder does not.
+- Link order is exact-source content. Structural move names physical sources and a destination container and never carries Markdown block/path anchors.
 - Every physical path is containment-checked against the real workspace root. Transaction staging names are private, same-filesystem siblings and are ignored by the watcher.
 - Full-byte revisions are the compare-and-swap boundary. Parsed body revisions are separate recovery information and cannot hide frontmatter-only changes.
 
@@ -48,7 +50,7 @@ Each batch has a private intent record with `prepared`, `committing`, `committed
 - Missing or unfamiliar states stop recovery and retain the intent plus every discoverable version under an `interrupted-fs-transaction` diagnostic.
 - Watcher events for staging and intermediate paths are suppressed. Consumers receive the logical batch only after commit.
 
-Tests should use temporary workspace and state directories and inject faults at named transition points. Important sequences include rapid document generations, rename during pending save, external atomic replacement, metadata-only rewrites, settled old-byte rewrites, partial hybrid-node moves, directory-row rewrites, and shutdown drain.
+Tests should use temporary workspace and state directories and inject faults at named transition points. Important sequences include rapid document generations, rename during pending save, external atomic replacement, metadata-only rewrites, settled old-byte rewrites, partial hybrid-node moves, complete-directory source writes, child-set conflicts, and shutdown drain.
 
 ## Public surface
 

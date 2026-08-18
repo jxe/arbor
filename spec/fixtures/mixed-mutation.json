@@ -5,9 +5,7 @@
       "op": "writeMarkdown",
       "ref": { "pageID": "abc123", "pathHint": "/notes/today" },
       "baseContentRevision": "sha256:content",
-      "blocks": [
-        { "id": "block-1", "type": "paragraph", "content": "Not valid in this batch", "children": [] }
-      ]
+      "source": "Not valid in this batch\n"
     },
     { "op": "createDirectory", "path": "/archive" }
   ]

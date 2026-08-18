@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { CollectionPage } from "@arbor/core";
 import type { NodeSnapshot } from "@arbor/client";
+import { serializeMarkdown } from "@arbor/editor";
 import { api } from "./api.ts";
 
 export function CollectionView({ node, navigate, refresh }: { node: NodeSnapshot; navigate: (path: string) => void; refresh: () => void }) {
@@ -16,7 +17,11 @@ export function CollectionView({ node, navigate, refresh }: { node: NodeSnapshot
     if (!rowPath) return;
     const path = `${node.path}/${rowPath}`.replaceAll("//", "/");
     const record = await api.node(path);
-    await api.write(path, { baseContentRevision: record.contentRevision!, frontmatterPatch: { [field]: value }, blocks: record.document?.blocks ?? [] });
+    if (!record.document) return;
+    await api.write(path, {
+      baseContentRevision: record.contentRevision!,
+      source: serializeMarkdown(record.document, record.document.blocks, { [field]: value }),
+    });
     refresh();
   };
   return <section className="collection">

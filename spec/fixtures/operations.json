@@ -6,10 +6,7 @@
         "op": "writeMarkdown",
         "ref": { "tree": "tr_notes7f3q2ab7c", "pageID": "abc123", "pathHint": "/notes/today" },
         "baseContentRevision": "sha256:content",
-        "frontmatterPatch": { "title": "Today", "obsolete": null },
-        "blocks": [
-          { "id": "block-1", "type": "paragraph", "content": "Updated", "children": [] }
-        ]
+        "source": "---\nid: abc123\ntitle: Today\n---\nUpdated\n"
       }
     ]
   },
@@ -19,26 +16,19 @@
       {
         "op": "createMarkdown",
         "path": "/notes/tomorrow",
-        "blocks": [
-          { "id": "block-2", "type": "paragraph", "content": "Tomorrow", "children": [] }
-        ]
+        "source": "Tomorrow\n"
       },
       { "op": "createDirectory", "path": "/archive" },
       { "op": "rename", "ref": { "path": "/draft" }, "name": "published" },
       {
         "op": "move",
         "refs": [{ "path": "/notes/tomorrow" }],
-        "destination": { "path": "/archive" },
-        "placement": "authored",
-        "beforePath": "/archive/later",
-        "beforeBlockID": "anchor-block",
-        "baseDirectoryRevision": "sha256:directory"
+        "destination": { "path": "/archive" }
       },
       {
         "op": "move",
         "refs": [{ "path": "/notes/scratch" }],
-        "destination": { "path": "/archive" },
-        "placement": "natural"
+        "destination": { "path": "/archive" }
       },
       {
         "op": "copy",

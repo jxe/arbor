@@ -1,16 +1,16 @@
-import type { ArborBlock } from "./types.ts";
-import { canonicalNodePath, nodeDisplayName } from "./logical-path.ts";
-import { relativeLogicalReference, resolveLogicalURL } from "./logical-url.ts";
+import type { ArborBlock } from "@arbor/core";
+import { canonicalNodePath, nodeDisplayName } from "@arbor/core/logical-path";
+import { relativeLogicalReference, resolveLogicalURL } from "@arbor/core/logical-url";
 
-export interface StructuralRowMove {
+export interface ChildLinkMove {
   oldPath: string;
   newPath: string;
 }
 
-export interface StructuralRowTransform {
+export interface ChildLinkTransform {
   directory: string;
   removePaths: readonly string[];
-  insertMoves?: readonly StructuralRowMove[];
+  insertMoves?: readonly ChildLinkMove[];
   /**
    * `insert` (the default) materializes a row for every insert move;
    * `update-existing` only rewrites rows that already exist and never
@@ -22,21 +22,21 @@ export interface StructuralRowTransform {
   createBlockId?: () => string;
 }
 
-export interface StructuralRowTransformResult {
+export interface ChildLinkTransformResult {
   blocks: ArborBlock[];
   anchor: "not-requested" | "found" | "missing";
 }
 
 /** Tree-local row matching: only `local`-kind destinations name a physical child. */
-export function resolveStructuralRowPath(directoryInput: string, raw: string): string | null {
+export function resolveChildLinkPath(directoryInput: string, raw: string): string | null {
   const link = resolveLogicalURL(directoryInput, raw);
   return link?.kind === "local" ? link.path : null;
 }
 
-export function transformStructuralRows(
+export function reorderChildLinks(
   inputBlocks: readonly ArborBlock[],
-  transform: StructuralRowTransform,
-): StructuralRowTransformResult {
+  transform: ChildLinkTransform,
+): ChildLinkTransformResult {
   const directory = canonicalNodePath(transform.directory);
   const remove = new Set(transform.removePaths.map(canonicalNodePath));
   const existingByPath = new Map<string, ArborBlock>();
@@ -44,7 +44,7 @@ export function transformStructuralRows(
   const collect = (blocks: readonly ArborBlock[]) => {
     for (const block of blocks) {
       const resolved = block.type === "standaloneLink"
-        ? resolveStructuralRowPath(directory, String(block.props?.path ?? ""))
+        ? resolveChildLinkPath(directory, String(block.props?.path ?? ""))
         : null;
       if (resolved) existingByPath.set(resolved, block);
       collect(block.children);
@@ -54,7 +54,7 @@ export function transformStructuralRows(
 
   const strip = (blocks: readonly ArborBlock[]): ArborBlock[] => blocks.flatMap((block) => {
     const resolved = block.type === "standaloneLink"
-      ? resolveStructuralRowPath(directory, String(block.props?.path ?? ""))
+      ? resolveChildLinkPath(directory, String(block.props?.path ?? ""))
       : null;
     if (resolved && remove.has(resolved)) return [];
     return [{ ...block, children: strip(block.children) }];
@@ -97,7 +97,7 @@ export function transformStructuralRows(
     for (let index = 0; index < blocks.length; index += 1) {
       const block = blocks[index]!;
       const resolved = block.type === "standaloneLink"
-        ? resolveStructuralRowPath(directory, String(block.props?.path ?? ""))
+        ? resolveChildLinkPath(directory, String(block.props?.path ?? ""))
         : null;
       if (block.id === transform.beforeBlockId || anchorPath && resolved === anchorPath) {
         return [[...result, ...inserted, block, ...blocks.slice(index + 1)], true];

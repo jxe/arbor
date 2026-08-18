@@ -18,13 +18,11 @@ public enum ArborAuthority: Sendable, Equatable {
     case treeID(String)
 }
 
-private let pageIDExpression = try! NSRegularExpression(pattern: "^[a-z0-9]{6}$")
 private let schemeExpression = try! NSRegularExpression(pattern: "^([a-zA-Z][a-zA-Z0-9+.-]*):")
 
 private func fragmentPageID(_ fragment: String?) -> String? {
     guard let fragment, !fragment.isEmpty else { return nil }
-    let range = NSRange(fragment.startIndex..., in: fragment)
-    return pageIDExpression.firstMatch(in: fragment, range: range) != nil ? fragment : nil
+    return fragment
 }
 
 private func splitFragment(_ href: String) -> (destination: String, fragment: String?) {
