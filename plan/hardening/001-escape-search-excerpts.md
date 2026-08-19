@@ -4,7 +4,7 @@
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
 > report — do not improvise. When done, update the status row for this plan
-> in `plan/generated/README.md`.
+> in `plan/hardening/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/stores/src/indexer.ts packages/render/src/App.tsx packages/core/src/protocol.ts`
 > Note the working tree was already dirty when this plan was written, so also
@@ -107,7 +107,7 @@ long-lived server.
 - `packages/arbord/src/service.ts` — the `searchPage` method only forwards
   results; it needs no change and touching it widens the diff.
 - The FTS5 schema and the `rebuild`/`indexFile` methods — indexing behavior is
-  the subject of a separate plan (`plan/generated/006-*`). Changing the schema here will
+  the subject of a separate plan (`plan/hardening/006-*`). Changing the schema here will
   collide with it.
 - `packages/render/src/PageEditor.tsx` and `blocks.tsx` — unrelated rendering
   surfaces.
@@ -239,7 +239,7 @@ ALL must hold:
 - [ ] `grep -rn "dangerouslySetInnerHTML" packages/` returns no matches
 - [ ] `grep -n "<mark>" packages/stores/src/indexer.ts` returns no matches
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plan/generated/README.md` status row for 001 updated
+- [ ] `plan/hardening/README.md` status row for 001 updated
 
 ## STOP conditions
 

@@ -11,7 +11,7 @@
 > ```sh
 > git diff --stat 84fc705..HEAD -- \
 >   spec/format.md spec/client.md spec/system.md spec/fixtures \
->   packages/fs packages/arbord native package.json plan/native.md
+>   packages/fs packages/arbord native package.json plan/native/README.md
 > git -C /Users/joe/src/hunch diff --stat 4c35f37..HEAD -- \
 >   App/Sources/Clamshell App/Tests/HunchUnitTests
 > ```
@@ -27,6 +27,7 @@
 - **Depends on**: Plan 002; app/session integration depends on Plan 003
 - **Category**: architecture
 - **Planned at**: Arbor `84fc705`, Hunch `4c35f37`, 2026-08-18
+- **Reconciled**: 2026-08-19 after foundation completion
 
 ## Why this matters
 
@@ -43,9 +44,10 @@ implement the same protocol.
 
 - `spec/format.md:65-73` reserves `.arbor` and excludes journals/recovery from
   portable authored content unless another specification explicitly opts in.
-- `plan/native.md:324-368` currently requires exact Clamshell `.history`
-  compatibility. Replace that representation requirement with a versioned Arbor
-  iCloud profile while keeping semantic equivalence and dual-language fixtures.
+- The `iCloud durability` section of `plan/native/README.md` already selects a new,
+  versioned Arbor sidecar profile rather than exact Clamshell `.history`
+  compatibility. This plan must specify its exact encoding and fixtures without
+  weakening those recorded semantics.
 - Hunch's `PageCoordinator.swift:274-333` synchronously installs a generation
   and ordered write entry before returning; `flush` awaits the current tail.
 - `Clamshell.swift:1024-1047` makes recovery intent durable before writing the
@@ -60,7 +62,8 @@ implement the same protocol.
 - **Correct mtime rule**: `PatchEngine.swift:381-388,404-445` restores a missing
   authoritative add even if the Markdown mtime is newer. Modification time only
   suppresses applying an older purge/removal to a newer externally edited body.
-  `plan/native.md:362` currently states this incorrectly and must be fixed.
+  The canonical native plan now records this correctly; implementations and
+  fixtures must preserve it.
 - Hunch watches both the open Markdown file and per-page history directory via
   two `NSFilePresenter`s (`Clamshell+Presenter.swift:79-135,265-309`).
 - Hunch's move/trash/restore can separate path-mirrored history from the page on
@@ -161,7 +164,7 @@ Run Xcode gates sequentially.
 - TypeScript arbord/filesystem implementation of the same profile.
 - TreeHopper provider/session integration and sync/recovery presentation.
 - Local and real File Provider/iCloud qualification harnesses.
-- Corrections to `plan/native.md` and `spec/format.md` sidecar wording.
+- Corrections to `plan/native/README.md` and `spec/format.md` sidecar wording.
 
 **Out of scope**:
 
@@ -266,7 +269,7 @@ path substring.
 Arbord remains the only first-party macOS writer. Its watcher classifies foreign
 iCloud delivery as observed input. Mutation receipts remain REST v1 receipts;
 the sidecar profile does not leak new lifecycle endpoints or private fields into
-the client protocol. Its content path continues Plan 000's contract: accept
+the client protocol. Its content path continues the implemented source contract: accept
 exact source guarded by `baseContentRevision`, parse it internally, and journal
 the accepted semantic/source effects rather than trusting client-supplied
 blocks.
@@ -283,13 +286,13 @@ Implement `ArborCloudWorkspaceProvider` for iOS and deliberate direct mode:
   authored content mutation, parse it internally for validation, indexing,
   backlinks, rendering, and recovery, and expose the exact accepted source in
   the response; never accept a client-authored parsed block array;
-- implement Plan 000's complete directory Markdown contract over coordinated
+- implement the complete directory Markdown contract over coordinated
   files: first eligible standalone link per immediate child, unmatched children
   appended by canonical logical-path UTF-8 byte order, no file creation on read,
   complete materialization on first write, and no managed-link annotation
   syntax; apply the same directory-backed collection/virtual-child boundary;
 - guard directory-document writes with a revision covering both stored body and
-  immediate-child membership using Plan 000's exact
+  immediate-child membership using the existing exact
   `contentRevision`/`baseContentRevision` semantics, so a delivered, removed, or
   renamed child cannot be lost by a stale whole-document save;
 - use `NSFileCoordinator` for reads, atomic replacement, moves, and Trash;
@@ -308,7 +311,7 @@ Implement `ArborCloudWorkspaceProvider` for iOS and deliberate direct mode:
 Key coordinators by `(tree, PageID)`, not URL. A move changes locator metadata
 without remounting the editor or moving recovery history.
 
-**Verify**: local provider tests run Plan 000's shared exact-source,
+**Verify**: local provider tests run the shared exact-source,
 server-owned-parse, complete-directory, and UTF-8-order fixtures and simulate
 presenter ordering, local edits during reload, a child delivered/removed/renamed
 between read/write, enumeration reorder, unavailable artifacts, conflict
@@ -386,7 +389,7 @@ replace shared fixtures.
 - [ ] Assets and placeholders participate in readiness/status.
 - [ ] Arbord and Swift agree on every fixture and do not coauthor macOS state.
 - [ ] Real macOS/iOS iCloud qualification passes the documented matrix.
-- [ ] `advisor-plans/README.md` marks Plan 004 DONE.
+- [ ] `plan/native/execution.md` marks Plan 004 DONE.
 
 ## STOP conditions
 

@@ -4,7 +4,7 @@
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
 > report — do not improvise. When done, update the status row for this plan
-> in `plan/generated/README.md`.
+> in `plan/hardening/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/wire/src/host.ts`
 > Also run `git status --short packages/wire/src/host.ts`. If the excerpts
@@ -137,7 +137,7 @@ Repo conventions:
 **Out of scope** (do NOT touch):
 
 - `packages/wire/src/authority.ts` — the access model and its error types.
-- `packages/wire/src/cbor.ts` — decoder hardening is `plan/generated/003-*`.
+- `packages/wire/src/cbor.ts` — decoder hardening is `plan/hardening/003-*`.
 - `packages/arbord/src/server.ts` — the local browse daemon is a different
   surface with different threat assumptions.
 - `deploy/Caddyfile` — changing proxy configuration for existing deployments is
@@ -284,7 +284,7 @@ ALL must hold:
 - [ ] `deploy/README.md` documents the trusted-proxy setting
 - [ ] `deploy/Caddyfile` is unmodified
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plan/generated/README.md` status row for 007 updated
+- [ ] `plan/hardening/README.md` status row for 007 updated
 
 ## STOP conditions
 

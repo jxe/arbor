@@ -102,14 +102,16 @@ Working documents:
 
 - **[intro.md](intro.md)** — narrative introduction and pitch: from the agent-playground problems (sharing/syncing, human interface, containment) to a universal dynamic material that supersedes the web.
 - **[spec.md](spec.md)** — aspirational spec overview, v0.8, split into public contracts for format, locators, `trees.yaml`/`system:`, arbord REST and clients, stores, scripts, agents, the wire, and the CLI.
+- **[plan/](plan/README.md)** — planning organized by product direction, native work, hardening, and implemented records.
 - **[docs/treehopper.md](docs/treehopper.md)** — non-normative TreeHopper interaction design.
 - **[docs/reference-implementation.md](docs/reference-implementation.md)** — replaceable Bun/TypeScript/Swift architecture, private-state mechanics, and verification details.
-- **[plan/roadmap.md](plan/roadmap.md)** — the forward roadmap: canonical hosting, community profiles/groups/sharing, workspace composition, scripts, agents, data, fuller publication, and non-blocking polish.
-- **[plan/history.md](plan/history.md)** — implemented browser/editor, REST/client, daily-driver, and tracked-root milestones with verification evidence.
-- **[plan/native.md](plan/native.md)** — the separate Swift/Hunch integration plan: adapting the Swift protocol client into provider/page-session boundaries, arbord-mediated macOS, direct Clamshell on iOS, migration, sidecars, and native product surfaces.
-- **[plan/technical-debt.md](plan/technical-debt.md)** — known conformance gaps between the spec and the reference implementation.
-- **[plan/editor-todo.md](plan/editor-todo.md)** — editor/product backlog with difficulty ratings.
-- **[plan/generated/](plan/generated/README.md)** — machine-generated remediation plans (audited defects with executor instructions).
+- **[plan/product/roadmap.md](plan/product/roadmap.md)** — the forward roadmap: canonical hosting, community profiles/groups/sharing, workspace composition, scripts, agents, data, fuller publication, and non-blocking polish.
+- **[plan/records/history.md](plan/records/history.md)** — implemented browser/editor, REST/client, daily-driver, and tracked-root milestones with verification evidence.
+- **[plan/native/README.md](plan/native/README.md)** — the canonical architecture for the new parallel Swift TreeHopper app: Quagmire hosting, provider/session boundaries, arbord-mediated macOS, direct iCloud-capable Swift storage, migration, and native product surfaces.
+- **[plan/native/](plan/native/execution.md)** — TreeHopper architecture and active numbered handoffs for publishing Quagmire, founding the app, editor integration, cloud durability, parity, and migration.
+- **[plan/hardening/technical-debt.md](plan/hardening/technical-debt.md)** — known conformance gaps between the spec and the reference implementation.
+- **[plan/product/editor-todo.md](plan/product/editor-todo.md)** — editor/product backlog with difficulty ratings.
+- **[plan/hardening/](plan/hardening/README.md)** — technical debt plus older audited defect-remediation handoffs.
 - **[docs/notes/social-networking.md](docs/notes/social-networking.md)** — a thought experiment: with Arbor ubiquitous and the wire lowered to the transport layer, what remains of atproto, and how relays, AppViews, feeds, and labelers collapse into trees, watches, and queries.
 - **[docs/archive/](docs/archive/arbord-projection-outline.md)** — completed implementation outlines kept for reference.
 

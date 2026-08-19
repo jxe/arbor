@@ -2,44 +2,43 @@
 
 > **Executor instructions**: Follow this plan in order. Use a disposable clone
 > for history rewriting. Never run `git filter-repo` in the live Hunch checkout.
-> Publish exactly the Quagmire/Hunch API proven by Plan 000; do not redesign it
+> Publish exactly the implemented Quagmire/Hunch foundation; do not redesign it
 > during extraction. Update this plan's row in
-> `advisor-plans/README.md` when complete.
+> `plan/native/execution.md` when complete.
 >
 > **Drift checks (run first)**:
 >
 > ```sh
-> # Substitute the exact Hunch commit recorded by completed Plan 000.
-> git -C /Users/joe/src/hunch diff --stat <PLAN000_HUNCH_SHA>..HEAD -- \
+> git -C /Users/joe/src/hunch diff --stat ef37cc6..HEAD -- \
 >   Packages/Quagmire project.yml Hunch.xcodeproj README.md CONTRIBUTING.md CLAUDE.md plans
-> git -C /Users/joe/src/arbor diff --stat <PLAN000_ARBOR_SHA>..HEAD -- \
->   native advisor-plans spec packages
+> git -C /Users/joe/src/arbor diff --stat 05bcf35..HEAD -- \
+>   native plan spec packages
 > ```
 >
-> Stop if Plan 000 did not record both commits, or if the Quagmire package
-> boundary, Hunch dependency graph, or existing
-> extraction plan changed, compare the live code to this plan and stop on a
-> material mismatch.
+> Stop if either foundation commit is unavailable. If the Quagmire package
+> boundary, Hunch dependency graph, or existing extraction plan changed,
+> compare the live code to this plan and stop on a material mismatch.
 
 ## Status
 
 - **Priority**: P1
 - **Effort**: M
 - **Risk**: HIGH
-- **Depends on**: `advisor-plans/000-finalize-arbor-and-quagmire-foundations.md`
+- **Depends on**: implemented foundation recorded in `plan/records/history.md`
 - **Category**: migration
 - **Planned at**: Arbor `84fc705`, Hunch `4c35f37`, 2026-08-18
+- **Reconciled**: 2026-08-19 after foundation completion
 
 ## Why this matters
 
-Plan 000 leaves Quagmire's intended first public API proven locally in Hunch:
-one neutral document-link row, H1-H6 representation, raw fallback, a specified
-stable-`BlockID` lifecycle, and the complete existing Hunch interaction set. It
-is still embedded as a local subtree. Publishing that finished, format-neutral
-boundary gives Hunch and TreeHopper one independently versioned editor
-dependency while separating release/history failures from TreeHopper
-integration. The tag is not safe until remote SwiftPM resolution and bundled
-resources work in Hunch.
+The implemented foundation leaves Quagmire's intended first public API proven
+locally in Hunch: one neutral document-link row, H1-H6 representation, raw
+fallback, a specified stable-`BlockID` lifecycle, and the complete existing
+Hunch interaction set. It is still embedded as a local subtree. Publishing that
+finished, format-neutral boundary gives Hunch and TreeHopper one independently
+versioned editor dependency while separating release/history failures from
+TreeHopper integration. The tag is not safe until remote SwiftPM resolution and
+bundled resources work in Hunch.
 
 ## Current state
 
@@ -62,7 +61,7 @@ resources work in Hunch.
 - Hunch consumes Quagmire by local path in
   `/Users/joe/src/hunch/project.yml:23-40`; the generated Xcode project is
   tracked output and must be regenerated, not hand-edited.
-- Completed Plan 000 is a hard precondition. Before extraction, confirm
+- The implemented foundation is a hard precondition. Before extraction, confirm
   Quagmire/Hunch contain one `documentLink`/`referenceID` row API, no `.subpage`
   compatibility model, exact H1-H6 representation, raw fallback, the complete
   identity-lifecycle tests, no Markdown/source-provenance API, and passing Hunch
@@ -72,7 +71,7 @@ resources work in Hunch.
 
 | Purpose | Command | Expected on success |
 |---|---|---|
-| Package tests | `cd /Users/joe/src/hunch && swift test --package-path Packages/Quagmire` | all Plan 000 package tests pass; no timing failure |
+| Package tests | `cd /Users/joe/src/hunch && swift test --package-path Packages/Quagmire` | all foundation package tests pass; no timing failure |
 | Package release matrix | `cd /Users/joe/src/hunch && Packages/Quagmire/scripts/verify.sh` | tests and clean macOS/iOS Simulator package builds exit 0; resources load |
 | Generate Hunch project | `cd /Users/joe/src/hunch && xcodegen generate --spec project.yml --project .` | exit 0; project reflects remote package |
 | Hunch macOS tests | `xcodebuild test -project Hunch.xcodeproj -scheme Hunch -destination 'platform=macOS' -derivedDataPath /tmp/hunch-quagmire-release-macos-tests CODE_SIGNING_ALLOWED=NO` | exit 0 |
@@ -94,8 +93,8 @@ for the built artifact.
 
 **Out of scope**:
 
-- Any public Quagmire model/host redesign beyond the Plan 000 boundary.
-- Arbor source, protocol, or client changes; those completed in Plan 000.
+- Any public Quagmire model/host redesign beyond the implemented foundation.
+- Arbor source, protocol, or client changes; those are already implemented.
 - A demo app, CI workflow, package split, plugin system, or compatible-version
   requirement.
 - Changes to Hunch recovery hashes, Markdown, `.history`, app bundle ID, or UI.
@@ -124,7 +123,7 @@ Run the package test suite twice from a clean package state. Both consecutive
 runs must pass before continuing.
 
 Before the first run, execute the stale-row and forbidden-source-API searches
-from Plan 000 and confirm the single `documentLink` API, H1-H6/raw tests, and
+from the implemented foundation and confirm the single `documentLink` API, H1-H6/raw tests, and
 complete `BlockID` lifecycle tests are present. This is a release precondition,
 not an invitation to redesign them here.
 
@@ -207,15 +206,15 @@ dependency is exactly `0.1.0`; the full command table passes.
 - [ ] Hunch macOS tests and sequential macOS/iOS 27 builds pass remotely.
 - [ ] Package resources load through the remote dependency.
 - [ ] Public installation docs name only the real URL/tag.
-- [ ] The tag contains exactly Plan 000's one-row, H1-H6/raw, stable-identity,
+- [ ] The tag contains exactly the implemented one-row, H1-H6/raw, stable-identity,
       format-neutral public boundary; no extraction-time redesign entered
       `0.1.0`.
-- [ ] `advisor-plans/README.md` marks Plan 001 DONE.
+- [ ] `plan/native/execution.md` marks Plan 001 DONE.
 
 ## STOP conditions
 
 - Extraction loses meaningful history.
-- Plan 000 is incomplete, its recorded commits are unavailable, or the local
+- Either foundation commit is unavailable, or the local
   package still exposes `.subpage` alongside `documentLink`.
 - The package passes only through a local override or links twice in Hunch.
 - A resource is available locally but missing through remote SwiftPM.
@@ -225,7 +224,7 @@ dependency is exactly `0.1.0`; the full command table passes.
 
 ## Maintenance notes
 
-`0.1.0` deliberately captures the final pre-integration boundary from Plan 000,
+`0.1.0` deliberately captures the implemented pre-integration foundation,
 not the older Hunch-specific subpage API. TreeHopper is the second host in Plan
 003. The one-row API, H1-H6 representation, raw fallback, and stable identity
 lifecycle are already public in 0.1; source provenance remains host-private.

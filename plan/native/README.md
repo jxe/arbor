@@ -1,21 +1,20 @@
 # TreeHopper native plan
-*Canonical product and architecture plan for the new Swift browser. Detailed executor handoffs live in [`advisor-plans/`](../advisor-plans/README.md); implemented platform-neutral evidence lives in [`history.md`](history.md).*
+*Canonical product and architecture plan for the new Swift browser. Active executor handoffs are indexed in [`execution.md`](execution.md); implemented evidence lives in [`../records/history.md`](../records/history.md).*
 
 ## Status
 
 - Arbor's exact-source and provider-owned complete-directory foundation is implemented.
-- The matching local Quagmire/Hunch boundary is the remaining half of Plan 000 and must land in `/Users/joe/src/hunch` before publication.
-- Quagmire's first public release is therefore the intended neutral `0.1.0`; there is no public Hunch-specific 0.1 followed by an immediate corrective 0.2.
+- The matching local Quagmire/Hunch boundary is implemented and verified through Hunch commit `ef37cc6`; its completed executor plan has been retired into history.
+- The next step is to publish that proven boundary as Quagmire `0.1.0`; there is no public Hunch-specific 0.1 followed by an immediate corrective 0.2.
 - The new app, working name **TreeHopper**, has not been scaffolded. The name and reverse-DNS identifiers remain an explicit founding decision before signed builds or persisted app identity.
 
 Execution order:
 
-1. [000 — Arbor and Quagmire foundations](../advisor-plans/000-finalize-arbor-and-quagmire-foundations.md) (Arbor complete; Hunch/Quagmire pending)
-2. [001 — publish Quagmire 0.1](../advisor-plans/001-publish-quagmire.md)
-3. [002 — found TreeHopper native](../advisor-plans/002-found-treehopper-native.md)
-4. [003 — bridge Quagmire to Arbor](../advisor-plans/003-bridge-quagmire-to-arbor.md)
-5. [004 — Arbor cloud durability](../advisor-plans/004-build-arbor-cloud-durability.md)
-6. [005 — native parity and migration](../advisor-plans/005-complete-native-parity-and-migration.md)
+1. [001 — publish Quagmire 0.1](001-publish-quagmire.md)
+2. [002 — found TreeHopper native](002-found-treehopper-native.md)
+3. [003 — bridge Quagmire to Arbor](003-bridge-quagmire-to-arbor.md)
+4. [004 — Arbor cloud durability](004-build-arbor-cloud-durability.md)
+5. [005 — native parity and migration](005-complete-native-parity-and-migration.md)
 
 ## Product boundary
 
@@ -96,13 +95,14 @@ Every physical directory has one provider-owned operational Markdown document:
 4. reads do not materialize a body; the first authored write persists the accepted complete source;
 5. the directory content revision covers exact stored bytes plus canonical immediate-child descriptors.
 
-The current provider contract omits collection records, including physical Markdown row files and virtual/query-backed rows, from that About/index document. This exception and the exact removal path are recorded in [`technical-debt.md`](technical-debt.md); native code must not independently cement a different rule.
+The current provider contract omits collection records, including physical Markdown row files and virtual/query-backed rows, from that About/index document. This exception and the exact removal path are recorded in [`../hardening/technical-debt.md`](../hardening/technical-debt.md); native code must not independently cement a different rule.
 
 Link order, nesting, label, and deletion are content edits. Physical create, move, rename, copy, Trash, and restore are structural operations. There is no synthetic-row mutation boundary, managed manifest, block anchor, or second index-ordering API.
 
-## Quagmire 0.1 boundary
+## Implemented local Quagmire 0.1 boundary
 
-Quagmire and Hunch change together while the package is still local. The first public package must provide:
+Quagmire and Hunch changed together while the package was still local. The
+first public package now has this proven boundary to publish unchanged:
 
 - one neutral `documentLink` row with an authored attributed label and opaque host-defined reference;
 - ephemeral host presentation for target title/icon, present/missing/unavailable state, and the row's fixed supported actions;

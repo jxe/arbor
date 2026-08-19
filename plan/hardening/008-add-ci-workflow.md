@@ -4,7 +4,7 @@
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
 > report — do not improvise. When done, update the status row for this plan
-> in `plan/generated/README.md`.
+> in `plan/hardening/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- package.json README.md`
 > and `ls -a .github 2>/dev/null`. If a CI workflow already exists, treat it as
@@ -15,7 +15,7 @@
 - **Priority**: P2
 - **Effort**: M
 - **Risk**: LOW
-- **Depends on**: none. Best run *after* `plan/generated/001`–`plan/generated/007` so CI starts
+- **Depends on**: none. Best run *after* `plan/hardening/001`–`plan/hardening/007` so CI starts
   green on the fixed tree; it is not technically blocked by them.
 - **Category**: dx
 - **Planned at**: commit `4247481`, 2026-07-31
@@ -288,7 +288,7 @@ ALL must hold:
       on failure
 - [ ] `ARBOR_TEST_POSTGRES_DSN` appears nowhere in the workflow
 - [ ] No file under `packages/` or `tests/` is modified
-- [ ] `plan/generated/README.md` status row for 008 updated
+- [ ] `plan/hardening/README.md` status row for 008 updated
 
 ## STOP conditions
 

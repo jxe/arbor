@@ -4,7 +4,7 @@
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
 > report — do not improvise. When done, update the status row for this plan
-> in `plan/generated/README.md`.
+> in `plan/hardening/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/stores/src/indexer.ts packages/arbord/src/workspace.ts`
 > Also run `git status --short` on those paths. If the excerpts under "Current
@@ -17,7 +17,7 @@
 - **Risk**: MED — the FTS5 table is an external-content table, so index rows
   must be deleted with the *old* content or the index silently desynchronizes
   from `files`.
-- **Depends on**: none (but see the note about `plan/generated/001-*` under Scope)
+- **Depends on**: none (but see the note about `plan/hardening/001-*` under Scope)
 - **Category**: perf
 - **Planned at**: commit `4247481`, 2026-07-31
 
@@ -148,12 +148,12 @@ anything — run it before and after and record both numbers.
 
 - `packages/stores/src/indexer.ts`
 - `packages/arbord/src/workspace.ts` (the single dispatch line at `:1191`)
-- `tests/unit/indexer.test.ts` (create, or extend if `plan/generated/001-*` created it)
+- `tests/unit/indexer.test.ts` (create, or extend if `plan/hardening/001-*` created it)
 - `tests/performance/indexer.bench.ts` (add a move/delete measurement — optional, see step 5)
 
 **Out of scope** (do NOT touch):
 
-- The `search()` method and the excerpt shape. If `plan/generated/001-escape-search-excerpts.md`
+- The `search()` method and the excerpt shape. If `plan/hardening/001-escape-search-excerpts.md`
   has landed, `search()` returns structured segments; if it has not, it returns
   an HTML string. Either way, **do not modify `search()` in this plan.** If both
   plans are in flight, land 001 first to avoid a conflict in the same file.
@@ -260,7 +260,7 @@ in the batch branch remains).
 
 ### Step 5: Test that the index actually tracks moves and deletes
 
-Add tests to `tests/unit/indexer.test.ts` (create it if `plan/generated/001-*` did not).
+Add tests to `tests/unit/indexer.test.ts` (create it if `plan/hardening/001-*` did not).
 Use `tests/unit/journal.test.ts` as the structural exemplar for fixtures.
 
 Cover:
@@ -334,7 +334,7 @@ ALL must hold:
 - [ ] `grep -n "links_source_path" packages/stores/src/indexer.ts` returns a match
 - [ ] The `search()` method is unmodified (`git diff packages/stores/src/indexer.ts`)
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plan/generated/README.md` status row for 006 updated
+- [ ] `plan/hardening/README.md` status row for 006 updated
 
 ## STOP conditions
 
@@ -349,7 +349,7 @@ Stop and report back (do not improvise) if:
   index has drifted — report the symptom rather than adding a `'rebuild'` call
   to paper over it. A `'rebuild'` in the incremental path defeats the entire
   purpose of this plan.
-- `plan/generated/001-escape-search-excerpts.md` is mid-flight and has uncommitted
+- `plan/hardening/001-escape-search-excerpts.md` is mid-flight and has uncommitted
   changes to `packages/stores/src/indexer.ts`.
 
 ## Maintenance notes

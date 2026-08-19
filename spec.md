@@ -3,7 +3,7 @@
 
 ## Specification stance
 
-This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [plan/roadmap.md](plan/roadmap.md) and [plan/history.md](plan/history.md) own implementation status, sequencing, and evidence; [plan/technical-debt.md](plan/technical-debt.md) records known conformance failures.
+This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [plan/product/roadmap.md](plan/product/roadmap.md) and [plan/records/history.md](plan/records/history.md) own implementation status, sequencing, and evidence; [plan/hardening/technical-debt.md](plan/hardening/technical-debt.md) records known conformance failures.
 
 Requirements apply to the component they name. An implementation need not provide every Arbor component, but a component it does claim to provide must satisfy that component's specification. For example, a wire-only host need not implement a local workspace or human client, and a conforming human client may use a wholly different UI from TreeHopper.
 

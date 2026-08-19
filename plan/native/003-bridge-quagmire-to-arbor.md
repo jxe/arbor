@@ -1,22 +1,22 @@
 # Plan 003: Connect Quagmire to exact Arbor source through a thin host
 
 > **Executor instructions**: Integrate the exact published Quagmire 0.1 into
-> the TreeHopper foundation from Plan 002. Plan 000 has already made Arbor's
-> authored mutation exact Markdown source plus `baseContentRevision`, and has
-> already specified Quagmire's stable `BlockID` lifecycle. Implement a
-> TreeHopper `EditorHost`, a private block-granular Markdown codec/source ledger,
-> session admission, references, mentions, and document-link actions. Do not
-> create `ArborDocumentAdapter`, put source snapshots/ranges/handles in
+> the TreeHopper foundation from Plan 002. The implemented foundation already
+> makes Arbor's authored mutation exact Markdown source plus
+> `baseContentRevision` and specifies Quagmire's stable `BlockID` lifecycle.
+> Implement a TreeHopper `EditorHost`, a private block-granular Markdown
+> codec/source ledger, session admission, references, mentions, and
+> document-link actions. Do not create `ArborDocumentAdapter`, put source snapshots/ranges/handles in
 > Quagmire, send `ArborBlock[]` as authored data, or modify Quagmire 0.1.
 >
 > **Drift checks (run first)**:
 >
 > ```sh
-> # Substitute exact completion commits recorded by Plans 000-002.
+> # Substitute exact completion commits recorded by Plans 001-002.
 > git diff --stat <PLAN002_ARBOR_SHA>..HEAD -- \
 >   native packages/core/src packages/editor/src packages/client/src \
 >   spec/format.md spec/client.md spec/arbord-rest.md spec/fixtures tests \
->   plan/native.md docs/treehopper.md
+>   plan/native/README.md docs/treehopper.md
 > git -C /Users/joe/src/hunch diff --stat <PLAN001_HUNCH_SHA>..HEAD -- \
 >   project.yml Hunch.xcodeproj App/Sources App/Tests
 > ```
@@ -30,9 +30,10 @@
 - **Priority**: P1
 - **Effort**: L–XL
 - **Risk**: HIGH
-- **Depends on**: Plans 000, 001, and 002
+- **Depends on**: Plans 001 and 002 plus the implemented foundation in `plan/records/history.md`
 - **Category**: architecture
 - **Planned at**: Arbor `84fc705`, Hunch `4c35f37`, 2026-08-18
+- **Reconciled**: 2026-08-19 after foundation completion
 
 ## Why this matters
 
@@ -66,8 +67,9 @@ Verify these live before creating integration code:
 - Same-directory link reorder is a source write; physical move has no source
   placement/anchor fields.
 - Quagmire 0.1 exposes one neutral `documentLink`, H1-H6, raw fallback,
-  synchronous `persistCommit`, asynchronous `flush`, and the complete Plan 000
-  block-identity matrix. No `.subpage` or source-provenance API remains.
+  synchronous `persistCommit`, asynchronous `flush`, and the complete
+  implemented block-identity matrix. No `.subpage` or source-provenance API
+  remains.
 - Hunch passes all former subpage behavior through exact remote Quagmire 0.1.
 - TreeHopper has `WorkspaceProvider`, `WorkspaceDocumentSession`, one
   coordinator stream per scope-qualified PageID, tab leases, browser surfaces,
@@ -120,16 +122,16 @@ These rules are binding:
 
 ## Current state and evidence
 
-- `packages/core/src/types.ts:29-44` currently gives Arbor parsed blocks source
-  fragments and parse IDs; completed Plan 000 must also return authoritative
-  full source and make those fields read-only conveniences.
+- Arbor now returns authoritative complete source while parsed block fragments
+  and parse IDs remain read-only conveniences. Verify that live contract before
+  integration rather than reopening the protocol here.
 - `packages/editor/src/markdown.ts:325-441` demonstrates the intended
   block-granular idea: unchanged fingerprints reuse original source while
   changed blocks serialize canonically. The Swift host matches the semantic
   contract, not TypeScript implementation details.
 - Quagmire `Model/BlockID.swift:3-8` is an opaque immutable UUID.
   `Model/Block.swift:49-57` accepts a supplied ID, and `withFreshIDs()` renews
-  copies recursively. Plan 000 must have completed the lifecycle tests.
+  copies recursively. The foundation lifecycle tests must still pass.
 - Quagmire `Document.transaction` emits pre/post semantic changes through one
   commit point. `EditorHost.persistCommit(changes:in:)` is synchronous and
   `flush(_:)` awaits host-owned durability.
@@ -193,14 +195,14 @@ Run Xcode commands sequentially.
   source editing, authoritative response, and reference actions.
 - `native/App/` editor surface, `EditorHost`, pickers, errors/conflicts, and
   focused tests.
-- Focused `ArborClient` consumption fixes only when it fails to expose a Plan
-  000 exact-source contract already present on the wire.
-- `plan/native.md`, `docs/treehopper.md`, and debt/history updates describing
+- Focused `ArborClient` consumption fixes only when it fails to expose the
+  implemented exact-source contract already present on the wire.
+- `plan/native/README.md`, `docs/treehopper.md`, and debt/history updates describing
   behavior actually verified here.
 
 **Out of scope**:
 
-- Arbor protocol/server/provider/web redesign; Plan 000 owns it.
+- Arbor protocol/server/provider/web redesign; the implemented foundation owns that contract.
 - Any Quagmire or Hunch source/API change; exact Quagmire 0.1 is an input.
 - `ArborDocumentAdapter`, a second canonical document model, a moving-range
   tracker, token-level inline preservation, or persisted source/reference map.
@@ -389,11 +391,11 @@ exact-source writes and the declared block-granular fidelity.
 - [ ] Link deletion never automatically trashes a target.
 - [ ] Cross-document failures always leave a complete source or destination.
 - [ ] TreeHopper and unchanged Hunch pass against exact Quagmire 0.1.
-- [ ] `advisor-plans/README.md` marks Plan 003 DONE.
+- [ ] `plan/native/execution.md` marks Plan 003 DONE.
 
 ## STOP conditions
 
-- Any Plan 000/001/002 precondition is false.
+- Any implemented-foundation, Plan 001, or Plan 002 precondition is false.
 - Exact no-op/block-granular fidelity requires changing Quagmire or persisting IDs.
 - The host needs moving source ranges rather than an immutable opaque record.
 - The integration needs Arbor protocol/storage types inside Quagmire.

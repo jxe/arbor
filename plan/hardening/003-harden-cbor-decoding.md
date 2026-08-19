@@ -4,7 +4,7 @@
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
 > report — do not improvise. When done, update the status row for this plan
-> in `plan/generated/README.md`.
+> in `plan/hardening/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/wire/src/cbor.ts packages/wire/src/objects.ts`
 > Also run `git status --short` on those paths — the working tree was already
@@ -141,7 +141,7 @@ Repo conventions:
 - The **encoder** functions in `cbor.ts`. Changing encoding changes every
   object hash in existence. This plan is decode-side only.
 - `packages/wire/src/host.ts` — rate limiting and response headers are
-  `plan/generated/007-*`.
+  `plan/hardening/007-*`.
 
 ## Git workflow
 
@@ -275,7 +275,7 @@ ALL must hold:
 - [ ] No encoder function in `packages/wire/src/cbor.ts` was modified
       (`git diff packages/wire/src/cbor.ts` touches only the decode path)
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plan/generated/README.md` status row for 003 updated
+- [ ] `plan/hardening/README.md` status row for 003 updated
 
 ## STOP conditions
 

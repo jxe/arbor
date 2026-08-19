@@ -3,64 +3,57 @@
 > **Executor instructions**: Build a new Arbor product. Do not copy or rename the
 > Hunch app target. Keep the first end-to-end slice read-only except for an
 > in-memory fake. Run macOS and iOS Xcode commands sequentially. Update this
-> plan's row in `advisor-plans/README.md` when complete.
+> plan's row in `plan/native/execution.md` when complete.
 >
 > **Drift check (run first)**:
 >
 > ```sh
-> # Substitute the exact Arbor commit recorded by completed Plan 000.
-> git diff --stat <PLAN000_ARBOR_SHA>..HEAD -- \
->   README.md plan/native.md plan/technical-debt.md docs/treehopper.md \
+> git diff --stat 05bcf35..HEAD -- \
+>   README.md plan/native/README.md plan/hardening/technical-debt.md docs/treehopper.md \
 >   native spec/client.md spec/format.md spec/locators.md spec/arbord-rest.md \
 >   package.json tests/protocol
 > ```
 >
-> Stop if Plans 000/001 are incomplete, or if the native app/package topology or
-> Swift client protocol surface has materially changed since Plan 000.
+> Stop if Plan 001 is incomplete, the implemented exact-source foundation is no
+> longer present, or the native app/package topology or Swift client protocol
+> surface has materially changed from the contracts below.
 
 ## Status
 
 - **Priority**: P1
 - **Effort**: L
 - **Risk**: MED
-- **Depends on**: `advisor-plans/001-publish-quagmire.md` (and therefore Plan 000)
+- **Depends on**: `plan/native/001-publish-quagmire.md`
 - **Category**: direction
 - **Planned at**: Arbor `84fc705`, 2026-08-18
+- **Reconciled**: 2026-08-19 after foundation completion
 
 ## Why this matters
 
-The current `plan/native.md` is still framed as adapting and cutting over Hunch.
-The intended product is instead a parallel native TreeHopper whose primary
-object is an Arbor node and whose editor is only one possible surface. Freezing
-identity, provider ownership, and session lifetime before editor persistence
-prevents Hunch defaults, file URLs, flat-page assumptions, or a second storage
-authority from becoming the new app's foundation.
+The canonical `plan/native/README.md` now describes a parallel native TreeHopper whose
+primary object is an Arbor node and whose editor is only one possible surface.
+Freezing identity, provider ownership, and session lifetime before editor
+persistence prevents Hunch defaults, file URLs, flat-page assumptions, or a
+second storage authority from becoming the new app's foundation.
 
 ## Current state
 
-- `README.md:101-116` defines Arbor's document topology and names TreeHopper as
-  the web/native browser, while explicitly calling all product names provisional.
-- `plan/native.md:8-45` already contains the correct high-level split: browser
+- `README.md` defines Arbor's document topology and names TreeHopper as the
+  web/native browser, while explicitly calling all product names provisional.
+- `plan/native/README.md` contains the correct high-level split: browser
   tab, heterogeneous surface, provider, optional document session, arbord on
   macOS, and direct file/iCloud storage on iOS.
-- `plan/native.md:47-105` requires synchronous generation admission, ordered
+- `plan/native/README.md` requires synchronous generation admission, ordered
   writes, flush of every admitted generation, clean external replacement, and
   explicit conflicts. Preserve these invariants.
 - `native/Packages/ArborClient/Package.swift:1-17` is a Foundation-only Swift 6
   package targeting iOS/macOS 26. It already builds and passes its protocol
   fixtures.
-- At planning time,
-  `native/Packages/ArborClient/Sources/ArborClient/Projection.swift:3-116`
-  mirrors the old client-derived directory projection. Completed Plan 000 must
-  have removed that surface and made `NodeSnapshot.document` the complete
-  provider-owned directory Markdown. Confirm that precondition before scaffolding.
-- `native/Packages/ArborClient/Sources/ArborClient/LogicalURL.swift:21-27`
-  still validates PageID fragments as six lowercase characters, while
-  `spec/format.md:12-25` and `spec/locators.md` define opaque non-empty IDs.
-- `plan/technical-debt.md:8-20` records Swift risks around tree scope, PageID
-  grammar, and the old synthetic-row mutation boundary. Close stable reference
-  correctness here; Plan 000 must already have removed the obsolete projection
-  boundary.
+- The implemented foundation removed the Swift client projection surface.
+  `NodeSnapshot.document.source` is authoritative complete provider-owned
+  Markdown; writes use exact `source` plus `baseContentRevision`; logical URLs
+  accept opaque non-empty PageID fragments. Treat these as verified inputs, not
+  work for this plan.
 - `spec/client.md:6-30` says arbord is the macOS authority, clients retain full
   resolved tree/path/PageID provenance, untouched Markdown is byte-preserved,
   and snapshot observation must not have a gap.
@@ -115,12 +108,12 @@ Do not run the two Xcode builds in parallel.
 
 **In scope**:
 
-- `plan/native.md`, plus references in `README.md` and
+- `plan/native/README.md`, plus references in `README.md` and
   `docs/reference-implementation.md` needed to reflect the new-app direction.
 - `native/project.yml`, generated `native/TreeHopper.xcodeproj`, `native/App/`.
 - `native/Packages/TreeHopperKit/`.
-- Focused conformance corrections in `native/Packages/ArborClient/`, shared
-  fixtures, and TypeScript parity code/tests where required.
+- Read-only `ArborClient` consumption needed by the new provider; protocol,
+  projection, and exact-source redesign are out of scope.
 - A supervised, read-only arbord connection on macOS.
 
 **Out of scope**:
@@ -141,7 +134,7 @@ Do not run the two Xcode builds in parallel.
 
 ## Steps
 
-### Step 1: Freeze names and reset the canonical native plan
+### Step 1: Freeze names and confirm the canonical native plan
 
 Use this working identity unless Joe changes it before execution:
 
@@ -163,7 +156,7 @@ Keep Quagmire's own minimum platforms unchanged. Keep bundle IDs, defaults keys,
 app-support paths, and future container identifiers in build/configuration code,
 not scattered string literals.
 
-Rewrite `plan/native.md` so it clearly says:
+Confirm `plan/native/README.md` continues to say:
 
 - TreeHopper is a new app in this repository, not a Hunch cutover.
 - Hunch remains a behavior oracle and Quagmire integration client.
@@ -174,37 +167,14 @@ Rewrite `plan/native.md` so it clearly says:
 **Verify**:
 
 ```sh
-rg -n 'Hunch integration track|change Hunch|rename Hunch' plan/native.md
-rg -n 'TreeHopperApp|TreeHopperKit|new app|parallel' plan/native.md
+rg -n 'Hunch integration track|change Hunch|rename Hunch' plan/native/README.md
+rg -n 'TreeHopperApp|TreeHopperKit|new app|parallel' plan/native/README.md
 ```
 
 Expected: the first search has no active-plan matches; the second identifies the
 new product boundary and topology.
 
-### Step 2: Close Swift client correctness prerequisites
-
-Make Swift PageID parsing match the opaque non-empty protocol grammar. Preserve
-full tree scope in child, search, backlink, recovery, and navigation references.
-Confirm Plan 000's complete-document client cutover is present: do not restore
-`ProjectedDocument`, `ManagedChildRow`, or client-derived completeness. Confirm
-authored content writes carry exact `source` plus `baseContentRevision`, never
-client-produced blocks or frontmatter patches; parsed views remain read-only
-convenience.
-
-Add shared fixtures where TypeScript and Swift must agree. Do not add a REST v2
-or compatibility adapter; current v1 changes in place.
-
-**Verify**:
-
-```sh
-swift test --package-path native/Packages/ArborClient
-bun run test:protocol
-```
-
-Expected: all fixture/live tests pass, including new opaque-ID and tree-scope
-cases and Plan 000's complete-directory contract.
-
-### Step 3: Scaffold the new app and package graph
+### Step 2: Scaffold the new app and package graph
 
 Create `native/project.yml` as the source of truth and a tracked generated
 project. Create a multiplatform app target, macOS unit tests, and iOS UI/test
@@ -221,11 +191,11 @@ Create `TreeHopperKit` with only the shared types needed now:
 - `WorkspaceCoordinator` and tab leases;
 - an `InMemoryWorkspaceProvider` used by tests and previews.
 
-Do not make `openDocument` the universal read primitive. Under Plan 000, every
-directory-backed node exposes a complete directory document even without a
-stored body. A directory-backed collection may therefore expose a separate
-About/index document session while its grid remains the primary collection
-surface; its rows and virtual tables do not enter that document. An ordinary
+Do not make `openDocument` the universal read primitive. Under the implemented
+provider contract, every directory-backed node exposes a complete directory
+document even without a stored body. A directory-backed collection may
+therefore expose a separate About/index document session while its grid remains
+the primary collection surface; its rows and virtual tables do not enter that document. An ordinary
 file, virtual database container, or collection row has no document session
 merely because it is browsable.
 
@@ -233,7 +203,7 @@ merely because it is browsable.
 platform targets. Expected: the app displays a fixture tree from the in-memory
 provider without filesystem or network access.
 
-### Step 4: Prove session and tab ownership before persistence
+### Step 3: Prove session and tab ownership before persistence
 
 Implement fake/in-memory session behavior with:
 
@@ -253,7 +223,7 @@ an unawaited final edit, and an external update racing a local generation.
 **Verify**: `swift test --package-path native/Packages/TreeHopperKit` passes all
 new lifecycle tests deterministically without sleeps.
 
-### Step 5: Build the node browser shell over the fake provider
+### Step 4: Build the node browser shell over the fake provider
 
 Implement one active `WorkspaceSurface` per tab; back, forward, parent, Home as
 a preference, breadcrumbs/open-location, contextual sidebar, search, and
@@ -268,7 +238,7 @@ document lease.
 rename without remount, Home not constraining reachability, and command
 enablement by surface. Both platform builds pass.
 
-### Step 6: Prove a read-only arbord-backed macOS slice
+### Step 5: Prove a read-only arbord-backed macOS slice
 
 Package/supervise one arbord process with readiness, version reporting,
 restart/resync, bounded safe logs, and clean shutdown. Prove whether the
@@ -299,7 +269,7 @@ direct app filesystem read. Run protocol, kit, macOS, and root gates.
 - [ ] Product, package, module, bundle, cache/defaults, and logging identities
       contain no accidental Hunch identity.
 - [ ] Swift/TypeScript agree on opaque PageIDs and retained tree scope; no new
-      native API revives the client-side projection removed by Plan 000.
+      native API revives the removed client-side projection.
 - [ ] Swift exposes authoritative exact source and source-plus-base-revision
       writes; no native authored mutation accepts parsed blocks.
 - [ ] The generated project builds sequentially for macOS and iOS 27.
@@ -308,14 +278,14 @@ direct app filesystem read. Run protocol, kit, macOS, and root gates.
 - [ ] A read-only macOS tree is browsed solely through supervised arbord.
 - [ ] Helper restart/resync is visible and recoverable.
 - [ ] Root, Swift, Xcode, and diff gates pass.
-- [ ] `advisor-plans/README.md` marks Plan 002 DONE.
+- [ ] `plan/native/execution.md` marks Plan 002 DONE.
 
 ## STOP conditions
 
 - Joe rejects the working TreeHopper name or identifier prefix before they are
   persisted in signed builds.
-- Plans 000/001 are incomplete or the published 0.1.0 differs from Plan 000's
-  proven local Quagmire/Hunch boundary.
+- Plan 001 is incomplete or the published 0.1.0 differs from the proven local
+  Quagmire/Hunch foundation.
 - Quagmire 0.1.0 is not remotely resolvable with resources.
 - A correct read-only arbord slice requires the app to read workspace truth
   directly.

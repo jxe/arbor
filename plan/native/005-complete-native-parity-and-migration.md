@@ -9,7 +9,7 @@
 > **Drift checks (run first)**:
 >
 > ```sh
-> git diff --stat 84fc705..HEAD -- native plan/native.md plan/history.md \
+> git diff --stat 84fc705..HEAD -- native plan/native/README.md plan/records/history.md \
 >   README.md docs/treehopper.md packages tests spec
 > git -C /Users/joe/src/hunch diff --stat 4c35f37..HEAD -- \
 >   App/Sources App/Tests App/UITests project.yml README.md
@@ -27,6 +27,7 @@
 - **Depends on**: Plans 003 and 004
 - **Category**: migration
 - **Planned at**: Arbor `84fc705`, Hunch `4c35f37`, 2026-08-18
+- **Reconciled**: 2026-08-19 after foundation completion and plan consolidation
 
 ## Why this matters
 
@@ -49,11 +50,12 @@ not copied Hunch implementation details.
 - Hunch application code owns voice/transcription, link previews, page/search
   pickers, icons, banners, recovery UI, bookmarks, caches, menus, and Clamshell.
   Port behavior selectively behind Arbor-named provider/shell types.
-- `plan/native.md:138-211` defines native/web parity as the same authored Arbor
-  behavior through platform-native controls, not pixel identity.
-- `plan/native.md:400-420` contains a useful acceptance inventory, but it must be
-  revised for a new TreeHopper app, remote Quagmire, and Arbor iCloud v1 rather
-  than Hunch cutover and Clamshell sidecar compatibility.
+- The `Hunch parity and intentional differences` section of `plan/native/README.md`
+  defines parity as the same authored Arbor behavior through platform-native
+  controls, not pixel identity, and already records the deliberate interruptions.
+- The `Release gates` section of `plan/native/README.md` is the canonical acceptance
+  inventory for the new TreeHopper app, remote Quagmire, Arbor cloud journal,
+  Hunch dry run, and exact-artifact manual qualification.
 - Hunch Markdown uses durable `clamshell-id` frontmatter and page-ID fragments;
   `.clamshell.json` stores Home; `Assets`, `Trash`, and `.history` carry related
   data (`App/Sources/Clamshell/README.md:16-47`).
@@ -292,12 +294,12 @@ Manual exact-artifact matrix:
 - Hunch remains independently usable against its original untouched workspace.
 
 **Verify**: record toolchain, artifact paths, device/simulator IDs, suite counts,
-known non-blocking limitations, and evidence in `plan/history.md` only after all
+known non-blocking limitations, and evidence in `plan/records/history.md` only after all
 claimed gates actually pass.
 
 ### Step 8: Update canonical product documentation and release state
 
-Reconcile `plan/native.md`, `plan/history.md`, `README.md`,
+Reconcile `plan/native/README.md`, `plan/records/history.md`, `README.md`,
 `docs/reference-implementation.md`, `docs/treehopper.md`, and relevant specs.
 Mark behavior implemented only when its source and gate exist. Keep later
 scripts, collections, sharing, and agents visibly dependent on their core
@@ -346,7 +348,7 @@ Document:
 - [ ] No Hunch writer ID or active legacy sidecar is reused.
 - [ ] Full automated and exact-artifact manual matrices pass on macOS/iOS 27.
 - [ ] Canonical docs distinguish implemented, planned, and later work accurately.
-- [ ] `advisor-plans/README.md` marks Plan 005 DONE.
+- [ ] `plan/native/execution.md` marks Plan 005 DONE.
 
 ## STOP conditions
 

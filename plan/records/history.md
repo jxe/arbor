@@ -1,5 +1,5 @@
 # Implemented history
-*Delivered Arbor and arbord milestones. The forward roadmap lives in [roadmap.md](roadmap.md); native application integration lives in [native.md](native.md).*
+*Delivered Arbor and arbord milestones. The forward roadmap lives in [product/roadmap.md](../product/roadmap.md); native application integration lives in [native/README.md](../native/README.md).*
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
@@ -18,12 +18,12 @@ Delivered:
 
 Primary ownership:
 
-- [`packages/core`](../packages/core)
-- [`packages/fs`](../packages/fs)
-- [`packages/editor`](../packages/editor)
-- [`packages/stores`](../packages/stores)
-- [`packages/render`](../packages/render)
-- [`packages/arbord/src/workspace.ts`](../packages/arbord/src/workspace.ts)
+- [`packages/core`](../../packages/core)
+- [`packages/fs`](../../packages/fs)
+- [`packages/editor`](../../packages/editor)
+- [`packages/stores`](../../packages/stores)
+- [`packages/render`](../../packages/render)
+- [`packages/arbord/src/workspace.ts`](../../packages/arbord/src/workspace.ts)
 
 Important constraints:
 
@@ -50,16 +50,14 @@ This supersedes the client-projection architecture recorded in the historical Mi
 
 Primary ownership:
 
-- [`spec/format.md`](../spec/format.md)
-- [`spec/arbord-rest.md`](../spec/arbord-rest.md)
-- [`packages/editor/src/directory-document.ts`](../packages/editor/src/directory-document.ts)
-- [`packages/fs/src/workspace-fs.ts`](../packages/fs/src/workspace-fs.ts)
-- [`packages/arbord`](../packages/arbord)
-- [`packages/client`](../packages/client)
-- [`native/Packages/ArborClient`](../native/Packages/ArborClient)
-- [`packages/render`](../packages/render)
-
-Quagmire/Hunch API work remains in `/Users/joe/src/hunch`; it is not part of this Arbor delivery.
+- [`spec/format.md`](../../spec/format.md)
+- [`spec/arbord-rest.md`](../../spec/arbord-rest.md)
+- [`packages/editor/src/directory-document.ts`](../../packages/editor/src/directory-document.ts)
+- [`packages/fs/src/workspace-fs.ts`](../../packages/fs/src/workspace-fs.ts)
+- [`packages/arbord`](../../packages/arbord)
+- [`packages/client`](../../packages/client)
+- [`native/Packages/ArborClient`](../../native/Packages/ArborClient)
+- [`packages/render`](../../packages/render)
 
 Verification recorded with this delivery:
 
@@ -73,6 +71,48 @@ swift test --package-path native/Packages/ArborClient
                         9 passed, 1 live-server test skipped as designed
 git diff --check        passed
 ```
+
+## Quagmire/Hunch editor foundation
+
+**Status: Implemented locally on 2026-08-18; review follow-ups complete through
+Hunch `ef37cc6`.**
+
+This cross-repository prerequisite was implemented in `/Users/joe/src/hunch`
+before Quagmire extraction so the first public package can start with the
+intended neutral API rather than publishing a Hunch-specific boundary.
+
+Delivered:
+
+- one format-neutral `documentLink` row with an authored attributed label and
+  opaque host-defined reference, replacing the Hunch-specific subpage model;
+- H1–H6 representation without clamping, while creation UI remains H1–H3;
+- a read-only unsupported/raw block for exact host-owned source fallback;
+- a tested stable `BlockID` lifecycle across edits, structure, undo, paste,
+  duplication, and cross-document operations;
+- per-target present/pending/missing/unavailable presentation and capabilities,
+  async mention suggestions, and observation-driven pending-to-present updates;
+- safe system replacement that rebases undo for insert/remove/value changes and
+  honestly falls back to wholesale replacement for reparenting or sibling
+  reorder;
+- synchronous commit notification, async flush, and duplicate-over-loss
+  ordering for cross-document create, append, inline, retire, and Trash flows;
+- a simultaneous Hunch migration preserving former subpage-row behavior through
+  the neutral type.
+
+Verification after review:
+
+```text
+Packages/Quagmire/scripts/verify.sh
+                        passed package tests and macOS/iOS builds
+Hunch macOS tests       349 passed
+Hunch iOS simulator     test build passed
+git diff --check        passed
+```
+
+The detailed completed executor plan was retired after this outcome was folded
+into history and the active publication/integration preconditions. Extraction,
+publication, and remote Hunch adoption remain active work in
+[`native/001-publish-quagmire.md`](../native/001-publish-quagmire.md).
 
 ## Canonical and community-hosting foundation
 
@@ -90,13 +130,13 @@ Delivered:
 
 Normative ownership:
 
-- [`spec/wire.md`](../spec/wire.md)
-- [`spec/locators.md`](../spec/locators.md)
-- [`spec/client.md`](../spec/client.md)
-- [`docs/treehopper.md`](../docs/treehopper.md)
-- [`spec/cli.md`](../spec/cli.md)
-- [`spec/system.md`](../spec/system.md)
-- [`spec/arbord-rest.md`](../spec/arbord-rest.md)
+- [`spec/wire.md`](../../spec/wire.md)
+- [`spec/locators.md`](../../spec/locators.md)
+- [`spec/client.md`](../../spec/client.md)
+- [`docs/treehopper.md`](../../docs/treehopper.md)
+- [`spec/cli.md`](../../spec/cli.md)
+- [`spec/system.md`](../../spec/system.md)
+- [`spec/arbord-rest.md`](../../spec/arbord-rest.md)
 
 The delivered slice intentionally does not claim end-user device pairing, claim recovery/dispute resolution, multiple active local identities, nested or cross-community groups, boundary moves/aliases, or production hosting administration. Those follow-ups have their own position in the forward roadmap rather than keeping the foundation permanently partial.
 
@@ -129,14 +169,14 @@ Delivered:
 
 Primary ownership:
 
-- [`packages/arbord/src/tree-manager.ts`](../packages/arbord/src/tree-manager.ts)
-- [`packages/arbord/src/service.ts`](../packages/arbord/src/service.ts)
-- [`packages/fs/src/discovery.ts`](../packages/fs/src/discovery.ts)
-- [`packages/fs/src/workspace-fs.ts`](../packages/fs/src/workspace-fs.ts)
-- [`packages/wire/src/objects.ts`](../packages/wire/src/objects.ts)
-- [`packages/stores/src/visits.ts`](../packages/stores/src/visits.ts)
-- [`packages/stores/src/indexer.ts`](../packages/stores/src/indexer.ts)
-- [`packages/render/src/App.tsx`](../packages/render/src/App.tsx)
+- [`packages/arbord/src/tree-manager.ts`](../../packages/arbord/src/tree-manager.ts)
+- [`packages/arbord/src/service.ts`](../../packages/arbord/src/service.ts)
+- [`packages/fs/src/discovery.ts`](../../packages/fs/src/discovery.ts)
+- [`packages/fs/src/workspace-fs.ts`](../../packages/fs/src/workspace-fs.ts)
+- [`packages/wire/src/objects.ts`](../../packages/wire/src/objects.ts)
+- [`packages/stores/src/visits.ts`](../../packages/stores/src/visits.ts)
+- [`packages/stores/src/indexer.ts`](../../packages/stores/src/indexer.ts)
+- [`packages/render/src/App.tsx`](../../packages/render/src/App.tsx)
 
 Intentional limits:
 
@@ -172,12 +212,12 @@ Outcome:
 
 Implemented in:
 
-- [`spec/arbord-rest.md`](../spec/arbord-rest.md)
-- [`packages/core/src/protocol.ts`](../packages/core/src/protocol.ts)
-- [`packages/arbord`](../packages/arbord)
-- [`packages/client`](../packages/client)
-- [`native/Packages/ArborClient`](../native/Packages/ArborClient)
-- [`spec/fixtures`](../spec/fixtures)
+- [`spec/arbord-rest.md`](../../spec/arbord-rest.md)
+- [`packages/core/src/protocol.ts`](../../packages/core/src/protocol.ts)
+- [`packages/arbord`](../../packages/arbord)
+- [`packages/client`](../../packages/client)
+- [`native/Packages/ArborClient`](../../native/Packages/ArborClient)
+- [`spec/fixtures`](../../spec/fixtures)
 
 Intentional limits:
 
@@ -218,15 +258,15 @@ Outcome:
 Implemented in:
 
 - `packages/core/src/projection.ts` (historical; removed by the provider-owned complete-directory foundation)
-- [`packages/core/src/logical-url.ts`](../packages/core/src/logical-url.ts)
-- [`packages/client/src/index.ts`](../packages/client/src/index.ts)
-- [`native/Packages/ArborClient`](../native/Packages/ArborClient)
-- [`packages/stores/src/indexer.ts`](../packages/stores/src/indexer.ts)
-- [`packages/fs/src/materialization.ts`](../packages/fs/src/materialization.ts)
-- [`packages/arbord/src/workspace.ts`](../packages/arbord/src/workspace.ts)
-- [`packages/arbord/src/server.ts`](../packages/arbord/src/server.ts)
-- [`packages/render/src/PageEditor.tsx`](../packages/render/src/PageEditor.tsx)
-- [`packages/render/src/App.tsx`](../packages/render/src/App.tsx)
+- [`packages/core/src/logical-url.ts`](../../packages/core/src/logical-url.ts)
+- [`packages/client/src/index.ts`](../../packages/client/src/index.ts)
+- [`native/Packages/ArborClient`](../../native/Packages/ArborClient)
+- [`packages/stores/src/indexer.ts`](../../packages/stores/src/indexer.ts)
+- [`packages/fs/src/materialization.ts`](../../packages/fs/src/materialization.ts)
+- [`packages/arbord/src/workspace.ts`](../../packages/arbord/src/workspace.ts)
+- [`packages/arbord/src/server.ts`](../../packages/arbord/src/server.ts)
+- [`packages/render/src/PageEditor.tsx`](../../packages/render/src/PageEditor.tsx)
+- [`packages/render/src/App.tsx`](../../packages/render/src/App.tsx)
 
 Explicitly deferred to the non-blocking polish milestone:
 
@@ -267,18 +307,18 @@ Outcome:
 
 Implemented in:
 
-- [`packages/arbord/src/service.ts`](../packages/arbord/src/service.ts)
+- [`packages/arbord/src/service.ts`](../../packages/arbord/src/service.ts)
 - `packages/arbord/src/roots.ts` (historical; later consolidated into `service.ts`)
-- [`packages/arbord/src/fs-service.ts`](../packages/arbord/src/fs-service.ts)
-- [`packages/stores/src/trees.ts`](../packages/stores/src/trees.ts)
-- [`packages/stores/src/private-state.ts`](../packages/stores/src/private-state.ts)
-- [`packages/arbord/src/root-title.ts`](../packages/arbord/src/root-title.ts)
-- [`packages/core/src/protocol.ts`](../packages/core/src/protocol.ts)
-- [`packages/render/src/App.tsx`](../packages/render/src/App.tsx)
+- [`packages/arbord/src/fs-service.ts`](../../packages/arbord/src/fs-service.ts)
+- [`packages/stores/src/trees.ts`](../../packages/stores/src/trees.ts)
+- [`packages/stores/src/private-state.ts`](../../packages/stores/src/private-state.ts)
+- [`packages/arbord/src/root-title.ts`](../../packages/arbord/src/root-title.ts)
+- [`packages/core/src/protocol.ts`](../../packages/core/src/protocol.ts)
+- [`packages/render/src/App.tsx`](../../packages/render/src/App.tsx)
 
 Coverage:
 
-- [`tests/integration/fs-scope.test.ts`](../tests/integration/fs-scope.test.ts)
+- [`tests/integration/fs-scope.test.ts`](../../tests/integration/fs-scope.test.ts)
 - `tests/integration/roots.test.ts` (historical; coverage later consolidated into `fs-scope.test.ts`)
 - shared tree-qualified protocol fixtures decoded by TypeScript and Swift;
 - filesystem-wide browser end-to-end coverage.

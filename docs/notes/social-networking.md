@@ -41,7 +41,7 @@ Most of atproto's bespoke surface exists because it had to build its own substra
 
 ## Before ubiquity: the bridge
 
-None of this requires waiting for the premise. An atproto bridge fits exactly where the git bridge sits ([plan/roadmap.md](../../plan/roadmap.md) phase 9.4): expose a PDS repository as a read-only visited tree — both sides are signed Merkle structures, so the mapping is mechanical — and publish a public Arbor subtree's changes as atproto records so it appears in that network's feeds. The same pattern as the deploy crosslinks: meet the existing network where it lives instead of asking it to move.
+None of this requires waiting for the premise. An atproto bridge fits exactly where the git bridge sits ([plan/product/roadmap.md](../../plan/product/roadmap.md) phase 9.4): expose a PDS repository as a read-only visited tree — both sides are signed Merkle structures, so the mapping is mechanical — and publish a public Arbor subtree's changes as atproto records so it appears in that network's feeds. The same pattern as the deploy crosslinks: meet the existing network where it lives instead of asking it to move.
 
 ## The point
 
