@@ -1212,15 +1212,15 @@ export function App() {
           {server.communityURL && <div><span>Community</span><a href={server.communityURL.replace(/^arbor:/, location.protocol)} target="_blank" rel="noreferrer">{server.communityURL}</a></div>}
           {server.profileURL && <div><span>Profile</span><code>{server.profileURL}</code><button onClick={() => void navigator.clipboard.writeText(server.profileURL!)}>Copy</button></div>}
         </div>
-        <p className="tree-control-intro">Your public profile is a complete tree. Writable profile and group namespaces appear on Arbor’s home screen.</p>
+        <p className="tree-control-intro">Your public profile is a complete tree. Writable community, profile, and group namespaces appear here and on Arbor’s home screen.</p>
         {!server.credentialAvailable && server.origin && <p className="control-error" role="alert">This device’s credential is unavailable. Run <code>arbor connect {server.origin}</code>, then return to Arbor.</p>}
-        {trees.filter((tree) => tree.access === "write" && tree.canonicalPath?.startsWith("/~")).map((tree) =>
+        {trees.filter((tree) => tree.access === "write" && (tree.canonicalPath === "/" || tree.canonicalPath?.startsWith("/~"))).map((tree) =>
           <button className="profile-namespace" key={tree.id} onClick={() => {
             if (tree.osPath) navigate(tree.osPath);
             else void placeRemoteTree(tree);
             setProfileOpen(false);
           }}>
-            <strong>{tree.canonicalPath}</strong>
+            <strong>{tree.canonicalPath === "/" ? "Community" : tree.canonicalPath}</strong>
             <small>{tree.osPath ?? "Choose a local folder…"}</small>
           </button>
         )}

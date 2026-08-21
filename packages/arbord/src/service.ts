@@ -1171,7 +1171,39 @@ export class ArborService implements AsyncDisposable {
     return [{ kind: "deleted", tree: SYSTEM_TREE, path: `/trees/${placement.tree}` }];
   }
 
-  private async pushWorkspace(workspace: Workspace): Promise<void> {
+  private canonicalBoundariesFor(
+    workspace: Workspace,
+    remoteTrees: readonly RemoteTreeDescriptor[],
+  ): Map<string, string> {
+    const boundaries = this.trees.sharedBoundariesWithin(workspace.root);
+    const parent = remoteTrees.find((tree) => tree.id === workspace.tree);
+    if (!parent) return boundaries;
+    const parentPath = parent.canonicalPath.replace(/\/$/, "") || "/";
+    for (const child of remoteTrees) {
+      if (child.parentTree !== workspace.tree) continue;
+      const relativeCanonical = parentPath === "/"
+        ? child.canonicalPath.slice(1)
+        : child.canonicalPath.slice(parentPath.length + 1);
+      if (!relativeCanonical || relativeCanonical.startsWith("../")) continue;
+      boundaries.set(join(workspace.root, ...relativeCanonical.split("/").map(decodeURIComponent)), child.id);
+    }
+    return boundaries;
+  }
+
+  private async snapshotWorkspace(
+    workspace: Workspace,
+    client: WireClient,
+    remoteTrees?: readonly RemoteTreeDescriptor[],
+  ) {
+    const listed = remoteTrees ?? await client.list();
+    return snapshotDirectory(
+      workspace.root,
+      this.canonicalBoundariesFor(workspace, listed),
+      this.trees.excludedMountsWithin(workspace.root),
+    );
+  }
+
+  private async pushWorkspace(workspace: Workspace, remoteTrees?: readonly RemoteTreeDescriptor[]): Promise<void> {
     const placement = this.trees.placementFor(workspace.tree);
     if (!placement || placement.source === "local") return;
     if (placement.access !== "write") return;
@@ -1181,11 +1213,7 @@ export class ArborService implements AsyncDisposable {
       configured?.record.origin === placement.endpoint ? configured.accountToken : undefined,
     );
     this.trees.setSyncState(workspace.tree, "pushing");
-    const snapshot = await snapshotDirectory(
-      workspace.root,
-      this.trees.sharedBoundariesWithin(workspace.root),
-      this.trees.excludedMountsWithin(workspace.root),
-    );
+    const snapshot = await this.snapshotWorkspace(workspace, client, remoteTrees);
     if (snapshot.root === placement.ref) {
       this.trees.setSyncState(workspace.tree, "idle");
       return;
@@ -1206,6 +1234,7 @@ export class ArborService implements AsyncDisposable {
     this.syncing = true;
     try {
       const configured = await this.communityConfig.get();
+      const remoteTreesByOrigin = new Map<string, Promise<RemoteTreeDescriptor[]>>();
       for (const placement of this.trees.sharedPlacements()) {
         try {
           const client = new WireClient(
@@ -1214,6 +1243,12 @@ export class ArborService implements AsyncDisposable {
           );
           const workspace = await this.trees.workspaceByTree(placement.tree);
           if (!workspace) continue;
+          let listed = remoteTreesByOrigin.get(placement.endpoint);
+          if (!listed) {
+            listed = client.list();
+            remoteTreesByOrigin.set(placement.endpoint, listed);
+          }
+          const remoteTrees = await listed;
           const remote = await client.ref(placement.tree);
           const effectiveAccess = remote.access;
           let activePlacement = placement;
@@ -1225,11 +1260,7 @@ export class ArborService implements AsyncDisposable {
             };
             await this.trees.applySharedPlacement(activePlacement);
           }
-          const local = await snapshotDirectory(
-            workspace.root,
-            this.trees.sharedBoundariesWithin(workspace.root),
-            this.trees.excludedMountsWithin(workspace.root),
-          );
+          const local = await this.snapshotWorkspace(workspace, client, remoteTrees);
           // A newly placed canonical child can make the parent snapshot match
           // the authority even while its persisted placement ref is stale.
           if (local.root === remote.ref) {
@@ -1242,7 +1273,7 @@ export class ArborService implements AsyncDisposable {
             continue;
           }
           if (remote.ref === activePlacement.ref) {
-            if (local.root !== activePlacement.ref && activePlacement.access === "write") await this.pushWorkspace(workspace);
+            if (local.root !== activePlacement.ref && activePlacement.access === "write") await this.pushWorkspace(workspace, remoteTrees);
             else if (local.root !== activePlacement.ref) this.trees.setSyncState(activePlacement.tree, "conflict");
             else this.trees.setSyncState(activePlacement.tree, "idle");
             continue;

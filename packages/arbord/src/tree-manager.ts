@@ -500,15 +500,21 @@ export class TreeManager implements AsyncDisposable {
   reservedBoundary(tree: string, treePath: string): { tree: string; path: string; treePath: string; exact: boolean } | null {
     const parent = this.known.get(tree);
     if (!parent?.placement || parent.placement.source === "local" || !parent.placement.canonical) return null;
-    const parentPath = new URL(parent.placement.canonical).pathname.replace(/\/$/, "");
-    const candidate = `${parentPath}${treePath === "/" ? "" : treePath}`;
+    const parentPath = new URL(parent.placement.canonical).pathname.replace(/\/$/, "") || "/";
+    const candidate = parentPath === "/"
+      ? canonicalNodePath(treePath)
+      : `${parentPath}${treePath === "/" ? "" : treePath}`;
     let best: { tree: string; path: string; treePath: string; exact: boolean } | null = null;
     for (const [childTree, root] of this.known) {
       if (childTree === tree || root.placement?.source === "local" || !root.placement?.canonical) continue;
-      const childPath = new URL(root.placement.canonical).pathname.replace(/\/$/, "");
+      const childPath = new URL(root.placement.canonical).pathname.replace(/\/$/, "") || "/";
+      const insideParent = parentPath === "/"
+        ? childPath !== "/"
+        : childPath.startsWith(`${parentPath}/`);
+      if (!insideParent) continue;
       if (candidate !== childPath && !candidate.startsWith(`${childPath}/`)) continue;
       if (!best || childPath.length > best.path.length) {
-        const mountTreePath = childPath.slice(parentPath.length) || "/";
+        const mountTreePath = canonicalNodePath(parentPath === "/" ? childPath : childPath.slice(parentPath.length));
         const remainder = treePath === mountTreePath ? "/" : treePath.slice(mountTreePath.length);
         best = {
           tree: childTree,
@@ -524,14 +530,17 @@ export class TreeManager implements AsyncDisposable {
   mountedChildren(tree: string, treePath: string): Array<{ name: string; path: string; tree: string }> {
     const parent = this.known.get(tree);
     if (!parent?.placement || parent.placement.source === "local" || !parent.placement.canonical) return [];
-    const parentCanonical = new URL(parent.placement.canonical).pathname.replace(/\/$/, "");
-    const directoryCanonical = `${parentCanonical}${treePath === "/" ? "" : treePath}`.replace(/\/$/, "");
+    const parentCanonical = new URL(parent.placement.canonical).pathname.replace(/\/$/, "") || "/";
+    const directoryCanonical = parentCanonical === "/"
+      ? canonicalNodePath(treePath)
+      : `${parentCanonical}${treePath === "/" ? "" : treePath}`.replace(/\/$/, "");
+    const directoryPrefix = directoryCanonical === "/" ? "/" : `${directoryCanonical}/`;
     const result: Array<{ name: string; path: string; tree: string }> = [];
     for (const [childTree, root] of this.known) {
       if (childTree === tree || root.placement?.source === "local" || !root.placement?.canonical) continue;
-      const childCanonical = new URL(root.placement.canonical).pathname.replace(/\/$/, "");
-      if (!childCanonical.startsWith(`${directoryCanonical}/`)) continue;
-      const remainder = childCanonical.slice(directoryCanonical.length + 1);
+      const childCanonical = new URL(root.placement.canonical).pathname.replace(/\/$/, "") || "/";
+      if (childCanonical === "/" || !childCanonical.startsWith(directoryPrefix)) continue;
+      const remainder = childCanonical.slice(directoryPrefix.length);
       if (!remainder || remainder.includes("/")) continue;
       result.push({
         name: remainder,

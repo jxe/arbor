@@ -39,6 +39,102 @@ import {
 } from "./blocks.tsx";
 
 const ARBOR_DRAG_TYPE = "application/x-arbor-logical-paths";
+const PROFILE_HANDLE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+function communityArborOrigin(canonical: string | undefined): string | null {
+  if (!canonical) return null;
+  try {
+    const value = new URL(canonical);
+    return value.protocol === "arbor:" && value.hostname !== "tree" ? `arbor://${value.host}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMemberLocator(input: string, communityOrigin: string | null): string | null {
+  const value = input.trim();
+  const handle = value.startsWith("~") ? value.slice(1) : value;
+  if (communityOrigin && PROFILE_HANDLE.test(handle)) return `${communityOrigin}/~${handle}`;
+  try {
+    const locator = new URL(value);
+    const match = /^\/~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(locator.pathname);
+    if (locator.protocol !== "arbor:" || locator.hostname === "tree" || !match) return null;
+    return `arbor://${locator.host}/~${match[1]}`;
+  } catch {
+    return null;
+  }
+}
+
+function memberLabel(locator: string, communityOrigin: string | null): string {
+  return communityOrigin && locator.startsWith(`${communityOrigin}/~`)
+    ? locator.slice(communityOrigin.length + 1)
+    : locator;
+}
+
+function StringListProperty({
+  property,
+  values,
+  onChange,
+  communityOrigin,
+  communityMembers,
+}: {
+  property: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  communityOrigin: string | null;
+  communityMembers: boolean;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const members = property === "members";
+  const normalizedDraft = members ? normalizeMemberLocator(draft, communityOrigin) : draft.trim() || null;
+  const duplicate = normalizedDraft !== null && values.includes(normalizedDraft);
+  const addLabel = communityMembers ? "Add person" : members ? "Add member" : "Add item";
+  const commit = () => {
+    if (!normalizedDraft || duplicate) return;
+    onChange([...values, normalizedDraft]);
+    setDraft("");
+    setAdding(false);
+  };
+  return <div className="property-list-row">
+    <span className="property-name">{property}</span>
+    <div className="property-list">
+      {values.map((value, index) => <div className="property-list-item" key={index}>
+        {members
+          ? <code>{memberLabel(value, communityOrigin)}</code>
+          : <input aria-label={`${property} item ${index + 1}`} value={value} onChange={(event) => {
+              const next = [...values];
+              next[index] = event.target.value;
+              onChange(next);
+            }} />}
+        <button className="quiet property-list-remove" aria-label={`Remove ${members ? "member" : "item"} ${memberLabel(value, communityOrigin)}`} onClick={() => {
+          if (members && !confirm(communityMembers
+            ? `Remove ${memberLabel(value, communityOrigin)}? Removing a person from this community disables that account.`
+            : `Remove ${memberLabel(value, communityOrigin)} from this group?`)) return;
+          onChange(values.filter((_, itemIndex) => itemIndex !== index));
+        }}>Remove</button>
+      </div>)}
+      {adding ? <div className="property-list-add">
+        <input
+          autoFocus
+          aria-label={members ? "Person handle or profile" : `New ${property} item`}
+          placeholder={members ? "~alice" : "Value"}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") { event.preventDefault(); commit(); }
+            if (event.key === "Escape") { setAdding(false); setDraft(""); }
+          }}
+        />
+        <button className="quiet" disabled={!normalizedDraft || duplicate} onClick={commit}>Add</button>
+        <button className="quiet" onClick={() => { setAdding(false); setDraft(""); }}>Cancel</button>
+        {duplicate && <small>This person is already listed.</small>}
+        {members && draft.trim() && !normalizedDraft && <small>Use a handle such as ~alice or a complete arbor:// profile address.</small>}
+      </div> : <button className="quiet property-list-add-button" onClick={() => setAdding(true)}>+ {addLabel}</button>}
+      {communityMembers && <small>Adding a person reserves their profile address. The first successful claim wins.</small>}
+    </div>
+  </div>;
+}
 
 interface TextSelectionPoint {
   textblockIndex: number;
@@ -1083,6 +1179,8 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
   }), [beginRename, childrenByPath, commitRename, drop, editor, node.path, renameValue, renamingPath, selectRow, selected, trashSelection]);
 
   const keys = Object.keys(frontmatter);
+  const propertyKeys = frontmatter.type === "group" && !("members" in frontmatter) ? [...keys, "members"] : keys;
+  const memberOrigin = communityArborOrigin(node.enclosingTree?.canonical);
   const openInternalLink = (event: React.MouseEvent) => {
     const anchor = (event.target as Element).closest("a");
     const href = anchor?.getAttribute("href");
@@ -1129,13 +1227,30 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
 
   return <div className="editor-shell">
     <details className="properties">
-      <summary><span>Properties</span><small>{keys.length}</small></summary>
+      <summary><span>Properties</span><small>{propertyKeys.length}</small></summary>
       <div className="properties-grid">
-        {keys.map((key) => <label key={key}><span>{key}</span><input value={String(frontmatter[key] ?? "")} disabled={key === "id"} onChange={(event) => {
-          const next = { ...frontmatter, [key]: event.target.value };
-          setFrontmatter(next);
-          recordDocumentSnapshot(snapshot(next));
-        }} /></label>)}
+        {propertyKeys.map((key) => {
+          const value = frontmatter[key] ?? (key === "members" ? [] : "");
+          if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+            return <StringListProperty
+              key={key}
+              property={key}
+              values={value}
+              communityOrigin={memberOrigin}
+              communityMembers={key === "members" && node.enclosingTree?.canonicalPath === "/"}
+              onChange={(items) => {
+                const next = { ...frontmatter, [key]: items };
+                setFrontmatter(next);
+                recordDocumentSnapshot(snapshot(next));
+              }}
+            />;
+          }
+          return <label key={key}><span>{key}</span><input value={typeof value === "object" ? JSON.stringify(value) : String(value ?? "")} disabled={key === "id" || typeof value === "object"} onChange={(event) => {
+            const next = { ...frontmatter, [key]: event.target.value };
+            setFrontmatter(next);
+            recordDocumentSnapshot(snapshot(next));
+          }} /></label>;
+        })}
         <button className="quiet" onClick={() => {
           const key = prompt("Property name");
           if (key) {

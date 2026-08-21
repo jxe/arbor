@@ -8,6 +8,7 @@ import { expect, test } from "@playwright/test";
 const ROOT = realpathSync(join(tmpdir(), "arbor-e2e-workspace"));
 const PROMOTABLE_ROOT = realpathSync(join(tmpdir(), "arbor-e2e-untracked", "arbor-e2e-promotable"));
 const ALICE_PROFILE = join(tmpdir(), "arbor-e2e-alice-profile");
+const COMMUNITY_PROFILE = join(realpathSync(tmpdir()), "arbor-e2e-community-profile");
 const E2E_PORT = Number(process.env.ARBOR_E2E_PORT ?? 4321);
 const HOST_ORIGIN = `http://127.0.0.1:${E2E_PORT + 1}`;
 const r = (path: string) => `/render${ROOT}${path}`;
@@ -26,6 +27,41 @@ test("renders an unplaced remote tree through read-only BlockNote without an ifr
   await expect(page.getByRole("heading", { name: "Editorial guide", level: 1 })).toBeVisible();
   await expect(page.getByText("A remote Markdown page.")).toBeVisible();
   expect(new URL(page.url()).searchParams.get("browse")).toBe(`${HOST_ORIGIN}/~editors/guide`);
+});
+
+test("places the writable community from the account sheet and adds a person without flattening members", async ({ page, request }) => {
+  await page.goto(r(""));
+  await page.getByRole("button", { name: "Community and profile" }).click();
+  const accountSheet = page.locator(".tree-control-modal");
+  const community = accountSheet.locator(".profile-namespace").filter({ hasText: "Community" });
+  await expect(community).toContainText("Choose a local folder…");
+
+  page.once("dialog", (dialog) => dialog.accept(COMMUNITY_PROFILE));
+  await community.click();
+  await expect(page).toHaveURL(new RegExp(`/render${COMMUNITY_PROFILE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+  await expect(page.getByRole("heading", { name: "Arbor Community", level: 1 })).toBeVisible();
+
+  await page.locator(".properties summary").click();
+  const members = page.locator(".property-list-row").filter({ has: page.locator(".property-name", { hasText: "members" }) });
+  await expect(members.getByText("~owner", { exact: true })).toBeVisible();
+  await expect(members.getByText("~alice", { exact: true })).toBeVisible();
+  await members.getByRole("button", { name: "Add person" }).click();
+  await members.getByRole("textbox", { name: "Person handle or profile" }).fill("bob");
+  await members.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Saved");
+
+  const expected = `arbor://127.0.0.1:${E2E_PORT + 1}/~bob`;
+  const storedMembers = await page.evaluate(async (path) => {
+    const node = await fetch(`/v1/node?tree=local&path=${encodeURIComponent(path)}`).then((value) => value.json());
+    return node.document.frontmatter.members as unknown;
+  }, COMMUNITY_PROFILE);
+  expect(storedMembers).toEqual([
+    `arbor://127.0.0.1:${E2E_PORT + 1}/~owner`,
+    `arbor://127.0.0.1:${E2E_PORT + 1}/~alice`,
+    expected,
+  ]);
+  await expect.poll(async () => (await request.get(`${HOST_ORIGIN}/~bob`)).headers()["x-arbor-profile-state"] ?? null)
+    .toBe("reserved");
 });
 
 test("canonicalizes Markdown storage aliases", async ({ page }) => {

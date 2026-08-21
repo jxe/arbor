@@ -15,12 +15,14 @@ const state = join(tmpdir(), "arbor-e2e-state");
 const hostState = join(tmpdir(), "arbor-e2e-host-state");
 const aliceProfile = join(tmpdir(), "arbor-e2e-alice-profile");
 const editorsProfile = join(tmpdir(), "arbor-e2e-editors-profile");
+const communityProfile = join(tmpdir(), "arbor-e2e-community-profile");
 await rm(root, { recursive: true, force: true });
 await rm(untrackedRoot, { recursive: true, force: true });
 await rm(state, { recursive: true, force: true });
 await rm(hostState, { recursive: true, force: true });
 await rm(aliceProfile, { recursive: true, force: true });
 await rm(editorsProfile, { recursive: true, force: true });
+await rm(communityProfile, { recursive: true, force: true });
 await mkdir(root, { recursive: true });
 await mkdir(promotableRoot, { recursive: true });
 await mkdir(state, { recursive: true });
@@ -83,6 +85,7 @@ async function shutdown() {
   await rm(hostState, { recursive: true, force: true });
   await rm(aliceProfile, { recursive: true, force: true });
   await rm(editorsProfile, { recursive: true, force: true });
+  await rm(communityProfile, { recursive: true, force: true });
   process.exit(0);
 }
 process.on("SIGINT", shutdown);
