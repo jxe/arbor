@@ -5,6 +5,7 @@ public enum WorkspaceStructuralAction: Hashable, Codable, Sendable {
     case createDirectory(parent: WorkspaceReference, name: String)
     case rename(reference: WorkspaceReference, name: String)
     case move(reference: WorkspaceReference, destination: WorkspaceReference)
+    case copy(reference: WorkspaceReference, destination: WorkspaceReference)
     case trash(reference: WorkspaceReference)
     case restore(reference: WorkspaceReference)
 }

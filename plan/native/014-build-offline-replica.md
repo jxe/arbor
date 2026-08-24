@@ -12,6 +12,15 @@
 - **Depends on**: Plans 007 and 012
 - **Category**: storage/correctness
 - **Planned at**: Arbor `dc34126`, 2026-08-23
+- **Reconciled at**: clean Arbor `3117f93`, 2026-08-24
+- **Completed**: 2026-08-24
+
+## Reconciled starting state
+
+- Plan 012 now supplies the live ArborKit provider, document-session, coordinator, and tab contracts. Plan 014 may extend those small contracts for directory-document editing and copy, but must not add persistence policy to ArborKit.
+- Plan 013 supplies an independent ArborWire transport package, but this milestone does not depend on or import it. ArborReplica reproduces the shared immutable file/directory bytes from language-neutral fixtures and exposes transport-neutral snapshot/head values for Plan 015.
+- The current Swift toolchain is 6.2 with iOS/macOS 27 package targets. CryptoKit and Foundation/Darwin durability primitives are available without a third-party dependency.
+- The shared TypeScript implementation already defines exact directory completion and UTF-8 ordering. Replica conformance must consume the same fixture rather than treating a Swift-only expectation as protocol truth.
 
 ## Why this matters
 
@@ -66,13 +75,15 @@ git diff --check
 
 Expected: shared node/directory/PageID fixtures agree with TypeScript; injected crashes at journal/materialization/object/ref/move/Trash stages recover without losing acknowledged intent; indexes can be deleted/rebuilt.
 
+Completed evidence: ArborReplica passed eight Swift tests covering shared canonical object bytes/hashes, shared TypeScript directory completion, the complete offline ArborKit provider, exact document admission and directory revision guards, create/rename/move/copy/Trash/restore, assets, collections, search/backlinks, history recovery, index rebuild, root-checked system replacement, repeated restart properties, diagnostics, and injected failure at every transaction boundary. Move and Trash fault tests retained PageID identity. The package imports ArborKit plus Foundation/CryptoKit/Darwin only; it contains no ArborWire, URLSession, CloudKit, iCloud, Files-provider, SwiftUI, or Quagmire path.
+
 ## Done criteria
 
-- [ ] Full replica browsing/editing works with networking disabled.
-- [ ] Every acknowledgement is crash-recoverable.
-- [ ] Moves retain PageID and recovery identity.
-- [ ] Private state is absent from authored wire snapshots.
-- [ ] No iCloud/CloudKit/Files coauthoring path exists.
+- [x] Full replica browsing/editing works with networking disabled.
+- [x] Every acknowledgement is crash-recoverable.
+- [x] Moves retain PageID and recovery identity.
+- [x] Private state is absent from authored wire snapshots.
+- [x] No iCloud/CloudKit/Files coauthoring path exists.
 
 ## STOP conditions
 

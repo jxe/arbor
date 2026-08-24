@@ -3,6 +3,16 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
+## Offline Swift replica
+
+**Status: Plan 014 implemented and verified on 2026-08-24.**
+
+`ArborReplica` is a Foundation-first, actor-serialized local durability domain behind `ReplicaWorkspaceProvider`. Its private root separates materialized state, canonical immutable objects, PageID-keyed transaction journals, linear local history, rebuildable indexes, and control heads for materialized, pending, and last-accepted roots/update cursor. It neither imports ArborWire nor performs network access. A transport-neutral, root-checked system-replacement boundary exists for Plan 015 and refuses to overwrite pending local work.
+
+Every mutation durably records intent before writing objects, materialization, history, and root heads. Only then are indexes written and the journal compacted. Restart replay is idempotent after injected failure at the journal, object, materialization, history, or control stage. Directory reads compute complete operational Markdown without materializing it; first document admission mints durable identity, stores the exact accepted source, and guards the stored body plus immediate-child descriptors. Structural operations retain identity across rename, move, Trash, and restore; copy deliberately remints PageIDs.
+
+The provider covers Markdown and directory documents, bodyless directories, ordinary files, nested-tree boundaries, recognized collections, integrity diagnostics, assets, search, backlinks, local history, and Recover. Private journals, history, heads, indexes, and materialized metadata never enter authored snapshots. Swift reproduces the shared canonical wire-object vectors independently and consumes the same directory-completion fixture as TypeScript. Eight package tests cover full offline behavior, repeated restarts, all five transaction fault boundaries, move/Trash recovery, root-checked replacement, index deletion/rebuild, and object-store diagnostics.
+
 ## Native Arbor shell and Swift wire client
 
 **Status: Plans 012 and 013 implemented and verified on 2026-08-24.**

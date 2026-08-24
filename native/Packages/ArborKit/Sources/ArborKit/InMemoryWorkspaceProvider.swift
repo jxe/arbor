@@ -148,7 +148,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             nodesByIdentity[node.id] = node
             childrenByIdentity[parentNode.id, default: []].append(node.id)
             return node
-        case .move, .trash, .restore:
+        case .move, .copy, .trash, .restore:
             throw WorkspaceProviderError.invalidAction("The deterministic provider does not materialize this action")
         }
     }

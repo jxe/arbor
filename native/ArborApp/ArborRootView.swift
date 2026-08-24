@@ -50,6 +50,7 @@ struct ArborRootView: View {
         switch surface {
         case .markdown: "doc.text"
         case .directory: "folder"
+        case .directoryDocument: "folder.badge.gearshape"
         case .file: "doc"
         case .collection: "tablecells"
         case .placeholder: "icloud.slash"
@@ -71,6 +72,11 @@ private struct WorkspaceSurfaceView: View {
                     Text(source).textSelection(.enabled)
                 case let .directory(summary):
                     ContentUnavailableView(summary ?? "Directory", systemImage: "folder")
+                case let .directoryDocument(source, _, stored):
+                    if !stored {
+                        Text("Implicit directory document").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text(source).textSelection(.enabled)
                 case let .file(name, byteCount, mediaType):
                     LabeledContent("File", value: name)
                     LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file))

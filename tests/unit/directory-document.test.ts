@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { TreeChild } from "@arbor/core";
 import { completeDirectoryDocument } from "@arbor/editor";
 
@@ -11,6 +13,27 @@ const child = (name: string, path: string, pageID?: string): TreeChild => ({
 });
 
 describe("complete directory Markdown", () => {
+  test("matches the language-neutral completion fixtures", async () => {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/fixtures/directory-documents.json"), "utf8")) as {
+      cases: Array<{
+        directory: string;
+        source: string;
+        children: Array<{ name: string; path: string; pageID?: string }>;
+        expectedSource: string;
+        expectedAddedChildren: string[];
+      }>;
+    };
+    for (const item of fixture.cases) {
+      const result = completeDirectoryDocument(
+        item.directory,
+        item.source,
+        item.children.map(({ name, path, pageID }) => child(name, path, pageID)),
+      );
+      expect(result.source).toBe(item.expectedSource);
+      expect(result.addedChildren).toEqual(item.expectedAddedChildren);
+    }
+  });
+
   test("preserves authored source and appends only unmatched children", () => {
     const source = "Intro with [inline](alpha).\r\n\r\n[Beta label](beta)\r\n\r\n";
     const result = completeDirectoryDocument("/notes", source, [

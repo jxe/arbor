@@ -1,0 +1,37 @@
+{
+  "cases": [
+    {
+      "name": "preserve-source-and-append-unmatched",
+      "directory": "/notes",
+      "source": "Intro with [inline](alpha).\r\n\r\n[Beta label](beta)\r\n\r\n",
+      "children": [
+        { "name": "alpha", "path": "/notes/alpha" },
+        { "name": "beta", "path": "/notes/beta" }
+      ],
+      "expectedSource": "Intro with [inline](alpha).\r\n\r\n[Beta label](beta)\r\n\r\n[alpha](alpha)\r\n",
+      "expectedAddedChildren": ["/notes/alpha"]
+    },
+    {
+      "name": "page-id-survives-stale-path",
+      "directory": "/dir",
+      "source": "[Moved](old#page-opaque)\n",
+      "children": [
+        { "name": "Moved", "path": "/dir/new", "pageID": "page-opaque" }
+      ],
+      "expectedSource": "[Moved](old#page-opaque)\n",
+      "expectedAddedChildren": []
+    },
+    {
+      "name": "unsigned-utf8-order",
+      "directory": "/dir",
+      "source": "",
+      "children": [
+        { "name": "z", "path": "/dir/z" },
+        { "name": "ä", "path": "/dir/ä" },
+        { "name": "A", "path": "/dir/A" }
+      ],
+      "expectedSource": "[A](A)\n\n[z](z)\n\n[ä](ä)\n",
+      "expectedAddedChildren": ["/dir/A", "/dir/z", "/dir/ä"]
+    }
+  ]
+}
