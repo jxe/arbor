@@ -12,7 +12,13 @@
 - **Depends on**: Plans 009 and 010
 - **Category**: production migration
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Progress**: IN PROGRESS — exact committed revision `ddd0edd` passed both four-host Hetzner suites on 2026-08-24 and their evidence was collected; the restored-volume rollback and migration rehearsal is next.
+- **Progress**: IN PROGRESS — exact committed revision `ddd0edd` passed both four-host Hetzner suites; the 2026-08-24 production backup was downloaded and restored successfully under deployed commit `dc34126` with Bun 1.3.14; the candidate-image upgrade and idempotent-restart rehearsal is next.
+
+## Backup evidence
+
+Railway-managed snapshots are unavailable on the current Hobby workspace, so the rollback artifact is an application-consistent export: SQLite `VACUUM INTO` plus the complete immutable-object store and a safe preflight manifest. The archive remains on the production volume and an off-volume copy is retained at `/Users/joe/src/arbor-backups/railway/20260824T120458Z/arbor-authority-20260824T120458Z.tar.gz` with SHA-256 `3fdfd1b4638d37708d573543f61070c58d05a8e8aa90c97f8175691657b21eff`.
+
+The downloaded archive passed SQLite `quick_check`, contained 101 hash-valid immutable objects totaling 947,073 bytes, and recorded four trees, two accounts, and eight access entries without credential material. A separate extracted copy started under deployed source `dc34126` and exact Bun 1.3.14 while bound only to localhost and retaining the production canonical origin. Health passed, and the HTML and Markdown hashes for `/`, `/~joe`, `/~joe/drift`, and `/~mariana` matched the live preflight exactly. The downloaded archive remains unchanged and the tested old-image restore is retained; candidate migration must use another copy.
 
 ## Why this matters
 
@@ -67,7 +73,7 @@ git diff --check
 
 ## Done criteria
 
-- [ ] The complete backup was restored and verified under the previous image before live deploy.
+- [x] The complete backup was restored and verified under the previous image before live deploy.
 - [ ] A separate restored copy passed the real one-way upgrade and an idempotent restart with exact identities, refs, access, credentials, and public output.
 - [x] The exact candidate revision passed both full Hetzner suites before live approval.
 - [ ] All real trees preserved exact identity/content/access.
