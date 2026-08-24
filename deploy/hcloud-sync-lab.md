@@ -62,7 +62,19 @@ bun run lab:hcloud preflight
 bun run lab:hcloud run
 ```
 
-`run` creates the four machines, installs the pinned Bun version from `.bun-version`, deploys the exact committed Git revision, initiates Tailscale login, and prints each node's approval URL (with an SSH command as a fallback). Approve those nodes interactively, then continue without recreating anything:
+For browserless Tailscale authentication, generate one reusable auth key in the Tailscale admin console with the shortest expiry that comfortably covers the run. Make it ephemeral because these nodes are disposable, and pre-authorized if device approval is enabled. A restricted `tag:arbor-lab` key is preferable when the tailnet policy already defines that tag and permits the four lab nodes to communicate. Copy the key once, load it without putting the value in shell history, run the lab, and immediately remove it from the local environment:
+
+```sh
+export TAILSCALE_AUTH_KEY="$(cat)"
+# Paste the key, then press Control-D.
+bun run lab:hcloud preflight
+bun run lab:hcloud run
+unset TAILSCALE_AUTH_KEY
+```
+
+The runner reads the key only from its own local environment, removes it from every child-process environment, and sends it to each host over SSH standard input using Tailscale's `file:/dev/stdin` support. It never places the key in a process argument, remote environment, lab state, evidence, or repository file. A reusable key is required because the same key authenticates four nodes. Revoke the key in the Tailscale admin console when the lab is finished; `down` also requests `tailscale logout` before deleting every VM. Tailscale documents [server auth-key setup](https://tailscale.com/kb/1245/set-up-servers), [ephemeral nodes](https://tailscale.com/docs/features/ephemeral-nodes), and [secure auth-key handling](https://tailscale.com/docs/features/access-control/auth-keys/how-to/secure-auth-keys).
+
+Without `TAILSCALE_AUTH_KEY`, `run` creates the four machines, installs the pinned Bun version from `.bun-version`, deploys the exact committed Git revision, initiates interactive Tailscale login, and prints each node's approval URL (with an SSH command as a fallback). Approve those nodes, then continue without recreating anything:
 
 ```sh
 bun run lab:hcloud resume
@@ -115,7 +127,7 @@ The four names are the complete deletion scope. Never use a broad account-wide d
 On each VM:
 
 1. Create an unprivileged `arbor` OS user for the Arbor processes and content.
-2. Install Tailscale and authenticate it interactively. Avoid putting a reusable Tailscale auth key in cloud-init or this repository.
+2. Install Tailscale and authenticate it interactively or with the runner's standard-input auth-key flow. Never put a reusable Tailscale auth key in cloud-init, process arguments, or this repository.
 3. Give the node its matching hostname (`arbor-community`, `arbor-alice`, and so on).
 4. Verify `tailscale ping arbor-community` from every client.
 5. Install Git, Bun at the version pinned in `.bun-version`, and the small fault-injection tools `iptables` and `iproute2`.

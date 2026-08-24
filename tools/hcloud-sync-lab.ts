@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 const STATE_ROOT = join(ROOT, ".arbor-lab");
+const TAILSCALE_AUTH_KEY_ENV = "TAILSCALE_AUTH_KEY";
 const ROLES = ["community", "alice", "bob", "carol"] as const;
 type Role = typeof ROLES[number];
 
@@ -64,7 +65,7 @@ Commands:
   preflight   Verify local tools, hcloud context, SSH key, and pinned runtime
   up          Create or resume the four exactly scoped VMs
   provision   Install Ubuntu dependencies, Tailscale, and the exact Git revision
-  resume      Continue provisioning after interactive Tailscale authentication
+  resume      Continue provisioning after Tailscale authentication
   run         Run up, provision, Tailscale check, and configuration
   smoke       Run a quick private-tree three-client synchronization
   test        Run the complete accepted-update pre-rollout acceptance suite
@@ -85,6 +86,9 @@ Options:
   --ssh-key <path>          Local private SSH key (default: ~/.ssh/arbor_hetzner)
   --allow-dirty             Permit preflight only; deployments still use committed HEAD
   --skip-collect            Skip best-effort evidence collection before down
+
+Environment:
+  TAILSCALE_AUTH_KEY        Reusable auth key for browserless node authentication
 `);
   process.exit(exitCode);
 }
@@ -128,13 +132,16 @@ async function command(
 ): Promise<CommandResult> {
   const child = Bun.spawn(args, {
     cwd: ROOT,
+    env: labChildEnvironment(),
     stdin: options.stdin === undefined ? "ignore" : "pipe",
     stdout: "pipe",
     stderr: "pipe",
   });
   if (options.stdin !== undefined) {
-    child.stdin.write(options.stdin);
-    child.stdin.end();
+    const stdin = child.stdin;
+    if (!stdin) throw new Error(`Failed to open stdin for ${args[0]}`);
+    stdin.write(options.stdin);
+    stdin.end();
   }
   const timer = setTimeout(() => child.kill(), options.timeoutMs ?? 120_000);
   const [exitCode, stdout, stderr] = await Promise.all([
@@ -217,11 +224,31 @@ function makeRunId(): string {
   return `${time}-${crypto.randomUUID().slice(0, 6)}`;
 }
 
+export function tailscaleAuthKeyFromEnvironment(
+  environment: Record<string, string | undefined> = process.env,
+): string | undefined {
+  const authKey = environment[TAILSCALE_AUTH_KEY_ENV];
+  if (authKey === undefined) return undefined;
+  if (!authKey || /\s/.test(authKey)) {
+    throw new Error(`${TAILSCALE_AUTH_KEY_ENV} must contain exactly one non-whitespace auth key`);
+  }
+  return authKey;
+}
+
+export function labChildEnvironment(
+  environment: Record<string, string | undefined> = process.env,
+): Record<string, string | undefined> {
+  const childEnvironment = { ...environment };
+  delete childEnvironment[TAILSCALE_AUTH_KEY_ENV];
+  return childEnvironment;
+}
+
 async function pinnedBunVersion(): Promise<string> {
   return (await readFile(join(ROOT, ".bun-version"), "utf8")).trim();
 }
 
 async function preflight(options: Options): Promise<void> {
+  const tailscaleAuthKey = tailscaleAuthKeyFromEnvironment();
   const checks = await Promise.all([
     command(["hcloud", "version"], { quiet: true }),
     command(["ssh", "-V"], { allowFailure: true, quiet: true }),
@@ -240,7 +267,8 @@ async function preflight(options: Options): Promise<void> {
     hcloudJSON(options, ["image", "describe", options.image]),
     hcloudJSON(options, ["location", "describe", options.location]),
   ]);
-  console.log(`Preflight passed: ${options.context}, ${options.serverType}/${options.image}/${options.location}, Bun ${await pinnedBunVersion()}.`);
+  const tailscaleMode = tailscaleAuthKey ? "automatic Tailscale authentication enabled" : "interactive Tailscale authentication";
+  console.log(`Preflight passed: ${options.context}, ${options.serverType}/${options.image}/${options.location}, Bun ${await pinnedBunVersion()}, ${tailscaleMode}.`);
 }
 
 function serverObject(value: unknown): Record<string, unknown> {
@@ -365,12 +393,14 @@ async function deployRevision(state: LabState, role: Role): Promise<void> {
     await sshBash(state, role, `rm -rf '${release}'\ninstall -d -m 0755 '${release}'`);
     const archive = Bun.spawn(["git", "archive", "--format=tar", state.revision], {
       cwd: ROOT,
+      env: labChildEnvironment(),
       stdout: "pipe",
       stderr: "pipe",
     });
     const node = state.nodes[role]!;
     const extract = Bun.spawn([...sshBase(state, node), "tar", "-x", "-C", release], {
       cwd: ROOT,
+      env: labChildEnvironment(),
       stdin: archive.stdout,
       stdout: "pipe",
       stderr: "pipe",
@@ -421,11 +451,43 @@ async function tailscaleReady(state: LabState): Promise<boolean> {
     }
   }
 
+  const authKey = tailscaleAuthKeyFromEnvironment();
   let ready = true;
   for (const role of ROLES) {
     const status = await ssh(state, role, ["tailscale", "status", "--json"], { allowFailure: true, quiet: true });
     const value = status.exitCode === 0 ? JSON.parse(status.stdout) as { BackendState?: string; Self?: { Online?: boolean } } : {};
     if (value.BackendState === "Running" && value.Self?.Online) continue;
+    if (authKey) {
+      const login = await ssh(state, role, [
+        "tailscale", "up", "--auth-key=file:/dev/stdin", `--hostname=arbor-${role}`,
+      ], {
+        stdin: `${authKey}\n`,
+        allowFailure: true,
+        quiet: true,
+        timeoutMs: 30_000,
+      });
+      if (login.exitCode !== 0) {
+        throw new Error(
+          `Automatic Tailscale authentication failed for arbor-${role}. Verify ${TAILSCALE_AUTH_KEY_ENV}, or unset it to use interactive approval.`,
+        );
+      }
+      let authenticatedValue: { BackendState?: string; Self?: { Online?: boolean } } = {};
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const authenticated = await ssh(state, role, ["tailscale", "status", "--json"], {
+          allowFailure: true,
+          quiet: true,
+        });
+        authenticatedValue = authenticated.exitCode === 0
+          ? JSON.parse(authenticated.stdout) as typeof authenticatedValue
+          : {};
+        if (authenticatedValue.BackendState === "Running" && authenticatedValue.Self?.Online) break;
+        await Bun.sleep(1_000);
+      }
+      if (authenticatedValue.BackendState !== "Running" || !authenticatedValue.Self?.Online) {
+        throw new Error(`arbor-${role} did not become ready after automatic Tailscale authentication`);
+      }
+      continue;
+    }
     ready = false;
     const node = state.nodes[role]!;
     const login = await ssh(state, role, ["timeout", "10s", "tailscale", "up", `--hostname=arbor-${role}`], {
@@ -531,7 +593,11 @@ async function waitUntil(label: string, check: () => Promise<boolean>, timeoutMs
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-async function setClients(state: LabState, action: "start" | "stop" | "restart", roles = ["alice", "bob", "carol"] as const): Promise<void> {
+async function setClients(
+  state: LabState,
+  action: "start" | "stop" | "restart",
+  roles: readonly Exclude<Role, "community">[] = ["alice", "bob", "carol"],
+): Promise<void> {
   await Promise.all(roles.map((role) => ssh(state, role, ["systemctl", action, "arbor-client.service"], { quiet: true })));
 }
 
@@ -1014,7 +1080,9 @@ async function down(state: LabState, options: Options): Promise<void> {
 async function continueRun(state: LabState): Promise<void> {
   if (!state.steps.provisioned) await provision(state);
   if (!await tailscaleReady(state)) {
-    throw new Error("Tailscale authentication is still required. Run the printed commands, approve the nodes, then use `bun run lab:hcloud resume`.");
+    throw new Error(
+      `Tailscale authentication is still required. Approve the printed URLs and use \`bun run lab:hcloud resume\`, or set ${TAILSCALE_AUTH_KEY_ENV} and resume without browser approval.`,
+    );
   }
   if (!state.steps.configured) await configure(state);
   console.log(`Lab ${state.runId} is ready. Run \`bun run lab:hcloud test\` or follow deploy/hcloud-sync-lab.md.`);
