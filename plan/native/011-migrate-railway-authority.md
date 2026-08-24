@@ -12,7 +12,7 @@
 - **Depends on**: Plans 009 and 010
 - **Category**: production migration
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Progress**: IN PROGRESS — exact committed revision `68e6011` passed the four-host Hetzner suite on 2026-08-24 and its evidence was collected; restored-volume rehearsal is next.
+- **Progress**: IN PROGRESS — exact committed revision `68e6011` passed the accepted-update four-host Hetzner suite on 2026-08-24 and its evidence was collected; the distinct-user authorization gate must pass before the restored-volume rehearsal.
 
 ## Why this matters
 
@@ -24,7 +24,7 @@ Native sync cannot qualify against a fictional environment. The configured Railw
 - The real one-way startup upgrade passes against a separate restored copy of that backup.
 - The local arbord/CLI and authority move together to accepted updates; legacy `/push` is removed rather than negotiated.
 - Device-credential migration preserves current access.
-- The exact candidate revision passes `bun run lab:hcloud test` on the disposable four-host Hetzner lab, and its non-secret evidence has been collected.
+- The exact candidate revision passes both `bun run lab:hcloud test` and `bun run lab:hcloud test:authorization` on the disposable four-host Hetzner lab, and their non-secret evidence has been collected.
 - The live endpoint is discovered from safe local configuration; never copy its credential into the plan or command history.
 
 ## Scope
@@ -36,7 +36,7 @@ Native sync cannot qualify against a fictional environment. The configured Railw
 ## Steps
 
 1. Record safe preflight evidence: tree IDs/canonical paths/access, current root refs, current public Markdown hashes, schema version, object count, and service revision.
-2. From the exact committed candidate revision, run `bun run lab:hcloud test` on the four disposable Hetzner hosts. Require serial and three-writer convergence, private accepted-history/derived-request replay invariants, absence of public history and historical-object access, client-owned conflict persistence across restart and explicit resolution, `/push` absence, and pairing/revocation. Collect evidence and tear down the disposable hosts. Any failure returns to Plans 008–010; it is not waived during live approval.
+2. From the exact committed candidate revision, run `bun run lab:hcloud test` and `bun run lab:hcloud test:authorization` on the four disposable Hetzner hosts. Require serial and three-writer convergence, private accepted-history/derived-request replay invariants, absence of public history and historical-object access, client-owned conflict persistence across restart and explicit resolution, `/push` absence, pairing/revocation, distinct-account read/write collaboration, read-only write denial without history/object retention, and existence-hiding denial for an authenticated subject with no access. Collect evidence and tear down the disposable hosts. Any failure returns to Plans 008–010; it is not waived during live approval.
 3. Create a complete Railway volume backup. Restore a copy into an isolated authority and start it with the currently deployed image. Verify the preflight identities, refs, access, credentials, object integrity, and public hashes. This proves the rollback artifact before any live mutation.
 4. Against a separate copy of that restored volume, start the exact candidate image and let its real one-way startup upgrade run. Restart it to prove idempotence. Require one baseline accepted update per legacy tree, valid initial-device records for existing credentials, unchanged identities/refs/access/public hashes, and zero missing or corrupt objects. Do not substitute a special dry-run path for the code that production will execute.
 5. Only after the restored-copy rehearsal and Hetzner gate pass, request explicit approval to mutate Railway. Pause writes, confirm the backup is retained, deploy the exact tested `updates-v1`/private-history/device-capable image, allow its one-way startup upgrade to complete, and restart once to prove idempotence.
@@ -53,7 +53,7 @@ Run the repository gates before deploy, then documented production smoke command
 - Railway restart retains private accepted-update history, accepted-row request digests, and devices; rejected conflicts leave no authority-side state;
 - local arbord can sync the isolated private tree and the server performs the merge;
 - a revoked test device is denied.
-- the pre-Railway Hetzner report records one committed revision on all four hosts and passes every accepted-update scenario.
+- the pre-Railway Hetzner report records one committed revision on all four hosts and passes every accepted-update and distinct-user authorization scenario.
 
 Also run:
 
@@ -69,7 +69,7 @@ git diff --check
 
 - [ ] The complete backup was restored and verified under the previous image before live deploy.
 - [ ] A separate restored copy passed the real one-way upgrade and an idempotent restart with exact identities, refs, access, credentials, and public output.
-- [x] The exact candidate revision passed the full Hetzner suite before live approval.
+- [ ] The exact candidate revision passed both full Hetzner suites before live approval.
 - [ ] All real trees preserved exact identity/content/access.
 - [ ] `updates-v1` discovery is live and `/push` is absent from both server and clients.
 - [ ] Device credentials and revocation work live.
@@ -78,7 +78,7 @@ git diff --check
 ## STOP conditions
 
 - Operator has not explicitly approved the live mutation.
-- The pre-Railway Hetzner suite or evidence collection has not completed successfully.
+- Either pre-Railway Hetzner suite or its evidence collection has not completed successfully.
 - Any pre/post hash, TreeID, canonical path, or access differs unexpectedly.
 - The backup cannot start an isolated restored authority under the previous image.
 - The candidate image cannot upgrade and restart the copied volume without an identity/ref/access/credential/public-output mismatch.

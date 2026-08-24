@@ -68,11 +68,14 @@ bun run lab:hcloud run
 bun run lab:hcloud resume
 bun run lab:hcloud smoke
 bun run lab:hcloud test
+bun run lab:hcloud test:authorization
 ```
 
 `smoke` creates one private tree on Alice, places it on Bob and Carol, and requires identical SHA-256 manifests plus a healthy authority. `test` includes that smoke gate and then runs the mandatory accepted-update suite: serial A/B/C propagation, three-client offline Markdown additions, canonical semantic-request replay, a durable binary conflict with no private accepted-history entry, arbord restart, explicit client resolution, `/push` and public-history absence, current-object-only authorization, and device pairing/revocation. It fails on byte-manifest disagreement or missing authored markers, not merely on a status label.
 
-The full `test` command is a pre-production gate. Run it from the exact committed candidate revision and collect its evidence before requesting approval to update Railway. Do not deploy the Railway authority first and use this lab as an after-check.
+`test:authorization` uses distinct claimed accounts on the same four hosts. Alice creates a private tree with Bob as a reader and Carol as a writer. Bob must read the exact current bytes but his submitted update must receive the existence-hiding denial, leave the ref and accepted-history count unchanged, and make none of his rejected candidate objects readable. Carol must read and accept one update that Alice and Bob can both retrieve byte-for-byte. The original authenticated community owner, who has no tree grant, must be unable to list the tree or read its known ref/current object; an anonymous canonical read must also return `404`. Short-lived account credentials travel only over SSH standard input and are not saved in runner state, command arguments, or evidence logs.
+
+The full `test` and `test:authorization` commands are pre-production gates. Run both from the exact committed candidate revision and collect their evidence before requesting approval to update Railway. Do not deploy the Railway authority first and use this lab as an after-check.
 
 Local resume data lives in the ignored `.arbor-lab/<run-id>.json`. It contains exact server IDs, IP addresses, configuration, revision, and completed phases, but no Hetzner, Tailscale, or Arbor credentials. The disposable Arbor account token is generated and retained only in the authority's root-readable environment file; clients receive it over SSH on standard input while being configured.
 

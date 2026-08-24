@@ -29,12 +29,13 @@ interface LabState {
   sshPrivateKey: string;
   bunVersion: string;
   nodes: Partial<Record<Role, LabNode>>;
-  steps: Partial<Record<"up" | "provisioned" | "tailscale" | "configured" | "smoke" | "acceptance" | "collected", string>>;
+  steps: Partial<Record<"up" | "provisioned" | "tailscale" | "configured" | "smoke" | "acceptance" | "authorization" | "collected", string>>;
   acceptance?: {
     additive: { scenario: string; tree: string };
     conflict: { scenario: string; tree: string };
     replay: { scenario: string; tree: string };
   };
+  authorization?: { scenario: string; tree: string };
 }
 
 interface Options {
@@ -67,6 +68,8 @@ Commands:
   run         Run up, provision, Tailscale check, and configuration
   smoke       Run a quick private-tree three-client synchronization
   test        Run the complete accepted-update pre-rollout acceptance suite
+  test:authorization
+              Run distinct-user read, write, read-only, and no-access checks
   status      Show recorded phase and live server state
   collect     Download journals, authority backup, and immutable objects
   reset       Clear and reconfigure the four recorded disposable lab servers
@@ -474,9 +477,7 @@ async function configure(state: LabState): Promise<void> {
     if (attempt === 29) throw new Error("Authority health did not become ready");
     await Bun.sleep(1_000);
   }
-  const tokenLine = await ssh(state, "community", ["sed", "-n", "s/^ARBOR_ACCOUNT_TOKEN=//p", "/etc/arbor-community.env"], { quiet: true });
-  const token = tokenLine.stdout.trim();
-  if (!token) throw new Error("Authority account token is unavailable");
+  const token = await authorityToken(state);
   for (const role of ["alice", "bob", "carol"] as const) {
     await ssh(state, role, [
       "bash", "/opt/arbor-current/deploy/hcloud-sync-lab/configure-node.sh", role, CLIENT_PATHS[role],
@@ -488,6 +489,32 @@ async function configure(state: LabState): Promise<void> {
 
 function clientCommand(body: string): string {
   return `sudo -u arbor -H env ARBOR_DATA_HOME=/home/arbor/.arbor ${body}`;
+}
+
+async function authorityToken(state: LabState): Promise<string> {
+  const result = await ssh(state, "community", [
+    "sed", "-n", "s/^ARBOR_ACCOUNT_TOKEN=//p", "/etc/arbor-community.env",
+  ], { quiet: true });
+  const token = result.stdout.trim();
+  if (!token) throw new Error("Authority account token is unavailable");
+  return token;
+}
+
+async function authorizationNode<T>(state: LabState, role: Role, mode: string, input: unknown): Promise<T> {
+  const result = await ssh(state, role, [
+    "/usr/local/bin/bun",
+    "/opt/arbor-current/deploy/hcloud-sync-lab/authorization-node.ts",
+    mode,
+  ], {
+    stdin: `${JSON.stringify(input)}\n`,
+    quiet: true,
+    timeoutMs: 120_000,
+  });
+  try {
+    return JSON.parse(result.stdout.trim()) as T;
+  } catch {
+    throw new Error(`arbor-${role} returned invalid authorization-test output`);
+  }
 }
 
 async function manifest(state: LabState, role: Exclude<Role, "community">, scenario: string): Promise<string> {
@@ -754,6 +781,106 @@ async function acceptance(state: LabState): Promise<void> {
   console.log(`Accepted-update acceptance passed: ${additiveTree}, ${conflictTree}, ${replayTree}`);
 }
 
+interface AuthorizationIdentity {
+  handle: string;
+  locator: string;
+  profile: string;
+  token: string;
+}
+
+async function authorization(state: LabState): Promise<void> {
+  if (!state.steps.configured) throw new Error("Run or resume the lab before testing");
+  if (state.steps.authorization && state.authorization) {
+    console.log(`Authorization acceptance already passed for ${state.runId}`);
+    return;
+  }
+
+  const suffix = `${state.runId.replace(/[^a-z0-9]/g, "").slice(-8)}${Date.now().toString(36).slice(-5)}`;
+  const scenario = `authorization-${suffix}`;
+  const handles = {
+    alice: `alice-${suffix}`,
+    bob: `bob-${suffix}`,
+    carol: `carol-${suffix}`,
+  };
+  const ownerToken = await authorityToken(state);
+  const identities = await authorizationNode<Record<"alice" | "bob" | "carol", AuthorizationIdentity>>(
+    state,
+    "community",
+    "setup",
+    { ownerToken, handles },
+  );
+  for (const role of ["alice", "bob", "carol"] as const) {
+    const identity = identities[role];
+    if (!identity?.token || !/^tr_[a-z2-7]+$/.test(identity.profile) || identity.handle !== handles[role]) {
+      throw new Error(`Invalid ${role} authorization identity`);
+    }
+  }
+
+  const canonicalPath = `${new URL(identities.alice.locator).pathname}/${scenario}`;
+  const aliceCreate = await authorizationNode<{
+    tree: string;
+    root: string;
+    update: string;
+    canonical: string;
+  }>(state, "alice", "create", {
+    token: identities.alice.token,
+    bob: identities.bob.locator,
+    carol: identities.carol.locator,
+    scenario,
+    canonicalPath,
+  });
+  if (!/^tr_[a-z2-7]+$/.test(aliceCreate.tree) || !aliceCreate.update) {
+    throw new Error("Alice did not create the authorization tree");
+  }
+
+  const historyBefore = await authorityHistoryCount(state, aliceCreate.tree);
+  if (historyBefore !== 1) throw new Error(`Authorization tree began with ${historyBefore} accepted updates`);
+  const bobDenied = await authorizationNode<{ candidate: string }>(state, "bob", "deny-write", {
+    token: identities.bob.token,
+    tree: aliceCreate.tree,
+    scenario,
+  });
+  if (await authorityHistoryCount(state, aliceCreate.tree) !== historyBefore) {
+    throw new Error("Bob's denied write changed accepted history");
+  }
+
+  const carolWrite = await authorizationNode<{ root: string; update: string }>(state, "carol", "write", {
+    token: identities.carol.token,
+    tree: aliceCreate.tree,
+    scenario,
+  });
+  if (await authorityHistoryCount(state, aliceCreate.tree) !== historyBefore + 1) {
+    throw new Error("Carol's permitted write did not create exactly one accepted update");
+  }
+
+  await authorizationNode<{ ok: true }>(state, "bob", "verify-reader", {
+    token: identities.bob.token,
+    tree: aliceCreate.tree,
+    scenario,
+    ...carolWrite,
+  });
+
+  await authorizationNode<{ ok: true }>(state, "alice", "verify-writer", {
+    token: identities.alice.token,
+    tree: aliceCreate.tree,
+    scenario,
+    rejected: bobDenied.candidate,
+    ...carolWrite,
+  });
+
+  await authorizationNode<{ ok: true }>(state, "community", "verify-owner", {
+    token: ownerToken,
+    tree: aliceCreate.tree,
+    root: carolWrite.root,
+    canonical: aliceCreate.canonical,
+  });
+
+  state.steps.authorization = new Date().toISOString();
+  state.authorization = { scenario, tree: aliceCreate.tree };
+  await saveState(state);
+  console.log(`Multi-user authorization acceptance passed: ${aliceCreate.tree}`);
+}
+
 async function status(state: LabState): Promise<void> {
   console.log(JSON.stringify({ runId: state.runId, revision: state.revision, steps: state.steps, destroyedAt: state.destroyedAt }, null, 2));
   for (const role of ROLES) {
@@ -844,8 +971,10 @@ async function reset(state: LabState): Promise<void> {
   delete state.steps.configured;
   delete state.steps.smoke;
   delete state.steps.acceptance;
+  delete state.steps.authorization;
   delete state.steps.collected;
   delete state.acceptance;
+  delete state.authorization;
   await saveState(state);
   await continueRun(state);
   console.log(`Lab ${state.runId} was reset without replacing its VMs, Tailscale identities, credentials, or deployed revision.`);
@@ -902,6 +1031,7 @@ async function main(): Promise<void> {
   if (options.command === "resume") return continueRun(state);
   if (options.command === "smoke") return smoke(state);
   if (options.command === "test") return acceptance(state);
+  if (options.command === "test:authorization") return authorization(state);
   if (options.command === "status") return status(state);
   if (options.command === "collect") { await collect(state); return; }
   if (options.command === "reset") return reset(state);
