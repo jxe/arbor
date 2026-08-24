@@ -27,7 +27,7 @@ export interface AcceptedCommitInput extends AcceptedUpdateInput {
 export class AcceptedUpdateStore {
   constructor(private readonly db: Database) {}
 
-  static ensureSchema(db: Database): void {
+  static createSchema(db: Database): void {
     db.run(`
       CREATE TABLE IF NOT EXISTS accepted_updates (
         id TEXT PRIMARY KEY,
@@ -44,17 +44,12 @@ export class AcceptedUpdateStore {
         request_digest TEXT
       )
     `);
-    const columns = new Set(
-      (db.query("PRAGMA table_info(accepted_updates)").all() as Array<{ name: string }>).map(({ name }) => name),
-    );
-    if (!columns.has("request_digest")) db.run("ALTER TABLE accepted_updates ADD COLUMN request_digest TEXT");
     db.run("CREATE INDEX IF NOT EXISTS accepted_updates_tree_order ON accepted_updates(tree_id, accepted_at, id)");
     db.run(`
       CREATE UNIQUE INDEX IF NOT EXISTS accepted_updates_request
       ON accepted_updates(tree_id, subject, request_digest)
       WHERE request_digest IS NOT NULL
     `);
-    db.run("DROP TABLE IF EXISTS update_replays");
   }
 
   private row(value: unknown): AcceptedUpdate | null {

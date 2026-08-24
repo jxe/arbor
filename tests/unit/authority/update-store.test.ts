@@ -16,8 +16,7 @@ describe("accepted-update transaction store", () => {
     db.run("PRAGMA foreign_keys = ON");
     db.run("CREATE TABLE trees (id TEXT PRIMARY KEY, ref TEXT NOT NULL, updated_at INTEGER NOT NULL)");
     db.run("CREATE TABLE reflog (tree_id TEXT NOT NULL, ref TEXT NOT NULL, previous_ref TEXT, changed_at INTEGER NOT NULL)");
-    db.run("CREATE TABLE update_replays (legacy INTEGER)");
-    AcceptedUpdateStore.ensureSchema(db);
+    AcceptedUpdateStore.createSchema(db);
     store = new AcceptedUpdateStore(db);
     db.run("INSERT INTO trees (id, ref, updated_at) VALUES ('tr_test', ?, 1)", [A]);
     store.insert("up_initial", {
@@ -69,9 +68,5 @@ describe("accepted-update transaction store", () => {
     expect(store.list("tr_test").map((update) => update.id)).toEqual(["up_initial"]);
     expect(db.query("SELECT * FROM reflog").all()).toHaveLength(0);
     expect((db.query("SELECT ref FROM trees WHERE id = 'tr_test'").get() as { ref: string }).ref).toBe(A);
-  });
-
-  test("the one-way schema upgrade removes the obsolete replay table", () => {
-    expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'update_replays'").get()).toBeNull();
   });
 });

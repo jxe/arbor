@@ -593,85 +593,33 @@ test("a fresh claim-first authority reserves and grants its first community writ
   }
 });
 
-test("migrates the legacy owner/slug/publication authority into the owner profile namespace", async () => {
+test("rejects the legacy owner/slug authority without mutating its schema", async () => {
   const dataRoot = join(sandbox, "legacy-host");
-  const source = await profileFolder("legacy-content", "group");
-  await writeFile(join(source, "legacy.md"), "# Legacy\n");
-  const snapshot = await snapshotDirectory(source);
   await mkdir(dataRoot, { recursive: true });
   const db = new Database(join(dataRoot, "authority.sqlite3"), { create: true });
   db.run("CREATE TABLE trees (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, ref TEXT NOT NULL, publication TEXT NOT NULL, updated_at INTEGER NOT NULL)");
   db.run("CREATE TABLE reflog (tree_id TEXT NOT NULL, ref TEXT NOT NULL, previous_ref TEXT, changed_at INTEGER NOT NULL)");
-  db.run("INSERT INTO trees VALUES ('tr_legacytree', 'legacy', ?, 'public-read', ?)", [snapshot.root, Date.now()]);
+  db.run("INSERT INTO trees VALUES ('tr_legacytree', 'legacy', 'sha256:legacy', 'public-read', 1)");
   db.close();
-  for (const [hash, bytes] of snapshot.objects) {
-    const path = join(dataRoot, "objects", hash.slice(7, 9), hash.slice(9));
-    await mkdir(join(dataRoot, "objects", hash.slice(7, 9)), { recursive: true });
-    await writeFile(path, bytes);
-  }
-  const migrated = await serveWireHost({
-    dataRoot,
-    publicOrigin: "http://127.0.0.1:0",
-    accounts: [{ handle: "owner", token: "migrated-owner", communityWriter: true }],
-    hostname: "127.0.0.1",
-    port: 0,
-  });
-  try {
-    expect(migrated.authority.boundary("/~owner/legacy")).toMatchObject({
-      id: "tr_legacytree",
-      publicAccess: "read",
-    });
-    expect((await fetch(`${migrated.url}/~owner/legacy/legacy.md`)).status).toBe(200);
-  } finally {
-    migrated.server.stop(true);
-    await migrated.authority[Symbol.asyncDispose]();
-  }
+
+  await expect(WireAuthority.open(dataRoot)).rejects.toThrow("requires the one-time migration");
+
+  const unchanged = new Database(join(dataRoot, "authority.sqlite3"));
+  expect((unchanged.query("PRAGMA table_info(trees)").all() as Array<{ name: string }>).map(({ name }) => name))
+    .toEqual(["id", "slug", "ref", "publication", "updated_at"]);
+  expect(unchanged.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all())
+    .toEqual([{ name: "reflog" }, { name: "trees" }]);
+  unchanged.close();
 });
 
-test("upgrades pre-updates authority state once without changing identity, refs, access, credentials, or output", async () => {
+test("rejects a pre-updates authority without applying schema changes", async () => {
   const dataRoot = join(sandbox, "pre-updates-host");
-  const token = "pre-updates-owner-token";
-  const options: Parameters<typeof serveWireHost>[0] = {
-    dataRoot,
-    publicOrigin: "http://127.0.0.1:0",
-    accounts: [{ handle: "owner", token, communityWriter: true }],
-    hostname: "127.0.0.1",
-    port: 0,
-  };
-  const comparableTrees = (authority: WireAuthority) => authority.list().map((tree) => ({
-    id: tree.id,
-    canonicalPath: tree.canonicalPath,
-    parentTree: tree.parentTree,
-    kind: tree.kind,
-    ref: tree.ref,
-    publicAccess: tree.publicAccess,
-  }));
-  const comparableAccess = (authority: WireAuthority) => Object.fromEntries(authority.list().map((tree) => [
-    tree.id,
-    authority.accessEntries(tree.id),
-  ]));
-  const comparableHistory = (authority: WireAuthority) => Object.fromEntries(authority.list().map((tree) => [
-    tree.id,
-    authority.acceptedUpdates(tree.id).map((update) => ({
-      root: update.root,
-      previousRoot: update.previousRoot,
-      kind: update.kind,
-    })),
-  ]));
-  const profileSource = async (running: Awaited<ReturnType<typeof serveWireHost>>) => {
-    const response = await fetch(`${running.url}/~owner`, { headers: { accept: "text/markdown" } });
-    expect(response.status).toBe(200);
-    return response.text();
-  };
-
-  const before = await serveWireHost(options);
-  const beforeTrees = comparableTrees(before.authority);
-  const beforeAccess = comparableAccess(before.authority);
-  const beforeHistory = comparableHistory(before.authority);
-  const beforeAccount = before.authority.accountByToken(token)!;
-  const beforeSource = await profileSource(before);
-  before.server.stop(true);
-  await before.authority[Symbol.asyncDispose]();
+  const authority = await WireAuthority.open(dataRoot, {
+    handle: "garden",
+    name: "Garden",
+    accounts: [{ handle: "owner", token: "pre-updates-owner-token", communityWriter: true }],
+  });
+  await authority[Symbol.asyncDispose]();
 
   const old = new Database(join(dataRoot, "authority.sqlite3"));
   old.run("CREATE TABLE update_replays (legacy INTEGER)");
@@ -680,41 +628,13 @@ test("upgrades pre-updates authority state once without changing identity, refs,
   old.run("DROP TABLE accepted_updates");
   old.close();
 
-  const upgraded = await serveWireHost(options);
-  expect(comparableTrees(upgraded.authority)).toEqual(beforeTrees);
-  expect(comparableAccess(upgraded.authority)).toEqual(beforeAccess);
-  expect(comparableHistory(upgraded.authority)).toEqual(beforeHistory);
-  expect(upgraded.authority.accountByToken(token)).toMatchObject({
-    id: beforeAccount.id,
-    handle: beforeAccount.handle,
-    profileTree: beforeAccount.profileTree,
-  });
-  expect(await profileSource(upgraded)).toBe(beforeSource);
-  const upgradedAccount = upgraded.authority.accountByToken(token)!;
-  const firstDevices = upgraded.authority.devices(upgradedAccount);
-  expect(firstDevices).toHaveLength(1);
-  const firstUpdateIDs = Object.fromEntries(upgraded.authority.list().map((tree) => [
-    tree.id,
-    upgraded.authority.acceptedUpdates(tree.id).map((update) => update.id),
-  ]));
-  upgraded.server.stop(true);
-  await upgraded.authority[Symbol.asyncDispose]();
+  await expect(WireAuthority.open(dataRoot)).rejects.toThrow("requires the one-time migration");
 
-  const restarted = await serveWireHost(options);
-  try {
-    expect(comparableTrees(restarted.authority)).toEqual(beforeTrees);
-    expect(comparableAccess(restarted.authority)).toEqual(beforeAccess);
-    expect(comparableHistory(restarted.authority)).toEqual(beforeHistory);
-    expect(await profileSource(restarted)).toBe(beforeSource);
-    const restartedAccount = restarted.authority.accountByToken(token)!;
-    expect(restartedAccount.id).toBe(beforeAccount.id);
-    expect(restarted.authority.devices(restartedAccount).map((device) => device.id)).toEqual(firstDevices.map((device) => device.id));
-    expect(Object.fromEntries(restarted.authority.list().map((tree) => [
-      tree.id,
-      restarted.authority.acceptedUpdates(tree.id).map((update) => update.id),
-    ]))).toEqual(firstUpdateIDs);
-  } finally {
-    restarted.server.stop(true);
-    await restarted.authority[Symbol.asyncDispose]();
-  }
+  const unchanged = new Database(join(dataRoot, "authority.sqlite3"));
+  const tables = (unchanged.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(({ name }) => name);
+  expect(tables).toContain("update_replays");
+  expect(tables).not.toContain("accepted_updates");
+  expect(tables).not.toContain("devices");
+  expect(tables).not.toContain("pairings");
+  unchanged.close();
 });

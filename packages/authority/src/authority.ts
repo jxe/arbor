@@ -1,4 +1,4 @@
-import { link, mkdir, open, readFile, unlink } from "node:fs/promises";
+import { link, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -168,6 +168,130 @@ function profileSource(kind: "person" | "group", name: string, members: string[]
   ].join("\n");
 }
 
+const AUTHORITY_SCHEMA = {
+  trees: ["id", "ref", "updated_at"],
+  boundaries: ["path", "tree_id", "parent_tree", "kind"],
+  reflog: ["tree_id", "ref", "previous_ref", "changed_at"],
+  accepted_updates: [
+    "id", "tree_id", "root", "previous_root", "kind", "accepted_at", "subject",
+    "base_root", "candidate_root", "remote_root", "merge_summary", "request_digest",
+  ],
+  accounts: ["id", "handle", "profile_tree", "token_digest", "enabled"],
+  devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
+  pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at"],
+  access: ["id", "tree_id", "subject_kind", "subject", "access", "claimed_profile"],
+  meta: ["key", "value"],
+} as const;
+
+function createAuthoritySchema(db: Database): void {
+  db.run(`
+    CREATE TABLE trees (
+      id TEXT PRIMARY KEY,
+      ref TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE boundaries (
+      path TEXT PRIMARY KEY,
+      tree_id TEXT NOT NULL UNIQUE REFERENCES trees(id),
+      parent_tree TEXT,
+      kind TEXT NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE reflog (
+      tree_id TEXT NOT NULL,
+      ref TEXT NOT NULL,
+      previous_ref TEXT,
+      changed_at INTEGER NOT NULL
+    )
+  `);
+  AcceptedUpdateStore.createSchema(db);
+  db.run(`
+    CREATE TABLE accounts (
+      id TEXT PRIMARY KEY,
+      handle TEXT NOT NULL UNIQUE,
+      profile_tree TEXT,
+      token_digest TEXT NOT NULL UNIQUE,
+      enabled INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+  db.run(`
+    CREATE TABLE devices (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      label TEXT NOT NULL,
+      token_digest TEXT NOT NULL UNIQUE,
+      created_at INTEGER NOT NULL,
+      last_used_at INTEGER,
+      revoked_at INTEGER
+    )
+  `);
+  db.run(`
+    CREATE TABLE pairings (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      secret_digest TEXT NOT NULL,
+      confirmation_code TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      claimed_at INTEGER
+    )
+  `);
+  db.run(`
+    CREATE TABLE access (
+      id TEXT PRIMARY KEY,
+      tree_id TEXT NOT NULL REFERENCES trees(id),
+      subject_kind TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      access TEXT NOT NULL,
+      claimed_profile TEXT,
+      UNIQUE(tree_id, subject_kind, subject)
+    )
+  `);
+  db.run(`
+    CREATE TABLE meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+}
+
+function assertCurrentAuthoritySchema(db: Database): void {
+  const issues: string[] = [];
+  for (const [table, expected] of Object.entries(AUTHORITY_SCHEMA)) {
+    const actual = (db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(({ name }) => name);
+    if (actual.join("\0") !== expected.join("\0")) issues.push(`${table} columns`);
+  }
+  for (const obsolete of ["legacy_trees", "update_replays"]) {
+    if (db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(obsolete)) {
+      issues.push(`obsolete ${obsolete} table`);
+    }
+  }
+  for (const index of ["accepted_updates_tree_order", "accepted_updates_request"]) {
+    if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(index)) {
+      issues.push(`missing ${index} index`);
+    }
+  }
+  if (!issues.length) {
+    const missingHistory = db.query(`
+      SELECT COUNT(*) AS count FROM trees t
+      WHERE NOT EXISTS (SELECT 1 FROM accepted_updates u WHERE u.tree_id = t.id)
+    `).get() as { count: number };
+    const missingDevices = db.query(`
+      SELECT COUNT(*) AS count FROM accounts a
+      WHERE NOT EXISTS (SELECT 1 FROM devices d WHERE d.account_id = a.id)
+    `).get() as { count: number };
+    if (missingHistory.count) issues.push("trees without accepted history");
+    if (missingDevices.count) issues.push("accounts without devices");
+    if (db.query("PRAGMA foreign_key_check").all().length) issues.push("foreign-key violations");
+  }
+  if (issues.length) {
+    throw new Error(`Authority schema requires the one-time migration before startup: ${issues.join(", ")}`);
+  }
+}
+
 export class RefConflictError extends Error {
   constructor(readonly current: ObjectHash | null) {
     super("Tree ref changed");
@@ -209,229 +333,24 @@ export class WireAuthority implements AsyncDisposable {
 
   static async open(dataRoot: string, bootstrap?: CommunityBootstrap): Promise<WireAuthority> {
     await mkdir(join(dataRoot, "objects"), { recursive: true });
-    const db = new Database(join(dataRoot, "authority.sqlite3"), { create: true });
+    const databasePath = join(dataRoot, "authority.sqlite3");
+    const databaseExists = await stat(databasePath).then(() => true).catch(() => false);
+    const db = new Database(databasePath, { create: true });
+    try {
+      if (databaseExists) assertCurrentAuthoritySchema(db);
+      else db.transaction(() => createAuthoritySchema(db))();
+    } catch (error) {
+      db.close();
+      throw error;
+    }
     db.run("PRAGMA journal_mode = WAL");
     db.run("PRAGMA foreign_keys = ON");
-    const existingTreeColumns = db.query("PRAGMA table_info(trees)").all() as Array<{ name: string }>;
-    const legacyTrees = existingTreeColumns.some((column) => column.name === "slug")
-      ? db.query("SELECT id, slug, ref, publication, updated_at FROM trees ORDER BY slug").all() as Array<{
-          id: string;
-          slug: string;
-          ref: string;
-          publication: "private" | "public-read" | "public-write";
-          updated_at: number;
-        }>
-      : [];
-    if (legacyTrees.length || existingTreeColumns.some((column) => column.name === "slug")) {
-      db.run("ALTER TABLE trees RENAME TO legacy_trees");
-    }
-    db.run(`
-      CREATE TABLE IF NOT EXISTS trees (
-        id TEXT PRIMARY KEY,
-        ref TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
-      )
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS boundaries (
-        path TEXT PRIMARY KEY,
-        tree_id TEXT NOT NULL UNIQUE REFERENCES trees(id),
-        parent_tree TEXT,
-        kind TEXT NOT NULL
-      )
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS reflog (
-        tree_id TEXT NOT NULL,
-        ref TEXT NOT NULL,
-        previous_ref TEXT,
-        changed_at INTEGER NOT NULL
-      )
-    `);
-    AcceptedUpdateStore.ensureSchema(db);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS accounts (
-        id TEXT PRIMARY KEY,
-        handle TEXT NOT NULL UNIQUE,
-        profile_tree TEXT,
-        token_digest TEXT NOT NULL UNIQUE,
-        enabled INTEGER NOT NULL DEFAULT 1
-      )
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS devices (
-        id TEXT PRIMARY KEY,
-        account_id TEXT NOT NULL REFERENCES accounts(id),
-        label TEXT NOT NULL,
-        token_digest TEXT NOT NULL UNIQUE,
-        created_at INTEGER NOT NULL,
-        last_used_at INTEGER,
-        revoked_at INTEGER
-      )
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS pairings (
-        id TEXT PRIMARY KEY,
-        account_id TEXT NOT NULL REFERENCES accounts(id),
-        secret_digest TEXT NOT NULL,
-        confirmation_code TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        expires_at INTEGER NOT NULL,
-        claimed_at INTEGER
-      )
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS access (
-        id TEXT PRIMARY KEY,
-        tree_id TEXT NOT NULL REFERENCES trees(id),
-        subject_kind TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        access TEXT NOT NULL,
-        claimed_profile TEXT,
-        UNIQUE(tree_id, subject_kind, subject)
-      )
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS meta (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      )
-    `);
     const authority = new WireAuthority(dataRoot, db);
     if (!authority.boundary("/")) {
       if (!bootstrap) throw new Error("A new Arbor authority requires community bootstrap configuration");
       await authority.bootstrap(bootstrap);
     }
-    if (legacyTrees.length) {
-      const migrationAccount = bootstrap?.accounts[0];
-      if (!migrationAccount) throw new Error("Legacy authority migration requires one bootstrap account");
-      await authority.migrateLegacyTrees(legacyTrees, migrationAccount.handle);
-    }
-    authority.upgradeAcceptedUpdatesAndDevices();
     return authority;
-  }
-
-  private upgradeAcceptedUpdatesAndDevices(): void {
-    this.db.transaction(() => {
-      const trees = this.db.query("SELECT id, ref, updated_at FROM trees ORDER BY id").all() as Array<{
-        id: string;
-        ref: ObjectHash;
-        updated_at: number;
-      }>;
-      for (const tree of trees) {
-        const existing = this.db.query("SELECT COUNT(*) AS count FROM accepted_updates WHERE tree_id = ?")
-          .get(tree.id) as { count: number };
-        if (existing.count) continue;
-        const reflog = this.db.query(`
-          SELECT ref, previous_ref, changed_at
-          FROM reflog WHERE tree_id = ? ORDER BY changed_at, rowid
-        `).all(tree.id) as Array<{ ref: ObjectHash; previous_ref: ObjectHash | null; changed_at: number }>;
-        for (const row of reflog) {
-          this.insertAcceptedUpdate({
-            tree: tree.id,
-            root: row.ref,
-            previousRoot: row.previous_ref,
-            kind: row.previous_ref === null ? "initial" : "accepted",
-            acceptedAt: row.changed_at,
-            subject: "migration",
-          });
-        }
-        const lastRoot = reflog.at(-1)?.ref;
-        if (lastRoot !== tree.ref) {
-          this.insertAcceptedUpdate({
-            tree: tree.id,
-            root: tree.ref,
-            previousRoot: lastRoot ?? null,
-            kind: lastRoot === undefined ? "initial" : "accepted",
-            acceptedAt: tree.updated_at,
-            subject: "migration",
-          });
-        }
-      }
-
-      const accounts = this.db.query(`
-        SELECT a.id, a.token_digest,
-          COALESCE(MIN(t.updated_at), 0) AS created_at
-        FROM accounts a
-        LEFT JOIN trees t ON t.id = a.profile_tree
-        WHERE NOT EXISTS (SELECT 1 FROM devices d WHERE d.account_id = a.id)
-        GROUP BY a.id, a.token_digest
-        ORDER BY a.id
-      `).all() as Array<{ id: string; token_digest: string; created_at: number }>;
-      for (const account of accounts) {
-        this.db.run(
-          "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, 'Initial device', ?, ?)",
-          [opaqueID("dv"), account.id, account.token_digest, account.created_at],
-        );
-      }
-    })();
-  }
-
-  private async migrateLegacyTrees(
-    legacyTrees: Array<{
-      id: string;
-      slug: string;
-      ref: string;
-      publication: "private" | "public-read" | "public-write";
-      updated_at: number;
-    }>,
-    accountHandle: string,
-  ): Promise<void> {
-    const profile = this.boundary(`/~${accountHandle}`);
-    if (!profile) throw new Error(`Legacy migration profile is missing: ~${accountHandle}`);
-    for (const legacy of legacyTrees) {
-      const path = `/~${accountHandle}/${legacy.slug}`;
-      const attachment = await this.prepareBoundaryAttachment(profile.id, path, legacy.id);
-      await this.cacheMembers(attachment.nextRoot, attachment.generated);
-      await this.storeObjects([...attachment.generated].map(([hash, bytes]) => ({ hash, bytes })));
-      const now = Date.now();
-      this.db.transaction(() => {
-        this.db.run("INSERT INTO trees (id, ref, updated_at) VALUES (?, ?, ?)", [
-          legacy.id,
-          legacy.ref,
-          legacy.updated_at,
-        ]);
-        this.insertAcceptedUpdate({
-          tree: legacy.id,
-          root: legacy.ref,
-          previousRoot: null,
-          kind: "initial",
-          acceptedAt: legacy.updated_at,
-          subject: "migration",
-        });
-        this.db.run(
-          "INSERT INTO boundaries (path, tree_id, parent_tree, kind) VALUES (?, ?, ?, 'shared-subtree')",
-          [path, legacy.id, profile.id],
-        );
-        if (legacy.publication !== "private") {
-          this.setAccessInternal(
-            legacy.id,
-            "everyone",
-            "everyone",
-            legacy.publication === "public-write" ? "write" : "read",
-          );
-        }
-        const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
-          attachment.nextRoot,
-          now,
-          profile.id,
-          attachment.parent.ref,
-        ]);
-        if (result.changes !== 1) throw new RefConflictError(this.get(profile.id)?.ref ?? null);
-        this.db.run(
-          "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)",
-          [profile.id, attachment.nextRoot, attachment.parent.ref, now],
-        );
-        this.insertAcceptedUpdate({
-          tree: profile.id,
-          root: attachment.nextRoot,
-          previousRoot: attachment.parent.ref,
-          kind: "accepted",
-          acceptedAt: now,
-          subject: "migration",
-        });
-      })();
-    }
   }
 
   private async bootstrap(config: CommunityBootstrap): Promise<void> {
