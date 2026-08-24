@@ -28,7 +28,7 @@ Only this selection rule and `trees.yaml` are standardized local control surface
 - `tree` is the stable shared-tree identity.
 - `canonical` is the current replaceable public Arbor name.
 - `endpoint` is an absolute HTTP or HTTPS authority.
-- `ref` is the last common wire root used for synchronization and conflict detection.
+- `ref` and `update` are the last common authority root and opaque accepted-update ID used for synchronization and conflict detection.
 - `access` is the effective `read` or `write` authority of this placement.
 - `publicAccess`, when present, is `none`, `read`, or `write`.
 
@@ -63,6 +63,8 @@ The safe virtual system tree has these top-level records:
 - `system:connections` — safe database-connection labels and metadata, never DSNs or passwords;
 - `system:visited` — durable remote-visit metadata and safe cache status;
 - `system:diagnostics` — malformed control files, unavailable credentials, conflicts, and other actionable diagnostics.
+
+Accepted authority updates are server history; pending submissions and rejected conflict drafts are private placement/client state. A conflict leaves no authority-side record or retained candidate/draft objects. It never enters authored trees or the authority's accepted-update listing. A placement records its exact pending idempotency key and candidate before transmission, then records any conflict response and complete draft snapshot locally before reporting completion.
 
 There are no separate normative `system:profiles` or `system:access` subtrees. Profile and access information belongs to the relevant tree record. Implementations may expose additional safe diagnostic fields, but clients must ignore unknown descriptive fields.
 

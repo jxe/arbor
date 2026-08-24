@@ -1,0 +1,277 @@
+{
+  "version": 1,
+  "markdownCases": [
+    {
+      "name": "disjoint-additions",
+      "base": "# Notes\n\nAlpha\n\nOmega\n",
+      "candidate": "# Notes\n\nAlpha\nCandidate after alpha\n\nOmega\n",
+      "remote": "# Notes\n\nAlpha\n\nRemote before omega\nOmega\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["Candidate after alpha\n", "Remote before omega\n"],
+        "approximatePlacements": 0
+      }
+    },
+    {
+      "name": "same-slot-remote-before-candidate",
+      "base": "Before\nAfter\n",
+      "candidate": "Before\nCandidate\nAfter\n",
+      "remote": "Before\nRemote\nAfter\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["Remote\n", "Candidate\n"],
+        "ordered": [["Remote\n", "Candidate\n"]],
+        "approximatePlacements": 1
+      }
+    },
+    {
+      "name": "same-addition-collapses-once",
+      "base": "Before\nAfter\n",
+      "candidate": "Before\nShared\nAfter\n",
+      "remote": "Before\nShared\nAfter\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["Shared\n"],
+        "counts": {"Shared\n": 1},
+        "approximatePlacements": 0
+      }
+    },
+    {
+      "name": "identical-lines-at-distinct-positions-survive",
+      "base": "Start\nAnchor\nEnd\n",
+      "candidate": "Start\nRepeated\nAnchor\nEnd\n",
+      "remote": "Start\nAnchor\nRepeated\nEnd\n",
+      "expected": {
+        "conflicts": [],
+        "counts": {"Repeated\n": 2},
+        "approximatePlacements": 0
+      }
+    },
+    {
+      "name": "delete-versus-edit-keeps-edit",
+      "base": "Before\nOriginal\nAfter\n",
+      "candidate": "Before\nCandidate replacement\nAfter\n",
+      "remote": "Before\nAfter\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["Candidate replacement\n"],
+        "absent": ["Original\n"],
+        "approximatePlacements": 0
+      }
+    },
+    {
+      "name": "divergent-replacements-keep-both",
+      "base": "Before\nOriginal\nAfter\n",
+      "candidate": "Before\nCandidate replacement\nAfter\n",
+      "remote": "Before\nRemote replacement\nAfter\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["Remote replacement\n", "Candidate replacement\n"],
+        "ordered": [["Remote replacement\n", "Candidate replacement\n"]],
+        "absent": ["Original\n"],
+        "approximatePlacements": 1
+      }
+    },
+    {
+      "name": "headings-and-nested-lists",
+      "base": "# Plan\n\n- Parent\n  - Existing\n\n## End\n",
+      "candidate": "# Plan\n\n- Parent\n  - Existing\n  - Candidate child\n\n## End\n",
+      "remote": "# Plan\n\n- Parent\n  - Existing\n  - Remote child\n\n## End\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["  - Remote child\n", "  - Candidate child\n"],
+        "ordered": [["  - Remote child\n", "  - Candidate child\n"]],
+        "approximatePlacements": 1
+      }
+    },
+    {
+      "name": "distinct-frontmatter-keys",
+      "base": "---\nid: page-1\n---\nBody\n",
+      "candidate": "---\nid: page-1\ntitle: Candidate title\n---\nBody\n",
+      "remote": "---\nid: page-1\ntags: remote\n---\nBody\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["title: Candidate title\n", "tags: remote\n"],
+        "approximatePlacements": 1
+      }
+    },
+    {
+      "name": "divergent-frontmatter-value-conflicts",
+      "base": "---\nid: page-1\ntitle: Original\n---\nBody\n",
+      "candidate": "---\nid: page-1\ntitle: Candidate\n---\nBody\n",
+      "remote": "---\nid: page-1\ntitle: Remote\n---\nBody\n",
+      "expected": {
+        "conflicts": [{"path": "/note.md", "reason": "frontmatter-conflict"}],
+        "contains": ["title: Remote\n", "title: Candidate\n"],
+        "approximatePlacements": 1
+      }
+    },
+    {
+      "name": "balanced-code-fence-and-prose",
+      "base": "# Example\n",
+      "candidate": "# Example\n```ts\nconst value = 1;\n```\n",
+      "remote": "# Example\nRemote prose\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["Remote prose\n", "```ts\nconst value = 1;\n```\n"],
+        "ordered": [["Remote prose\n", "```ts\n"]],
+        "approximatePlacements": 1
+      }
+    },
+    {
+      "name": "unbalanced-code-fence-conflicts",
+      "base": "# Example\n",
+      "candidate": "# Example\n```ts\nconst value = 1;\n",
+      "remote": "# Example\nRemote prose\n",
+      "expected": {
+        "conflicts": [{"path": "/note.md", "reason": "invalid-markdown-fence"}],
+        "contains": ["Remote prose\n", "```ts\nconst value = 1;\n"],
+        "approximatePlacements": 1
+      }
+    },
+    {
+      "name": "raw-html-additions",
+      "base": "# Embed\n",
+      "candidate": "# Embed\n<div data-side=\"candidate\">Candidate</div>\n",
+      "remote": "# Embed\n<section>Remote</section>\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["<section>Remote</section>\n", "<div data-side=\"candidate\">Candidate</div>\n"],
+        "approximatePlacements": 1
+      }
+    },
+    {
+      "name": "crlf-additions-remain-crlf",
+      "base": "Before\r\nAfter\r\n",
+      "candidate": "Before\r\nCandidate\r\nAfter\r\n",
+      "remote": "Before\r\nRemote\r\nAfter\r\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["Remote\r\n", "Candidate\r\n"],
+        "ordered": [["Remote\r\n", "Candidate\r\n"]],
+        "absent": ["Remote\n", "Candidate\n"],
+        "approximatePlacements": 1
+      }
+    },
+    {
+      "name": "missing-direct-anchor-walks-outward",
+      "base": "Start\nDirect before\nDirect after\nEnd\n",
+      "candidate": "Start\nCandidate near removed anchors\nEnd\n",
+      "remote": "Start\nRemote replacement\nEnd\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["Remote replacement\n", "Candidate near removed anchors\n"],
+        "ordered": [["Remote replacement\n", "Candidate near removed anchors\n"]],
+        "absent": ["Direct before\n", "Direct after\n"],
+        "approximatePlacements": 1
+      }
+    },
+    {
+      "name": "no-anchor-fallback-keeps-both",
+      "base": "Original one\nOriginal two\n",
+      "candidate": "Candidate replacement one\nCandidate replacement two\n",
+      "remote": "Remote replacement one\nRemote replacement two\n",
+      "expected": {
+        "conflicts": [],
+        "contains": ["Remote replacement one\n", "Remote replacement two\n", "Candidate replacement one\n", "Candidate replacement two\n"],
+        "ordered": [["Remote replacement two\n", "Candidate replacement one\n"]],
+        "absent": ["Original one\n", "Original two\n"],
+        "approximatePlacements": 1
+      }
+    },
+    {
+      "name": "mixed-line-endings-copy-exact-additions",
+      "base": "Start\r\nMiddle\nEnd\r",
+      "candidate": "Start\r\nCandidate\nMiddle\nEnd\r",
+      "remote": "Start\r\nMiddle\nRemote\r\nEnd\r",
+      "expected": {
+        "conflicts": [],
+        "contains": ["Candidate\n", "Remote\r\n"],
+        "approximatePlacements": 0
+      }
+    }
+  ],
+  "pageMoveCases": [
+    {
+      "name": "candidate-rename-and-remote-edit",
+      "base": {"name": "note.md", "source": "---\nid: page-1\n---\nBase\n"},
+      "candidate": {"name": "renamed.md", "source": "---\nid: page-1\n---\nBase\nCandidate\n"},
+      "remote": {"name": "note.md", "source": "---\nid: page-1\n---\nBase\nRemote\n"},
+      "expected": {
+        "name": "renamed.md",
+        "conflicts": [],
+        "contains": ["Remote\n", "Candidate\n"]
+      }
+    },
+    {
+      "name": "remote-rename-and-candidate-edit",
+      "base": {"name": "note.md", "source": "---\nid: page-1\n---\nBase\n"},
+      "candidate": {"name": "note.md", "source": "---\nid: page-1\n---\nBase\nCandidate\n"},
+      "remote": {"name": "renamed.md", "source": "---\nid: page-1\n---\nBase\nRemote\n"},
+      "expected": {
+        "name": "renamed.md",
+        "conflicts": [],
+        "contains": ["Remote\n", "Candidate\n"]
+      }
+    },
+    {
+      "name": "both-rename-to-same-path",
+      "base": {"name": "note.md", "source": "---\nid: page-1\n---\nBase\n"},
+      "candidate": {"name": "shared-name.md", "source": "---\nid: page-1\n---\nBase\nCandidate\n"},
+      "remote": {"name": "shared-name.md", "source": "---\nid: page-1\n---\nBase\nRemote\n"},
+      "expected": {
+        "name": "shared-name.md",
+        "conflicts": [],
+        "contains": ["Remote\n", "Candidate\n"]
+      }
+    },
+    {
+      "name": "divergent-page-id-renames-conflict",
+      "base": {"name": "note.md", "source": "---\nid: page-1\n---\nBase\n"},
+      "candidate": {"name": "candidate-name.md", "source": "---\nid: page-1\n---\nBase\nCandidate\n"},
+      "remote": {"name": "remote-name.md", "source": "---\nid: page-1\n---\nBase\nRemote\n"},
+      "expected": {
+        "name": "candidate-name.md",
+        "conflicts": [{"path": "/note.md", "reason": "page-id-move-conflict"}],
+        "contains": ["Candidate\n"]
+      }
+    }
+  ],
+  "structuralCases": [
+    {
+      "name": "divergent-binary-file",
+      "kind": "binary",
+      "baseBase64": "AA==",
+      "candidateBase64": "AQ==",
+      "remoteBase64": "Ag==",
+      "expected": {"conflicts": [{"path": "/asset.bin", "reason": "binary-conflict"}]}
+    },
+    {
+      "name": "divergent-nested-boundary",
+      "kind": "nested-boundary",
+      "baseTree": "tr_base",
+      "candidateTree": "tr_candidate",
+      "remoteTree": "tr_remote",
+      "expected": {"conflicts": [{"path": "/nested", "reason": "nested-boundary-conflict"}]}
+    },
+    {
+      "name": "file-directory-kind-collision",
+      "kind": "path-kind",
+      "expected": {"conflicts": [{"path": "/item", "reason": "path-kind-conflict"}]}
+    }
+  ],
+  "replayCases": [
+    {
+      "name": "exact-success-replay",
+      "idempotencyKey": "fixture-exact-success-replay",
+      "sameIntent": true,
+      "expected": {"sameStatus": true, "sameBody": true, "additionalAcceptedUpdates": 0}
+    },
+    {
+      "name": "changed-intent-reuses-key",
+      "idempotencyKey": "fixture-changed-intent-replay",
+      "sameIntent": false,
+      "expected": {"error": "mutation-mismatch", "additionalAcceptedUpdates": 0}
+    }
+  ]
+}

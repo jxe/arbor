@@ -23,7 +23,7 @@ Add `ReplicaSyncCoordinator` as an actor over ArborReplica and ArborWire:
 
 - read the replica's last authority-accepted `base`/acceptance cursor and current durable `local` root;
 - persist a unique request ID and exact `{ base, local }` intent before upload;
-- upload missing immutable file/directory objects and call `sync-v1`;
+- submit immutable file/directory objects through `updates-v1`;
 - reuse the exact request after ambiguous transport outcomes;
 - validate/re-hash the graph returned by `current`, `accepted`, or `merged`, materialize it durably, and only then advance the replica's accepted base and watch cursor;
 - on `conflict`, validate and retain base/local/remote/draft roots plus structured reasons/alternatives, and present the draft without manufacturing conflict-copy files;
@@ -51,8 +51,8 @@ Swift does not find ancestors or merge Markdown/trees. Plan 008's authority is t
 ## Steps
 
 1. Implement durable sync-attempt state around ArborReplica's base/local roots. Inject crashes before request persistence, during upload, after server acceptance, during graph download, during materialization, and before base advancement.
-2. Implement object discovery/upload and exact idempotent `sync-v1` submission. Bound retries and preserve request bytes/intent across restart; never generate a new request ID merely because the outcome is ambiguous.
-3. Decode current/accepted/merged/conflict results through ArborWire, fetch missing result/draft objects, rehash every byte, validate graph shape/boundaries, and reject malformed or unauthorized alternatives before local application.
+2. Implement exact idempotent `updates-v1` submission. Bound retries and preserve request bytes/intent across restart; never generate a new request ID merely because the outcome is ambiguous.
+3. Decode current/accepted/merged/conflict results through ArborWire, fetch missing accepted-result objects, validate the complete draft snapshot carried by a conflict response, rehash every byte, validate graph shape/boundaries, and reject malformed alternatives before local application.
 4. Integrate accepted/merged roots into the replica without changing its local acknowledgement boundary. If local edits were admitted after the sent candidate, preserve them as the next candidate rather than overwriting them with the result.
 5. Implement conflict state and explicit resolution plumbing. Apply the server draft as a comparison/editing basis while retaining the current local root and remote alternatives; permit continued local work and submit resolution as a new normal candidate.
 6. Consume shared protocol/merge scenarios as black-box authority tests. Cover one-sided sync, union of Mac/iPad Markdown additions, same-slot additions, outward-anchor fallback, no-anchor fallback, duplicate-looking lines, deletion/edit ambiguity, frontmatter conflict, binary/path conflict, approximate placement, exact replay, and current-ref race. Assert inclusion and allowed placement, not a client-generated merge hash.
@@ -73,9 +73,9 @@ Also run sequential app tests/builds. Expected: all peers converge on the author
 
 ## Done criteria
 
-- [ ] Swift contains no Markdown/tree merge implementation and consumes every `sync-v1` outcome.
+- [ ] Swift contains no Markdown/tree merge implementation and consumes every `updates-v1` outcome.
 - [ ] Local safety is unchanged when the authority is unavailable.
-- [ ] Exact ambiguous replay produces one server attempt/history result.
+- [ ] Exact ambiguous successful replay produces one accepted update and no duplicate history row.
 - [ ] Pairing produces a distinct revocable Keychain credential.
 - [ ] Mac arbord and two Swift replicas converge on an isolated tree.
 - [ ] Conflict/pending state permits further local roots and explicit resolution.

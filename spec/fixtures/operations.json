@@ -147,5 +147,15 @@
         "canonicalPath": "/~joe/notes"
       }
     ]
+  },
+  {
+    "mutationID": "55555555-5555-5555-5555-555555555563",
+    "operations": [
+      {
+        "op": "resolveTreeConflict",
+        "tree": "tr_notes7f3q2ab7c",
+        "choice": "local"
+      }
+    ]
   }
 ]

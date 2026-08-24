@@ -96,7 +96,7 @@ describe("system tree control", () => {
       }),
     });
     expect(response.status).toBe(422);
-    expect((await response.json() as { error: { code: string } }).error.code).toBe("unsupported-operation");
+    expect((await response.json() as { error: string }).error).toBe("unsupported-operation");
   });
 
   test("promotes a legacy placement transactionally and never journals its token", async () => {

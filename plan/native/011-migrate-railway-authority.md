@@ -1,6 +1,6 @@
-# Plan 011: Migrate the Railway authority
+# Plan 011: Upgrade the Railway authority
 
-> **Executor instructions**: This is the first plan allowed to mutate the configured live authority. Obtain explicit operator confirmation immediately before backup/deploy/apply. Never print credential values. Abort and restore on any content/ref mismatch.
+> **Executor instructions**: This is the first plan allowed to mutate the configured live authority. Obtain explicit operator confirmation immediately before the live deploy. Never print credential values. Upgrade only after a complete volume backup has been restored and migrated successfully in isolation and the exact committed revision has passed Hetzner. On any live mismatch, stop the new image and restore the backup with the previous image.
 >
 > **Drift check**: `git diff --stat dc34126..HEAD -- packages/wire packages/arbord packages/cli deploy tools tests plan/native`
 
@@ -19,26 +19,29 @@ Native sync cannot qualify against a fictional environment. The configured Railw
 
 ## Preconditions
 
-- Sync/history migration and rollback pass on copied data.
-- Local arbord/CLI negotiate both legacy root-CAS and `sync-v1` only for this bounded migration window.
+- A complete Railway volume backup can start under the previous image after isolated restore.
+- The real one-way startup upgrade passes against a separate restored copy of that backup.
+- The local arbord/CLI and authority move together to accepted updates; legacy `/push` is removed rather than negotiated.
 - Device-credential migration preserves current access.
+- The exact candidate revision passes `bun run lab:hcloud test` on the disposable four-host Hetzner lab, and its non-secret evidence has been collected.
 - The live endpoint is discovered from safe local configuration; never copy its credential into the plan or command history.
 
 ## Scope
 
-**In scope**: backup/restore rehearsal, live deploy/migration, current-tree/device verification, isolated private sync test, recorded non-secret evidence.
+**In scope**: complete volume backup, isolated old-image restore and new-image one-way-upgrade rehearsal, disposable Hetzner acceptance gate, approved live deploy, current-tree/device verification, isolated private sync test, old-image/volume rollback, recorded non-secret evidence.
 
 **Out of scope**: native app deployment, Hunch workspace, new public access, canonical path changes, unrelated production administration.
 
 ## Steps
 
 1. Record safe preflight evidence: tree IDs/canonical paths/access, current root refs, current public Markdown hashes, schema version, object count, and service revision.
-2. Create a complete Railway volume backup and restore it into an isolated authority. Demonstrate rollback before touching live state.
-3. Run migration dry-run against the restored copy; require one linear baseline history record per legacy tree, unchanged current root refs, and zero missing/corrupt objects.
-4. With explicit approval, pause writes, deploy the `sync-v1`/history/device-capable server, apply the explicit migration transaction, and restart.
-5. Verify every preflight root is still the current ref, public HTML/Markdown hashes match, canonical discovery/access work, non-current/draft access is restricted, and existing local arbord reconnects.
-6. Create an isolated private test tree; exercise one-sided sync, two-client additive Markdown merge, structured conflict draft, exact request replay, watch/history, and device revoke. Verify both clients receive the server's accepted root and every added line. Remove only its local placement if desired; do not delete evidence needed for rollback.
-7. Resume writes and retain the backup until Plan 019 is complete.
+2. Create a complete Railway volume backup. Restore a copy into an isolated authority and start it with the currently deployed image. Verify the preflight identities, refs, access, credentials, object integrity, and public hashes. This proves the rollback artifact before any live mutation.
+3. Against a separate copy of that restored volume, start the exact candidate image and let its real one-way startup upgrade run. Restart it to prove idempotence. Require one baseline accepted update per legacy tree, valid initial-device records for existing credentials, unchanged identities/refs/access/public hashes, and zero missing or corrupt objects. Do not substitute a special dry-run path for the code that production will execute.
+4. From the exact committed candidate revision, run `bun run lab:hcloud test` on the four disposable Hetzner hosts. Require serial and three-writer convergence, accepted-history/replay invariants, client-owned conflict persistence across restart and explicit resolution, `/push` absence, and pairing/revocation. Collect evidence and tear down the disposable hosts. Any failure returns to Plans 008–010; it is not waived during live approval.
+5. Only after the restored-copy rehearsal and Hetzner gate pass, request explicit approval to mutate Railway. Pause writes, confirm the backup is retained, deploy the exact tested `updates-v1`/history/device-capable image, allow its one-way startup upgrade to complete, and restart once to prove idempotence.
+6. Verify every preflight root is still the current ref, public HTML/Markdown hashes match, canonical discovery/access work, non-current/draft access is restricted, and existing local arbord reconnects.
+7. Create an isolated private Railway test tree; repeat the short production smoke for one-sided sync, additive Markdown merge, structured client-owned conflict, exact successful replay, watch/history, and device revoke. This is a production-environment verification, not a substitute for the earlier Hetzner acceptance gate.
+8. If any verification fails, stop the candidate image, restore the complete pre-upgrade volume backup, redeploy the previous image, and repeat the preflight checks before resuming writes. If verification succeeds, resume writes and retain the backup and previous image until Plan 019 is complete.
 
 ## Verification
 
@@ -46,9 +49,10 @@ Run the repository gates before deploy, then documented production smoke command
 
 - pre/post current directory roots and public Markdown hashes are identical;
 - each legacy tree has one baseline linear history record and its exact original current root;
-- Railway restart retains history, attempts/drafts, idempotency results, and devices;
+- Railway restart retains accepted-update history, private bounded successful idempotency results, and devices; rejected conflicts leave no authority-side state;
 - local arbord can sync the isolated private tree and the server performs the merge;
 - a revoked test device is denied.
+- the pre-Railway Hetzner report records one committed revision on all four hosts and passes every accepted-update scenario.
 
 Also run:
 
@@ -62,19 +66,23 @@ git diff --check
 
 ## Done criteria
 
-- [ ] Backup restore was demonstrated before apply.
+- [ ] The complete backup was restored and verified under the previous image before live deploy.
+- [ ] A separate restored copy passed the real one-way upgrade and an idempotent restart with exact identities, refs, access, credentials, and public output.
+- [ ] The exact candidate revision passed the full Hetzner suite before live approval.
 - [ ] All real trees preserved exact identity/content/access.
-- [ ] `sync-v1` discovery is live and new clients cannot silently downgrade.
+- [ ] `updates-v1` discovery is live and `/push` is absent from both server and clients.
 - [ ] Device credentials and revocation work live.
-- [ ] Rollback material remains available through native cutover.
+- [ ] The complete pre-upgrade volume backup and previous image remain available through native cutover.
 
 ## STOP conditions
 
 - Operator has not explicitly approved the live mutation.
+- The pre-Railway Hetzner suite or evidence collection has not completed successfully.
 - Any pre/post hash, TreeID, canonical path, or access differs unexpectedly.
-- The backup cannot start an isolated restored authority.
+- The backup cannot start an isolated restored authority under the previous image.
+- The candidate image cannot upgrade and restart the copied volume without an identity/ref/access/credential/public-output mismatch.
 - Local arbord cannot synchronize immediately after migration.
 
 ## Maintenance note
 
-Record only safe operational evidence in `plan/records/history.md`. Production secrets and user content do not belong in Git history.
+The startup upgrade is intentionally one-way. Operational rollback restores the complete pre-upgrade volume and previous image; do not attempt to reverse individual schema writes in place. Record only safe evidence in `plan/records/history.md`. Production secrets and user content do not belong in Git history.

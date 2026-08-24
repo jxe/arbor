@@ -61,14 +61,22 @@ export type {
 } from "@arbor/core";
 
 export class ArbordError extends Error {
-  readonly payload: { error: ArbordErrorValue; current?: NodeSnapshot };
+  readonly payload: ArbordErrorEnvelope;
   constructor(
     public status: number,
     public value: ArbordErrorValue,
   ) {
     super(value.message);
     this.name = "ArbordError";
-    this.payload = { error: value, current: value.current };
+    this.payload = {
+      error: value.code,
+      message: value.message,
+      retryable: value.retryable,
+      ...(value.path !== undefined ? { path: value.path } : {}),
+      ...(value.current !== undefined ? { current: value.current } : {}),
+      ...(value.owners !== undefined ? { owners: value.owners } : {}),
+      ...(value.mutationID !== undefined ? { mutationID: value.mutationID } : {}),
+    };
   }
 }
 
@@ -102,6 +110,22 @@ export interface ObservedNodeView {
   snapshot: NodeSnapshot;
   updates: AsyncIterable<ObservedNodeUpdate>;
   close(): void;
+}
+
+export interface CommunityDevice {
+  id: string;
+  account: string;
+  label: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+  revokedAt: number | null;
+}
+
+export interface CommunityPairingOffer {
+  id: string;
+  secret: string;
+  confirmationCode: string;
+  expiresAt: number;
 }
 
 /** A pageID-bearing reference to a listed child, preferring durable identity. */
@@ -318,6 +342,22 @@ export class ArbordClient {
     return this.mutate(this.prepareSystemMutation(operation, mutationID));
   }
 
+  communityDevices(): Promise<CommunityDevice[]> {
+    return this.request("/v1/community/devices");
+  }
+
+  createCommunityPairing(): Promise<CommunityPairingOffer> {
+    return this.request("/v1/community/pairings", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+  }
+
+  revokeCommunityDevice(id: string): Promise<CommunityDevice> {
+    return this.request(`/v1/community/devices/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
   /**
    * Ensure the referenced document carries a durable PageID, materializing a
    * frontmatter-only `_index.md` for an implicit directory when necessary.
@@ -514,8 +554,16 @@ export class ArbordClient {
     let envelope: ArbordErrorEnvelope;
     try { envelope = await response.json() as ArbordErrorEnvelope; }
     catch {
-      envelope = { error: { code: "internal-error", message: response.statusText, retryable: false } };
+      envelope = { error: "internal-error", message: response.statusText, retryable: false };
     }
-    throw new ArbordError(response.status, envelope.error);
+    throw new ArbordError(response.status, {
+      code: envelope.error,
+      message: envelope.message,
+      retryable: envelope.retryable,
+      ...(envelope.path !== undefined ? { path: envelope.path } : {}),
+      ...(envelope.current !== undefined ? { current: envelope.current } : {}),
+      ...(envelope.owners !== undefined ? { owners: envelope.owners } : {}),
+      ...(envelope.mutationID !== undefined ? { mutationID: envelope.mutationID } : {}),
+    });
   }
 }

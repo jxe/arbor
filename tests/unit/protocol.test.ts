@@ -29,7 +29,7 @@ describe("REST v1 protocol fixtures", () => {
     expect(mutation.operations[0]?.op).toBe("move");
     expect(receipt.effects[0]?.previousPath).toBe("/notes/today");
     expect(receipt.effects[0]?.tree).toBe("tr_notes7f3q2ab7c");
-    expect(error.error.code).toBe("future-error-code");
+    expect(error.error).toBe("future-error-code");
   });
 
   test("decodes the tree-scoped, unpromoted, and system fixtures", async () => {
@@ -80,9 +80,10 @@ describe("REST v1 protocol fixtures", () => {
       "disconnectCommunity",
       "createGroupProfile",
       "removeTreePlacement",
+      "resolveTreeConflict",
     ]);
-    expect(errors.map((value) => value.error.code)).toContain("internal-error");
-    expect(errors.at(-1)?.error.code).toBe("future-error-code");
+    expect(errors.map((value) => value.error)).toContain("internal-error");
+    expect(errors.at(-1)?.error).toBe("future-error-code");
     expect(node.ref.pageID).toBe("abc123");
     expect(cursors.current).toEndWith(":5");
     expect(cursors.foreignEpoch).not.toStartWith("11111111");
@@ -111,6 +112,13 @@ describe("REST v1 protocol fixtures", () => {
   test("publishes registry and wire endpoint conformance vectors", async () => {
     const registry = await json<{ cases: Array<{ name: string }> }>("trees-yaml.json");
     const endpoints = await json<{ cases: Array<{ name: string; response: { status: number } }> }>("wire-endpoints.json");
+    const merges = await json<{
+      version: number;
+      markdownCases: Array<{ name: string }>;
+      pageMoveCases: Array<{ name: string }>;
+      structuralCases: Array<{ name: string }>;
+      replayCases: Array<{ name: string }>;
+    }>("wire-merge.json");
     expect(registry.cases.map((item) => item.name)).toEqual(expect.arrayContaining([
       "valid-empty",
       "valid-shared",
@@ -125,10 +133,22 @@ describe("REST v1 protocol fixtures", () => {
     ]));
     expect(endpoints.cases.map((item) => item.name)).toEqual([
       "read-ref",
-      "push-conflict",
+      "submit-current-update",
       "link-read",
       "watch-ref",
     ]);
-    expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 409, 200, 200]);
+    expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 200, 200, 200]);
+    expect(merges.version).toBe(1);
+    expect(merges.markdownCases.length).toBeGreaterThanOrEqual(10);
+    expect(merges.pageMoveCases.map((item) => item.name)).toContain("divergent-page-id-renames-conflict");
+    expect(merges.structuralCases.map((item) => item.name)).toEqual(expect.arrayContaining([
+      "divergent-binary-file",
+      "divergent-nested-boundary",
+      "file-directory-kind-collision",
+    ]));
+    expect(merges.replayCases.map((item) => item.name)).toEqual([
+      "exact-success-replay",
+      "changed-intent-reuses-key",
+    ]);
   });
 });

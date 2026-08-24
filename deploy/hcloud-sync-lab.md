@@ -22,7 +22,7 @@ The lab should answer four questions with recorded evidence:
 3. **Convergence:** after connectivity returns and conflicts are explicitly resolved, do all non-pinned placements reach the same tree ref and bytes?
 4. **Identity:** does one `TreeID` remain the same when materialized at different paths and, later, on different filesystems?
 
-For the current whole-tree CAS protocol, “safe conflict” is a valid expected result. It means the authority keeps one complete ref, a divergent client keeps its complete local files, and Arbor visibly reports that the placement needs attention. Automatic merging is not a pass condition unless the product contract is changed to require it.
+The lab tests `updates-v1`, not the removed whole-tree CAS protocol. Independent Markdown additions must be merged by the authority and accepted as one new update. Unsafe binary, frontmatter, path-kind, and nested-boundary overlap must return one complete draft to the submitting client without creating authority history, replay, candidate-object, or conflict resources. The client must retain that response and its local files across restart until an explicit new update resolves it.
 
 ## Keep the infrastructure simple
 
@@ -66,10 +66,13 @@ bun run lab:hcloud run
 
 ```sh
 bun run lab:hcloud resume
+bun run lab:hcloud smoke
 bun run lab:hcloud test
 ```
 
-The smoke test creates a private tree on Alice, places it on Bob and Carol through their connected account credentials, and requires identical SHA-256 manifests plus a healthy authority. Continue with the fault and conflict scenarios below after it passes.
+`smoke` creates one private tree on Alice, places it on Bob and Carol, and requires identical SHA-256 manifests plus a healthy authority. `test` includes that smoke gate and then runs the mandatory accepted-update suite: serial A/B/C propagation, three-client offline Markdown additions, a durable binary conflict with no server history entry, arbord restart, explicit client resolution, `/push` absence, and device pairing/revocation. It fails on byte-manifest disagreement or missing authored markers, not merely on a status label.
+
+The full `test` command is a pre-production gate. Run it from the exact committed candidate revision and collect its evidence before requesting approval to update Railway. Do not deploy the Railway authority first and use this lab as an after-check.
 
 Local resume data lives in the ignored `.arbor-lab/<run-id>.json`. It contains exact server IDs, IP addresses, configuration, revision, and completed phases, but no Hetzner, Tailscale, or Arbor credentials. The disposable Arbor account token is generated and retained only in the authority's root-readable environment file; clients receive it over SSH on standard input while being configured.
 
@@ -125,7 +128,7 @@ This intentionally leaves public SSH available while the lab is active. Tighteni
 
 ## Run the community and clients
 
-Use one generated, disposable Arbor account credential on all three clients. This isolates synchronization behavior from profile invitation, device-pairing, group-membership, and ACL onboarding behavior. Generate the credential outside the repository, keep it in a password manager, and place it only in a root-readable systemd environment file on `arbor-community`. Paste it into `arbor connect` interactively on each client; do not export it in normal shell history.
+Use one generated, disposable initial device credential on all three clients for the synchronization matrix. The automated acceptance suite separately creates a short-lived paired device, proves it can read the test tree, revokes it, and proves the same credential is then denied. The runner keeps credentials in the authority's root-readable environment or in process memory and does not print them.
 
 Run the community as one systemd service with the equivalent of:
 
@@ -224,7 +227,7 @@ Verify that all clients become visibly offline while retaining readable local fi
 - no local changes during the outage, followed by `hcloud server poweron arbor-community`;
 - independent local changes on A, B, and C, followed by reconnecting clients one at a time in a recorded order.
 
-The first case must converge without conflict. In the second case, the first successful push may advance the authority; later divergent clients must preserve their local bytes and report conflict rather than silently replacing either side.
+The first case must converge without conflict. In the second case, the first accepted update advances the authority. Later Markdown candidates must preserve all independent additions through the authority merge. Unsafe candidates must remain complete on their originating client, receive a complete draft, and leave no authority history entry until the client explicitly resolves them with a new update.
 
 Repeat the divergent case with reconnect orders `A → B → C`, `C → B → A`, and `B → A → C`. Use fresh trees for each order.
 
@@ -251,28 +254,28 @@ Each row begins from a shared, recorded base ref. Isolate the named clients, mak
 
 | Scenario | Side A | Side B | Required safe outcome |
 |---|---|---|---|
-| Same Markdown block | Replace a heading | Replace the same heading differently | One complete ref wins; the other complete local version remains and conflict is visible |
-| Different Markdown blocks | Edit the introduction | Edit a later section | No silent loss; record whether whole-tree CAS still requires manual resolution |
-| Different files | Edit `a.md` | Edit `b.md` | No silent loss; record whether the implementation can reconcile independent changes |
-| Create/create | Create `notes.md` | Create different `notes.md` | Both authored versions remain recoverable; no arbitrary overwrite |
-| Edit/delete | Edit `notes.md` | Delete `notes.md` | Edited bytes remain recoverable and conflict is visible |
-| Rename/edit | Rename `notes.md` | Edit it at the old path | Neither the move nor edit disappears silently |
-| Rename/rename | Move one file to `left/` | Move it to `right/` | Both complete intentions remain inspectable |
-| Directory delete/add | Delete `research/` | Add `research/new.md` | Added content is not silently destroyed |
-| Binary/binary | Replace a binary with A bytes | Replace it with B bytes | No byte merge; one complete version per side remains |
-| Three writers | A, B, and C make unique edits offline | Reconnect in a chosen order | First accepted ref is complete; each later divergent client retains its complete local state |
+| Same Markdown slot | Add distinct lines at the same anchor | Add different lines | Accepted merge contains every line; approximate placement is reported when ordering is not exact |
+| Different Markdown blocks | Edit the introduction | Edit a later section | Automatic accepted merge contains both edits |
+| Different files | Edit `a.md` | Edit `b.md` | Automatic accepted merge contains both files |
+| Create/create Markdown | Create different `notes.md` content | Create different `notes.md` content | Loss-averse Markdown merge, or a structured conflict if protected structure is incompatible |
+| Frontmatter/frontmatter | Change one protected value | Change it differently | Client-owned `frontmatter-conflict`; complete draft; no authority history entry |
+| Edit/delete | Edit `notes.md` | Delete `notes.md` | Edited alternative stays in the complete client draft; explicit resolution required |
+| Rename/edit | Rename `notes.md` | Edit it at the old path | Structured path conflict; neither alternative disappears from client-owned state |
+| Nested boundary | Change a registered boundary | Change content beneath it independently | `nested-boundary-conflict`; parent update never absorbs the child tree |
+| Binary/binary | Replace a binary with A bytes | Replace it with B bytes | `binary-conflict`; local bytes and complete draft survive restart; no server conflict record |
+| Three writers | A, B, and C add unique Markdown lines offline | Reconnect in a chosen order | All markers converge into accepted history regardless of reconnect order |
 
 Also exercise Arbor-specific boundaries:
 
 - edit a parent directory while another client promotes a nested subtree;
 - attempt to replace a registered nested boundary and require `reserved-boundary` rather than ordinary overwrite;
 - edit the parent and nested Arbor tree independently and confirm the two `TreeID` scopes do not contaminate one another;
-- revoke a client's write access while it is offline with local edits, then reconnect it and require that the authority reject its push while its local bytes remain readable;
-- restart the community between object upload and ref advancement under repeated writes, verifying that unreachable objects are harmless and the mutable ref remains atomic.
+- revoke a client's write access while it is offline with local edits, then reconnect it and require that the authority reject its update while its local bytes remain readable;
+- restart the community during repeated update submissions, verifying that accepted history/ref advancement remains atomic and an exact successful replay creates no duplicate accepted update.
 
 Do not reinterpret a conflict as corruption. Record separately:
 
-- **expected conflict:** complete local and remote versions are preserved and attention is visible;
+- **expected conflict:** the authority retains no conflict record; the submitting client persists its complete local/draft/remote context and attention is visible;
 - **false conflict:** no concurrent remote advance occurred;
 - **data loss:** authored bytes disappear from both the authority and the originating client;
 - **corruption:** a ref resolves to an incomplete graph or partial file;
@@ -305,12 +308,15 @@ The first lab is complete when:
 - a fresh placement materializes the exact current tree at a new path;
 - single-client, asymmetric, and complete-community outages show correct offline state and recover;
 - non-divergent offline edits eventually propagate;
-- every conflict row preserves the originating local bytes and never publishes a partial authority ref;
+- every automatic Markdown case preserves all authored markers in one accepted root;
+- every unsafe conflict preserves the originating local bytes and complete returned draft across restart, adds no server history entry, and can be resolved only as a new accepted update;
+- successful exact replay adds exactly one accepted-history item, while repeating a conflict is recomputed and remains stateless on the authority;
+- `/push` is absent and pairing, device attribution, and revocation behave correctly;
 - all three reconnect orders produce recorded, explainable results;
 - server process crashes and VM reboots retain authority identity and committed refs;
 - any false conflicts, data loss, corruption, or permanent liveness failures are captured as reproducible defects with their scenario evidence.
 
-Different filesystems are a second completion gate, not a prerequisite for declaring the baseline network/sync run complete.
+Different filesystems are a second completion gate, not a prerequisite for declaring the baseline network/sync run complete. The baseline accepted-update gate must pass and its evidence must be collected before Plan 011 can mutate Railway.
 
 ## Tear down
 

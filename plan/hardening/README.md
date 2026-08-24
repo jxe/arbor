@@ -161,7 +161,7 @@ any of these.
 - **`ArborService` holds three unrelated responsibilities** in 1049 lines: the
   protocol surface (`service.ts:94-368`), the virtual system-tree projection
   (`:387-609`), and community/wire orchestration (`:671-956`). The seams are
-  clean; extraction would make `syncAll`/`pushWorkspace` unit-testable. Effort M.
+  clean; extraction would make `syncAll`/`updateWorkspace` unit-testable. Effort M.
 - **No root `CLAUDE.md`/`AGENTS.md`**, despite strong agent-directed conventions
   scattered across `plan/product/roadmap.md`, `README.md`, and the doc-ownership split. An agent
   starting cold will predictably re-propose superseded designs or create

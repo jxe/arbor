@@ -67,7 +67,7 @@ export interface TreeDescriptor {
     locator?: string;
   }>;
   placement: "local" | "shared" | "remote";
-  sync?: "idle" | "pushing" | "pulling" | "offline" | "conflict" | "error";
+  sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
   legacy?: boolean;
   missing?: boolean;
 }
@@ -197,6 +197,7 @@ export type SystemOperation =
   | { op: "promoteTree"; path: string; canonicalPath: string; audience: ShareAudience }
   | { op: "placeTree"; tree: TreeID; path: string; endpoint?: string; canonical?: string }
   | { op: "removeTreePlacement"; path: string; endpoint?: string; canonicalPath?: string }
+  | { op: "resolveTreeConflict"; tree: TreeID; choice: "local" | "draft" | "remote" }
   | {
       op: "setTreeAccess";
       tree: TreeID;
@@ -294,7 +295,13 @@ export interface ArbordErrorValue {
 }
 
 export interface ArbordErrorEnvelope {
-  error: ArbordErrorValue;
+  error: ArbordErrorCode;
+  message: string;
+  retryable: boolean;
+  path?: LogicalPath;
+  current?: NodeSnapshot;
+  owners?: LogicalPath[];
+  mutationID?: string;
 }
 
 export function canonicalJSONString(value: unknown): string {

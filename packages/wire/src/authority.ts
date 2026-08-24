@@ -1,4 +1,5 @@
 import { link, mkdir, open, readFile, unlink } from "node:fs/promises";
+import { timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { sha256 } from "@arbor/core";
@@ -11,6 +12,7 @@ import {
   type WireDirectory,
   type WireDirectoryEntry,
 } from "./objects.ts";
+import { mergeWireTrees, type MergeSummary, type UpdateConflict } from "./merge.ts";
 
 export type PublicAccess = "none" | "read" | "write";
 export type TreeAccess = "read" | "write";
@@ -44,6 +46,28 @@ export interface AuthorityAccount {
   enabled: boolean;
 }
 
+export interface AuthorityAuthentication {
+  account: AuthorityAccount;
+  subject: string;
+  device: string | null;
+}
+
+export interface AuthorityDevice {
+  id: string;
+  account: string;
+  label: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+  revokedAt: number | null;
+}
+
+export interface PairingOffer {
+  id: string;
+  secret: string;
+  confirmationCode: string;
+  expiresAt: number;
+}
+
 export interface AuthorityAccessEntry {
   id: string;
   tree: string;
@@ -53,10 +77,45 @@ export interface AuthorityAccessEntry {
   claimedProfile?: string;
 }
 
-export interface PushRequest {
-  expected: ObjectHash | null;
+export interface AcceptedUpdate {
+  id: string;
+  tree: string;
   root: ObjectHash;
+  previousRoot: ObjectHash | null;
+  kind: "initial" | "accepted" | "merged" | "restored";
+  acceptedAt: number;
+  subject: string | null;
+  baseRoot?: ObjectHash;
+  candidateRoot?: ObjectHash;
+  remoteRoot?: ObjectHash;
+  merge?: MergeSummary;
+}
+
+export interface UpdateRequest {
+  base: { root: ObjectHash; update: string };
+  candidate: ObjectHash;
   objects: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
+}
+
+export type UpdateResult =
+  | { outcome: "current"; current: AcceptedUpdate }
+  | { outcome: "accepted"; update: AcceptedUpdate }
+  | { outcome: "merged"; update: AcceptedUpdate; merge: MergeSummary };
+
+export interface UpdateConflictResult {
+  error: "conflict";
+  message: string;
+  retryable: false;
+  current: AcceptedUpdate;
+  base: ObjectHash;
+  candidate: ObjectHash;
+  draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> };
+  conflicts: UpdateConflict[];
+}
+
+export interface StoredUpdateResponse {
+  status: number;
+  result: UpdateResult | UpdateConflictResult;
 }
 
 export interface CommunityBootstrapAccount {
@@ -164,6 +223,13 @@ export class RefConflictError extends Error {
   }
 }
 
+export class UpdateProtocolError extends Error {
+  constructor(readonly code: "mutation-mismatch" | "base-not-retained" | "authority-busy", message: string) {
+    super(message);
+    this.name = "UpdateProtocolError";
+  }
+}
+
 export class AlreadyClaimedError extends Error {
   constructor(readonly handle: string) {
     super(`Profile is already claimed: ~${handle}`);
@@ -180,7 +246,8 @@ export class ReservedBoundaryConflictError extends Error {
 
 export class WireAuthority implements AsyncDisposable {
   private db: Database;
-  private listeners = new Map<string, Set<(tree: AuthorityTree) => void>>();
+  private listeners = new Map<string, Set<(tree: AuthorityTree, update: AcceptedUpdate) => void>>();
+  private updateLocks = new Map<string, Promise<void>>();
 
   private constructor(readonly dataRoot: string, db: Database) {
     this.db = db;
@@ -228,12 +295,64 @@ export class WireAuthority implements AsyncDisposable {
       )
     `);
     db.run(`
+      CREATE TABLE IF NOT EXISTS accepted_updates (
+        id TEXT PRIMARY KEY,
+        tree_id TEXT NOT NULL REFERENCES trees(id),
+        root TEXT NOT NULL,
+        previous_root TEXT,
+        kind TEXT NOT NULL,
+        accepted_at INTEGER NOT NULL,
+        subject TEXT,
+        base_root TEXT,
+        candidate_root TEXT,
+        remote_root TEXT,
+        merge_summary TEXT
+      )
+    `);
+    db.run("CREATE INDEX IF NOT EXISTS accepted_updates_tree_order ON accepted_updates(tree_id, accepted_at, id)");
+    db.run(`
+      CREATE TABLE IF NOT EXISTS update_replays (
+        tree_id TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        base_update TEXT NOT NULL,
+        base_root TEXT NOT NULL,
+        candidate_root TEXT NOT NULL,
+        status INTEGER NOT NULL,
+        result_json TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        PRIMARY KEY (tree_id, subject, idempotency_key)
+      )
+    `);
+    db.run(`
       CREATE TABLE IF NOT EXISTS accounts (
         id TEXT PRIMARY KEY,
         handle TEXT NOT NULL UNIQUE,
         profile_tree TEXT,
         token_digest TEXT NOT NULL UNIQUE,
         enabled INTEGER NOT NULL DEFAULT 1
+      )
+    `);
+    db.run(`
+      CREATE TABLE IF NOT EXISTS devices (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id),
+        label TEXT NOT NULL,
+        token_digest TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL,
+        last_used_at INTEGER,
+        revoked_at INTEGER
+      )
+    `);
+    db.run(`
+      CREATE TABLE IF NOT EXISTS pairings (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id),
+        secret_digest TEXT NOT NULL,
+        confirmation_code TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        claimed_at INTEGER
       )
     `);
     db.run(`
@@ -263,7 +382,64 @@ export class WireAuthority implements AsyncDisposable {
       if (!migrationAccount) throw new Error("Legacy authority migration requires one bootstrap account");
       await authority.migrateLegacyTrees(legacyTrees, migrationAccount.handle);
     }
+    authority.upgradeAcceptedUpdatesAndDevices();
     return authority;
+  }
+
+  private upgradeAcceptedUpdatesAndDevices(): void {
+    this.db.transaction(() => {
+      const trees = this.db.query("SELECT id, ref, updated_at FROM trees ORDER BY id").all() as Array<{
+        id: string;
+        ref: ObjectHash;
+        updated_at: number;
+      }>;
+      for (const tree of trees) {
+        const existing = this.db.query("SELECT COUNT(*) AS count FROM accepted_updates WHERE tree_id = ?")
+          .get(tree.id) as { count: number };
+        if (existing.count) continue;
+        const reflog = this.db.query(`
+          SELECT ref, previous_ref, changed_at
+          FROM reflog WHERE tree_id = ? ORDER BY changed_at, rowid
+        `).all(tree.id) as Array<{ ref: ObjectHash; previous_ref: ObjectHash | null; changed_at: number }>;
+        for (const row of reflog) {
+          this.insertAcceptedUpdate({
+            tree: tree.id,
+            root: row.ref,
+            previousRoot: row.previous_ref,
+            kind: row.previous_ref === null ? "initial" : "accepted",
+            acceptedAt: row.changed_at,
+            subject: "migration",
+          });
+        }
+        const lastRoot = reflog.at(-1)?.ref;
+        if (lastRoot !== tree.ref) {
+          this.insertAcceptedUpdate({
+            tree: tree.id,
+            root: tree.ref,
+            previousRoot: lastRoot ?? null,
+            kind: lastRoot === undefined ? "initial" : "accepted",
+            acceptedAt: tree.updated_at,
+            subject: "migration",
+          });
+        }
+      }
+
+      const accounts = this.db.query(`
+        SELECT a.id, a.token_digest,
+          COALESCE(MIN(t.updated_at), 0) AS created_at
+        FROM accounts a
+        LEFT JOIN trees t ON t.id = a.profile_tree
+        WHERE NOT EXISTS (SELECT 1 FROM devices d WHERE d.account_id = a.id)
+        GROUP BY a.id, a.token_digest
+        ORDER BY a.id
+      `).all() as Array<{ id: string; token_digest: string; created_at: number }>;
+      for (const account of accounts) {
+        this.db.run(
+          "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, 'Initial device', ?, ?)",
+          [opaqueID("dv"), account.id, account.token_digest, account.created_at],
+        );
+      }
+    })();
   }
 
   private async migrateLegacyTrees(
@@ -290,6 +466,14 @@ export class WireAuthority implements AsyncDisposable {
           legacy.ref,
           legacy.updated_at,
         ]);
+        this.insertAcceptedUpdate({
+          tree: legacy.id,
+          root: legacy.ref,
+          previousRoot: null,
+          kind: "initial",
+          acceptedAt: legacy.updated_at,
+          subject: "migration",
+        });
         this.db.run(
           "INSERT INTO boundaries (path, tree_id, parent_tree, kind) VALUES (?, ?, ?, 'shared-subtree')",
           [path, legacy.id, profile.id],
@@ -313,6 +497,14 @@ export class WireAuthority implements AsyncDisposable {
           "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)",
           [profile.id, attachment.nextRoot, attachment.parent.ref, now],
         );
+        this.insertAcceptedUpdate({
+          tree: profile.id,
+          root: attachment.nextRoot,
+          previousRoot: attachment.parent.ref,
+          kind: "accepted",
+          acceptedAt: now,
+          subject: "migration",
+        });
       })();
     }
   }
@@ -352,6 +544,10 @@ export class WireAuthority implements AsyncDisposable {
       this.db.run(
         "INSERT INTO accounts (id, handle, profile_tree, token_digest, enabled) VALUES (?, ?, ?, ?, 1)",
         [accountID, account.handle, profile.id, sha256(account.token)],
+      );
+      this.db.run(
+        "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, 'Initial device', ?, ?)",
+        [opaqueID("dv"), accountID, sha256(account.token), Date.now()],
       );
       this.setAccessInternal(profile.id, "profile", profile.id, "write");
       if (account.communityWriter !== false) {
@@ -407,6 +603,60 @@ export class WireAuthority implements AsyncDisposable {
     return this.treeSelect("WHERE t.id = ?", id);
   }
 
+  private updateRow(value: unknown): AcceptedUpdate | null {
+    if (!value) return null;
+    const row = value as {
+      id: string;
+      tree_id: string;
+      root: ObjectHash;
+      previous_root: ObjectHash | null;
+      kind: AcceptedUpdate["kind"];
+      accepted_at: number;
+      subject: string | null;
+      base_root: ObjectHash | null;
+      candidate_root: ObjectHash | null;
+      remote_root: ObjectHash | null;
+      merge_summary: string | null;
+    };
+    return {
+      id: row.id,
+      tree: row.tree_id,
+      root: row.root,
+      previousRoot: row.previous_root,
+      kind: row.kind,
+      acceptedAt: row.accepted_at,
+      subject: row.subject,
+      ...(row.base_root ? { baseRoot: row.base_root } : {}),
+      ...(row.candidate_root ? { candidateRoot: row.candidate_root } : {}),
+      ...(row.remote_root ? { remoteRoot: row.remote_root } : {}),
+      ...(row.merge_summary ? { merge: JSON.parse(row.merge_summary) as MergeSummary } : {}),
+    };
+  }
+
+  currentUpdate(treeID: string): AcceptedUpdate | null {
+    return this.updateRow(this.db.query(
+      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY accepted_at DESC, rowid DESC LIMIT 1",
+    ).get(treeID));
+  }
+
+  update(id: string): AcceptedUpdate | null {
+    return this.updateRow(this.db.query("SELECT * FROM accepted_updates WHERE id = ?").get(id));
+  }
+
+  updates(treeID: string, cursor?: string, limit = 100): { updates: AcceptedUpdate[]; cursor: string | null } {
+    const bounded = Math.max(1, Math.min(limit, 100));
+    const cursorRow = cursor
+      ? this.db.query("SELECT accepted_at, rowid FROM accepted_updates WHERE id = ? AND tree_id = ?").get(cursor, treeID) as { accepted_at: number; rowid: number } | null
+      : null;
+    if (cursor && !cursorRow) throw new Error("Invalid update cursor");
+    const rows = (cursorRow
+      ? this.db.query(`SELECT * FROM accepted_updates WHERE tree_id = ? AND (accepted_at > ? OR (accepted_at = ? AND rowid > ?)) ORDER BY accepted_at, rowid LIMIT ?`)
+        .all(treeID, cursorRow.accepted_at, cursorRow.accepted_at, cursorRow.rowid, bounded + 1)
+      : this.db.query("SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY accepted_at, rowid LIMIT ?").all(treeID, bounded + 1));
+    const page = rows.slice(0, bounded).map((row) => this.updateRow(row)!);
+    return { updates: page, cursor: rows.length > bounded ? page.at(-1)!.id : null };
+  }
+
   boundary(path: string): AuthorityTree | null {
     return this.treeSelect("WHERE b.path = ?", normalizeBoundaryPath(path));
   }
@@ -433,11 +683,112 @@ export class WireAuthority implements AsyncDisposable {
       : null;
   }
 
-  accountByToken(token: string | undefined): AuthorityAccount | null {
+  authenticateToken(token: string | undefined): AuthorityAuthentication | null {
     if (!token) return null;
-    const row = this.db.query("SELECT id FROM accounts WHERE token_digest = ? AND enabled = 1")
-      .get(sha256(token)) as { id: string } | null;
-    return row ? this.account(row.id) : null;
+    const digest = sha256(token);
+    const device = this.db.query(`
+      SELECT d.id AS device_id, d.account_id
+      FROM devices d JOIN accounts a ON a.id = d.account_id
+      WHERE d.token_digest = ? AND d.revoked_at IS NULL AND a.enabled = 1
+    `).get(digest) as { device_id: string; account_id: string } | null;
+    if (device) {
+      this.db.run("UPDATE devices SET last_used_at = ? WHERE id = ?", [Date.now(), device.device_id]);
+      return { account: this.account(device.account_id)!, subject: `device:${device.device_id}`, device: device.device_id };
+    }
+    return null;
+  }
+
+  accountByToken(token: string | undefined): AuthorityAccount | null {
+    return this.authenticateToken(token)?.account ?? null;
+  }
+
+  private deviceRow(value: unknown): AuthorityDevice | null {
+    if (!value) return null;
+    const row = value as {
+      id: string;
+      account_id: string;
+      label: string;
+      created_at: number;
+      last_used_at: number | null;
+      revoked_at: number | null;
+    };
+    return {
+      id: row.id,
+      account: row.account_id,
+      label: row.label,
+      createdAt: row.created_at,
+      lastUsedAt: row.last_used_at,
+      revokedAt: row.revoked_at,
+    };
+  }
+
+  devices(account: AuthorityAccount): AuthorityDevice[] {
+    return this.db.query("SELECT * FROM devices WHERE account_id = ? ORDER BY created_at, id")
+      .all(account.id).map((row) => this.deviceRow(row)!);
+  }
+
+  createPairing(account: AuthorityAccount): PairingOffer {
+    const id = opaqueID("pa");
+    const secret = `arp_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+    const confirmationCode = String(Number.parseInt(sha256(secret).slice(0, 12), 16) % 1_000_000).padStart(6, "0");
+    const now = Date.now();
+    const expiresAt = now + 10 * 60 * 1000;
+    this.db.run(`
+      INSERT INTO pairings (id, account_id, secret_digest, confirmation_code, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [id, account.id, sha256(secret), confirmationCode, now, expiresAt]);
+    return { id, secret, confirmationCode, expiresAt };
+  }
+
+  claimPairing(id: string, secret: string, label: string): { token: string; device: AuthorityDevice } {
+    const safeLabel = label.trim();
+    if (!safeLabel || safeLabel.length > 100) throw new Error("Device label is required and must be at most 100 characters");
+    const pairing = this.db.query(`
+      SELECT p.*, a.enabled AS account_enabled
+      FROM pairings p JOIN accounts a ON a.id = p.account_id
+      WHERE p.id = ?
+    `).get(id) as {
+      account_id: string;
+      secret_digest: string;
+      expires_at: number;
+      claimed_at: number | null;
+      account_enabled: number;
+    } | null;
+    const presentedDigest = Buffer.from(sha256(secret));
+    const expectedDigest = pairing ? Buffer.from(pairing.secret_digest) : Buffer.alloc(presentedDigest.length);
+    const secretMatches = presentedDigest.length === expectedDigest.length && timingSafeEqual(presentedDigest, expectedDigest);
+    if (!pairing || pairing.account_enabled !== 1 || pairing.claimed_at || pairing.expires_at <= Date.now() || !secretMatches) {
+      throw new Error("Pairing is invalid, expired, or already used");
+    }
+    const token = `arb_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+    const deviceID = opaqueID("dv");
+    const now = Date.now();
+    this.db.transaction(() => {
+      const claimed = this.db.run("UPDATE pairings SET claimed_at = ? WHERE id = ? AND claimed_at IS NULL AND expires_at > ?", [
+        now,
+        id,
+        now,
+      ]);
+      if (claimed.changes !== 1) throw new Error("Pairing is invalid, expired, or already used");
+      this.db.run(
+        "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, ?, ?, ?)",
+        [deviceID, pairing.account_id, safeLabel, sha256(token), now],
+      );
+    })();
+    return { token, device: this.deviceRow(this.db.query("SELECT * FROM devices WHERE id = ?").get(deviceID))! };
+  }
+
+  revokeDevice(account: AuthorityAccount, deviceID: string): AuthorityDevice {
+    const active = this.devices(account).filter((device) => device.revokedAt === null);
+    if (active.length <= 1 && active.some((device) => device.id === deviceID)) {
+      throw new Error("The only active device cannot be revoked");
+    }
+    const result = this.db.run(
+      "UPDATE devices SET revoked_at = ? WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
+      [Date.now(), deviceID, account.id],
+    );
+    if (result.changes !== 1) throw new Error("Active device not found");
+    return this.deviceRow(this.db.query("SELECT * FROM devices WHERE id = ?").get(deviceID))!;
   }
 
   accountByHandle(handle: string): AuthorityAccount | null {
@@ -451,7 +802,16 @@ export class WireAuthority implements AsyncDisposable {
     }
     const account = this.accountByHandle(handle);
     if (!account) throw new Error(`Unknown account: ~${handle}`);
-    this.db.run("UPDATE accounts SET token_digest = ? WHERE id = ?", [sha256(token), account.id]);
+    const digest = sha256(token);
+    const now = Date.now();
+    this.db.transaction(() => {
+      this.db.run("UPDATE accounts SET token_digest = ? WHERE id = ?", [digest, account.id]);
+      this.db.run("UPDATE devices SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL", [now, account.id]);
+      this.db.run(
+        "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, 'Recovered device', ?, ?)",
+        [opaqueID("dv"), account.id, digest, now],
+      );
+    })();
     return this.account(account.id)!;
   }
 
@@ -641,6 +1001,7 @@ export class WireAuthority implements AsyncDisposable {
     snapshot: TreeSnapshot,
     publicAccess: PublicAccess = "none",
     profileAccess: Array<{ profile: string; access: TreeAccess }> = [],
+    credentialSubject?: string,
   ): Promise<AuthorityTree> {
     const path = normalizeBoundaryPath(canonicalPath);
     if (this.boundary(path)) throw new Error(`Canonical boundary already exists: ${path}`);
@@ -689,6 +1050,7 @@ export class WireAuthority implements AsyncDisposable {
         if (account.profileTree) this.setAccessInternal(treeID, "profile", account.profileTree, "write");
         for (const rule of profileAccess) this.setAccessInternal(treeID, "profile", rule.profile, rule.access);
       },
+      credentialSubject,
     );
   }
 
@@ -699,6 +1061,7 @@ export class WireAuthority implements AsyncDisposable {
     await this.validateProfileSnapshot(snapshot, "person");
     const token = `arb_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
     const accountID = opaqueID("ac");
+    const deviceID = opaqueID("dv");
     const parent = this.community();
     let tree: AuthorityTree;
     try {
@@ -713,6 +1076,10 @@ export class WireAuthority implements AsyncDisposable {
             "INSERT INTO accounts (id, handle, profile_tree, token_digest, enabled) VALUES (?, ?, ?, ?, 1)",
             [accountID, handle, treeID, sha256(token)],
           );
+          this.db.run(
+            "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, 'Initial device', ?, ?)",
+            [deviceID, accountID, sha256(token), Date.now()],
+          );
           this.setAccessInternal(treeID, "profile", treeID, "write");
           const firstWriter = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'")
             .get() as { value: string } | null;
@@ -721,6 +1088,7 @@ export class WireAuthority implements AsyncDisposable {
             this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
           }
         },
+        `device:${deviceID}`,
       );
     } catch (error) {
       if (this.accountByHandle(handle) || this.boundary(`/~${handle}`)) throw new AlreadyClaimedError(handle);
@@ -729,46 +1097,237 @@ export class WireAuthority implements AsyncDisposable {
     return { account: this.account(accountID)!, token, tree };
   }
 
-  async push(
-    id: string,
-    request: PushRequest,
-    account: AuthorityAccount | null = null,
-    linkDigest?: string,
-  ): Promise<AuthorityTree> {
-    const tree = this.get(id);
-    if (!tree) throw new Error(`Unknown tree: ${id}`);
-    if (tree.ref !== request.expected) throw new RefConflictError(tree.ref);
-    if (!this.canWrite(account, id, linkDigest)) throw new Error("Write access is not allowed");
-    const proposed = new Map(request.objects.map(({ hash, bytes }) => [hash, bytes]));
-    await this.validateGraph(request.root, proposed);
-    await this.validateReservedBoundaries(tree, request.root, proposed);
-    if (tree.kind === "person-profile") {
-      await this.validateProfileRoot(request.root, proposed, "person");
-    } else if (tree.kind === "group-profile" || tree.kind === "community-profile") {
-      await this.validateProfileRoot(request.root, proposed, "group");
-    }
-    await this.storeObjects(request.objects);
-    const now = Date.now();
-    this.db.transaction(() => {
-      const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
-        request.root,
-        now,
-        id,
-        request.expected,
-      ]);
-      if (result.changes !== 1) throw new RefConflictError(this.get(id)?.ref ?? null);
-      this.db.run(
-        "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)",
-        [id, request.root, request.expected, now],
-      );
-    })();
-    if (tree.kind === "community-profile") this.reconcileCommunityAccounts();
-    const updated = this.get(id)!;
-    for (const listener of this.listeners.get(id) ?? []) listener(updated);
-    return updated;
+  private insertAcceptedUpdate(input: {
+    tree: string;
+    root: ObjectHash;
+    previousRoot: ObjectHash | null;
+    kind: AcceptedUpdate["kind"];
+    acceptedAt: number;
+    subject?: string | null;
+    baseRoot?: ObjectHash;
+    candidateRoot?: ObjectHash;
+    remoteRoot?: ObjectHash;
+    merge?: MergeSummary;
+  }): AcceptedUpdate {
+    const id = opaqueID("up");
+    this.db.run(`
+      INSERT INTO accepted_updates
+        (id, tree_id, root, previous_root, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      id,
+      input.tree,
+      input.root,
+      input.previousRoot,
+      input.kind,
+      input.acceptedAt,
+      input.subject ?? null,
+      input.baseRoot ?? null,
+      input.candidateRoot ?? null,
+      input.remoteRoot ?? null,
+      input.merge ? JSON.stringify(input.merge) : null,
+    ]);
+    return this.update(id)!;
   }
 
-  subscribe(id: string, listener: (tree: AuthorityTree) => void): () => void {
+  private replayResult(row: { status: number; result_json: string }): StoredUpdateResponse {
+    return { status: row.status, result: JSON.parse(row.result_json) as UpdateResult };
+  }
+
+  private storeReplay(
+    tree: string,
+    subject: string,
+    key: string,
+    request: UpdateRequest,
+    response: StoredUpdateResponse,
+  ): void {
+    if ("error" in response.result) throw new Error("Rejected updates are never stored in the authority replay cache");
+    this.db.run(`
+      INSERT INTO update_replays
+        (tree_id, subject, idempotency_key, base_update, base_root, candidate_root, status, result_json, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      tree,
+      subject,
+      key,
+      request.base.update,
+      request.base.root,
+      request.candidate,
+      response.status,
+      JSON.stringify(response.result),
+      Date.now() + 7 * 24 * 60 * 60 * 1000,
+    ]);
+  }
+
+  async submitUpdate(
+    treeID: string,
+    request: UpdateRequest,
+    idempotencyKey: string,
+    account: AuthorityAccount | null = null,
+    linkDigest?: string,
+    credentialSubject?: string,
+  ): Promise<StoredUpdateResponse> {
+    const previous = this.updateLocks.get(treeID) ?? Promise.resolve();
+    let release!: () => void;
+    const turn = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.then(() => turn);
+    this.updateLocks.set(treeID, queued);
+    await previous;
+    try {
+      return await this.submitUpdateLocked(
+        treeID,
+        request,
+        idempotencyKey,
+        account,
+        linkDigest,
+        credentialSubject,
+      );
+    } finally {
+      release();
+      if (this.updateLocks.get(treeID) === queued) this.updateLocks.delete(treeID);
+    }
+  }
+
+  private async submitUpdateLocked(
+    treeID: string,
+    request: UpdateRequest,
+    idempotencyKey: string,
+    account: AuthorityAccount | null = null,
+    linkDigest?: string,
+    credentialSubject?: string,
+  ): Promise<StoredUpdateResponse> {
+    if (!idempotencyKey || idempotencyKey.length > 200) throw new Error("A bounded Idempotency-Key is required");
+    const tree = this.get(treeID);
+    if (!tree) throw new Error(`Unknown tree: ${treeID}`);
+    if (!this.canWrite(account, treeID, linkDigest)) throw new Error("Write access is not allowed");
+    const subject = credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public");
+    this.db.run("DELETE FROM update_replays WHERE expires_at <= ?", [Date.now()]);
+    const replay = this.db.query(`
+      SELECT base_update, base_root, candidate_root, status, result_json
+      FROM update_replays WHERE tree_id = ? AND subject = ? AND idempotency_key = ?
+    `).get(treeID, subject, idempotencyKey) as {
+      base_update: string;
+      base_root: string;
+      candidate_root: string;
+      status: number;
+      result_json: string;
+    } | null;
+    if (replay) {
+      if (
+        replay.base_update !== request.base.update
+        || replay.base_root !== request.base.root
+        || replay.candidate_root !== request.candidate
+      ) throw new UpdateProtocolError("mutation-mismatch", "Idempotency-Key was already used with different update intent");
+      return this.replayResult(replay);
+    }
+    const baseUpdate = this.update(request.base.update);
+    if (!baseUpdate || baseUpdate.tree !== treeID || baseUpdate.root !== request.base.root) {
+      throw new UpdateProtocolError("base-not-retained", "Base update is not retained for this tree and root");
+    }
+    const proposed = new Map(request.objects.map(({ hash, bytes }) => [hash, bytes]));
+    await this.validateGraph(request.candidate, proposed);
+    await this.validateReservedBoundaries(tree, request.candidate, proposed);
+    if (tree.kind === "person-profile") await this.validateProfileRoot(request.candidate, proposed, "person");
+    if (tree.kind === "group-profile" || tree.kind === "community-profile") await this.validateProfileRoot(request.candidate, proposed, "group");
+    for (let race = 0; race < 3; race++) {
+      const remoteTree = this.get(treeID)!;
+      const remoteUpdate = this.currentUpdate(treeID);
+      if (!remoteUpdate || remoteUpdate.root !== remoteTree.ref) {
+        throw new UpdateProtocolError("base-not-retained", "Current tree has not been migrated to accepted updates");
+      }
+      if (request.candidate === remoteTree.ref || request.candidate === request.base.root) {
+        const response: StoredUpdateResponse = { status: 200, result: { outcome: "current", current: remoteUpdate } };
+        this.db.transaction(() => this.storeReplay(treeID, subject, idempotencyKey, request, response))();
+        return response;
+      }
+
+      let nextRoot = request.candidate;
+      let kind: AcceptedUpdate["kind"] = "accepted";
+      let merge: MergeSummary | undefined;
+      let generated = new Map<ObjectHash, Uint8Array>();
+      if (remoteTree.ref !== request.base.root) {
+        const merged = await mergeWireTrees(
+          request.base.root,
+          request.candidate,
+          remoteTree.ref,
+          (hash) => this.loadObject(hash, proposed),
+        );
+        nextRoot = merged.root;
+        merge = merged.summary;
+        generated = merged.objects;
+        if (merged.conflicts.length) {
+          const draft = await this.completeSnapshot(merged.root, new Map([...proposed, ...merged.objects]));
+          const response: StoredUpdateResponse = {
+            status: 409,
+            result: {
+              error: "conflict",
+              message: "The candidate could not be merged safely",
+              retryable: false,
+              current: remoteUpdate,
+              base: request.base.root,
+              candidate: request.candidate,
+              draft: { root: draft.root, objects: [...draft.objects].map(([hash, bytes]) => ({ hash, bytes })) },
+              conflicts: merged.conflicts,
+            },
+          };
+          return response;
+        }
+        kind = "merged";
+        const mergedObjects = new Map([...proposed, ...generated]);
+        await this.validateGraph(nextRoot, mergedObjects);
+        await this.validateReservedBoundaries(remoteTree, nextRoot, mergedObjects);
+      }
+      await this.storeObjects(request.objects);
+      await this.storeObjects([...generated].map(([hash, bytes]) => ({ hash, bytes })));
+      const now = Date.now();
+      let accepted: AcceptedUpdate | null = null;
+      try {
+        this.db.transaction(() => {
+          const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
+            nextRoot,
+            now,
+            treeID,
+            remoteTree.ref,
+          ]);
+          if (result.changes !== 1) throw new RefConflictError(this.get(treeID)?.ref ?? null);
+          this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)", [
+            treeID,
+            nextRoot,
+            remoteTree.ref,
+            now,
+          ]);
+          accepted = this.insertAcceptedUpdate({
+            tree: treeID,
+            root: nextRoot,
+            previousRoot: remoteTree.ref,
+            kind,
+            acceptedAt: now,
+            subject,
+            baseRoot: request.base.root,
+            candidateRoot: request.candidate,
+            remoteRoot: remoteTree.ref,
+            ...(merge ? { merge } : {}),
+          });
+          const response: StoredUpdateResponse = kind === "merged"
+            ? { status: 201, result: { outcome: "merged", update: accepted!, merge: merge! } }
+            : { status: 201, result: { outcome: "accepted", update: accepted! } };
+          this.storeReplay(treeID, subject, idempotencyKey, request, response);
+        })();
+      } catch (error) {
+        if (error instanceof RefConflictError) continue;
+        throw error;
+      }
+      if (remoteTree.kind === "community-profile") this.reconcileCommunityAccounts();
+      const updatedTree = this.get(treeID)!;
+      for (const listener of this.listeners.get(treeID) ?? []) listener(updatedTree, accepted!);
+      return kind === "merged"
+        ? { status: 201, result: { outcome: "merged", update: accepted!, merge: merge! } }
+        : { status: 201, result: { outcome: "accepted", update: accepted! } };
+    }
+    throw new UpdateProtocolError("authority-busy", "Authority update changed repeatedly during merge");
+  }
+
+  subscribe(id: string, listener: (tree: AuthorityTree, update: AcceptedUpdate) => void): () => void {
     const listeners = this.listeners.get(id) ?? new Set();
     listeners.add(listener);
     this.listeners.set(id, listeners);
@@ -781,13 +1340,33 @@ export class WireAuthority implements AsyncDisposable {
     return bytes;
   }
 
-  /** Verify SQLite plus every object reachable from a current authority ref. */
+  private async completeSnapshot(
+    root: ObjectHash,
+    proposed: ReadonlyMap<ObjectHash, Uint8Array> = new Map(),
+  ): Promise<TreeSnapshot> {
+    const objects = new Map<ObjectHash, Uint8Array>();
+    const pending = [root];
+    while (pending.length) {
+      const hash = pending.pop()!;
+      if (objects.has(hash)) continue;
+      const bytes = await this.loadObject(hash, proposed);
+      objects.set(hash, bytes);
+      const object = decodeWireObject(bytes);
+      if (object.type === "directory") {
+        for (const entry of object.entries) if (entry.hash) pending.push(entry.hash);
+      }
+    }
+    return { root, objects };
+  }
+
+  /** Verify SQLite plus every object reachable from retained accepted history. */
   async verifyIntegrity(): Promise<void> {
     const rows = this.db.query("PRAGMA quick_check").all() as Array<Record<string, unknown>>;
     if (rows.length !== 1 || Object.values(rows[0] ?? {})[0] !== "ok") {
       throw new Error("Authority SQLite integrity check failed");
     }
-    const pending = this.list().map((tree) => tree.ref);
+    const pending = (this.db.query("SELECT DISTINCT root FROM accepted_updates").all() as Array<{ root: ObjectHash }>)
+      .map(({ root }) => root);
     const seen = new Set<ObjectHash>();
     while (pending.length) {
       const hash = pending.pop()!;
@@ -802,8 +1381,11 @@ export class WireAuthority implements AsyncDisposable {
 
   async isReadableObject(hash: ObjectHash, account: AuthorityAccount | null, linkDigest?: string): Promise<boolean> {
     for (const tree of this.list()) {
-      if (!this.canRead(account, tree.id, linkDigest)) continue;
-      if (await this.graphContains(tree.ref, hash)) return true;
+      if (this.canRead(account, tree.id, linkDigest) && await this.graphContains(tree.ref, hash)) return true;
+      if (!this.canWrite(account, tree.id, linkDigest)) continue;
+      const roots = this.db.query("SELECT DISTINCT root FROM accepted_updates WHERE tree_id = ?")
+        .all(tree.id) as Array<{ root: ObjectHash }>;
+      for (const accepted of roots) if (await this.graphContains(accepted.root, hash)) return true;
     }
     return false;
   }
@@ -815,6 +1397,7 @@ export class WireAuthority implements AsyncDisposable {
     publicAccess: PublicAccess,
     parentTree: string | null,
     withinTransaction?: (treeID: string) => void,
+    credentialSubject?: string,
   ): Promise<AuthorityTree> {
     const path = normalizeBoundaryPath(canonicalPath);
     await this.validateGraph(snapshot.root, snapshot.objects);
@@ -836,6 +1419,14 @@ export class WireAuthority implements AsyncDisposable {
         "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)",
         [id, snapshot.root, now],
       );
+      this.insertAcceptedUpdate({
+        tree: id,
+        root: snapshot.root,
+        previousRoot: null,
+        kind: "initial",
+        acceptedAt: now,
+        subject: credentialSubject ?? null,
+      });
       if (publicAccess !== "none") this.setAccessInternal(id, "everyone", "everyone", publicAccess);
       withinTransaction?.(id);
       if (attachment) {
@@ -850,11 +1441,20 @@ export class WireAuthority implements AsyncDisposable {
           "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)",
           [attachment.parent.id, attachment.nextRoot, attachment.parent.ref, now],
         );
+        this.insertAcceptedUpdate({
+          tree: attachment.parent.id,
+          root: attachment.nextRoot,
+          previousRoot: attachment.parent.ref,
+          kind: "accepted",
+          acceptedAt: now,
+          subject: credentialSubject ?? null,
+        });
       }
     })();
     if (attachment) {
       const updated = this.get(attachment.parent.id)!;
-      for (const listener of this.listeners.get(attachment.parent.id) ?? []) listener(updated);
+      const update = this.currentUpdate(attachment.parent.id)!;
+      for (const listener of this.listeners.get(attachment.parent.id) ?? []) listener(updated, update);
     }
     return this.get(id)!;
   }

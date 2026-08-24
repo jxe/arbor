@@ -4,6 +4,7 @@ import {
   AlreadyClaimedError,
   RefConflictError,
   ReservedBoundaryConflictError,
+  UpdateProtocolError,
   WireAuthority,
   type AuthorityAccount,
   type AuthorityTree,
@@ -18,6 +19,16 @@ import { renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
+}
+
+function wireError(
+  error: string,
+  message: string,
+  status: number,
+  retryable = false,
+  details: Record<string, unknown> = {},
+): Response {
+  return json({ error, message, retryable, ...details }, status);
 }
 
 function descriptor(origin: string, tree: AuthorityTree, access: TreeAccess = "read"): RemoteTreeDescriptor {
@@ -38,15 +49,43 @@ function descriptor(origin: string, tree: AuthorityTree, access: TreeAccess = "r
   };
 }
 
+function descriptorWithUpdate(
+  origin: string,
+  authority: WireAuthority,
+  tree: AuthorityTree,
+  access: TreeAccess = "read",
+): RemoteTreeDescriptor {
+  return { ...descriptor(origin, tree, access), update: authority.currentUpdate(tree.id)?.id };
+}
+
+function updateJSON(value: unknown): unknown {
+  if (!value || typeof value !== "object" || !("error" in value) || (value as { error?: unknown }).error !== "conflict") return value;
+  const conflict = value as {
+    error: "conflict";
+    current: unknown;
+    base: ObjectHash;
+    candidate: ObjectHash;
+    conflicts: unknown[];
+    draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> };
+  };
+  return {
+    ...conflict,
+    draft: {
+      root: conflict.draft.root,
+      objects: conflict.draft.objects.map(({ hash, bytes }) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
+    },
+  };
+}
+
 function accountDescriptor(origin: string, authority: WireAuthority, account: AuthorityAccount): RemoteAccountDescriptor {
   const profile = account.profileTree ? authority.get(account.profileTree) : null;
   return {
     id: account.id,
     handle: account.handle,
     profileTree: account.profileTree,
-    profileURL: profile ? descriptor(origin, profile, "write").arborURL : null,
-    community: descriptor(origin, authority.community(), authority.canWrite(account, authority.community().id) ? "write" : "read"),
-    writableProfiles: authority.writableProfiles(account).map((tree) => descriptor(origin, tree, "write")),
+    profileURL: profile ? descriptorWithUpdate(origin, authority, profile, "write").arborURL : null,
+    community: descriptorWithUpdate(origin, authority, authority.community(), authority.canWrite(account, authority.community().id) ? "write" : "read"),
+    writableProfiles: authority.writableProfiles(account).map((tree) => descriptorWithUpdate(origin, authority, tree, "write")),
   };
 }
 
@@ -131,13 +170,14 @@ export async function serveWireHost(options: {
     ...(options.community?.firstWriter ? { firstWriter: options.community.firstWriter } : {}),
   });
   if (!dynamicLoopbackOrigin) authority.setCommunityHost(new URL(publicOrigin).host);
-  const anonymousPushes = new Map<string, { window: number; count: number }>();
+  const pairingClaimAttempts = new Map<string, number[]>();
   const server = Bun.serve({
     port: options.port ?? Number(process.env.PORT ?? 4318),
     hostname: options.hostname ?? "0.0.0.0",
     async fetch(request) {
       const url = new URL(request.url);
-      const account = accountFor(request, authority);
+      const authentication = authority.authenticateToken(bearer(request));
+      const account = authentication?.account ?? null;
       try {
         if (request.method === "GET" && url.pathname === "/.arbor/health") {
           try {
@@ -145,17 +185,44 @@ export async function serveWireHost(options: {
             return json({ status: "ok" });
           } catch (error) {
             console.error("Arbor authority integrity check failed", error);
-            return json({ status: "error", reason: "integrity-check-failed" }, 503);
+            return wireError("internal-error", "Authority integrity check failed", 503, true);
           }
         }
         if (request.method === "GET" && url.pathname === "/.arbor/account") {
           return json(accountDescriptor(publicOrigin, authority, requireAccount(request, authority)));
         }
+        if (url.pathname === "/.arbor/pairings" && request.method === "POST") {
+          return json(authority.createPairing(requireAccount(request, authority)), 201);
+        }
+        const pairingClaim = /^\/\.arbor\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
+        if (pairingClaim && request.method === "POST") {
+          const pairingID = decodeURIComponent(pairingClaim[1]!);
+          const address = request.headers.get("cf-connecting-ip")
+            ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+            ?? "unknown";
+          const rateKey = `${address}:${pairingID}`;
+          const cutoff = Date.now() - 10 * 60 * 1000;
+          const recent = (pairingClaimAttempts.get(rateKey) ?? []).filter((attempt) => attempt > cutoff);
+          if (recent.length >= 10) return wireError("rate-limited", "Too many pairing claims", 429, true);
+          recent.push(Date.now());
+          pairingClaimAttempts.set(rateKey, recent);
+          const body = await request.json() as { secret?: unknown; label?: unknown };
+          if (typeof body.secret !== "string" || typeof body.label !== "string") throw new Error("Pairing claim requires secret and label");
+          const claimed = authority.claimPairing(pairingID, body.secret, body.label);
+          return json({ deviceToken: claimed.token, device: claimed.device }, 201);
+        }
+        if (url.pathname === "/.arbor/devices" && request.method === "GET") {
+          return json(authority.devices(requireAccount(request, authority)));
+        }
+        const device = /^\/\.arbor\/devices\/([^/]+)$/.exec(url.pathname);
+        if (device && request.method === "DELETE") {
+          return json(authority.revokeDevice(requireAccount(request, authority), decodeURIComponent(device[1]!)));
+        }
         if (url.pathname === "/.arbor/trees") {
           if (request.method === "GET") {
             return json(authority.list()
               .filter((tree) => authority.canRead(account, tree.id, linkDigest(request)))
-              .map((tree) => descriptor(publicOrigin, tree, authority.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read")));
+              .map((tree) => descriptorWithUpdate(publicOrigin, authority, tree, authority.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read")));
           }
           if (request.method === "POST") {
             const authenticated = requireAccount(request, authority);
@@ -193,8 +260,9 @@ export async function serveWireHost(options: {
               bodySnapshot(body),
               publicAccess(body.publicAccess ?? "none"),
               profileAccess,
+              authentication?.subject,
             );
-            return json(descriptor(publicOrigin, tree, "write"), 201);
+            return json(descriptorWithUpdate(publicOrigin, authority, tree, "write"), 201);
           }
           return new Response("Method not allowed", { status: 405 });
         }
@@ -205,7 +273,7 @@ export async function serveWireHost(options: {
           return json({
             accountToken: result.token,
             account: accountDescriptor(publicOrigin, authority, result.account),
-            tree: descriptor(publicOrigin, result.tree, "write"),
+            tree: descriptorWithUpdate(publicOrigin, authority, result.tree, "write"),
           }, 201);
         }
         const access = /^\/\.arbor\/trees\/([^/]+)\/access$/.exec(url.pathname);
@@ -289,45 +357,49 @@ export async function serveWireHost(options: {
           const resolved = authority.resolve(wellKnown);
           if (!resolved || !authority.canRead(account, resolved.tree.id, linkDigest(request))) return new Response("Not found", { status: 404 });
           return json({
-            ...descriptor(
+            ...descriptorWithUpdate(
               publicOrigin,
+              authority,
               resolved.tree,
               authority.canWrite(account, resolved.tree.id, linkDigest(request)) ? "write" : "read",
             ),
             path: resolved.path,
+            capabilities: { updates: "updates-v1" },
           });
         }
         const ref = /^\/\.arbor\/trees\/([^/]+)\/ref$/.exec(url.pathname);
         if (ref && request.method === "GET") {
           const tree = authority.get(decodeURIComponent(ref[1]!));
           if (!tree || !authority.canRead(account, tree.id, linkDigest(request))) return new Response("Not found", { status: 404 });
-          return json(descriptor(
+          return json(descriptorWithUpdate(
             publicOrigin,
+            authority,
             tree,
             authority.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read",
           ));
         }
-        const push = /^\/\.arbor\/trees\/([^/]+)\/push$/.exec(url.pathname);
-        if (push && request.method === "POST") {
-          const tree = authority.get(decodeURIComponent(push[1]!));
-          if (!tree || !authority.canWrite(account, tree.id, linkDigest(request))) return new Response("Not found", { status: 404 });
-          if (!account) {
-            const key = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anonymous";
-            const window = Math.floor(Date.now() / 60_000);
-            const usage = anonymousPushes.get(key);
-            if (usage?.window === window && usage.count >= 60) return json({ error: "rate-limit" }, 429);
-            anonymousPushes.set(key, usage?.window === window
-              ? { window, count: usage.count + 1 }
-              : { window, count: 1 });
+        const updates = /^\/\.arbor\/trees\/([^/]+)\/updates$/.exec(url.pathname);
+        if (updates) {
+          const treeID = decodeURIComponent(updates[1]!);
+          const tree = authority.get(treeID);
+          if (!tree || !authority.canWrite(account, treeID, linkDigest(request))) return new Response("Not found", { status: 404 });
+          if (request.method === "GET") {
+            return json(authority.updates(treeID, url.searchParams.get("cursor") ?? undefined));
           }
-          const body = await request.json() as { expected?: unknown; root?: unknown; objects?: unknown };
-          if (typeof body.expected !== "string" || typeof body.root !== "string") throw new Error("Invalid push");
-          const updated = await authority.push(tree.id, {
-            expected: body.expected,
-            root: body.root,
-            objects: WireClient.decodeObjects(body.objects),
-          }, account, linkDigest(request));
-          return json(descriptor(publicOrigin, updated, "write"));
+          if (request.method === "POST") {
+            const body = await request.json() as { base?: unknown; candidate?: unknown; objects?: unknown };
+            const base = body.base as { root?: unknown; update?: unknown } | null;
+            if (!base || typeof base.root !== "string" || typeof base.update !== "string" || typeof body.candidate !== "string") {
+              throw new Error("Update requires base root/update and candidate root");
+            }
+            const result = await authority.submitUpdate(treeID, {
+              base: { root: base.root, update: base.update },
+              candidate: body.candidate,
+              objects: WireClient.decodeObjects(body.objects),
+            }, request.headers.get("idempotency-key") ?? "", account, linkDigest(request), authentication?.subject);
+            return json(updateJSON(result.result), result.status);
+          }
+          return new Response("Method not allowed", { status: 405 });
         }
         const watch = /^\/\.arbor\/trees\/([^/]+)\/watch$/.exec(url.pathname);
         if (watch && request.method === "GET") {
@@ -336,9 +408,10 @@ export async function serveWireHost(options: {
           const encoder = new TextEncoder();
           return new Response(new ReadableStream({
             start(controller) {
-              controller.enqueue(encoder.encode(`event: ref\ndata: ${JSON.stringify(descriptor(publicOrigin, tree, authority.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read"))}\n\n`));
-              const stop = authority.subscribe(tree.id, (updated) => {
-                controller.enqueue(encoder.encode(`event: ref\ndata: ${JSON.stringify(descriptor(publicOrigin, updated, authority.canWrite(account, updated.id, linkDigest(request)) ? "write" : "read"))}\n\n`));
+              const currentUpdate = authority.currentUpdate(tree.id);
+              controller.enqueue(encoder.encode(`${currentUpdate ? `id: ${currentUpdate.id}\n` : ""}event: ref\ndata: ${JSON.stringify(descriptorWithUpdate(publicOrigin, authority, tree, authority.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read"))}\n\n`));
+              const stop = authority.subscribe(tree.id, (updated, accepted) => {
+                controller.enqueue(encoder.encode(`id: ${accepted.id}\nevent: ref\ndata: ${JSON.stringify(descriptorWithUpdate(publicOrigin, authority, updated, authority.canWrite(account, updated.id, linkDigest(request)) ? "write" : "read"))}\n\n`));
               });
               request.signal.addEventListener("abort", () => {
                 stop();
@@ -353,7 +426,11 @@ export async function serveWireHost(options: {
           if (!(await authority.isReadableObject(hash, account, linkDigest(request)))) return new Response("Not found", { status: 404 });
           const bytes = await authority.object(hash);
           return new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, {
-            headers: { "content-type": "application/vnd.ipld.dag-cbor", "cache-control": "public, immutable" },
+            headers: {
+              "content-type": "application/vnd.ipld.dag-cbor",
+              "cache-control": "public, immutable",
+              etag: `"${hash}"`,
+            },
           });
         }
         if (request.method === "GET" && !url.pathname.startsWith("/.")) {
@@ -426,16 +503,29 @@ export async function serveWireHost(options: {
             children,
           }));
         }
-        return new Response("Not found", { status: 404 });
+        return wireError("not-found", "Route not found", 404);
       } catch (error) {
-        if (error instanceof RefConflictError) return json({ error: "ref-conflict", current: error.current }, 409);
-        if (error instanceof AlreadyClaimedError) return json({ error: "already-claimed", handle: error.handle }, 409);
+        if (error instanceof RefConflictError) {
+          return wireError("ref-conflict", "The tree ref changed before the mutation committed", 409, false, { current: error.current });
+        }
+        if (error instanceof UpdateProtocolError) {
+          const status = error.code === "base-not-retained" ? 410 : error.code === "authority-busy" ? 503 : 409;
+          return wireError(error.code, error.message, status, error.code === "authority-busy");
+        }
+        if (error instanceof AlreadyClaimedError) {
+          return wireError("already-claimed", `Profile ~${error.handle} is already claimed`, 409, false, { handle: error.handle });
+        }
         if (error instanceof ReservedBoundaryConflictError) {
-          return json({ error: "reserved-boundary", path: error.path, tree: error.tree }, 409);
+          return wireError("reserved-boundary", "The update would change an independently versioned tree boundary", 409, false, {
+            path: error.path,
+            tree: error.tree,
+          });
         }
         const message = error instanceof Error ? error.message : String(error);
-        const status = /authentication|not allowed/i.test(message) ? 403 : 400;
-        return json({ error: message }, status);
+        if (/authentication is required/i.test(message)) return wireError("unauthenticated", message, 401);
+        if (/not allowed/i.test(message)) return wireError("permission-denied", message, 403);
+        if (/unknown tree|not found/i.test(message)) return wireError("not-found", message, 404);
+        return wireError("invalid-request", message, 400);
       }
     },
   });

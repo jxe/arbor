@@ -696,12 +696,10 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
         status: 409,
         contentType: "application/json",
         body: JSON.stringify({
-          error: {
-            code: "credential-unavailable",
-            message: "The credential for ~owner is unavailable. Run arbor connect to restore it.",
-            retryable: false,
-            path: "system:credentials",
-          },
+          error: "credential-unavailable",
+          message: "The credential for ~owner is unavailable. Run arbor connect to restore it.",
+          retryable: false,
+          path: "system:credentials",
         }),
       });
       return;

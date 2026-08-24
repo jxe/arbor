@@ -49,8 +49,13 @@ async function authorCommunity(
 ): Promise<void> {
   const path = await profileFolder("community-source", "group", members);
   const boundaryMap = new Map(boundaries.map((boundary) => [join(path, `~${boundary.handle}`), boundary.tree]));
-  const community = host.authority.community();
-  await owner.push(community.id, community.ref, await snapshotDirectory(path, boundaryMap));
+  const community = await owner.ref(host.authority.community().id);
+  await owner.submitUpdate(
+    community.id,
+    crypto.randomUUID(),
+    { root: community.ref, update: community.update! },
+    await snapshotDirectory(path, boundaryMap),
+  );
 }
 
 beforeAll(async () => {
@@ -118,7 +123,7 @@ describe("community-mounted profiles and sharing", () => {
       .rejects.toThrow("not reserved");
     expect((await fetch(`${host.url}/.arbor/account`, {
       headers: { authorization: `Bearer ${claimed.accountToken}` },
-    })).status).toBe(403);
+    })).status).toBe(401);
     expect(host.authority.boundary("/~alice")?.id).toBe(claimed.tree.id);
   });
 
@@ -148,7 +153,12 @@ describe("community-mounted profiles and sharing", () => {
       kind: "group-profile",
       publicAccess: "read",
     });
-    await expect(alice.push(editors.id, editors.ref, await snapshotDirectory(editorsPath)))
+    await expect(alice.submitUpdate(
+      editors.id,
+      crypto.randomUUID(),
+      { root: editors.ref, update: editors.update! },
+      await snapshotDirectory(editorsPath),
+    ))
       .rejects.toThrow("Not found");
     expect((await fetch(`${host.url}/~editors/handbook/welcome.md`)).status).toBe(200);
     expect((await owner.resolve("/~editors/handbook/welcome.md")).id).toBe(editors.id);
@@ -195,13 +205,18 @@ describe("community-mounted profiles and sharing", () => {
     })).status).toBe(404);
 
     const currentEditors = host.authority.get(editors.id)!;
+    const currentEditorsUpdate = host.authority.currentUpdate(editors.id)!;
     const replacement = await snapshotDirectory(editorsPath);
-    const conflict = await fetch(`${host.url}/.arbor/trees/${editors.id}/push`, {
+    const conflict = await fetch(`${host.url}/.arbor/trees/${editors.id}/updates`, {
       method: "POST",
-      headers: { authorization: `Bearer ${ownerToken}`, "content-type": "application/json" },
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+      },
       body: JSON.stringify({
-        expected: currentEditors.ref,
-        root: replacement.root,
+        base: { root: currentEditors.ref, update: currentEditorsUpdate.id },
+        candidate: replacement.root,
         objects: [...replacement.objects].map(([hash, bytes]) => ({
           hash,
           bytes: Buffer.from(bytes).toString("base64"),
@@ -612,5 +627,96 @@ test("migrates the legacy owner/slug/publication authority into the owner profil
   } finally {
     migrated.server.stop(true);
     await migrated.authority[Symbol.asyncDispose]();
+  }
+});
+
+test("upgrades pre-updates authority state once without changing identity, refs, access, credentials, or output", async () => {
+  const dataRoot = join(sandbox, "pre-updates-host");
+  const token = "pre-updates-owner-token";
+  const options: Parameters<typeof serveWireHost>[0] = {
+    dataRoot,
+    publicOrigin: "http://127.0.0.1:0",
+    accounts: [{ handle: "owner", token, communityWriter: true }],
+    hostname: "127.0.0.1",
+    port: 0,
+  };
+  const comparableTrees = (authority: WireAuthority) => authority.list().map((tree) => ({
+    id: tree.id,
+    canonicalPath: tree.canonicalPath,
+    parentTree: tree.parentTree,
+    kind: tree.kind,
+    ref: tree.ref,
+    publicAccess: tree.publicAccess,
+  }));
+  const comparableAccess = (authority: WireAuthority) => Object.fromEntries(authority.list().map((tree) => [
+    tree.id,
+    authority.accessEntries(tree.id),
+  ]));
+  const comparableHistory = (authority: WireAuthority) => Object.fromEntries(authority.list().map((tree) => [
+    tree.id,
+    authority.updates(tree.id).updates.map((update) => ({
+      root: update.root,
+      previousRoot: update.previousRoot,
+      kind: update.kind,
+    })),
+  ]));
+  const profileSource = async (running: Awaited<ReturnType<typeof serveWireHost>>) => {
+    const response = await fetch(`${running.url}/~owner`, { headers: { accept: "text/markdown" } });
+    expect(response.status).toBe(200);
+    return response.text();
+  };
+
+  const before = await serveWireHost(options);
+  const beforeTrees = comparableTrees(before.authority);
+  const beforeAccess = comparableAccess(before.authority);
+  const beforeHistory = comparableHistory(before.authority);
+  const beforeAccount = before.authority.accountByToken(token)!;
+  const beforeSource = await profileSource(before);
+  before.server.stop(true);
+  await before.authority[Symbol.asyncDispose]();
+
+  const old = new Database(join(dataRoot, "authority.sqlite3"));
+  old.run("DROP TABLE update_replays");
+  old.run("DROP TABLE pairings");
+  old.run("DROP TABLE devices");
+  old.run("DROP TABLE accepted_updates");
+  old.close();
+
+  const upgraded = await serveWireHost(options);
+  expect(comparableTrees(upgraded.authority)).toEqual(beforeTrees);
+  expect(comparableAccess(upgraded.authority)).toEqual(beforeAccess);
+  expect(comparableHistory(upgraded.authority)).toEqual(beforeHistory);
+  expect(upgraded.authority.accountByToken(token)).toMatchObject({
+    id: beforeAccount.id,
+    handle: beforeAccount.handle,
+    profileTree: beforeAccount.profileTree,
+  });
+  expect(await profileSource(upgraded)).toBe(beforeSource);
+  const upgradedAccount = upgraded.authority.accountByToken(token)!;
+  const firstDevices = upgraded.authority.devices(upgradedAccount);
+  expect(firstDevices).toHaveLength(1);
+  const firstUpdateIDs = Object.fromEntries(upgraded.authority.list().map((tree) => [
+    tree.id,
+    upgraded.authority.updates(tree.id).updates.map((update) => update.id),
+  ]));
+  upgraded.server.stop(true);
+  await upgraded.authority[Symbol.asyncDispose]();
+
+  const restarted = await serveWireHost(options);
+  try {
+    expect(comparableTrees(restarted.authority)).toEqual(beforeTrees);
+    expect(comparableAccess(restarted.authority)).toEqual(beforeAccess);
+    expect(comparableHistory(restarted.authority)).toEqual(beforeHistory);
+    expect(await profileSource(restarted)).toBe(beforeSource);
+    const restartedAccount = restarted.authority.accountByToken(token)!;
+    expect(restartedAccount.id).toBe(beforeAccount.id);
+    expect(restarted.authority.devices(restartedAccount).map((device) => device.id)).toEqual(firstDevices.map((device) => device.id));
+    expect(Object.fromEntries(restarted.authority.list().map((tree) => [
+      tree.id,
+      restarted.authority.updates(tree.id).updates.map((update) => update.id),
+    ]))).toEqual(firstUpdateIDs);
+  } finally {
+    restarted.server.stop(true);
+    await restarted.authority[Symbol.asyncDispose]();
   }
 });

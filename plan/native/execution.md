@@ -14,11 +14,11 @@ Plans are written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd
 | [004](004-build-arbor-cloud-durability.md) | Build direct iCloud durability | — | — | 002, 003 | REJECTED — Arbor wire is the only cross-device sync |
 | [005](005-complete-native-parity-and-migration.md) | Combine parity, import, and release | — | — | 003, 004 | REJECTED — split into Plans 017–019 |
 | [006](006-reconcile-arbor-identity.md) | Reconcile Arbor identity and native planning | P1 | M | — | DONE — Arbor identity and active wording reconciled |
-| [007](007-define-server-assisted-sync.md) | Define server-assisted synchronization | P1 | M | 006 | TODO |
-| [008](008-build-authority-sync.md) | Build authority synchronization and retained history | P1 | XL | 007 | TODO |
-| [009](009-integrate-arbord-sync.md) | Integrate arbord synchronization | P1 | L | 008 | TODO |
-| [010](010-add-device-pairing.md) | Add revocable device credentials and pairing | P1 | L | 008 | TODO |
-| [011](011-migrate-railway-authority.md) | Migrate the Railway authority | P1 | M | 009, 010 | TODO |
+| [007](007-define-server-assisted-sync.md) | Define server-assisted synchronization | P1 | M | 006 | DONE — accepted-update contract and shared merge fixtures verified |
+| [008](008-build-authority-sync.md) | Build accepted updates and authority synchronization | P1 | XL | 007 | DONE — local authority, races, and startup upgrade verified |
+| [009](009-integrate-arbord-sync.md) | Integrate arbord synchronization | P1 | L | 008 | DONE — local two-placement sync and client-owned conflicts verified |
+| [010](010-add-device-pairing.md) | Add revocable device credentials and pairing | P1 | L | 008 | IN PROGRESS — restored-volume proof and browser E2E remain |
+| [011](011-migrate-railway-authority.md) | Upgrade the Railway authority | P1 | M | 009, 010 | TODO |
 | [012](012-found-native-arbor.md) | Found the native Arbor shell | P1 | L | 006 | TODO |
 | [013](013-build-swift-arbor-wire.md) | Build the Swift ArborWire package | P1 | L | 007, 008, 010 | TODO |
 | [014](014-build-offline-replica.md) | Build the offline Swift replica | P1 | XL | 007, 012 | TODO |

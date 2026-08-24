@@ -29,7 +29,12 @@ interface LabState {
   sshPrivateKey: string;
   bunVersion: string;
   nodes: Partial<Record<Role, LabNode>>;
-  steps: Partial<Record<"up" | "provisioned" | "tailscale" | "configured" | "smoke" | "collected", string>>;
+  steps: Partial<Record<"up" | "provisioned" | "tailscale" | "configured" | "smoke" | "acceptance" | "collected", string>>;
+  acceptance?: {
+    additive: { scenario: string; tree: string };
+    conflict: { scenario: string; tree: string };
+    replay: { scenario: string; tree: string };
+  };
 }
 
 interface Options {
@@ -60,7 +65,8 @@ Commands:
   provision   Install Ubuntu dependencies, Tailscale, and the exact Git revision
   resume      Continue provisioning after interactive Tailscale authentication
   run         Run up, provision, Tailscale check, and configuration
-  test        Run a private-tree three-client smoke synchronization
+  smoke       Run a quick private-tree three-client synchronization
+  test        Run the complete accepted-update pre-rollout acceptance suite
   status      Show recorded phase and live server state
   collect     Download journals, authority backup, and immutable objects
   down        Collect evidence, log out of Tailscale, and delete recorded server IDs
@@ -462,6 +468,89 @@ async function manifest(state: LabState, role: Exclude<Role, "community">, scena
   return (await sshBash(state, role, `cd '${path}'\nfind . -type f -print0 | sort -z | xargs -0 sha256sum`, { quiet: true })).stdout;
 }
 
+async function waitUntil(label: string, check: () => Promise<boolean>, timeoutMs = 120_000): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (await check().catch(() => false)) return;
+    await Bun.sleep(2_000);
+  }
+  throw new Error(`Timed out waiting for ${label}`);
+}
+
+async function setClients(state: LabState, action: "start" | "stop" | "restart", roles = ["alice", "bob", "carol"] as const): Promise<void> {
+  await Promise.all(roles.map((role) => ssh(state, role, ["systemctl", action, "arbor-client.service"], { quiet: true })));
+}
+
+async function waitForConvergence(
+  state: LabState,
+  scenario: string,
+  markers: string[] = [],
+): Promise<void> {
+  await waitUntil(`${scenario} convergence`, async () => {
+    const manifests = await Promise.all((['alice', 'bob', 'carol'] as const).map((role) => manifest(state, role, scenario)));
+    if (!manifests.every((value) => value === manifests[0])) return false;
+    if (!markers.length) return true;
+    const sources = await Promise.all((['alice', 'bob', 'carol'] as const).map((role) =>
+      ssh(state, role, ["cat", `${CLIENT_PATHS[role]}/${scenario}/note.md`], { quiet: true })
+    ));
+    return sources.every(({ stdout }) => markers.every((marker) => stdout.includes(marker)));
+  });
+}
+
+async function createScenario(state: LabState, scenario: string, binary = "common-binary"): Promise<string> {
+  await setClients(state, "stop");
+  try {
+    const alicePath = `${CLIENT_PATHS.alice}/${scenario}`;
+    await sshBash(state, "alice", [
+      `install -d -o arbor -g arbor -m 0700 '${alicePath}'`,
+      `printf '# ${scenario}\\n\\ncommon\\n' > '${alicePath}/note.md'`,
+      `printf '${binary}' > '${alicePath}/sample.bin'`,
+      `chown -R arbor:arbor '${alicePath}'`,
+    ].join("\n"));
+    const syncPrefix = "/usr/local/libexec/arbor-headless-session /usr/local/bin/bun /opt/arbor-current/packages/cli/src/index.ts sync";
+    await sshBash(state, "alice", clientCommand(`${syncPrefix} '${alicePath}' 'http://arbor-community:4318/~owner/${scenario}'`));
+    for (const role of ["bob", "carol"] as const) {
+      const path = `${CLIENT_PATHS[role]}/${scenario}`;
+      await ssh(state, role, ["install", "-d", "-o", "arbor", "-g", "arbor", "-m", "0700", path]);
+      await sshBash(state, role, clientCommand(`${syncPrefix} 'http://arbor-community:4318/~owner/${scenario}' '${path}'`));
+    }
+  } finally {
+    await setClients(state, "start");
+  }
+  await waitForConvergence(state, scenario);
+  const found = await sshBash(state, "alice", [
+    "for attempt in $(seq 1 30); do",
+    `  tree=$(curl -fsS 'http://127.0.0.1:4317/v1/children?tree=system&path=%2Ftrees' | jq -r --arg name '${scenario}' '.items[] | select(.name == $name) | .path | split("/")[-1]' | head -n1)`,
+    "  if [[ $tree == tr_* ]]; then printf '%s' \"$tree\"; exit 0; fi",
+    "  sleep 1",
+    "done",
+    "exit 1",
+  ].join("\n"), { quiet: true });
+  const tree = found.stdout.trim();
+  if (!/^tr_[a-z2-7]+$/.test(tree)) throw new Error(`Could not resolve TreeID for ${scenario}`);
+  return tree;
+}
+
+async function authorityHistoryCount(state: LabState, tree: string): Promise<number> {
+  const result = await sshBash(state, "community", [
+    ". /etc/arbor-community.env",
+    `curl -fsS -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/trees/${tree}/updates' | jq '.updates | length'`,
+  ].join("\n"), { quiet: true });
+  const count = Number(result.stdout.trim());
+  if (!Number.isSafeInteger(count)) throw new Error(`Invalid update history count for ${tree}`);
+  return count;
+}
+
+async function hasConflict(state: LabState, role: Exclude<Role, "community">, tree: string): Promise<boolean> {
+  const response = await ssh(state, role, [
+    "curl", "-fsS", `http://127.0.0.1:4317/v1/node?tree=system&path=%2Ftrees%2F${tree}`,
+  ], { allowFailure: true, quiet: true });
+  if (response.exitCode !== 0) return false;
+  const body = JSON.parse(response.stdout) as { document?: { frontmatter?: Record<string, unknown> } };
+  return body.document?.frontmatter?.sync === "conflict"
+    && Array.isArray(body.document.frontmatter.conflicts);
+}
+
 async function smoke(state: LabState): Promise<void> {
   if (!state.steps.configured) throw new Error("Run or resume the lab before testing");
   const scenario = `smoke-${state.runId.replace(/[^a-z0-9-]/g, "-").slice(-20)}`;
@@ -507,6 +596,120 @@ async function smoke(state: LabState): Promise<void> {
   console.log(`Smoke synchronization passed: ${scenario}`);
 }
 
+async function acceptance(state: LabState): Promise<void> {
+  if (!state.steps.configured) throw new Error("Run or resume the lab before testing");
+  if (state.steps.acceptance && state.acceptance) {
+    console.log(`Accepted-update acceptance already passed for ${state.runId}`);
+    return;
+  }
+  await smoke(state);
+  const suffix = `${state.runId.replace(/[^a-z0-9-]/g, "-").slice(-16)}-${Date.now().toString(36)}`;
+
+  const additive = `accepted-additive-${suffix}`;
+  const additiveTree = await createScenario(state, additive);
+  const serialMarkers: string[] = [];
+  for (const role of ["alice", "bob", "carol"] as const) {
+    const marker = `${additive} serial ${role}`;
+    serialMarkers.push(marker);
+    await sshBash(state, role, `printf '\\n${marker}\\n' >> '${CLIENT_PATHS[role]}/${additive}/note.md'`);
+    await waitForConvergence(state, additive, serialMarkers);
+  }
+
+  await setClients(state, "stop");
+  const offlineMarkers = (["alice", "bob", "carol"] as const).map((role) => `${additive} offline ${role}`);
+  for (const [index, role] of (["alice", "bob", "carol"] as const).entries()) {
+    await sshBash(state, role, `printf '\\n${offlineMarkers[index]}\\n' >> '${CLIENT_PATHS[role]}/${additive}/note.md'`);
+  }
+  await ssh(state, "alice", ["systemctl", "start", "arbor-client.service"]);
+  await Bun.sleep(4_000);
+  await ssh(state, "bob", ["systemctl", "start", "arbor-client.service"]);
+  await Bun.sleep(4_000);
+  await ssh(state, "carol", ["systemctl", "start", "arbor-client.service"]);
+  await waitForConvergence(state, additive, [...serialMarkers, ...offlineMarkers]);
+  if (await Promise.all((['alice', 'bob', 'carol'] as const).map((role) => hasConflict(state, role, additiveTree))).then((values) => values.some(Boolean))) {
+    throw new Error("Additive Markdown divergence produced a conflict");
+  }
+
+  const replayScenario = `accepted-replay-${suffix}`;
+  const replay = await sshBash(state, "community", [
+    ". /etc/arbor-community.env",
+    "export ARBOR_LAB_TOKEN=$ARBOR_ACCOUNT_TOKEN",
+    `export ARBOR_LAB_REPLAY=${replayScenario}`,
+    "install -d -o arbor -g arbor -m 0700 /tmp/arbor-replay",
+    "printf 'one\\n' > /tmp/arbor-replay/note.md",
+    "chown -R arbor:arbor /tmp/arbor-replay",
+    "sudo -u arbor -H env ARBOR_LAB_TOKEN=\"$ARBOR_LAB_TOKEN\" ARBOR_LAB_REPLAY=\"$ARBOR_LAB_REPLAY\" /usr/local/bin/bun - <<'JAVASCRIPT'",
+    "import { WireClient, snapshotDirectory } from '/opt/arbor-current/packages/wire/src/index.ts';",
+    "import { writeFile } from 'node:fs/promises';",
+    "const client = new WireClient('http://127.0.0.1:4318', process.env.ARBOR_LAB_TOKEN);",
+    "const initial = await snapshotDirectory('/tmp/arbor-replay');",
+    "const tree = await client.create(`/~owner/${process.env.ARBOR_LAB_REPLAY}`, initial);",
+    "await writeFile('/tmp/arbor-replay/note.md', 'two\\n');",
+    "const next = await snapshotDirectory('/tmp/arbor-replay');",
+    "const first = await client.submitUpdate(tree.id, 'accepted-replay', { root: tree.ref, update: tree.update }, next);",
+    "const second = await client.submitUpdate(tree.id, 'accepted-replay', { root: tree.ref, update: tree.update }, next);",
+    "const history = await client.updates(tree.id);",
+    "if (JSON.stringify(first) !== JSON.stringify(second) || history.updates.length !== 2) throw new Error('Exact replay duplicated or changed accepted history');",
+    "process.stdout.write(tree.id);",
+    "JAVASCRIPT",
+  ].join("\n"), { quiet: true });
+  const replayTree = replay.stdout.trim();
+  if (!/^tr_[a-z2-7]+$/.test(replayTree)) throw new Error("Exact replay scenario did not return a TreeID");
+
+  const conflictScenario = `accepted-conflict-${suffix}`;
+  const conflictTree = await createScenario(state, conflictScenario);
+  const before = await authorityHistoryCount(state, conflictTree);
+  await setClients(state, "stop");
+  await sshBash(state, "alice", `printf 'binary-from-alice' > '${CLIENT_PATHS.alice}/${conflictScenario}/sample.bin'`);
+  await sshBash(state, "bob", `printf 'binary-from-bob' > '${CLIENT_PATHS.bob}/${conflictScenario}/sample.bin'`);
+  await ssh(state, "alice", ["systemctl", "start", "arbor-client.service"]);
+  await waitUntil("Alice binary update acceptance", async () => await authorityHistoryCount(state, conflictTree) === before + 1);
+  await ssh(state, "bob", ["systemctl", "start", "arbor-client.service"]);
+  await waitUntil("Bob durable binary conflict", () => hasConflict(state, "bob", conflictTree));
+  if (await authorityHistoryCount(state, conflictTree) !== before + 1) {
+    throw new Error("Rejected binary conflict appeared in authority history");
+  }
+  const localBinary = await ssh(state, "bob", ["cat", `${CLIENT_PATHS.bob}/${conflictScenario}/sample.bin`], { quiet: true });
+  if (localBinary.stdout !== "binary-from-bob") throw new Error("Bob's conflicting bytes were not retained locally");
+  await setClients(state, "restart", ["bob"] as const);
+  await waitUntil("Bob conflict recovery after restart", () => hasConflict(state, "bob", conflictTree));
+
+  const mutationID = crypto.randomUUID();
+  await sshBash(state, "bob", [
+    `curl -fsS -H 'content-type: application/json' -d '{"mutationID":"${mutationID}","operations":[{"op":"resolveTreeConflict","tree":"${conflictTree}","choice":"local"}]}' http://127.0.0.1:4317/v1/mutate >/dev/null`,
+  ].join("\n"));
+  await waitUntil("resolved binary update acceptance", async () => await authorityHistoryCount(state, conflictTree) === before + 2);
+  await setClients(state, "start", ["alice", "carol"] as const);
+  await waitForConvergence(state, conflictScenario);
+  for (const role of ["alice", "bob", "carol"] as const) {
+    const value = await ssh(state, role, ["cat", `${CLIENT_PATHS[role]}/${conflictScenario}/sample.bin`], { quiet: true });
+    if (value.stdout !== "binary-from-bob") throw new Error(`${role} did not materialize the explicit conflict resolution`);
+  }
+
+  await sshBash(state, "community", [
+    ". /etc/arbor-community.env",
+    "test \"$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" http://127.0.0.1:4318/.arbor/trees/ignored/push)\" = 404",
+    "offer=$(curl -fsS -X POST -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" -H 'content-type: application/json' -d '{}' http://127.0.0.1:4318/.arbor/pairings)",
+    "pairing_id=$(jq -r .id <<<\"$offer\")",
+    "pairing_secret=$(jq -r .secret <<<\"$offer\")",
+    "claimed=$(curl -fsS -X POST -H 'content-type: application/json' -d \"$(jq -cn --arg secret \"$pairing_secret\" '{secret:$secret,label:\"Hetzner acceptance device\"}')\" \"http://127.0.0.1:4318/.arbor/pairings/$pairing_id/claim\")",
+    "device_id=$(jq -r .device.id <<<\"$claimed\")",
+    "device_token=$(jq -r .deviceToken <<<\"$claimed\")",
+    `curl -fsS -H \"Authorization: Bearer $device_token\" 'http://127.0.0.1:4318/.arbor/trees/${conflictTree}/ref' >/dev/null`,
+    "curl -fsS -X DELETE -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" \"http://127.0.0.1:4318/.arbor/devices/$device_id\" >/dev/null",
+    `test \"$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $device_token\" 'http://127.0.0.1:4318/.arbor/trees/${conflictTree}/ref')\" = 401`,
+  ].join("\n"), { quiet: true });
+
+  state.steps.acceptance = new Date().toISOString();
+  state.acceptance = {
+    additive: { scenario: additive, tree: additiveTree },
+    conflict: { scenario: conflictScenario, tree: conflictTree },
+    replay: { scenario: replayScenario, tree: replayTree },
+  };
+  await saveState(state);
+  console.log(`Accepted-update acceptance passed: ${additiveTree}, ${conflictTree}, ${replayTree}`);
+}
+
 async function status(state: LabState): Promise<void> {
   console.log(JSON.stringify({ runId: state.runId, revision: state.revision, steps: state.steps, destroyedAt: state.destroyedAt }, null, 2));
   for (const role of ROLES) {
@@ -545,6 +748,10 @@ async function collect(state: LabState): Promise<string> {
       "tailscale status",
       `systemctl status '${service}' --no-pager || true`,
       `journalctl -u '${service}' --no-pager -n 1000 || true`,
+      ...(role === "community" ? [] : [
+        `find '${CLIENT_PATHS[role]}' -mindepth 2 -type f -print0 | sort -z | xargs -0 sha256sum || true`,
+        "curl -fsS 'http://127.0.0.1:4317/v1/children?tree=system&path=%2Ftrees' || true",
+      ]),
     ].join("\n"), { allowFailure: true, quiet: true, timeoutMs: 60_000 });
     await writeFile(join(destination, `${role}.log`), `${report.stdout}\n${report.stderr}`);
   }
@@ -610,7 +817,8 @@ async function main(): Promise<void> {
   const state = await loadState(options.runId);
   if (options.command === "provision") return provision(state);
   if (options.command === "resume") return continueRun(state);
-  if (options.command === "test") return smoke(state);
+  if (options.command === "smoke") return smoke(state);
+  if (options.command === "test") return acceptance(state);
   if (options.command === "status") return status(state);
   if (options.command === "collect") { await collect(state); return; }
   if (options.command === "down") return down(state, options);

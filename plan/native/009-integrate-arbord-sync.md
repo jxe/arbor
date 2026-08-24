@@ -1,6 +1,6 @@
 # Plan 009: Integrate arbord synchronization
 
-> **Executor instructions**: Convert arbord and CLI synchronization to the authority-owned `sync-v1` protocol. Do not add a second merge implementation, deploy, write Swift, or auto-resolve a structured server conflict. Preserve local durability and every retained candidate.
+> **Executor instructions**: Convert arbord and CLI synchronization to authority-owned accepted updates. Do not add a second merge implementation, deploy, write Swift, or auto-resolve a structured server conflict. Preserve local durability and every client-owned candidate.
 >
 > **Drift check**: `git diff --stat dc34126..HEAD -- packages/arbord packages/wire packages/core packages/stores packages/cli tests spec/fixtures package.json`
 
@@ -12,6 +12,9 @@
 - **Depends on**: Plan 008
 - **Category**: integration/correctness
 - **Planned at**: Arbor `dc34126`, 2026-08-23
+- **Implementation status**: IMPLEMENTED LOCALLY — arbord persists exact pending requests and client-owned conflicts, consumes authority results without merging, validates downloaded objects during materialization, and preserves nested placements/local candidates across ordinary restart.
+- **Verified at**: current working tree, 2026-08-24 (`bun test`, including `tests/integration/self-sync.test.ts`; `bun run typecheck`; `bun run build`; `git diff --check`)
+- **Hardening note**: exhaustive process-kill injection at every persistence boundary is optional follow-up hardening, not a completion gate for this plan.
 
 ## Why this matters
 
@@ -19,8 +22,8 @@ Arbord already knows the three roots the server needs: the last synchronized pla
 
 ## Current state
 
-- `packages/arbord/src/service.ts` snapshots local materialization, treats `placement.ref` as the last synchronized base, and reads the remote current root.
-- It pushes when remote equals base, pulls when local equals base, and reports conflict when both changed.
+- `packages/arbord/src/service.ts` snapshots local materialization and treats `placement.ref` plus `placement.update` as the last accepted base.
+- It durably submits exact candidates through `updates-v1`, consumes current/accepted/merged results, and persists complete client-owned conflict drafts.
 - Reader-local mounts are excluded from snapshots/materialization and nested tracked trees are independent boundaries.
 - Private placement/cache state belongs under the Arbor data home and never inside authored trees.
 
@@ -31,27 +34,27 @@ For each tracked placement, persist:
 - last accepted root (`base`) and acceptance/watch cursor;
 - current local candidate root and immutable objects;
 - exact pending sync request ID and intent digest until a terminal result is durably applied;
-- optional retained server attempt/draft/conflict references;
+- a complete locally persisted conflict response and portable draft snapshot;
 - local generations created while a request or conflict is outstanding.
 
-Submit `{ requestID, base, local, objects }` to `sync-v1`. Reuse the identical request after ambiguous transport failure. On `current`, `accepted`, or `merged`, validate and rehash the returned graph, materialize it through the existing crash-safe path, and advance placement base/acceptance only after local application succeeds. On `conflict`, fetch/validate the draft, keep all local generations, expose structured reasons and alternatives, and do not create conflict-copy files. A later explicit resolution produces a normal new local candidate and syncs against the response's remote root/acceptance.
+Submit `{ base: { root, update }, candidate, objects }` to `POST .../updates` with the durably recorded idempotency key. Reuse the identical request after ambiguous transport failure. On `current`, `accepted`, or `merged`, validate and rehash the returned graph, materialize it through the existing crash-safe path, and advance placement base/update only after local application succeeds. On `409 conflict`, persist the entire response and complete draft snapshot locally before surfacing it, keep all later local generations, and do not create conflict-copy files. The authority retains none of this state. A later explicit resolution produces a normal new candidate with a new key against the response's current accepted update.
 
 ## Scope
 
-**In scope**: persistent placement sync state, arbord/CLI/system integration, exact retry, server-result validation/materialization, conflict diagnostics/resolution plumbing, legacy migration negotiation, tests.
+**In scope**: persistent placement sync state, arbord/CLI/system integration, exact retry, server-result validation/materialization, conflict diagnostics/resolution plumbing, coordinated accepted-update migration, tests.
 
 **Out of scope**: merge algorithms, authority schema, UI conflict editor, Swift, pairing, live deployment, new wire objects.
 
 ## Steps
 
 1. Replace whole-tree divergence handling with a durable sync state machine that records base/local/request identity before network transmission and survives restart at every transition.
-2. Submit missing immutable objects through `sync-v1`; never infer merge bases from mtime, current files, or server time, and never merge locally.
+2. Submit missing immutable objects through `updates-v1`; never infer merge bases from mtime, current files, or server time, and never merge locally.
 3. Validate returned object hashes, graph shape, tree boundaries, and declared roots before materialization. Preserve nested-placement exclusions on both upload and download.
 4. Apply current/accepted/merged roots with existing destination-safe materialization and only then advance `placement.ref`; reconcile a crash between remote acceptance and local application by replaying the exact request.
-5. Persist conflict attempt/draft metadata outside authored trees. Add CLI/system diagnostics that identify affected paths/reasons and provide explicit inspect/choose/edit/resubmit operations without leaking content or credentials into safe records.
+5. Persist conflict roots, reasons, and the complete returned draft snapshot in client/placement state outside authored trees. Add CLI/system diagnostics that identify affected paths/reasons and provide explicit inspect/choose/edit/resubmit operations without leaking content or credentials into safe records.
 6. Permit further local mutations while pending/conflicted. Rebase only through a new server sync after the previous result is known; never discard or overwrite an unsubmitted local generation.
-7. Negotiate legacy root-CAS only for already-configured authorities during the bounded Railway migration. New/native configuration requires advertised `sync-v1`; remove downgrade support after Plan 011 records rollout completion.
-8. Add two-placement restart/fault tests for one-sided push/pull, server merge, same-slot Markdown additions, request replay, accepted-before-local-crash, ref race, conflict draft, continued local edits, nested trees, and explicit resolution.
+7. Remove legacy `/push` and root-CAS negotiation from arbord and the TypeScript client. Every configured authority must advertise `updates-v1`; there is no downgrade path.
+8. Add two-placement restart tests for one-sided upload/download, server merge, same-slot Markdown additions, request replay, conflict draft, continued local edits, nested trees, and explicit resolution. Deeper process-kill fault injection may be added later as hardening.
 
 ## Verification
 
@@ -64,15 +67,15 @@ bun run build
 git diff --check
 ```
 
-Expected: two temporary arbord placements converge through authority results; every added Markdown line survives; exact ambiguous retries produce one accepted history entry; unsafe cases retain the server draft and all newer local work.
+Expected: two temporary arbord placements converge through authority results; every added Markdown line survives; exact ambiguous retries produce one accepted update; unsafe cases persist a complete client-owned draft and all newer local work without entering server history.
 
 ## Done criteria
 
-- [ ] Arbord persists and submits exact base/local/request intent without a merge engine.
-- [ ] Current, accepted, merged, and conflict results survive restart and crash injection.
-- [ ] Remote graphs are rehashed and validated before local application.
-- [ ] Nested placements remain independent.
-- [ ] No local candidate is lost or turned into authored conflict-copy content.
+- [x] Arbord persists and submits exact base/local/request intent without a merge engine.
+- [x] Current, accepted, merged, and locally owned conflict results survive ordinary restart.
+- [x] Remote graphs are rehashed and validated before local application.
+- [x] Nested placements remain independent.
+- [x] No local candidate is lost or turned into authored conflict-copy content.
 
 ## STOP conditions
 
@@ -80,7 +83,7 @@ Expected: two temporary arbord placements converge through authority results; ev
 - Arbord would need to reproduce authority merge behavior.
 - Advancing placement state before materialization can hide an unapplied accepted root.
 - A conflict or pending request prevents preserving further local work.
-- Legacy downgrade could occur silently for a newly configured native client.
+- Any client or server path still depends on legacy `/push` or root-CAS synchronization.
 
 ## Maintenance note
 

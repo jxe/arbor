@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Share } from "lucide-react";
 import type { PublicAccess, RecoveryEntry, SearchResult, ShareAudience, TreeChild, TreeDescriptor } from "@arbor/core";
-import type { NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
+import type { CommunityDevice, CommunityPairingOffer, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { api } from "./api.ts";
 import { CollectionView } from "./CollectionView.tsx";
@@ -268,6 +268,9 @@ export function App() {
   const [treeBusy, setTreeBusy] = useState(false);
   const [accessDraftKind, setAccessDraftKind] = useState<ExistingAccessSubjectKind>("");
   const [accessDraftPermission, setAccessDraftPermission] = useState<AccessPermission>("read");
+  const [devices, setDevices] = useState<CommunityDevice[]>([]);
+  const [pairing, setPairing] = useState<CommunityPairingOffer | null>(null);
+  const [deviceBusy, setDeviceBusy] = useState(false);
   const [crumbsExpanded, setCrumbsExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -349,6 +352,12 @@ export function App() {
     } catch {}
   }, []);
   useEffect(() => { void refreshSystem(); }, [refreshSystem]);
+  useEffect(() => {
+    if (!profileOpen || !server.configured || !server.credentialAvailable) return;
+    void api.client.communityDevices()
+      .then(setDevices)
+      .catch((error) => setError(error instanceof Error ? error.message : String(error)));
+  }, [profileOpen, server.configured, server.credentialAvailable]);
   useEffect(() => {
     if (!remoteLocation || remoteLocation.claimable) {
       setRemoteNode(null);
@@ -881,6 +890,32 @@ export function App() {
     }
   }, [refreshSystem]);
 
+  const createDevicePairing = useCallback(async () => {
+    try {
+      setDeviceBusy(true);
+      setError(null);
+      setPairing(await api.client.createCommunityPairing());
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeviceBusy(false);
+    }
+  }, []);
+
+  const revokeDevice = useCallback(async (device: CommunityDevice) => {
+    if (!confirm(`Revoke ${device.label}? That device will immediately lose authority access.`)) return;
+    try {
+      setDeviceBusy(true);
+      setError(null);
+      const revoked = await api.client.revokeCommunityDevice(device.id);
+      setDevices((current) => current.map((item) => item.id === revoked.id ? revoked : item));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeviceBusy(false);
+    }
+  }, []);
+
   const placeRemoteTree = useCallback(async (tree: TreeDescriptor) => {
     const destination = prompt(`Where should ${tree.name} live on this machine?`, home ? `${home}/${tree.name}` : "");
     if (!destination) return;
@@ -1214,6 +1249,23 @@ export function App() {
         </div>
         <p className="tree-control-intro">Your public profile is a complete tree. Writable community, profile, and group namespaces appear here and on Arbor’s home screen.</p>
         {!server.credentialAvailable && server.origin && <p className="control-error" role="alert">This device’s credential is unavailable. Run <code>arbor connect {server.origin}</code>, then return to Arbor.</p>}
+        {server.credentialAvailable && <section className="access-builder" aria-labelledby="device-management-title">
+          <div className="access-builder-heading">
+            <div><h3 id="device-management-title">Devices</h3><p>Each paired device has its own revocable credential.</p></div>
+            <button disabled={deviceBusy} onClick={() => void createDevicePairing()}>Pair a device</button>
+          </div>
+          {devices.map((device) => <div className="access-rule" key={device.id}>
+            <span className="access-subject"><strong>{device.label}</strong><small>{device.revokedAt ? "Revoked" : device.lastUsedAt ? `Last used ${new Date(device.lastUsedAt).toLocaleString()}` : `Added ${new Date(device.createdAt).toLocaleString()}`}</small></span>
+            <span className="access-permission">{device.revokedAt ? "No access" : "Active"}</span>
+            {!device.revokedAt && <button className="access-remove" disabled={deviceBusy} aria-label={`Revoke ${device.label}`} onClick={() => void revokeDevice(device)}>×</button>}
+          </div>)}
+          {pairing && server.origin && <div className="url-preview">
+            <strong>Confirmation code: {pairing.confirmationCode}</strong>
+            <small>Expires {new Date(pairing.expiresAt).toLocaleString()}. Confirm the same code on the new device.</small>
+            <button onClick={() => void navigator.clipboard.writeText(JSON.stringify({ version: 1, origin: server.origin, pairing: { id: pairing.id, secret: pairing.secret } }))}>Copy pairing data</button>
+            <button className="quiet" onClick={() => setPairing(null)}>Hide</button>
+          </div>}
+        </section>}
         {trees.filter((tree) => tree.access === "write" && (tree.canonicalPath === "/" || tree.canonicalPath?.startsWith("/~"))).map((tree) =>
           <button className="profile-namespace" key={tree.id} onClick={() => {
             if (tree.osPath) navigate(tree.osPath);
@@ -1254,7 +1306,7 @@ export function App() {
         <div className="sync-status">
           <strong>Sync</strong>
           <span className={`sync-dot ${treeControl.tree.sync ?? "idle"}`} />
-          <span>{treeControl.tree.sync === "pushing" || treeControl.tree.sync === "pulling" ? "Syncing…" : treeControl.tree.sync === "error" || treeControl.tree.sync === "conflict" ? "Needs attention" : treeControl.tree.sync === "offline" ? "Offline" : "Up to date"}</span>
+          <span>{treeControl.tree.sync === "syncing" ? "Syncing…" : treeControl.tree.sync === "error" || treeControl.tree.sync === "conflict" ? "Needs attention" : treeControl.tree.sync === "offline" ? "Offline" : "Up to date"}</span>
         </div>
         <section className="access-builder" aria-labelledby="access-builder-title">
           <div className="access-builder-heading">

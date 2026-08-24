@@ -62,40 +62,57 @@ A request may supply both; the host grants their maximum valid access. Tokens an
 
 Access is whole-tree and independently evaluated at every nested boundary. Levels are `none`, `read`, and `write`. A profile entry names a stable person/group profile `TreeID`. Group-derived authority evaluates verified current authored membership; membership alone does not grant write to the group tree. Revocation prevents future wire reads/writes but cannot erase bytes already materialized by a reader.
 
+### Device pairing
+
+```text
+POST   /.arbor/pairings
+POST   /.arbor/pairings/{pairingID}/claim
+GET    /.arbor/devices
+DELETE /.arbor/devices/{deviceID}
+```
+
+Creating a pairing requires Bearer authentication and returns `{ id, secret, confirmationCode, expiresAt }` once with `cache-control: no-store`. Its QR/copy payload is versioned structured data `{ version: 1, origin, pairing: { id, secret } }`, not a navigation URL and never the existing device credential. Claim is unauthenticated but rate-limited; it accepts `{ secret, label }`, atomically consumes an unexpired pairing, and returns `{ deviceToken, device }` once. The old and new devices independently display `confirmationCode` before trust is accepted.
+
+Listing and revoking devices require Bearer authentication. Safe device metadata is `{ id, account, label, createdAt, lastUsedAt, revokedAt }`; no list response contains credentials or pairing secrets. Pairing secrets are stored only as digests, compared in constant time, expire within ten minutes, and are single-use under concurrent claim. Revocation immediately denies future authority requests from that device without changing authored trees or already materialized local content.
+
 ## 3. Errors and statuses
 
 Every non-success JSON response is:
 
 ```ts
 type WireError = {
-  error: {
-    code: string;
-    message: string;
-    retryable: boolean;
-    tree?: TreeID;
-    path?: string;
-    handle?: string;
-    current?: Hash;
-  };
+  error: string;
+  message: string;
+  retryable: boolean;
+  tree?: TreeID;
+  path?: string;
+  handle?: string;
+  current?: Hash;
 };
 ```
 
-Stable codes are `invalid-request`, `unauthenticated`, `permission-denied`, `not-found`, `already-claimed`, `ref-conflict`, `reserved-boundary`, `rate-limited`, `quota-exceeded`, and `internal-error`.
+`error` is the stable application-level discriminator. Clients switch on that string and may ignore additional top-level context fields they do not understand. The HTTP status remains the broad transport-level category.
+
+Stable codes are `invalid-request`, `unauthenticated`, `permission-denied`, `not-found`, `already-claimed`, `conflict`, `mutation-mismatch`, `base-not-retained`, `authority-busy`, `reserved-boundary`, `rate-limited`, `quota-exceeded`, and `internal-error`.
 
 | Status | Codes/meaning |
 |---|---|
 | `200` | successful read or idempotent operation |
-| `201` | tree or claim created |
+| `201` | tree, claim, pairing, or paired device created |
 | `400` | `invalid-request` |
 | `401` | `unauthenticated` |
 | `403` | `permission-denied` |
 | `404` | `not-found` |
-| `409` | `already-claimed`, `ref-conflict`, or `reserved-boundary` |
+| `409` | `already-claimed`, `conflict`, `mutation-mismatch`, or `reserved-boundary` |
+| `410` | `base-not-retained` |
 | `413` | `quota-exceeded` for request/object size |
 | `429` | `rate-limited` or quota rate |
 | `500` | undeclared `internal-error` |
+| `503` | retryable `authority-busy` or temporary `internal-error` |
 
-`ref-conflict` includes `current`. Clients preserve unknown future codes and do not treat malformed error bodies as authorization.
+`conflict` includes the current accepted update, base/candidate identities, a complete portable draft snapshot, and structured conflict reasons. `mutation-mismatch` means an idempotency key already attached to a successful outcome was reused with a different base or candidate. Clients preserve unknown future codes and do not treat malformed error bodies as authorization.
+
+Stable `conflicts[].reason` values for `updates-v1` are `path-kind-conflict`, `nested-boundary-conflict`, `page-id-move-conflict`, `binary-conflict`, `frontmatter-conflict`, and `invalid-markdown-fence`. Clients preserve unknown future reasons.
 
 ## 4. Endpoints
 
@@ -146,41 +163,54 @@ type ClaimResult = {
 
 The supplied reachable root must be a valid visible person-profile document. The authority atomically verifies the reservation, creates the public-read person profile at `/~<handle>`, creates its account/device credential, and returns `201 ClaimResult`. The first successful claim wins; later or concurrent claims return `already-claimed`. A response and all intermediaries use `cache-control: no-store`.
 
-### Refs, objects, push, and watch
+### Refs, accepted updates, objects, and watch
 
 ```text
 GET  /.arbor/trees/{TreeID}/ref
-POST /.arbor/trees/{TreeID}/push
+GET  /.arbor/trees/{TreeID}/updates?cursor={cursor}
+POST /.arbor/trees/{TreeID}/updates
 GET  /.arbor/trees/{TreeID}/watch
 GET  /.arbor/objects/{sha256}
 ```
 
 `GET .../ref` returns a `TreeDescriptor`. Read access is required.
 
-`GET .../objects/{sha256}` returns exact canonical CBOR bytes with `content-type: application/vnd.ipld.dag-cbor`, `cache-control: public, immutable`, and an ETag equal to the quoted hash. The host verifies the request hash syntax. Possession of an object hash is not authorization: the host returns it only when it is reachable from at least one tree readable by the supplied Bearer/access-link authority.
+`GET .../objects/{sha256}` returns exact canonical CBOR bytes with `content-type: application/vnd.ipld.dag-cbor`, `cache-control: public, immutable`, and an ETag equal to the quoted hash. The host verifies the request hash syntax. Possession of an object hash is not authorization: a reader can retrieve only objects reachable from a currently readable root; a writer can additionally retrieve objects reachable from any retained accepted update of a tree it can still write. Rejected candidates and client-owned conflict drafts never expand object authorization.
 
-`POST .../push` requires write access:
+`GET .../updates` requires write access and returns the tree's accepted updates in acceptance order with opaque pagination cursors. Each item contains an opaque update ID, previous and accepted root, acceptance time, stable authenticated device subject when available, and `kind: "initial" | "accepted" | "merged" | "restored"`. A merge item additionally contains its base, candidate, previous remote root, and versioned merge summary. Invalid requests, unchanged submissions, and conflicts are not accepted updates and never appear in this collection.
+
+`POST .../updates` requires write access and an `Idempotency-Key` header. It submits one candidate state for reconciliation against an exact accepted base:
 
 ```ts
-type PushRequest = {
-  expected: Hash;
-  root: Hash;
+type UpdateRequest = {
+  base: { root: Hash; update: string };
+  candidate: Hash;
   objects: Array<{ hash: Hash; bytes: string }>; // standard padded base64
 };
 ```
 
-Each base64 string decodes to exact canonical CBOR bytes whose SHA-256 equals `hash`. The host accepts already-known objects, verifies every object reachable from `root`, validates names and registered child boundaries, then compare-and-swaps the tree ref from `expected` to `root`. Success returns a `TreeDescriptor`. A stale `expected` returns `409 ref-conflict` with the current root and advances nothing. Supplying duplicate hashes with differing bytes is invalid.
+The update named by `base.update` must belong to this tree and have `base.root`; this binds reconciliation to the exact accepted event the client observed even when a root later repeats. Each base64 string decodes to exact canonical CBOR bytes whose SHA-256 equals `hash`. The authority accepts already-known objects, validates the complete candidate graph, and compares it with the current accepted update:
+
+1. Candidate already equals current: return `200 { outcome: "current", current }` and create no update.
+2. Candidate equals base: return the current update for the client to apply and create no update.
+3. Current equals base: atomically accept the candidate and return `201 { outcome: "accepted", update }`.
+4. Both changed safely: merge once on the authority, atomically accept the merged root, and return `201 { outcome: "merged", update, merge }`.
+5. Unsafe overlap: return `409 conflict` with current/base/candidate, structured reasons, and a complete draft snapshot consisting of its root plus every reachable object required to persist it. The accepted ref does not advance, no accepted update is created, and the authority retains neither the rejected candidate nor the conflict response/draft.
+
+Idempotency is scoped to `(tree, authenticated credential subject, Idempotency-Key)`. For `current`, `accepted`, and `merged` outcomes, the server durably records the exact response before sending it. Repeating the key with the same base and candidate returns that response without another accepted update; changing either returns `409 mutation-mismatch`. A conflict is stateless on the authority: because it performs no mutation, an ambiguous retry may safely recompute against the then-current accepted update. The client must durably record its exact request before transmission and persist a received conflict response before acknowledging it locally; an explicit resolution uses a new idempotency key.
+
+The authority rechecks the current update in the same transaction that accepts a result. It may recompute a bounded number of times after a concurrent acceptance. Exhaustion returns `503 authority-busy`; retrying the identical idempotency key remains safe. Supplying duplicate hashes with differing bytes is invalid.
 
 `GET .../watch` requires read access and returns `text/event-stream; charset=utf-8`. Frames are UTF-8 and blank-line separated:
 
 ```text
-id: sha256:<new-root>
+id: <accepted-update-id>
 event: ref
 data: {...TreeDescriptor...}
 
 ```
 
-Only `event: ref` is normative. `id` is the new root. Multiple `data:` lines join with newline before JSON decoding; comments are keepalives. `Last-Event-ID` may name the last observed root. A host may immediately send the current descriptor when that root is no longer in its replay window. Watch is an invalidation channel: clients always verify the returned descriptor and fetch objects by hash.
+Only `event: ref` is normative. `id` is the opaque accepted-update ID, so restoring a previously used root remains a distinct event. Multiple `data:` lines join with newline before JSON decoding; comments are keepalives. `Last-Event-ID` names the last observed accepted update. A host may immediately send the current descriptor when that update is no longer in its replay window. Watch is an invalidation channel: clients always verify the returned descriptor and fetch objects by hash. Conflicts are client-owned and never appear on this accepted-state channel.
 
 ### Access
 
@@ -241,7 +271,7 @@ Directory `entries` are sorted by lexicographic comparison of their UTF-8 byte s
 
 The object hash is `sha256:` followed by lowercase hexadecimal SHA-256 of the exact canonical CBOR byte sequence. JSON transport uses standard padded base64 of those exact bytes. Decoding and re-encoding must reproduce the same bytes; noncanonical encodings are rejected even if their data model is equivalent.
 
-A `tree` entry is a nested shared-tree boundary. Parent reachability stops at that entry; child objects, ref, history, and ACL are independent. A parent push must preserve a registered exact child boundary unless an authorized atomic boundary operation changes it; overwriting it as a file/directory returns `reserved-boundary`.
+A `tree` entry is a nested shared-tree boundary. Parent reachability stops at that entry; child objects, ref, history, and ACL are independent. A parent update must preserve a registered exact child boundary unless an authorized atomic boundary operation changes it; overwriting it as a file/directory returns `reserved-boundary`.
 
 Canonical byte and hash vectors are in [fixtures/wire-objects.json](fixtures/wire-objects.json).
 
@@ -251,7 +281,7 @@ One host serves the public community root at `/`, person/group profile boundarie
 
 Promotion gives an existing subtree a new `TreeID` without changing stored Markdown `PageID`s. An external local folder may be projected at its canonical parent path without moving or copying its OS bytes. Reader-local nested placements never enter this graph.
 
-Each tree has one mutable ref and immutable reachable objects. Writers push with compare-and-swap. A client records the last common root, fast-forwards when only one side advances, and preserves local content plus a visible conflict when local and remote both diverge. It never overwrites either side merely because one clock is later. Successful convergence yields identical root hashes on all peers.
+Each tree has one mutable ref, a linear sequence of accepted updates, and immutable reachable objects. A client durably records its last accepted update plus candidate state and submits updates idempotently. The trusted authority fast-forwards one-sided changes and owns the sole automatic three-way merge implementation. Unsafe overlap returns a client-owned draft and visible structured conflict without advancing accepted history. Neither side is overwritten merely because one clock is later. Successful convergence yields identical root hashes on all peers.
 
 ## 7. Safe public HTTP projection
 
@@ -261,4 +291,4 @@ Semantic HTML preserves headings, paragraphs, lists, code, images, toggles, foot
 
 When publishing a directory document, the authority applies the same complete operational Markdown rule as arbord: the first eligible standalone link represents each immediate visible physical child, and ordinary links for unmatched visible children are appended in unsigned UTF-8 logical-path order. Markdown, semantic HTML, navigation extraction, and static export must derive from that one provider-owned source, not from a client projection. Collection records, including physical Markdown row files and virtual/query-backed rows, and nested authority boundaries do not become directory-index links. The collection exception is tracked for reconsideration in [`plan/hardening/technical-debt.md`](../plan/hardening/technical-debt.md).
 
-CSS fidelity, typography, exact layout, editor behavior, client refresh scheduling, polling intervals, and push timing are not wire requirements.
+CSS fidelity, typography, exact layout, editor behavior, client refresh scheduling, polling intervals, and update scheduling are not wire requirements.

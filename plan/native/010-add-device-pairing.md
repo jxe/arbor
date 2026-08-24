@@ -12,6 +12,9 @@
 - **Depends on**: Plan 008
 - **Category**: security/product
 - **Planned at**: Arbor `dc34126`, 2026-08-23
+- **Implementation status**: PARTIAL — distinct device credentials, one-use pairing, provenance, revocation, TypeScript/Swift client support, and the browser management surface are implemented locally; restored-volume upgrade proof and browser E2E coverage remain outstanding.
+- **Verified at**: current working tree, 2026-08-24 (`bun test`, `bun run test:protocol`, `swift test` through the protocol harness, `bun run typecheck`, `bun run build`, `git diff --check`)
+- **Production status**: local/test authorities only; no restored-volume, Hetzner, or Railway credential-upgrade rehearsal has run.
 
 ## Why this matters
 
@@ -19,9 +22,9 @@ The native app needs an ordinary way to authorize iPhone/iPad without copying th
 
 ## Current state
 
-- Authority accounts currently authenticate through configured bearer tokens associated with account records.
+- Authority bearer credentials resolve through distinct device records; the existing configured credential becomes the initial device during startup upgrade.
 - Raw credentials are already excluded from content, refs, objects, diagnostics, logs, and safe system records.
-- The web/account surface can host pairing and device-management UI before the Swift app exists.
+- The web/account surface implements pairing creation plus device listing/revocation, and both TypeScript and Swift authority clients consume the same endpoints.
 
 ## Interface
 
@@ -33,14 +36,16 @@ The native app needs an ordinary way to authorize iPhone/iPad without copying th
 
 ## Scope
 
-**In scope**: device/pairing schema, authentication resolution, endpoints/client types, web pairing/list/revoke UI, migration of existing account credentials to an initial device, tests/spec.
+**In scope**: device/pairing schema, authentication resolution, endpoints/TypeScript client types, web pairing/list/revoke UI, migration of existing account credentials to an initial device, tests/spec.
 
 **Out of scope**: Swift scanner/UI, account recovery after all devices are lost, end-to-end encryption, production rollout.
+
+Production credential upgrade uses Plan 011's backed-up, isolated restored-volume rehearsal. There is no separate pairing migration or rollback tool.
 
 ## Steps
 
 1. Add device and pairing tables with unique IDs, hashed credentials/secrets, expiry/use/revocation fields, and account foreign keys.
-2. Route existing credential authentication through device records while preserving current credentials during migration. Expose one stable internal credential-subject/device ID to `sync-v1` idempotency and history; never use the mutable display label.
+2. Route existing credential authentication through device records while preserving current credentials during migration. Expose one stable internal credential-subject/device ID to accepted-update idempotency and provenance; never use the mutable display label.
 3. Implement create/claim/list/revoke with transaction-safe single use, constant-time digest comparison, rate limits, and `no-store` responses.
 4. Add safe diagnostic/audit events that identify device IDs but redact all secret material.
 5. Add the web **Pair a device** flow, confirmation code, active-device list, and explicit revoke confirmation.
@@ -56,12 +61,12 @@ bun run build
 git diff --check
 ```
 
-Expected: one concurrent claim wins; reuse fails; revocation blocks subsequent reads/syncs; exact request replay continues to resolve to the same authenticated device; existing test credentials still work; secret literals never appear in captured logs/responses beyond the one authorized issuance response.
+Expected: one concurrent claim wins; reuse fails; revocation blocks subsequent reads/update submissions; exact request replay continues to resolve to the same authenticated device; existing test credentials still work; secret literals never appear in captured logs/responses beyond the one authorized issuance response.
 
 ## Done criteria
 
-- [ ] Every installation can have a distinct revocable credential.
-- [ ] Pairings are short-lived, one-use, digest-only at rest.
+- [x] Every installation can have a distinct revocable credential.
+- [x] Pairings are short-lived, one-use, digest-only at rest.
 - [ ] Existing accounts/profile TreeIDs do not change.
 - [ ] Web pairing and revocation pass E2E tests.
 

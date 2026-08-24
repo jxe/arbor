@@ -276,6 +276,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
     public var access: String?
     public var endpoint: String?
     public var canonical: String?
+    public var choice: String?
 
     public init(
         op: String,
@@ -297,7 +298,8 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         subject: JSONValue? = nil,
         access: String? = nil,
         endpoint: String? = nil,
-        canonical: String? = nil
+        canonical: String? = nil,
+        choice: String? = nil
     ) {
         self.op = op
         self.ref = ref
@@ -319,6 +321,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         self.access = access
         self.endpoint = endpoint
         self.canonical = canonical
+        self.choice = choice
     }
 
     public var isContentOperation: Bool {
@@ -396,5 +399,23 @@ public struct ArbordErrorValue: Codable, Sendable, Equatable {
 }
 
 public struct ArbordErrorEnvelope: Codable, Sendable, Equatable {
-    public var error: ArbordErrorValue
+    public var error: String
+    public var message: String
+    public var retryable: Bool
+    public var path: String?
+    public var current: NodeSnapshot?
+    public var owners: [String]?
+    public var mutationID: String?
+
+    public var value: ArbordErrorValue {
+        ArbordErrorValue(
+            code: error,
+            message: message,
+            retryable: retryable,
+            path: path,
+            current: current,
+            owners: owners,
+            mutationID: mutationID
+        )
+    }
 }

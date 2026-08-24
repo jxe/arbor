@@ -81,7 +81,7 @@ For retained pages, copy exact source except the deliberate frontmatter change f
 5. Open destination read-only through macOS arbord; inspect representative Markdown, all IDs/links/Home/assets, directory completion, search/backlinks, and diagnostics.
 6. Create private owner-only `~joe/todos` on the configured authority; verify public access is `none` before upload.
 7. Sync Mac → authority → iOS and require identical accepted root hashes.
-8. Exercise one edit from Mac and iOS, offline divergence/server merge, history restore, Recover, restart, and credential revoke on the converted tree. Confirm every added Markdown line survives near its original context and any unsafe case retains a writer-only draft plus both alternatives.
+8. Exercise one edit from Mac and iOS, offline divergence/server merge, history restore, Recover, restart, and credential revoke on the converted tree. Confirm every added Markdown line survives near its original context and any unsafe case leaves no server record while the client retains the complete returned draft and both alternatives.
 9. Enable normal writes only after all gates pass. Retain Hunch source and backup; never allow Hunch and Arbor to coauthor.
 
 ## Verification

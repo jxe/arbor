@@ -17,6 +17,7 @@
     "test": "bun test tests/unit/*.test.ts tests/integration/*.test.ts",
     "test:unit": "bun test tests/unit",
     "test:integration": "bun test tests/integration",
+    "test:sync-merge": "bun test tests/unit/wire-merge.test.ts tests/integration/wire-host.test.ts tests/integration/self-sync.test.ts",
     "test:e2e": "playwright test",
     "test:protocol": "bun tests/protocol/conformance.ts",
     "test:performance": "bun tests/performance/indexer.bench.ts",

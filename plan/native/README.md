@@ -12,10 +12,10 @@ Execution order:
 
 1. [006 — reconcile identity and plans](006-reconcile-arbor-identity.md)
 2. [007 — server-assisted synchronization contract](007-define-server-assisted-sync.md)
-3. [008 — authority synchronization and retained history](008-build-authority-sync.md)
+3. [008 — accepted updates and authority synchronization](008-build-authority-sync.md)
 4. [009 — arbord synchronization integration](009-integrate-arbord-sync.md)
 5. [010 — device credentials and pairing](010-add-device-pairing.md)
-6. [011 — Railway authority migration](011-migrate-railway-authority.md)
+6. [011 — Railway authority upgrade](011-migrate-railway-authority.md)
 7. [012 — native Arbor shell](012-found-native-arbor.md)
 8. [013 — Swift ArborWire](013-build-swift-arbor-wire.md)
 9. [014 — offline Swift replica](014-build-offline-replica.md)
@@ -39,15 +39,15 @@ Cross-device synchronization uses an Arbor authority, never iCloud Drive or Clou
 
 ## Server-assisted wire synchronization
 
-Wire refs continue to identify immutable directory-root hashes. The trusted authority keeps a linear acceptance history for each tree: an opaque acceptance ID, previous accepted root, next accepted root, authenticated credential/device, acceptance time, and, when applicable, the base/local/remote roots used for a merge. That audit/history record is authority state, not another content-addressed wire object and not a revision DAG. Watch cursors use acceptance IDs so accepting a previously seen root is still a distinct event.
+Wire refs continue to identify immutable directory-root hashes. The trusted authority keeps a linear accepted-update history for each tree: an opaque update ID, previous accepted root, next accepted root, authenticated credential/device, acceptance time, and, when applicable, the base/candidate/remote roots used for a merge. That audit record is authority state, not another content-addressed wire object and not a revision DAG. Watch cursors use accepted-update IDs so accepting a previously seen root is still a distinct event.
 
-Each client durably remembers its last accepted root. A sync request names that `base`, the client's current `local` root, a unique `requestID`, and any missing immutable file/directory objects. The authority verifies that base belongs to the tree's retained accepted history and compares it with its current `remote` root. It returns current when local already equals remote, accepts a one-sided change directly, performs a three-way merge when both sides changed, and compare-and-swaps the resulting root only after rechecking the current ref. Requests are idempotent for one authenticated credential/device and mutation mismatch is an error.
+Each client durably remembers its last accepted update and root. An update submission names that `base`, the client's `candidate` root, an `Idempotency-Key`, and any missing immutable file/directory objects. The authority verifies that the base update belongs to the tree and has the named root, then compares it with the current accepted root. It returns current when the candidate already equals the accepted root or has not changed from base, accepts a one-sided change directly, performs a three-way merge when both sides changed, and compare-and-swaps the resulting root only after rechecking the current ref. Successful requests are idempotent for one authenticated credential/device; reusing a key with different intent is `mutation-mismatch`.
 
-The self-host is trusted with plaintext, so the server owns the one merge implementation. Clients own local durability, offline editing, exact request retry, graph validation, and conflict presentation. A conflict response retains base/local/remote plus a writer-only draft root containing every safe change; the client may keep editing locally, resolve the remaining choices, and resubmit against the then-current remote root. No side is dropped or turned into an authored conflict-copy file.
+The self-host is trusted with plaintext, so the server owns the one merge implementation. Clients own local durability, offline editing, exact request retry, graph validation, and conflict presentation. An unsafe merge returns a complete draft snapshot, base/candidate/current identities, and structured reasons directly to the client without advancing or retaining anything on the authority. The client persists that response, may keep editing locally, resolves the remaining choices, and submits a new ordinary update against the returned current update. No side is dropped or turned into an authored conflict-copy file.
 
 Markdown body merging is intentionally additive and source-preserving, informed by Hunch's auto-restore behavior. Unchanged source stays byte-identical. Lines newly present on either side are copied verbatim and placed between the nearest surviving unchanged lines; when direct context disappeared, placement walks outward to a surviving heading/paragraph/list context, then falls back near the end of the containing document. Existing accepted text is placed before incoming text when both additions occupy the same slot. Exact duplicate additions may be collapsed only when identity is unambiguous. Arrival order may affect sibling order, but omission is never an acceptable automatic result: prefer a nearby duplicate to losing a line. Frontmatter key collisions, invalid fence structure, path/kind collisions, incompatible moves, and divergent binary/unknown files remain structured conflicts.
 
-The authority retains accepted root history and unresolved candidates indefinitely in v1. Current public/read access exposes only the current tree graph. History, drafts, candidates, and non-current graphs require effective write access, so deleted historical bytes do not become public merely because the current tree is readable.
+The authority retains accepted-update history indefinitely in v1. Rejected candidates and conflict drafts remain only in client state and never enter authority history or object authorization. Current public/read access exposes only the current tree graph; enumerating accepted updates or retrieving non-current accepted graphs requires effective write access, so deleted historical bytes do not become public merely because the current tree is readable.
 
 ## Native package architecture
 

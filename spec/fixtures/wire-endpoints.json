@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "tree": {
     "id": "tr_atlas",
     "canonicalPath": "/~alice/atlas",
@@ -9,7 +9,8 @@
     "publicAccess": "read",
     "access": "write",
     "httpURL": "https://community.example/~alice/atlas",
-    "arborURL": "arbor://community.example/~alice/atlas"
+    "arborURL": "arbor://community.example/~alice/atlas",
+    "update": "up_atlas1"
   },
   "cases": [
     {
@@ -30,31 +31,41 @@
           "publicAccess": "read",
           "access": "write",
           "httpURL": "https://community.example/~alice/atlas",
-          "arborURL": "arbor://community.example/~alice/atlas"
+          "arborURL": "arbor://community.example/~alice/atlas",
+          "update": "up_atlas1"
         }
       }
     },
     {
-      "name": "push-conflict",
+      "name": "submit-current-update",
       "request": {
         "method": "POST",
-        "path": "/.arbor/trees/tr_atlas/push",
-        "headers": { "Authorization": "Bearer <account-device-token>" },
+        "path": "/.arbor/trees/tr_atlas/updates",
+        "headers": {
+          "Authorization": "Bearer <account-device-token>",
+          "Idempotency-Key": "req_atlas1"
+        },
         "body": {
-          "expected": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-          "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+          "base": {
+            "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+            "update": "up_atlas1"
+          },
+          "candidate": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
           "objects": []
         }
       },
       "response": {
-        "status": 409,
+        "status": 200,
         "body": {
-          "error": {
-            "code": "ref-conflict",
-            "message": "Tree ref changed",
-            "retryable": false,
+          "outcome": "current",
+          "current": {
+            "id": "up_atlas1",
             "tree": "tr_atlas",
-            "current": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b"
+            "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+            "previousRoot": null,
+            "kind": "initial",
+            "acceptedAt": 1787529600000,
+            "subject": null
           }
         }
       }
@@ -77,7 +88,8 @@
           "publicAccess": "read",
           "access": "read",
           "httpURL": "https://community.example/~alice/atlas",
-          "arborURL": "arbor://community.example/~alice/atlas"
+          "arborURL": "arbor://community.example/~alice/atlas",
+          "update": "up_atlas1"
         }
       }
     },
@@ -86,12 +98,12 @@
       "request": {
         "method": "GET",
         "path": "/.arbor/trees/tr_atlas/watch",
-        "headers": { "Last-Event-ID": "sha256:0000000000000000000000000000000000000000000000000000000000000000" }
+        "headers": { "Last-Event-ID": "up_previous" }
       },
       "response": {
         "status": 200,
         "contentType": "text/event-stream; charset=utf-8",
-        "frame": "id: sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\nevent: ref\ndata: {\"id\":\"tr_atlas\",\"canonicalPath\":\"/~alice/atlas\",\"parentTree\":\"tr_alice\",\"kind\":\"shared-subtree\",\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"publicAccess\":\"read\",\"access\":\"write\",\"httpURL\":\"https://community.example/~alice/atlas\",\"arborURL\":\"arbor://community.example/~alice/atlas\"}\n\n"
+        "frame": "id: up_atlas1\nevent: ref\ndata: {\"id\":\"tr_atlas\",\"canonicalPath\":\"/~alice/atlas\",\"parentTree\":\"tr_alice\",\"kind\":\"shared-subtree\",\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"publicAccess\":\"read\",\"access\":\"write\",\"httpURL\":\"https://community.example/~alice/atlas\",\"arborURL\":\"arbor://community.example/~alice/atlas\",\"update\":\"up_atlas1\"}\n\n"
       }
     }
   ]

@@ -20,12 +20,23 @@ import { LOCAL_TREE, SYSTEM_TREE, canonicalJSONString, canonicalNodePath, revisi
 import { completeDirectoryDocument, parseMarkdown } from "@arbor/editor";
 import { FsConflictError, MutationJournal } from "@arbor/fs";
 import { CommunityConfigStore, VisitedTreeStore, arborDataRoot } from "@arbor/stores";
-import { WireClient, decodeWireObject, materializeTree, resolveWireLogicalNode, snapshotDirectory, type RemoteTreeDescriptor } from "@arbor/wire";
+import { WireClient, WireUpdateConflict, decodeWireObject, materializeTree, resolveWireLogicalNode, snapshotDirectory, type AuthorityDevice, type PairingOffer, type RemoteTreeDescriptor } from "@arbor/wire";
 import { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { ProtocolError, RevisionConflictError, Workspace, type WorkspaceOptions } from "./workspace.ts";
+import {
+  clearPendingTreeUpdate,
+  clearTreeConflict,
+  pendingFromSnapshot,
+  pendingTreeUpdate,
+  savePendingTreeUpdate,
+  saveTreeConflict,
+  snapshotFromPending,
+  snapshotFromConflictDraft,
+  treeConflict,
+} from "./sync-state.ts";
 
 const SYSTEM_REMOTE_TIMEOUT_MS = 1_000;
 
@@ -443,14 +454,14 @@ export class ArborService implements AsyncDisposable {
     const workspace = (scopeKey === undefined ? undefined : await this.trees.workspaceByTree(scopeKey)) ?? this.session;
     return this.inWorkspace(workspace, async () => {
       const receipt = await workspace.executeMutation(translated);
-      await this.pushWorkspace(workspace).catch((error) => {
+      await this.syncAll().catch((error: unknown) => {
         this.events.emit({
           tree: workspace.tree,
           kind: "diagnostic",
           path: "/",
           origin: "sync",
         });
-        console.error(`Arbor sync push failed: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Arbor update submission failed: ${error instanceof Error ? error.message : String(error)}`);
       });
       await workspace.protocolFault("protocol:response-delivery");
       return receipt;
@@ -721,11 +732,14 @@ export class ArborService implements AsyncDisposable {
         sync: current?.sync,
       });
     }
-    return [...byID.values()].map((tree) => ({
+    return Promise.all([...byID.values()].map(async (tree) => ({
       segment: tree.id,
       tree,
-      source: this.treeRecordSource(tree),
-    }));
+      source: this.treeRecordSource(
+        tree,
+        tree.placement === "shared" ? await treeConflict(tree.id) : undefined,
+      ),
+    })));
   }
 
   private async systemTreeChildren() {
@@ -739,7 +753,10 @@ export class ArborService implements AsyncDisposable {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  private treeRecordSource(tree: TreeDescriptor): string {
+  private treeRecordSource(
+    tree: TreeDescriptor,
+    conflict?: Awaited<ReturnType<typeof treeConflict>>,
+  ): string {
     return [
       "---",
       `id: ${tree.id}`,
@@ -754,6 +771,13 @@ export class ArborService implements AsyncDisposable {
       ...(tree.access ? [`access: ${tree.access}`] : []),
       ...(tree.accessEntries ? [`accessEntries: ${JSON.stringify(tree.accessEntries)}`] : []),
       ...(tree.sync ? [`sync: ${tree.sync}`] : []),
+      ...(conflict ? [
+        `conflictCurrent: ${JSON.stringify({ update: conflict.current.id, root: conflict.current.root })}`,
+        `conflictBase: ${JSON.stringify(conflict.base)}`,
+        `conflictCandidate: ${JSON.stringify(conflict.candidate)}`,
+        `conflictDraft: ${JSON.stringify(conflict.draft.root)}`,
+        `conflicts: ${JSON.stringify(conflict.conflicts)}`,
+      ] : []),
       ...(tree.legacy ? ["legacy: true"] : []),
       "---",
       "",
@@ -843,7 +867,7 @@ export class ArborService implements AsyncDisposable {
 
   private isSystemMutation(operations: readonly WorkspaceOperation[]): operations is [SystemOperation] {
     return operations.length === 1
-      && ["connectCommunity", "disconnectCommunity", "claimProfile", "createGroupProfile", "promoteTree", "placeTree", "removeTreePlacement", "setTreeAccess"].includes(operations[0]!.op);
+      && ["connectCommunity", "disconnectCommunity", "claimProfile", "createGroupProfile", "promoteTree", "placeTree", "removeTreePlacement", "resolveTreeConflict", "setTreeAccess"].includes(operations[0]!.op);
   }
 
   private safeSystemOperation(operation: SystemOperation): SystemOperation | Record<string, unknown> {
@@ -884,6 +908,8 @@ export class ArborService implements AsyncDisposable {
       effects = await this.placeTree(operation.tree, operation.path, operation.endpoint, operation.canonical);
     } else if (operation.op === "removeTreePlacement") {
       effects = await this.removeTreePlacement(operation.path, operation.endpoint, operation.canonicalPath);
+    } else if (operation.op === "resolveTreeConflict") {
+      effects = await this.resolveTreeConflict(operation.tree, operation.choice);
     } else {
       effects = await this.setTreeAccess(operation.tree, operation.subject, operation.access);
     }
@@ -924,6 +950,21 @@ export class ArborService implements AsyncDisposable {
     };
   }
 
+  async communityDevices(): Promise<AuthorityDevice[]> {
+    const { client } = await this.configuredWire();
+    return client.devices();
+  }
+
+  async createCommunityPairing(): Promise<PairingOffer> {
+    const { client } = await this.configuredWire();
+    return client.createPairing();
+  }
+
+  async revokeCommunityDevice(device: string): Promise<AuthorityDevice> {
+    const { client } = await this.configuredWire();
+    return client.revokeDevice(device);
+  }
+
   private accountMetadata(account: import("@arbor/wire").RemoteAccountDescriptor) {
     return {
       id: account.id,
@@ -958,6 +999,7 @@ export class ArborService implements AsyncDisposable {
       await this.trees.applySharedPlacement({
         ...placement,
         ref: writable.ref,
+        ...(writable.update ? { update: writable.update } : {}),
         access: "write",
         publicAccess: writable.publicAccess,
       });
@@ -991,6 +1033,7 @@ export class ArborService implements AsyncDisposable {
       canonical: result.tree.arborURL,
       endpoint: origin,
       ref: result.tree.ref,
+      ...(result.tree.update ? { update: result.tree.update } : {}),
       access: "write",
       publicAccess: result.tree.publicAccess,
     });
@@ -1042,6 +1085,7 @@ export class ArborService implements AsyncDisposable {
       canonical: remote.arborURL,
       endpoint: origin,
       ref: remote.ref,
+      ...(remote.update ? { update: remote.update } : {}),
       access: "write",
       publicAccess: remote.publicAccess,
     });
@@ -1053,6 +1097,7 @@ export class ArborService implements AsyncDisposable {
       await this.trees.applySharedPlacement({
         ...ancestor,
         ref: refreshed.ref,
+        ...(refreshed.update ? { update: refreshed.update } : {}),
         publicAccess: refreshed.publicAccess,
       });
     }
@@ -1119,6 +1164,7 @@ export class ArborService implements AsyncDisposable {
       canonical: remote.arborURL,
       endpoint: origin,
       ref: remote.ref,
+      ...(remote.update ? { update: remote.update } : {}),
       access: remote.access,
       publicAccess: remote.publicAccess,
     });
@@ -1171,6 +1217,86 @@ export class ArborService implements AsyncDisposable {
     return [{ kind: "deleted", tree: SYSTEM_TREE, path: `/trees/${placement.tree}` }];
   }
 
+  private async resolveTreeConflict(
+    tree: string,
+    choice: "local" | "draft" | "remote",
+  ): Promise<MutationReceipt["effects"]> {
+    const conflict = await treeConflict(tree);
+    if (!conflict) throw new ProtocolError("not-found", `Tree has no stored synchronization conflict: ${tree}`, 404);
+    const placement = this.trees.placementFor(tree);
+    const workspace = await this.trees.workspaceByTree(tree);
+    if (!placement || placement.source === "local" || !workspace) {
+      throw new ProtocolError("not-found", `Shared tree placement is unavailable: ${tree}`, 404);
+    }
+    const configured = await this.communityConfig.get();
+    const client = new WireClient(
+      placement.endpoint,
+      configured?.record.origin === placement.endpoint ? configured.accountToken : undefined,
+    );
+    if (choice === "remote") {
+      const remote = await client.ref(tree);
+      if (!remote.update) throw new Error("Authority does not advertise accepted updates for this tree");
+      await materializeTree(
+        workspace.root,
+        remote.ref,
+        (hash) => client.object(hash),
+        undefined,
+        this.trees.excludedMountsWithin(workspace.root),
+      );
+      await this.trees.applySharedPlacement({
+        ...placement,
+        ref: remote.ref,
+        update: remote.update,
+        publicAccess: remote.publicAccess,
+        access: remote.access,
+      });
+      await clearPendingTreeUpdate(tree);
+      await clearTreeConflict(tree);
+      this.trees.setSyncState(tree, "idle");
+      this.syncConflicts.delete(tree);
+      return [{ kind: "updated", tree: SYSTEM_TREE, path: `/trees/${tree}` }];
+    }
+
+    let candidate: import("@arbor/wire").TreeSnapshot;
+    if (choice === "draft") {
+      const local = await this.snapshotWorkspace(workspace, client);
+      if (local.root !== conflict.candidate) {
+        throw new ProtocolError(
+          "stale-content-revision",
+          "Local files changed after the conflict; keep the current local version or review those edits before choosing the older draft",
+          409,
+          { path: `/trees/${tree}` },
+        );
+      }
+      candidate = snapshotFromConflictDraft(conflict);
+      await materializeTree(
+        workspace.root,
+        candidate.root,
+        (hash) => {
+          const bytes = candidate.objects.get(hash);
+          if (!bytes) throw new Error(`Conflict draft is missing object: ${hash}`);
+          return Promise.resolve(bytes);
+        },
+        undefined,
+        this.trees.excludedMountsWithin(workspace.root),
+      );
+    } else {
+      candidate = await this.snapshotWorkspace(workspace, client);
+    }
+    await savePendingTreeUpdate(
+      tree,
+      pendingFromSnapshot(
+        crypto.randomUUID(),
+        { root: conflict.current.root, update: conflict.current.id },
+        candidate,
+      ),
+    );
+    await clearTreeConflict(tree);
+    this.syncConflicts.delete(tree);
+    await this.updateWorkspace(workspace, placement, client, await client.list());
+    return [{ kind: "updated", tree: SYSTEM_TREE, path: `/trees/${tree}` }];
+  }
+
   private canonicalBoundariesFor(
     workspace: Workspace,
     remoteTrees: readonly RemoteTreeDescriptor[],
@@ -1203,30 +1329,101 @@ export class ArborService implements AsyncDisposable {
     );
   }
 
-  private async pushWorkspace(workspace: Workspace, remoteTrees?: readonly RemoteTreeDescriptor[]): Promise<void> {
-    const placement = this.trees.placementFor(workspace.tree);
-    if (!placement || placement.source === "local") return;
-    if (placement.access !== "write") return;
-    const configured = await this.communityConfig.get();
-    const client = new WireClient(
-      placement.endpoint,
-      configured?.record.origin === placement.endpoint ? configured.accountToken : undefined,
-    );
-    this.trees.setSyncState(workspace.tree, "pushing");
-    const snapshot = await this.snapshotWorkspace(workspace, client, remoteTrees);
-    if (snapshot.root === placement.ref) {
-      this.trees.setSyncState(workspace.tree, "idle");
+  private async updateWorkspace(
+    workspace: Workspace,
+    initialPlacement: import("@arbor/stores").SharedTreePlacement,
+    client: WireClient,
+    remoteTrees: readonly RemoteTreeDescriptor[],
+  ): Promise<void> {
+    this.trees.setSyncState(workspace.tree, "syncing");
+    let placement = initialPlacement;
+    const remote = await client.ref(workspace.tree);
+    if (!remote.update) throw new Error("Authority does not advertise accepted updates for this tree");
+    if (
+      placement.publicAccess !== remote.publicAccess
+      || placement.access !== remote.access
+      || (placement.ref === remote.ref && placement.update !== remote.update)
+    ) {
+      placement = {
+        ...placement,
+        publicAccess: remote.publicAccess,
+        access: remote.access,
+        ...(placement.ref === remote.ref ? { update: remote.update } : {}),
+      };
+      await this.trees.applySharedPlacement(placement);
+    }
+    if (await treeConflict(workspace.tree)) {
+      this.trees.setSyncState(workspace.tree, "conflict");
+      this.syncConflicts.add(workspace.tree);
       return;
     }
-    try {
-      const remote = await client.push(workspace.tree, placement.ref, snapshot);
-      await this.trees.applySharedPlacement({ ...placement, ref: remote.ref, publicAccess: remote.publicAccess });
+    let pending = await pendingTreeUpdate(workspace.tree);
+    let local = await this.snapshotWorkspace(workspace, client, remoteTrees);
+    if (!pending && local.root === remote.ref) {
+      await this.trees.applySharedPlacement({ ...placement, ref: remote.ref, update: remote.update });
       this.trees.setSyncState(workspace.tree, "idle");
       this.syncConflicts.delete(workspace.tree);
-    } catch (error) {
-      this.trees.setSyncState(workspace.tree, error instanceof TypeError ? "offline" : "conflict");
-      throw error;
+      return;
     }
+    if (placement.access !== "write") {
+      this.trees.setSyncState(workspace.tree, "conflict");
+      return;
+    }
+    if (!pending) {
+      if (!placement.update) throw new Error("Shared placement has no accepted-update base");
+      pending = pendingFromSnapshot(crypto.randomUUID(), { root: placement.ref, update: placement.update }, local);
+      await savePendingTreeUpdate(workspace.tree, pending);
+    }
+
+    for (let generation = 0; generation < 4; generation++) {
+      try {
+        const result = await client.submitUpdate(
+          workspace.tree,
+          pending.idempotencyKey,
+          pending.base,
+          snapshotFromPending(pending),
+        );
+        const accepted = result.outcome === "current" ? result.current : result.update;
+        local = await this.snapshotWorkspace(workspace, client, remoteTrees);
+        if (local.root !== pending.candidate) {
+          pending = pendingFromSnapshot(crypto.randomUUID(), pending.base, local);
+          await savePendingTreeUpdate(workspace.tree, pending);
+          continue;
+        }
+        await materializeTree(
+          workspace.root,
+          accepted.root,
+          (hash) => client.object(hash),
+          undefined,
+          this.trees.excludedMountsWithin(workspace.root),
+        );
+        await this.trees.applySharedPlacement({
+          ...placement,
+          ref: accepted.root,
+          update: accepted.id,
+          publicAccess: remote.publicAccess,
+        });
+        await clearPendingTreeUpdate(workspace.tree);
+        await clearTreeConflict(workspace.tree);
+        this.trees.setSyncState(workspace.tree, "idle");
+        this.syncConflicts.delete(workspace.tree);
+        return;
+      } catch (error) {
+        if (error instanceof WireUpdateConflict) {
+          await saveTreeConflict(workspace.tree, error.result);
+          await clearPendingTreeUpdate(workspace.tree);
+          this.trees.setSyncState(workspace.tree, "conflict");
+          const firstConflict = !this.syncConflicts.has(workspace.tree);
+          this.syncConflicts.add(workspace.tree);
+          if (firstConflict) {
+            this.events.emit({ tree: workspace.tree, kind: "diagnostic", path: "/", origin: "sync" });
+          }
+          return;
+        }
+        throw error;
+      }
+    }
+    throw new Error("Local tree kept changing while an accepted update was being applied");
   }
 
   private async syncAll(): Promise<void> {
@@ -1249,54 +1446,7 @@ export class ArborService implements AsyncDisposable {
             remoteTreesByOrigin.set(placement.endpoint, listed);
           }
           const remoteTrees = await listed;
-          const remote = await client.ref(placement.tree);
-          const effectiveAccess = remote.access;
-          let activePlacement = placement;
-          if (placement.publicAccess !== remote.publicAccess || placement.access !== effectiveAccess) {
-            activePlacement = {
-              ...placement,
-              publicAccess: remote.publicAccess,
-              access: effectiveAccess,
-            };
-            await this.trees.applySharedPlacement(activePlacement);
-          }
-          const local = await this.snapshotWorkspace(workspace, client, remoteTrees);
-          // A newly placed canonical child can make the parent snapshot match
-          // the authority even while its persisted placement ref is stale.
-          if (local.root === remote.ref) {
-            if (activePlacement.ref !== remote.ref) {
-              activePlacement = { ...activePlacement, ref: remote.ref };
-              await this.trees.applySharedPlacement(activePlacement);
-            }
-            this.trees.setSyncState(activePlacement.tree, "idle");
-            this.syncConflicts.delete(activePlacement.tree);
-            continue;
-          }
-          if (remote.ref === activePlacement.ref) {
-            if (local.root !== activePlacement.ref && activePlacement.access === "write") await this.pushWorkspace(workspace, remoteTrees);
-            else if (local.root !== activePlacement.ref) this.trees.setSyncState(activePlacement.tree, "conflict");
-            else this.trees.setSyncState(activePlacement.tree, "idle");
-            continue;
-          }
-          if (local.root !== activePlacement.ref) {
-            this.trees.setSyncState(activePlacement.tree, "conflict");
-            if (!this.syncConflicts.has(activePlacement.tree)) {
-              this.syncConflicts.add(activePlacement.tree);
-              this.events.emit({ tree: activePlacement.tree, kind: "diagnostic", path: "/", origin: "sync" });
-            }
-            continue;
-          }
-          this.trees.setSyncState(activePlacement.tree, "pulling");
-          await materializeTree(
-            workspace.root,
-            remote.ref,
-            (hash) => client.object(hash),
-            undefined,
-            this.trees.excludedMountsWithin(workspace.root),
-          );
-          await this.trees.applySharedPlacement({ ...activePlacement, ref: remote.ref });
-          this.trees.setSyncState(activePlacement.tree, "idle");
-          this.syncConflicts.delete(activePlacement.tree);
+          await this.updateWorkspace(workspace, placement, client, remoteTrees);
         } catch (error) {
           this.trees.setSyncState(placement.tree, error instanceof TypeError ? "offline" : "error");
         }

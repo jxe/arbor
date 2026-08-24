@@ -189,7 +189,7 @@ public actor ArborClient {
                 let (data, response) = try await session.data(for: urlRequest)
                 let status = try statusCode(response)
                 if status == 500 {
-                    lastMessage = (try? decoder.decode(ArbordErrorEnvelope.self, from: data).error.message) ?? "arbord returned 500"
+                    lastMessage = (try? decoder.decode(ArbordErrorEnvelope.self, from: data).message) ?? "arbord returned 500"
                     throw RetryableServerError()
                 }
                 try validate(data: data, status: status)
@@ -289,7 +289,7 @@ public actor ArborClient {
                             var data = Data()
                             for try await byte in bytes { data.append(byte) }
                             let envelope = try decoder.decode(ArbordErrorEnvelope.self, from: data)
-                            throw ArbordServerError(status: status, value: envelope.error)
+                            throw ArbordServerError(status: status, value: envelope.value)
                         }
                         reconnectAttempt = 0
                         var frame = Data()
@@ -424,7 +424,7 @@ public actor ArborClient {
                 let status = try statusCode(response)
                 if status == 500 {
                     lastError = (try? decoder.decode(ArbordErrorEnvelope.self, from: data))
-                        .map { ArbordServerError(status: status, value: $0.error) }
+                        .map { ArbordServerError(status: status, value: $0.value) }
                         ?? URLError(.badServerResponse)
                     throw RetryableServerError()
                 }
@@ -447,12 +447,12 @@ public actor ArborClient {
     private func validate(data: Data, status: Int) throws {
         guard status >= 400 else { return }
         let envelope = (try? decoder.decode(ArbordErrorEnvelope.self, from: data))
-            ?? ArbordErrorEnvelope(error: ArbordErrorValue(
-                code: "internal-error",
+            ?? ArbordErrorEnvelope(
+                error: "internal-error",
                 message: HTTPURLResponse.localizedString(forStatusCode: status),
                 retryable: false
-            ))
-        throw ArbordServerError(status: status, value: envelope.error)
+            )
+        throw ArbordServerError(status: status, value: envelope.value)
     }
 
     private func statusCode(_ response: URLResponse) throws -> Int {

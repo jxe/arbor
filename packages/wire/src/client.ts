@@ -1,7 +1,12 @@
 import type {
+  AcceptedUpdate,
   BoundaryKind,
   PublicAccess,
-  PushRequest,
+  UpdateConflictResult,
+  UpdateRequest,
+  UpdateResult,
+  AuthorityDevice,
+  PairingOffer,
   TreeAccess,
 } from "./authority.ts";
 import type { ObjectHash, TreeSnapshot } from "./objects.ts";
@@ -16,6 +21,14 @@ export interface RemoteTreeDescriptor {
   access: TreeAccess;
   httpURL: string;
   arborURL: string;
+  update?: string;
+}
+
+export class WireUpdateConflict extends Error {
+  constructor(readonly result: UpdateConflictResult) {
+    super("Authority could not safely accept the candidate update");
+    this.name = "WireUpdateConflict";
+  }
 }
 
 export interface RemoteAccountDescriptor {
@@ -31,6 +44,11 @@ export interface ClaimResult {
   accountToken: string;
   account: RemoteAccountDescriptor;
   tree: RemoteTreeDescriptor;
+}
+
+export interface PairingClaimResult {
+  deviceToken: string;
+  device: AuthorityDevice;
 }
 
 export interface RemoteAccessEntry {
@@ -105,6 +123,37 @@ export class WireClient {
     return response.json();
   }
 
+  async createPairing(): Promise<PairingOffer> {
+    const response = await this.checked(await this.request("/.arbor/pairings", {
+      method: "POST",
+      headers: this.headers(true),
+      body: "{}",
+    }));
+    return response.json();
+  }
+
+  async claimPairing(id: string, secret: string, label: string): Promise<PairingClaimResult> {
+    const response = await this.checked(await this.request(`/.arbor/pairings/${encodeURIComponent(id)}/claim`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secret, label }),
+    }));
+    return response.json();
+  }
+
+  async devices(): Promise<AuthorityDevice[]> {
+    const response = await this.checked(await this.request("/.arbor/devices", { headers: this.headers() }));
+    return response.json();
+  }
+
+  async revokeDevice(id: string): Promise<AuthorityDevice> {
+    const response = await this.checked(await this.request(`/.arbor/devices/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: this.headers(),
+    }));
+    return response.json();
+  }
+
   async create(
     canonicalPath: string,
     snapshot: TreeSnapshot,
@@ -157,22 +206,54 @@ export class WireClient {
     return response.json();
   }
 
-  async push(tree: string, expected: ObjectHash, snapshot: TreeSnapshot): Promise<RemoteTreeDescriptor> {
-    const request: PushRequest = {
-      expected,
-      root: snapshot.root,
-      objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
-    };
-    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/push`, {
-      method: "POST",
-      headers: this.headers(true),
-      body: JSON.stringify({
-        expected: request.expected,
-        root: request.root,
-        objects: request.objects.map(({ hash, bytes }) => ({ hash, bytes: bytesBase64(bytes) })),
-      }),
+  async updates(tree: string, cursor?: string): Promise<{ updates: AcceptedUpdate[]; cursor: string | null }> {
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates${query}`, {
+      headers: this.headers(),
     }));
     return response.json();
+  }
+
+  async submitUpdate(
+    tree: string,
+    idempotencyKey: string,
+    base: { root: ObjectHash; update: string },
+    snapshot: TreeSnapshot,
+  ): Promise<UpdateResult> {
+    const request: UpdateRequest = {
+      base,
+      candidate: snapshot.root,
+      objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
+    };
+    const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
+      method: "POST",
+      headers: { ...this.headers(true), "idempotency-key": idempotencyKey },
+      body: JSON.stringify({
+        base: request.base,
+        candidate: request.candidate,
+        objects: request.objects.map(({ hash, bytes }) => ({ hash, bytes: bytesBase64(bytes) })),
+      }),
+    });
+    if (response.status === 409) {
+      const body = await response.json() as (Omit<UpdateConflictResult, "draft"> & {
+        draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
+      }) | { error?: unknown; message?: unknown };
+      if (body.error === "conflict") {
+        const conflict = body as Omit<UpdateConflictResult, "draft"> & {
+          draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
+        };
+        throw new WireUpdateConflict({
+          ...conflict,
+          draft: {
+            root: conflict.draft.root,
+            objects: conflict.draft.objects.map(({ hash, bytes }) => ({ hash, bytes: base64Bytes(bytes) })),
+          },
+        });
+      }
+      const rejection = body as { error?: unknown; message?: unknown };
+      throw new Error(`${response.url}: ${typeof rejection.error === "string" ? rejection.error : "update rejected"}${typeof rejection.message === "string" ? `: ${rejection.message}` : ""}`);
+    }
+    return (await this.checked(response)).json();
   }
 
   async access(tree: string): Promise<RemoteAccessEntry[]> {

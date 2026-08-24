@@ -32,6 +32,8 @@ final class ArborClientTests: XCTestCase {
         let unknownNode = try decode(NodeSnapshot.self, "node-unknown-field.json")
         let untracked = try decode(NodeSnapshot.self, "node-untracked.json")
         let systemTree = try decode(NodeSnapshot.self, "node-system-tree.json")
+        let mergeFixtureData = try Data(contentsOf: fixtures.appending(path: "wire-merge.json"))
+        let mergeFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: mergeFixtureData) as? [String: Any])
 
         XCTAssertEqual(node.ref, ResolvedNodeRef(path: "/notes/today", pageID: "abc123", tree: "tr_notes7f3q2ab7c"))
         XCTAssertEqual(node.document?.source, "---\nid: abc123\ntitle: Today\n---\nHello\n")
@@ -45,7 +47,7 @@ final class ArborClientTests: XCTestCase {
         XCTAssertNil(unknownNode.tree)
         XCTAssertEqual(mutation.operations.first?.op, "move")
         XCTAssertEqual(receipt.effects.first?.previousPath, "/notes/today")
-        XCTAssertEqual(error.error.code, "future-error-code")
+        XCTAssertEqual(error.error, "future-error-code")
         XCTAssertEqual(children.items.first?.path, "/notes/today")
         XCTAssertEqual(search.results.first?.pageID, "abc123")
         XCTAssertEqual(backlinks.entries.first?.ref.pageID, "week01")
@@ -54,9 +56,16 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(recovery.entries.last?.kind, "trash")
         XCTAssertEqual(
             operationRequests.flatMap(\.operations).map(\.op),
-            ["writeMarkdown", "createMarkdown", "createDirectory", "rename", "move", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity", "connectCommunity", "promoteTree", "placeTree", "setTreeAccess", "claimProfile", "disconnectCommunity", "createGroupProfile", "removeTreePlacement"]
+            ["writeMarkdown", "createMarkdown", "createDirectory", "rename", "move", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity", "connectCommunity", "promoteTree", "placeTree", "setTreeAccess", "claimProfile", "disconnectCommunity", "createGroupProfile", "removeTreePlacement", "resolveTreeConflict"]
         )
-        XCTAssertEqual(errors.last?.error.code, "future-error-code")
+        XCTAssertEqual(errors.last?.error, "future-error-code")
+        XCTAssertEqual(mergeFixtures["version"] as? Int, 1)
+        XCTAssertGreaterThanOrEqual((mergeFixtures["markdownCases"] as? [[String: Any]])?.count ?? 0, 10)
+        XCTAssertEqual((mergeFixtures["pageMoveCases"] as? [[String: Any]])?.count, 4)
+        XCTAssertEqual(
+            (mergeFixtures["replayCases"] as? [[String: Any]])?.compactMap { $0["name"] as? String },
+            ["exact-success-replay", "changed-intent-reuses-key"]
+        )
         XCTAssertEqual(unknownNode.ref.pageID, "abc123")
     }
 
@@ -186,7 +195,7 @@ final class ArborClientTests: XCTestCase {
         let receipt = try Data(contentsOf: fixtures.appending(path: "receipt.json"))
         await URLProtocolStub.state.install { _, attempt in
             attempt == 1
-                ? (500, Data(#"{"error":{"code":"internal-error","message":"lost","retryable":true}}"#.utf8))
+                ? (500, Data(#"{"error":"internal-error","message":"lost","retryable":true}"#.utf8))
                 : (200, receipt)
         }
         let client = ArborClient(
@@ -236,7 +245,7 @@ final class ArborClientTests: XCTestCase {
         let response = Data(#"{"receipt":\#(receipt),"path":"/Assets/example.txt","markdownPath":"../Assets/example.txt"}"#.utf8)
         await URLProtocolStub.state.install { _, attempt in
             attempt == 1
-                ? (500, Data(#"{"error":{"code":"internal-error","message":"lost","retryable":true}}"#.utf8))
+                ? (500, Data(#"{"error":"internal-error","message":"lost","retryable":true}"#.utf8))
                 : (200, response)
         }
         let client = ArborClient(
@@ -257,6 +266,112 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(snapshot.bodies[0], snapshot.bodies[1])
     }
 
+    func testAuthorityClientDecodesAcceptedUpdateAndRetriesExactPreparedBody() async throws {
+        let response = Data(#"{"outcome":"current","current":{"id":"up_atlas1","tree":"tr_atlas","root":"sha256:root","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null}}"#.utf8)
+        await URLProtocolStub.state.install { _, attempt in
+            attempt == 1
+                ? (500, Data(#"{"error":"temporarily-unavailable","message":"retry"}"#.utf8))
+                : (200, response)
+        }
+        let client = ArborAuthorityClient(
+            origin: URL(string: "https://authority.test")!,
+            credential: "device-token",
+            session: stubSession(),
+            retryDelay: { _ in }
+        )
+        let prepared = try await client.prepareUpdate(
+            tree: "tr_atlas",
+            idempotencyKey: "req_atlas1",
+            base: AuthorityUpdateBase(root: "sha256:root", update: "up_atlas1"),
+            snapshot: AuthoritySnapshot(root: "sha256:root", objects: [])
+        )
+        let result = try await client.submitUpdate(prepared)
+        guard case .current(let current) = result else { return XCTFail("Expected current") }
+        let snapshot = await URLProtocolStub.state.snapshot()
+        XCTAssertEqual(current.id, "up_atlas1")
+        XCTAssertEqual(snapshot.count, 2)
+        XCTAssertEqual(snapshot.bodies[0], snapshot.bodies[1])
+        XCTAssertEqual(snapshot.requests[0].authorization, "Bearer device-token")
+        XCTAssertEqual(snapshot.requests[0].idempotencyKey, "req_atlas1")
+        XCTAssertEqual(snapshot.requests[0].path, "/.arbor/trees/tr_atlas/updates")
+    }
+
+    func testAuthorityConflictIsTypedCompleteAndNotRetried() async throws {
+        let response = Data(#"{"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"current":{"id":"up_remote","tree":"tr_atlas","root":"sha256:remote","previousRoot":"sha256:base","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"sha256:base","candidate":"sha256:local","draft":{"root":"sha256:draft","objects":[{"hash":"sha256:draft","bytes":"ZHJhZnQ="}]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}"#.utf8)
+        await URLProtocolStub.state.install { _, _ in (409, response) }
+        let client = ArborAuthorityClient(
+            origin: URL(string: "https://authority.test")!,
+            credential: "device-token",
+            session: stubSession(),
+            retryDelay: { _ in }
+        )
+        let prepared = try await client.prepareUpdate(
+            tree: "tr_atlas",
+            idempotencyKey: "req_conflict",
+            base: AuthorityUpdateBase(root: "sha256:base", update: "up_base"),
+            snapshot: AuthoritySnapshot(
+                root: "sha256:local",
+                objects: [AuthorityObject(hash: "sha256:local", bytes: Data("local".utf8))]
+            )
+        )
+        do {
+            _ = try await client.submitUpdate(prepared)
+            XCTFail("Expected a typed conflict")
+        } catch let error as AuthorityUpdateConflictError {
+            XCTAssertEqual(error.conflict.current.id, "up_remote")
+            XCTAssertEqual(error.conflict.draft.objects.first?.bytes, Data("draft".utf8))
+            XCTAssertEqual(error.conflict.conflicts.first?.reason, "binary-conflict")
+        }
+        let snapshot = await URLProtocolStub.state.snapshot()
+        XCTAssertEqual(snapshot.count, 1)
+    }
+
+    func testAuthorityPairingClaimDoesNotSendExistingCredential() async throws {
+        let response = Data(#"{"deviceToken":"new-token","device":{"id":"dev_new","account":"acct_1","label":"iPad","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null}}"#.utf8)
+        await URLProtocolStub.state.install { _, _ in (201, response) }
+        let client = ArborAuthorityClient(
+            origin: URL(string: "https://authority.test")!,
+            credential: "old-token",
+            session: stubSession()
+        )
+        let claimed = try await client.claimPairing(id: "pair_1", secret: "secret", label: "iPad")
+        let snapshot = await URLProtocolStub.state.snapshot()
+        XCTAssertEqual(claimed.deviceToken, "new-token")
+        XCTAssertNil(snapshot.requests.first?.authorization)
+        XCTAssertEqual(snapshot.requests.first?.path, "/.arbor/pairings/pair_1/claim")
+    }
+
+    func testAuthorityReadHistoryObjectAndDeviceRoutesStaySmall() async throws {
+        let descriptor = #"{"id":"tr_atlas","canonicalPath":"/~alice/atlas","parentTree":null,"kind":"shared-subtree","ref":"sha256:root","publicAccess":"read","access":"write","httpURL":"https://authority.test/~alice/atlas","arborURL":"arbor://authority.test/~alice/atlas","update":"up_1"}"#
+        let update = #"{"id":"up_1","tree":"tr_atlas","root":"sha256:root","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null}"#
+        let device = #"{"id":"dv_1","account":"acct_1","label":"Mac","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null}"#
+        await URLProtocolStub.state.install { request, _ in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/.arbor/trees/tr_atlas/ref"): (200, Data(descriptor.utf8))
+            case ("GET", "/.arbor/trees/tr_atlas/updates"): (200, Data("{\"updates\":[\(update)],\"cursor\":null}".utf8))
+            case ("GET", "/.arbor/objects/sha256:root"): (200, Data("object-bytes".utf8))
+            case ("GET", "/.arbor/devices"): (200, Data("[\(device)]".utf8))
+            case ("DELETE", "/.arbor/devices/dv_1"): (200, Data(device.utf8))
+            default: (404, Data(#"{"error":"not-found"}"#.utf8))
+            }
+        }
+        let client = ArborAuthorityClient(
+            origin: URL(string: "https://authority.test")!,
+            credential: "device-token",
+            session: stubSession()
+        )
+        let ref = try await client.ref(tree: "tr_atlas")
+        let updates = try await client.updates(tree: "tr_atlas", cursor: "up_0")
+        let object = try await client.object(hash: "sha256:root")
+        let devices = try await client.devices()
+        let revoked = try await client.revokeDevice(id: "dv_1")
+        XCTAssertEqual(ref.update, "up_1")
+        XCTAssertEqual(updates.updates.first?.id, "up_1")
+        XCTAssertEqual(object, Data("object-bytes".utf8))
+        XCTAssertEqual(devices.first?.id, "dv_1")
+        XCTAssertEqual(revoked.id, "dv_1")
+    }
+
     private func stubSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
@@ -270,22 +385,37 @@ private actor URLProtocolStubState {
     private var handler: Handler?
     private var count = 0
     private var bodies: [Data] = []
+    private var requests: [CapturedRequest] = []
 
     func install(_ handler: @escaping Handler) {
         self.handler = handler
         count = 0
         bodies = []
+        requests = []
     }
 
     func response(for request: URLRequest) -> (Int, Data) {
         count += 1
         bodies.append(request.httpBody ?? Data())
+        requests.append(CapturedRequest(
+            path: request.url?.path,
+            method: request.httpMethod,
+            authorization: request.value(forHTTPHeaderField: "Authorization"),
+            idempotencyKey: request.value(forHTTPHeaderField: "Idempotency-Key")
+        ))
         return handler?(request, count) ?? (500, Data())
     }
 
-    func snapshot() -> (count: Int, bodies: [Data]) {
-        (count, bodies)
+    func snapshot() -> (count: Int, bodies: [Data], requests: [CapturedRequest]) {
+        (count, bodies, requests)
     }
+}
+
+private struct CapturedRequest: Sendable {
+    var path: String?
+    var method: String?
+    var authorization: String?
+    var idempotencyKey: String?
 }
 
 private final class URLProtocolStub: URLProtocol, @unchecked Sendable {

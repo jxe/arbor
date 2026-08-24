@@ -19,6 +19,7 @@ export interface SharedTreePlacement {
   access: "read" | "write";
   endpoint: string;
   ref: string;
+  update?: string;
   publicAccess?: PublicAccess;
 }
 
@@ -101,6 +102,7 @@ function parseRegistry(source: string): TreeRegistrySnapshot {
     const endpoint = fields.endpoint;
     const access = fields.access;
     const ref = fields.ref;
+    const update = fields.update;
     const publicAccess = fields.publicAccess;
     if (
       typeof tree !== "string"
@@ -111,13 +113,14 @@ function parseRegistry(source: string): TreeRegistrySnapshot {
       || !endpoint.startsWith("http")
       || typeof ref !== "string"
       || (access !== "read" && access !== "write")
+      || (update !== undefined && typeof update !== "string")
       || (publicAccess !== undefined && !["none", "read", "write"].includes(String(publicAccess)))
     ) {
       diagnostics.push(diagnostic("invalid-tree-placement", `Shared tree placement ${path} is incomplete or inconsistent`, path));
       continue;
     }
     const unknown = Object.keys(fields).filter((key) =>
-      !["source", "tree", "canonical", "endpoint", "ref", "access", "publicAccess"].includes(key)
+      !["source", "tree", "canonical", "endpoint", "ref", "update", "access", "publicAccess"].includes(key)
     );
     if (unknown.length) {
       diagnostics.push(diagnostic("invalid-tree-placement", `Shared tree placement ${path} has unsupported fields: ${unknown.join(", ")}`, path));
@@ -130,6 +133,7 @@ function parseRegistry(source: string): TreeRegistrySnapshot {
       canonical,
       endpoint,
       ref,
+      ...(update ? { update } : {}),
       access,
       ...(publicAccess ? { publicAccess: publicAccess as PublicAccess } : {}),
     });
@@ -204,6 +208,7 @@ function setSharedPlacement(document: Document, placement: SharedTreePlacement):
   value.set("canonical", placement.canonical);
   value.set("endpoint", placement.endpoint);
   value.set("ref", placement.ref);
+  if (placement.update) value.set("update", placement.update);
   value.set("access", placement.access);
   if (placement.publicAccess) value.set("publicAccess", placement.publicAccess);
   existing.value = value;

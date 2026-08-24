@@ -49,7 +49,7 @@ describe("arbord REST v1", () => {
       expect((await controlClient.node({ tree: "system", path: "/device" })).tree).toBe("system");
       const response = await fetch(`${running.url}/v1/node?path=%2F`);
       expect(response.status).toBe(409);
-      expect((await response.json() as any).error.code).toBe("not-found");
+      expect((await response.json() as any).error).toBe("not-found");
     } finally {
       running.server.stop(true);
       await running.service[Symbol.asyncDispose]();
@@ -105,7 +105,7 @@ describe("arbord REST v1", () => {
         body: JSON.stringify(body),
       });
       expect(response.status).toBe(400);
-      expect((await response.json() as any).error.code).toBe("invalid-reference");
+      expect((await response.json() as any).error).toBe("invalid-reference");
     }
     const unsupported = await fetch(`${base}/v1/mutations`, {
       method: "POST",
@@ -113,7 +113,7 @@ describe("arbord REST v1", () => {
       body: JSON.stringify({ mutationID: "future-op", operations: [{ op: "future" }] }),
     });
     expect(unsupported.status).toBe(422);
-    expect((await unsupported.json() as any).error.code).toBe("unsupported-operation");
+    expect((await unsupported.json() as any).error).toBe("unsupported-operation");
   });
 
   test("resolves renamed Markdown pages by opaque page ID", async () => {
@@ -168,7 +168,7 @@ describe("arbord REST v1", () => {
       }),
     });
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "invalid-reference" } });
+    expect(await response.json()).toMatchObject({ error: "invalid-reference" });
   });
 
   test("rejects mixed and multiple-content batches before recording intent", async () => {
@@ -204,7 +204,7 @@ describe("arbord REST v1", () => {
       });
       expect(response.status).toBe(422);
       expect(await response.json()).toMatchObject({
-        error: { code: "unsupported-operation" },
+        error: "unsupported-operation",
       });
     }
     expect((await client.node({ path: "/renamed" })).contentRevision).toBe(before.contentRevision);
@@ -252,7 +252,7 @@ describe("arbord REST v1", () => {
       body: await response.json(),
     }))).resolves.toMatchObject({
       status: 409,
-      body: { error: { code: "resync-required" } },
+      body: { error: "resync-required" },
     });
   });
 
@@ -298,11 +298,9 @@ describe("arbord REST v1", () => {
         if (rejectFirstObservation && String(input).includes("/v1/events?")) {
           rejectFirstObservation = false;
           return Response.json({
-            error: {
-              code: "resync-required",
-              message: "synthetic expired cursor",
-              retryable: true,
-            },
+            error: "resync-required",
+            message: "synthetic expired cursor",
+            retryable: true,
           }, { status: 409 });
         }
         return fetch(input, init);
@@ -419,7 +417,7 @@ describe("arbord REST v1", () => {
   test("removes the unversioned API and serves the Arbor web shell", async () => {
     const legacy = await fetch(`${base}/v/tree/renamed`);
     expect(legacy.status).toBe(405);
-    expect((await legacy.json() as any).error.code).toBe("unsupported-operation");
+    expect((await legacy.json() as any).error).toBe("unsupported-operation");
 
     const shell = await fetch(`${base}/render/renamed`);
     expect(shell.status).toBe(200);
@@ -529,6 +527,6 @@ describe("arbord REST v1", () => {
     const oldCursor = durableWriteReceipt.eventCursor;
     const response = await fetch(`${base}/v1/events?after=${encodeURIComponent(oldCursor)}`);
     expect(response.status).toBe(409);
-    expect((await response.json() as any).error.code).toBe("resync-required");
+    expect((await response.json() as any).error).toBe("resync-required");
   });
 });

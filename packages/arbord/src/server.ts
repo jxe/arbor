@@ -31,9 +31,9 @@ function errorResponse(
   code: ArbordErrorCode,
   message: string,
   status: number,
-  details: Partial<ArbordErrorEnvelope["error"]> = {},
+  details: Partial<Omit<ArbordErrorEnvelope, "error" | "message">> = {},
 ): Response {
-  return json({ error: { code, message, retryable: false, ...details } } satisfies ArbordErrorEnvelope, status);
+  return json({ error: code, message, retryable: false, ...details } satisfies ArbordErrorEnvelope, status);
 }
 
 function assertSameOrigin(request: Request, url: URL): void {
@@ -295,6 +295,11 @@ function validateOperation(value: unknown): void {
         throw new ProtocolError("invalid-reference", "removeTreePlacement requires an absolute path and an optional canonical pair", 400);
       }
       return;
+    case "resolveTreeConflict":
+      if (typeof value.tree !== "string" || !value.tree || !["local", "draft", "remote"].includes(String(value.choice))) {
+        throw new ProtocolError("invalid-reference", "resolveTreeConflict requires a tree and local, draft, or remote choice", 400);
+      }
+      return;
     case "setTreeAccess":
       if (
         typeof value.tree !== "string"
@@ -449,6 +454,16 @@ function startArborServer(
           return new Response(service.events.stream(after, request.signal), {
             headers: { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" },
           });
+        }
+        if (request.method === "GET" && url.pathname === "/v1/community/devices") {
+          return json(await service.communityDevices());
+        }
+        if (request.method === "POST" && url.pathname === "/v1/community/pairings") {
+          return json(await service.createCommunityPairing(), 201);
+        }
+        const communityDevice = /^\/v1\/community\/devices\/([^/]+)$/.exec(url.pathname);
+        if (request.method === "DELETE" && communityDevice) {
+          return json(await service.revokeCommunityDevice(decodeURIComponent(communityDevice[1]!)));
         }
         if (request.method === "POST" && url.pathname === "/v1/mutations") {
           return json(await service.executeMutation(decodeMutation(await request.json())));

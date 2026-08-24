@@ -183,9 +183,9 @@ describe("the local filesystem scope", () => {
     ]) {
       const response = await fetch(url);
       expect(response.status).toBe(422);
-      const body = await response.json() as { error: { code: string; message: string } };
-      expect(body.error.code).toBe("unsupported-operation");
-      expect(body.error.message).toContain("managed workspace");
+      const body = await response.json() as { error: string; message: string };
+      expect(body.error).toBe("unsupported-operation");
+      expect(body.message).toContain("managed workspace");
     }
     const trash: MutationRequest = {
       mutationID: "fs-trash-refused",
@@ -208,7 +208,7 @@ describe("the local filesystem scope", () => {
       }),
     });
     expect(response.status).toBe(422);
-    expect(((await response.json()) as { error: { message: string } }).error.message).toContain("one scope");
+    expect(((await response.json()) as { message: string }).message).toContain("one scope");
   });
 
   test("creates, renames, and moves untracked nodes with plain filesystem semantics", async () => {

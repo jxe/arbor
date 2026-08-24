@@ -78,7 +78,7 @@ type TreeDescriptor = {
   access?: "read" | "write";
   accessEntries?: AccessEntry[];
   placement: "local" | "shared" | "remote";
-  sync?: "idle" | "pushing" | "pulling" | "offline" | "conflict" | "error";
+  sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
   legacy?: boolean;
   missing?: boolean;
 };
@@ -131,6 +131,16 @@ type Page<T> = {
 `canonicalPath` is the tree's current public boundary path, distinct from its full canonical locator. `accessEntries` carries safe entry metadata; link secrets never appear. `bodyOrigin` is optional diagnostic provenance and is meaningful only when a body is stored. `bodyState: "implicit"` means no body bytes exist yet, although `document.source` is still the complete operational directory Markdown. Reading it never materializes a file.
 
 `MarkdownDocument`, `CollectionSummary`, and `Diagnostic` use the corresponding language-neutral shapes in the fixtures. Children, search hits, backlinks, collection rows, and recovery results carry explicit `ResolvedNodeRef` or equivalent explicit `tree` and path fields. Pagination cursors are opaque and scoped to their route and query. A cursor from another query is invalid.
+
+### Local community device management
+
+```text
+GET    /v1/community/devices
+POST   /v1/community/pairings
+DELETE /v1/community/devices/{deviceID}
+```
+
+These loopback, same-origin routes proxy the connected authority using arbord's operating-system-held credential. They expose the wire protocol's safe device metadata and one-time pairing offer to the local account UI; they never expose the current device credential. A missing or unavailable credential fails with the ordinary local community error. Claiming a pairing is a direct authority operation performed by the new device, not a local arbord route.
 
 Normative examples:
 
@@ -266,18 +276,18 @@ Every non-success JSON response uses:
 
 ```ts
 type ArbordError = {
-  error: {
-    code: string;
-    message: string;
-    retryable: boolean;
-    path?: LogicalPath;
-    tree?: TreeRef;
-    current?: NodeSnapshot;
-    owners?: LogicalPath[];
-    mutationID?: string;
-  };
+  error: string;
+  message: string;
+  retryable: boolean;
+  path?: LogicalPath;
+  tree?: TreeRef;
+  current?: NodeSnapshot;
+  owners?: LogicalPath[];
+  mutationID?: string;
 };
 ```
+
+`error` is the stable application-level discriminator. Clients switch on that string and may ignore additional top-level context fields they do not understand.
 
 Stable v1 codes are:
 

@@ -240,12 +240,12 @@ The wire deals in two planes. **A ref** is one tiny live statement per tree: *Tr
 
 ```text
 GET  /.arbor/trees/{TreeID}/ref     # where is the tip?
-POST /.arbor/trees/{TreeID}/push    # compare-and-swap the tip
+POST /.arbor/trees/{TreeID}/updates # submit against an accepted base; authority accepts or merges
 GET  /.arbor/trees/{TreeID}/watch   # tell me when it moves
 GET  /.arbor/objects/{hash}         # give me this immutable object
 ```
 
-When the tip moves, your arbord fetches the new root and walks only the hashes needed for the subtree it is reading. Access is checked once at the shared-tree boundary; a push still compares the expected and proposed roots before moving the tip. If a subtree needs different access, it is a nested tree with its own tip. Merkle structure is why sync is cheap; recorded read sets are why the right queries re-run.
+When the tip moves, your arbord fetches the new root and walks only the hashes needed for the subtree it is reading. Access is checked once at the shared-tree boundary; an update names its accepted base and candidate root before the authority advances or merges the tip. If a subtree needs different access, it is a nested tree with its own tip. Merkle structure is why sync is cheap; recorded read sets are why the right queries re-run.
 
 This split unlocks the whole content-centric networking agenda, almost as a side effect:
 

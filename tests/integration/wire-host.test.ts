@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { decodeWireObject, serveWireHost, snapshotDirectory, WireClient } from "@arbor/wire";
+import { decodeWireObject, resolveWireLogicalNode, serveWireHost, snapshotDirectory, WireClient, WireUpdateConflict } from "@arbor/wire";
 
 const token = "owner-test-token";
 let dataRoot: string;
@@ -88,19 +88,23 @@ describe("personal wire authority", () => {
     expect((await fetch(`${running.url}/.arbor/objects/${initial.root}`)).status).toBe(200);
   });
 
-  test("atomically advances the one tip and rejects stale or corrupt pushes", async () => {
+  test("atomically accepts idempotent updates and rejects corrupt objects", async () => {
     const tree = (await client.list()).find((item) => item.canonicalPath === "/~owner/notes")!;
+    expect(typeof tree.update).toBe("string");
     await writeFile(join(source, "note.md"), "# Second\n");
     const next = await snapshotDirectory(source, new Map([[join(source, "nested"), "tr_independent"]]));
-    const updated = await client.push(tree.id, tree.ref, next);
-    expect(updated.ref).toBe(next.root);
-
-    const stale = await fetch(`${running.url}/.arbor/trees/${tree.id}/push`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ expected: tree.ref, root: next.root, objects: [] }),
-    });
-    expect(stale.status).toBe(409);
+    const accepted = await client.submitUpdate(tree.id, "update-second", { root: tree.ref, update: tree.update! }, next);
+    expect(accepted.outcome).toBe("accepted");
+    const replayed = await client.submitUpdate(tree.id, "update-second", { root: tree.ref, update: tree.update! }, next);
+    expect(replayed).toEqual(accepted);
+    await expect(client.submitUpdate(
+      tree.id,
+      "update-second",
+      { root: (await client.ref(tree.id)).ref, update: (await client.ref(tree.id)).update! },
+      next,
+    )).rejects.toThrow("mutation-mismatch");
+    expect((await client.ref(tree.id)).ref).toBe(next.root);
+    expect((await client.updates(tree.id)).updates.filter((item) => item.root === next.root)).toHaveLength(1);
 
     const corrupt = await fetch(`${running.url}/.arbor/trees`, {
       method: "POST",
@@ -112,23 +116,29 @@ describe("personal wire authority", () => {
       }),
     });
     expect(corrupt.status).toBe(400);
+    expect((await fetch(`${running.url}/.arbor/trees/${tree.id}/push`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: "{}",
+    })).status).toBe(404);
   });
 
-  test("allows anonymous CAS only in public-write mode and survives restart", async () => {
+  test("allows anonymous accepted updates only in public-write mode and survives restart", async () => {
     const tree = (await client.list()).find((item) => item.canonicalPath === "/~owner/notes")!;
     await client.setPublicAccess(tree.id, "write");
+    const base = await client.ref(tree.id);
     await writeFile(join(source, "third.md"), "third\n");
     const next = await snapshotDirectory(source, new Map([[join(source, "nested"), "tr_independent"]]));
-    const response = await fetch(`${running.url}/.arbor/trees/${tree.id}/push`, {
+    const response = await fetch(`${running.url}/.arbor/trees/${tree.id}/updates`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "idempotency-key": "anonymous-third" },
       body: JSON.stringify({
-        expected: tree.ref,
-        root: next.root,
+        base: { root: base.ref, update: base.update },
+        candidate: next.root,
         objects: [...next.objects].map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
       }),
     });
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(201);
 
     running.server.stop(true);
     await running.authority[Symbol.asyncDispose]();
@@ -136,6 +146,191 @@ describe("personal wire authority", () => {
     const restored = (await client.list()).find((item) => item.id === tree.id)!;
     expect(restored.ref).toBe(next.root);
     expect(restored.publicAccess).toBe("write");
+  });
+
+  test("serializes concurrent updates and idempotency-key races transactionally", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "arbor-update-race-"));
+    try {
+      await writeFile(join(folder, "note.md"), "# Race\n\nBase\n");
+      const baseSnapshot = await snapshotDirectory(folder);
+      const tree = await client.create("/~owner/race", baseSnapshot);
+      const alreadyCurrent = await client.submitUpdate(
+        tree.id,
+        "race-already-current",
+        { root: tree.ref, update: tree.update! },
+        baseSnapshot,
+      );
+      expect(alreadyCurrent.outcome).toBe("current");
+      expect((await client.updates(tree.id)).updates).toHaveLength(1);
+
+      await writeFile(join(folder, "note.md"), "# Race\n\nBase\nCandidate A\n");
+      const candidateA = await snapshotDirectory(folder);
+      await writeFile(join(folder, "note.md"), "# Race\n\nBase\nCandidate B\n");
+      const candidateB = await snapshotDirectory(folder);
+      const concurrent = await Promise.all([
+        client.submitUpdate(tree.id, "race-a", { root: tree.ref, update: tree.update! }, candidateA),
+        client.submitUpdate(tree.id, "race-b", { root: tree.ref, update: tree.update! }, candidateB),
+      ]);
+      expect(concurrent.map((result) => result.outcome).sort()).toEqual(["accepted", "merged"]);
+      expect((await client.updates(tree.id)).updates).toHaveLength(3);
+      const raced = await client.ref(tree.id);
+      const unchangedCandidate = await client.submitUpdate(
+        tree.id,
+        "race-unchanged-candidate",
+        { root: tree.ref, update: tree.update! },
+        baseSnapshot,
+      );
+      expect(unchangedCandidate.outcome).toBe("current");
+      expect((await client.updates(tree.id)).updates).toHaveLength(3);
+      const logical = await resolveWireLogicalNode(raced.ref, "/note", (hash) => running.authority.object(hash));
+      expect(logical?.object.type).toBe("file");
+      if (!logical || logical.object.type !== "file") throw new Error("Expected raced Markdown file");
+      const racedSource = new TextDecoder().decode(logical.object.bytes);
+      expect(racedSource).toContain("Candidate A\n");
+      expect(racedSource).toContain("Candidate B\n");
+
+      const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/fixtures/wire-merge.json"), "utf8")) as {
+        replayCases: Array<{ name: string; idempotencyKey: string }>;
+      };
+      const exactKey = fixture.replayCases.find((item) => item.name === "exact-success-replay")!.idempotencyKey;
+      await writeFile(join(folder, "note.md"), `${racedSource}Exact replay\n`);
+      const exactCandidate = await snapshotDirectory(folder);
+      const beforeExact = (await client.updates(tree.id)).updates.length;
+      const exact = await Promise.all([
+        client.submitUpdate(tree.id, exactKey, { root: raced.ref, update: raced.update! }, exactCandidate),
+        client.submitUpdate(tree.id, exactKey, { root: raced.ref, update: raced.update! }, exactCandidate),
+      ]);
+      expect(exact[1]).toEqual(exact[0]);
+      expect((await client.updates(tree.id)).updates).toHaveLength(beforeExact + 1);
+
+      const afterExact = await client.ref(tree.id);
+      await writeFile(join(folder, "note.md"), `${racedSource}Changed intent A\n`);
+      const changedA = await snapshotDirectory(folder);
+      await writeFile(join(folder, "note.md"), `${racedSource}Changed intent B\n`);
+      const changedB = await snapshotDirectory(folder);
+      const changedKey = fixture.replayCases.find((item) => item.name === "changed-intent-reuses-key")!.idempotencyKey;
+      const beforeChanged = (await client.updates(tree.id)).updates.length;
+      const changed = await Promise.allSettled([
+        client.submitUpdate(tree.id, changedKey, { root: afterExact.ref, update: afterExact.update! }, changedA),
+        client.submitUpdate(tree.id, changedKey, { root: afterExact.ref, update: afterExact.update! }, changedB),
+      ]);
+      expect(changed.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(changed.filter((result) => result.status === "rejected")).toHaveLength(1);
+      expect(String((changed.find((result) => result.status === "rejected") as PromiseRejectedResult).reason)).toContain("mutation-mismatch");
+      expect((await client.updates(tree.id)).updates).toHaveLength(beforeChanged + 1);
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+
+  test("merges additive Markdown updates and exposes only accepted history", async () => {
+    const baseFolder = await mkdtemp(join(tmpdir(), "arbor-merge-base-"));
+    const remoteFolder = await mkdtemp(join(tmpdir(), "arbor-merge-remote-"));
+    const candidateFolder = await mkdtemp(join(tmpdir(), "arbor-merge-candidate-"));
+    try {
+      await writeFile(join(baseFolder, "note.md"), "# Note\n\nBase\n");
+      await writeFile(join(remoteFolder, "note.md"), "# Note\n\nBase\nRemote\n");
+      await writeFile(join(candidateFolder, "note.md"), "# Note\n\nBase\nCandidate\n");
+      const baseSnapshot = await snapshotDirectory(baseFolder);
+      const tree = await client.create("/~owner/merge", baseSnapshot, { publicAccess: "read" });
+      const remoteSnapshot = await snapshotDirectory(remoteFolder);
+      await client.submitUpdate(tree.id, "merge-remote", { root: tree.ref, update: tree.update! }, remoteSnapshot);
+      const candidateSnapshot = await snapshotDirectory(candidateFolder);
+      const merged = await client.submitUpdate(
+        tree.id,
+        "merge-candidate",
+        { root: tree.ref, update: tree.update! },
+        candidateSnapshot,
+      );
+      expect(merged.outcome).toBe("merged");
+      const accepted = merged.outcome === "current" ? merged.current : merged.update;
+      const logical = await resolveWireLogicalNode(accepted.root, "/note", (hash) => running.authority.object(hash));
+      expect(logical?.object.type).toBe("file");
+      if (!logical || logical.object.type !== "file") throw new Error("Expected merged Markdown file");
+      const source = new TextDecoder().decode(logical.object.bytes);
+      expect(source).toContain("Remote\n");
+      expect(source).toContain("Candidate\n");
+      expect((await client.updates(tree.id)).updates.map((update) => update.kind)).toEqual(["initial", "accepted", "merged"]);
+
+      expect((await fetch(`${running.url}/.arbor/objects/${tree.ref}`)).status).toBe(404);
+      expect((await fetch(`${running.url}/.arbor/objects/${tree.ref}`, {
+        headers: { authorization: `Bearer ${token}` },
+      })).status).toBe(200);
+    } finally {
+      await rm(baseFolder, { recursive: true, force: true });
+      await rm(remoteFolder, { recursive: true, force: true });
+      await rm(candidateFolder, { recursive: true, force: true });
+    }
+  });
+
+  test("returns complete client-owned conflict drafts without adding failed history", async () => {
+    const baseFolder = await mkdtemp(join(tmpdir(), "arbor-conflict-base-"));
+    const remoteFolder = await mkdtemp(join(tmpdir(), "arbor-conflict-remote-"));
+    const candidateFolder = await mkdtemp(join(tmpdir(), "arbor-conflict-candidate-"));
+    try {
+      await writeFile(join(baseFolder, "asset.bin"), new Uint8Array([0]));
+      await writeFile(join(remoteFolder, "asset.bin"), new Uint8Array([1]));
+      await writeFile(join(candidateFolder, "asset.bin"), new Uint8Array([2]));
+      const baseSnapshot = await snapshotDirectory(baseFolder);
+      const tree = await client.create("/~owner/conflict", baseSnapshot);
+      const remoteSnapshot = await snapshotDirectory(remoteFolder);
+      await client.submitUpdate(tree.id, "conflict-remote", { root: tree.ref, update: tree.update! }, remoteSnapshot);
+      const candidateSnapshot = await snapshotDirectory(candidateFolder);
+      let conflict: WireUpdateConflict | undefined;
+      try {
+        await client.submitUpdate(tree.id, "conflict-candidate", { root: tree.ref, update: tree.update! }, candidateSnapshot);
+      } catch (error) {
+        if (error instanceof WireUpdateConflict) conflict = error;
+        else throw error;
+      }
+      expect(conflict?.result.conflicts).toEqual([{ path: "/asset.bin", reason: "binary-conflict" }]);
+      expect(conflict?.result.draft.objects.some(({ hash }) => hash === conflict?.result.draft.root)).toBe(true);
+      expect(conflict?.result.draft.objects.length).toBeGreaterThanOrEqual(2);
+      expect((await client.updates(tree.id)).updates).toHaveLength(2);
+      await expect(running.authority.object(candidateSnapshot.root)).rejects.toThrow();
+      await expect(running.authority.object(conflict!.result.draft.root)).rejects.toThrow();
+
+      await expect(client.submitUpdate(
+        tree.id,
+        "conflict-candidate",
+        { root: tree.ref, update: tree.update! },
+        candidateSnapshot,
+      )).rejects.toEqual(conflict);
+      expect((await client.updates(tree.id)).updates).toHaveLength(2);
+    } finally {
+      await rm(baseFolder, { recursive: true, force: true });
+      await rm(remoteFolder, { recursive: true, force: true });
+      await rm(candidateFolder, { recursive: true, force: true });
+    }
+  });
+
+  test("pairs distinct device credentials, records provenance, and revokes them", async () => {
+    const offer = await client.createPairing();
+    expect(offer.confirmationCode).toMatch(/^\d{6}$/);
+    const claim = await client.claimPairing(offer.id, offer.secret, "Swift test device");
+    await expect(client.claimPairing(offer.id, offer.secret, "Duplicate device")).rejects.toThrow("already used");
+    const devices = await client.devices();
+    expect(devices.filter((device) => device.revokedAt === null)).toHaveLength(2);
+
+    const paired = new WireClient(running.url, claim.deviceToken);
+    const folder = await mkdtemp(join(tmpdir(), "arbor-device-update-"));
+    try {
+      await writeFile(join(folder, "device.md"), "one\n");
+      const initial = await snapshotDirectory(folder);
+      const tree = await paired.create("/~owner/device-provenance", initial);
+      await writeFile(join(folder, "device.md"), "two\n");
+      const next = await snapshotDirectory(folder);
+      const accepted = await paired.submitUpdate(tree.id, "device-update", { root: tree.ref, update: tree.update! }, next);
+      expect(accepted.outcome).toBe("accepted");
+      const update = accepted.outcome === "current" ? accepted.current : accepted.update;
+      expect(update.subject).toBe(`device:${claim.device.id}`);
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+
+    const revoked = await client.revokeDevice(claim.device.id);
+    expect(revoked.revokedAt).not.toBeNull();
+    await expect(paired.devices()).rejects.toThrow("authentication");
   });
 
   test("bounds unavailable-authority requests", async () => {
@@ -168,6 +363,10 @@ describe("personal wire authority", () => {
 
     const health = await fetch(`${running.url}/.arbor/health`);
     expect(health.status).toBe(503);
-    expect(await health.json()).toEqual({ status: "error", reason: "integrity-check-failed" });
+    expect(await health.json()).toEqual({
+      error: "internal-error",
+      message: "Authority integrity check failed",
+      retryable: true,
+    });
   });
 });
