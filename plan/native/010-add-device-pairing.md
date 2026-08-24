@@ -12,9 +12,9 @@
 - **Depends on**: Plan 008
 - **Category**: security/product
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Implementation status**: PARTIAL — distinct device credentials, one-use pairing, provenance, revocation, TypeScript/Swift client support, and the browser management surface are implemented locally; restored-volume upgrade proof and pairing-specific browser E2E coverage remain outstanding.
+- **Implementation status**: PARTIAL — distinct device credentials, one-use pairing, provenance, revocation, TypeScript/Swift client support, and the browser management surface are implemented locally; the four-host Hetzner suite passed pairing/revocation, while restored-volume upgrade proof and pairing-specific browser E2E coverage remain outstanding.
 - **Verified at**: current working tree, 2026-08-24 (`bun run test`, `bun run test:protocol`, `swift test` through the protocol harness, the general `bun run test:e2e` browser regression suite, `bun run typecheck`, `bun run build`, `git diff --check`)
-- **Production status**: local/test authorities only; no restored-volume, Hetzner, or Railway credential-upgrade rehearsal has run.
+- **Production status**: local/test authorities only; the disposable Hetzner credential gate passed on 2026-08-24, but no restored-volume or Railway credential-upgrade rehearsal has run.
 
 ## Why this matters
 

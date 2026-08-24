@@ -69,6 +69,7 @@ Commands:
   test        Run the complete accepted-update pre-rollout acceptance suite
   status      Show recorded phase and live server state
   collect     Download journals, authority backup, and immutable objects
+  reset       Clear and reconfigure the four recorded disposable lab servers
   down        Collect evidence, log out of Tailscale, and delete recorded server IDs
 
 Options:
@@ -404,6 +405,19 @@ async function provision(state: LabState): Promise<void> {
 }
 
 async function tailscaleReady(state: LabState): Promise<boolean> {
+  if (state.steps.tailscale) {
+    for (let attempt = 0; attempt < 18; attempt += 1) {
+      const statuses = await Promise.all(ROLES.map(async (role) => {
+        const result = await ssh(state, role, ["tailscale", "status", "--json"], { allowFailure: true, quiet: true });
+        if (result.exitCode !== 0) return {};
+        return JSON.parse(result.stdout) as { BackendState?: string; Self?: { Online?: boolean } };
+      }));
+      if (statuses.every((value) => value.BackendState === "Running" && value.Self?.Online)) return true;
+      if (statuses.some((value) => value.BackendState === "NeedsLogin")) break;
+      await Bun.sleep(5_000);
+    }
+  }
+
   let ready = true;
   for (const role of ROLES) {
     const status = await ssh(state, role, ["tailscale", "status", "--json"], { allowFailure: true, quiet: true });
@@ -427,6 +441,14 @@ async function tailscaleReady(state: LabState): Promise<boolean> {
   return ready;
 }
 
+async function tailscaleIPv4(state: LabState, role: Role): Promise<string> {
+  const status = await ssh(state, role, ["tailscale", "status", "--json"], { quiet: true });
+  const value = JSON.parse(status.stdout) as { Self?: { TailscaleIPs?: string[] } };
+  const address = value.Self?.TailscaleIPs?.find((candidate) => /^\d+\.\d+\.\d+\.\d+$/.test(candidate));
+  if (!address) throw new Error(`Tailscale IPv4 address is unavailable for arbor-${role}`);
+  return address;
+}
+
 const CLIENT_PATHS: Record<Exclude<Role, "community">, string> = {
   alice: "/home/arbor/lab",
   bob: "/srv/arbor/lab",
@@ -434,8 +456,13 @@ const CLIENT_PATHS: Record<Exclude<Role, "community">, string> = {
 };
 
 async function configure(state: LabState): Promise<void> {
+  const communityIP = await tailscaleIPv4(state, "community");
   for (const role of ["alice", "bob", "carol"] as const) {
-    await ssh(state, role, ["tailscale", "ping", "-c", "1", "arbor-community"], { timeoutMs: 30_000 });
+    await sshBash(state, role, [
+      "sed -i '/[[:space:]]arbor-community$/d' /etc/hosts",
+      `printf '%s\\n' '${communityIP} arbor-community' >> /etc/hosts`,
+    ].join("\n"));
+    await ssh(state, role, ["ping", "-c", "1", "-W", "5", communityIP], { timeoutMs: 10_000 });
   }
   await ssh(state, "community", ["bash", "/opt/arbor-current/deploy/hcloud-sync-lab/configure-node.sh", "community"]);
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -532,22 +559,25 @@ async function createScenario(state: LabState, scenario: string, binary = "commo
 }
 
 async function authorityHistoryCount(state: LabState, tree: string): Promise<number> {
-  const result = await ssh(state, "community", [
-    "sqlite3",
-    "/var/lib/arbor-community/authority.sqlite3",
-    `SELECT count(*) FROM accepted_updates WHERE tree_id = '${tree}';`,
-  ], { quiet: true });
+  const result = await sshBash(state, "community", [
+    `sqlite3 /var/lib/arbor-community/authority.sqlite3 "SELECT count(*) FROM accepted_updates WHERE tree_id = '${tree}';"`,
+  ].join("\n"), { quiet: true });
   const count = Number(result.stdout.trim());
   if (!Number.isSafeInteger(count)) throw new Error(`Invalid update history count for ${tree}`);
   return count;
 }
 
 async function hasConflict(state: LabState, role: Exclude<Role, "community">, tree: string): Promise<boolean> {
-  const response = await ssh(state, role, [
-    "curl", "-fsS", `http://127.0.0.1:4317/v1/node?tree=system&path=%2Ftrees%2F${tree}`,
-  ], { allowFailure: true, quiet: true });
+  const response = await sshBash(state, role,
+    `curl -fsS 'http://127.0.0.1:4317/v1/node?tree=system&path=%2Ftrees%2F${tree}'`,
+    { allowFailure: true, quiet: true });
   if (response.exitCode !== 0) return false;
-  const body = JSON.parse(response.stdout) as { document?: { frontmatter?: Record<string, unknown> } };
+  let body: { document?: { frontmatter?: Record<string, unknown> } };
+  try {
+    body = JSON.parse(response.stdout) as typeof body;
+  } catch {
+    return false;
+  }
   return body.document?.frontmatter?.sync === "conflict"
     && Array.isArray(body.document.frontmatter.conflicts);
 }
@@ -639,6 +669,7 @@ async function acceptance(state: LabState): Promise<void> {
     "install -d -o arbor -g arbor -m 0700 /tmp/arbor-replay",
     "printf 'one\\n' > /tmp/arbor-replay/note.md",
     "chown -R arbor:arbor /tmp/arbor-replay",
+    "cd /tmp/arbor-replay",
     "sudo -u arbor -H env ARBOR_LAB_TOKEN=\"$ARBOR_LAB_TOKEN\" ARBOR_LAB_REPLAY=\"$ARBOR_LAB_REPLAY\" /usr/local/bin/bun - <<'JAVASCRIPT'",
     "import { WireClient, snapshotDirectory } from '/opt/arbor-current/packages/wire/src/index.ts';",
     "import { writeFile } from 'node:fs/promises';",
@@ -689,7 +720,7 @@ async function acceptance(state: LabState): Promise<void> {
 
   const mutationID = crypto.randomUUID();
   await sshBash(state, "bob", [
-    `curl -fsS -H 'content-type: application/json' -d '{"mutationID":"${mutationID}","operations":[{"op":"resolveTreeConflict","tree":"${conflictTree}","choice":"local"}]}' http://127.0.0.1:4317/v1/mutate >/dev/null`,
+    `curl -fsS -H 'content-type: application/json' -d '{"mutationID":"${mutationID}","operations":[{"op":"resolveTreeConflict","tree":"${conflictTree}","choice":"local"}]}' http://127.0.0.1:4317/v1/mutations >/dev/null`,
   ].join("\n"));
   await waitUntil("resolved binary update acceptance", async () => await authorityHistoryCount(state, conflictTree) === before + 2);
   await setClients(state, "start", ["alice", "carol"] as const);
@@ -710,7 +741,7 @@ async function acceptance(state: LabState): Promise<void> {
     "device_token=$(jq -r .deviceToken <<<\"$claimed\")",
     `curl -fsS -H \"Authorization: Bearer $device_token\" 'http://127.0.0.1:4318/.arbor/trees/${conflictTree}/ref' >/dev/null`,
     "curl -fsS -X DELETE -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" \"http://127.0.0.1:4318/.arbor/devices/$device_id\" >/dev/null",
-    `test \"$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $device_token\" 'http://127.0.0.1:4318/.arbor/trees/${conflictTree}/ref')\" = 401`,
+    `test \"$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $device_token\" 'http://127.0.0.1:4318/.arbor/account')\" = 401`,
   ].join("\n"), { quiet: true });
 
   state.steps.acceptance = new Date().toISOString();
@@ -781,6 +812,45 @@ async function collect(state: LabState): Promise<string> {
   return destination;
 }
 
+async function reset(state: LabState): Promise<void> {
+  if (state.destroyedAt) throw new Error(`Lab run ${state.runId} was already destroyed`);
+  if (!state.steps.provisioned || !state.steps.tailscale) {
+    throw new Error("Reset requires a provisioned lab with authenticated Tailscale nodes");
+  }
+
+  // Validate the complete deletion scope before removing any data.
+  for (const role of ROLES) {
+    const node = state.nodes[role];
+    if (!node) throw new Error(`Reset requires the recorded ${role} node`);
+    const described = await command(hcloudArgs(state, ["server", "describe", String(node.id), "-o", "json"]), { quiet: true });
+    const server = serverObject(JSON.parse(described.stdout));
+    const labels = server.labels as Record<string, string> | undefined;
+    if (server.name !== node.name || labels?.purpose !== "arbor-sync-lab" || labels?.["arbor-run"] !== state.runId) {
+      throw new Error(`Refusing to reset server ID ${node.id}; its name or run labels no longer match recorded state.`);
+    }
+  }
+
+  await ssh(state, "community", ["systemctl", "stop", "arbor-community.service"], { allowFailure: true });
+  await sshBash(state, "community", "find /var/lib/arbor-community -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +");
+  for (const role of ["alice", "bob", "carol"] as const) {
+    await ssh(state, role, ["systemctl", "stop", "arbor-client.service"], { allowFailure: true });
+    await sshBash(state, role, [
+      `find '${CLIENT_PATHS[role]}' -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +`,
+      "find /home/arbor/.arbor -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +",
+      "rm -rf -- /tmp/arbor-replay",
+    ].join("\n"));
+  }
+
+  delete state.steps.configured;
+  delete state.steps.smoke;
+  delete state.steps.acceptance;
+  delete state.steps.collected;
+  delete state.acceptance;
+  await saveState(state);
+  await continueRun(state);
+  console.log(`Lab ${state.runId} was reset without replacing its VMs, Tailscale identities, credentials, or deployed revision.`);
+}
+
 async function down(state: LabState, options: Options): Promise<void> {
   if (state.destroyedAt) {
     console.log(`Lab ${state.runId} is already down.`);
@@ -834,6 +904,7 @@ async function main(): Promise<void> {
   if (options.command === "test") return acceptance(state);
   if (options.command === "status") return status(state);
   if (options.command === "collect") { await collect(state); return; }
+  if (options.command === "reset") return reset(state);
   if (options.command === "down") return down(state, options);
   usage();
 }

@@ -3,6 +3,14 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
+## Four-host accepted-update qualification
+
+**Status: Passed and torn down on 2026-08-24.**
+
+The disposable Hetzner gate ran the exact committed Arbor revision `68e60111bd8344bc1c0dffd0951a35424465e366` on `arbor-community`, `arbor-alice`, `arbor-bob`, and `arbor-carol`. Run `20260824t101153z-e54dba` passed smoke plus serial and offline additive convergence, canonical semantic-request replay across restart, durable client-owned binary conflict without rejected authority history, explicit local resolution and three-client byte convergence, private history/historical-object isolation, `/push` absence, one-use pairing, and revoked-device denial.
+
+The collected evidence contains the run state, four service/system reports, an SQLite authority backup, and the immutable-object archive. Its acceptance trees were `tr_cbts2k2f5ri5gz65gabuhqu2ee` (additive), `tr_vmhxwchjy3dqdjvxvjxapmgede` (conflict), and `tr_42nbmcwxe65hwu3a7sq7ne4pwu` (replay). The authority backup recorded one account, two devices, one pairing, and twenty accepted updates. Evidence was collected before all four exact-ID, label-verified VMs were deleted and Tailscale logout was requested.
+
 ## Local browser/editor baseline
 
 **Status: Implemented.**

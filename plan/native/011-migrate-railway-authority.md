@@ -12,6 +12,7 @@
 - **Depends on**: Plans 009 and 010
 - **Category**: production migration
 - **Planned at**: Arbor `dc34126`, 2026-08-23
+- **Progress**: IN PROGRESS — exact committed revision `68e6011` passed the four-host Hetzner suite on 2026-08-24 and its evidence was collected; restored-volume rehearsal is next.
 
 ## Why this matters
 
@@ -35,9 +36,9 @@ Native sync cannot qualify against a fictional environment. The configured Railw
 ## Steps
 
 1. Record safe preflight evidence: tree IDs/canonical paths/access, current root refs, current public Markdown hashes, schema version, object count, and service revision.
-2. Create a complete Railway volume backup. Restore a copy into an isolated authority and start it with the currently deployed image. Verify the preflight identities, refs, access, credentials, object integrity, and public hashes. This proves the rollback artifact before any live mutation.
-3. Against a separate copy of that restored volume, start the exact candidate image and let its real one-way startup upgrade run. Restart it to prove idempotence. Require one baseline accepted update per legacy tree, valid initial-device records for existing credentials, unchanged identities/refs/access/public hashes, and zero missing or corrupt objects. Do not substitute a special dry-run path for the code that production will execute.
-4. From the exact committed candidate revision, run `bun run lab:hcloud test` on the four disposable Hetzner hosts. Require serial and three-writer convergence, private accepted-history/derived-request replay invariants, absence of public history and historical-object access, client-owned conflict persistence across restart and explicit resolution, `/push` absence, and pairing/revocation. Collect evidence and tear down the disposable hosts. Any failure returns to Plans 008–010; it is not waived during live approval.
+2. From the exact committed candidate revision, run `bun run lab:hcloud test` on the four disposable Hetzner hosts. Require serial and three-writer convergence, private accepted-history/derived-request replay invariants, absence of public history and historical-object access, client-owned conflict persistence across restart and explicit resolution, `/push` absence, and pairing/revocation. Collect evidence and tear down the disposable hosts. Any failure returns to Plans 008–010; it is not waived during live approval.
+3. Create a complete Railway volume backup. Restore a copy into an isolated authority and start it with the currently deployed image. Verify the preflight identities, refs, access, credentials, object integrity, and public hashes. This proves the rollback artifact before any live mutation.
+4. Against a separate copy of that restored volume, start the exact candidate image and let its real one-way startup upgrade run. Restart it to prove idempotence. Require one baseline accepted update per legacy tree, valid initial-device records for existing credentials, unchanged identities/refs/access/public hashes, and zero missing or corrupt objects. Do not substitute a special dry-run path for the code that production will execute.
 5. Only after the restored-copy rehearsal and Hetzner gate pass, request explicit approval to mutate Railway. Pause writes, confirm the backup is retained, deploy the exact tested `updates-v1`/private-history/device-capable image, allow its one-way startup upgrade to complete, and restart once to prove idempotence.
 6. Verify every preflight root is still the current ref, public HTML/Markdown hashes match, canonical discovery/access work, public accepted-history reads are absent, non-current/draft object access is denied to every wire subject, and existing local arbord reconnects.
 7. Create an isolated private Railway test tree; repeat the short production smoke for one-sided sync, additive Markdown merge, structured client-owned conflict, canonical semantic-request replay, watch/internal history, and device revoke. This is a production-environment verification, not a substitute for the earlier Hetzner acceptance gate.
@@ -68,7 +69,7 @@ git diff --check
 
 - [ ] The complete backup was restored and verified under the previous image before live deploy.
 - [ ] A separate restored copy passed the real one-way upgrade and an idempotent restart with exact identities, refs, access, credentials, and public output.
-- [ ] The exact candidate revision passed the full Hetzner suite before live approval.
+- [x] The exact candidate revision passed the full Hetzner suite before live approval.
 - [ ] All real trees preserved exact identity/content/access.
 - [ ] `updates-v1` discovery is live and `/push` is absent from both server and clients.
 - [ ] Device credentials and revocation work live.

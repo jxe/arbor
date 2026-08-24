@@ -80,9 +80,12 @@ Useful lifecycle commands are:
 
 ```sh
 bun run lab:hcloud status
+bun run lab:hcloud reset
 bun run lab:hcloud collect
 bun run lab:hcloud down
 ```
+
+`reset` is the clean-rerun command. Before changing data it verifies all four recorded server IDs against their expected names plus the `purpose=arbor-sync-lab` and run-ID labels. It then stops Arbor, clears only `/var/lib/arbor-community`, the three client content paths in the table above, and `/home/arbor/.arbor` on the clients, and reconfigures the same machines. It preserves the VMs, Tailscale identities, generated Arbor credential, and deployed Git revision.
 
 `down` makes a best-effort evidence collection first, requests Tailscale logout, verifies every recorded server's name and run labels, and deletes only the four recorded Hetzner server IDs. If a run must be selected explicitly, add `--run-id <id>`. The underlying manual commands remain documented below as the recovery and inspection path.
 

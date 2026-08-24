@@ -18,7 +18,7 @@ Plans are written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd
 | [008](008-build-authority-sync.md) | Build accepted updates and authority synchronization | P1 | XL | 007 | DONE — local authority, races, and startup upgrade verified |
 | [009](009-integrate-arbord-sync.md) | Integrate arbord synchronization | P1 | L | 008 | DONE — local two-placement sync and client-owned conflicts verified |
 | [010](010-add-device-pairing.md) | Add revocable device credentials and pairing | P1 | L | 008 | IN PROGRESS — restored-volume proof and browser E2E remain |
-| [011](011-migrate-railway-authority.md) | Upgrade the Railway authority | P1 | M | 009, 010 | TODO |
+| [011](011-migrate-railway-authority.md) | Upgrade the Railway authority | P1 | M | 009, 010 | IN PROGRESS — Hetzner passed; restored-volume rehearsal next |
 | [012](012-found-native-arbor.md) | Found the native Arbor shell | P1 | L | 006 | TODO |
 | [013](013-build-swift-arbor-wire.md) | Build the Swift ArborWire package | P1 | L | 007, 008, 010 | TODO |
 | [014](014-build-offline-replica.md) | Build the offline Swift replica | P1 | XL | 007, 012 | TODO |
