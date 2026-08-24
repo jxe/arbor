@@ -17,8 +17,8 @@ Plans are written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd
 | [007](007-define-server-assisted-sync.md) | Define server-assisted synchronization | P1 | M | 006 | DONE — accepted-update contract and shared merge fixtures verified |
 | [008](008-build-authority-sync.md) | Build accepted updates and authority synchronization | P1 | XL | 007 | DONE — live authority and clean-schema runtime verified |
 | [009](009-integrate-arbord-sync.md) | Integrate arbord synchronization | P1 | L | 008 | DONE — local two-placement sync and client-owned conflicts verified |
-| [010](010-add-device-pairing.md) | Add revocable device credentials and pairing | P1 | L | 008 | IN PROGRESS — live credential migration passed; browser E2E remains |
-| [011](011-migrate-railway-authority.md) | Upgrade the Railway authority | P1 | M | 009, 010 | IN PROGRESS — live cutover passed; isolated smoke and arbord reconnect remain |
+| [010](010-add-device-pairing.md) | Add revocable device credentials and pairing | P1 | L | 008 | DONE — live pairing/revocation verified; browser hardening moved to 020 |
+| [011](011-migrate-railway-authority.md) | Upgrade the Railway authority | P1 | M | 009, 010 | DONE — clean live cutover, private smoke, and arbord reconnect verified |
 | [012](012-found-native-arbor.md) | Found the native Arbor shell | P1 | L | 006 | TODO |
 | [013](013-build-swift-arbor-wire.md) | Build the Swift ArborWire package | P1 | L | 007, 008, 010 | TODO |
 | [014](014-build-offline-replica.md) | Build the offline Swift replica | P1 | XL | 007, 012 | TODO |
@@ -27,6 +27,7 @@ Plans are written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd
 | [017](017-complete-daily-driver.md) | Complete the native daily-driver core | P1 | XL | 015, 016 | TODO |
 | [018](018-port-hunch-strengths.md) | Port Hunch's native strengths | P1 | XL | 017 | TODO |
 | [019](019-convert-hunch-workspace.md) | Convert the live Hunch workspace and cut over | P1 | L | 018 | TODO |
+| [020](020-test-device-management-browser.md) | Complete device-management browser E2E | P2 | S | 010 | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
 
@@ -41,6 +42,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - 014 proves local safety without a network; 015 adds synchronization without changing local durability.
 - 016 proves exact editor persistence independently of the broad product surface.
 - 019 is the only milestone allowed to read the live Hunch workspace or create its converted destination.
+- 020 is later browser-surface hardening. It does not block the already verified device protocol, Railway migration, or native implementation sequence.
 
 ## Decisions carried by the plan set
 

@@ -12,7 +12,7 @@
 - **Depends on**: Plans 009 and 010
 - **Category**: production migration
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Progress**: IN PROGRESS — the live migration and clean-runtime restart passed exact verification on 2026-08-24. The isolated private Railway sync/device-revocation smoke and local arbord reconnect remain before this plan is complete.
+- **Progress**: COMPLETE — the live migration, clean-runtime/configuration-clean restart, isolated private Railway synchronization/device-revocation smoke, and local arbord reconnect all passed exact verification on 2026-08-24.
 
 ## Backup evidence
 
@@ -31,6 +31,12 @@ Before and after restart, SQLite `quick_check` passed; all legacy tree, boundary
 After explicit operator approval and with arbord still stopped, migration release `c16a878` deployed successfully as Railway deployment `74e9b939-2b0f-4eb1-bcf2-7cff4b258b98`. SQLite `quick_check` passed; the authority contained the same four trees, four boundaries, two accounts, eight access entries, 49 reflog rows, 101 hash-valid objects totaling 947,073 bytes, and the expected 49 accepted updates, two devices, and zero pairings. Exact legacy table digests, current roots, public HTML/Markdown hashes, access, account/profile identity, and the retained Joe credential all matched the preflight or rehearsal expectations.
 
 The temporary accepted-update/device backfill, owner/slug migration, replay-table cleanup, and accepted-update column mutation paths were then removed. Clean runtime `875f52b` deployed successfully as Railway deployment `27beebf0-c931-4d98-9906-525a19963f08`, validates the exact current schema without modifying old authorities, and passed the same production checks before and after an explicit restart. Discovery advertises `updates-v1`, and the former per-tree `/push` route returns `404`. The retained backup and old tested revision remain the rollback path; no restore was needed.
+
+## Production sync and reconnect evidence
+
+An isolated private Railway smoke used two temporary paired devices and isolated local Arbor homes. The completed tree `tr_75flw3eeibv52jjmlpamnodz3q` retained exactly seven accepted updates: its initial root, one-sided acceptance, the first offline additive update, one authority merge preserving both markers, one canonical semantic-replay acceptance, one binary winner, and one explicit client-owned conflict resolution. Repeating the semantic request created no duplicate row; the rejected binary conflict retained the submitter's bytes across arbord restart and did not advance the authority ref. A fresh temporary device authenticated before revocation and received exact `401` denial afterward. All five credentials created across the bounded smoke attempts were revoked, and no credential material entered output or durable evidence.
+
+The default local arbord then reconnected its community, Joe, and drift placements. All three reached `idle` with registry refs/update IDs equal to Railway; physical local snapshots were byte-identical before and after; and the reconnect added no accepted-history row. Joe's ref advanced only because the two private smoke trees are new nested boundaries. Community, drift, and all public HTML/Markdown hashes remained exact. SQLite `quick_check`, foreign keys, latest accepted roots, and all 128 immutable object hashes passed after the smoke.
 
 ## Why this matters
 
@@ -91,9 +97,10 @@ git diff --check
 - [x] The exact candidate revision passed both full Hetzner suites before live approval.
 - [x] All real trees preserved exact identity/content/access.
 - [x] `updates-v1` discovery is live and `/push` is absent from both server and clients.
-- [ ] Device credentials and revocation work live. Existing migrated credentials are verified; an isolated live pairing/revocation smoke remains.
+- [x] Device credentials, one-use pairing, and revocation work live; a revoked temporary device receives `401`.
 - [x] The clean live runtime contains no legacy accepted-update/device backfill or obsolete schema mutation path.
 - [x] The complete pre-upgrade volume backup and previous image remain available through native cutover.
+- [x] Local arbord reconnects all existing placements without changing authored bytes or creating an unexpected accepted update.
 
 ## STOP conditions
 

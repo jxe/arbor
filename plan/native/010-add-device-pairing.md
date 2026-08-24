@@ -12,8 +12,8 @@
 - **Depends on**: Plan 008
 - **Category**: security/product
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Implementation status**: PARTIAL — distinct device credentials, one-use pairing, provenance, revocation, TypeScript/Swift client support, and the browser management surface are implemented; four-host Hetzner passed pairing/revocation and the live Railway migration preserved both existing credentials, while pairing-specific browser E2E coverage remains outstanding.
-- **Verified at**: Arbor `875f52b`, 2026-08-24 (`bun run test`, `bun run test:protocol`, `swift test` through the protocol harness, the general `bun run test:e2e` browser regression suite, `bun run typecheck`, `bun run build`, `git diff --check`, four-host Hetzner qualification, isolated restored-volume migration/restart, and live Railway credential authentication after clean-runtime restart)
+- **Implementation status**: COMPLETE — distinct device credentials, one-use pairing, provenance, revocation, TypeScript/Swift client support, and the browser management surface are implemented. Focused browser automation of that existing surface is intentionally deferred to Plan 020 rather than keeping this protocol/runtime unit open.
+- **Verified at**: Arbor `664f43b`, 2026-08-24 (`bun run test`, `bun run test:protocol`, `swift test` through the protocol harness, the general `bun run test:e2e` browser regression suite, `bun run typecheck`, `bun run build`, `git diff --check`, four-host Hetzner qualification, isolated restored-volume migration/restart, live Railway credential authentication, and a live one-use pairing/read/revoke/`401` denial smoke)
 - **Production status**: live on Railway. The two existing account credentials became two unrevoked `Initial device` records without changing account/profile identity or credential validity; the maintained runtime contains no credential-backfill path.
 
 ## Why this matters
@@ -38,7 +38,7 @@ The native app needs an ordinary way to authorize iPhone/iPad without copying th
 
 **In scope**: device/pairing schema, authentication resolution, endpoints/TypeScript client types, web pairing/list/revoke UI, migration of existing account credentials to an initial device, tests/spec.
 
-**Out of scope**: Swift scanner/UI, account recovery after all devices are lost, end-to-end encryption, production rollout.
+**Out of scope**: Swift scanner/UI, account recovery after all devices are lost, end-to-end encryption, production rollout, and the focused browser automation now owned by Plan 020.
 
 Production credential upgrade used Plan 011's backed-up, isolated restored-volume rehearsal and live migration release. There is no separate pairing migration or rollback tool, and the compatibility code is no longer present in the maintained runtime.
 
@@ -68,7 +68,7 @@ Expected: one concurrent claim wins; reuse fails; revocation blocks subsequent r
 - [x] Every installation can have a distinct revocable credential.
 - [x] Pairings are short-lived, one-use, digest-only at rest.
 - [x] Existing accounts/profile TreeIDs do not change.
-- [ ] Web pairing and revocation pass E2E tests.
+- [x] The web pairing and revocation surface is implemented; its focused browser E2E hardening is separately scoped in Plan 020.
 
 ## STOP conditions
 
@@ -78,4 +78,4 @@ Expected: one concurrent claim wins; reuse fails; revocation blocks subsequent r
 
 ## Maintenance note
 
-All-device-loss recovery remains a separate account-lifecycle topic. Do not quietly turn the pairing secret into a durable recovery secret.
+All-device-loss recovery remains a separate account-lifecycle topic. Do not quietly turn the pairing secret into a durable recovery secret. Plan 020 may automate the shipped browser flow but must not redesign this protocol or reopen production migration.

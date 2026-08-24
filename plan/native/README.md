@@ -24,6 +24,7 @@ Execution order:
 12. [017 — daily-driver core](017-complete-daily-driver.md)
 13. [018 — Hunch native strengths](018-port-hunch-strengths.md)
 14. [019 — one-time Hunch cutover](019-convert-hunch-workspace.md)
+15. [020 — device-management browser E2E](020-test-device-management-browser.md)
 
 ## Product and persistence boundary
 
