@@ -2,7 +2,7 @@
 
 These handoffs build separate components in dependency order. Each executor must read its assigned plan fully, run the drift check before editing, honor its scope and STOP conditions, run every verification gate, and update the status row here. Completing one plan does not authorize opportunistic implementation of a later milestone.
 
-Plans are written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd4` on 2026-08-23. Reconcile live source before relying on those snapshots.
+Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd4` on 2026-08-23. Plans 012 and 013 were reconciled against clean Arbor `0c53964` on 2026-08-24 after the accepted-update authority, arbord integration, device pairing, and Railway migration completed. Later executors must still reconcile live source before relying on either snapshot.
 
 ## Execution order and status
 
@@ -19,8 +19,8 @@ Plans are written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd
 | [009](009-integrate-arbord-sync.md) | Integrate arbord synchronization | P1 | L | 008 | DONE — local two-placement sync and client-owned conflicts verified |
 | [010](010-add-device-pairing.md) | Add revocable device credentials and pairing | P1 | L | 008 | DONE — live pairing/revocation verified; browser hardening moved to 020 |
 | [011](011-migrate-railway-authority.md) | Upgrade the Railway authority | P1 | M | 009, 010 | DONE — clean live cutover, private smoke, and arbord reconnect verified |
-| [012](012-found-native-arbor.md) | Found the native Arbor shell | P1 | L | 006 | TODO |
-| [013](013-build-swift-arbor-wire.md) | Build the Swift ArborWire package | P1 | L | 007, 008, 010 | TODO |
+| [012](012-found-native-arbor.md) | Found the native Arbor shell | P1 | L | 006 | DONE — generated Arbor app, ArborKit contracts, and lifecycle tests verified |
+| [013](013-build-swift-arbor-wire.md) | Build the Swift ArborWire package | P1 | L | 007, 008, 010 | DONE — shared fixtures and disposable-authority conformance verified |
 | [014](014-build-offline-replica.md) | Build the offline Swift replica | P1 | XL | 007, 012 | TODO |
 | [015](015-sync-native-replicas.md) | Synchronize native replicas through Arbor | P1 | XL | 009, 011, 013, 014 | TODO |
 | [016](016-bridge-quagmire.md) | Bridge Quagmire to Arbor documents | P1 | XL | 012, 014 | TODO |

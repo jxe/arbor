@@ -85,10 +85,17 @@ function readLength(bytes: Uint8Array, offset: number, additional: number): { va
   let value = 0;
   for (let index = 0; index < size; index += 1) value = value * 256 + bytes[offset + index]!;
   if (!Number.isSafeInteger(value)) throw new Error("CBOR integer exceeds JavaScript safe range");
+  if (
+    (size === 1 && value < 24)
+    || (size === 2 && value <= 0xff)
+    || (size === 4 && value <= 0xffff)
+    || (size === 8 && value <= 0xffffffff)
+  ) throw new Error("Non-minimal CBOR length");
   return { value, offset: offset + size };
 }
 
-function decodeAt(bytes: Uint8Array, start: number): { value: unknown; offset: number } {
+function decodeAt(bytes: Uint8Array, start: number, depth = 0): { value: unknown; offset: number } {
+  if (depth > 64) throw new Error("CBOR nesting too deep");
   if (start >= bytes.length) throw new Error("Unexpected end of CBOR");
   const first = bytes[start]!;
   const major = first >> 5;
@@ -107,26 +114,37 @@ function decodeAt(bytes: Uint8Array, start: number): { value: unknown; offset: n
     const end = length.offset + length.value;
     if (end > bytes.length) throw new Error("Invalid CBOR byte/string length");
     const slice = bytes.slice(length.offset, end);
-    return { value: major === 2 ? slice : new TextDecoder().decode(slice), offset: end };
+    if (major === 2) return { value: slice, offset: end };
+    try {
+      return { value: new TextDecoder("utf-8", { fatal: true }).decode(slice), offset: end };
+    } catch {
+      throw new Error("Invalid CBOR UTF-8 string");
+    }
   }
   if (major === 4) {
     const result: unknown[] = [];
     let offset = length.offset;
     for (let index = 0; index < length.value; index += 1) {
-      const item = decodeAt(bytes, offset);
+      const item = decodeAt(bytes, offset, depth + 1);
       result.push(item.value);
       offset = item.offset;
     }
     return { value: result, offset };
   }
   if (major === 5) {
-    const result: Record<string, unknown> = {};
+    const result: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     let offset = length.offset;
+    let previousKey: Uint8Array | undefined;
     for (let index = 0; index < length.value; index += 1) {
-      const key = decodeAt(bytes, offset);
-      const item = decodeAt(bytes, key.offset);
+      const keyStart = offset;
+      const key = decodeAt(bytes, offset, depth + 1);
+      const encodedKey = bytes.slice(keyStart, key.offset);
+      const item = decodeAt(bytes, key.offset, depth + 1);
       if (typeof key.value !== "string") throw new Error("Arbor CBOR map keys must be strings");
+      if (key.value in result) throw new Error("Duplicate CBOR map key");
+      if (previousKey && compareBytes(previousKey, encodedKey) >= 0) throw new Error("Non-canonical CBOR map key order");
       result[key.value] = item.value;
+      previousKey = encodedKey;
       offset = item.offset;
     }
     return { value: result, offset };

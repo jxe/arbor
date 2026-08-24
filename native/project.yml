@@ -1,0 +1,70 @@
+name: Arbor
+options:
+  bundleIdPrefix: org.nxhx
+  deploymentTarget:
+    iOS: "27.0"
+    macOS: "27.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_STRICT_CONCURRENCY: complete
+
+packages:
+  ArborKit:
+    path: Packages/ArborKit
+
+targets:
+  Arbor:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: ArborApp
+    dependencies:
+      - package: ArborKit
+    info:
+      path: ArborApp/Info.plist
+      properties:
+        CFBundleDisplayName: Arbor
+        LSApplicationCategoryType: public.app-category.productivity
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.nxhx.Arbor
+        PRODUCT_MODULE_NAME: ArborApp
+        CODE_SIGN_STYLE: Automatic
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_PREVIEWS: YES
+
+  ArborAppTests:
+    type: bundle.unit-test
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: ArborAppTests
+    dependencies:
+      - target: Arbor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.nxhx.ArborTests
+        GENERATE_INFOPLIST_FILE: YES
+        "TEST_HOST[sdk=macosx*]": "$(BUILT_PRODUCTS_DIR)/Arbor.app/Contents/MacOS/Arbor"
+        "BUNDLE_LOADER[sdk=macosx*]": "$(TEST_HOST)"
+
+schemes:
+  Arbor:
+    build:
+      targets:
+        Arbor: all
+        ArborAppTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ArborAppTests

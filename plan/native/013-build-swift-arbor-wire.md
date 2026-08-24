@@ -12,16 +12,20 @@
 - **Depends on**: Plans 007, 008, and 010
 - **Category**: protocol/client
 - **Planned at**: Arbor `dc34126`, 2026-08-23
+- **Reconciled at**: clean Arbor `0c53964`, 2026-08-24
+- **Completed**: 2026-08-24
 
 ## Why this matters
 
 The iOS replica needs direct `updates-v1` access without importing Bun, arbord, SwiftUI, Hunch, or the server's merge implementation. Independent decoding against shared exact fixtures is the conformance proof; translating TypeScript types informally would leave the highest-risk sync boundary unverified.
 
-## Current state
+## Starting state at reconciliation
 
-- `native/Packages/ArborClient` implements arbord REST JSON/SSE and now also carries the initial Foundation-only `ArborAuthorityClient` compatibility surface for refs, current objects, update submission, complete conflicts, and pairing/devices. Keep that public surface working.
-- No Swift canonical CBOR implementation, strict returned-graph validator, or authority watch parser exists yet.
+- `native/Packages/ArborClient` implemented arbord REST JSON/SSE and also carried the initial Foundation-only `ArborAuthorityClient` compatibility surface for refs, current objects, update submission, complete conflicts, and pairing/devices. That surface now forwards through ArborWire while adopters migrate.
+- No Swift canonical CBOR implementation, strict returned-graph validator, or authority watch parser existed yet.
 - Plan 007 owns exact file/directory object and sync-result fixtures; Plan 010 owns pairing/device HTTP shapes.
+- The live authority implementation now resides in `packages/authority`; `packages/wire` owns portable objects, update types/canonical JSON, and the TypeScript client. Live Swift tests must target a temporary authority rather than the arbord REST harness used by ArborClient.
+- `wire-objects.json`, `wire-update-intent.json`, and `wire-endpoints.json` are the current shared conformance inputs. Extend them when a strict invalid or result case cannot otherwise be exercised; do not create Swift-only protocol truth.
 
 ## Package boundary
 
@@ -59,6 +63,8 @@ git diff --check
 ```
 
 Expected: Swift re-encodes every valid file/directory object byte-identically, decodes every sync outcome, validates returned graphs/drafts, rejects every invalid fixture, and contains no Markdown/tree merge implementation; local live tests pass; package imports only Foundation/system modules.
+
+Completed evidence: all nine ArborWire tests passed on 2026-08-24, including exact valid/invalid shared vectors, hostile decoding, graph validation, request replay, and byte-level SSE framing. The root protocol harness also ran Swift against a disposable live authority and passed create/fetch/rehash/watch/update/conflict/pairing/revocation and absent-history checks. ArborClient remains the arbord REST package and source-compatibly re-exports the authority API from ArborWire.
 
 ## STOP conditions
 

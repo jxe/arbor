@@ -4,14 +4,20 @@ import PackageDescription
 let package = Package(
     name: "ArborClient",
     platforms: [
-        .iOS(.v26),
-        .macOS(.v26)
+        .iOS("27.0"),
+        .macOS("27.0")
     ],
     products: [
         .library(name: "ArborClient", targets: ["ArborClient"])
     ],
+    dependencies: [
+        .package(path: "../ArborWire")
+    ],
     targets: [
-        .target(name: "ArborClient"),
+        .target(
+            name: "ArborClient",
+            dependencies: [.product(name: "ArborWire", package: "ArborWire")]
+        ),
         .testTarget(name: "ArborClientTests", dependencies: ["ArborClient"])
     ],
     swiftLanguageModes: [.v6]

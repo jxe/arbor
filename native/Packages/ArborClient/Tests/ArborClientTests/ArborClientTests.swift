@@ -269,7 +269,10 @@ final class ArborClientTests: XCTestCase {
     }
 
     func testAuthorityClientDecodesAcceptedUpdateAndRetriesExactPreparedBody() async throws {
-        let response = Data(#"{"outcome":"current","current":{"id":"up_atlas1","tree":"tr_atlas","root":"sha256:root","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null}}"#.utf8)
+        let authoritySnapshot = try authoritySnapshot("root")
+        let response = Data("""
+        {"outcome":"current","current":{"id":"up_atlas1","tree":"tr_atlas","root":"\(authoritySnapshot.root)","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null}}
+        """.utf8)
         await URLProtocolStub.state.install { _, attempt in
             attempt == 1
                 ? (500, Data(#"{"error":"temporarily-unavailable","message":"retry"}"#.utf8))
@@ -283,8 +286,8 @@ final class ArborClientTests: XCTestCase {
         )
         let prepared = try await client.prepareUpdate(
             tree: "tr_atlas",
-            base: AuthorityUpdateBase(root: "sha256:root", update: "up_atlas1"),
-            snapshot: AuthoritySnapshot(root: "sha256:root", objects: [])
+            base: AuthorityUpdateBase(root: authoritySnapshot.root, update: "up_atlas1"),
+            snapshot: authoritySnapshot
         )
         let result = try await client.submitUpdate(prepared)
         guard case .current(let current) = result else { return XCTFail("Expected current") }
@@ -298,7 +301,14 @@ final class ArborClientTests: XCTestCase {
     }
 
     func testAuthorityConflictIsTypedCompleteAndNotRetried() async throws {
-        let response = Data(#"{"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"current":{"id":"up_remote","tree":"tr_atlas","root":"sha256:remote","previousRoot":"sha256:base","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"sha256:base","candidate":"sha256:local","draft":{"root":"sha256:draft","objects":[{"hash":"sha256:draft","bytes":"ZHJhZnQ="}]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}"#.utf8)
+        let local = try authoritySnapshot("local")
+        let draft = try authoritySnapshot("draft")
+        let base = "sha256:" + String(repeating: "0", count: 64)
+        let remote = "sha256:" + String(repeating: "1", count: 64)
+        let draftObjects = draft.objects.map { "{\"hash\":\"\($0.hash)\",\"bytes\":\"\($0.bytes.base64EncodedString())\"}" }.joined(separator: ",")
+        let response = Data("""
+        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previousRoot":"\(base)","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}
+        """.utf8)
         await URLProtocolStub.state.install { _, _ in (409, response) }
         let client = ArborAuthorityClient(
             origin: URL(string: "https://authority.test")!,
@@ -308,18 +318,15 @@ final class ArborClientTests: XCTestCase {
         )
         let prepared = try await client.prepareUpdate(
             tree: "tr_atlas",
-            base: AuthorityUpdateBase(root: "sha256:base", update: "up_base"),
-            snapshot: AuthoritySnapshot(
-                root: "sha256:local",
-                objects: [AuthorityObject(hash: "sha256:local", bytes: Data("local".utf8))]
-            )
+            base: AuthorityUpdateBase(root: base, update: "up_base"),
+            snapshot: local
         )
         do {
             _ = try await client.submitUpdate(prepared)
             XCTFail("Expected a typed conflict")
         } catch let error as AuthorityUpdateConflictError {
             XCTAssertEqual(error.conflict.current.id, "up_remote")
-            XCTAssertEqual(error.conflict.draft.objects.first?.bytes, Data("draft".utf8))
+            XCTAssertEqual(error.conflict.draft.root, draft.root)
             XCTAssertEqual(error.conflict.conflicts.first?.reason, "binary-conflict")
         }
         let snapshot = await URLProtocolStub.state.snapshot()
@@ -342,12 +349,16 @@ final class ArborClientTests: XCTestCase {
     }
 
     func testAuthorityReadObjectAndDeviceRoutesStaySmall() async throws {
-        let descriptor = #"{"id":"tr_atlas","canonicalPath":"/~alice/atlas","parentTree":null,"kind":"shared-subtree","ref":"sha256:root","publicAccess":"read","access":"write","httpURL":"https://authority.test/~alice/atlas","arborURL":"arbor://authority.test/~alice/atlas","update":"up_1"}"#
+        let authoritySnapshot = try authoritySnapshot("object")
+        let root = try XCTUnwrap(authoritySnapshot.objects.first { $0.hash == authoritySnapshot.root })
+        let descriptor = """
+        {"id":"tr_atlas","canonicalPath":"/~alice/atlas","parentTree":null,"kind":"shared-subtree","ref":"\(authoritySnapshot.root)","publicAccess":"read","access":"write","httpURL":"https://authority.test/~alice/atlas","arborURL":"arbor://authority.test/~alice/atlas","update":"up_1"}
+        """
         let device = #"{"id":"dv_1","account":"acct_1","label":"Mac","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null}"#
         await URLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {
             case ("GET", "/.arbor/trees/tr_atlas/ref"): (200, Data(descriptor.utf8))
-            case ("GET", "/.arbor/objects/sha256:root"): (200, Data("object-bytes".utf8))
+            case ("GET", "/.arbor/objects/\(authoritySnapshot.root)"): (200, root.bytes)
             case ("GET", "/.arbor/devices"): (200, Data("[\(device)]".utf8))
             case ("DELETE", "/.arbor/devices/dv_1"): (200, Data(device.utf8))
             default: (404, Data(#"{"error":"not-found"}"#.utf8))
@@ -359,11 +370,11 @@ final class ArborClientTests: XCTestCase {
             session: stubSession()
         )
         let ref = try await client.ref(tree: "tr_atlas")
-        let object = try await client.object(hash: "sha256:root")
+        let object = try await client.object(hash: authoritySnapshot.root)
         let devices = try await client.devices()
         let revoked = try await client.revokeDevice(id: "dv_1")
         XCTAssertEqual(ref.update, "up_1")
-        XCTAssertEqual(object, Data("object-bytes".utf8))
+        XCTAssertEqual(object, root.bytes)
         XCTAssertEqual(devices.first?.id, "dv_1")
         XCTAssertEqual(revoked.id, "dv_1")
     }
@@ -372,6 +383,12 @@ final class ArborClientTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
         return URLSession(configuration: configuration)
+    }
+
+    private func authoritySnapshot(_ value: String) throws -> AuthoritySnapshot {
+        let file = try WireObjectCodec.object(.file(Data(value.utf8)))
+        let root = try WireObjectCodec.object(.directory([.init(name: "value.bin", hash: file.hash)]))
+        return AuthoritySnapshot(root: root.hash, objects: [file, root])
     }
 }
 

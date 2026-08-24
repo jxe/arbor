@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   changedPaths,
+  compareWireNames,
+  decodeCBOR,
   decodeWireObject,
   encodeCanonicalCBOR,
   encodeWireObject,
@@ -31,11 +33,45 @@ describe("canonical tree objects", () => {
     }
   });
 
+  test("keeps strict invalid object bytes as language-neutral vectors", async () => {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/fixtures/wire-objects.json"), "utf8")) as {
+      invalid: Array<{ name: string; canonicalCborBase64: string }>;
+    };
+    expect(fixture.invalid.map((item) => item.name)).toEqual([
+      "unsorted-directory",
+      "duplicate-name",
+      "dual-target",
+      "noncanonical-cbor",
+    ]);
+    for (const vector of fixture.invalid) {
+      expect(() => decodeWireObject(Buffer.from(vector.canonicalCborBase64, "base64"))).toThrow();
+    }
+  });
+
   test("encodes maps deterministically and hashes exact DAG-CBOR bytes", () => {
     const left = encodeCanonicalCBOR({ z: 1, a: { y: true, x: "value" } });
     const right = encodeCanonicalCBOR({ a: { x: "value", y: true }, z: 1 });
     expect(left).toEqual(right);
     expect(hashObject(left)).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  test("orders directory names by UTF-8 bytes rather than locale", () => {
+    expect(["ä", "z", "A"].sort(compareWireNames)).toEqual(["A", "z", "ä"]);
+  });
+
+  test("rejects hostile, duplicate, non-canonical, and excessively deep CBOR", () => {
+    const prototypeKey = Uint8Array.from([0xa1, 0x69, 0x5f, 0x5f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x5f, 0x5f, 0xa0]);
+    const decoded = decodeCBOR(prototypeKey) as Record<string, unknown>;
+    expect(Object.getPrototypeOf(decoded)).toBeNull();
+    expect(Object.hasOwn(decoded, "__proto__")).toBe(true);
+    expect(decoded.type).toBeUndefined();
+    expect(() => decodeCBOR(Uint8Array.from([0xa2, 0x61, 0x61, 0x01, 0x61, 0x61, 0x02])))
+      .toThrow("Duplicate CBOR map key");
+    expect(() => decodeCBOR(Uint8Array.from([0xa2, 0x61, 0x62, 0x01, 0x61, 0x61, 0x02])))
+      .toThrow("Non-canonical CBOR map key order");
+    let deep = Uint8Array.of(0x00);
+    for (let index = 0; index < 70; index += 1) deep = Uint8Array.from([0x81, ...deep]);
+    expect(() => decodeCBOR(deep)).toThrow("CBOR nesting too deep");
   });
 
   test("snapshots files once and represents nested trees as boundaries", async () => {

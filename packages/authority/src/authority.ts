@@ -7,6 +7,7 @@ import {
   decodeWireObject,
   encodeWireObject,
   hashObject,
+  compareWireNames,
   updateRequestDigest,
   type AcceptedUpdate,
   type AuthorityDevice,
@@ -1198,7 +1199,7 @@ export class WireAuthority implements AsyncDisposable {
         const updatedIndex = entries.findIndex((entry) => entry.name === name);
         entries[updatedIndex] = updated;
       }
-      entries.sort((a, b) => a.name.localeCompare(b.name));
+      entries.sort((a, b) => compareWireNames(a.name, b.name));
       const bytes = encodeWireObject({ type: "directory", entries } satisfies WireDirectory);
       const nextHash = hashObject(bytes);
       generated.set(nextHash, bytes);

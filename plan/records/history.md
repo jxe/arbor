@@ -3,6 +3,16 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
+## Native Arbor shell and Swift wire client
+
+**Status: Plans 012 and 013 implemented and verified on 2026-08-24.**
+
+The generated `Arbor` Xcode project now establishes the independent `org.nxhx.Arbor` iOS/macOS 27 product. `ArborKit` owns UI-independent node, surface, provider, document-session, coordinator, and browser-tab contracts over a deterministic in-memory provider. Session identity is tree plus PageID with path fallback only before durable identity; duplicate tabs lease one canonical write stream while retaining independent presentation state. The foundation deliberately contains no real persistence, network transport, editor, Quagmire, or Hunch state.
+
+`ArborWire` independently implements Arbor's canonical CBOR subset, immutable object hashing and graph validation, strict authority models, exact update-intent retry, byte-level SSE framing, and injected credentials. `ArborClient` remains the arbord REST client and forwards its source-compatible authority surface through ArborWire. Shared TypeScript fixtures now include strict invalid objects, and the TypeScript decoder applies the same hostile-input invariants.
+
+Verification passed six ArborKit tests, two ArborApp smoke tests, sequential macOS and specified iOS 27 builds, nine ArborWire tests, thirteen ArborClient tests, sync/merge tests, and the unified protocol harness. The harness starts a disposable authority and proves Swift create/fetch/rehash/watch/update/conflict/pairing/revocation behavior plus the absence of accepted-history and historical-object access. No production authority or user data participates in these tests.
+
 ## Railway authority backup, migration, and clean-runtime cutover
 
 **Status: Production migration and clean-runtime restart passed on 2026-08-24.**

@@ -56,18 +56,34 @@ export function decodeWireObject(bytes: Uint8Array): WireObject {
   const value = decodeCBOR(bytes);
   if (!value || typeof value !== "object") throw new Error("Wire object must be a map");
   const record = value as Record<string, unknown>;
-  if (record.type === "file" && record.bytes instanceof Uint8Array) {
+  const keys = Object.keys(record);
+  if (record.type === "file" && record.bytes instanceof Uint8Array && keys.length === 2 && keys.includes("type") && keys.includes("bytes")) {
     return { type: "file", bytes: record.bytes };
   }
-  if (record.type === "directory" && Array.isArray(record.entries)) {
+  if (record.type === "directory" && Array.isArray(record.entries) && keys.length === 2 && keys.includes("type") && keys.includes("entries")) {
+    let previousName: Uint8Array | undefined;
+    const names = new Set<string>();
     const entries = record.entries.map((entry) => {
       if (!entry || typeof entry !== "object") throw new Error("Invalid directory entry");
       const item = entry as Record<string, unknown>;
+      const itemKeys = Object.keys(item);
       if (
         typeof item.name !== "string"
+        || item.name.length === 0
+        || item.name === "."
+        || item.name === ".."
+        || /[\\/\0]/.test(item.name)
         || (typeof item.hash !== "string" && typeof item.tree !== "string")
         || (item.hash !== undefined && item.tree !== undefined)
+        || itemKeys.length !== 2
       ) throw new Error("Invalid directory entry");
+      if (typeof item.hash === "string" && !/^sha256:[a-f0-9]{64}$/.test(item.hash)) throw new Error("Invalid directory entry hash");
+      if (typeof item.tree === "string" && item.tree.length === 0) throw new Error("Invalid directory entry tree");
+      if (names.has(item.name)) throw new Error("Duplicate directory entry name");
+      names.add(item.name);
+      const encodedName = new TextEncoder().encode(item.name);
+      if (previousName && compareUTF8(previousName, encodedName) >= 0) throw new Error("Directory entries are not in UTF-8 order");
+      previousName = encodedName;
       return {
         name: item.name,
         ...(typeof item.hash === "string" ? { hash: item.hash } : {}),
@@ -77,6 +93,19 @@ export function decodeWireObject(bytes: Uint8Array): WireObject {
     return { type: "directory", entries };
   }
   throw new Error("Unknown wire object");
+}
+
+function compareUTF8(left: Uint8Array, right: Uint8Array): number {
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = left[index]! - right[index]!;
+    if (difference) return difference;
+  }
+  return left.length - right.length;
+}
+
+export function compareWireNames(left: string, right: string): number {
+  return compareUTF8(new TextEncoder().encode(left), new TextEncoder().encode(right));
 }
 
 async function loadWireObject(
@@ -196,7 +225,7 @@ export async function snapshotDirectory(
   const walk = async (directory: string): Promise<ObjectHash> => {
     const entries: WireDirectoryEntry[] = [];
     const seen = new Set<string>();
-    for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => compareWireNames(a.name, b.name))) {
       if (cloudPlaceholderName(entry.name)) throw new UnavailableCloudContentError(join(directory, entry.name));
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory() && IGNORED_WORKSPACE_DIRECTORIES.has(entry.name)) continue;
@@ -222,12 +251,12 @@ export async function snapshotDirectory(
       if (!name || seen.has(name)) continue;
       virtualChildren.set(name, rest.length === 0 ? tree : null);
     }
-    for (const [name, tree] of [...virtualChildren].sort(([a], [b]) => a.localeCompare(b))) {
+    for (const [name, tree] of [...virtualChildren].sort(([a], [b]) => compareWireNames(a, b))) {
       entries.push(tree
         ? { name, tree }
         : { name, hash: await walkVirtual(join(directory, name)) });
     }
-    return store({ type: "directory", entries: entries.sort((a, b) => a.name.localeCompare(b.name)) });
+    return store({ type: "directory", entries: entries.sort((a, b) => compareWireNames(a.name, b.name)) });
   };
 
   const walkVirtual = async (directory: string): Promise<ObjectHash> => {
@@ -240,7 +269,7 @@ export async function snapshotDirectory(
     }
     if (!children.size) throw new Error(`Virtual canonical boundary has no target below ${directory}`);
     const entries: WireDirectoryEntry[] = [];
-    for (const [name, tree] of [...children].sort(([a], [b]) => a.localeCompare(b))) {
+    for (const [name, tree] of [...children].sort(([a], [b]) => compareWireNames(a, b))) {
       entries.push(tree ? { name, tree } : { name, hash: await walkVirtual(join(directory, name)) });
     }
     return store({ type: "directory", entries });

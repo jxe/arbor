@@ -25,9 +25,25 @@
     }
   ],
   "invalid": [
-    { "name": "unsorted-directory", "reason": "entries are not lexicographically ordered by UTF-8 bytes" },
-    { "name": "duplicate-name", "reason": "directory entry names are not unique" },
-    { "name": "dual-target", "reason": "entry has both hash and tree" },
-    { "name": "noncanonical-cbor", "reason": "equivalent data model is not encoded canonically" }
+    {
+      "name": "unsorted-directory",
+      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkaGFzaHhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWF6omRoYXNoeEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMGRuYW1lYUE=",
+      "reason": "entries are not lexicographically ordered by UTF-8 bytes"
+    },
+    {
+      "name": "duplicate-name",
+      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkaGFzaHhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWFBomRoYXNoeEdzaGEyNTY6MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMGRuYW1lYUE=",
+      "reason": "directory entry names are not unique"
+    },
+    {
+      "name": "dual-target",
+      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaNkaGFzaHhHc2hhMjU2OjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBkbmFtZWFBZHRyZWVodHJfY2hpbGQ=",
+      "reason": "entry has both hash and tree"
+    },
+    {
+      "name": "noncanonical-cbor",
+      "canonicalCborBase64": "omVieXRlc0ZoZWxsbwpkdHlwZWRmaWxl",
+      "reason": "equivalent data model is not encoded canonically"
+    }
   ]
 }

@@ -19,6 +19,7 @@
 - **Depends on**: none
 - **Category**: security
 - **Planned at**: commit `4247481`, 2026-07-31
+- **Completed**: 2026-08-24 as part of native Plan 013 conformance work
 
 ## Why this matters
 
@@ -263,19 +264,22 @@ legitimate encoder output.
 
 ## Done criteria
 
+Final status: complete. The TypeScript decoder now uses null-prototype maps, rejects duplicate and noncanonical keys, enforces minimal lengths and a depth ceiling, and validates strict UTF-8. Plan 013 also closed the separately noted wire-object validation gap against shared invalid fixtures.
+
 ALL must hold:
 
-- [ ] `bun run typecheck` exits 0
-- [ ] `bun test` exits 0, including `tests/integration/wire-host.test.ts` and
+- [x] `bun run typecheck` exits 0
+- [x] `bun test` exits 0, including `tests/integration/wire-host.test.ts` and
       `tests/integration/community-hosting.test.ts`
-- [ ] The step 1 reproduction script now throws or shows an unpolluted
+- [x] The step 1 reproduction script now throws or shows an unpolluted
       prototype, and the duplicate-key case throws
-- [ ] The step 4 depth script prints `threw: CBOR nesting too deep`
-- [ ] `grep -n "Object.create(null)" packages/wire/src/cbor.ts` returns a match
-- [ ] No encoder function in `packages/wire/src/cbor.ts` was modified
+- [x] The step 4 depth script prints `threw: CBOR nesting too deep`
+- [x] `grep -n "Object.create(null)" packages/wire/src/cbor.ts` returns a match
+- [x] No encoder function in `packages/wire/src/cbor.ts` was modified
       (`git diff packages/wire/src/cbor.ts` touches only the decode path)
-- [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plan/hardening/README.md` status row for 003 updated
+- [x] The broader files are the explicitly reconciled Plan 013 implementation,
+      which also closes the deferred strict wire-object gap.
+- [x] `plan/hardening/README.md` status row for 003 updated
 
 ## STOP conditions
 

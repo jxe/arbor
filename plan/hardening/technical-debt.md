@@ -13,7 +13,7 @@ These are implementation violations of the aspirational specification. They are 
 
 1. **Keep access-link secrets out of loopback URLs and visit records.** Remote link browsing currently allows the raw secret to enter a local URL and durable visit metadata instead of keeping it out of band and sending `X-Arbor-Access` only to the wire host.
 2. **Reject mixed `removeTreePlacement` batches before durable intent.** The operation can pass early system-domain discrimination in a mixed batch and reach intent recording before later rejection.
-3. **Implement one-pass percent decoding and deterministic UTF-8 wire ordering.** URL handling must decode only at the external boundary, and directory-object ordering must compare UTF-8 bytes rather than `localeCompare`.
+3. **Implement one-pass percent decoding.** URL handling must decode only at the external boundary. Deterministic UTF-8 directory-object ordering replaced locale-sensitive ordering during Plan 013.
 4. **Expose the v0.8 `system:` shape.** The reference system tree does not yet expose `system:connections` and some records predate the consolidated tree-level profile/access shape.
 
 ### Other REST and client debt

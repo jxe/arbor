@@ -18,7 +18,7 @@ and update your row below when done.
 |------|-------|----------|--------|------|------------|--------|
 | [001](001-escape-search-excerpts.md) | Stop rendering search excerpts as raw HTML | P1 | S | LOW | — | TODO |
 | [002](002-fix-link-healing-regex.md) | Fix the escaped-backslash bug in the link-healing regex | P1 | S | LOW | — | TODO |
-| [003](003-harden-cbor-decoding.md) | Harden the CBOR decoder against hostile wire bytes | P1 | S | LOW | — | TODO |
+| [003](003-harden-cbor-decoding.md) | Harden the CBOR decoder against hostile wire bytes | P1 | S | LOW | — | DONE — completed with Plan 013 conformance work |
 | [004](004-serialize-journal-append.md) | Serialize write-journal appends so counters cannot collide | P1 | S | LOW | — | TODO |
 | [005](005-decode-paths-once.md) | Decode percent-encoding once, at the HTTP boundary | P1 | M | MED | — | TODO |
 | [006](006-incremental-index-updates.md) | Stop rebuilding the whole index on every move or delete | P2 | M | MED | soft: 001 | TODO |

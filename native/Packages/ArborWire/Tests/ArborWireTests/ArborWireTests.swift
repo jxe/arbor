@@ -1,0 +1,280 @@
+import Foundation
+import Testing
+@testable import ArborWire
+
+private var fixtures: URL {
+    if let path = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"] {
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+    return URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .appending(path: "../../../../../spec/fixtures")
+        .standardizedFileURL
+}
+
+@Suite("Canonical wire objects")
+struct WireObjectTests {
+    @Test("Swift reproduces every shared object byte and hash")
+    func sharedVectors() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "wire-objects.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let vectors = try #require(fixture["objects"] as? [[String: Any]])
+        for vector in vectors {
+            let model = try #require(vector["model"] as? [String: Any])
+            let object: WireObject
+            if model["type"] as? String == "file" {
+                let base64 = try #require(model["bytesBase64"] as? String)
+                object = .file(try #require(Data(base64Encoded: base64)))
+            } else {
+                let entries = try #require(model["entries"] as? [[String: Any]])
+                object = .directory(entries.map {
+                    WireDirectoryEntry(name: $0["name"] as! String, hash: $0["hash"] as? String, tree: $0["tree"] as? String)
+                })
+            }
+            let bytes = try WireObjectCodec.encode(object)
+            #expect(bytes.base64EncodedString() == vector["canonicalCborBase64"] as? String)
+            #expect(WireObjectCodec.hash(bytes) == vector["hash"] as? String)
+            #expect(try WireObjectCodec.decode(bytes) == object)
+        }
+    }
+
+    @Test("Swift rejects every shared invalid object")
+    func invalidVectors() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "wire-objects.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let vectors = try #require(fixture["invalid"] as? [[String: Any]])
+        #expect(vectors.count == 4)
+        for vector in vectors {
+            let base64 = try #require(vector["canonicalCborBase64"] as? String)
+            let bytes = try #require(Data(base64Encoded: base64))
+            #expect(throws: (any Error).self) { _ = try WireObjectCodec.decode(bytes) }
+        }
+    }
+
+    @Test("Complete graph validation rejects missing and unreachable objects")
+    func graphValidation() throws {
+        let file = try WireObjectCodec.object(.file(Data("hello".utf8)))
+        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
+        let valid = AuthoritySnapshot(root: root.hash, objects: [root, file])
+        #expect(try WireObjectGraph.validate(valid).count == 2)
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireObjectGraph.validate(.init(root: root.hash, objects: [root]))
+        }
+        let extra = try WireObjectCodec.object(.file(Data("extra".utf8)))
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireObjectGraph.validate(.init(root: root.hash, objects: [root, file, extra]))
+        }
+    }
+}
+
+@Suite("Update and observation protocol")
+struct UpdateProtocolTests {
+    @Test("Canonical semantic intent matches the shared RFC 8785 fixture")
+    func requestIdentity() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "wire-update-intent.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let identity = try #require(fixture["identity"] as? [String: Any])
+        let base = try #require(identity["base"] as? [String: Any])
+        let value = AuthorityUpdateBase(root: base["root"] as! String, update: base["update"] as! String)
+        let candidate = identity["candidate"] as! String
+        let tree = identity["tree"] as! String
+        #expect(canonicalUpdateIntent(tree: tree, base: value, candidate: candidate) == identity["canonicalJSON"] as? String)
+        #expect(updateRequestDigest(tree: tree, base: value, candidate: candidate) == identity["digest"] as? String)
+    }
+
+    @Test("Endpoint result fixture decodes with required accepted-update fields")
+    func endpointResult() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "wire-endpoints.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let cases = try #require(fixture["cases"] as? [[String: Any]])
+        let submit = try #require(cases.first { $0["name"] as? String == "submit-current-update" })
+        let response = try #require(submit["response"] as? [String: Any])
+        let body = try JSONSerialization.data(withJSONObject: try #require(response["body"] as? [String: Any]))
+        let result = try JSONDecoder().decode(AuthorityUpdateResult.self, from: body)
+        guard case let .current(update) = result else { Issue.record("Expected current result"); return }
+        #expect(update.id == "up_atlas1")
+    }
+
+    @Test("Byte-level parser handles fragmented LF and CRLF frames")
+    func sseFraming() throws {
+        var parser = ArborSSEParser()
+        let chunks = [
+            "id: up_1\r", "\nevent: ref\r\ndata: {\"a\":", "1}\r\n\r", "\n",
+            "id: up_2\nevent: ref\ndata: first\ndata: second\n\n"
+        ]
+        var frames: [ArborSSEFrame] = []
+        for chunk in chunks { frames.append(contentsOf: try parser.append(Data(chunk.utf8))) }
+        #expect(frames == [
+            .init(id: "up_1", event: "ref", data: "{\"a\":1}"),
+            .init(id: "up_2", event: "ref", data: "first\nsecond")
+        ])
+        #expect(try parser.finish().isEmpty)
+    }
+
+    @Test("Unterminated and invalid UTF-8 frames fail")
+    func malformedSSE() throws {
+        var unterminated = ArborSSEParser()
+        _ = try unterminated.append(Data("data: value".utf8))
+        #expect(throws: ArborWireValidationError.self) { _ = try unterminated.finish() }
+        var invalid = ArborSSEParser()
+        #expect(throws: ArborWireValidationError.self) { _ = try invalid.append(Data([0x64, 0x61, 0x74, 0x61, 0x3a, 0x20, 0xff, 0x0a, 0x0a])) }
+    }
+
+    @Test("Ambiguous transport retries the exact prepared request without a caller key")
+    func exactRetry() async throws {
+        let file = try WireObjectCodec.object(.file(Data("retry".utf8)))
+        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
+        let snapshot = AuthoritySnapshot(root: root.hash, objects: [file, root])
+        let baseHash = "sha256:" + String(repeating: "0", count: 64)
+        let response = Data("""
+        {"outcome":"accepted","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"}}
+        """.utf8)
+        await WireURLProtocolStub.state.install { _, attempt in
+            attempt == 1
+                ? (500, Data(#"{"error":"authority-busy","message":"retry","retryable":true}"#.utf8))
+                : (201, response)
+        }
+        let client = ArborAuthorityClient(
+            origin: URL(string: "https://authority.test")!,
+            credential: "device-token",
+            session: wireStubSession(),
+            retryDelay: { _ in }
+        )
+        let prepared = try await client.prepareUpdate(
+            tree: "tr_retry",
+            base: .init(root: baseHash, update: "up_base"),
+            snapshot: snapshot
+        )
+        _ = try await client.submitUpdate(prepared)
+        let captured = await WireURLProtocolStub.state.snapshot()
+        #expect(captured.count == 2)
+        #expect(captured.bodies[0] == captured.bodies[1])
+        #expect(captured.idempotencyKeys == [nil, nil])
+    }
+}
+
+@Suite("Live temporary authority", .serialized)
+struct LiveAuthorityTests {
+    @Test("Create, update, conflict, watch, pair, revoke, and current-graph access")
+    func liveAuthority() async throws {
+        guard let originValue = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_URL"],
+              let origin = URL(string: originValue),
+              let token = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TOKEN"] else {
+            return
+        }
+        let client = ArborAuthorityClient(origin: origin, credential: token, retryDelay: { _ in })
+        let initial = try snapshot(fileBytes: Data("base".utf8))
+        let tree = try await client.createTree(
+            canonicalPath: "/~owner/swift-\(UUID().uuidString.lowercased())",
+            snapshot: initial
+        )
+        #expect(tree.update != nil)
+        #expect(try await client.snapshot(root: tree.ref) == initial.sorted())
+
+        let stream = try await client.watch(tree: tree.id)
+        var iterator = stream.makeAsyncIterator()
+        let watched = try await iterator.next()
+        #expect(watched?.tree.id == tree.id)
+        #expect(watched?.id == tree.update)
+
+        let candidateA = try snapshot(fileBytes: Data("candidate-a".utf8))
+        let base = AuthorityUpdateBase(root: tree.ref, update: try #require(tree.update))
+        let accepted = try await client.submitUpdate(try await client.prepareUpdate(tree: tree.id, base: base, snapshot: candidateA))
+        guard case let .accepted(updateA) = accepted else { Issue.record("Expected accepted result"); return }
+        #expect(updateA.root == candidateA.root)
+
+        let candidateB = try snapshot(fileBytes: Data("candidate-b".utf8))
+        do {
+            _ = try await client.submitUpdate(try await client.prepareUpdate(tree: tree.id, base: base, snapshot: candidateB))
+            Issue.record("Expected binary conflict")
+        } catch let error as AuthorityUpdateConflictError {
+            #expect(error.conflict.conflicts.contains { $0.reason == "binary-conflict" })
+            #expect(try WireObjectGraph.validate(error.conflict.draft).count >= 2)
+        }
+
+        let offer = try await client.createPairing()
+        let claim = try await client.claimPairing(id: offer.id, secret: offer.secret, label: "Swift test device")
+        let paired = ArborAuthorityClient(origin: origin, credential: claim.deviceToken, retryDelay: { _ in })
+        #expect(try await paired.trees().contains { $0.id == tree.id })
+        _ = try await client.revokeDevice(id: claim.device.id)
+        await #expect(throws: AuthorityHTTPError.self) { _ = try await paired.account() }
+
+        let historyURL = origin.appending(path: ".arbor/trees/\(tree.id)/updates")
+        var request = URLRequest(url: historyURL)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await URLSession.shared.data(for: request)
+        #expect((response as? HTTPURLResponse)?.statusCode == 405)
+        let historicalObject = origin.appending(path: ".arbor/objects/\(initial.root)")
+        let (_, historicalResponse) = try await URLSession.shared.data(for: URLRequest(url: historicalObject))
+        #expect((historicalResponse as? HTTPURLResponse)?.statusCode == 404)
+    }
+
+    private func snapshot(fileBytes: Data) throws -> AuthoritySnapshot {
+        let file = try WireObjectCodec.object(.file(fileBytes))
+        let root = try WireObjectCodec.object(.directory([.init(name: "blob.bin", hash: file.hash)]))
+        return AuthoritySnapshot(root: root.hash, objects: [file, root]).sorted()
+    }
+}
+
+private extension AuthoritySnapshot {
+    func sorted() -> AuthoritySnapshot {
+        AuthoritySnapshot(root: root, objects: objects.sorted { $0.hash < $1.hash })
+    }
+}
+
+private func wireStubSession() -> URLSession {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [WireURLProtocolStub.self]
+    return URLSession(configuration: configuration)
+}
+
+private actor WireURLProtocolStubState {
+    typealias Handler = @Sendable (URLRequest, Int) -> (Int, Data)
+
+    private var handler: Handler?
+    private var count = 0
+    private var bodies: [Data] = []
+    private var idempotencyKeys: [String?] = []
+
+    func install(_ handler: @escaping Handler) {
+        self.handler = handler
+        count = 0
+        bodies = []
+        idempotencyKeys = []
+    }
+
+    func response(for request: URLRequest) -> (Int, Data) {
+        count += 1
+        bodies.append(request.httpBody ?? Data())
+        idempotencyKeys.append(request.value(forHTTPHeaderField: "Idempotency-Key"))
+        return handler?(request, count) ?? (500, Data())
+    }
+
+    func snapshot() -> (count: Int, bodies: [Data], idempotencyKeys: [String?]) {
+        (count, bodies, idempotencyKeys)
+    }
+}
+
+private final class WireURLProtocolStub: URLProtocol, @unchecked Sendable {
+    static let state = WireURLProtocolStubState()
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Task {
+            let (status, data) = await Self.state.response(for: request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: status,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
+}

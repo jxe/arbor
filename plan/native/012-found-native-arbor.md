@@ -12,16 +12,20 @@
 - **Depends on**: Plan 006
 - **Category**: direction/architecture
 - **Planned at**: Arbor `dc34126`, 2026-08-23
+- **Reconciled at**: clean Arbor `0c53964`, 2026-08-24
+- **Completed**: 2026-08-24
 
 ## Why this matters
 
 The app must be node-first before an editor or storage engine can pull it toward Hunch's flat page model. A fake-provider foundation fixes identity, tab/session ownership, heterogeneous surfaces, and product persistence keys without coupling them to wire or filesystem implementation.
 
-## Current state
+## Starting state at reconciliation
 
-- `native/Packages/ArborClient` is Foundation-only and targets iOS/macOS 26; no app project or ArborKit exists.
+- `native/Packages/ArborClient` was Foundation-only and targeted iOS/macOS 26 as a reusable library; no app project or ArborKit existed.
 - Current native plans reserve a new app rather than renaming Hunch.
 - The accepted identity is display/product/scheme `Arbor`, module `ArborApp`, bundle `org.nxhx.Arbor`, iOS/macOS 27.
+- Authority sync, arbord integration, device pairing, and the Railway migration are complete. They do not change this milestone's fake-provider boundary.
+- XcodeGen 2.45.4 and the specified iOS 27 simulator `C76DE979-27D7-4BE5-AD11-3FC223402AB9` are available.
 
 ## Target packages and interfaces
 
@@ -56,6 +60,8 @@ git diff --check
 ```
 
 Expected: sequential commands exit 0; no deprecated or Hunch persisted identity; ArborKit tests deterministically cover duplicate leases, rename-by-PageID, independent tab state, and non-document commands.
+
+Completed evidence: XcodeGen 2.45.4 generated `native/Arbor.xcodeproj`; all six ArborKit tests, both ArborApp smoke tests, the macOS build, and the specified iOS 27 build-for-testing passed sequentially on 2026-08-24. The app owns only the accepted Arbor identity, and the deterministic provider remains isolated from persistence, transport, and editor implementations.
 
 ## STOP conditions
 
