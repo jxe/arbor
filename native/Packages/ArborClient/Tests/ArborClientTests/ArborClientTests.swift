@@ -34,6 +34,8 @@ final class ArborClientTests: XCTestCase {
         let systemTree = try decode(NodeSnapshot.self, "node-system-tree.json")
         let mergeFixtureData = try Data(contentsOf: fixtures.appending(path: "wire-merge.json"))
         let mergeFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: mergeFixtureData) as? [String: Any])
+        let intentFixtureData = try Data(contentsOf: fixtures.appending(path: "wire-update-intent.json"))
+        let intentFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: intentFixtureData) as? [String: Any])
 
         XCTAssertEqual(node.ref, ResolvedNodeRef(path: "/notes/today", pageID: "abc123", tree: "tr_notes7f3q2ab7c"))
         XCTAssertEqual(node.document?.source, "---\nid: abc123\ntitle: Today\n---\nHello\n")
@@ -59,12 +61,12 @@ final class ArborClientTests: XCTestCase {
             ["writeMarkdown", "createMarkdown", "createDirectory", "rename", "move", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity", "connectCommunity", "promoteTree", "placeTree", "setTreeAccess", "claimProfile", "disconnectCommunity", "createGroupProfile", "removeTreePlacement", "resolveTreeConflict"]
         )
         XCTAssertEqual(errors.last?.error, "future-error-code")
-        XCTAssertEqual(mergeFixtures["version"] as? Int, 1)
+        XCTAssertEqual(mergeFixtures["version"] as? Int, 2)
         XCTAssertGreaterThanOrEqual((mergeFixtures["markdownCases"] as? [[String: Any]])?.count ?? 0, 10)
         XCTAssertEqual((mergeFixtures["pageMoveCases"] as? [[String: Any]])?.count, 4)
         XCTAssertEqual(
-            (mergeFixtures["replayCases"] as? [[String: Any]])?.compactMap { $0["name"] as? String },
-            ["exact-success-replay", "changed-intent-reuses-key"]
+            (intentFixtures["replayCases"] as? [[String: Any]])?.compactMap { $0["name"] as? String },
+            ["same-intent-different-object-envelope", "different-candidate-has-different-digest"]
         )
         XCTAssertEqual(unknownNode.ref.pageID, "abc123")
     }
@@ -281,7 +283,6 @@ final class ArborClientTests: XCTestCase {
         )
         let prepared = try await client.prepareUpdate(
             tree: "tr_atlas",
-            idempotencyKey: "req_atlas1",
             base: AuthorityUpdateBase(root: "sha256:root", update: "up_atlas1"),
             snapshot: AuthoritySnapshot(root: "sha256:root", objects: [])
         )
@@ -292,7 +293,7 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(snapshot.count, 2)
         XCTAssertEqual(snapshot.bodies[0], snapshot.bodies[1])
         XCTAssertEqual(snapshot.requests[0].authorization, "Bearer device-token")
-        XCTAssertEqual(snapshot.requests[0].idempotencyKey, "req_atlas1")
+        XCTAssertNil(snapshot.requests[0].idempotencyKey)
         XCTAssertEqual(snapshot.requests[0].path, "/.arbor/trees/tr_atlas/updates")
     }
 
@@ -307,7 +308,6 @@ final class ArborClientTests: XCTestCase {
         )
         let prepared = try await client.prepareUpdate(
             tree: "tr_atlas",
-            idempotencyKey: "req_conflict",
             base: AuthorityUpdateBase(root: "sha256:base", update: "up_base"),
             snapshot: AuthoritySnapshot(
                 root: "sha256:local",
@@ -341,14 +341,12 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(snapshot.requests.first?.path, "/.arbor/pairings/pair_1/claim")
     }
 
-    func testAuthorityReadHistoryObjectAndDeviceRoutesStaySmall() async throws {
+    func testAuthorityReadObjectAndDeviceRoutesStaySmall() async throws {
         let descriptor = #"{"id":"tr_atlas","canonicalPath":"/~alice/atlas","parentTree":null,"kind":"shared-subtree","ref":"sha256:root","publicAccess":"read","access":"write","httpURL":"https://authority.test/~alice/atlas","arborURL":"arbor://authority.test/~alice/atlas","update":"up_1"}"#
-        let update = #"{"id":"up_1","tree":"tr_atlas","root":"sha256:root","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null}"#
         let device = #"{"id":"dv_1","account":"acct_1","label":"Mac","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null}"#
         await URLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {
             case ("GET", "/.arbor/trees/tr_atlas/ref"): (200, Data(descriptor.utf8))
-            case ("GET", "/.arbor/trees/tr_atlas/updates"): (200, Data("{\"updates\":[\(update)],\"cursor\":null}".utf8))
             case ("GET", "/.arbor/objects/sha256:root"): (200, Data("object-bytes".utf8))
             case ("GET", "/.arbor/devices"): (200, Data("[\(device)]".utf8))
             case ("DELETE", "/.arbor/devices/dv_1"): (200, Data(device.utf8))
@@ -361,12 +359,10 @@ final class ArborClientTests: XCTestCase {
             session: stubSession()
         )
         let ref = try await client.ref(tree: "tr_atlas")
-        let updates = try await client.updates(tree: "tr_atlas", cursor: "up_0")
         let object = try await client.object(hash: "sha256:root")
         let devices = try await client.devices()
         let revoked = try await client.revokeDevice(id: "dv_1")
         XCTAssertEqual(ref.update, "up_1")
-        XCTAssertEqual(updates.updates.first?.id, "up_1")
         XCTAssertEqual(object, Data("object-bytes".utf8))
         XCTAssertEqual(devices.first?.id, "dv_1")
         XCTAssertEqual(revoked.id, "dv_1")

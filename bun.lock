@@ -44,6 +44,15 @@
         "zod": "4.3.6",
       },
     },
+    "packages/authority": {
+      "name": "@arbor/authority",
+      "version": "0.1.0",
+      "dependencies": {
+        "@arbor/core": "workspace:*",
+        "@arbor/editor": "workspace:*",
+        "@arbor/wire": "workspace:*",
+      },
+    },
     "packages/cli": {
       "name": "@arbor/cli",
       "version": "0.1.0",
@@ -52,6 +61,7 @@
       },
       "dependencies": {
         "@arbor/arbord": "workspace:*",
+        "@arbor/authority": "workspace:*",
         "@arbor/client": "workspace:*",
         "@arbor/core": "workspace:*",
         "@arbor/stores": "workspace:*",
@@ -133,6 +143,8 @@
   },
   "packages": {
     "@arbor/arbord": ["@arbor/arbord@workspace:packages/arbord"],
+
+    "@arbor/authority": ["@arbor/authority@workspace:packages/authority"],
 
     "@arbor/cli": ["@arbor/cli@workspace:packages/cli"],
 

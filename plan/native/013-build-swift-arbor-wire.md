@@ -19,7 +19,7 @@ The iOS replica needs direct `updates-v1` access without importing Bun, arbord, 
 
 ## Current state
 
-- `native/Packages/ArborClient` implements arbord REST JSON/SSE and now also carries the initial Foundation-only `ArborAuthorityClient` compatibility surface for refs, objects, accepted updates, complete conflicts, and pairing/devices. Keep that public surface working.
+- `native/Packages/ArborClient` implements arbord REST JSON/SSE and now also carries the initial Foundation-only `ArborAuthorityClient` compatibility surface for refs, current objects, update submission, complete conflicts, and pairing/devices. Keep that public surface working.
 - No Swift canonical CBOR implementation, strict returned-graph validator, or authority watch parser exists yet.
 - Plan 007 owns exact file/directory object and sync-result fixtures; Plan 010 owns pairing/device HTTP shapes.
 
@@ -28,7 +28,7 @@ The iOS replica needs direct `updates-v1` access without importing Bun, arbord, 
 Create `native/Packages/ArborWire` as the independent implementation behind the accepted authority surface, preserving or forwarding the existing `ArborAuthorityClient` API while adopters migrate, with:
 
 - deterministic CBOR file/directory encode/decode and object hashing;
-- discovery, descriptor/ref, object, accepted-update submission, watch, accepted-history, typed immediate conflict, pairing claim, and device list/revoke client APIs;
+- discovery, descriptor/ref, current-object retrieval, accepted-update submission, watch, typed immediate conflict, pairing claim, and device list/revoke client APIs;
 - exact serialized request retry for ambiguous sync outcomes;
 - injected credential provider; app/Keychain ownership stays outside the package.
 
@@ -44,9 +44,9 @@ The decoder rejects noncanonical maps, duplicate keys/names, invalid UTF-8/hashe
 
 1. Create the Swift package targeting iOS/macOS 27 with no third-party dependency unless a reviewed dependency demonstrably enforces Arbor's deterministic CBOR subset.
 2. Implement narrow canonical CBOR primitives required by fixtures and exact object hashing.
-3. Model `updates-v1` current/accepted/merged/conflict results, opaque acceptance/watch cursors, accepted-history records, stable conflict reasons, and device/pairing responses with strict required fields and forward-compatible descriptive fields.
-4. Implement URLSession requests, exact successful-outcome replay, history pagination, complete immediate conflict-draft decoding, and byte-level LF/CRLF SSE framing. The package must not interpret or reproduce merge policy; conflicts have no server resource to fetch later.
-5. Consume every shared valid/invalid object and protocol fixture. Add a local authority harness for create/sync/watch/history/conflict-draft/pairing/revoke.
+3. Model `updates-v1` current/accepted/merged/conflict results, opaque accepted-update/watch cursors, stable conflict reasons, and device/pairing responses with strict required fields and forward-compatible descriptive fields.
+4. Implement URLSession requests, exact semantic-intent retry without a caller-supplied key, complete immediate conflict-draft decoding, and byte-level LF/CRLF SSE framing. The package must not interpret or reproduce merge policy; conflicts and accepted history have no server resource to fetch later.
+5. Consume every shared valid/invalid object and protocol fixture. Add a local authority harness for create/sync/watch/conflict-draft/pairing/revoke and verify accepted-history/historical-object routes are absent.
 6. Extend `bun run test:protocol` or a new unified command to run both TypeScript and Swift wire conformance.
 
 ## Verification

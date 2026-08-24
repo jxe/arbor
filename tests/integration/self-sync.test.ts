@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArbor } from "@arbor/arbord";
 import { ArbordClient } from "@arbor/client";
-import { serveWireHost, WireClient } from "@arbor/wire";
+import { serveWireHost } from "@arbor/authority";
+import { WireClient } from "@arbor/wire";
 
 const token = "self-sync-owner";
 let sandbox: string;
@@ -157,7 +158,7 @@ describe("private self-sync", () => {
       .then((value) => value === "common-binary")
       .catch(() => false));
     await receiving.close();
-    const historyBefore = host.authority.updates(tree).updates.length;
+    const historyBefore = host.authority.acceptedUpdates(tree).length;
 
     host.server.stop(true);
     await host.authority[Symbol.asyncDispose]();
@@ -172,7 +173,7 @@ describe("private self-sync", () => {
     });
 
     const winner = await launch(stateA, treeA);
-    await waitFor(async () => host.authority.updates(tree).updates.length === historyBefore + 1);
+    await waitFor(async () => host.authority.acceptedUpdates(tree).length === historyBefore + 1);
     await winner.close();
 
     const conflicted = await launch(stateB, treeB);
@@ -182,7 +183,7 @@ describe("private self-sync", () => {
         && Array.isArray(record.document.frontmatter.conflicts);
     });
     expect(await readFile(join(treeB, "sample.bin"), "utf8")).toBe("binary-from-b");
-    expect(host.authority.updates(tree).updates).toHaveLength(historyBefore + 1);
+    expect(host.authority.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
     await conflicted.close();
 
     const restarted = await launch(stateB, treeB);
@@ -191,12 +192,12 @@ describe("private self-sync", () => {
       return record.document?.frontmatter.conflictCandidate !== undefined;
     });
     await restarted.client.mutateSystem({ op: "resolveTreeConflict", tree, choice: "local" });
-    await waitFor(async () => host.authority.updates(tree).updates.length === historyBefore + 2);
+    await waitFor(async () => host.authority.acceptedUpdates(tree).length === historyBefore + 2);
     await restarted.close();
 
     const follower = await launch(stateA, treeA);
     await waitFor(async () => (await readFile(join(treeA, "sample.bin"), "utf8")) === "binary-from-b");
-    expect(host.authority.updates(tree).updates).toHaveLength(historyBefore + 2);
+    expect(host.authority.acceptedUpdates(tree)).toHaveLength(historyBefore + 2);
     await follower.close();
   });
 });

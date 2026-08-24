@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "identity": {
+    "tree": "tr_atlas",
+    "base": {
+      "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+      "update": "up_atlas1"
+    },
+    "candidate": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+    "canonicalJSON": "{\"base\":{\"root\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"update\":\"up_atlas1\"},\"candidate\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"tree\":\"tr_atlas\",\"version\":\"updates-v1\"}",
+    "digest": "sha256:a6e2c7c02cd1cf6e094b115a95fc4c454ed22c9ce9270fc2a3060fcd0a1f4ba5"
+  },
+  "replayCases": [
+    {
+      "name": "same-intent-different-object-envelope",
+      "sameIntent": true,
+      "expected": {"sameStatus": true, "sameBody": true, "additionalAcceptedUpdates": 0}
+    },
+    {
+      "name": "different-candidate-has-different-digest",
+      "sameIntent": false,
+      "expected": {"differentDigest": true}
+    }
+  ]
+}

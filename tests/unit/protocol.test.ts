@@ -117,8 +117,8 @@ describe("REST v1 protocol fixtures", () => {
       markdownCases: Array<{ name: string }>;
       pageMoveCases: Array<{ name: string }>;
       structuralCases: Array<{ name: string }>;
-      replayCases: Array<{ name: string }>;
     }>("wire-merge.json");
+    const intents = await json<{ version: number; replayCases: Array<{ name: string }> }>("wire-update-intent.json");
     expect(registry.cases.map((item) => item.name)).toEqual(expect.arrayContaining([
       "valid-empty",
       "valid-shared",
@@ -138,7 +138,7 @@ describe("REST v1 protocol fixtures", () => {
       "watch-ref",
     ]);
     expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 200, 200, 200]);
-    expect(merges.version).toBe(1);
+    expect(merges.version).toBe(2);
     expect(merges.markdownCases.length).toBeGreaterThanOrEqual(10);
     expect(merges.pageMoveCases.map((item) => item.name)).toContain("divergent-page-id-renames-conflict");
     expect(merges.structuralCases.map((item) => item.name)).toEqual(expect.arrayContaining([
@@ -146,9 +146,10 @@ describe("REST v1 protocol fixtures", () => {
       "divergent-nested-boundary",
       "file-directory-kind-collision",
     ]));
-    expect(merges.replayCases.map((item) => item.name)).toEqual([
-      "exact-success-replay",
-      "changed-intent-reuses-key",
+    expect(intents.version).toBe(1);
+    expect(intents.replayCases.map((item) => item.name)).toEqual([
+      "same-intent-different-object-envelope",
+      "different-candidate-has-different-digest",
     ]);
   });
 });

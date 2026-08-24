@@ -532,10 +532,11 @@ async function createScenario(state: LabState, scenario: string, binary = "commo
 }
 
 async function authorityHistoryCount(state: LabState, tree: string): Promise<number> {
-  const result = await sshBash(state, "community", [
-    ". /etc/arbor-community.env",
-    `curl -fsS -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/trees/${tree}/updates' | jq '.updates | length'`,
-  ].join("\n"), { quiet: true });
+  const result = await ssh(state, "community", [
+    "sqlite3",
+    "/var/lib/arbor-community/authority.sqlite3",
+    `SELECT count(*) FROM accepted_updates WHERE tree_id = '${tree}';`,
+  ], { quiet: true });
   const count = Number(result.stdout.trim());
   if (!Number.isSafeInteger(count)) throw new Error(`Invalid update history count for ${tree}`);
   return count;
@@ -646,15 +647,27 @@ async function acceptance(state: LabState): Promise<void> {
     "const tree = await client.create(`/~owner/${process.env.ARBOR_LAB_REPLAY}`, initial);",
     "await writeFile('/tmp/arbor-replay/note.md', 'two\\n');",
     "const next = await snapshotDirectory('/tmp/arbor-replay');",
-    "const first = await client.submitUpdate(tree.id, 'accepted-replay', { root: tree.ref, update: tree.update }, next);",
-    "const second = await client.submitUpdate(tree.id, 'accepted-replay', { root: tree.ref, update: tree.update }, next);",
-    "const history = await client.updates(tree.id);",
-    "if (JSON.stringify(first) !== JSON.stringify(second) || history.updates.length !== 2) throw new Error('Exact replay duplicated or changed accepted history');",
-    "process.stdout.write(tree.id);",
+    "const first = await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update }, next);",
+    "const second = await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update }, next);",
+    "if (JSON.stringify(first) !== JSON.stringify(second)) throw new Error('Semantic replay changed its accepted result');",
+    "process.stdout.write(JSON.stringify({ tree: tree.id, historical: initial.root }));",
     "JAVASCRIPT",
   ].join("\n"), { quiet: true });
-  const replayTree = replay.stdout.trim();
+  const replayResult = JSON.parse(replay.stdout.trim()) as { tree: string; historical: string };
+  const replayTree = replayResult.tree;
   if (!/^tr_[a-z2-7]+$/.test(replayTree)) throw new Error("Exact replay scenario did not return a TreeID");
+  if (await authorityHistoryCount(state, replayTree) !== 2) {
+    throw new Error("Semantic replay duplicated internal accepted history");
+  }
+  const privateSurface = await sshBash(state, "community", [
+    ". /etc/arbor-community.env",
+    `history_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/updates')`,
+    `object_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/objects/${replayResult.historical}')`,
+    "printf '%s %s' \"$history_status\" \"$object_status\"",
+  ].join("\n"), { quiet: true });
+  if (privateSurface.stdout.trim() !== "405 404") {
+    throw new Error(`Accepted history or a non-current object escaped onto the wire: ${privateSurface.stdout.trim()}`);
+  }
 
   const conflictScenario = `accepted-conflict-${suffix}`;
   const conflictTree = await createScenario(state, conflictScenario);

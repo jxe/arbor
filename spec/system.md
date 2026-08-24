@@ -64,7 +64,7 @@ The safe virtual system tree has these top-level records:
 - `system:visited` — durable remote-visit metadata and safe cache status;
 - `system:diagnostics` — malformed control files, unavailable credentials, conflicts, and other actionable diagnostics.
 
-Accepted authority updates are server history; pending submissions and rejected conflict drafts are private placement/client state. A conflict leaves no authority-side record or retained candidate/draft objects. It never enters authored trees or the authority's accepted-update listing. A placement records its exact pending idempotency key and candidate before transmission, then records any conflict response and complete draft snapshot locally before reporting completion.
+Accepted authority updates are private server history, not a wire collection or historical-object capability; pending submissions and rejected conflict drafts are private placement/client state. A conflict leaves no authority-side record or retained candidate/draft objects. It never enters authored trees or accepted server history. A placement records its exact pending base, candidate, and required objects before transmission, then records any conflict response and complete draft snapshot locally before reporting completion.
 
 There are no separate normative `system:profiles` or `system:access` subtrees. Profile and access information belongs to the relevant tree record. Implementations may expose additional safe diagnostic fields, but clients must ignore unknown descriptive fields.
 

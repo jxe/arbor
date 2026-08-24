@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Separate device authorization from profile identity. Never expose or log a raw account, device, access-link, or pairing secret. Work only against local/test authorities; Plan 011 owns production rollout.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- packages/wire/src/authority.ts packages/wire/src/host.ts packages/wire/src/client.ts packages/render packages/core spec/wire.md spec/system.md tests`
+> **Drift check**: `git diff --stat dc34126..HEAD -- packages/authority/src packages/wire/src packages/render packages/core spec/wire.md spec/system.md tests`
 
 ## Status
 
@@ -12,8 +12,8 @@
 - **Depends on**: Plan 008
 - **Category**: security/product
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Implementation status**: PARTIAL — distinct device credentials, one-use pairing, provenance, revocation, TypeScript/Swift client support, and the browser management surface are implemented locally; restored-volume upgrade proof and browser E2E coverage remain outstanding.
-- **Verified at**: current working tree, 2026-08-24 (`bun test`, `bun run test:protocol`, `swift test` through the protocol harness, `bun run typecheck`, `bun run build`, `git diff --check`)
+- **Implementation status**: PARTIAL — distinct device credentials, one-use pairing, provenance, revocation, TypeScript/Swift client support, and the browser management surface are implemented locally; restored-volume upgrade proof and pairing-specific browser E2E coverage remain outstanding.
+- **Verified at**: current working tree, 2026-08-24 (`bun run test`, `bun run test:protocol`, `swift test` through the protocol harness, the general `bun run test:e2e` browser regression suite, `bun run typecheck`, `bun run build`, `git diff --check`)
 - **Production status**: local/test authorities only; no restored-volume, Hetzner, or Railway credential-upgrade rehearsal has run.
 
 ## Why this matters
@@ -45,7 +45,7 @@ Production credential upgrade uses Plan 011's backed-up, isolated restored-volum
 ## Steps
 
 1. Add device and pairing tables with unique IDs, hashed credentials/secrets, expiry/use/revocation fields, and account foreign keys.
-2. Route existing credential authentication through device records while preserving current credentials during migration. Expose one stable internal credential-subject/device ID to accepted-update idempotency and provenance; never use the mutable display label.
+2. Route existing credential authentication through device records while preserving current credentials during migration. Expose one stable internal credential-subject/device ID to derived-request replay scope and accepted-update provenance; never use the mutable display label.
 3. Implement create/claim/list/revoke with transaction-safe single use, constant-time digest comparison, rate limits, and `no-store` responses.
 4. Add safe diagnostic/audit events that identify device IDs but redact all secret material.
 5. Add the web **Pair a device** flow, confirmation code, active-device list, and explicit revoke confirmation.
@@ -54,7 +54,7 @@ Production credential upgrade uses Plan 011's backed-up, isolated restored-volum
 ## Verification
 
 ```sh
-bun test tests/integration/community-hosting.test.ts tests/integration/wire-host.test.ts
+bun test tests/integration/authority/community-hosting.test.ts tests/integration/authority/update-host.test.ts
 bun run typecheck
 bun run test:e2e
 bun run build

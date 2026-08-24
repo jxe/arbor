@@ -2,7 +2,8 @@ import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArbor } from "@arbor/arbord";
-import { serveWireHost, snapshotDirectory, WireClient } from "@arbor/wire";
+import { serveWireHost } from "@arbor/authority";
+import { snapshotDirectory, WireClient } from "@arbor/wire";
 import { build } from "vite";
 
 await build({ configFile: join(import.meta.dir, "../../packages/render/vite.config.ts"), logLevel: "error" });

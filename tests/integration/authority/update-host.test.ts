@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { decodeWireObject, resolveWireLogicalNode, serveWireHost, snapshotDirectory, WireClient, WireUpdateConflict } from "@arbor/wire";
+import { serveWireHost } from "@arbor/authority";
+import { decodeWireObject, resolveWireLogicalNode, snapshotDirectory, WireClient, WireUpdateConflict } from "@arbor/wire";
 
 const token = "owner-test-token";
 let dataRoot: string;
@@ -93,18 +94,12 @@ describe("personal wire authority", () => {
     expect(typeof tree.update).toBe("string");
     await writeFile(join(source, "note.md"), "# Second\n");
     const next = await snapshotDirectory(source, new Map([[join(source, "nested"), "tr_independent"]]));
-    const accepted = await client.submitUpdate(tree.id, "update-second", { root: tree.ref, update: tree.update! }, next);
+    const accepted = await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update! }, next);
     expect(accepted.outcome).toBe("accepted");
-    const replayed = await client.submitUpdate(tree.id, "update-second", { root: tree.ref, update: tree.update! }, next);
+    const replayed = await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update! }, next);
     expect(replayed).toEqual(accepted);
-    await expect(client.submitUpdate(
-      tree.id,
-      "update-second",
-      { root: (await client.ref(tree.id)).ref, update: (await client.ref(tree.id)).update! },
-      next,
-    )).rejects.toThrow("mutation-mismatch");
     expect((await client.ref(tree.id)).ref).toBe(next.root);
-    expect((await client.updates(tree.id)).updates.filter((item) => item.root === next.root)).toHaveLength(1);
+    expect(running.authority.acceptedUpdates(tree.id).filter((item) => item.root === next.root)).toHaveLength(1);
 
     const corrupt = await fetch(`${running.url}/.arbor/trees`, {
       method: "POST",
@@ -131,7 +126,7 @@ describe("personal wire authority", () => {
     const next = await snapshotDirectory(source, new Map([[join(source, "nested"), "tr_independent"]]));
     const response = await fetch(`${running.url}/.arbor/trees/${tree.id}/updates`, {
       method: "POST",
-      headers: { "content-type": "application/json", "idempotency-key": "anonymous-third" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         base: { root: base.ref, update: base.update },
         candidate: next.root,
@@ -148,7 +143,7 @@ describe("personal wire authority", () => {
     expect(restored.publicAccess).toBe("write");
   });
 
-  test("serializes concurrent updates and idempotency-key races transactionally", async () => {
+  test("serializes concurrent updates and request-digest replays transactionally", async () => {
     const folder = await mkdtemp(join(tmpdir(), "arbor-update-race-"));
     try {
       await writeFile(join(folder, "note.md"), "# Race\n\nBase\n");
@@ -156,32 +151,30 @@ describe("personal wire authority", () => {
       const tree = await client.create("/~owner/race", baseSnapshot);
       const alreadyCurrent = await client.submitUpdate(
         tree.id,
-        "race-already-current",
         { root: tree.ref, update: tree.update! },
         baseSnapshot,
       );
       expect(alreadyCurrent.outcome).toBe("current");
-      expect((await client.updates(tree.id)).updates).toHaveLength(1);
+      expect(running.authority.acceptedUpdates(tree.id)).toHaveLength(1);
 
       await writeFile(join(folder, "note.md"), "# Race\n\nBase\nCandidate A\n");
       const candidateA = await snapshotDirectory(folder);
       await writeFile(join(folder, "note.md"), "# Race\n\nBase\nCandidate B\n");
       const candidateB = await snapshotDirectory(folder);
       const concurrent = await Promise.all([
-        client.submitUpdate(tree.id, "race-a", { root: tree.ref, update: tree.update! }, candidateA),
-        client.submitUpdate(tree.id, "race-b", { root: tree.ref, update: tree.update! }, candidateB),
+        client.submitUpdate(tree.id, { root: tree.ref, update: tree.update! }, candidateA),
+        client.submitUpdate(tree.id, { root: tree.ref, update: tree.update! }, candidateB),
       ]);
       expect(concurrent.map((result) => result.outcome).sort()).toEqual(["accepted", "merged"]);
-      expect((await client.updates(tree.id)).updates).toHaveLength(3);
+      expect(running.authority.acceptedUpdates(tree.id)).toHaveLength(3);
       const raced = await client.ref(tree.id);
       const unchangedCandidate = await client.submitUpdate(
         tree.id,
-        "race-unchanged-candidate",
         { root: tree.ref, update: tree.update! },
         baseSnapshot,
       );
       expect(unchangedCandidate.outcome).toBe("current");
-      expect((await client.updates(tree.id)).updates).toHaveLength(3);
+      expect(running.authority.acceptedUpdates(tree.id)).toHaveLength(3);
       const logical = await resolveWireLogicalNode(raced.ref, "/note", (hash) => running.authority.object(hash));
       expect(logical?.object.type).toBe("file");
       if (!logical || logical.object.type !== "file") throw new Error("Expected raced Markdown file");
@@ -189,41 +182,32 @@ describe("personal wire authority", () => {
       expect(racedSource).toContain("Candidate A\n");
       expect(racedSource).toContain("Candidate B\n");
 
-      const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/fixtures/wire-merge.json"), "utf8")) as {
-        replayCases: Array<{ name: string; idempotencyKey: string }>;
-      };
-      const exactKey = fixture.replayCases.find((item) => item.name === "exact-success-replay")!.idempotencyKey;
       await writeFile(join(folder, "note.md"), `${racedSource}Exact replay\n`);
       const exactCandidate = await snapshotDirectory(folder);
-      const beforeExact = (await client.updates(tree.id)).updates.length;
+      const beforeExact = running.authority.acceptedUpdates(tree.id).length;
       const exact = await Promise.all([
-        client.submitUpdate(tree.id, exactKey, { root: raced.ref, update: raced.update! }, exactCandidate),
-        client.submitUpdate(tree.id, exactKey, { root: raced.ref, update: raced.update! }, exactCandidate),
+        client.submitUpdate(tree.id, { root: raced.ref, update: raced.update! }, exactCandidate),
+        client.submitUpdate(tree.id, { root: raced.ref, update: raced.update! }, exactCandidate),
       ]);
       expect(exact[1]).toEqual(exact[0]);
-      expect((await client.updates(tree.id)).updates).toHaveLength(beforeExact + 1);
-
-      const afterExact = await client.ref(tree.id);
-      await writeFile(join(folder, "note.md"), `${racedSource}Changed intent A\n`);
-      const changedA = await snapshotDirectory(folder);
-      await writeFile(join(folder, "note.md"), `${racedSource}Changed intent B\n`);
-      const changedB = await snapshotDirectory(folder);
-      const changedKey = fixture.replayCases.find((item) => item.name === "changed-intent-reuses-key")!.idempotencyKey;
-      const beforeChanged = (await client.updates(tree.id)).updates.length;
-      const changed = await Promise.allSettled([
-        client.submitUpdate(tree.id, changedKey, { root: afterExact.ref, update: afterExact.update! }, changedA),
-        client.submitUpdate(tree.id, changedKey, { root: afterExact.ref, update: afterExact.update! }, changedB),
-      ]);
-      expect(changed.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-      expect(changed.filter((result) => result.status === "rejected")).toHaveLength(1);
-      expect(String((changed.find((result) => result.status === "rejected") as PromiseRejectedResult).reason)).toContain("mutation-mismatch");
-      expect((await client.updates(tree.id)).updates).toHaveLength(beforeChanged + 1);
+      const envelopeIndependentReplay = await fetch(`${running.url}/.arbor/trees/${tree.id}/updates`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          base: { root: raced.ref, update: raced.update! },
+          candidate: exactCandidate.root,
+          objects: [],
+        }),
+      });
+      expect(envelopeIndependentReplay.status).toBe(201);
+      expect(await envelopeIndependentReplay.json()).toEqual(exact[0]);
+      expect(running.authority.acceptedUpdates(tree.id)).toHaveLength(beforeExact + 1);
     } finally {
       await rm(folder, { recursive: true, force: true });
     }
   });
 
-  test("merges additive Markdown updates and exposes only accepted history", async () => {
+  test("merges additive Markdown updates while keeping accepted history internal", async () => {
     const baseFolder = await mkdtemp(join(tmpdir(), "arbor-merge-base-"));
     const remoteFolder = await mkdtemp(join(tmpdir(), "arbor-merge-remote-"));
     const candidateFolder = await mkdtemp(join(tmpdir(), "arbor-merge-candidate-"));
@@ -234,11 +218,10 @@ describe("personal wire authority", () => {
       const baseSnapshot = await snapshotDirectory(baseFolder);
       const tree = await client.create("/~owner/merge", baseSnapshot, { publicAccess: "read" });
       const remoteSnapshot = await snapshotDirectory(remoteFolder);
-      await client.submitUpdate(tree.id, "merge-remote", { root: tree.ref, update: tree.update! }, remoteSnapshot);
+      await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update! }, remoteSnapshot);
       const candidateSnapshot = await snapshotDirectory(candidateFolder);
       const merged = await client.submitUpdate(
         tree.id,
-        "merge-candidate",
         { root: tree.ref, update: tree.update! },
         candidateSnapshot,
       );
@@ -250,12 +233,16 @@ describe("personal wire authority", () => {
       const source = new TextDecoder().decode(logical.object.bytes);
       expect(source).toContain("Remote\n");
       expect(source).toContain("Candidate\n");
-      expect((await client.updates(tree.id)).updates.map((update) => update.kind)).toEqual(["initial", "accepted", "merged"]);
+      expect(running.authority.acceptedUpdates(tree.id).map((update) => update.kind)).toEqual(["initial", "accepted", "merged"]);
+
+      expect((await fetch(`${running.url}/.arbor/trees/${tree.id}/updates`, {
+        headers: { authorization: `Bearer ${token}` },
+      })).status).toBe(405);
 
       expect((await fetch(`${running.url}/.arbor/objects/${tree.ref}`)).status).toBe(404);
       expect((await fetch(`${running.url}/.arbor/objects/${tree.ref}`, {
         headers: { authorization: `Bearer ${token}` },
-      })).status).toBe(200);
+      })).status).toBe(404);
     } finally {
       await rm(baseFolder, { recursive: true, force: true });
       await rm(remoteFolder, { recursive: true, force: true });
@@ -274,11 +261,11 @@ describe("personal wire authority", () => {
       const baseSnapshot = await snapshotDirectory(baseFolder);
       const tree = await client.create("/~owner/conflict", baseSnapshot);
       const remoteSnapshot = await snapshotDirectory(remoteFolder);
-      await client.submitUpdate(tree.id, "conflict-remote", { root: tree.ref, update: tree.update! }, remoteSnapshot);
+      await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update! }, remoteSnapshot);
       const candidateSnapshot = await snapshotDirectory(candidateFolder);
       let conflict: WireUpdateConflict | undefined;
       try {
-        await client.submitUpdate(tree.id, "conflict-candidate", { root: tree.ref, update: tree.update! }, candidateSnapshot);
+        await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update! }, candidateSnapshot);
       } catch (error) {
         if (error instanceof WireUpdateConflict) conflict = error;
         else throw error;
@@ -286,17 +273,16 @@ describe("personal wire authority", () => {
       expect(conflict?.result.conflicts).toEqual([{ path: "/asset.bin", reason: "binary-conflict" }]);
       expect(conflict?.result.draft.objects.some(({ hash }) => hash === conflict?.result.draft.root)).toBe(true);
       expect(conflict?.result.draft.objects.length).toBeGreaterThanOrEqual(2);
-      expect((await client.updates(tree.id)).updates).toHaveLength(2);
+      expect(running.authority.acceptedUpdates(tree.id)).toHaveLength(2);
       await expect(running.authority.object(candidateSnapshot.root)).rejects.toThrow();
       await expect(running.authority.object(conflict!.result.draft.root)).rejects.toThrow();
 
       await expect(client.submitUpdate(
         tree.id,
-        "conflict-candidate",
         { root: tree.ref, update: tree.update! },
         candidateSnapshot,
       )).rejects.toEqual(conflict);
-      expect((await client.updates(tree.id)).updates).toHaveLength(2);
+      expect(running.authority.acceptedUpdates(tree.id)).toHaveLength(2);
     } finally {
       await rm(baseFolder, { recursive: true, force: true });
       await rm(remoteFolder, { recursive: true, force: true });
@@ -320,7 +306,7 @@ describe("personal wire authority", () => {
       const tree = await paired.create("/~owner/device-provenance", initial);
       await writeFile(join(folder, "device.md"), "two\n");
       const next = await snapshotDirectory(folder);
-      const accepted = await paired.submitUpdate(tree.id, "device-update", { root: tree.ref, update: tree.update! }, next);
+      const accepted = await paired.submitUpdate(tree.id, { root: tree.ref, update: tree.update! }, next);
       expect(accepted.outcome).toBe("accepted");
       const update = accepted.outcome === "current" ? accepted.current : accepted.update;
       expect(update.subject).toBe(`device:${claim.device.id}`);

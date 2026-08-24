@@ -22,7 +22,7 @@ The lab should answer four questions with recorded evidence:
 3. **Convergence:** after connectivity returns and conflicts are explicitly resolved, do all non-pinned placements reach the same tree ref and bytes?
 4. **Identity:** does one `TreeID` remain the same when materialized at different paths and, later, on different filesystems?
 
-The lab tests `updates-v1`, not the removed whole-tree CAS protocol. Independent Markdown additions must be merged by the authority and accepted as one new update. Unsafe binary, frontmatter, path-kind, and nested-boundary overlap must return one complete draft to the submitting client without creating authority history, replay, candidate-object, or conflict resources. The client must retain that response and its local files across restart until an explicit new update resolves it.
+The lab tests `updates-v1`, not the removed whole-tree CAS protocol. Independent Markdown additions must be merged by the authority and accepted as one new update. Unsafe binary, frontmatter, path-kind, and nested-boundary overlap must return one complete draft to the submitting client without creating accepted history, candidate-object, or conflict resources. The client must retain that response and its local files across restart until an explicit new update resolves it. Accepted history is inspected only as private host state; the lab also proves that history and non-current objects are absent from the wire API.
 
 ## Keep the infrastructure simple
 
@@ -70,7 +70,7 @@ bun run lab:hcloud smoke
 bun run lab:hcloud test
 ```
 
-`smoke` creates one private tree on Alice, places it on Bob and Carol, and requires identical SHA-256 manifests plus a healthy authority. `test` includes that smoke gate and then runs the mandatory accepted-update suite: serial A/B/C propagation, three-client offline Markdown additions, a durable binary conflict with no server history entry, arbord restart, explicit client resolution, `/push` absence, and device pairing/revocation. It fails on byte-manifest disagreement or missing authored markers, not merely on a status label.
+`smoke` creates one private tree on Alice, places it on Bob and Carol, and requires identical SHA-256 manifests plus a healthy authority. `test` includes that smoke gate and then runs the mandatory accepted-update suite: serial A/B/C propagation, three-client offline Markdown additions, canonical semantic-request replay, a durable binary conflict with no private accepted-history entry, arbord restart, explicit client resolution, `/push` and public-history absence, current-object-only authorization, and device pairing/revocation. It fails on byte-manifest disagreement or missing authored markers, not merely on a status label.
 
 The full `test` command is a pre-production gate. Run it from the exact committed candidate revision and collect its evidence before requesting approval to update Railway. Do not deploy the Railway authority first and use this lab as an after-check.
 
@@ -271,7 +271,7 @@ Also exercise Arbor-specific boundaries:
 - attempt to replace a registered nested boundary and require `reserved-boundary` rather than ordinary overwrite;
 - edit the parent and nested Arbor tree independently and confirm the two `TreeID` scopes do not contaminate one another;
 - revoke a client's write access while it is offline with local edits, then reconnect it and require that the authority reject its update while its local bytes remain readable;
-- restart the community during repeated update submissions, verifying that accepted history/ref advancement remains atomic and an exact successful replay creates no duplicate accepted update.
+- restart the community during repeated semantic update submissions, verifying that accepted history/ref advancement remains atomic and a canonical-digest replay creates no duplicate accepted update.
 
 Do not reinterpret a conflict as corruption. Record separately:
 
@@ -310,7 +310,7 @@ The first lab is complete when:
 - non-divergent offline edits eventually propagate;
 - every automatic Markdown case preserves all authored markers in one accepted root;
 - every unsafe conflict preserves the originating local bytes and complete returned draft across restart, adds no server history entry, and can be resolved only as a new accepted update;
-- successful exact replay adds exactly one accepted-history item, while repeating a conflict is recomputed and remains stateless on the authority;
+- successful semantic replay adds exactly one private accepted-history item, while repeating a conflict is recomputed and remains stateless on the authority;
 - `/push` is absent and pairing, device attribution, and revocation behave correctly;
 - all three reconnect orders produce recorded, explainable results;
 - server process crashes and VM reboots retain authority identity and committed refs;

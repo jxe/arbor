@@ -1,5 +1,5 @@
-import type { ArborBlock } from "@arbor/core";
 import { resolveLogicalURL } from "@arbor/core/logical-url";
+import type { ArborBlock } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 
 export interface PublicPageChild {

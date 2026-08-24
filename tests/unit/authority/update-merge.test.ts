@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { mergeWireTrees } from "@arbor/authority";
 import {
   decodeWireObject,
   encodeWireObject,
   hashObject,
-  mergeWireTrees,
+  type ObjectHash,
   type TreeSnapshot,
   type UpdateConflict,
   type WireDirectoryEntry,
@@ -37,13 +38,6 @@ interface PageMoveCase {
   expected: Pick<ExpectedMerge, "conflicts" | "contains"> & { name: string };
 }
 
-interface ReplayCase {
-  name: string;
-  idempotencyKey: string;
-  sameIntent: boolean;
-  expected: { sameStatus?: boolean; sameBody?: boolean; error?: string; additionalAcceptedUpdates: number };
-}
-
 type StructuralCase = {
   name: string;
   expected: Pick<ExpectedMerge, "conflicts">;
@@ -58,7 +52,6 @@ interface MergeFixtures {
   markdownCases: MarkdownCase[];
   pageMoveCases: PageMoveCase[];
   structuralCases: StructuralCase[];
-  replayCases: ReplayCase[];
 }
 
 function stored(object: WireObject, objects: Map<string, Uint8Array>): string {
@@ -160,7 +153,7 @@ function expectNoAddedLineOmitted(base: string, candidate: string, remote: strin
 }
 
 const fixtures = JSON.parse(
-  await readFile(join(import.meta.dir, "../../spec/fixtures/wire-merge.json"), "utf8"),
+  await readFile(join(import.meta.dir, "../../../spec/fixtures/wire-merge.json"), "utf8"),
 ) as MergeFixtures;
 
 describe("language-neutral authority merge fixtures", () => {
@@ -247,11 +240,4 @@ describe("language-neutral authority merge fixtures", () => {
     });
   }
 
-  test("publishes exact replay vectors for every wire client", () => {
-    expect(fixtures.replayCases).toEqual(expect.arrayContaining([
-      expect.objectContaining({ sameIntent: true, expected: expect.objectContaining({ sameBody: true, additionalAcceptedUpdates: 0 }) }),
-      expect.objectContaining({ sameIntent: false, expected: expect.objectContaining({ error: "mutation-mismatch", additionalAcceptedUpdates: 0 }) }),
-    ]));
-    expect(new Set(fixtures.replayCases.map((fixture) => fixture.idempotencyKey)).size).toBe(fixtures.replayCases.length);
-  });
 });

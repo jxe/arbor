@@ -13,7 +13,7 @@
 - **Category**: integration/correctness
 - **Planned at**: Arbor `dc34126`, 2026-08-23
 - **Implementation status**: IMPLEMENTED LOCALLY — arbord persists exact pending requests and client-owned conflicts, consumes authority results without merging, validates downloaded objects during materialization, and preserves nested placements/local candidates across ordinary restart.
-- **Verified at**: current working tree, 2026-08-24 (`bun test`, including `tests/integration/self-sync.test.ts`; `bun run typecheck`; `bun run build`; `git diff --check`)
+- **Verified at**: current working tree, 2026-08-24 (`bun run test:sync-merge`; `bun run test`, including `tests/integration/self-sync.test.ts`; `bun run test:e2e`; `bun run typecheck`; `bun run build`; `git diff --check`)
 - **Hardening note**: exhaustive process-kill injection at every persistence boundary is optional follow-up hardening, not a completion gate for this plan.
 
 ## Why this matters
@@ -33,11 +33,11 @@ For each tracked placement, persist:
 
 - last accepted root (`base`) and acceptance/watch cursor;
 - current local candidate root and immutable objects;
-- exact pending sync request ID and intent digest until a terminal result is durably applied;
+- exact pending base, candidate, and required objects until a terminal result is durably applied;
 - a complete locally persisted conflict response and portable draft snapshot;
 - local generations created while a request or conflict is outstanding.
 
-Submit `{ base: { root, update }, candidate, objects }` to `POST .../updates` with the durably recorded idempotency key. Reuse the identical request after ambiguous transport failure. On `current`, `accepted`, or `merged`, validate and rehash the returned graph, materialize it through the existing crash-safe path, and advance placement base/update only after local application succeeds. On `409 conflict`, persist the entire response and complete draft snapshot locally before surfacing it, keep all later local generations, and do not create conflict-copy files. The authority retains none of this state. A later explicit resolution produces a normal new candidate with a new key against the response's current accepted update.
+Submit `{ base: { root, update }, candidate, objects }` to `POST .../updates`; the authority derives the semantic request identity from canonical JSON. Reuse the same base/candidate intent after ambiguous transport failure, resending any required immutable objects. On `current`, `accepted`, or `merged`, validate and rehash the returned graph, materialize it through the existing crash-safe path, and advance placement base/update only after local application succeeds. On `409 conflict`, persist the entire response and complete draft snapshot locally before surfacing it, keep all later local generations, and do not create conflict-copy files. The authority retains none of this state. A later explicit resolution produces a normal new candidate against the response's current accepted update.
 
 ## Scope
 
@@ -60,7 +60,7 @@ Submit `{ base: { root, update }, candidate, objects }` to `POST .../updates` wi
 
 ```sh
 bun run test:sync-merge
-bun test tests/integration/cli-sync.test.ts tests/integration/community-hosting.test.ts
+bun test tests/integration/cli-sync.test.ts tests/integration/authority/community-hosting.test.ts
 bun run typecheck
 bun run test:protocol
 bun run build

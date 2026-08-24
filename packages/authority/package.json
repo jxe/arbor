@@ -1,10 +1,11 @@
 {
-  "name": "@arbor/wire",
+  "name": "@arbor/authority",
   "version": "0.1.0",
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
     "@arbor/core": "workspace:*",
-    "@arbor/fs": "workspace:*"
+    "@arbor/editor": "workspace:*",
+    "@arbor/wire": "workspace:*"
   }
 }

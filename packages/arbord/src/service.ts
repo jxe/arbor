@@ -1286,7 +1286,6 @@ export class ArborService implements AsyncDisposable {
     await savePendingTreeUpdate(
       tree,
       pendingFromSnapshot(
-        crypto.randomUUID(),
         { root: conflict.current.root, update: conflict.current.id },
         candidate,
       ),
@@ -1371,7 +1370,7 @@ export class ArborService implements AsyncDisposable {
     }
     if (!pending) {
       if (!placement.update) throw new Error("Shared placement has no accepted-update base");
-      pending = pendingFromSnapshot(crypto.randomUUID(), { root: placement.ref, update: placement.update }, local);
+      pending = pendingFromSnapshot({ root: placement.ref, update: placement.update }, local);
       await savePendingTreeUpdate(workspace.tree, pending);
     }
 
@@ -1379,14 +1378,13 @@ export class ArborService implements AsyncDisposable {
       try {
         const result = await client.submitUpdate(
           workspace.tree,
-          pending.idempotencyKey,
           pending.base,
           snapshotFromPending(pending),
         );
         const accepted = result.outcome === "current" ? result.current : result.update;
         local = await this.snapshotWorkspace(workspace, client, remoteTrees);
         if (local.root !== pending.candidate) {
-          pending = pendingFromSnapshot(crypto.randomUUID(), pending.base, local);
+          pending = pendingFromSnapshot(pending.base, local);
           await savePendingTreeUpdate(workspace.tree, pending);
           continue;
         }

@@ -8,13 +8,20 @@ import {
   WireAuthority,
   type AuthorityAccount,
   type AuthorityTree,
-  type BoundaryKind,
   type CommunityBootstrapAccount,
-  type PublicAccess,
-  type TreeAccess,
 } from "./authority.ts";
-import { WireClient, type RemoteAccountDescriptor, type RemoteTreeDescriptor } from "./client.ts";
-import { decodeWireObject, resolveWireLogicalNode, type ObjectHash } from "./objects.ts";
+import {
+  decodeObjectEnvelopes,
+  decodeUpdateRequestJSON,
+  decodeWireObject,
+  resolveWireLogicalNode,
+  type BoundaryKind,
+  type ObjectHash,
+  type PublicAccess,
+  type RemoteAccountDescriptor,
+  type RemoteTreeDescriptor,
+  type TreeAccess,
+} from "@arbor/wire";
 import { renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
 
 function json(value: unknown, status = 200): Response {
@@ -132,7 +139,7 @@ function html(value: string, status = 200, headers: HeadersInit = {}): Response 
 
 function bodySnapshot(body: { root?: unknown; objects?: unknown }) {
   if (typeof body.root !== "string") throw new Error("Snapshot root is required");
-  const objects = WireClient.decodeObjects(body.objects);
+  const objects = decodeObjectEnvelopes(body.objects);
   return { root: body.root, objects: new Map(objects.map(({ hash, bytes }) => [hash, bytes])) };
 }
 
@@ -383,20 +390,15 @@ export async function serveWireHost(options: {
           const treeID = decodeURIComponent(updates[1]!);
           const tree = authority.get(treeID);
           if (!tree || !authority.canWrite(account, treeID, linkDigest(request))) return new Response("Not found", { status: 404 });
-          if (request.method === "GET") {
-            return json(authority.updates(treeID, url.searchParams.get("cursor") ?? undefined));
-          }
           if (request.method === "POST") {
-            const body = await request.json() as { base?: unknown; candidate?: unknown; objects?: unknown };
-            const base = body.base as { root?: unknown; update?: unknown } | null;
-            if (!base || typeof base.root !== "string" || typeof base.update !== "string" || typeof body.candidate !== "string") {
-              throw new Error("Update requires base root/update and candidate root");
-            }
-            const result = await authority.submitUpdate(treeID, {
-              base: { root: base.root, update: base.update },
-              candidate: body.candidate,
-              objects: WireClient.decodeObjects(body.objects),
-            }, request.headers.get("idempotency-key") ?? "", account, linkDigest(request), authentication?.subject);
+            const update = decodeUpdateRequestJSON(await request.json());
+            const result = await authority.submitUpdate(
+              treeID,
+              update,
+              account,
+              linkDigest(request),
+              authentication?.subject,
+            );
             return json(updateJSON(result.result), result.status);
           }
           return new Response("Method not allowed", { status: 405 });

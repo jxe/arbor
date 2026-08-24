@@ -6,6 +6,7 @@
     "arbor": "./src/index.ts"
   },
   "dependencies": {
+    "@arbor/authority": "workspace:*",
     "@arbor/arbord": "workspace:*",
     "@arbor/client": "workspace:*",
     "@arbor/core": "workspace:*",

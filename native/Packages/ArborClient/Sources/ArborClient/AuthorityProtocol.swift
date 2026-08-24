@@ -76,12 +76,10 @@ public struct AuthorityUpdateRequest: Codable, Sendable, Equatable {
 
 public struct PreparedAuthorityUpdate: Sendable, Equatable {
     public var tree: String
-    public var idempotencyKey: String
     public var body: Data
 
-    public init(tree: String, idempotencyKey: String, body: Data) {
+    public init(tree: String, body: Data) {
         self.tree = tree
-        self.idempotencyKey = idempotencyKey
         self.body = body
     }
 }
@@ -131,11 +129,6 @@ extension AuthorityUpdateResult: Decodable {
             )
         }
     }
-}
-
-public struct AuthorityUpdatesPage: Codable, Sendable, Equatable {
-    public var updates: [AuthorityAcceptedUpdate]
-    public var cursor: String?
 }
 
 public struct AuthorityDevice: Codable, Sendable, Equatable {

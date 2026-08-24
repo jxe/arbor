@@ -1,5 +1,4 @@
 import type {
-  AcceptedUpdate,
   BoundaryKind,
   PublicAccess,
   UpdateConflictResult,
@@ -8,8 +7,13 @@ import type {
   AuthorityDevice,
   PairingOffer,
   TreeAccess,
-} from "./authority.ts";
+} from "./updates/types.ts";
 import type { ObjectHash, TreeSnapshot } from "./objects.ts";
+import {
+  decodeBase64,
+  encodeObjectEnvelopes,
+  encodeUpdateRequestJSON,
+} from "./updates/json.ts";
 
 export interface RemoteTreeDescriptor {
   id: string;
@@ -68,18 +72,10 @@ export class WireTransportError extends TypeError {
   }
 }
 
-function bytesBase64(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("base64");
-}
-
-function base64Bytes(value: string): Uint8Array {
-  return new Uint8Array(Buffer.from(value, "base64"));
-}
-
 function encodedSnapshot(snapshot: TreeSnapshot) {
   return {
     root: snapshot.root,
-    objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes: bytesBase64(bytes) })),
+    objects: encodeObjectEnvelopes(snapshot.objects),
   };
 }
 
@@ -206,17 +202,8 @@ export class WireClient {
     return response.json();
   }
 
-  async updates(tree: string, cursor?: string): Promise<{ updates: AcceptedUpdate[]; cursor: string | null }> {
-    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates${query}`, {
-      headers: this.headers(),
-    }));
-    return response.json();
-  }
-
   async submitUpdate(
     tree: string,
-    idempotencyKey: string,
     base: { root: ObjectHash; update: string },
     snapshot: TreeSnapshot,
   ): Promise<UpdateResult> {
@@ -227,12 +214,8 @@ export class WireClient {
     };
     const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
       method: "POST",
-      headers: { ...this.headers(true), "idempotency-key": idempotencyKey },
-      body: JSON.stringify({
-        base: request.base,
-        candidate: request.candidate,
-        objects: request.objects.map(({ hash, bytes }) => ({ hash, bytes: bytesBase64(bytes) })),
-      }),
+      headers: this.headers(true),
+      body: JSON.stringify(encodeUpdateRequestJSON(request)),
     });
     if (response.status === 409) {
       const body = await response.json() as (Omit<UpdateConflictResult, "draft"> & {
@@ -246,7 +229,7 @@ export class WireClient {
           ...conflict,
           draft: {
             root: conflict.draft.root,
-            objects: conflict.draft.objects.map(({ hash, bytes }) => ({ hash, bytes: base64Bytes(bytes) })),
+            objects: conflict.draft.objects.map(({ hash, bytes }) => ({ hash, bytes: decodeBase64(bytes) })),
           },
         });
       }
@@ -304,13 +287,4 @@ export class WireClient {
     return new Uint8Array(await response.arrayBuffer());
   }
 
-  static decodeObjects(value: unknown): Array<{ hash: ObjectHash; bytes: Uint8Array }> {
-    if (!Array.isArray(value)) throw new Error("Expected objects");
-    return value.map((item) => {
-      if (!item || typeof item !== "object") throw new Error("Invalid object");
-      const record = item as { hash?: unknown; bytes?: unknown };
-      if (typeof record.hash !== "string" || typeof record.bytes !== "string") throw new Error("Invalid object");
-      return { hash: record.hash, bytes: base64Bytes(record.bytes) };
-    });
-  }
 }

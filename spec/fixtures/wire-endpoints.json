@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "tree": {
     "id": "tr_atlas",
     "canonicalPath": "/~alice/atlas",
@@ -42,9 +42,9 @@
         "method": "POST",
         "path": "/.arbor/trees/tr_atlas/updates",
         "headers": {
-          "Authorization": "Bearer <account-device-token>",
-          "Idempotency-Key": "req_atlas1"
+          "Authorization": "Bearer <account-device-token>"
         },
+        "derivedRequestDigest": "sha256:a6e2c7c02cd1cf6e094b115a95fc4c454ed22c9ce9270fc2a3060fcd0a1f4ba5",
         "body": {
           "base": {
             "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",

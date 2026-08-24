@@ -3,7 +3,8 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ServerConfigStore } from "@arbor/stores";
-import { decodeWireObject, serveWireHost, WireClient } from "@arbor/wire";
+import { serveWireHost } from "@arbor/authority";
+import { decodeWireObject, WireClient } from "@arbor/wire";
 import { ArborService } from "@arbor/arbord";
 
 let sandbox: string;

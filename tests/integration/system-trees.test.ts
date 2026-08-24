@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArbor } from "@arbor/arbord";
 import { ArbordClient } from "@arbor/client";
-import { serveWireHost } from "@arbor/wire";
+import { serveWireHost } from "@arbor/authority";
 
 let root: string;
 let state: string;

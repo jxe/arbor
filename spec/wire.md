@@ -93,7 +93,7 @@ type WireError = {
 
 `error` is the stable application-level discriminator. Clients switch on that string and may ignore additional top-level context fields they do not understand. The HTTP status remains the broad transport-level category.
 
-Stable codes are `invalid-request`, `unauthenticated`, `permission-denied`, `not-found`, `already-claimed`, `conflict`, `mutation-mismatch`, `base-not-retained`, `authority-busy`, `reserved-boundary`, `rate-limited`, `quota-exceeded`, and `internal-error`.
+Stable codes are `invalid-request`, `unauthenticated`, `permission-denied`, `not-found`, `already-claimed`, `conflict`, `base-not-retained`, `authority-busy`, `reserved-boundary`, `rate-limited`, `quota-exceeded`, and `internal-error`.
 
 | Status | Codes/meaning |
 |---|---|
@@ -103,14 +103,14 @@ Stable codes are `invalid-request`, `unauthenticated`, `permission-denied`, `not
 | `401` | `unauthenticated` |
 | `403` | `permission-denied` |
 | `404` | `not-found` |
-| `409` | `already-claimed`, `conflict`, `mutation-mismatch`, or `reserved-boundary` |
+| `409` | `already-claimed`, `conflict`, or `reserved-boundary` |
 | `410` | `base-not-retained` |
 | `413` | `quota-exceeded` for request/object size |
 | `429` | `rate-limited` or quota rate |
 | `500` | undeclared `internal-error` |
 | `503` | retryable `authority-busy` or temporary `internal-error` |
 
-`conflict` includes the current accepted update, base/candidate identities, a complete portable draft snapshot, and structured conflict reasons. `mutation-mismatch` means an idempotency key already attached to a successful outcome was reused with a different base or candidate. Clients preserve unknown future codes and do not treat malformed error bodies as authorization.
+`conflict` includes the current accepted update, base/candidate identities, a complete portable draft snapshot, and structured conflict reasons. Clients preserve unknown future codes and do not treat malformed error bodies as authorization.
 
 Stable `conflicts[].reason` values for `updates-v1` are `path-kind-conflict`, `nested-boundary-conflict`, `page-id-move-conflict`, `binary-conflict`, `frontmatter-conflict`, and `invalid-markdown-fence`. Clients preserve unknown future reasons.
 
@@ -163,11 +163,10 @@ type ClaimResult = {
 
 The supplied reachable root must be a valid visible person-profile document. The authority atomically verifies the reservation, creates the public-read person profile at `/~<handle>`, creates its account/device credential, and returns `201 ClaimResult`. The first successful claim wins; later or concurrent claims return `already-claimed`. A response and all intermediaries use `cache-control: no-store`.
 
-### Refs, accepted updates, objects, and watch
+### Refs, update submission, objects, and watch
 
 ```text
 GET  /.arbor/trees/{TreeID}/ref
-GET  /.arbor/trees/{TreeID}/updates?cursor={cursor}
 POST /.arbor/trees/{TreeID}/updates
 GET  /.arbor/trees/{TreeID}/watch
 GET  /.arbor/objects/{sha256}
@@ -175,11 +174,9 @@ GET  /.arbor/objects/{sha256}
 
 `GET .../ref` returns a `TreeDescriptor`. Read access is required.
 
-`GET .../objects/{sha256}` returns exact canonical CBOR bytes with `content-type: application/vnd.ipld.dag-cbor`, `cache-control: public, immutable`, and an ETag equal to the quoted hash. The host verifies the request hash syntax. Possession of an object hash is not authorization: a reader can retrieve only objects reachable from a currently readable root; a writer can additionally retrieve objects reachable from any retained accepted update of a tree it can still write. Rejected candidates and client-owned conflict drafts never expand object authorization.
+`GET .../objects/{sha256}` returns exact canonical CBOR bytes with `content-type: application/vnd.ipld.dag-cbor`, `cache-control: public, immutable`, and an ETag equal to the quoted hash. The host verifies the request hash syntax. Possession of an object hash is not authorization: every subject, including a writer, can retrieve only objects reachable from a currently readable root. Accepted history remains private authority state and does not create a historical-object capability. Rejected candidates and client-owned conflict drafts never expand object authorization.
 
-`GET .../updates` requires write access and returns the tree's accepted updates in acceptance order with opaque pagination cursors. Each item contains an opaque update ID, previous and accepted root, acceptance time, stable authenticated device subject when available, and `kind: "initial" | "accepted" | "merged" | "restored"`. A merge item additionally contains its base, candidate, previous remote root, and versioned merge summary. Invalid requests, unchanged submissions, and conflicts are not accepted updates and never appear in this collection.
-
-`POST .../updates` requires write access and an `Idempotency-Key` header. It submits one candidate state for reconciliation against an exact accepted base:
+`POST .../updates` requires write access. It submits one candidate state for reconciliation against an exact accepted base:
 
 ```ts
 type UpdateRequest = {
@@ -197,9 +194,13 @@ The update named by `base.update` must belong to this tree and have `base.root`;
 4. Both changed safely: merge once on the authority, atomically accept the merged root, and return `201 { outcome: "merged", update, merge }`.
 5. Unsafe overlap: return `409 conflict` with current/base/candidate, structured reasons, and a complete draft snapshot consisting of its root plus every reachable object required to persist it. The accepted ref does not advance, no accepted update is created, and the authority retains neither the rejected candidate nor the conflict response/draft.
 
-Idempotency is scoped to `(tree, authenticated credential subject, Idempotency-Key)`. For `current`, `accepted`, and `merged` outcomes, the server durably records the exact response before sending it. Repeating the key with the same base and candidate returns that response without another accepted update; changing either returns `409 mutation-mismatch`. A conflict is stateless on the authority: because it performs no mutation, an ambiguous retry may safely recompute against the then-current accepted update. The client must durably record its exact request before transmission and persist a received conflict response before acknowledging it locally; an explicit resolution uses a new idempotency key.
+The authority derives request identity from semantic JSON rather than a caller-supplied key. It constructs `{ base, candidate, tree, version: "updates-v1" }`, canonicalizes that all-string I-JSON value using RFC 8785 JSON Canonicalization Scheme rules, and names the request `sha256:<lowercase hex SHA-256 of the canonical UTF-8 bytes>`. `objects` is deliberately excluded: it is a transport envelope, so ordering may change and objects already held by the authority may be omitted on retry. Any supplied envelope is still hash-verified before use.
 
-The authority rechecks the current update in the same transaction that accepts a result. It may recompute a bounded number of times after a concurrent acceptance. Exhaustion returns `503 authority-busy`; retrying the identical idempotency key remains safe. Supplying duplicate hashes with differing bytes is invalid.
+Identity is scoped to `(tree, authenticated credential subject, derived request digest)`. An accepted or merged row stores its digest in the same transaction as the new root; repeating that semantic request returns the original result without another accepted update. `current` and `conflict` perform no mutation and retain no replay record, so an ambiguous retry safely recomputes against the then-current accepted update. The client durably records the exact base, candidate, and required objects before transmission and persists a received conflict response before acknowledging it locally. An explicit resolution naturally has a different base or candidate and therefore a different digest.
+
+The authority retains every accepted update, accepted root, and object reachable from an accepted root indefinitely in `updates-v1`, so an offline client can continue naming its exact accepted base. This retained state is private merge and recovery evidence: it does not create accepted-history or historical-object endpoints.
+
+The authority rechecks the current update in the same transaction that accepts a result. It may recompute a bounded number of times after a concurrent acceptance. Exhaustion returns `503 authority-busy`; retrying the same semantic request remains safe. Supplying duplicate hashes with differing bytes is invalid.
 
 `GET .../watch` requires read access and returns `text/event-stream; charset=utf-8`. Frames are UTF-8 and blank-line separated:
 

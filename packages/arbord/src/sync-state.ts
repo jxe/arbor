@@ -9,7 +9,6 @@ interface StoredObject {
 }
 
 export interface PendingTreeUpdate {
-  idempotencyKey: string;
   base: { root: ObjectHash; update: string };
   candidate: ObjectHash;
   objects: StoredObject[];
@@ -57,12 +56,10 @@ async function save(tree: string, state: TreeSyncState): Promise<void> {
 }
 
 export function pendingFromSnapshot(
-  idempotencyKey: string,
   base: { root: ObjectHash; update: string },
   snapshot: TreeSnapshot,
 ): PendingTreeUpdate {
   return {
-    idempotencyKey,
     base,
     candidate: snapshot.root,
     objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),

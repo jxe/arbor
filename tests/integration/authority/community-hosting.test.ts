@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { ArborService, serveArborControl } from "@arbor/arbord";
-import { browseTarget, isReservedProfile, placedRemotePath } from "../../packages/cli/src/index.ts";
+import { browseTarget, isReservedProfile, placedRemotePath } from "../../../packages/cli/src/index.ts";
 import { sha256 } from "@arbor/core";
 import { communityCredentialName, CommunityConfigStore } from "@arbor/stores";
-import { serveWireHost, snapshotDirectory, WireAuthority, WireClient } from "@arbor/wire";
+import { serveWireHost, WireAuthority } from "@arbor/authority";
+import { snapshotDirectory, WireClient } from "@arbor/wire";
 
 const ownerToken = "community-owner-device";
 let sandbox: string;
@@ -52,7 +53,6 @@ async function authorCommunity(
   const community = await owner.ref(host.authority.community().id);
   await owner.submitUpdate(
     community.id,
-    crypto.randomUUID(),
     { root: community.ref, update: community.update! },
     await snapshotDirectory(path, boundaryMap),
   );
@@ -155,7 +155,6 @@ describe("community-mounted profiles and sharing", () => {
     });
     await expect(alice.submitUpdate(
       editors.id,
-      crypto.randomUUID(),
       { root: editors.ref, update: editors.update! },
       await snapshotDirectory(editorsPath),
     ))
@@ -212,7 +211,6 @@ describe("community-mounted profiles and sharing", () => {
       headers: {
         authorization: `Bearer ${ownerToken}`,
         "content-type": "application/json",
-        "idempotency-key": crypto.randomUUID(),
       },
       body: JSON.stringify({
         base: { root: currentEditors.ref, update: currentEditorsUpdate.id },
@@ -654,7 +652,7 @@ test("upgrades pre-updates authority state once without changing identity, refs,
   ]));
   const comparableHistory = (authority: WireAuthority) => Object.fromEntries(authority.list().map((tree) => [
     tree.id,
-    authority.updates(tree.id).updates.map((update) => ({
+    authority.acceptedUpdates(tree.id).map((update) => ({
       root: update.root,
       previousRoot: update.previousRoot,
       kind: update.kind,
@@ -676,7 +674,7 @@ test("upgrades pre-updates authority state once without changing identity, refs,
   await before.authority[Symbol.asyncDispose]();
 
   const old = new Database(join(dataRoot, "authority.sqlite3"));
-  old.run("DROP TABLE update_replays");
+  old.run("CREATE TABLE update_replays (legacy INTEGER)");
   old.run("DROP TABLE pairings");
   old.run("DROP TABLE devices");
   old.run("DROP TABLE accepted_updates");
@@ -697,7 +695,7 @@ test("upgrades pre-updates authority state once without changing identity, refs,
   expect(firstDevices).toHaveLength(1);
   const firstUpdateIDs = Object.fromEntries(upgraded.authority.list().map((tree) => [
     tree.id,
-    upgraded.authority.updates(tree.id).updates.map((update) => update.id),
+    upgraded.authority.acceptedUpdates(tree.id).map((update) => update.id),
   ]));
   upgraded.server.stop(true);
   await upgraded.authority[Symbol.asyncDispose]();
@@ -713,7 +711,7 @@ test("upgrades pre-updates authority state once without changing identity, refs,
     expect(restarted.authority.devices(restartedAccount).map((device) => device.id)).toEqual(firstDevices.map((device) => device.id));
     expect(Object.fromEntries(restarted.authority.list().map((tree) => [
       tree.id,
-      restarted.authority.updates(tree.id).updates.map((update) => update.id),
+      restarted.authority.acceptedUpdates(tree.id).map((update) => update.id),
     ]))).toEqual(firstUpdateIDs);
   } finally {
     restarted.server.stop(true);

@@ -22,7 +22,7 @@ This milestone proves the replacement for iCloud: full offline local safety plus
 Add `ReplicaSyncCoordinator` as an actor over ArborReplica and ArborWire:
 
 - read the replica's last authority-accepted `base`/acceptance cursor and current durable `local` root;
-- persist a unique request ID and exact `{ base, local }` intent before upload;
+- persist the exact `{ base, candidate }` semantic intent and required objects before upload;
 - submit immutable file/directory objects through `updates-v1`;
 - reuse the exact request after ambiguous transport outcomes;
 - validate/re-hash the graph returned by `current`, `accepted`, or `merged`, materialize it durably, and only then advance the replica's accepted base and watch cursor;
@@ -51,7 +51,7 @@ Swift does not find ancestors or merge Markdown/trees. Plan 008's authority is t
 ## Steps
 
 1. Implement durable sync-attempt state around ArborReplica's base/local roots. Inject crashes before request persistence, during upload, after server acceptance, during graph download, during materialization, and before base advancement.
-2. Implement exact idempotent `updates-v1` submission. Bound retries and preserve request bytes/intent across restart; never generate a new request ID merely because the outcome is ambiguous.
+2. Implement idempotent `updates-v1` submission using the authority-derived canonical-JSON request digest. Bound retries and preserve the semantic intent and required objects across restart; never change base or candidate merely because the outcome is ambiguous.
 3. Decode current/accepted/merged/conflict results through ArborWire, fetch missing accepted-result objects, validate the complete draft snapshot carried by a conflict response, rehash every byte, validate graph shape/boundaries, and reject malformed alternatives before local application.
 4. Integrate accepted/merged roots into the replica without changing its local acknowledgement boundary. If local edits were admitted after the sent candidate, preserve them as the next candidate rather than overwriting them with the result.
 5. Implement conflict state and explicit resolution plumbing. Apply the server draft as a comparison/editing basis while retaining the current local root and remote alternatives; permit continued local work and submit resolution as a new normal candidate.

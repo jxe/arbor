@@ -7,20 +7,24 @@ import {
   decodeWireObject,
   encodeWireObject,
   hashObject,
+  updateRequestDigest,
+  type AcceptedUpdate,
+  type AuthorityDevice,
+  type BoundaryKind,
+  type MergeSummary,
   type ObjectHash,
+  type PairingOffer,
+  type PublicAccess,
   type TreeSnapshot,
+  type TreeAccess,
+  type UpdateConflictResult,
+  type UpdateRequest,
+  type UpdateResult,
   type WireDirectory,
   type WireDirectoryEntry,
-} from "./objects.ts";
-import { mergeWireTrees, type MergeSummary, type UpdateConflict } from "./merge.ts";
-
-export type PublicAccess = "none" | "read" | "write";
-export type TreeAccess = "read" | "write";
-export type BoundaryKind =
-  | "community-profile"
-  | "person-profile"
-  | "group-profile"
-  | "shared-subtree";
+} from "@arbor/wire";
+import { reconcileUpdate } from "./updates/reconcile.ts";
+import { AcceptedUpdateStore, type AcceptedUpdateInput } from "./updates/store.ts";
 
 export interface CanonicalBoundary {
   path: string;
@@ -52,22 +56,6 @@ export interface AuthorityAuthentication {
   device: string | null;
 }
 
-export interface AuthorityDevice {
-  id: string;
-  account: string;
-  label: string;
-  createdAt: number;
-  lastUsedAt: number | null;
-  revokedAt: number | null;
-}
-
-export interface PairingOffer {
-  id: string;
-  secret: string;
-  confirmationCode: string;
-  expiresAt: number;
-}
-
 export interface AuthorityAccessEntry {
   id: string;
   tree: string;
@@ -75,42 +63,6 @@ export interface AuthorityAccessEntry {
   subject: string;
   access: TreeAccess;
   claimedProfile?: string;
-}
-
-export interface AcceptedUpdate {
-  id: string;
-  tree: string;
-  root: ObjectHash;
-  previousRoot: ObjectHash | null;
-  kind: "initial" | "accepted" | "merged" | "restored";
-  acceptedAt: number;
-  subject: string | null;
-  baseRoot?: ObjectHash;
-  candidateRoot?: ObjectHash;
-  remoteRoot?: ObjectHash;
-  merge?: MergeSummary;
-}
-
-export interface UpdateRequest {
-  base: { root: ObjectHash; update: string };
-  candidate: ObjectHash;
-  objects: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
-}
-
-export type UpdateResult =
-  | { outcome: "current"; current: AcceptedUpdate }
-  | { outcome: "accepted"; update: AcceptedUpdate }
-  | { outcome: "merged"; update: AcceptedUpdate; merge: MergeSummary };
-
-export interface UpdateConflictResult {
-  error: "conflict";
-  message: string;
-  retryable: false;
-  current: AcceptedUpdate;
-  base: ObjectHash;
-  candidate: ObjectHash;
-  draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> };
-  conflicts: UpdateConflict[];
 }
 
 export interface StoredUpdateResponse {
@@ -224,7 +176,7 @@ export class RefConflictError extends Error {
 }
 
 export class UpdateProtocolError extends Error {
-  constructor(readonly code: "mutation-mismatch" | "base-not-retained" | "authority-busy", message: string) {
+  constructor(readonly code: "base-not-retained" | "authority-busy", message: string) {
     super(message);
     this.name = "UpdateProtocolError";
   }
@@ -246,11 +198,13 @@ export class ReservedBoundaryConflictError extends Error {
 
 export class WireAuthority implements AsyncDisposable {
   private db: Database;
+  private acceptedStore: AcceptedUpdateStore;
   private listeners = new Map<string, Set<(tree: AuthorityTree, update: AcceptedUpdate) => void>>();
   private updateLocks = new Map<string, Promise<void>>();
 
   private constructor(readonly dataRoot: string, db: Database) {
     this.db = db;
+    this.acceptedStore = new AcceptedUpdateStore(db);
   }
 
   static async open(dataRoot: string, bootstrap?: CommunityBootstrap): Promise<WireAuthority> {
@@ -294,36 +248,7 @@ export class WireAuthority implements AsyncDisposable {
         changed_at INTEGER NOT NULL
       )
     `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS accepted_updates (
-        id TEXT PRIMARY KEY,
-        tree_id TEXT NOT NULL REFERENCES trees(id),
-        root TEXT NOT NULL,
-        previous_root TEXT,
-        kind TEXT NOT NULL,
-        accepted_at INTEGER NOT NULL,
-        subject TEXT,
-        base_root TEXT,
-        candidate_root TEXT,
-        remote_root TEXT,
-        merge_summary TEXT
-      )
-    `);
-    db.run("CREATE INDEX IF NOT EXISTS accepted_updates_tree_order ON accepted_updates(tree_id, accepted_at, id)");
-    db.run(`
-      CREATE TABLE IF NOT EXISTS update_replays (
-        tree_id TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        idempotency_key TEXT NOT NULL,
-        base_update TEXT NOT NULL,
-        base_root TEXT NOT NULL,
-        candidate_root TEXT NOT NULL,
-        status INTEGER NOT NULL,
-        result_json TEXT NOT NULL,
-        expires_at INTEGER NOT NULL,
-        PRIMARY KEY (tree_id, subject, idempotency_key)
-      )
-    `);
+    AcceptedUpdateStore.ensureSchema(db);
     db.run(`
       CREATE TABLE IF NOT EXISTS accounts (
         id TEXT PRIMARY KEY,
@@ -603,58 +528,17 @@ export class WireAuthority implements AsyncDisposable {
     return this.treeSelect("WHERE t.id = ?", id);
   }
 
-  private updateRow(value: unknown): AcceptedUpdate | null {
-    if (!value) return null;
-    const row = value as {
-      id: string;
-      tree_id: string;
-      root: ObjectHash;
-      previous_root: ObjectHash | null;
-      kind: AcceptedUpdate["kind"];
-      accepted_at: number;
-      subject: string | null;
-      base_root: ObjectHash | null;
-      candidate_root: ObjectHash | null;
-      remote_root: ObjectHash | null;
-      merge_summary: string | null;
-    };
-    return {
-      id: row.id,
-      tree: row.tree_id,
-      root: row.root,
-      previousRoot: row.previous_root,
-      kind: row.kind,
-      acceptedAt: row.accepted_at,
-      subject: row.subject,
-      ...(row.base_root ? { baseRoot: row.base_root } : {}),
-      ...(row.candidate_root ? { candidateRoot: row.candidate_root } : {}),
-      ...(row.remote_root ? { remoteRoot: row.remote_root } : {}),
-      ...(row.merge_summary ? { merge: JSON.parse(row.merge_summary) as MergeSummary } : {}),
-    };
-  }
-
   currentUpdate(treeID: string): AcceptedUpdate | null {
-    return this.updateRow(this.db.query(
-      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY accepted_at DESC, rowid DESC LIMIT 1",
-    ).get(treeID));
+    return this.acceptedStore.current(treeID);
   }
 
   update(id: string): AcceptedUpdate | null {
-    return this.updateRow(this.db.query("SELECT * FROM accepted_updates WHERE id = ?").get(id));
+    return this.acceptedStore.get(id);
   }
 
-  updates(treeID: string, cursor?: string, limit = 100): { updates: AcceptedUpdate[]; cursor: string | null } {
-    const bounded = Math.max(1, Math.min(limit, 100));
-    const cursorRow = cursor
-      ? this.db.query("SELECT accepted_at, rowid FROM accepted_updates WHERE id = ? AND tree_id = ?").get(cursor, treeID) as { accepted_at: number; rowid: number } | null
-      : null;
-    if (cursor && !cursorRow) throw new Error("Invalid update cursor");
-    const rows = (cursorRow
-      ? this.db.query(`SELECT * FROM accepted_updates WHERE tree_id = ? AND (accepted_at > ? OR (accepted_at = ? AND rowid > ?)) ORDER BY accepted_at, rowid LIMIT ?`)
-        .all(treeID, cursorRow.accepted_at, cursorRow.accepted_at, cursorRow.rowid, bounded + 1)
-      : this.db.query("SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY accepted_at, rowid LIMIT ?").all(treeID, bounded + 1));
-    const page = rows.slice(0, bounded).map((row) => this.updateRow(row)!);
-    return { updates: page, cursor: rows.length > bounded ? page.at(-1)!.id : null };
+  /** Internal operational history; deliberately not exposed by the wire host. */
+  acceptedUpdates(treeID: string): AcceptedUpdate[] {
+    return this.acceptedStore.list(treeID);
   }
 
   boundary(path: string): AuthorityTree | null {
@@ -1097,72 +981,17 @@ export class WireAuthority implements AsyncDisposable {
     return { account: this.account(accountID)!, token, tree };
   }
 
-  private insertAcceptedUpdate(input: {
-    tree: string;
-    root: ObjectHash;
-    previousRoot: ObjectHash | null;
-    kind: AcceptedUpdate["kind"];
-    acceptedAt: number;
-    subject?: string | null;
-    baseRoot?: ObjectHash;
-    candidateRoot?: ObjectHash;
-    remoteRoot?: ObjectHash;
-    merge?: MergeSummary;
-  }): AcceptedUpdate {
-    const id = opaqueID("up");
-    this.db.run(`
-      INSERT INTO accepted_updates
-        (id, tree_id, root, previous_root, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      id,
-      input.tree,
-      input.root,
-      input.previousRoot,
-      input.kind,
-      input.acceptedAt,
-      input.subject ?? null,
-      input.baseRoot ?? null,
-      input.candidateRoot ?? null,
-      input.remoteRoot ?? null,
-      input.merge ? JSON.stringify(input.merge) : null,
-    ]);
-    return this.update(id)!;
+  private insertAcceptedUpdate(input: AcceptedUpdateInput): AcceptedUpdate {
+    return this.acceptedStore.insert(opaqueID("up"), input);
   }
 
-  private replayResult(row: { status: number; result_json: string }): StoredUpdateResponse {
-    return { status: row.status, result: JSON.parse(row.result_json) as UpdateResult };
-  }
-
-  private storeReplay(
-    tree: string,
-    subject: string,
-    key: string,
-    request: UpdateRequest,
-    response: StoredUpdateResponse,
-  ): void {
-    if ("error" in response.result) throw new Error("Rejected updates are never stored in the authority replay cache");
-    this.db.run(`
-      INSERT INTO update_replays
-        (tree_id, subject, idempotency_key, base_update, base_root, candidate_root, status, result_json, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      tree,
-      subject,
-      key,
-      request.base.update,
-      request.base.root,
-      request.candidate,
-      response.status,
-      JSON.stringify(response.result),
-      Date.now() + 7 * 24 * 60 * 60 * 1000,
-    ]);
+  private acceptedRequest(tree: string, subject: string, digest: string): StoredUpdateResponse | null {
+    return this.acceptedStore.acceptedRequest(tree, subject, digest);
   }
 
   async submitUpdate(
     treeID: string,
     request: UpdateRequest,
-    idempotencyKey: string,
     account: AuthorityAccount | null = null,
     linkDigest?: string,
     credentialSubject?: string,
@@ -1177,7 +1006,6 @@ export class WireAuthority implements AsyncDisposable {
       return await this.submitUpdateLocked(
         treeID,
         request,
-        idempotencyKey,
         account,
         linkDigest,
         credentialSubject,
@@ -1191,35 +1019,17 @@ export class WireAuthority implements AsyncDisposable {
   private async submitUpdateLocked(
     treeID: string,
     request: UpdateRequest,
-    idempotencyKey: string,
     account: AuthorityAccount | null = null,
     linkDigest?: string,
     credentialSubject?: string,
   ): Promise<StoredUpdateResponse> {
-    if (!idempotencyKey || idempotencyKey.length > 200) throw new Error("A bounded Idempotency-Key is required");
     const tree = this.get(treeID);
     if (!tree) throw new Error(`Unknown tree: ${treeID}`);
     if (!this.canWrite(account, treeID, linkDigest)) throw new Error("Write access is not allowed");
     const subject = credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public");
-    this.db.run("DELETE FROM update_replays WHERE expires_at <= ?", [Date.now()]);
-    const replay = this.db.query(`
-      SELECT base_update, base_root, candidate_root, status, result_json
-      FROM update_replays WHERE tree_id = ? AND subject = ? AND idempotency_key = ?
-    `).get(treeID, subject, idempotencyKey) as {
-      base_update: string;
-      base_root: string;
-      candidate_root: string;
-      status: number;
-      result_json: string;
-    } | null;
-    if (replay) {
-      if (
-        replay.base_update !== request.base.update
-        || replay.base_root !== request.base.root
-        || replay.candidate_root !== request.candidate
-      ) throw new UpdateProtocolError("mutation-mismatch", "Idempotency-Key was already used with different update intent");
-      return this.replayResult(replay);
-    }
+    const requestDigest = updateRequestDigest(treeID, request);
+    const replay = this.acceptedRequest(treeID, subject, requestDigest);
+    if (replay) return replay;
     const baseUpdate = this.update(request.base.update);
     if (!baseUpdate || baseUpdate.tree !== treeID || baseUpdate.root !== request.base.root) {
       throw new UpdateProtocolError("base-not-retained", "Base update is not retained for this tree and root");
@@ -1235,28 +1045,23 @@ export class WireAuthority implements AsyncDisposable {
       if (!remoteUpdate || remoteUpdate.root !== remoteTree.ref) {
         throw new UpdateProtocolError("base-not-retained", "Current tree has not been migrated to accepted updates");
       }
-      if (request.candidate === remoteTree.ref || request.candidate === request.base.root) {
-        const response: StoredUpdateResponse = { status: 200, result: { outcome: "current", current: remoteUpdate } };
-        this.db.transaction(() => this.storeReplay(treeID, subject, idempotencyKey, request, response))();
-        return response;
+      const reconciled = await reconcileUpdate(
+        request.base.root,
+        request.candidate,
+        remoteTree.ref,
+        (hash) => this.loadObject(hash, proposed),
+      );
+      if (reconciled.outcome === "current") {
+        return { status: 200, result: { outcome: "current", current: remoteUpdate } };
       }
 
-      let nextRoot = request.candidate;
-      let kind: AcceptedUpdate["kind"] = "accepted";
-      let merge: MergeSummary | undefined;
-      let generated = new Map<ObjectHash, Uint8Array>();
-      if (remoteTree.ref !== request.base.root) {
-        const merged = await mergeWireTrees(
-          request.base.root,
-          request.candidate,
-          remoteTree.ref,
-          (hash) => this.loadObject(hash, proposed),
-        );
-        nextRoot = merged.root;
-        merge = merged.summary;
-        generated = merged.objects;
-        if (merged.conflicts.length) {
-          const draft = await this.completeSnapshot(merged.root, new Map([...proposed, ...merged.objects]));
+      const nextRoot = reconciled.root;
+      const kind: AcceptedUpdate["kind"] = reconciled.outcome;
+      const merge = reconciled.outcome === "merged" ? reconciled.merge : undefined;
+      const generated = reconciled.generated;
+      if (reconciled.outcome === "merged") {
+        if (reconciled.conflicts.length) {
+          const draft = await this.completeSnapshot(reconciled.root, new Map([...proposed, ...reconciled.generated]));
           const response: StoredUpdateResponse = {
             status: 409,
             result: {
@@ -1267,12 +1072,11 @@ export class WireAuthority implements AsyncDisposable {
               base: request.base.root,
               candidate: request.candidate,
               draft: { root: draft.root, objects: [...draft.objects].map(([hash, bytes]) => ({ hash, bytes })) },
-              conflicts: merged.conflicts,
+              conflicts: reconciled.conflicts,
             },
           };
           return response;
         }
-        kind = "merged";
         const mergedObjects = new Map([...proposed, ...generated]);
         await this.validateGraph(nextRoot, mergedObjects);
         await this.validateReservedBoundaries(remoteTree, nextRoot, mergedObjects);
@@ -1280,49 +1084,27 @@ export class WireAuthority implements AsyncDisposable {
       await this.storeObjects(request.objects);
       await this.storeObjects([...generated].map(([hash, bytes]) => ({ hash, bytes })));
       const now = Date.now();
-      let accepted: AcceptedUpdate | null = null;
-      try {
-        this.db.transaction(() => {
-          const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
-            nextRoot,
-            now,
-            treeID,
-            remoteTree.ref,
-          ]);
-          if (result.changes !== 1) throw new RefConflictError(this.get(treeID)?.ref ?? null);
-          this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)", [
-            treeID,
-            nextRoot,
-            remoteTree.ref,
-            now,
-          ]);
-          accepted = this.insertAcceptedUpdate({
-            tree: treeID,
-            root: nextRoot,
-            previousRoot: remoteTree.ref,
-            kind,
-            acceptedAt: now,
-            subject,
-            baseRoot: request.base.root,
-            candidateRoot: request.candidate,
-            remoteRoot: remoteTree.ref,
-            ...(merge ? { merge } : {}),
-          });
-          const response: StoredUpdateResponse = kind === "merged"
-            ? { status: 201, result: { outcome: "merged", update: accepted!, merge: merge! } }
-            : { status: 201, result: { outcome: "accepted", update: accepted! } };
-          this.storeReplay(treeID, subject, idempotencyKey, request, response);
-        })();
-      } catch (error) {
-        if (error instanceof RefConflictError) continue;
-        throw error;
-      }
+      const accepted = this.acceptedStore.commit(opaqueID("up"), {
+        tree: treeID,
+        root: nextRoot,
+        previousRoot: remoteTree.ref,
+        expectedRoot: remoteTree.ref,
+        kind,
+        acceptedAt: now,
+        subject,
+        baseRoot: request.base.root,
+        candidateRoot: request.candidate,
+        remoteRoot: remoteTree.ref,
+        ...(merge ? { merge } : {}),
+        requestDigest,
+      });
+      if (!accepted) continue;
       if (remoteTree.kind === "community-profile") this.reconcileCommunityAccounts();
       const updatedTree = this.get(treeID)!;
-      for (const listener of this.listeners.get(treeID) ?? []) listener(updatedTree, accepted!);
+      for (const listener of this.listeners.get(treeID) ?? []) listener(updatedTree, accepted);
       return kind === "merged"
-        ? { status: 201, result: { outcome: "merged", update: accepted!, merge: merge! } }
-        : { status: 201, result: { outcome: "accepted", update: accepted! } };
+        ? { status: 201, result: { outcome: "merged", update: accepted, merge: merge! } }
+        : { status: 201, result: { outcome: "accepted", update: accepted } };
     }
     throw new UpdateProtocolError("authority-busy", "Authority update changed repeatedly during merge");
   }
@@ -1382,10 +1164,6 @@ export class WireAuthority implements AsyncDisposable {
   async isReadableObject(hash: ObjectHash, account: AuthorityAccount | null, linkDigest?: string): Promise<boolean> {
     for (const tree of this.list()) {
       if (this.canRead(account, tree.id, linkDigest) && await this.graphContains(tree.ref, hash)) return true;
-      if (!this.canWrite(account, tree.id, linkDigest)) continue;
-      const roots = this.db.query("SELECT DISTINCT root FROM accepted_updates WHERE tree_id = ?")
-        .all(tree.id) as Array<{ root: ObjectHash }>;
-      for (const accepted of roots) if (await this.graphContains(accepted.root, hash)) return true;
     }
     return false;
   }

@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Freeze the root-based accepted-update and merge contract before touching authority state or client networking. This is a specification-and-fixture milestone: do not implement the authority, deploy, add Swift, or introduce revision/DAG wire objects.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- spec/wire.md spec/client.md spec/system.md spec/fixtures packages/wire/src/authority.ts packages/wire/src/client.ts packages/arbord/src/service.ts tests package.json`; then `git -C /Users/joe/src/hunch diff --stat a1e8379..HEAD -- App/Sources/Clamshell/PatchEngine.swift App/Tests/HunchUnitTests/ConflictMergerTests.swift`
+> **Drift check**: `git diff --stat dc34126..HEAD -- spec/wire.md spec/client.md spec/system.md spec/fixtures packages/wire/src packages/authority/src packages/arbord/src/service.ts tests package.json`; then `git -C /Users/joe/src/hunch diff --stat a1e8379..HEAD -- App/Sources/Clamshell/PatchEngine.swift App/Tests/HunchUnitTests/ConflictMergerTests.swift`
 
 ## Status
 
@@ -13,8 +13,8 @@
 - **Category**: architecture/protocol
 - **Planned at**: Arbor `dc34126`, 2026-08-23
 - **Implementation status**: COMPLETE — the accepted-update contract is reflected in the spec and current TypeScript/Swift implementations, and the shared executable merge corpus covers additive Markdown, duplicate/replacement behavior, anchor fallback, frontmatter, fences, raw HTML, CRLF/mixed endings, PageID moves, binaries, nested boundaries, path-kind collisions, and exact replay semantics.
-- **Verified at**: current working tree, 2026-08-24 (`bun run test:protocol`, `bun test`, `bun run typecheck`, `bun run build`, `git diff --check`)
-- **Completion evidence**: `spec/fixtures/wire-merge.json` is exercised by the authority merger, validated by the TypeScript protocol harness, and decoded by the Foundation-only Swift fixture tests.
+- **Verified at**: current working tree, 2026-08-24 (`bun run test:protocol`, `bun run test:sync-merge`, `bun run test`, `bun run typecheck`, `bun run build`, `git diff --check`)
+- **Completion evidence**: `spec/fixtures/wire-update-intent.json` freezes canonical JSON/digest behavior across protocol clients, while `spec/fixtures/wire-merge.json` is exercised by the authority merger; both are validated by TypeScript and decoded by the Foundation-only Swift fixture tests.
 
 ## Why this matters
 
@@ -23,7 +23,7 @@ The authority already stores immutable file/directory objects, a current directo
 ## Current state
 
 - `TreeDescriptor.ref`, `AuthorityTree.ref`, watch IDs, and historical locators already use immutable directory-root hashes.
-- The authority accepts root updates through `GET/POST .../updates`, records a linear accepted-update sequence, and no longer exposes `/push`.
+- The authority accepts root updates through `POST .../updates`, records a private linear accepted-update sequence, and exposes neither `/push` nor accepted-history reads.
 - Arbord placement state retains the last accepted update/root, exact pending request, local candidate, and complete client-owned conflict draft.
 - Current sync returns current, accepts, merges, or reports a structured client-owned conflict according to the state machine below.
 - Wire object fixtures freeze deterministic file/directory CBOR as the complete content-object vocabulary, while `wire-merge.json` freezes merge behavior without adding wire objects.
@@ -32,7 +32,7 @@ The authority already stores immutable file/directory objects, a current directo
 
 ## Target protocol
 
-Discovery advertises mandatory `updates: "updates-v1"` for new native clients. Define JSON request/result shapes around unchanged CBOR objects. The client sends its opaque request identity as `Idempotency-Key`, not as a second public resource:
+Discovery advertises mandatory `updates: "updates-v1"` for new native clients. Define JSON request/result shapes around unchanged CBOR objects. Request identity is derived from the semantic JSON rather than supplied as a header or second public resource:
 
 ```ts
 type UpdateRequest = {
@@ -72,7 +72,7 @@ The server requires `base.update` to identify a retained accepted update for thi
 4. Both changed: merge `base.root`, `candidate`, and `remote`; accept the merged root only after a final ref recheck.
 5. Unsafe overlap: return `409 conflict` with a complete client-persistable draft containing every safe change; do not advance the accepted ref or create accepted history.
 
-Idempotency is scoped to `(tree, authenticated credential subject, Idempotency-Key)`. Successful `current`, `accepted`, and `merged` outcomes retain a bounded private replay record: the same semantic intent returns the stored HTTP status/body and different intent returns `mutation-mismatch`. A `409 conflict` performs no mutation and leaves no authority-side record, candidate objects, or draft objects; a lost response is safely recomputed against the then-current accepted update. Object envelopes may be retransmitted only when every repeated hash has identical bytes. After Plan 010, the credential subject is a stable device. `/push` is removed from all servers and clients; there is no protocol downgrade.
+The authority constructs `{ base, candidate, tree, version: "updates-v1" }`, serializes that all-string I-JSON value with RFC 8785 canonical JSON rules, and hashes the exact UTF-8 bytes with SHA-256. Idempotency is scoped to `(tree, authenticated credential subject, derived digest)`. Accepted and merged outcomes store the digest directly on their accepted-update row and replay from that row; `current` and `409 conflict` remain stateless and safely recompute against the then-current accepted update. Object envelopes are excluded from identity because ordering and retransmission are transport details, but every supplied hash/byte pair is still verified. After Plan 010, the credential subject is a stable device. `/push` is removed from all servers and clients; there is no protocol downgrade.
 
 ## Markdown additive merge contract
 
@@ -92,21 +92,21 @@ Protected structures have narrower automatic behavior: distinct YAML frontmatter
 
 ## Retention and authorization
 
-The accepted-update collection is a linear authority log containing an opaque update ID, tree, previous root, accepted root, authenticated subject/device, server acceptance time, and optional merge inputs/summary. Content identity remains only the accepted directory root. A repeated root still creates a distinct accepted update; watch `Last-Event-ID` and update cursors therefore use update IDs rather than root hashes. Retain accepted roots indefinitely in v1.
+The private accepted-update log contains an opaque update ID, tree, previous root, accepted root, authenticated subject/device, server acceptance time, and optional merge inputs/summary. Content identity remains only the accepted directory root. A repeated root still creates a distinct accepted update; watch `Last-Event-ID` therefore uses update IDs rather than root hashes. Retain every accepted root and its reachable objects indefinitely in v1, without exposing the log or old graphs as wire resources.
 
-Public/read access can resolve only the current graph. Enumerating accepted updates or retrieving non-current accepted graphs requires effective write access through the same `GET /.arbor/objects/{hash}` route. Rejected candidates and drafts are returned only in the immediate conflict response and never expand object authorization. The server must impose reasonable safety bounds before processing untrusted candidates, but exact numeric caps are implementation and deployment policy rather than a portable protocol-conformance surface.
+Every wire subject, including a writer, can resolve only currently readable graphs. Accepted updates remain private authority state: there is no accepted-history collection and no route for retrieving non-current accepted graphs. Rejected candidates and drafts are returned only in the immediate conflict response and never expand object authorization. The server must impose reasonable safety bounds before processing untrusted candidates, but exact numeric caps are implementation and deployment policy rather than a portable protocol-conformance surface.
 
 ## Scope
 
-**In scope**: normative `GET/POST .../updates` protocol/state-machine text, Markdown/path merge rules, accepted-history authorization, bounded private replay behavior, client-owned conflicts, language-neutral request/result and merge fixtures, invalid cases, implementation handoff notes.
+**In scope**: normative `POST .../updates` protocol/state-machine text, Markdown/path merge rules, private accepted history, derived request identity, client-owned conflicts, language-neutral request/result and merge fixtures, invalid cases, implementation handoff notes.
 
 **Out of scope**: production code, schema migration, live Railway access, UI, Swift code, revision objects, general CRDT/DAG design.
 
 ## Steps
 
 1. Update `spec/wire.md`, `spec/client.md`, and `spec/system.md` so refs remain directory roots and accepted updates own automatic convergence, linear history, exact retry, client-owned draft conflicts, and authorization.
-2. Specify `GET/POST .../updates`, request/result fields, opaque accepted-update identifiers, `Idempotency-Key`, discovery negotiation, stable errors/statuses, bounded private replay, CAS recheck behavior, watch semantics, and pagination. Restore-to-an-old-root must emit a new accepted update/watch event.
-3. Add JSON fixtures for current, accepted, merged, `409` conflict/draft, replay, mutation mismatch, current-ref race, malformed/missing object, and unauthorized accepted history.
+2. Specify `POST .../updates`, request/result fields, opaque accepted-update identifiers, canonical-JSON request identity, discovery negotiation, stable errors/statuses, accepted-row replay, CAS recheck behavior, and watch semantics. Restore-to-an-old-root must emit a new accepted update/watch event.
+3. Add JSON fixtures for current, accepted, merged, `409` conflict/draft, derived identity/replay, current-ref race, malformed/missing object, and absence of accepted-history/historical-object routes.
 4. Add exact-source three-way merge fixtures before implementation. Cover additions on both sides; same-slot additions; nearest surviving anchors; missing-anchor outward walk; no-anchor fallback; exact duplicate additions; repeated identical lines; one-side deletion plus other-side addition/edit; different paragraph replacements; headings/nested lists; distinct/same frontmatter keys; code fences; raw HTML; CRLF/mixed endings; PageID moves; binaries; nested boundaries; and retry idempotence.
 5. For each fixture, state whether the accepted root advances, which lines must survive, their allowable placement interval, the exact conflict reason if any, and what the draft contains. Do not over-specify sibling order where arrival order is intentionally observable.
 6. Add a fixture/schema validation command that checks hashes, object reachability, expected inclusion/placement constraints, stable error vocabulary, and internal references without implementing merge behavior.

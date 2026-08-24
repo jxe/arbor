@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "markdownCases": [
     {
       "name": "disjoint-additions",
@@ -258,20 +258,6 @@
       "name": "file-directory-kind-collision",
       "kind": "path-kind",
       "expected": {"conflicts": [{"path": "/item", "reason": "path-kind-conflict"}]}
-    }
-  ],
-  "replayCases": [
-    {
-      "name": "exact-success-replay",
-      "idempotencyKey": "fixture-exact-success-replay",
-      "sameIntent": true,
-      "expected": {"sameStatus": true, "sameBody": true, "additionalAcceptedUpdates": 0}
-    },
-    {
-      "name": "changed-intent-reuses-key",
-      "idempotencyKey": "fixture-changed-intent-replay",
-      "sameIntent": false,
-      "expected": {"error": "mutation-mismatch", "additionalAcceptedUpdates": 0}
     }
   ]
 }

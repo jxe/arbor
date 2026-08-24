@@ -1,14 +1,13 @@
-import { decodeWireObject, encodeWireObject, hashObject, type ObjectHash, type WireDirectoryEntry, type WireObject } from "./objects.ts";
-
-export interface UpdateConflict {
-  path: string;
-  reason: "path-kind-conflict" | "nested-boundary-conflict" | "page-id-move-conflict" | "binary-conflict" | "frontmatter-conflict" | "invalid-markdown-fence";
-}
-
-export interface MergeSummary {
-  version: "markdown-additive-v1";
-  approximatePlacements: number;
-}
+import {
+  decodeWireObject,
+  encodeWireObject,
+  hashObject,
+  type MergeSummary,
+  type ObjectHash,
+  type UpdateConflict,
+  type WireDirectoryEntry,
+  type WireObject,
+} from "@arbor/wire";
 
 export interface MergeResult {
   root: ObjectHash;

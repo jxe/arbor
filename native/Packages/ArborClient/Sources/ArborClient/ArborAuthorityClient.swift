@@ -37,24 +37,13 @@ public actor ArborAuthorityClient {
         return data
     }
 
-    public func updates(tree: String, cursor: String? = nil) async throws -> AuthorityUpdatesPage {
-        var components = URLComponents(
-            url: url("/.arbor/trees/\(component(tree))/updates"),
-            resolvingAgainstBaseURL: false
-        )!
-        if let cursor { components.queryItems = [URLQueryItem(name: "cursor", value: cursor)] }
-        return try await perform(authorizedRequest(url: components.url!))
-    }
-
     public func prepareUpdate(
         tree: String,
-        idempotencyKey: String,
         base: AuthorityUpdateBase,
         snapshot: AuthoritySnapshot
     ) throws -> PreparedAuthorityUpdate {
         PreparedAuthorityUpdate(
             tree: tree,
-            idempotencyKey: idempotencyKey,
             body: try encoder.encode(AuthorityUpdateRequest(
                 base: base,
                 candidate: snapshot.root,
@@ -67,7 +56,6 @@ public actor ArborAuthorityClient {
         var request = authorizedRequest(path: "/.arbor/trees/\(component(prepared.tree))/updates")
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(prepared.idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
         request.httpBody = prepared.body
 
         var lastError: Error = URLError(.unknown)

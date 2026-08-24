@@ -5,7 +5,8 @@ import { ArborService, serveArbor, serveArborControl } from "@arbor/arbord";
 import { ArbordClient } from "@arbor/client";
 import type { ShareAudience } from "@arbor/core";
 import { ConnectionStore } from "@arbor/stores";
-import { serveWireHost, WireClient, type CommunityBootstrapAccount } from "@arbor/wire";
+import { serveWireHost, type CommunityBootstrapAccount } from "@arbor/authority";
+import { WireClient } from "@arbor/wire";
 
 function usage(): never {
   console.error(`Usage:
