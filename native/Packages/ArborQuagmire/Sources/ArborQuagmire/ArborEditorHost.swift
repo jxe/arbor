@@ -1,6 +1,29 @@
 import ArborKit
 import Foundation
+import Observation
 import Quagmire
+
+public struct ArborMoveRequest: Identifiable {
+    public let id = UUID()
+    public let inDocumentCandidates: [InDocMoveTarget]
+    let completion: (MoveDestination?) -> Void
+}
+
+public struct ArborMoveDocument: Identifiable, Hashable, Sendable {
+    public let reference: DocumentReference
+    public let title: String
+    public let subtitle: String
+    public let isHome: Bool
+
+    public var id: DocumentReference { reference }
+
+    public init(reference: DocumentReference, title: String, subtitle: String, isHome: Bool) {
+        self.reference = reference
+        self.title = title
+        self.subtitle = subtitle
+        self.isHome = isHome
+    }
+}
 
 public enum ArborDocumentReferenceCodec {
     public static func encode(_ reference: WorkspaceReference) -> DocumentReference {
@@ -28,8 +51,10 @@ public enum ArborDocumentReferenceCodec {
 }
 
 @MainActor
-public final class ArborEditorHost: EditorHost, MoveDestinationUnsupported, ImagesUnsupported, LinkPreviewsUnsupported, BlockActionsUnsupported {
+@Observable
+public final class ArborEditorHost: EditorHost, ImagesUnsupported, LinkPreviewsUnsupported, BlockActionsUnsupported {
     public let binding: ArborDocumentBinding
+    public private(set) var moveRequest: ArborMoveRequest?
     private let provider: any WorkspaceProvider
     private let openAction: @MainActor (WorkspaceReference) -> Void
     private let backAction: @MainActor () -> Void
@@ -50,6 +75,51 @@ public final class ArborEditorHost: EditorHost, MoveDestinationUnsupported, Imag
 
     public var supportsDocumentCreation: Bool { true }
     public var supportsDocumentInlining: Bool { true }
+    public var supportsMoveDestinationPicker: Bool { true }
+
+    public func moveDestination(for _: [BlockID], candidates: [InDocMoveTarget]) async -> MoveDestination? {
+        if let pending = moveRequest {
+            moveRequest = nil
+            pending.completion(nil)
+        }
+        return await withCheckedContinuation { continuation in
+            moveRequest = ArborMoveRequest(
+                inDocumentCandidates: candidates,
+                completion: { destination in continuation.resume(returning: destination) }
+            )
+        }
+    }
+
+    public func resolveMoveRequest(with destination: MoveDestination?) {
+        guard let request = moveRequest else { return }
+        moveRequest = nil
+        request.completion(destination)
+    }
+
+    public func moveDocuments(matching rawQuery: String) async -> [ArborMoveDocument] {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nodes: [WorkspaceNode]
+        if query.isEmpty {
+            nodes = await enumerateDocumentNodes()
+        } else {
+            let results = (try? await provider.search(query, in: binding.reference.tree)) ?? []
+            nodes = await resolveDocumentNodes(results.map(\.reference))
+        }
+        return nodes
+            .filter { $0.reference.identity != binding.reference.identity }
+            .map { node in
+                ArborMoveDocument(
+                    reference: ArborDocumentReferenceCodec.encode(node.reference),
+                    title: node.title,
+                    subtitle: node.reference.pathHint,
+                    isHome: node.reference.pathHint == "/"
+                )
+            }
+            .sorted {
+                if $0.isHome != $1.isHome { return $0.isHome }
+                return $0.subtitle.localizedStandardCompare($1.subtitle) == .orderedAscending
+            }
+    }
 
     public func suggestDocuments(_ query: String, in _: Document) async -> [MentionItem] {
         let results = (try? await provider.search(query, in: binding.reference.tree)) ?? []
@@ -180,5 +250,38 @@ public final class ArborEditorHost: EditorHost, MoveDestinationUnsupported, Imag
     private func slug(_ value: String) -> String {
         let result = value.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
         return String(result).split(separator: "-").filter { !$0.isEmpty }.joined(separator: "-")
+    }
+
+    private func resolveDocumentNodes(_ references: [WorkspaceReference]) async -> [WorkspaceNode] {
+        var nodes: [WorkspaceNode] = []
+        for reference in references.prefix(200) {
+            guard let node = try? await provider.resolve(reference),
+                  node.isWritable,
+                  node.surface.supportsDocumentSession else { continue }
+            nodes.append(node)
+        }
+        return nodes
+    }
+
+    private func enumerateDocumentNodes() async -> [WorkspaceNode] {
+        let root = WorkspaceReference(tree: binding.reference.tree, path: "/")
+        var queue = [root]
+        var visited = Set<WorkspaceIdentity>()
+        var nodes: [WorkspaceNode] = []
+
+        while !queue.isEmpty, visited.count < 500 {
+            let reference = queue.removeFirst()
+            guard let node = try? await provider.resolve(reference), visited.insert(node.id).inserted else { continue }
+            if node.isWritable, node.surface.supportsDocumentSession { nodes.append(node) }
+            switch node.surface {
+            case .directory, .directoryDocument, .collection:
+                if let children = try? await provider.children(of: node.reference) {
+                    queue.append(contentsOf: children.map(\.reference))
+                }
+            default:
+                break
+            }
+        }
+        return nodes
     }
 }

@@ -235,6 +235,7 @@ final class ArborAppModel {
             return
         }
         observedWorkspaceGeneration = workspace.generation
+        editorHost?.resolveMoveRequest(with: nil)
         editorLease = nil
         editorHost = nil
         tabs = BrowserTabController(home: workspace.home)
@@ -247,6 +248,7 @@ final class ArborAppModel {
         loadRequestID += 1
         let requestID = loadRequestID
         if let editorLease {
+            editorHost?.resolveMoveRequest(with: nil)
             await workspace.editorWorkspace.release(editorLease)
             self.editorLease = nil
             editorHost = nil
@@ -373,6 +375,10 @@ final class ArborAppModel {
             try await binding.resolveConflict(preferSubmitted: preferSubmitted)
             await load()
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    func retryDocumentSave() async {
+        await binding?.retryLastSave()
     }
 
     func perform(_ action: WorkspaceStructuralAction, navigateToResult: Bool = true) async {

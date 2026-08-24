@@ -69,6 +69,12 @@ public final class ArborDocumentBinding {
         try? await session.flush()
     }
 
+    public func retryLastSave() async {
+        guard lastError != nil, conflict == nil else { return }
+        admitCurrentGeneration()
+        await flush()
+    }
+
     public func snapshot() async throws -> WorkspaceDocumentSnapshot {
         await flush()
         return try await session.snapshot()

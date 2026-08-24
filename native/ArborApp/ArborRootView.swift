@@ -2,6 +2,7 @@ import ArborKit
 import ArborQuagmire
 import ArborSync
 import ArborWire
+import Quagmire
 import SwiftUI
 import UniformTypeIdentifiers
 #if os(iOS)
@@ -95,16 +96,21 @@ struct ArborRootView: View {
                 Group {
                     if let node = model.node {
                         if let lease = model.editorLease, let host = model.editorHost {
-                            ArborEditorSurface(binding: lease.binding, host: host) {
+                            ArborEditorSurface(
+                                binding: lease.binding,
+                                host: host,
+                                configuration: ArborStyle.editorConfiguration
+                            ) {
                                 ArborDocumentFooter(
                                     provider: workspace.providerDetail,
                                     sync: workspace.syncPresentation,
                                     binding: lease.binding,
                                     backlinks: model.backlinks,
                                     open: { reference in Task { await model.navigate(to: reference) } },
-                                    syncNow: { Task { await workspace.syncNow() } }
+                                    showStatus: { presentedSheet = .syncStatus }
                                 )
                             }
+                            .modifier(ArborEditorToolbarModifier())
                         } else {
                             WorkspaceSurfaceView(node: node)
                         }
@@ -209,6 +215,11 @@ struct ArborRootView: View {
             )
         }
         .sheet(item: $presentedSheet, content: sheet)
+        .sheet(item: moveRequestBinding) { request in
+            if let host = model.editorHost {
+                ArborMoveDestinationSheet(host: host, request: request)
+            }
+        }
         .confirmationDialog("Move this node to Trash?", isPresented: $trashConfirmationPresented) {
             Button("Move to Trash", role: .destructive) {
                 Task { await model.perform(.trash(reference: model.currentReference)) }
@@ -238,11 +249,6 @@ struct ArborRootView: View {
                 }
             }
         }
-        .alert("Arbor", isPresented: errorPresented) {
-            Button("OK") { workspace.errorMessage = nil }
-        } message: {
-            Text(workspace.errorMessage ?? "")
-        }
         .focusedSceneValue(\.arborWindowCommands, windowCommands)
     }
 
@@ -250,19 +256,26 @@ struct ArborRootView: View {
         reference.tree == model.currentReference.tree && reference.pathHint == model.currentReference.pathHint
     }
 
-    private var errorPresented: Binding<Bool> {
-        Binding(get: { workspace.errorMessage != nil }, set: { if !$0 { workspace.errorMessage = nil } })
+    private var moveRequestBinding: Binding<ArborMoveRequest?> {
+        Binding(
+            get: { model.editorHost?.moveRequest },
+            set: { request in
+                if request == nil { model.editorHost?.resolveMoveRequest(with: nil) }
+            }
+        )
     }
 
     private var windowCommands: ArborWindowCommands {
         ArborWindowCommands(
             goHome: { Task { await model.goHome() } },
             goBack: { Task { await model.goBack() } },
+            goForward: { Task { await model.goForward() } },
             newTab: { Task { await model.newTab() } },
             closeTab: { Task { await model.closeSelectedTab() } },
             showSearch: { searchPresented = true },
             showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
             canGoBack: model.canGoBack,
+            canGoForward: model.canGoForward,
             canCloseTab: model.tabItems.count > 1,
             hasDocument: model.binding != nil
         )
@@ -293,6 +306,13 @@ struct ArborRootView: View {
                     Task { await workspace.resolveSyncConflictKeepingLocal() }
                 }
             }
+        case .syncStatus:
+            ArborSyncStatusView(
+                provider: workspace.providerDetail,
+                sync: workspace.syncPresentation,
+                binding: model.binding,
+                syncNow: { Task { await workspace.syncNow() } }
+            )
         default:
             ArborMutationForm(mode: sheet, submit: submitMutation)
         }
@@ -357,9 +377,42 @@ struct ArborRootView: View {
             ArborAttentionBanner(
                 message: "Arbor could not save the latest document edit.",
                 systemImage: "exclamationmark.circle",
-                tint: .red
+                tint: .red,
+                primaryLabel: "Retry",
+                primaryAction: { Task { await model.retryDocumentSave() } },
+                secondaryLabel: "Details…",
+                secondaryAction: { presentedSheet = .syncStatus }
+            )
+        } else if let message = workspace.errorMessage {
+            ArborAttentionBanner(
+                message: message,
+                systemImage: "exclamationmark.circle",
+                tint: .red,
+                primaryLabel: "Dismiss",
+                primaryAction: { workspace.errorMessage = nil }
             )
         }
+    }
+}
+
+private struct ArborEditorToolbarModifier: ViewModifier {
+    @FocusedValue(\.documentUndoController) private var undoController
+
+    func body(content: Content) -> some View {
+        content
+#if os(iOS)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Undo", systemImage: "arrow.uturn.backward") { undoController?.undo() }
+                        .disabled(undoController?.canUndo != true)
+                }
+                if undoController?.canRedo == true {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Redo", systemImage: "arrow.uturn.forward") { undoController?.redo() }
+                    }
+                }
+            }
+#endif
     }
 }
 

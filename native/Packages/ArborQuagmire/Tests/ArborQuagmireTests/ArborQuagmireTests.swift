@@ -124,6 +124,42 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("Move To combines editor outline targets with writable document destinations")
+    func moveDestinations() async throws {
+        let tree: TreeID = "tr_move"
+        let home = WorkspaceNode(
+            reference: .init(tree: tree, path: "/"),
+            title: "Home",
+            surface: .directoryDocument(source: "# Home\n", contentRevision: "r1", stored: true),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let destination = WorkspaceNode(
+            reference: .init(tree: tree, path: "/destination", pageID: "pg_destination"),
+            title: "Destination",
+            surface: .markdown(source: "# Destination\n", contentRevision: "r1"),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let provider = InMemoryWorkspaceProvider(
+            nodes: [home, destination],
+            children: [home.id: [destination.id]]
+        )
+        let session = try await provider.openDocument(home.reference)
+        let binding = try await ArborDocumentBinding.open(reference: home.reference, session: session)
+        let host = ArborEditorHost(binding: binding, provider: provider)
+
+        let documents = await host.moveDocuments(matching: "")
+        #expect(documents.map(\.title) == ["Destination"])
+
+        let targetID = BlockID()
+        let target = InDocMoveTarget(id: targetID, title: "Section", kind: .heading(level: .h2), depth: 1)
+        let requestTask = Task { await host.moveDestination(for: [BlockID()], candidates: [target]) }
+        await Task.yield()
+        #expect(host.moveRequest?.inDocumentCandidates == [target])
+        host.resolveMoveRequest(with: .block(targetID))
+        #expect(await requestTask.value == .block(targetID))
+    }
+
+    @MainActor
     @Test("Clean accepted replacement keeps matching BlockIDs and emits no authored commit")
     func acceptedReplacement() async throws {
         let provider = InMemoryWorkspaceProvider.sample()

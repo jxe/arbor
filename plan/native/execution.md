@@ -25,7 +25,7 @@ Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quag
 | [015](015-sync-native-replicas.md) | Synchronize native replicas through Arbor | P1 | XL | 009, 011, 013, 014 | DONE — crash-safe returned-snapshot sync and native pairing/placement verified |
 | [016](016-bridge-quagmire.md) | Bridge Quagmire to Arbor documents | P1 | XL | 012, 014 | DONE — exact-source Quagmire bridge and unchanged-package gates verified |
 | [017](017-complete-daily-driver.md) | Complete the native daily-driver core | P1 | XL | 015, 016 | DONE — shared providers, signed sandboxed `arbord` helper, and daily-driver workflows verified |
-| [018](018-port-hunch-strengths.md) | Port Hunch's native strengths | P1 | XL | 017 | IN PROGRESS — parity matrix and Hunch/Arbor-browser native shell cluster |
+| [018](018-port-hunch-strengths.md) | Port Hunch's native strengths | P1 | XL | 017 | IN PROGRESS — shell, Move To, editing feel, commands, and safety presentation implemented; capture/content integrations remain |
 | [019](019-convert-hunch-workspace.md) | Convert the live Hunch workspace and cut over | P1 | L | 018 | TODO |
 | [020](020-test-device-management-browser.md) | Complete device-management browser E2E | P2 | S | 010 | TODO |
 | [021](021-add-wire-file-patches.md) | Add verified wire file patches | P2 | L | 015, 016 | TODO |

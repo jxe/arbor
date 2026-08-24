@@ -1,6 +1,7 @@
 import ArborKit
 import ArborQuagmire
 import ArborSync
+import Quagmire
 import SwiftUI
 
 enum ArborPresentedSheet: String, Identifiable {
@@ -15,6 +16,7 @@ enum ArborPresentedSheet: String, Identifiable {
     case backlinks
     case arbordLogs
     case syncConflict
+    case syncStatus
 
     var id: String { rawValue }
 }
@@ -22,11 +24,13 @@ enum ArborPresentedSheet: String, Identifiable {
 struct ArborWindowCommands {
     var goHome: () -> Void
     var goBack: () -> Void
+    var goForward: () -> Void
     var newTab: () -> Void
     var closeTab: () -> Void
     var showSearch: () -> Void
     var showHistory: () -> Void
     var canGoBack: Bool
+    var canGoForward: Bool
     var canCloseTab: Bool
     var hasDocument: Bool
 }
@@ -170,6 +174,162 @@ struct ArborSearchPalette: View {
     }
 }
 
+struct ArborMoveDestinationSheet: View {
+    let host: ArborEditorHost
+    let request: ArborMoveRequest
+
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var searchFocused: Bool
+    @State private var query = ""
+    @State private var documents: [ArborMoveDocument] = []
+    @State private var isLoading = false
+    @State private var showAllInDocument = false
+
+    private static let collapsedLimit = 5
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                TextField("Search destinations", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($searchFocused)
+                    .submitLabel(.go)
+                    .onSubmit(activateFirstResult)
+                    .padding(12)
+                Divider()
+                List {
+                    if !visibleInDocument.isEmpty {
+                        Section("On this page") {
+                            ForEach(collapsedInDocument) { target in
+                                Button { activate(.block(target.id)) } label: {
+                                    moveTargetLabel(target)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            if visibleInDocument.count > Self.collapsedLimit, query.isEmpty {
+                                Button(showAllInDocument ? "Show less" : "Show (visibleInDocument.count - Self.collapsedLimit) more") {
+                                    showAllInDocument.toggle()
+                                }
+                                .font(ArborStyle.shellFont(weight: .medium))
+                            }
+                        }
+                    }
+                    Section("Documents") {
+                        ForEach(documents) { document in
+                            Button { activate(.document(document.reference)) } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: document.isHome ? "house" : "doc.text")
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 18)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(document.title)
+                                            .font(ArborStyle.shellFont(size: 14, weight: .medium))
+                                            .foregroundStyle(.primary)
+                                        Text(document.subtitle)
+                                            .font(ArborStyle.shellFont(size: 11))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .overlay {
+                    if isLoading, documents.isEmpty {
+                        ProgressView("Finding destinations")
+                    } else if visibleInDocument.isEmpty, documents.isEmpty {
+                        ContentUnavailableView(
+                            "No matching destinations",
+                            systemImage: "arrow.turn.down.right"
+                        )
+                    }
+                }
+            }
+            .navigationTitle("Move to")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { cancel() }
+                }
+            }
+        }
+        .frame(minWidth: 480, minHeight: 500)
+        .task { searchFocused = true }
+        .task(id: query) {
+            if !query.isEmpty {
+                do { try await Task.sleep(for: .milliseconds(140)) }
+                catch { return }
+            }
+            guard !Task.isCancelled else { return }
+            isLoading = true
+            documents = await host.moveDocuments(matching: query)
+            isLoading = false
+        }
+        .onDisappear {
+            if host.moveRequest?.id == request.id { host.resolveMoveRequest(with: nil) }
+        }
+    }
+
+    private var visibleInDocument: [InDocMoveTarget] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return request.inDocumentCandidates }
+        return request.inDocumentCandidates.filter { $0.title.localizedCaseInsensitiveContains(trimmed) }
+    }
+
+    private var collapsedInDocument: [InDocMoveTarget] {
+        showAllInDocument || !query.isEmpty
+            ? visibleInDocument
+            : Array(visibleInDocument.prefix(Self.collapsedLimit))
+    }
+
+    private func moveTargetLabel(_ target: InDocMoveTarget) -> some View {
+        HStack(spacing: 10) {
+            targetGlyph(target.kind)
+            Text(target.title)
+                .font(ArborStyle.shellFont(size: 14))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+        }
+        .padding(.leading, CGFloat(min(target.depth, 6)) * 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+    }
+
+    @ViewBuilder
+    private func targetGlyph(_ kind: InDocMoveTarget.Kind) -> some View {
+        switch kind {
+        case .heading(let level):
+            Text("H\(level.rawValue)")
+                .font(ArborStyle.shellFont(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+        case .toggle:
+            Image(systemName: "chevron.right.square")
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+        }
+    }
+
+    private func activateFirstResult() {
+        if let target = visibleInDocument.first { activate(.block(target.id)) }
+        else if let document = documents.first { activate(.document(document.reference)) }
+    }
+
+    private func activate(_ destination: MoveDestination) {
+        host.resolveMoveRequest(with: destination)
+        dismiss()
+    }
+
+    private func cancel() {
+        host.resolveMoveRequest(with: nil)
+        dismiss()
+    }
+}
+
 struct ArborAttentionBanner: View {
     let message: String
     let systemImage: String
@@ -217,7 +377,7 @@ struct ArborDocumentFooter: View {
     let binding: ArborDocumentBinding?
     let backlinks: [WorkspaceSearchResult]
     let open: (WorkspaceReference) -> Void
-    let syncNow: () -> Void
+    let showStatus: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -247,7 +407,7 @@ struct ArborDocumentFooter: View {
                 }
             }
 
-            Button(action: syncNow) {
+            Button(action: showStatus) {
                 VStack(spacing: 3) {
                     Label(statusTitle, systemImage: statusSymbol)
                         .font(.caption.weight(.medium))
@@ -261,6 +421,7 @@ struct ArborDocumentFooter: View {
             }
             .buttonStyle(.plain)
             .help(sync.detail ?? statusTitle)
+            .accessibilityHint("Shows save and synchronization details")
         }
         .padding(.top, 24)
         .padding(.bottom, 12)
@@ -284,6 +445,60 @@ struct ArborDocumentFooter: View {
         if binding?.lastError != nil { return .red }
         if binding?.conflict != nil || sync.state == .conflict { return .orange }
         return .secondary
+    }
+}
+
+struct ArborSyncStatusView: View {
+    let provider: String
+    let sync: WorkspaceSyncPresentation
+    let binding: ArborDocumentBinding?
+    let syncNow: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Current document") {
+                    LabeledContent("Save status", value: saveStatus)
+                    if binding?.lastError != nil {
+                        Text("The latest edit remains in this session but has not reached durable provider storage. Retry before closing or navigating away.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                Section("Workspace") {
+                    LabeledContent("Provider", value: provider)
+                    LabeledContent("Synchronization", value: sync.state.label)
+                    if let detail = sync.detail { Text(detail).foregroundStyle(.secondary) }
+                    if sync.localAdditions { Label("Local changes are waiting to synchronize", systemImage: "arrow.up") }
+                    if sync.remoteAdditions { Label("Remote changes are waiting to download", systemImage: "arrow.down") }
+                    if sync.approximatePlacements > 0 {
+                        Label("\(sync.approximatePlacements) change placements need review", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                }
+                Section {
+                    Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
+                        .disabled(sync.state == .offline)
+                } footer: {
+                    Text("Arbor reports accepted state and pending work here; it does not imply that an interrupted save or unresolved conflict is safe.")
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Save and Sync")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .frame(minWidth: 560, minHeight: 430)
+    }
+
+    private var saveStatus: String {
+        if binding?.isSaving == true { return "Saving" }
+        if binding?.conflict != nil { return "Conflict needs a choice" }
+        if binding?.lastError != nil { return "Latest edit not saved" }
+        return "Saved locally"
     }
 }
 

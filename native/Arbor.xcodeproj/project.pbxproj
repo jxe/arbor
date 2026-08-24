@@ -15,6 +15,7 @@
 		689B52D368DB30134530C123 /* ArborProviders in Frameworks */ = {isa = PBXBuildFile; productRef = 17EF6FF7B3B5C09E32F630D8 /* ArborProviders */; };
 		8879915EF65A25600F6AABF6 /* ArborQuagmire in Frameworks */ = {isa = PBXBuildFile; productRef = 00048AC9019C9BC06814ED85 /* ArborQuagmire */; };
 		BCE1A74E18AC59895789A289 /* ArborSync in Frameworks */ = {isa = PBXBuildFile; productRef = 36CB136427AFA030550F9B5F /* ArborSync */; };
+		BD21C668E72EED6BE354C453 /* ArborStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */; };
 		D1790FD36A1B6B934C01B694 /* ArborKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2C95342129C1FAED832C33BC /* ArborKit */; };
 		DC34C5D8EFB2C066FE9AF7B5 /* ArborApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8457F359DE90E5500C1B892D /* ArborApp.swift */; };
 		F20EDB4AE065CFCC0A52D67C /* ArborAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24B7B875410B0C94CDD95EF0 /* ArborAppModel.swift */; };
@@ -31,6 +32,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborStyle.swift; sourceTree = "<group>"; };
 		1E659894DB90798769861B59 /* ArborProviders */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborProviders; path = Packages/ArborProviders; sourceTree = SOURCE_ROOT; };
 		24B7B875410B0C94CDD95EF0 /* ArborAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborAppModel.swift; sourceTree = "<group>"; };
 		288990A21FB0D222423967A4 /* ArborQuagmire */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborQuagmire; path = Packages/ArborQuagmire; sourceTree = SOURCE_ROOT; };
@@ -75,6 +77,7 @@
 				8FBCA70A1284DE00EED67079 /* arbord.entitlements */,
 				8278F4D043CD87121556B664 /* ArborDailyDriverViews.swift */,
 				B7994449946DFB23BD2F4810 /* ArborRootView.swift */,
+				0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */,
 				45675C08297B01C04578CF4E /* Info.plist */,
 			);
 			path = ArborApp;
@@ -248,6 +251,7 @@
 				F20EDB4AE065CFCC0A52D67C /* ArborAppModel.swift in Sources */,
 				321414EED0DBE45187CC1086 /* ArborDailyDriverViews.swift in Sources */,
 				49918DF0BE00F770672896EF /* ArborRootView.swift in Sources */,
+				BD21C668E72EED6BE354C453 /* ArborStyle.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -13,7 +13,7 @@
 - **Category**: product/parity
 - **Planned at**: Arbor `dc34126`, Hunch `a1e8379`, Quagmire `4049fd4`, 2026-08-23
 - **Reconciled at**: Arbor `0fb1d32`, Hunch `a1e8379`, Quagmire `4049fd4`, 2026-08-24
-- **Progress**: UI shell cluster in progress; live parity matrix at [`hunch-parity.md`](hunch-parity.md)
+- **Progress**: Shell, Move To, typography/editing feedback, native editor commands, and safety presentation implemented; capture and content integrations remain. Live parity matrix at [`hunch-parity.md`](hunch-parity.md)
 
 ## Why this matters
 
