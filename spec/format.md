@@ -42,7 +42,7 @@ The leading emoji grapheme of the first H1 is the portable document icon. Settin
 
 ## Profiles and groups
 
-Person and group profiles are complete shared trees with ordinary root Markdown:
+Person and group profiles are complete Arbor trees with ordinary root Markdown:
 
 ```yaml
 type: person

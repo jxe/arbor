@@ -5,7 +5,7 @@ and completed evidence do not compete in one flat queue.
 
 - [`product/`](product/roadmap.md) — forward platform/product direction and the
   editor/browser backlog.
-- [`native/`](native/README.md) — canonical TreeHopper architecture plus its
+- [`native/`](native/README.md) — canonical native Arbor architecture plus its
   active numbered implementation handoffs.
 - [`hardening/`](hardening/README.md) — known technical debt and the older
   audited defect-remediation handoffs. These plan numbers are scoped to the

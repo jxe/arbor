@@ -1,5 +1,7 @@
 # Plan 004: Specify and implement Hunch-grade Arbor iCloud durability
 
+> **Final status: REJECTED — superseded by Plans 007–015.** iCloud/CloudKit is not an Arbor synchronization layer; native replicas synchronize through the Arbor authority. Preserve this file as historical evidence; do not execute it.
+
 > **Executor instructions**: Treat this as a data-preservation protocol, not a
 > file-watcher feature. Freeze the format and cross-language fixtures before
 > allowing Swift and TypeScript to coauthor a real folder. Never use wall-clock

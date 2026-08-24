@@ -1,194 +1,90 @@
-# TreeHopper native plan
-*Canonical product and architecture plan for the new Swift browser. Active executor handoffs are indexed in [`execution.md`](execution.md); implemented evidence lives in [`../records/history.md`](../records/history.md).*
+# Native Arbor plan
+*Canonical product and architecture plan for the new Swift Arbor app. Active executor handoffs are indexed in [`execution.md`](execution.md); implemented evidence lives in [`../records/history.md`](../records/history.md).*
 
-## Status
+## Status and identity
 
-- Arbor's exact-source and provider-owned complete-directory foundation is implemented.
-- The matching local Quagmire/Hunch boundary is implemented and verified through Hunch commit `ef37cc6`; its completed executor plan has been retired into history.
-- The next step is to publish that proven boundary as Quagmire `0.1.0`; there is no public Hunch-specific 0.1 followed by an immediate corrective 0.2.
-- The new app, working name **TreeHopper**, has not been scaffolded. The name and reverse-DNS identifiers remain an explicit founding decision before signed builds or persisted app identity.
+- Quagmire `0.1.0` is published in `/Users/joe/src/quagmire`; Hunch commit `a1e8379` consumes it remotely. The old publication Plan 001 is complete.
+- Plans 002–005 captured a superseded TreeHopper/iCloud design and must not be executed. Their files remain as historical evidence.
+- The native product is **Arbor**, not TreeHopper: display name and scheme `Arbor`, app module `ArborApp`, bundle ID `org.nxhx.Arbor`, and iOS/macOS 27 deployment targets.
+- The app is new work under `native/`; it is not a renamed Hunch target and must not reuse Hunch defaults, caches, bookmarks, logs, app groups, bundle IDs, or iCloud containers.
 
 Execution order:
 
-1. [001 — publish Quagmire 0.1](001-publish-quagmire.md)
-2. [002 — found TreeHopper native](002-found-treehopper-native.md)
-3. [003 — bridge Quagmire to Arbor](003-bridge-quagmire-to-arbor.md)
-4. [004 — Arbor cloud durability](004-build-arbor-cloud-durability.md)
-5. [005 — native parity and migration](005-complete-native-parity-and-migration.md)
+1. [006 — reconcile identity and plans](006-reconcile-arbor-identity.md)
+2. [007 — server-assisted synchronization contract](007-define-server-assisted-sync.md)
+3. [008 — authority synchronization and retained history](008-build-authority-sync.md)
+4. [009 — arbord synchronization integration](009-integrate-arbord-sync.md)
+5. [010 — device credentials and pairing](010-add-device-pairing.md)
+6. [011 — Railway authority migration](011-migrate-railway-authority.md)
+7. [012 — native Arbor shell](012-found-native-arbor.md)
+8. [013 — Swift ArborWire](013-build-swift-arbor-wire.md)
+9. [014 — offline Swift replica](014-build-offline-replica.md)
+10. [015 — native replica sync](015-sync-native-replicas.md)
+11. [016 — Quagmire bridge](016-bridge-quagmire.md)
+12. [017 — daily-driver core](017-complete-daily-driver.md)
+13. [018 — Hunch native strengths](018-port-hunch-strengths.md)
+14. [019 — one-time Hunch cutover](019-convert-hunch-workspace.md)
 
-## Product boundary
+## Product and persistence boundary
 
-TreeHopper is a new, parallel Swift browser, not a renamed Hunch target. It reuses Quagmire as its editor and carries forward Hunch's good native interactions, durability expectations, and platform integrations without inheriting Hunch's flat page graph, bundle identity, URL-keyed navigation, or Clamshell-specific storage model.
+An independently versioned `TreeID` is an **Arbor tree** whether its audience is private, public, or selected people/groups. Sharing changes access; it does not switch storage or synchronization technology.
 
-The browser is node-first because an Arbor location may be a Markdown document, a bodyless directory, a directory document, a collection, a database, an ordinary file, a diagnostic surface, or a historical/read-only view. “Node-first” means navigation and provider APIs resolve that heterogeneous node before deciding whether an editor session exists; it does not mean the UI should foreground storage nodes over documents.
+Cross-device synchronization uses an Arbor authority, never iCloud Drive or CloudKit. The configured Railway authority is the intended acceptance host, but its URL and credentials remain runtime configuration and must never be hardcoded in source, fixtures, plans, logs, or manifests.
 
-Working package/product names:
+- On macOS, native Arbor uses arbord as the sole first-party writer for ordinary folders and placed trees.
+- On iOS, native Arbor uses an app-managed private replica with full offline reads and writes.
+- The iOS replica does not appear as a live editable Files-app folder. Import/export/share operations are explicit.
+- Each device keeps a local PageID-keyed crash-recovery journal. Recovery journals, indexes, caches, and device identity never enter authored trees or the wire.
+- The self-host is trusted with plaintext content in v1. End-to-end encryption and CloudKit are out of scope.
 
-- app/display/scheme: `TreeHopper`;
-- app module: `TreeHopperApp`;
-- local application package: `TreeHopperKit`;
-- private Quagmire host target: `TreeHopperQuagmire`;
-- existing transport package: `ArborClient`;
-- external editor package: `Quagmire`.
+## Server-assisted wire synchronization
 
-Do not reuse Hunch bundle IDs, app groups, defaults, caches, or iCloud containers. Keep reverse-DNS identifiers and entitlements in build settings, not source constants.
+Wire refs continue to identify immutable directory-root hashes. The trusted authority keeps a linear acceptance history for each tree: an opaque acceptance ID, previous accepted root, next accepted root, authenticated credential/device, acceptance time, and, when applicable, the base/local/remote roots used for a merge. That audit/history record is authority state, not another content-addressed wire object and not a revision DAG. Watch cursors use acceptance IDs so accepting a previously seen root is still a distinct event.
 
-## Architecture
+Each client durably remembers its last accepted root. A sync request names that `base`, the client's current `local` root, a unique `requestID`, and any missing immutable file/directory objects. The authority verifies that base belongs to the tree's retained accepted history and compares it with its current `remote` root. It returns current when local already equals remote, accepts a one-sided change directly, performs a three-way merge when both sides changed, and compare-and-swaps the resulting root only after rechecking the current ref. Requests are idempotent for one authenticated credential/device and mutation mismatch is an error.
+
+The self-host is trusted with plaintext, so the server owns the one merge implementation. Clients own local durability, offline editing, exact request retry, graph validation, and conflict presentation. A conflict response retains base/local/remote plus a writer-only draft root containing every safe change; the client may keep editing locally, resolve the remaining choices, and resubmit against the then-current remote root. No side is dropped or turned into an authored conflict-copy file.
+
+Markdown body merging is intentionally additive and source-preserving, informed by Hunch's auto-restore behavior. Unchanged source stays byte-identical. Lines newly present on either side are copied verbatim and placed between the nearest surviving unchanged lines; when direct context disappeared, placement walks outward to a surviving heading/paragraph/list context, then falls back near the end of the containing document. Existing accepted text is placed before incoming text when both additions occupy the same slot. Exact duplicate additions may be collapsed only when identity is unambiguous. Arrival order may affect sibling order, but omission is never an acceptable automatic result: prefer a nearby duplicate to losing a line. Frontmatter key collisions, invalid fence structure, path/kind collisions, incompatible moves, and divergent binary/unknown files remain structured conflicts.
+
+The authority retains accepted root history and unresolved candidates indefinitely in v1. Current public/read access exposes only the current tree graph. History, drafts, candidates, and non-current graphs require effective write access, so deleted historical bytes do not become public merely because the current tree is readable.
+
+## Native package architecture
 
 ```text
-TreeHopperApp
-  ├─ BrowserTabController       history, location, sidebar, chrome, commands
-  ├─ WorkspaceSurface          document / collection / file / diagnostics
-  ├─ TreeHopperKit
-  │    ├─ WorkspaceReference / WorkspaceNode
-  │    ├─ WorkspaceCoordinator + document leases
+ArborApp
+  ├─ ArborKit
+  │    ├─ WorkspaceReference / WorkspaceNode / WorkspaceSurface
+  │    ├─ BrowserTabController / WorkspaceCoordinator
   │    ├─ ArbordWorkspaceProvider ─ ArborClient ─ arbord (macOS)
-  │    └─ ArborCloudWorkspaceProvider (iOS / deliberate direct mode)
-  └─ TreeHopperQuagmire
+  │    └─ ReplicaWorkspaceProvider ─ ArborReplica ─ ArborWire (iOS)
+  └─ ArborQuagmire
        ├─ Markdown codec + private source ledger
        ├─ EditorHost implementation
-       └─ Quagmire
+       └─ Quagmire 0.1
 ```
 
-Keep exactly two concrete persistence providers. Do not build a backend plugin framework.
+`ArborKit` is UI-independent and node-first. A node may be a Markdown document, bodyless directory, directory document, collection, database row, ordinary file, placeholder, diagnostic, or historical view. It opens a document session only for Markdown-capable surfaces. One `WorkspaceCoordinator` owns the canonical document/write stream per `(tree, PageID)`, with path fallback only while no durable ID exists; duplicate tabs keep independent history, selection, scroll, and inspector presentation.
 
-On macOS, arbord is the sole first-party writer for an arbord-backed subtree. On iOS, or in a deliberate arbord-less mode, the Swift cloud provider is the first-party writer. Never let both author the same macOS subtree, and never layer symmetric Arbor wire replication over the same mutable iCloud subtree.
+`ArborQuagmire` is a thin private host. It maps exact provider Markdown to Quagmire blocks, keeps a private BlockID-keyed source ledger, admits every synchronous editor commit before returning, and submits exact source plus `baseContentRevision`. Quagmire remains format-, storage-, navigation-, and Arbor-neutral.
 
-### Browser and references
+## Hunch replacement and cutover
 
-Each tab owns independent navigation history, selection, scroll position, inspector state, and presentation. A shared `WorkspaceCoordinator` owns one ordered document session/write stream per durable `(tree, PageID)`, falling back to `(tree, path)` only when no ID exists. Several tabs may lease that session without creating competing persistence queues.
+Native Arbor must reproduce Hunch's accepted daily-use strengths before cutover: editing and selection, undo, gestures/reorder, mentions/document links, images/assets, emoji/icons, voice/transcription, transcript polishing, native menus/shortcuts, search/backlinks, recovery/history, conflicts, tabs/windows, accessibility, and crash-safe cross-document actions. Arbor remains node-first and browser-like; it does not inherit Hunch's flat page graph or Clamshell storage.
 
-`WorkspaceReference` is the native equivalent of REST `NodeRef`: explicit tree scope plus a logical path, or a durable opaque PageID with path hint. A physical file URL is optional provider metadata, never navigation identity. Rename/move updates the visible path without remounting a PageID-backed editor or losing its authored undo state.
-
-Home is a starred/default starting location, not a reachability boundary. Back, Forward, Parent, breadcrumbs, Open Location, search, and sidebar navigation traverse the resolved Arbor hierarchy and retain provenance across tree boundaries.
-
-### Provider and session contracts
-
-The provider owns node resolution, children, search, collections, files, structural mutations, assets, recovery, and observation. It opens a document session only for a Markdown-capable surface.
-
-The session owns:
-
-- the current resolved reference;
-- arbord/provider `document.source` and `contentRevision`;
-- one live Quagmire `Document`;
-- the private source ledger and semantic baseline;
-- synchronous admission of authored editor generations;
-- ordered exact-source writes, conflict/resync, external replacement, `flush`, and close.
-
-Quagmire's commit callback is synchronous. Before it returns, the generation must already be admitted to the session queue so an immediately following `flush` cannot falsely report quiescence. `flush` awaits every admitted generation. Clean external snapshots replace the same live `Document` as a system change without authored undo; conflicts never silently overwrite either side.
-
-## Implemented Arbor document contract
-
-Arbor's authored content primitive is:
-
-```text
-writeMarkdown { ref, baseContentRevision, source }
-```
-
-`source` is exact complete Markdown including frontmatter. Parsed blocks/frontmatter are provider-derived read conveniences, never client-authored wire truth. Arbord parses source internally for validation, indexing, search, backlinks, recovery, rendering, hosted Markdown/HTML, and subsequent reads. Ordinary stored Markdown persists accepted bytes exactly.
-
-Every physical directory has one provider-owned operational Markdown document:
-
-1. the first eligible standalone link resolving to each immediate physical child represents that child at its authored location;
-2. inline links do not qualify, and later standalone duplicates remain ordinary links;
-3. the provider appends ordinary links for unmatched children in unsigned UTF-8 canonical-path order;
-4. reads do not materialize a body; the first authored write persists the accepted complete source;
-5. the directory content revision covers exact stored bytes plus canonical immediate-child descriptors.
-
-The current provider contract omits collection records, including physical Markdown row files and virtual/query-backed rows, from that About/index document. This exception and the exact removal path are recorded in [`../hardening/technical-debt.md`](../hardening/technical-debt.md); native code must not independently cement a different rule.
-
-Link order, nesting, label, and deletion are content edits. Physical create, move, rename, copy, Trash, and restore are structural operations. There is no synthetic-row mutation boundary, managed manifest, block anchor, or second index-ordering API.
-
-## Implemented local Quagmire 0.1 boundary
-
-Quagmire and Hunch changed together while the package was still local. The
-first public package now has this proven boundary to publish unchanged:
-
-- one neutral `documentLink` row with an authored attributed label and opaque host-defined reference;
-- ephemeral host presentation for target title/icon, present/missing/unavailable state, and the row's fixed supported actions;
-- the existing contextual mention rule: line-leading mention creates `documentLink`; inline mention creates an inline link;
-- H1–H6 representation without clamping, while creation menus may remain H1–H3;
-- one read-only opaque raw/unsupported block so a host can preserve constructs it cannot represent structurally;
-- a specified stable `BlockID` lifecycle across edit, move, nesting, undo, split, merge, paste, duplicate, copy, and cross-document operations;
-- synchronous commit notification and async flush semantics.
-
-Quagmire remains format-neutral. It must not contain Arbor types, Markdown parsing, a source snapshot, byte ranges, opaque source handles, persisted block annotations, or a generic metadata bag. Stable editor identity is the reusable capability.
-
-Hunch must reproduce every current subpage-row interaction through `documentLink`: navigation, missing state, resolved title/icon, create/convert, orphan prompt, inline-then-Trash, drop move/copy, move-to picker, mentions, link copy/paste, commit, and flush. Preserve duplicate-over-loss ordering: create destination before replacing source; load before inline mutation; durably append destination before removing a moved source; flush the inlined parent before Trash.
-
-## TreeHopper Quagmire host
-
-There is no `ArborDocumentAdapter` or second canonical document model. `TreeHopperQuagmire` is a thin host containing:
-
-- a Markdown-to-Quagmire codec;
-- a private source-reuse ledger keyed by stable Quagmire `BlockID`;
-- an `EditorHost` implementation over `WorkspaceDocumentSession`;
-- reference/action resolution for document links.
-
-The ledger record is host-private and may contain whatever parser-specific source record is useful. Quagmire only guarantees stable IDs. On serialization, the host compares a current semantic block with its baseline: unchanged compatible blocks reuse exact source, while edited/new blocks regenerate in isolation. YAML order/comments/quoting, raw blocks, H4–H6, footnotes, LaTeX, HTML, and unedited delimiters must survive. Whitespace may normalize only inside an edited structured block.
-
-After a successful provider response, the returned exact accepted source and revision become the next base, and the host rebuilds/reconciles its private ledger without creating authored undo.
-
-### Document links, mentions, and actions
-
-Provider search supplies compatible Markdown or directory-document candidates with title, parent path, and provenance for disambiguation.
-
-- Inline mention selection inserts an ordinary canonical Markdown link.
-- Line-leading mention selection inserts the one standalone `documentLink` row.
-- Tree-local links are relative; cross-tree links use `arbor://`; include the target PageID fragment when available.
-- The first standalone link resolving to an immediate Markdown child is eligible for the full child action set when authority permits. Other standalone links retain all actions that make sense for their resolved Markdown target.
-- Deleting a link deletes only source. **Move Node to Trash** is a separate provider operation.
-- Turn Into Document/Create from Block durably creates/copies the target before replacing/removing the source. A crash may leave a recoverable duplicate, never lose the only copy.
-- Inline then Trash writes and flushes the parent first, then trashes the target.
-- Cross-document move/copy admits and durably appends the destination before source removal.
-- If an action is unavailable for target kind, authority, materialization, or provider capability, omit or visibly interrupt it before its first source mutation.
-
-## Hunch parity and intentional differences
-
-TreeHopper should carry forward Hunch behavior where the Arbor model permits it:
-
-- block editing, selection/reorder, undo/redo, mentions, document conversion, drag/drop, pasteboard, images/assets, emoji/icons, speech/transcription, native menus/commands, search, backlinks, recovery, conflicts, accessibility, and durable flush on navigation/shutdown;
-- target-title/icon presentation and every document-link action for Markdown or provider-completed directory Markdown;
-- native windows/tabs on macOS and appropriate split/compact navigation on iPad/iPhone.
-
-Intentional interruptions:
-
-- ordinary link deletion never triggers Hunch's orphan-and-trash policy in an Arbor tree;
-- actions requiring a Markdown/document target are absent for ordinary files, database rows, and incompatible virtual nodes;
-- read-only, historical, unavailable, or cross-authority targets expose only permitted actions;
-- non-document surfaces disable editor commands rather than coercing data into a page model.
-
-## iCloud durability
-
-Preserve Hunch-grade semantics, not the exact `.history/*.jsonl` representation. The new private, versioned Arbor cloud journal lives in a reserved sidecar namespace such as `.arbor/icloud/v1/`, is synchronized by iCloud for this provider, and is excluded from ordinary browsing, indexing, publication, Arbor wire objects, assets, and authored snapshots.
-
-Required semantics:
-
-- durable PageID is identity; mutable path is metadata/hint;
-- each device writes only its own append-only stream with monotonic counter and deterministic `(counter, deviceID)` order;
-- records cover content/add, observe, move/place, Trash/purge, restore, base/result hashes, and enough recoverable content;
-- a local authored log record is durable before materialized Markdown;
-- fold/replay is idempotent; local indexes/watermarks are rebuildable and stay outside iCloud;
-- log-ahead-of-file replays after crash; file-ahead/external edits become observe records and never falsely claim authorship;
-- missing live content with an unsuperseded durable add is recoverable regardless of modification-time ordering; timestamps may help classify tombstoned removals but never suppress valid add recovery;
-- conflicts preserve both recoverable versions and surface UI instead of last-writer clobber;
-- iOS coordinates file access and materialization with `NSFileCoordinator`, `NSFilePresenter`, ubiquitous-item state, and conflict versions rather than treating modification time as synchronization success.
-
-The format must have one language-neutral fixture corpus and two independent folds: Swift for the direct cloud provider and TypeScript/arbord for compatibility, migration, or diagnostics. Test placeholders, delayed downloads, offline concurrent edits, clock skew, log/file crash boundaries, rename, move, Trash, restore, purge versus external edit, and deterministic convergence.
-
-Legacy Hunch `.history/` is read only by an importer/recovery tool. After cutover, TreeHopper writes only the new format. Inventory and back up first; preserve PageIDs, links, assets, Trash, and home; verify before switching; never let Hunch and TreeHopper coauthor the same folder.
+The active Hunch workspace is `/Users/joe/Documents/todos`. Plan 019 performs a one-time copy conversion into `/Users/joe/Documents/todos-arbor`; it is not an app import feature. The original, Trash, and `.history` remain in a hash-verified backup. The converted tree contains 70 curated live pages and 17 assets, preserves 61 existing IDs, mints reviewed IDs for nine retained ID-less pages, uses `Console.md` as Home, and discards only the seven explicitly reviewed `main N.md` iCloud collision artifacts. Hunch and Arbor must never coauthor the same folder.
 
 ## Release gates
 
-The detailed gates are in the numbered plans. The final native release requires, at minimum:
+The final native cutover requires:
 
-- Quagmire package verification and remote SwiftPM resource/API consumption;
-- standalone `ArborClient` and `TreeHopperKit` tests;
-- exact-source/complete-directory cross-language fixtures;
-- sequential macOS and iOS 27 builds/tests;
-- simultaneous web/native editing through arbord without source churn, missed event gaps, false quiescence, or silent overwrite;
-- two-device/offline cloud convergence and crash/recovery fixtures in Swift and TypeScript;
-- an actual Hunch-workspace dry run followed by a separately authorized cutover;
-- manual accessibility, keyboard, pointer, drag/drop, menus, transcription, conflict, and recovery smoke on exact release artifacts.
+- deterministic authority merge fixtures and TypeScript/Swift sync-protocol fixtures;
+- a backed-up, restore-tested Railway sync/history migration;
+- distinct revocable device credentials and one-time pairing;
+- standalone ArborKit, ArborWire, ArborReplica, ArborQuagmire, ArborClient, and Quagmire tests;
+- sequential macOS and iOS 27 Xcode builds/tests;
+- two-device offline convergence, crash/restart, history, conflict, and credential-revocation tests;
+- full Hunch parity inventory and exact-artifact manual checks;
+- two identical conversion dry-run manifests and matching Mac/host/iOS accepted roots before writes are enabled.
 
-STOP rather than improvise if the signed helper/security-scoped bookmark model cannot give arbord required access, if a provider cannot produce a bounded gap-free child snapshot for complete source, if Quagmire identity remints during an in-place edit, if either writer cannot satisfy log-before-file, or if both providers could author the same subtree.
+STOP rather than improvise if deterministic object encodings differ between languages, a migration cannot restore exact legacy refs, an automatic merge can omit an added Markdown line, a conflict path would discard either side, Quagmire identity changes under an in-place edit, a local admitted edit depends on network availability for safety, or Hunch/Arbor could write the same source folder.

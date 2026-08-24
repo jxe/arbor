@@ -1,5 +1,7 @@
 # Plan 001: Publish the final Quagmire 0.1.0 and prove remote consumption
 
+> **Final status: DONE.** Quagmire commit `4049fd4` is tagged `0.1.0`, and Hunch commit `a1e8379` consumes that exact remote package. Preserve this file as completion evidence; do not execute it again.
+
 > **Executor instructions**: Follow this plan in order. Use a disposable clone
 > for history rewriting. Never run `git filter-repo` in the live Hunch checkout.
 > Publish exactly the implemented Quagmire/Hunch foundation; do not redesign it

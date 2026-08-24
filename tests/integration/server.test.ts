@@ -416,7 +416,7 @@ describe("arbord REST v1", () => {
     }));
   });
 
-  test("removes the unversioned API and serves the TreeHopper shell", async () => {
+  test("removes the unversioned API and serves the Arbor web shell", async () => {
     const legacy = await fetch(`${base}/v/tree/renamed`);
     expect(legacy.status).toBe(405);
     expect((await legacy.json() as any).error.code).toBe("unsupported-operation");

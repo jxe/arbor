@@ -1,6 +1,6 @@
 # Remote trial deployment
 
-The quickest realistic trial is one Railway service with one persistent volume and one public domain. The hosted process is only the community authority and wire gateway. Profile claiming and editing happen in TreeHopper running locally on your own machine.
+The quickest realistic trial is one Railway service with one persistent volume and one public domain. The hosted process is only the community authority and wire gateway. Profile claiming and editing happen in Arbor web running locally on your own machine.
 
 For multi-machine synchronization, outage, and conflict testing rather than a single-user trial, use the deliberately small [hcloud sync lab](hcloud-sync-lab.md): one disposable community VM, three client VMs, Tailscale, and no infrastructure framework. Its checked-in `bun run lab:hcloud` runner supports preflight, resumable provisioning, evidence collection, and exact-ID teardown.
 
@@ -39,7 +39,7 @@ Railway volumes persist across deploys and restarts. Restart or redeploy the ser
 
 Railway references: [Docker/config-as-code](https://docs.railway.com/config-as-code/reference), [public domains and ports](https://docs.railway.com/public-networking), [custom-domain DNS](https://docs.railway.com/networking/domains/working-with-domains), and [persistent volumes](https://docs.railway.com/volumes).
 
-## Claim through local TreeHopper
+## Claim through local Arbor web
 
 From this checkout on your own Mac:
 
@@ -49,7 +49,7 @@ bun run build:web
 bun run arbor browse https://garden.example.com/~joe
 ```
 
-In TreeHopper:
+In Arbor web:
 
 1. Select **Claim profile** on the empty reserved profile.
 2. Choose a visible local folder such as `~/.arbor/profile`.
@@ -94,7 +94,7 @@ docker compose up -d --build
 docker compose logs -f arbor
 ```
 
-Caddy obtains and renews TLS certificates and proxies to Arbor. The named `arbor-data` volume survives container replacement, while `restart: unless-stopped` brings both processes back after a crash or VPS reboot. Verify and claim through local TreeHopper exactly as in the Railway flow.
+Caddy obtains and renews TLS certificates and proxies to Arbor. The named `arbor-data` volume survives container replacement, while `restart: unless-stopped` brings both processes back after a crash or VPS reboot. Verify and claim through local Arbor web exactly as in the Railway flow.
 
 For upgrades:
 

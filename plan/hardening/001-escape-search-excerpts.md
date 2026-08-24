@@ -24,7 +24,7 @@
 
 The workspace search index builds each result excerpt with SQLite FTS5's
 `snippet()` function, which splices `<mark>` tags into raw document text and
-escapes nothing. TreeHopper then renders that string through
+escapes nothing. Arbor web then renders that string through
 `dangerouslySetInnerHTML`. Any indexed Markdown file whose body contains HTML
 therefore executes script inside the arbord origin as soon as a search matches
 it — and that origin has unauthenticated read and write access to the user's
@@ -41,7 +41,7 @@ React elements rather than by an HTML string.
 Files involved:
 
 - `packages/stores/src/indexer.ts` — SQLite FTS5 index; `search()` produces the excerpt.
-- `packages/render/src/App.tsx` — TreeHopper shell; renders the search results list.
+- `packages/render/src/App.tsx` — Arbor web shell; renders the search results list.
 - `packages/core/src/protocol.ts` — shared protocol types; `SearchResult` shape crosses the REST boundary.
 
 The excerpt is produced at `packages/stores/src/indexer.ts:136-143`:

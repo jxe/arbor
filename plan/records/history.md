@@ -133,7 +133,7 @@ Normative ownership:
 - [`spec/wire.md`](../../spec/wire.md)
 - [`spec/locators.md`](../../spec/locators.md)
 - [`spec/client.md`](../../spec/client.md)
-- [`docs/treehopper.md`](../../docs/treehopper.md)
+- [`docs/arbor-client.md`](../../docs/arbor-client.md)
 - [`spec/cli.md`](../../spec/cli.md)
 - [`spec/system.md`](../../spec/system.md)
 - [`spec/arbord-rest.md`](../../spec/arbord-rest.md)

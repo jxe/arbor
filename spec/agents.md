@@ -38,4 +38,4 @@ An effectful run produces a readable transcript as ordinary tree content. It inc
 
 Transcripts are versioned and access-controlled by their destination tree. They never contain raw credentials or access-link secrets. A caller may choose not to persist a read-only exploratory transcript, but an effectful run cannot omit the durable record of its committed mutation receipts.
 
-The same agent can run from the CLI, a human client, or another conforming orchestration client. No TreeHopper-specific screen or control is required.
+The same agent can run from the CLI, a human client, or another conforming orchestration client. No Arbor-specific screen or control is required.

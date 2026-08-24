@@ -48,10 +48,10 @@ I can share it as 'private' and use it to sync with my cloud agents. Or, I can g
 ```text
 Joe                              Alice
 projects/atlas/                  work/atlas/
-             └──── same shared tree ────┘
+             └──── same Arbor tree ────┘
 ```
 
-Inside Markdown, these are still ordinary link destinations. From the document `/projects/atlas`, `[Notes](notes)` points to its child and `[Roadmap](../roadmap)` to its sibling; `[Drift](arbor://notes.example.org/essays/drift#x7f3q2)` jumps to another shared tree. (That final fragment is the document's durable ID, which makes it so you can relocate files and directories and the links can heal to point to the right place.)
+Inside Markdown, these are still ordinary link destinations. From the document `/projects/atlas`, `[Notes](notes)` points to its child and `[Roadmap](../roadmap)` to its sibling; `[Drift](arbor://notes.example.org/essays/drift#x7f3q2)` jumps to another Arbor tree. (That final fragment is the document's durable ID, which makes it so you can relocate files and directories and the links can heal to point to the right place.)
 
 I have a little CLI tool to manage all this:
 
@@ -79,7 +79,7 @@ All this, and arbord still materializes the workspace as ordinary files on disk,
 
 ## A browser that is also an editor
 
-Now, remember the second problem: humans have been reading all this in code editors. So imagine a web browser that is also an editor — a lot like Obsidian or Notion — but instead of browsing the HTML web, it browses this universal space, which includes your local files, but also any shared tree you have access to, and any historical revision of any tree. You can read, write, and edit in place, and the browser is aware of the underlying tree structure and its permissions.
+Now, remember the second problem: humans have been reading all this in code editors. So imagine a web browser that is also an editor — a lot like Obsidian or Notion — but instead of browsing the HTML web, it browses this universal space, which includes your local files, but also any Arbor tree you have access to, and any historical revision of any tree. You can read, write, and edit in place, and the browser is aware of the underlying tree structure and its permissions.
 
 This browser is a superset of a web browser, because sync is a superset of GET. The web's fundamental verb fetches a document once; if it changes, that's your problem — refresh, poll, or bolt on a websocket. Here the verb is *subscribe*. You can take any remote tree and **add to workspace** to make a durable placement on your own machine.
 
@@ -199,11 +199,11 @@ Thusly, agents are versioned via revisions; agents are shareable; agent capabili
 
 # Part 3 - What this does to the web
 
-Put together, you have something that is kind of like the filesystem, kind of like Notion, and kind of like the web at once. An editable surface everywhere, agent-native plain files underneath, ordinary relative links nearby, absolute `arbor://` links across shared trees, and lazy access to trees you haven't mounted. **And there's no more `deploy`**: save a file and it is live, immediately, for everyone the tree is shared with, because publishing is just sync.
+Put together, you have something that is kind of like the filesystem, kind of like Notion, and kind of like the web at once. An editable surface everywhere, agent-native plain files underneath, ordinary relative links nearby, absolute `arbor://` links across Arbor trees, and lazy access to trees you haven't mounted. **And there's no more `deploy`**: save a file and it is live, immediately, for everyone the tree is shared with, because publishing is just sync.
 
 Several other things fall out that the web has always struggled with:
 
-**Multiplayer apps come for free.** On the web, making an app multiplayer means adding operational transforms or CRDTs, presence servers, conflict UX. Here, any component rendered over a shared tree *is* a multiplayer app. The `ReadingRoom` above is multiplayer the moment its essays folder is shared.
+**Multiplayer apps come for free.** On the web, making an app multiplayer means adding operational transforms or CRDTs, presence servers, conflict UX. Here, any component rendered over an Arbor tree *is* a multiplayer app. The `ReadingRoom` above is multiplayer the moment its essays folder is shared.
 
 **Auth, login, and cookies are replaced.** The web makes you an account at every site, tracked by cookies, authenticated by passwords. Here there are no per-app accounts. A known person's profile `TreeID` receives access directly; a reserved community profile is claimed once and yields a device credential; a separately generated access link remains revocable by its entry.
 
@@ -223,13 +223,13 @@ There's no build step between you and production, because there's no "production
 - **Deploy pipelines.** CI-to-CDN, environment promotion, cache purging, preview URLs. Publishing is sync; a "preview environment" is a fork.
 - **The CMS/database/file-storage split.** One tree is all three.
 
-And there's an adoption bridge hiding here. Since this whole thing is, among other things, a web framework, a tree can also be deployed as an ordinary website — on Vercel, on Cloudflare, wherever. So imagine one tool that deploys both surfaces at once: the same tree becomes a normal website at your URL *and* a shared tree in the global namespace, crosslinked — the website carries a meta tag or header (`<link rel="arbor" …>`, or an `Arbor-Tree:` response header) naming the tree, so an Arbor-aware browser landing on the website silently upgrades to the live, editable, syncing version, while every legacy browser sees plain HTML. You never have to ask anyone to leave the web. Their browser just discovers the better path is available.
+And there's an adoption bridge hiding here. Since this whole thing is, among other things, a web framework, a tree can also be deployed as an ordinary website — on Vercel, on Cloudflare, wherever. So imagine one tool that deploys both surfaces at once: the same tree becomes a normal website at your URL *and* an Arbor tree in the global namespace, crosslinked — the website carries a meta tag or header (`<link rel="arbor" …>`, or an `Arbor-Tree:` response header) naming the tree, so an Arbor-aware browser landing on the website silently upgrades to the live, editable, syncing version, while every legacy browser sees plain HTML. You never have to ask anyone to leave the web. Their browser just discovers the better path is available.
 
 # Who wants to build this?
 
 I've built a reference implementation over here — the [spec](spec.md). But I'm too busy running MAI to turn this into a startup. Who wants to?
 
-It can definitely become a powerhouse. It's time for a new Dropbox, or GitHub, or Vercel — and this is all of them combined, plus the Notion layer on top. The business models are the proven ones: hosted endpoints and managed shared trees, team permissions and audit, and eventually a marketplace of views, scripts, and agents that runs on the same rails. Every company adopting agents is about to hit all three of the problems this essay opened with, at once, this year. If someone builds this, there are definitely lots of ways to make money.
+It can definitely become a powerhouse. It's time for a new Dropbox, or GitHub, or Vercel — and this is all of them combined, plus the Notion layer on top. The business models are the proven ones: hosted endpoints and managed Arbor trees, team permissions and audit, and eventually a marketplace of views, scripts, and agents that runs on the same rails. Every company adopting agents is about to hit all three of the problems this essay opened with, at once, this year. If someone builds this, there are definitely lots of ways to make money.
 
 
 # Appendix A - wire protocol sketch

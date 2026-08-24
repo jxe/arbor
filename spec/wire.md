@@ -42,7 +42,7 @@ type AccessEntry = {
 };
 ```
 
-Public names are replaceable. `TreeID` identifies a shared tree and raw locator `arbor://tree/<TreeID>/`. `ProfileID` is the profile tree's `TreeID`; display names and handles never become authority identities.
+Public names are replaceable. `TreeID` identifies an Arbor tree and raw locator `arbor://tree/<TreeID>/`. `ProfileID` is the profile tree's `TreeID`; display names and handles never become authority identities.
 
 ## 2. Authentication and access links
 

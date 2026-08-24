@@ -1,5 +1,7 @@
 # Plan 003: Connect Quagmire to exact Arbor source through a thin host
 
+> **Final status: REJECTED — superseded by Plans 012 and 016.** The useful thin-host decisions were carried forward under the Arbor identity. Preserve this file as historical evidence; do not execute it.
+
 > **Executor instructions**: Integrate the exact published Quagmire 0.1 into
 > the TreeHopper foundation from Plan 002. The implemented foundation already
 > makes Arbor's authored mutation exact Markdown source plus
@@ -16,7 +18,7 @@
 > git diff --stat <PLAN002_ARBOR_SHA>..HEAD -- \
 >   native packages/core/src packages/editor/src packages/client/src \
 >   spec/format.md spec/client.md spec/arbord-rest.md spec/fixtures tests \
->   plan/native/README.md docs/treehopper.md
+>   plan/native/README.md docs/arbor-client.md
 > git -C /Users/joe/src/hunch diff --stat <PLAN001_HUNCH_SHA>..HEAD -- \
 >   project.yml Hunch.xcodeproj App/Sources App/Tests
 > ```
@@ -197,7 +199,7 @@ Run Xcode commands sequentially.
   focused tests.
 - Focused `ArborClient` consumption fixes only when it fails to expose the
   implemented exact-source contract already present on the wire.
-- `plan/native/README.md`, `docs/treehopper.md`, and debt/history updates describing
+- `plan/native/README.md`, `docs/arbor-client.md`, and debt/history updates describing
   behavior actually verified here.
 
 **Out of scope**:

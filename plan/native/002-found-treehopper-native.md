@@ -1,5 +1,7 @@
 # Plan 002: Freeze identity and found the new TreeHopper app
 
+> **Final status: REJECTED — superseded by Plans 006–019.** The accepted product is Arbor and cross-device sync uses revisioned Arbor wire, not the provider design below. Preserve this file as historical evidence; do not execute it.
+
 > **Executor instructions**: Build a new Arbor product. Do not copy or rename the
 > Hunch app target. Keep the first end-to-end slice read-only except for an
 > in-memory fake. Run macOS and iOS Xcode commands sequentially. Update this
@@ -9,7 +11,7 @@
 >
 > ```sh
 > git diff --stat 05bcf35..HEAD -- \
->   README.md plan/native/README.md plan/hardening/technical-debt.md docs/treehopper.md \
+>   README.md plan/native/README.md plan/hardening/technical-debt.md docs/arbor-client.md \
 >   native spec/client.md spec/format.md spec/locators.md spec/arbord-rest.md \
 >   package.json tests/protocol
 > ```

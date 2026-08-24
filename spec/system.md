@@ -46,7 +46,7 @@ Language-neutral valid, invalid, edit-preservation, last-valid, nesting, and rem
 
 ## Nested placements
 
-Distinct shared trees may occupy nested local paths. Longest local prefix enters the child tree. The parent must exclude the mounted root from discovery, recursive watching, indexing, generated declarations, snapshots, pushes, pulls, and deletion. The mount is not a parent graph entry and cannot change the parent's ref, ACL, or canonical namespace.
+Distinct Arbor trees may occupy nested local paths. Longest local prefix enters the child tree. The parent must exclude the mounted root from discovery, recursive watching, indexing, generated declarations, snapshots, pushes, pulls, and deletion. The mount is not a parent graph entry and cannot change the parent's ref, ACL, or canonical namespace.
 
 Operations within the mounted root resolve to the child. Operations that would create, replace, move, trash, or restore the mount root itself fail with `reserved-boundary`. Removing the placement leaves its files and remote state intact.
 

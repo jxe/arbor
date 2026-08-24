@@ -4,11 +4,11 @@ This document records replaceable architecture and operating choices in the curr
 
 ## Repository and runtimes
 
-The reference implementation is a Bun/TypeScript workspace. Major packages separate core logical/protocol types, provider-owned filesystem documents and mutation, local arbord HTTP service, stores and private state, wire authority/object handling, TypeScript client, CLI, server rendering, and the TreeHopper React application.
+The reference implementation is a Bun/TypeScript workspace. Major packages separate core logical/protocol types, provider-owned filesystem documents and mutation, local arbord HTTP service, stores and private state, wire authority/object handling, TypeScript client, CLI, server rendering, and the Arbor web React application.
 
-The Apple reference client is a Foundation-only Swift 6 package under `native/Packages/ArborClient`. Native TreeHopper and Hunch integrate that package without making SwiftUI, Clamshell, actor structure, `URLSession`, or package paths part of REST v1.
+The Apple reference client is a Foundation-only Swift 6 package under `native/Packages/ArborClient`. Native Arbor and Hunch integrate that package without making SwiftUI, Clamshell, actor structure, `URLSession`, or package paths part of REST v1.
 
-TreeHopper web uses React and BlockNote. Markdown remains canonical: arbord returns complete operational directory source, BlockNote edits a server-derived block view, and the browser serializes exact/block-granular source for every content write. Child-link reorder is a source write; physical moves remain structural.
+Arbor web uses React and BlockNote. Markdown remains canonical: arbord returns complete operational directory source, BlockNote edits a server-derived block view, and the browser serializes exact/block-granular source for every content write. Child-link reorder is a source write; physical moves remain structural.
 
 ## Sandboxes and generated files
 

@@ -8,7 +8,7 @@ Every content operand is an Arbor [locator](locators.md). The CLI resolves throu
 - `arbor browse <locator>` opens the selected local, remote, live, historical, or `system:` location in the configured human client.
 - `arbor status [<locator>]` reports resolved tree/path, live or historical root, placement, effective/public access, pending synchronization, conflicts, diagnostics, and active safe account/community identity.
 - `arbor sync [--access <subject>=<level> ...] [--clear-access] <local-path> <canonical-locator>` promotes or reconciles a local directory and canonical boundary. A new boundary without access arguments is private; an existing boundary retains its ACL unless access arguments change it.
-- `arbor sync <tree-locator> <local-path>` places and follows a live shared tree. Historical revision locators are rejected for persistent placement.
+- `arbor sync <tree-locator> <local-path>` places and follows a live Arbor tree. Historical revision locators are rejected for persistent placement.
 - `arbor unsync <local-path> [<canonical-locator>]` removes only the matching placement. It never deletes local files, remote identity/history, ACLs, or canonical boundaries.
 - `arbor connect <community-url>` activates an already-issued account/device credential using the isolated Arbor data home.
 - `arbor connection set|test|remove <name>` manages safe `system:connections` metadata while secrets remain in the credential facility.

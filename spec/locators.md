@@ -52,7 +52,7 @@ Authored `.md`, `/_index.md`, and legacy `tree:` spellings may be accepted as in
 - A nested placement enters the child tree. Parent discovery, watching, indexing, snapshots, pulls, and deletion exclude that mounted root.
 - A canonical authority path uses the longest registered canonical boundary prefix, subject to access. An inaccessible nested boundary is not resolved through its parent.
 - A raw TreeID locator resolves independently of its current public name, using a verified endpoint hint or already-known authority record.
-- When the same live shared tree has a local placement, a local client may resolve a canonical or raw locator to that placement. The identity and decoded logical path remain unchanged.
+- When the same live Arbor tree has a local placement, a local client may resolve a canonical or raw locator to that placement. The identity and decoded logical path remain unchanged.
 - Ambiguous identity is an error. A resolver never guesses among placements, endpoints, PageIDs, or boundary records.
 
 Locator resolution is separate from rendering. A successful result always retains explicit tree scope so mounted/composed child actions, search results, backlinks, and historical reads cannot silently fall back to a parent's tree.

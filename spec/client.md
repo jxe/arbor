@@ -1,7 +1,7 @@
 # Arbord clients
 *Part of the [Arbor spec](../spec.md): invariants shared by human and programmatic clients.*
 
-This specification does not prescribe a user interface. TreeHopper is one reference human client; a conforming client may use different controls, layout, editor, and platform conventions.
+This specification does not prescribe a user interface. Arbor web and native Arbor are reference human clients; a conforming client may use different controls, layout, editor, and platform conventions.
 
 ## Persistence authority
 
@@ -15,7 +15,7 @@ The client accepts the locator forms in [locators.md](locators.md) and retains t
 
 Directory children, search results, backlinks, Trash/recovery rows, visited trees, and mounted boundaries retain explicit tree scope. The client never reconstructs a `NodeRef` from a visible path alone when a resolved reference is available. Historical roots are read-only.
 
-A remote visit does not invent local identity, a placement, or a temporary directory. If the same shared tree has a local placement, arbord may resolve the visit to it without changing the tree/path identity.
+A remote visit does not invent local identity, a placement, or a temporary directory. If the same Arbor tree has a local placement, arbord may resolve the visit to it without changing the tree/path identity.
 
 ## Source-preserving Markdown
 

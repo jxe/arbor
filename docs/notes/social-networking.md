@@ -5,7 +5,7 @@
 
 atproto and Arbor share a skeleton: DNS names resolving to a stable identity plus a movable endpoint (handle → DID → PDS ≈ domain → `TreeID` → endpoint hints); signed Merkle repositories of content-addressed records; identity decoupled from hosting; a sync protocol that moves diffs. The wire section could describe an atproto repo with a thesaurus.
 
-But the defaults are inverted on every axis that matters. atproto is constitutionally public — the firehose works *because* every repo is world-readable, and private data remains its acknowledged open problem; Arbor is capability-gated from the first byte, and public is the degenerate case of a grant. An atproto repo is single-writer — one DID signs it, and there is no shared-document story; Arbor's center of gravity is shared trees, grants, and merges. atproto records are small lexicon-schema'd JSON built for global aggregation; Arbor nodes are files, documents, and databases built to be worked in. And atproto's crown jewel is the layer Arbor deliberately lacks: relays and AppViews, the big-world aggregation that gives the network a single queryable timeline.
+But the defaults are inverted on every axis that matters. atproto is constitutionally public — the firehose works *because* every repo is world-readable, and private data remains its acknowledged open problem; Arbor is capability-gated from the first byte, and public is the degenerate case of a grant. An atproto repo is single-writer — one DID signs it, and there is no shared-document story; Arbor's center of gravity is Arbor trees, grants, and merges. atproto records are small lexicon-schema'd JSON built for global aggregation; Arbor nodes are files, documents, and databases built to be worked in. And atproto's crown jewel is the layer Arbor deliberately lacks: relays and AppViews, the big-world aggregation that gives the network a single queryable timeline.
 
 So neither obviates the other today: atproto is a broadcast medium; Arbor is a workspace medium that can also broadcast. The question this note asks is what happens when the substrate assumption flips.
 
@@ -35,7 +35,7 @@ Most of atproto's bespoke surface exists because it had to build its own substra
 
 1. **Identity recovery and rotation.** atproto's DID layer — rotation keys, recovery windows, PLC — is real work Arbor has not done; it is open problem #1, and self-certifying IDs sit in the deferred list. This is the piece of atproto worth importing wholesale rather than reinventing.
 2. **The economics don't simplify.** Someone still crawls the world and hosts a planet-scale index. Arbor makes the *interfaces* nearly free; it does nothing about the *operational* weight, which is most of what running a relay actually is.
-3. **Discovery and bootstrap.** Which trees exist? Which relays are honest? Directory services are still needed — the deferred "discovery indexes as mountable shared trees" stops being deferrable the day someone builds this.
+3. **Discovery and bootstrap.** Which trees exist? Which relays are honest? Directory services are still needed — the deferred "discovery indexes as mountable Arbor trees" stops being deferrable the day someone builds this.
 4. **Derived-state trust.** An AppView's index is unverifiable aggregation — you trust the indexer, in both worlds. Arbor open problem #11 (upstream-hosted results are not client-verifiable the way objects are) is the same wound in different skin.
 5. **Moderation policy** — social, not technical; no substrate change touches it.
 

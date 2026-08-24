@@ -1,9 +1,9 @@
 # Build plan
-*Forward roadmap for Arbor and the reference implementation. Delivered work and evidence live in [history](../records/history.md); the [native workstream](../native/README.md) owns TreeHopper, Hunch migration, Clamshell, and iCloud-native integration.*
+*Forward roadmap for Arbor and the reference implementation. Delivered work and evidence live in [history](../records/history.md); the [native workstream](../native/README.md) owns native Arbor, Hunch conversion, Quagmire integration, offline replicas, and authority-backed synchronization.*
 
 ## Status at a glance
 
-The local daily driver and the reference community-hosting foundation are implemented. Arbor can browse and edit the local filesystem, promote ordinary folders into canonical shared trees, host person and group profiles, claim reserved profiles, synchronize placements, and apply whole-tree access through the browser and CLI.
+The local daily driver and the reference community-hosting foundation are implemented. Arbor can browse and edit the local filesystem, promote ordinary folders into canonical Arbor trees, host person and group profiles, claim reserved profiles, synchronize placements, and apply whole-tree access through the browser and CLI.
 
 Workspace composition is now implemented. The roadmap begins with data and SQLite rather than the operational and account-lifecycle follow-ups left by the community-hosting foundation.
 
@@ -31,10 +31,10 @@ without blocking those forward product capabilities
 The implemented foundation is summarized here only to establish what later milestones may depend on. Source ownership, intentional limits, and verification evidence belong in [history.md](../records/history.md).
 
 - The local daily driver provides filesystem-wide browsing/editing, exact-source Markdown writes, provider-owned complete directory documents, collections, durable REST mutations and event handoff, TypeScript/Swift clients, search/backlinks/recovery, and safe cloud-placeholder handling.
-- Shared trees have stable `TreeID`s, immutable deterministic objects, CAS synchronization, canonical HTTP/Arbor names, raw TreeID fallback, whole-tree access, and independently accessed nested boundaries.
+- Arbor trees have stable `TreeID`s, immutable deterministic objects, CAS synchronization, canonical HTTP/Arbor names, raw TreeID fallback, whole-tree access, and independently accessed nested boundaries.
 - One host represents one community with a public root profile, complete person/group profile trees at `/~<handle>`, authored reservations and membership, atomic first-claim-wins profiles, and account/device credentials.
 - Share promotes a visible subtree in place without changing its URL or OS location. External folders appear as virtual mounted children, and longer accessible boundaries resolve by longest prefix.
-- TreeHopper supplies profile, claim, and Share surfaces; `browse`, `sync`, `unsync`, `serve`, and recovery-oriented `connect` plumbing provide the CLI surface.
+- Arbor web supplies profile, claim, and Share surfaces; `browse`, `sync`, `unsync`, `serve`, and recovery-oriented `connect` plumbing provide the CLI surface.
 - Reader-local nested placements compose distinct trees without entering a parent graph or revision. Home includes durable remote visits, **Add to workspace**, nested placements, and provenance-correct search, backlinks, Trash, and recovery surfaces.
 
 The durable product contracts live in the topic specifications rather than this roadmap:
@@ -42,7 +42,7 @@ The durable product contracts live in the topic specifications rather than this 
 - [wire and community authority](../../spec/wire.md) owns canonical boundaries, promotion, profiles, claims, access, objects, refs, and HTTP projection;
 - [locators](../../spec/locators.md) owns canonical names, raw TreeID fallback, immutable revision selection, and resolution;
 - [client](../../spec/client.md) owns UI-independent resolution, exact-source preservation, provenance, retry/resync, and secret handling;
-- [TreeHopper reference design](../../docs/treehopper.md) owns profile controls, Claim, Share, labels, Home, and interaction design;
+- [Arbor client reference design](../../docs/arbor-client.md) owns profile controls, Claim, Share, labels, Home, and interaction design;
 - [CLI](../../spec/cli.md) owns command forms and deployment arguments;
 - [`system:` and placements](../../spec/system.md) owns the data home, `trees.yaml`, safe account state, credentials, visits, nested placements, and local durability;
 - [arbord REST](../../spec/arbord-rest.md) owns the local client and mutation boundary.
@@ -54,14 +54,14 @@ The durable product contracts live in the topic specifications rather than this 
 
 **Status: Implemented on 2026-08-02. See [history.md](../records/history.md#workspace-composition-forward-milestone-1).**
 
-Outcome: a workspace can mount distinct local and shared trees wherever they make sense, while navigation and cross-tree surfaces retain exact provenance and remote authority.
+Outcome: a workspace can mount distinct local and Arbor trees wherever they make sense, while navigation and cross-tree surfaces retain exact provenance and remote authority.
 
 - Distinct shared `TreeID`s can occupy nested local paths; longest-prefix navigation enters the child while parent discovery, watching, indexing, snapshots, pulls, and revisions exclude it.
 - Home presents nested placements, account-visible trees, durable remote visits, **Add to workspace**, and merged recovery surfaces without fabricating aggregate content.
 - Search, explicit cross-tree backlinks, Trash, and recovery retain the originating `TreeID` and local placement.
 - Remote visits persist safe metadata and a credential-free read cache for ordinary offline reopening.
 
-Completion gate: Alice mounts two different shared trees at locally meaningful paths, visits a third unplaced tree, adds it to her workspace, and sees provenance-correct search, backlinks, Trash, and recovery results without changing remote access or duplicating mounted content.
+Completion gate: Alice mounts two different Arbor trees at locally meaningful paths, visits a third unplaced tree, adds it to her workspace, and sees provenance-correct search, backlinks, Trash, and recovery results without changing remote access or duplicating mounted content.
 
 ## Milestone 2 — data and SQLite
 
@@ -87,7 +87,7 @@ Outcome: a Markdown-defined agent runs against a legible, permission-bounded vie
 - Define agents as Markdown prompt/config pages whose initial tools are Arbor's built-in read, search, navigation, and mutation operations.
 - Assemble restricted namespaces from visible shared-tree placements, remote access, and explicit process ceilings.
 - Run agents in an isolated process/runtime that can address only its assembled namespace.
-- Render the same agent in CLI and TreeHopper with inspectable ordinary-tree transcripts and effects.
+- Render the same agent in the CLI and Arbor clients with inspectable ordinary-tree transcripts and effects.
 - Present the effective read/write namespace and built-in operations as a concrete consent statement before execution.
 
 Completion gate: a file-defined agent can research and update two mounted trees with explicit consent, cannot address content outside its assembled namespace, and leaves a readable versioned transcript of its actions.
@@ -102,7 +102,7 @@ Outcome: ordinary `.tsx` files can safely read, render, and mutate workspace con
 - Generate validators and stable typed handles; infer literal read/write prefixes and require declarations for computed paths.
 - Run deterministic handlers in isolated workers with a scoped tree client as their only authority.
 - Track read sets and rerun affected subscriptions.
-- Render components as sandboxed TreeHopper islands.
+- Render components as sandboxed Arbor web islands.
 - Add `arbor run` over the same handle identity.
 - Allow an agent configuration to name typed query/mutation handles as additional tools without widening its namespace.
 
@@ -166,7 +166,7 @@ Hardening is not a numbered product dependency:
 
 Unless an accepted milestone supplies a concrete need:
 
-- no path-scoped remote access: a subtree with different access is a nested shared tree;
+- no path-scoped remote access: a subtree with different access is a nested Arbor tree;
 - no separate local multi-tenant account or group-administration database: groups are authored trees;
 - no REST v2 or compatibility adapter for in-place REST v1 changes;
 - no SDK generation or universal capability negotiation;
@@ -184,7 +184,7 @@ These are unresolved design questions, not hidden implementation status:
 3. **Merge semantics.** Text has three-way merge; structured collections and whole-database SQLite revisions need backing-appropriate logical conflict semantics.
 4. **Determinism discipline.** Query and agent-tool runtimes must keep clock, randomness, I/O, and runtime upgrades from changing supposedly deterministic results.
 5. **Compiler correctness.** Handle extraction, validator generation, realm separation, and access inference are security boundaries and need independent verification.
-6. **Schema evolution.** Mounted consumers may remain on older shapes while a shared tree or external database changes schema.
+6. **Schema evolution.** Mounted consumers may remain on older shapes while an Arbor tree or external database changes schema.
 7. **Consent precision.** Prefix declarations are enforcement-true but may be broader than actual reads/writes; computed paths must remain visibly broad rather than producing false reassurance.
 
 ## Planning reference

@@ -150,7 +150,7 @@ Stop the client service before adding a new placement with `arbor sync`, then st
 
 ## Test discipline
 
-Use a fresh shared tree for every scenario, named with a monotonic scenario ID such as `s01-a-to-all` or `s12-edit-delete`. A conflicted tree is evidence: do not overwrite or reuse it merely to continue the run. Start the next scenario with a new tree.
+Use a fresh Arbor tree for every scenario, named with a monotonic scenario ID such as `s01-a-to-all` or `s12-edit-delete`. A conflicted tree is evidence: do not overwrite or reuse it merely to continue the run. Start the next scenario with a new tree.
 
 Every authored change contains a unique marker with the scenario, client, and sequence, for example:
 
@@ -187,7 +187,7 @@ Then run these serially from a clean, converged ref:
 
 For every row, require exact convergence on all three clients before starting the next row. Also restart the authoring client's arbord after its change and verify that restart does not create a new `TreeID` or duplicate canonical boundary.
 
-Repeat the A/B/C ring once with changes made directly through the filesystem and once through TreeHopper or REST mutations. This distinguishes filesystem observation from protocol mutation behavior.
+Repeat the A/B/C ring once with changes made directly through the filesystem and once through Arbor web or REST mutations. This distinguishes filesystem observation from protocol mutation behavior.
 
 ## Outage and degraded-network scenarios
 
@@ -266,7 +266,7 @@ Also exercise Arbor-specific boundaries:
 
 - edit a parent directory while another client promotes a nested subtree;
 - attempt to replace a registered nested boundary and require `reserved-boundary` rather than ordinary overwrite;
-- edit the parent and nested shared tree independently and confirm the two `TreeID` scopes do not contaminate one another;
+- edit the parent and nested Arbor tree independently and confirm the two `TreeID` scopes do not contaminate one another;
 - revoke a client's write access while it is offline with local edits, then reconnect it and require that the authority reject its push while its local bytes remain readable;
 - restart the community between object upload and ref advancement under repeated writes, verifying that unreachable objects are harmless and the mutable ref remains atomic.
 

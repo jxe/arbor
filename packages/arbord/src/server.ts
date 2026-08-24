@@ -525,7 +525,7 @@ function startArborServer(
           return new Response(request.method === "HEAD" ? null : Buffer.from(surface.bytes), { headers: baseHeaders });
         }
         const index = join(renderRoot, "index.html");
-        if (!existsSync(index)) return new Response("TreeHopper web is not built. Run `bun run build:web`.", { status: 503 });
+        if (!existsSync(index)) return new Response("Arbor web is not built. Run `bun run build:web`.", { status: 503 });
         return new Response(await readFile(index), { headers: { "content-type": MIME[".html"] ?? "text/html" } });
       } catch (error) {
         if (error instanceof ProtocolError) {
@@ -575,7 +575,7 @@ export async function serveArbor(
   }
 }
 
-/** Serve TreeHopper's remote/account surfaces without inventing a local workspace. */
+/** Serve Arbor web's remote/account surfaces without inventing a local workspace. */
 export async function serveArborControl(options: Omit<ArborServerOptions, "faultInjector"> = {}) {
   // Remote browsing must not invent a filesystem session, but it still owns
   // background reconciliation for the user's explicitly tracked placements.
