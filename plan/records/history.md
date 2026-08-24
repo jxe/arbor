@@ -3,15 +3,17 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
-## Railway authority backup and old-image restore proof
+## Railway authority backup and isolated migration rehearsal
 
 **Status: Passed on 2026-08-24; no production migration performed.**
 
 The production authority on Railway project `strong-truth`, service `resplendent-freedom`, remained online while SQLite created a transactionally consistent `VACUUM INTO` snapshot. That database, the complete immutable-object store, and a secret-free preflight manifest were archived on the mounted volume and downloaded to `/Users/joe/src/arbor-backups/railway/20260824T120458Z/arbor-authority-20260824T120458Z.tar.gz`. The archive SHA-256 is `3fdfd1b4638d37708d573543f61070c58d05a8e8aa90c97f8175691657b21eff`.
 
-The off-volume copy passed SQLite `quick_check`. All 101 object files, totaling 947,073 bytes, matched their hash-derived filenames; the manifest recorded four trees, two accounts, eight access entries, and four public resources without credential material. A separate restored copy then started successfully from deployed Arbor commit `dc34126` under exact Bun 1.3.14, bound only to localhost while retaining the production canonical origin. Its health endpoint passed, and the HTML and untouched Markdown hashes for `/`, `/~joe`, `/~joe/drift`, and `/~mariana` matched the live preflight exactly.
+The off-volume copy passed SQLite `quick_check`. All 101 object files, totaling 947,073 bytes, matched their hash-derived filenames; the manifest recorded four trees, two accounts, eight access entries, 49 reflog entries, and four public resources without credential material. Each tree's last reflog root already matched its current ref. A separate restored copy then started successfully from deployed Arbor commit `dc34126` under exact Bun 1.3.14, bound only to localhost while retaining the production canonical origin. Its health endpoint passed, and the HTML and untouched Markdown hashes for `/`, `/~joe`, `/~joe/drift`, and `/~mariana` matched the live preflight exactly.
 
-The production service and volume were not deployed, restarted, migrated, or otherwise changed beyond writing the backup directory. Railway-managed snapshots were unavailable on the Hobby workspace, so this application-consistent export is the retained rollback artifact. Plan 011 must perform the one-way candidate upgrade and idempotent restart against another restored copy before requesting live-deploy approval.
+Another fresh restored copy then ran the real one-way startup upgrade from exact candidate commit `ddd0edd15f6261e3cb07234e14a561b47965c4c4`, also under exact Bun 1.3.14. All 49 reflog rows became exact accepted-update rows without an extra baseline; the two account credential digests became two unrevoked `Initial device` records; and no pairing was created. All legacy database rows, current roots, access, 101 object hashes, and public output hashes remained exact. Restart added no history or device rows and retained their generated IDs. The existing locally stored Joe credential authenticated successfully against the isolated candidate with the same account/profile identity and migrated device; only its expected `last_used_at` changed. No raw secret entered output or evidence.
+
+The production service and volume were not deployed, restarted, or migrated during either restore exercise. Railway-managed snapshots were unavailable on the Hobby workspace, so this application-consistent export is the retained rollback artifact. The sole operator has stopped arbord and is holding writes until replacement, making this the final pre-upgrade backup. All Plan 011 predeploy gates have passed; live mutation still requires explicit approval immediately before deployment.
 
 ## Four-host accepted-update and authorization qualification
 

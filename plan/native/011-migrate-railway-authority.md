@@ -12,13 +12,19 @@
 - **Depends on**: Plans 009 and 010
 - **Category**: production migration
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Progress**: IN PROGRESS — exact committed revision `ddd0edd` passed both four-host Hetzner suites; the 2026-08-24 production backup was downloaded and restored successfully under deployed commit `dc34126` with Bun 1.3.14; the candidate-image upgrade and idempotent-restart rehearsal is next.
+- **Progress**: IN PROGRESS — exact committed revision `ddd0edd` passed both four-host Hetzner suites and the isolated restored-copy startup upgrade/restart under Bun 1.3.14; the write-frozen production authority is ready for explicit live-deploy approval.
 
 ## Backup evidence
 
 Railway-managed snapshots are unavailable on the current Hobby workspace, so the rollback artifact is an application-consistent export: SQLite `VACUUM INTO` plus the complete immutable-object store and a safe preflight manifest. The archive remains on the production volume and an off-volume copy is retained at `/Users/joe/src/arbor-backups/railway/20260824T120458Z/arbor-authority-20260824T120458Z.tar.gz` with SHA-256 `3fdfd1b4638d37708d573543f61070c58d05a8e8aa90c97f8175691657b21eff`.
 
-The downloaded archive passed SQLite `quick_check`, contained 101 hash-valid immutable objects totaling 947,073 bytes, and recorded four trees, two accounts, and eight access entries without credential material. A separate extracted copy started under deployed source `dc34126` and exact Bun 1.3.14 while bound only to localhost and retaining the production canonical origin. Health passed, and the HTML and Markdown hashes for `/`, `/~joe`, `/~joe/drift`, and `/~mariana` matched the live preflight exactly. The downloaded archive remains unchanged and the tested old-image restore is retained; candidate migration must use another copy.
+The downloaded archive passed SQLite `quick_check`, contained 101 hash-valid immutable objects totaling 947,073 bytes, and recorded four trees, two accounts, eight access entries, and 49 reflog entries without credential material. Every tree's latest reflog root matched its current ref. A separate extracted copy started under deployed source `dc34126` and exact Bun 1.3.14 while bound only to localhost and retaining the production canonical origin. Health passed, and the HTML and Markdown hashes for `/`, `/~joe`, `/~joe/drift`, and `/~mariana` matched the live preflight exactly. The downloaded archive remains unchanged and the tested old-image restore is retained. The sole operator has stopped arbord and is holding all writes, so this retained archive is the final pre-upgrade backup.
+
+## Candidate rehearsal evidence
+
+A second copy of the restored volume started under exact committed candidate `ddd0edd15f6261e3cb07234e14a561b47965c4c4` and exact Bun 1.3.14, bound only to localhost with the production canonical origin retained. The real startup path converted all 49 legacy reflog rows into 49 accepted updates with matching tree, root, previous root, kind, timestamp, and order; no current-root baseline was needed because every reflog already ended at its tree's current ref. It created exactly one unrevoked `Initial device` for each of the two existing accounts, preserving both credential digests, and created no pairing.
+
+Before and after restart, SQLite `quick_check` passed; all legacy tree, boundary, reflog, account, access, and metadata rows remained exact; all 101 object path/content hashes remained exact; and the four public HTML and Markdown hashes matched the preflight. Restart retained the same accepted-update and device IDs without adding rows. The existing locally stored Joe credential authenticated against the isolated candidate, returned the same account/profile identity and its migrated device, and changed only that device's expected `last_used_at` field. No raw credential was printed, copied, or recorded. Production was not deployed, restarted, or migrated during this rehearsal.
 
 ## Why this matters
 
@@ -44,7 +50,7 @@ Native sync cannot qualify against a fictional environment. The configured Railw
 1. Record safe preflight evidence: tree IDs/canonical paths/access, current root refs, current public Markdown hashes, schema version, object count, and service revision.
 2. From the exact committed candidate revision, run `bun run lab:hcloud test` and `bun run lab:hcloud test:authorization` on the four disposable Hetzner hosts. Require serial and three-writer convergence, private accepted-history/derived-request replay invariants, absence of public history and historical-object access, client-owned conflict persistence across restart and explicit resolution, `/push` absence, pairing/revocation, distinct-account read/write collaboration, read-only write denial without history/object retention, and existence-hiding denial for an authenticated subject with no access. Collect evidence and tear down the disposable hosts. Any failure returns to Plans 008–010; it is not waived during live approval.
 3. Create a complete Railway volume backup. Restore a copy into an isolated authority and start it with the currently deployed image. Verify the preflight identities, refs, access, credentials, object integrity, and public hashes. This proves the rollback artifact before any live mutation.
-4. Against a separate copy of that restored volume, start the exact candidate image and let its real one-way startup upgrade run. Restart it to prove idempotence. Require one baseline accepted update per legacy tree, valid initial-device records for existing credentials, unchanged identities/refs/access/public hashes, and zero missing or corrupt objects. Do not substitute a special dry-run path for the code that production will execute.
+4. Against a separate copy of that restored volume, start the exact candidate image and let its real one-way startup upgrade run. Restart it to prove idempotence. Require each legacy reflog row to become one accepted update in the same per-tree order, appending a current-root baseline only if the latest legacy reflog root did not already equal the current ref. Also require valid initial-device records for existing credentials, unchanged identities/refs/access/public hashes, and zero missing or corrupt objects. Do not substitute a special dry-run path for the code that production will execute.
 5. Only after the restored-copy rehearsal and Hetzner gate pass, request explicit approval to mutate Railway. Pause writes, confirm the backup is retained, deploy the exact tested `updates-v1`/private-history/device-capable image, allow its one-way startup upgrade to complete, and restart once to prove idempotence.
 6. Verify every preflight root is still the current ref, public HTML/Markdown hashes match, canonical discovery/access work, public accepted-history reads are absent, non-current/draft object access is denied to every wire subject, and existing local arbord reconnects.
 7. Create an isolated private Railway test tree; repeat the short production smoke for one-sided sync, additive Markdown merge, structured client-owned conflict, canonical semantic-request replay, watch/internal history, and device revoke. This is a production-environment verification, not a substitute for the earlier Hetzner acceptance gate.
@@ -55,7 +61,7 @@ Native sync cannot qualify against a fictional environment. The configured Railw
 Run the repository gates before deploy, then documented production smoke commands that reveal no secrets. Expected evidence:
 
 - pre/post current directory roots and public Markdown hashes are identical;
-- each legacy tree has one baseline linear history record and its exact original current root;
+- accepted-update history preserves every legacy reflog row in the same per-tree order, adds a current-root baseline only where the legacy reflog did not already end at that root, and retains every exact original current root;
 - Railway restart retains private accepted-update history, accepted-row request digests, and devices; rejected conflicts leave no authority-side state;
 - local arbord can sync the isolated private tree and the server performs the merge;
 - a revoked test device is denied.
@@ -74,7 +80,7 @@ git diff --check
 ## Done criteria
 
 - [x] The complete backup was restored and verified under the previous image before live deploy.
-- [ ] A separate restored copy passed the real one-way upgrade and an idempotent restart with exact identities, refs, access, credentials, and public output.
+- [x] A separate restored copy passed the real one-way upgrade and an idempotent restart with exact identities, refs, access, credentials, and public output.
 - [x] The exact candidate revision passed both full Hetzner suites before live approval.
 - [ ] All real trees preserved exact identity/content/access.
 - [ ] `updates-v1` discovery is live and `/push` is absent from both server and clients.

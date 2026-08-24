@@ -12,9 +12,9 @@
 - **Depends on**: Plan 008
 - **Category**: security/product
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Implementation status**: PARTIAL — distinct device credentials, one-use pairing, provenance, revocation, TypeScript/Swift client support, and the browser management surface are implemented locally; the four-host Hetzner suite passed pairing/revocation, while restored-volume upgrade proof and pairing-specific browser E2E coverage remain outstanding.
-- **Verified at**: current working tree, 2026-08-24 (`bun run test`, `bun run test:protocol`, `swift test` through the protocol harness, the general `bun run test:e2e` browser regression suite, `bun run typecheck`, `bun run build`, `git diff --check`)
-- **Production status**: local/test authorities only; the disposable Hetzner credential gate passed on 2026-08-24, but no restored-volume or Railway credential-upgrade rehearsal has run.
+- **Implementation status**: PARTIAL — distinct device credentials, one-use pairing, provenance, revocation, TypeScript/Swift client support, and the browser management surface are implemented locally; the four-host Hetzner suite passed pairing/revocation and the restored-production-volume rehearsal preserved both existing credentials, while pairing-specific browser E2E coverage remains outstanding.
+- **Verified at**: exact committed candidate `ddd0edd`, 2026-08-24 (`bun run test`, `bun run test:protocol`, `swift test` through the protocol harness, the general `bun run test:e2e` browser regression suite, `bun run typecheck`, `bun run build`, `git diff --check`, four-host Hetzner qualification, isolated restored-volume startup/restart and existing-credential authentication)
+- **Production status**: local/test authorities only; the disposable Hetzner credential gate and restored-volume credential-upgrade rehearsal passed on 2026-08-24, but Railway has not been migrated.
 
 ## Why this matters
 
@@ -67,7 +67,7 @@ Expected: one concurrent claim wins; reuse fails; revocation blocks subsequent r
 
 - [x] Every installation can have a distinct revocable credential.
 - [x] Pairings are short-lived, one-use, digest-only at rest.
-- [ ] Existing accounts/profile TreeIDs do not change.
+- [x] Existing accounts/profile TreeIDs do not change.
 - [ ] Web pairing and revocation pass E2E tests.
 
 ## STOP conditions
