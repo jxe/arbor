@@ -6,7 +6,7 @@ This document records the intended Arbor web/native product design so those choi
 
 ## Browser and Home
 
-Arbor clients use one locator-driven browser for ordinary local files, placed trees, remote visits, historical revisions, and safe `system:` records. Home groups:
+Arbor clients use one locator-driven browser for ordinary local files, placed trees, remote visits, explicit arbord historical-root locators, and safe `system:` records. Home groups:
 
 - current local location and recent places;
 - placed and nested Arbor trees;
@@ -14,7 +14,7 @@ Arbor clients use one locator-driven browser for ordinary local files, placed tr
 - durable remote visits, with stale/offline state;
 - merged search, backlinks, Trash, recovery, and diagnostics with visible provenance.
 
-The launch path is a starting location, not a navigation boundary. Local untracked browsing stays shallow and demand-driven. Remote unplaced trees render as read-only Arbor content, not embedded public HTML. Historical pages show a persistent read-only revision state.
+The launch path is a starting location, not a navigation boundary. Local untracked browsing stays shallow and demand-driven. Remote unplaced trees render as read-only Arbor content, not embedded public HTML. Pages opened through an arbord historical-root locator show a persistent read-only revision state. This does not imply an authority accepted-history browser: the authority exposes neither its accepted-update log nor non-current objects.
 
 Navigation retains back/forward history, breadcrumbs, mounted-boundary provenance, and familiar sidebar/drawer behavior. Web may use a responsive overlay drawer; native follows platform navigation conventions.
 
@@ -46,6 +46,14 @@ The promotion surface turns an ordinary directory into an Arbor tree. It:
 The access editor uses literal **Can view**, **Can edit**, and **Remove access** labels and shows Everyone, person/group profiles, and revocable links separately. It distinguishes public access from effective access and lets an administrator revoke by entry. New link secrets are generated client-side and shown once; copy/open behavior keeps them in a fragment until converted into the secret header.
 
 Arbor clients must not place raw secrets in loopback URLs, browser history, visit records, logs, or diagnostics.
+
+## Synchronization, conflicts, and devices
+
+A placed tree exposes understandable idle, syncing, offline, conflict, and error states without exposing authority internals. Arbord durably owns the pending accepted base, candidate root, and required immutable objects. A retry submits the same semantic intent; clients do not invent or display an authority mutation/idempotency key. Current, accepted, and merged results become visible only after arbord has rehashed, validated, and durably materialized the returned graph.
+
+An unsafe merge remains client state. The client shows the affected paths and reasons, preserves the local files and complete returned draft across restart, permits further local edits, and offers explicit inspect/edit/choose-and-resubmit actions. Resolution is a new ordinary update against the returned current accepted update. There is no server conflict record, accepted-history page, historical-object fetch, or authored conflict-copy file.
+
+The profile control includes **Pair a device** and device management without revealing an existing credential. Pairing uses a short-lived one-use secret plus a confirmation code; a claimed installation receives its own revocable credential and safe device label. Active and revoked devices are identified by stable device identity rather than their mutable labels, and revocation is explicit. The QR/pairing payload is not an Arbor navigation URL and never places a durable credential in browser history.
 
 ## Labels and actions
 
