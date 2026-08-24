@@ -3,9 +3,9 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
-## Railway authority backup and isolated migration rehearsal
+## Railway authority backup, migration, and clean-runtime cutover
 
-**Status: Passed on 2026-08-24; no production migration performed.**
+**Status: Production migration and clean-runtime restart passed on 2026-08-24.**
 
 The production authority on Railway project `strong-truth`, service `resplendent-freedom`, remained online while SQLite created a transactionally consistent `VACUUM INTO` snapshot. That database, the complete immutable-object store, and a secret-free preflight manifest were archived on the mounted volume and downloaded to `/Users/joe/src/arbor-backups/railway/20260824T120458Z/arbor-authority-20260824T120458Z.tar.gz`. The archive SHA-256 is `3fdfd1b4638d37708d573543f61070c58d05a8e8aa90c97f8175691657b21eff`.
 
@@ -13,7 +13,11 @@ The off-volume copy passed SQLite `quick_check`. All 101 object files, totaling 
 
 Another fresh restored copy then ran the real one-way startup upgrade from exact candidate commit `ddd0edd15f6261e3cb07234e14a561b47965c4c4`, also under exact Bun 1.3.14. All 49 reflog rows became exact accepted-update rows without an extra baseline; the two account credential digests became two unrevoked `Initial device` records; and no pairing was created. All legacy database rows, current roots, access, 101 object hashes, and public output hashes remained exact. Restart added no history or device rows and retained their generated IDs. The existing locally stored Joe credential authenticated successfully against the isolated candidate with the same account/profile identity and migrated device; only its expected `last_used_at` changed. No raw secret entered output or evidence.
 
-The production service and volume were not deployed, restarted, or migrated during either restore exercise. Railway-managed snapshots were unavailable on the Hobby workspace, so this application-consistent export is the retained rollback artifact. The sole operator has stopped arbord and is holding writes until replacement, making this the final pre-upgrade backup. All Plan 011 predeploy gates have passed; live mutation still requires explicit approval immediately before deployment.
+After explicit operator approval and with arbord still stopped, migration release `c16a878` deployed successfully to Railway. The live startup produced 49 accepted updates and two unrevoked initial devices with zero pairings. SQLite `quick_check`, exact legacy table digests, all current roots, canonical paths, access, 101 object hashes and byte count, and all four public HTML/Markdown hashes matched the final preflight. The locally retained Joe credential authenticated as the same account/profile and migrated device without exposing credential material.
+
+The migration compatibility paths were then removed in clean runtime `875f52b`: startup no longer backfills accepted updates/devices, migrates legacy owner/slug trees, mutates accepted-update columns, or drops old replay tables. New authorities create the current schema; existing authorities must pass an explicit exact-schema and data-invariant assertion or fail without modification. That runtime deployed successfully, passed the same live checks, restarted explicitly, and passed them again. Live discovery advertises `updates-v1`, while the former per-tree `/push` route is absent.
+
+Railway-managed snapshots were unavailable on the Hobby workspace, so the application-consistent export above remains the retained rollback artifact alongside the tested old revision. No rollback was needed. Plan 011 remains open only for an isolated private production sync/pairing/revocation smoke and the local arbord reconnect; the data migration and maintained-runtime cleanup are complete.
 
 ## Four-host accepted-update and authorization qualification
 

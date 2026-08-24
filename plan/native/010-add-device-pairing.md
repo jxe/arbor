@@ -12,9 +12,9 @@
 - **Depends on**: Plan 008
 - **Category**: security/product
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Implementation status**: PARTIAL — distinct device credentials, one-use pairing, provenance, revocation, TypeScript/Swift client support, and the browser management surface are implemented locally; the four-host Hetzner suite passed pairing/revocation and the restored-production-volume rehearsal preserved both existing credentials, while pairing-specific browser E2E coverage remains outstanding.
-- **Verified at**: exact committed candidate `ddd0edd`, 2026-08-24 (`bun run test`, `bun run test:protocol`, `swift test` through the protocol harness, the general `bun run test:e2e` browser regression suite, `bun run typecheck`, `bun run build`, `git diff --check`, four-host Hetzner qualification, isolated restored-volume startup/restart and existing-credential authentication)
-- **Production status**: local/test authorities only; the disposable Hetzner credential gate and restored-volume credential-upgrade rehearsal passed on 2026-08-24, but Railway has not been migrated.
+- **Implementation status**: PARTIAL — distinct device credentials, one-use pairing, provenance, revocation, TypeScript/Swift client support, and the browser management surface are implemented; four-host Hetzner passed pairing/revocation and the live Railway migration preserved both existing credentials, while pairing-specific browser E2E coverage remains outstanding.
+- **Verified at**: Arbor `875f52b`, 2026-08-24 (`bun run test`, `bun run test:protocol`, `swift test` through the protocol harness, the general `bun run test:e2e` browser regression suite, `bun run typecheck`, `bun run build`, `git diff --check`, four-host Hetzner qualification, isolated restored-volume migration/restart, and live Railway credential authentication after clean-runtime restart)
+- **Production status**: live on Railway. The two existing account credentials became two unrevoked `Initial device` records without changing account/profile identity or credential validity; the maintained runtime contains no credential-backfill path.
 
 ## Why this matters
 
@@ -22,7 +22,7 @@ The native app needs an ordinary way to authorize iPhone/iPad without copying th
 
 ## Current state
 
-- Authority bearer credentials resolve through distinct device records; the existing configured credential becomes the initial device during startup upgrade.
+- Authority bearer credentials resolve through distinct device records. Existing production credentials were converted to initial devices by Plan 011's temporary migration release; current startup validates the device invariant and performs no backfill.
 - Raw credentials are already excluded from content, refs, objects, diagnostics, logs, and safe system records.
 - The web/account surface implements pairing creation plus device listing/revocation, and both TypeScript and Swift authority clients consume the same endpoints.
 
@@ -40,7 +40,7 @@ The native app needs an ordinary way to authorize iPhone/iPad without copying th
 
 **Out of scope**: Swift scanner/UI, account recovery after all devices are lost, end-to-end encryption, production rollout.
 
-Production credential upgrade uses Plan 011's backed-up, isolated restored-volume rehearsal. There is no separate pairing migration or rollback tool.
+Production credential upgrade used Plan 011's backed-up, isolated restored-volume rehearsal and live migration release. There is no separate pairing migration or rollback tool, and the compatibility code is no longer present in the maintained runtime.
 
 ## Steps
 

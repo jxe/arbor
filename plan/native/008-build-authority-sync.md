@@ -12,9 +12,9 @@
 - **Depends on**: Plan 007
 - **Category**: architecture/correctness/migration
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Implementation status**: COMPLETE LOCALLY — `updates-v1`, private accepted history, canonical-JSON request identity, accepted-row replay, authority-owned merging, stateless conflicts, current-graph-only object access, TypeScript client support, the executable shared merge corpus, transactional concurrency races, and repeated legacy-fixture startup upgrade are implemented and verified. Plan 011 owns restored-volume, Hetzner, and Railway rollout evidence.
-- **Verified at**: current working tree, 2026-08-24 (`bun run test:sync-merge`, `bun run test`, `bun run test:protocol`, `bun run test:e2e`, `bun run typecheck`, `bun run build`, `git diff --check`)
-- **Production status**: no Railway state was accessed or changed; Plan 011 remains gated on the live Hetzner exercise.
+- **Implementation status**: COMPLETE — `updates-v1`, private accepted history, canonical-JSON request identity, accepted-row replay, authority-owned merging, stateless conflicts, current-graph-only object access, TypeScript client support, the executable shared merge corpus, transactional concurrency races, and current-schema validation are implemented and verified. The temporary legacy upgrade path was exercised by Plan 011 and then removed from the maintained runtime.
+- **Verified at**: Arbor `875f52b`, 2026-08-24 (`bun run test:sync-merge`, `bun run test`, `bun run test:protocol`, `bun run test:e2e`, `bun run typecheck`, `bun run build`, `git diff --check`, two four-host Hetzner suites, isolated restored-volume migration/restart, and exact Railway migration/clean-runtime restart verification)
+- **Production status**: live on Railway. The migration release preserved exact production roots, identities, access, public output, and objects; the clean runtime at `875f52b` restarted successfully with the migration compatibility paths absent.
 
 ## Why this matters
 
@@ -25,7 +25,7 @@ One trusted authority can merge plaintext once and give TypeScript and Swift the
 - `WireAuthority` stores current directory-root refs and private linear accepted updates while retaining the existing `reflog` evidence. State-changing request digests live on the accepted rows; there is no replay table.
 - `POST .../updates` validates candidate graphs, serializes per-tree races, merges when needed, compare-and-swaps `trees.ref`, and records acceptance transactionally; `/push` is absent.
 - All wire object authorization reaches only currently readable graphs, including for writers. Accepted history is not exposed as a collection; rejected candidates and drafts are never retained.
-- Opening an authority performs a deterministic, idempotent one-way startup upgrade. Production safety comes from Plan 011's volume backup, isolated restored-copy rehearsal, and old-image/volume rollback rather than a second migration implementation.
+- A new authority creates the current schema transactionally. Opening an existing authority asserts the exact current tables, columns, indexes, foreign keys, and required accepted-update/device invariants; an old schema fails with a one-time-migration instruction and is not modified. The production-only one-way upgrade was deliberately confined to the deployed migration release retained in Git history.
 
 ## Component contract
 
@@ -49,7 +49,7 @@ Keep one runtime process, but make each behavioral state space independently und
 - `updates/decision.ts` exhaustively chooses current, accept, or merge from three identities;
 - `updates/reconcile.ts` invokes merging only for genuine three-way divergence;
 - `updates/merge.ts` owns deterministic graph and Markdown behavior;
-- `updates/store.ts` owns private accepted history, digest replay lookup, schema upgrade, and the atomic ref/reflog/accepted-row commit;
+- `updates/store.ts` owns private accepted history, current-schema creation, digest replay lookup, and the atomic ref/reflog/accepted-row commit;
 - `authority.ts` coordinates validation, immutable-object durability, and bounded races;
 - `host.ts` adapts HTTP/authentication to typed calls without implementing update policy.
 
@@ -79,7 +79,7 @@ Apply reasonable implementation/deployment safety bounds to requests, graphs, an
 
 ## Scope
 
-**In scope**: authority schema/API, merge engine, current-root reachability, private accepted-update/request-digest metadata, TypeScript wire client types, deterministic one-way startup upgrade, local integration/fault tests.
+**In scope**: authority schema/API, merge engine, current-root reachability, private accepted-update/request-digest metadata, TypeScript wire client types, a temporary deterministic one-way upgrade for Plan 011, current-schema validation, and local integration/fault tests.
 
 **Out of scope**: arbord placement behavior, pairing UI, live Railway mutation, backup/restore orchestration, Swift/native client and UI, general CRDTs, revision objects.
 
@@ -90,7 +90,7 @@ Apply reasonable implementation/deployment safety bounds to requests, graphs, an
 3. Implement `updates-v1` discovery and `POST .../updates` with authentication, RFC 8785 semantic-intent hashing, object/graph validation, limits, one-sided cases, merge, bounded current-ref race handling, and transactional acceptance.
 4. Keep accepted history and old accepted graphs off the wire. Prove writers as well as public/read subjects cannot retrieve non-current accepted bytes and nobody can retrieve rejected/draft bytes through server state.
 5. Extend the TypeScript `WireClient` with strict accepted-update/result/conflict types and exact request reuse after ambiguous transport outcomes. Conflicts return as typed `409` values; do not add client merge behavior. Plan 013 independently implements the matching Foundation-only Swift wire package from shared fixtures.
-6. Make authority startup upgrade legacy schema and reflog evidence deterministically and idempotently. It adds the required accepted-update/device records without changing any TreeID, current root, canonical path, access rule, existing credential validity, or public output. Exercise that exact startup path on legacy fixture data; do not build a separate dry-run/apply/rollback product.
+6. For the migration release, make authority startup upgrade legacy schema and reflog evidence deterministically and idempotently. It adds the required accepted-update/device records without changing any TreeID, current root, canonical path, access rule, existing credential validity, or public output. Exercise that exact startup path on legacy fixture data and the restored production volume; after Plan 011 verifies the live upgrade, remove the compatibility path and leave exact current-schema creation/assertion rather than a permanent migration framework.
 7. Add restart, transaction-failure, concurrent-update, semantic-request replay, client-persistable conflict, current-only authorization, obsolete-replay-table cleanup, and repeated one-way-upgrade integration tests.
 
 ## Verification
@@ -112,7 +112,7 @@ Expected: all fixture additions survive in accepted/draft Markdown; fixed-input 
 - [x] Linear accepted updates survive restart without changing root-ref semantics; rejected conflicts never appear in them.
 - [x] Markdown property/fixture tests detect any omitted local or remote addition.
 - [x] No wire subject can enumerate accepted history or retrieve non-current/rejected content.
-- [x] Repeating the legacy startup upgrade is idempotent and preserves exact identities, refs, access, credentials, and public output; no Railway state was accessed.
+- [x] The temporary legacy startup upgrade was idempotent and preserved exact identities, refs, access, credentials, objects, and public output through the live Railway migration; its compatibility code was then removed from the maintained runtime.
 
 ## STOP conditions
 
@@ -124,4 +124,4 @@ Expected: all fixture additions survive in accepted/draft Markdown; fixed-input 
 
 ## Maintenance note
 
-Retain accepted updates indefinitely in v1. Never retain rejected candidates, conflict responses, or drafts. Any merge-policy change must remain fixture-compatible or advertise a new updates version; do not distribute server merge internals into clients.
+Retain accepted updates indefinitely in v1. Never retain rejected candidates, conflict responses, or drafts. Any merge-policy change must remain fixture-compatible or advertise a new updates version; do not distribute server merge internals into clients. Do not reintroduce dormant startup migrations: schema changes require an explicit, rehearsed migration release followed by another clean-runtime deployment.

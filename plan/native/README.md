@@ -79,7 +79,7 @@ The active Hunch workspace is `/Users/joe/Documents/todos`. Plan 019 performs a 
 The final native cutover requires:
 
 - deterministic authority merge fixtures and TypeScript/Swift sync-protocol fixtures;
-- a backed-up, restore-tested Railway sync/history migration;
+- the backed-up, restore-tested Railway sync/history migration, followed by a clean-runtime restart;
 - distinct revocable device credentials and one-time pairing;
 - standalone ArborKit, ArborWire, ArborReplica, ArborQuagmire, ArborClient, and Quagmire tests;
 - sequential macOS and iOS 27 Xcode builds/tests;

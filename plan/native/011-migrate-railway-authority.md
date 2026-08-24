@@ -12,7 +12,7 @@
 - **Depends on**: Plans 009 and 010
 - **Category**: production migration
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Progress**: IN PROGRESS — exact committed revision `ddd0edd` passed both four-host Hetzner suites and the isolated restored-copy startup upgrade/restart under Bun 1.3.14; the write-frozen production authority is ready for explicit live-deploy approval.
+- **Progress**: IN PROGRESS — the live migration and clean-runtime restart passed exact verification on 2026-08-24. The isolated private Railway sync/device-revocation smoke and local arbord reconnect remain before this plan is complete.
 
 ## Backup evidence
 
@@ -24,7 +24,13 @@ The downloaded archive passed SQLite `quick_check`, contained 101 hash-valid imm
 
 A second copy of the restored volume started under exact committed candidate `ddd0edd15f6261e3cb07234e14a561b47965c4c4` and exact Bun 1.3.14, bound only to localhost with the production canonical origin retained. The real startup path converted all 49 legacy reflog rows into 49 accepted updates with matching tree, root, previous root, kind, timestamp, and order; no current-root baseline was needed because every reflog already ended at its tree's current ref. It created exactly one unrevoked `Initial device` for each of the two existing accounts, preserving both credential digests, and created no pairing.
 
-Before and after restart, SQLite `quick_check` passed; all legacy tree, boundary, reflog, account, access, and metadata rows remained exact; all 101 object path/content hashes remained exact; and the four public HTML and Markdown hashes matched the preflight. Restart retained the same accepted-update and device IDs without adding rows. The existing locally stored Joe credential authenticated against the isolated candidate, returned the same account/profile identity and its migrated device, and changed only that device's expected `last_used_at` field. No raw credential was printed, copied, or recorded. Production was not deployed, restarted, or migrated during this rehearsal.
+Before and after restart, SQLite `quick_check` passed; all legacy tree, boundary, reflog, account, access, and metadata rows remained exact; all 101 object path/content hashes remained exact; and the four public HTML and Markdown hashes matched the preflight. Restart retained the same accepted-update and device IDs without adding rows. The existing locally stored Joe credential authenticated against the isolated candidate, returned the same account/profile identity and its migrated device, and changed only that device's expected `last_used_at` field. No raw credential was printed, copied, or recorded.
+
+## Live cutover evidence
+
+After explicit operator approval and with arbord still stopped, migration release `c16a878` deployed successfully as Railway deployment `74e9b939-2b0f-4eb1-bcf2-7cff4b258b98`. SQLite `quick_check` passed; the authority contained the same four trees, four boundaries, two accounts, eight access entries, 49 reflog rows, 101 hash-valid objects totaling 947,073 bytes, and the expected 49 accepted updates, two devices, and zero pairings. Exact legacy table digests, current roots, public HTML/Markdown hashes, access, account/profile identity, and the retained Joe credential all matched the preflight or rehearsal expectations.
+
+The temporary accepted-update/device backfill, owner/slug migration, replay-table cleanup, and accepted-update column mutation paths were then removed. Clean runtime `875f52b` deployed successfully as Railway deployment `27beebf0-c931-4d98-9906-525a19963f08`, validates the exact current schema without modifying old authorities, and passed the same production checks before and after an explicit restart. Discovery advertises `updates-v1`, and the former per-tree `/push` route returns `404`. The retained backup and old tested revision remain the rollback path; no restore was needed.
 
 ## Why this matters
 
@@ -83,15 +89,14 @@ git diff --check
 - [x] The complete backup was restored and verified under the previous image before live deploy.
 - [x] A separate restored copy passed the real one-way upgrade and an idempotent restart with exact identities, refs, access, credentials, and public output.
 - [x] The exact candidate revision passed both full Hetzner suites before live approval.
-- [ ] All real trees preserved exact identity/content/access.
-- [ ] `updates-v1` discovery is live and `/push` is absent from both server and clients.
-- [ ] Device credentials and revocation work live.
-- [ ] The clean live runtime contains no legacy accepted-update/device backfill or obsolete schema mutation path.
-- [ ] The complete pre-upgrade volume backup and previous image remain available through native cutover.
+- [x] All real trees preserved exact identity/content/access.
+- [x] `updates-v1` discovery is live and `/push` is absent from both server and clients.
+- [ ] Device credentials and revocation work live. Existing migrated credentials are verified; an isolated live pairing/revocation smoke remains.
+- [x] The clean live runtime contains no legacy accepted-update/device backfill or obsolete schema mutation path.
+- [x] The complete pre-upgrade volume backup and previous image remain available through native cutover.
 
 ## STOP conditions
 
-- Operator has not explicitly approved the live mutation.
 - Either pre-Railway Hetzner suite or its evidence collection has not completed successfully.
 - Any pre/post hash, TreeID, canonical path, or access differs unexpectedly.
 - The backup cannot start an isolated restored authority under the previous image.
@@ -100,4 +105,4 @@ git diff --check
 
 ## Maintenance note
 
-The migration release's startup upgrade is intentionally one-way and temporary. After exact live verification, remove its compatibility code rather than carrying dormant migration behavior indefinitely. Operational rollback restores the complete pre-upgrade volume and previous image; do not attempt to reverse individual schema writes in place. Record only safe evidence in `plan/records/history.md`. Production secrets and user content do not belong in Git history.
+The migration release's one-way startup upgrade is retained only in Git history. The maintained runtime creates the current schema for new authorities and refuses an old schema without changing it. Operational rollback restores the complete pre-upgrade volume and previous image; do not attempt to reverse individual schema writes in place. Record only safe evidence in `plan/records/history.md`. Production secrets and user content do not belong in Git history.
