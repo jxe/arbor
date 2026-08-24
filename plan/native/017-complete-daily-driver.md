@@ -12,6 +12,8 @@
 - **Depends on**: Plans 015 and 016
 - **Category**: product/integration
 - **Planned at**: Arbor `dc34126`, 2026-08-23
+- **Reconciled at**: Arbor `1def896`, Hunch `a1e8379`, 2026-08-24
+- **Completed**: 2026-08-24 (working tree; not yet committed)
 
 ## Why this matters
 
@@ -28,7 +30,7 @@ Completed components are not yet a daily driver. This milestone joins macOS arbo
 - Open/create/edit Markdown and complete directory documents.
 - Home, sidebar, back/forward/parent/breadcrumb/open-location, search, links/mentions, backlinks.
 - Rename/move/copy, document conversion/append/inline, asset/image import, Trash/restore.
-- Local Recover, synchronized accepted-root history, restore-as-new-local-change, conflict draft comparison/resolution.
+- Local Recover, current accepted/local root state, restore-as-new-local-change, conflict draft comparison/resolution. Accepted authority history remains private as required by the wire specification.
 - Source/properties inspection, save/sync/error state, terminal flush.
 - Multiple tabs/windows sharing one PageID session but independent presentation.
 - Honest read-only/history/ordinary-file/collection/placeholder/diagnostic surfaces.
@@ -62,13 +64,21 @@ bun test
 
 Then run sequential macOS/iOS 27 Xcode tests/builds and `git diff --check`. Expected: provider contract passes unchanged on all three providers; a final edit immediately before navigation/termination is locally durable; non-document/read-only surfaces never execute editor mutations.
 
+### Completion evidence (2026-08-24)
+
+- The unchanged provider contract passed against the in-memory provider, the offline replica, and a live temporary `arbord`; it covers identity promotion, immediate search/backlinks, hierarchy mutations, assets, recovery, and concurrent stale-edit rejection.
+- `bun run test:protocol` passed all REST fixtures and Swift client/provider/wire/sync suites.
+- ArborKit (7), ArborReplica (8), ArborQuagmire (8), macOS app (5), and iOS app (4) tests passed. The macOS suite exercised the signed, sandboxed app and its inherited bundled `arbord` helper; the iOS suite used the existing iOS 27 simulator.
+- `bun run typecheck`, the full 226-test Bun suite, and `git diff --check` passed.
+- The exact signed macOS artifact was inspected manually: Home/sidebar, tabs, breadcrumbs, search, status, Quagmire document editing, navigation, and the core Actions menu were present and accessible.
+
 ## Done criteria
 
-- [ ] Core note workflows work on macOS arbord and iOS replica.
-- [ ] Web/native simultaneous arbord edits preserve exact source and visible conflicts.
-- [ ] Offline native edits synchronize through Plan 015 behavior.
-- [ ] Tabs/windows share persistence without sharing presentation state.
-- [ ] Every pending/error/conflict/read-only state is honest and actionable.
+- [x] Core note workflows work on macOS arbord and iOS replica.
+- [x] Web/native simultaneous arbord edits preserve exact source and visible conflicts.
+- [x] Offline native edits synchronize through Plan 015 behavior.
+- [x] Tabs/windows share persistence without sharing presentation state.
+- [x] Every pending/error/conflict/read-only state is honest and actionable.
 
 ## STOP conditions
 

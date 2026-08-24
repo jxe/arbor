@@ -38,8 +38,18 @@ public actor WorkspaceCoordinator {
             return WorkspaceDocumentLease(id: leaseID, identity: identity, session: entry.session)
         }
         let session = try await provider.openDocument(node.reference)
-        sessions[identity] = Entry(session: session, leaseIDs: [leaseID])
-        return WorkspaceDocumentLease(id: leaseID, identity: identity, session: session)
+        let durableIdentity = await session.identity
+        if var entry = sessions[durableIdentity] {
+            // Opening may promote a path-only document to a durable PageID.
+            // Reuse the already-live session if another presentation arrived
+            // through the durable identity first.
+            await session.close()
+            entry.leaseIDs.insert(leaseID)
+            sessions[durableIdentity] = entry
+            return WorkspaceDocumentLease(id: leaseID, identity: durableIdentity, session: entry.session)
+        }
+        sessions[durableIdentity] = Entry(session: session, leaseIDs: [leaseID])
+        return WorkspaceDocumentLease(id: leaseID, identity: durableIdentity, session: session)
     }
 
     public func release(_ lease: WorkspaceDocumentLease) async {

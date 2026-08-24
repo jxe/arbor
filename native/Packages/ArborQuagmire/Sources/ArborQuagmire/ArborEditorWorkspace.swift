@@ -52,4 +52,12 @@ public final class ArborEditorWorkspace {
         for entry in entries.values { await entry.binding.flush() }
         try await coordinator.flushAll()
     }
+
+    public func closeAll() async {
+        for entry in entries.values {
+            await entry.binding.flush()
+            for lease in entry.workspaceLeases.values { await coordinator.release(lease) }
+        }
+        entries.removeAll()
+    }
 }

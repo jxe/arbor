@@ -148,8 +148,31 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             nodesByIdentity[node.id] = node
             childrenByIdentity[parentNode.id, default: []].append(node.id)
             return node
-        case .move, .copy, .trash, .restore:
-            throw WorkspaceProviderError.invalidAction("The deterministic provider does not materialize this action")
+        case let .move(reference, destination):
+            let node = try await resolve(reference)
+            let destinationNode = try await resolve(destination)
+            let name = node.reference.pathHint.split(separator: "/").last.map(String.init) ?? node.title
+            let path = destinationNode.reference.pathHint == "/" ? "/\(name)" : "\(destinationNode.reference.pathHint)/\(name)"
+            return try relocate(node, to: path, newTitle: nil)
+        case let .copy(reference, destination):
+            let node = try await resolve(reference)
+            let destinationNode = try await resolve(destination)
+            let name = node.reference.pathHint.split(separator: "/").last.map(String.init) ?? node.title
+            let path = destinationNode.reference.pathHint == "/" ? "/\(name)" : "\(destinationNode.reference.pathHint)/\(name)"
+            return try copySubtree(node, to: path, parent: destinationNode)
+        case let .trash(reference):
+            let node = try await resolve(reference)
+            return try relocate(node, to: "/Trash\(node.reference.pathHint)", newTitle: nil)
+        case let .restore(reference):
+            let node = try await resolve(reference)
+            guard node.reference.pathHint.hasPrefix("/Trash/") else {
+                throw WorkspaceProviderError.invalidAction("Only Trash nodes can be restored")
+            }
+            return try relocate(
+                node,
+                to: String(node.reference.pathHint.dropFirst("/Trash".count)),
+                newTitle: nil
+            )
         }
     }
 
@@ -169,17 +192,155 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
 
     public func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession {
         let node = try await resolve(reference)
-        guard case let .markdown(source, revision) = node.surface else {
+        let snapshot: WorkspaceDocumentSnapshot
+        switch node.surface {
+        case let .markdown(source, revision), let .directoryDocument(source, revision, _):
+            snapshot = .init(reference: node.reference, source: source, contentRevision: revision)
+        default:
             throw WorkspaceProviderError.notDocument(node.reference)
         }
-        return InMemoryDocumentSession(snapshot: .init(reference: node.reference, source: source, contentRevision: revision))
+        guard node.isWritable else { throw WorkspaceProviderError.readOnly(node.reference) }
+        return InMemoryDocumentSession(provider: self, snapshot: snapshot)
     }
 
     private func source(of node: WorkspaceNode) -> String {
         switch node.surface {
-        case let .markdown(source, _), let .historical(source, _): source
+        case let .markdown(source, _), let .directoryDocument(source, _, _), let .historical(source, _): source
         default: ""
         }
+    }
+
+    fileprivate func persist(_ snapshot: WorkspaceDocumentSnapshot) throws {
+        guard var node = nodesByIdentity[snapshot.reference.identity]
+            ?? nodesByIdentity.values.first(where: { $0.reference.pathHint == snapshot.reference.pathHint }) else {
+            throw WorkspaceProviderError.notFound(snapshot.reference)
+        }
+        switch node.surface {
+        case .markdown:
+            node.surface = .markdown(source: snapshot.source, contentRevision: snapshot.contentRevision)
+        case let .directoryDocument(_, _, stored):
+            node.surface = .directoryDocument(
+                source: snapshot.source,
+                contentRevision: snapshot.contentRevision,
+                stored: stored
+            )
+        default:
+            throw WorkspaceProviderError.notDocument(snapshot.reference)
+        }
+        node.provenance.contentRevision = snapshot.contentRevision
+        nodesByIdentity[node.id] = node
+    }
+
+    fileprivate func admit(
+        reference: WorkspaceReference,
+        source: String,
+        baseContentRevision: String
+    ) throws -> WorkspaceDocumentSnapshot {
+        guard let node = nodesByIdentity[reference.identity]
+            ?? nodesByIdentity.values.first(where: { $0.reference.pathHint == reference.pathHint }) else {
+            throw WorkspaceProviderError.notFound(reference)
+        }
+        let currentSource: String
+        let currentRevision: String
+        switch node.surface {
+        case let .markdown(source, revision), let .directoryDocument(source, revision, _):
+            currentSource = source
+            currentRevision = revision
+        default:
+            throw WorkspaceProviderError.notDocument(reference)
+        }
+        guard currentRevision == baseContentRevision else {
+            throw WorkspaceDocumentConflict(
+                current: WorkspaceDocumentSnapshot(
+                    reference: node.reference,
+                    source: currentSource,
+                    contentRevision: currentRevision
+                ),
+                submittedSource: source
+            )
+        }
+        let number = Int(currentRevision.drop(while: { !$0.isNumber })) ?? 0
+        let admitted = WorkspaceDocumentSnapshot(
+            reference: node.reference,
+            source: source,
+            contentRevision: "r\(number + 1)"
+        )
+        try persist(admitted)
+        return admitted
+    }
+
+    private func relocate(_ node: WorkspaceNode, to path: String, newTitle: String?) throws -> WorkspaceNode {
+        if nodesByIdentity.values.contains(where: {
+            $0.reference.tree == node.reference.tree && $0.reference.pathHint == path && $0.id != node.id
+        }) {
+            throw WorkspaceProviderError.invalidAction("Destination already exists")
+        }
+        let oldPath = node.reference.pathHint
+        let rootIdentity = node.id
+        var movedRoot: WorkspaceNode?
+        let affected = nodesByIdentity.values
+            .filter { $0.reference.tree == node.reference.tree && ($0.reference.pathHint == oldPath || $0.reference.pathHint.hasPrefix(oldPath + "/")) }
+            .sorted { $0.reference.pathHint.count < $1.reference.pathHint.count }
+        for var value in affected {
+            let oldID = value.id
+            let suffix = String(value.reference.pathHint.dropFirst(oldPath.count))
+            value.reference.pathHint = path + suffix
+            if suffix.isEmpty, let newTitle { value.title = newTitle }
+            nodesByIdentity.removeValue(forKey: oldID)
+            nodesByIdentity[value.id] = value
+            if oldID != value.id {
+                if let children = childrenByIdentity.removeValue(forKey: oldID) {
+                    childrenByIdentity[value.id] = children
+                }
+                for key in Array(childrenByIdentity.keys) {
+                    childrenByIdentity[key] = childrenByIdentity[key]?.map { $0 == oldID ? value.id : $0 }
+                }
+            }
+            if suffix.isEmpty { movedRoot = value }
+        }
+        guard let movedRoot else { throw WorkspaceProviderError.notFound(node.reference) }
+        for key in Array(childrenByIdentity.keys) {
+            childrenByIdentity[key]?.removeAll { $0 == rootIdentity || $0 == movedRoot.id }
+        }
+        let parentPath = movedRoot.reference.parent?.pathHint ?? "/"
+        if let parent = nodesByIdentity.values.first(where: {
+            $0.reference.tree == movedRoot.reference.tree && $0.reference.pathHint == parentPath
+        }) {
+            childrenByIdentity[parent.id, default: []].append(movedRoot.id)
+        }
+        return movedRoot
+    }
+
+    private func copySubtree(
+        _ node: WorkspaceNode,
+        to path: String,
+        parent: WorkspaceNode
+    ) throws -> WorkspaceNode {
+        if nodesByIdentity.values.contains(where: { $0.reference.tree == node.reference.tree && $0.reference.pathHint == path }) {
+            throw WorkspaceProviderError.invalidAction("Destination already exists")
+        }
+        let sourcePath = node.reference.pathHint
+        let affected = nodesByIdentity.values
+            .filter { $0.reference.tree == node.reference.tree && ($0.reference.pathHint == sourcePath || $0.reference.pathHint.hasPrefix(sourcePath + "/")) }
+            .sorted { $0.reference.pathHint.count < $1.reference.pathHint.count }
+        var copiedByOldID: [WorkspaceIdentity: WorkspaceIdentity] = [:]
+        var copiedRoot: WorkspaceNode?
+        for value in affected {
+            var copied = value
+            let suffix = String(value.reference.pathHint.dropFirst(sourcePath.count))
+            copied.reference.pathHint = path + suffix
+            if value.reference.pageID != nil { copied.reference.pageID = PageID(rawValue: "pg_\(UUID().uuidString.lowercased())") }
+            nodesByIdentity[copied.id] = copied
+            copiedByOldID[value.id] = copied.id
+            if suffix.isEmpty { copiedRoot = copied }
+        }
+        for value in affected {
+            guard let copiedID = copiedByOldID[value.id] else { continue }
+            childrenByIdentity[copiedID] = childrenByIdentity[value.id, default: []].compactMap { copiedByOldID[$0] }
+        }
+        if let copiedRoot { childrenByIdentity[parent.id, default: []].append(copiedRoot.id) }
+        guard let copiedRoot else { throw WorkspaceProviderError.notFound(node.reference) }
+        return copiedRoot
     }
 }
 
@@ -188,8 +349,17 @@ public actor InMemoryDocumentSession: WorkspaceDocumentSession {
     private var current: WorkspaceDocumentSnapshot
     private var revisions: [WorkspaceDocumentSnapshot]
     private var isClosed = false
+    private let provider: InMemoryWorkspaceProvider?
+
+    public init(provider: InMemoryWorkspaceProvider, snapshot: WorkspaceDocumentSnapshot) {
+        self.provider = provider
+        self.identity = snapshot.reference.identity
+        self.current = snapshot
+        self.revisions = [snapshot]
+    }
 
     public init(snapshot: WorkspaceDocumentSnapshot) {
+        self.provider = nil
         self.identity = snapshot.reference.identity
         self.current = snapshot
         self.revisions = [snapshot]
@@ -199,11 +369,19 @@ public actor InMemoryDocumentSession: WorkspaceDocumentSession {
 
     public func admit(source: String, baseContentRevision: String) async throws -> WorkspaceDocumentSnapshot {
         guard !isClosed else { throw WorkspaceProviderError.invalidAction("Document session is closed") }
-        guard baseContentRevision == current.contentRevision else {
-            throw WorkspaceDocumentConflict(current: current, submittedSource: source)
+        if let provider {
+            current = try await provider.admit(
+                reference: current.reference,
+                source: source,
+                baseContentRevision: baseContentRevision
+            )
+        } else {
+            guard baseContentRevision == current.contentRevision else {
+                throw WorkspaceDocumentConflict(current: current, submittedSource: source)
+            }
+            current.source = source
+            current.contentRevision = "r\(revisions.count + 1)"
         }
-        current.source = source
-        current.contentRevision = "r\(revisions.count + 1)"
         revisions.append(current)
         return current
     }
@@ -228,6 +406,7 @@ public actor InMemoryDocumentSession: WorkspaceDocumentSession {
         current.source = recovered.source
         current.contentRevision = "r\(revisions.count + 1)"
         revisions.append(current)
+        try await provider?.persist(current)
         return current
     }
 

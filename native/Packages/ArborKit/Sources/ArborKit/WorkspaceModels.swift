@@ -132,7 +132,7 @@ public enum WorkspaceSurface: Hashable, Codable, Sendable {
     case markdown(source: String, contentRevision: String)
     case directory(summary: String?)
     case directoryDocument(source: String, contentRevision: String, stored: Bool)
-    case file(name: String, byteCount: Int, mediaType: String?)
+    case file(name: String, byteCount: Int?, mediaType: String?)
     case collection(kind: String, rowCount: Int?)
     case placeholder(message: String)
     case diagnostic(title: String, detail: String)

@@ -68,6 +68,10 @@ public actor ArborClient {
         self.retryDelay = retryDelay
     }
 
+    public func status() async throws -> ArbordStatus {
+        try await get(path: "/v1/status", items: [])
+    }
+
     public func prepareContentMutation(
         _ operation: WorkspaceOperation,
         mutationID: String? = nil
@@ -140,8 +144,9 @@ public actor ArborClient {
         return items
     }
 
-    public func search(_ query: String, cursor: String? = nil) async throws -> SearchPage {
+    public func search(_ query: String, tree: String? = nil, cursor: String? = nil) async throws -> SearchPage {
         var items = [URLQueryItem(name: "q", value: query)]
+        if let tree { items.append(URLQueryItem(name: "tree", value: tree)) }
         if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
         return try await get(path: "/v1/search", items: items)
     }

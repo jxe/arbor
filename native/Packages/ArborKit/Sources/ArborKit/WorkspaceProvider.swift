@@ -1,5 +1,36 @@
 import Foundation
 
+public struct WorkspaceProviderCapabilities: Hashable, Codable, Sendable {
+    public var structuralActions: Bool
+    public var assets: Bool
+    public var search: Bool
+    public var backlinks: Bool
+    public var localHistory: Bool
+
+    public init(
+        structuralActions: Bool = true,
+        assets: Bool = true,
+        search: Bool = true,
+        backlinks: Bool = true,
+        localHistory: Bool = true
+    ) {
+        self.structuralActions = structuralActions
+        self.assets = assets
+        self.search = search
+        self.backlinks = backlinks
+        self.localHistory = localHistory
+    }
+
+    public static let full = WorkspaceProviderCapabilities()
+    public static let readOnly = WorkspaceProviderCapabilities(
+        structuralActions: false,
+        assets: false,
+        search: true,
+        backlinks: true,
+        localHistory: false
+    )
+}
+
 public enum WorkspaceStructuralAction: Hashable, Codable, Sendable {
     case createMarkdown(parent: WorkspaceReference, name: String, source: String)
     case createDirectory(parent: WorkspaceReference, name: String)
@@ -117,6 +148,7 @@ public extension WorkspaceDocumentSession {
 }
 
 public protocol WorkspaceProvider: Sendable {
+    func capabilities() async -> WorkspaceProviderCapabilities
     func resolve(_ reference: WorkspaceReference) async throws -> WorkspaceNode
     func children(of reference: WorkspaceReference) async throws -> [WorkspaceNode]
     func search(_ query: String, in tree: TreeID) async throws -> [WorkspaceSearchResult]
@@ -124,6 +156,10 @@ public protocol WorkspaceProvider: Sendable {
     func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode?
     func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceReference
     func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession
+}
+
+public extension WorkspaceProvider {
+    func capabilities() async -> WorkspaceProviderCapabilities { .full }
 }
 
 public enum WorkspaceProviderError: Error, Equatable, Sendable {

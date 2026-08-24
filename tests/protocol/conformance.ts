@@ -33,6 +33,10 @@ try {
         ARBOR_TEST_URL: running.url,
       },
     );
+    await run(
+      ["swift", "test", "--package-path", "native/Packages/ArborProviders"],
+      { ARBOR_TEST_URL: running.url },
+    );
   } finally {
     running.server.stop(true);
     await running.workspace[Symbol.asyncDispose]();

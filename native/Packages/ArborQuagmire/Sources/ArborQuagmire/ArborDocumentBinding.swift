@@ -1,8 +1,10 @@
 import ArborKit
 import Foundation
+import Observation
 import Quagmire
 
 @MainActor
+@Observable
 public final class ArborDocumentBinding {
     public let document: Document
     public let editorState: EditorState
@@ -10,6 +12,7 @@ public final class ArborDocumentBinding {
     public private(set) var lastError: Error?
     public private(set) var conflict: WorkspaceDocumentConflict?
     public private(set) var lastEnqueuedSource: String?
+    public private(set) var isSaving = false
 
     let session: any WorkspaceDocumentSession
     private var accepted: WorkspaceDocumentSnapshot
@@ -50,6 +53,7 @@ public final class ArborDocumentBinding {
     func admitCurrentGeneration() {
         let (admission, nextLedger) = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger)
         lastEnqueuedSource = admission.source
+        isSaving = true
         ledger = nextLedger
         generation += 1
         let admittedGeneration = generation
@@ -63,6 +67,37 @@ public final class ArborDocumentBinding {
     public func flush() async {
         if let tail { await tail.value }
         try? await session.flush()
+    }
+
+    public func snapshot() async throws -> WorkspaceDocumentSnapshot {
+        await flush()
+        return try await session.snapshot()
+    }
+
+    public func history() async throws -> [WorkspaceHistoryEntry] {
+        await flush()
+        return try await session.history()
+    }
+
+    @discardableResult
+    public func recover(revision: String) async throws -> WorkspaceDocumentSnapshot {
+        await flush()
+        let recovered = try await session.recover(revision: revision)
+        await applyAcceptedReplacement(recovered)
+        return recovered
+    }
+
+    public func resolveConflict(preferSubmitted: Bool) async throws {
+        guard let conflict else { return }
+        let submitted = conflict.submittedSource
+        await applyAcceptedReplacement(conflict.current)
+        if preferSubmitted {
+            let admitted = try await session.admit(
+                source: submitted,
+                baseContentRevision: conflict.current.contentRevision
+            )
+            await applyAcceptedReplacement(admitted)
+        }
     }
 
     public func applyAcceptedReplacement(_ snapshot: WorkspaceDocumentSnapshot) async {
@@ -108,11 +143,14 @@ public final class ArborDocumentBinding {
             }
             conflict = nil
             lastError = nil
+            if admittedGeneration == generation { isSaving = false }
         } catch let value as WorkspaceDocumentConflict {
             conflict = value
             lastError = value
+            if admittedGeneration == generation { isSaving = false }
         } catch {
             lastError = error
+            if admittedGeneration == generation { isSaving = false }
         }
     }
 }

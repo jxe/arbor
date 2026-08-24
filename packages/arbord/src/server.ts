@@ -412,6 +412,9 @@ function startArborServer(
       try {
         assertSameOrigin(request, url);
 
+        if (request.method === "GET" && url.pathname === "/v1/status") {
+          return json({ service: "arbord", version: "0.1.0", protocolVersion: "v1" });
+        }
         if (request.method === "GET" && url.pathname === "/v1/node") {
           return json(await service.snapshot(queryRef(url)));
         }

@@ -5,6 +5,20 @@ REST v1 is served by the local arbord over loopback. It is the persistence, reso
 
 All request and response bodies are UTF-8 JSON unless a route explicitly specifies SSE or multipart data. Unknown descriptive response fields are ignored. Missing required fields, unknown request fields, invalid unions, and ambiguous references are rejected.
 
+```text
+GET /v1/status
+```
+
+```ts
+type ArbordStatus = {
+  service: "arbord";
+  version: string;
+  protocolVersion: "v1";
+};
+```
+
+The status route is the loopback readiness and compatibility probe. It does not open a workspace, mutate state, or expose workspace paths.
+
 ## 1. Common values and resolution
 
 ```ts

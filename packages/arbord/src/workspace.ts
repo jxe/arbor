@@ -356,6 +356,7 @@ export class Workspace implements AsyncDisposable {
         await this.mutations.markExpected(request.mutationID, requestHash, expected);
       },
     );
+    await this.refreshDerivedViews(request.operations, effects);
     await this.mutations.markMaterialized(request.mutationID, requestHash, effects);
     if (!materializationFaulted) await this.protocolFault("protocol:materialized");
     return this.completeMaterialized(request.mutationID, requestHash, effects, "api");
@@ -367,6 +368,36 @@ export class Workspace implements AsyncDisposable {
     } catch (error) {
       throw new FsInjectedCrashError(stage, { cause: error });
     }
+  }
+
+  /**
+   * A successful mutation receipt is also the read-after-write boundary for
+   * search, backlinks, PageID resolution, and generated collection types.
+   * Filesystem notifications remain important for external edits, but local
+   * API callers must not race the asynchronous watcher after acknowledgement.
+   */
+  private async refreshDerivedViews(
+    operations: WorkspaceOperation[],
+    effects: MutationEffect[],
+  ): Promise<void> {
+    const contentOnly = operations.every((operation) =>
+      operation.op === "writeMarkdown"
+      || operation.op === "restoreRecovery"
+      || operation.op === "ensureDocumentIdentity"
+    );
+    if (contentOnly) {
+      for (const effect of effects) {
+        const resolved = await this.fs.resolve(effect.path);
+        const absolute = resolved.kind === "directory" || resolved.kind === "markdown"
+          ? resolved.bodyPath
+          : resolved.absolutePath;
+        if (absolute) await this.index.updateAbsolute(absolute);
+      }
+      return;
+    }
+    const discovery = await this.fs.discoverRecursively();
+    this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
+    await Promise.all([this.index.rebuild(discovery), this.generateTypes(discovery)]);
   }
 
   async importV1(

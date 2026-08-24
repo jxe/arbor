@@ -31,6 +31,18 @@ public enum JSONValue: Codable, Sendable, Equatable {
     }
 }
 
+public struct ArbordStatus: Codable, Sendable, Equatable {
+    public var service: String
+    public var version: String
+    public var protocolVersion: String
+
+    public init(service: String, version: String, protocolVersion: String) {
+        self.service = service
+        self.version = version
+        self.protocolVersion = protocolVersion
+    }
+}
+
 /// A local reference: a logical path or a durable page ID plus hint,
 /// optionally qualified by the `tree` scope it resolves in: "local",
 /// "system", or a stable shared TreeID.

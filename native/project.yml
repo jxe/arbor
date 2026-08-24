@@ -25,6 +25,8 @@ packages:
     path: Packages/ArborSync
   ArborQuagmire:
     path: Packages/ArborQuagmire
+  ArborProviders:
+    path: Packages/ArborProviders
 
 targets:
   Arbor:
@@ -38,6 +40,7 @@ targets:
       - package: ArborWire
       - package: ArborSync
       - package: ArborQuagmire
+      - package: ArborProviders
     info:
       path: ArborApp/Info.plist
       properties:
@@ -50,10 +53,58 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.nxhx.Arbor
         PRODUCT_MODULE_NAME: ArborApp
         CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: B7P78ULCXS
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": ArborApp/Arbor.entitlements
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         TARGETED_DEVICE_FAMILY: "1,2"
         ENABLE_PREVIEWS: YES
+    preBuildScripts:
+      - name: Build arbord helper
+        basedOnDependencyAnalysis: false
+        script: |
+          if [[ "$PLATFORM_NAME" != "macosx" ]]; then
+            exit 0
+          fi
+          BUN_PATH="${BUN_EXECUTABLE:-$(command -v bun)}"
+          if [[ -z "$BUN_PATH" || ! -x "$BUN_PATH" ]]; then
+            echo "error: Bun is required to build the bundled arbord helper"
+            exit 1
+          fi
+          HELPER_PATH="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/arbord"
+          HELPER_RESOURCES="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/arbord"
+          MODULES_PATH="$HELPER_RESOURCES/node_modules/@parcel"
+          mkdir -p "$(dirname "$HELPER_PATH")" "$MODULES_PATH"
+          /usr/bin/ditto "$BUN_PATH" "$HELPER_PATH"
+          "$BUN_PATH" build --target=bun --external @parcel/watcher \
+            "$SRCROOT/../packages/cli/src/index.ts" \
+            --outfile "$HELPER_RESOURCES/arbord.js"
+          WATCHER_JS_SOURCE="$(cd "$SRCROOT/../node_modules/@parcel/watcher" && pwd -P)"
+          /usr/bin/ditto "$WATCHER_JS_SOURCE" "$MODULES_PATH/watcher"
+          "$BUN_PATH" build --target=bun --format=cjs \
+            "$WATCHER_JS_SOURCE/wrapper.js" \
+            --outfile "$MODULES_PATH/watcher/wrapper.js"
+          HELPER_ARCH="$CURRENT_ARCH"
+          if [[ -z "$HELPER_ARCH" || "$HELPER_ARCH" == "undefined_arch" ]]; then
+            HELPER_ARCH="$(uname -m)"
+          fi
+          case "$HELPER_ARCH" in
+            arm64) WATCHER_PACKAGE="watcher-darwin-arm64" ;;
+            x86_64) WATCHER_PACKAGE="watcher-darwin-x64" ;;
+            *) echo "error: Unsupported arbord helper architecture: $HELPER_ARCH"; exit 1 ;;
+          esac
+          WATCHER_NATIVE_SOURCE="$(find "$SRCROOT/../node_modules/.bun" -type d -path "*/node_modules/@parcel/$WATCHER_PACKAGE" -print -quit)"
+          if [[ -z "$WATCHER_NATIVE_SOURCE" ]]; then
+            echo "error: Missing @parcel/$WATCHER_PACKAGE; run bun install"
+            exit 1
+          fi
+          /usr/bin/ditto "$WATCHER_NATIVE_SOURCE" "$MODULES_PATH/$WATCHER_PACKAGE"
+          SIGN_IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+          /usr/bin/codesign --force --sign "$SIGN_IDENTITY" \
+            "$MODULES_PATH/$WATCHER_PACKAGE/watcher.node"
+          /usr/bin/codesign --force --sign "$SIGN_IDENTITY" \
+            --entitlements "$SRCROOT/ArborApp/arbord.entitlements" \
+            "$HELPER_PATH"
 
   ArborAppTests:
     type: bundle.unit-test
@@ -79,5 +130,7 @@ schemes:
       config: Debug
     test:
       config: Debug
+      environmentVariables:
+        ARBOR_TEST_SANDBOX_HELPER: "1"
       targets:
         - ArborAppTests

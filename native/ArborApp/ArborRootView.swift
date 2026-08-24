@@ -3,45 +3,101 @@ import ArborQuagmire
 import ArborSync
 import ArborWire
 import SwiftUI
+import UniformTypeIdentifiers
 #if os(iOS)
 import VisionKit
 #endif
 
 struct ArborRootView: View {
-    @State private var model = ArborAppModel()
+    let workspace: ArborWorkspaceState
+    @State private var model: ArborAppModel
     @State private var accountPresented = false
+    @State private var presentedSheet: ArborPresentedSheet?
+    @State private var searchText = ""
+    @State private var workspaceImporterPresented = false
+    @State private var assetImporterPresented = false
+    @State private var trashConfirmationPresented = false
+    @State private var arbordLogs = ""
+    @FocusState private var searchFocused: Bool
+    @Environment(\.scenePhase) private var scenePhase
+
+    init(workspace: ArborWorkspaceState) {
+        self.workspace = workspace
+        _model = State(initialValue: ArborAppModel(workspace: workspace))
+    }
 
     var body: some View {
         NavigationSplitView {
-            List(model.children) { node in
+            List(sidebarItems) { node in
                 Button {
-                    Task { await model.navigate(to: node.reference) }
+                    Task {
+                        searchText = ""
+                        await model.navigate(to: node.reference)
+                    }
                 } label: {
-                    Label(node.title, systemImage: symbol(for: node.surface))
+                    VStack(alignment: .leading) {
+                        Label(node.title, systemImage: symbol(for: node.surface))
+                        if let result = model.searchResults.first(where: { $0.reference == node.reference }),
+                           let excerpt = result.excerpt {
+                            Text(excerpt).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
             }
             .navigationTitle("Arbor")
+            .searchable(text: $searchText, prompt: "Search this tree")
+            .focused($searchFocused)
+            .onSubmit(of: .search) { Task { await model.search(searchText) } }
+            .onChange(of: searchText) { _, value in
+                if value.isEmpty { Task { await model.search("") } }
+            }
             .overlay {
-                if model.children.isEmpty {
-                    ContentUnavailableView("No children", systemImage: "tree")
+                if sidebarItems.isEmpty {
+                    ContentUnavailableView(searchText.isEmpty ? "No children" : "No results", systemImage: "tree")
                 }
             }
         } detail: {
-            Group {
-                if let node = model.node {
-                    if let lease = model.editorLease, let host = model.editorHost {
-                        ArborEditorSurface(binding: lease.binding, host: host)
-                    } else {
-                        WorkspaceSurfaceView(node: node)
-                    }
-                } else if let message = model.errorMessage {
-                    ContentUnavailableView("Unable to open", systemImage: "exclamationmark.triangle", description: Text(message))
-                } else {
-                    ProgressView()
+            VStack(spacing: 0) {
+                ArborTabStrip(
+                    tabs: model.tabItems,
+                    selected: model.selectedTabID,
+                    title: { tab in tab.current.pathHint == "/" ? "Home" : tab.current.pathHint.split(separator: "/").last.map(String.init) ?? "Arbor" },
+                    select: { id in Task { await model.selectTab(id) } },
+                    close: { Task { await model.closeSelectedTab() } },
+                    create: { Task { await model.newTab() } }
+                )
+                ArborBreadcrumbs(reference: model.currentReference) { reference in
+                    Task { await model.navigate(to: reference) }
                 }
+                Group {
+                    if let node = model.node {
+                        if let lease = model.editorLease, let host = model.editorHost {
+                            ArborEditorSurface(binding: lease.binding, host: host)
+                        } else {
+                            WorkspaceSurfaceView(node: node)
+                        }
+                    } else if let message = model.errorMessage {
+                        ContentUnavailableView("Unable to open", systemImage: "exclamationmark.triangle", description: Text(message))
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let conflict = model.binding?.conflict {
+                    conflictBar(conflict)
+                }
+                if workspace.syncConflict != nil {
+                    syncConflictBar
+                }
+                ArborStatusBar(
+                    provider: workspace.providerDetail,
+                    sync: workspace.syncPresentation,
+                    binding: model.binding
+                )
             }
             .navigationTitle(model.node?.title ?? "Arbor")
+            .navigationSubtitle(model.currentReference.pathHint)
             .toolbar {
                 ToolbarItemGroup(placement: .navigation) {
                     Button("Back", systemImage: "chevron.left") { Task { await model.goBack() } }
@@ -51,24 +107,231 @@ struct ArborRootView: View {
                     Button("Parent", systemImage: "arrow.up") { Task { await model.goParent() } }
                         .disabled(!model.canGoParent)
                     Button("Home", systemImage: "house") { Task { await model.goHome() } }
+                    Button("Open Location", systemImage: "location") { presentedSheet = .openLocation }
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
-                        Task { await model.syncNow() }
+                        Task { await workspace.syncNow() }
                     } label: {
-                        Label(model.syncPresentation.state.label, systemImage: model.syncPresentation.state.symbol)
+                        Label(workspace.syncPresentation.state.label, systemImage: workspace.syncPresentation.state.symbol)
                     }
-                        .help(model.syncPresentation.detail ?? model.syncPresentation.state.label)
+                        .help(workspace.syncPresentation.detail ?? workspace.syncPresentation.state.label)
+                    Menu("Actions", systemImage: "ellipsis.circle") {
+                        Button("New Document…", systemImage: "doc.badge.plus") { presentedSheet = .createMarkdown }
+                        Button("New Folder…", systemImage: "folder.badge.plus") { presentedSheet = .createDirectory }
+                        Button("Rename…", systemImage: "pencil") { presentedSheet = .rename }
+                            .disabled(model.node?.isWritable != true)
+                        Button("Move…", systemImage: "folder") { presentedSheet = .move }
+                            .disabled(model.node?.isWritable != true)
+                        Button("Copy…", systemImage: "plus.square.on.square") { presentedSheet = .copy }
+                            .disabled(model.node == nil)
+                        Button("Import Asset…", systemImage: "photo.badge.plus") { assetImporterPresented = true }
+                            .disabled(!workspace.capabilities.assets)
+                        Divider()
+                        Button("Linked From…", systemImage: "link") { presentedSheet = .backlinks }
+                        Button("Recover…", systemImage: "clock.arrow.circlepath") {
+                            Task { await model.loadHistory(); presentedSheet = .history }
+                        }
+                            .disabled(model.binding == nil)
+                        Button("Source and Properties…", systemImage: "doc.plaintext") {
+                            Task { await model.inspectSource(); presentedSheet = .source }
+                        }
+                            .disabled(model.node == nil)
+                        Divider()
+                        if model.currentReference.pathHint.hasPrefix("/Trash/") {
+                            Button("Restore", systemImage: "arrow.uturn.backward") {
+                                Task { await model.perform(.restore(reference: model.currentReference)) }
+                            }
+                        } else {
+                            Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                                trashConfirmationPresented = true
+                            }
+                            .disabled(model.node?.isWritable != true || model.currentReference.pathHint == "/")
+                        }
+#if os(macOS)
+                        Divider()
+                        Button("Open Local Workspace…", systemImage: "folder") { workspaceImporterPresented = true }
+                        Button("Restart arbord", systemImage: "arrow.clockwise") { Task { await workspace.restartArbord() } }
+                        Button("arbord Logs…", systemImage: "doc.text.magnifyingglass") {
+                            Task { arbordLogs = await workspace.arbordLogs(); presentedSheet = .arbordLogs }
+                        }
+#endif
+                    }
                     Button("Account", systemImage: "person.crop.circle") { accountPresented = true }
                 }
             }
         }
-        .task { await model.load() }
+        .task(id: workspace.generation) { await model.resetForWorkspace() }
+#if os(macOS)
+        .task { await workspace.restoreLocalWorkspaceIfAvailable() }
+#endif
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { Task { await workspace.flush() } }
+        }
         .sheet(isPresented: $accountPresented) {
             NativeAccountPanel { origin, tree in
-                try await model.place(tree: tree, from: origin)
+                try await workspace.place(tree: tree, from: origin)
             }
         }
+        .sheet(item: $presentedSheet, content: sheet)
+        .confirmationDialog("Move this node to Trash?", isPresented: $trashConfirmationPresented) {
+            Button("Move to Trash", role: .destructive) {
+                Task { await model.perform(.trash(reference: model.currentReference)) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+#if os(macOS)
+        .fileImporter(isPresented: $workspaceImporterPresented, allowedContentTypes: [.folder]) { result in
+            if case let .success(url) = result {
+                Task {
+                    do { try await workspace.openLocalWorkspace(url) }
+                    catch { workspace.errorMessage = error.localizedDescription }
+                }
+            }
+        }
+#endif
+        .fileImporter(isPresented: $assetImporterPresented, allowedContentTypes: [.data, .image]) { result in
+            if case let .success(url) = result {
+                Task {
+                    let accessing = url.startAccessingSecurityScopedResource()
+                    defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                    do {
+                        let bytes = try Data(contentsOf: url)
+                        let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+                        await model.importAsset(WorkspaceAsset(name: url.lastPathComponent, mediaType: type, bytes: bytes))
+                    } catch { workspace.errorMessage = error.localizedDescription }
+                }
+            }
+        }
+        .alert("Arbor", isPresented: errorPresented) {
+            Button("OK") { workspace.errorMessage = nil }
+        } message: {
+            Text(workspace.errorMessage ?? "")
+        }
+        .focusedSceneValue(\.arborWindowCommands, windowCommands)
+    }
+
+    private var sidebarItems: [WorkspaceNode] {
+        guard !searchText.isEmpty else { return model.children }
+        return model.searchResults.map { result in
+            WorkspaceNode(
+                reference: result.reference,
+                title: result.title,
+                surface: .markdown(source: "", contentRevision: "search"),
+                provenance: .init(authority: .local, sourceDescription: "Search result"),
+                isWritable: false
+            )
+        }
+    }
+
+    private var errorPresented: Binding<Bool> {
+        Binding(get: { workspace.errorMessage != nil }, set: { if !$0 { workspace.errorMessage = nil } })
+    }
+
+    private var windowCommands: ArborWindowCommands {
+        ArborWindowCommands(
+            goHome: { Task { await model.goHome() } },
+            goBack: { Task { await model.goBack() } },
+            newTab: { Task { await model.newTab() } },
+            closeTab: { Task { await model.closeSelectedTab() } },
+            showSearch: { searchFocused = true },
+            showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
+            canGoBack: model.canGoBack,
+            canCloseTab: model.tabItems.count > 1,
+            hasDocument: model.binding != nil
+        )
+    }
+
+    @ViewBuilder
+    private func sheet(_ sheet: ArborPresentedSheet) -> some View {
+        switch sheet {
+        case .source:
+            if let node = model.node { ArborSourceInspector(node: node, snapshot: model.sourceSnapshot) }
+        case .history:
+            ArborHistoryView(entries: model.history) { revision in Task { await model.recover(revision) } }
+        case .backlinks:
+            ArborBacklinksView(entries: model.backlinks) { reference in
+                presentedSheet = nil
+                Task { await model.navigate(to: reference) }
+            }
+        case .arbordLogs:
+            NavigationStack {
+                ScrollView { Text(arbordLogs).font(.body.monospaced()).textSelection(.enabled).padding() }
+                    .navigationTitle("arbord Logs")
+            }
+            .frame(minWidth: 560, minHeight: 420)
+        case .syncConflict:
+            if let conflict = workspace.syncConflict {
+                ArborSyncConflictView(conflict: conflict) {
+                    presentedSheet = nil
+                    Task { await workspace.resolveSyncConflictKeepingLocal() }
+                }
+            }
+        default:
+            ArborMutationForm(mode: sheet, submit: submitMutation)
+        }
+    }
+
+    private func submitMutation(_ value: String, source: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        switch presentedSheet {
+        case .createMarkdown:
+            Task { await model.perform(.createMarkdown(parent: mutationParent, name: trimmed, source: source.isEmpty ? "# \(trimmed)\n" : source)) }
+        case .createDirectory:
+            Task { await model.perform(.createDirectory(parent: mutationParent, name: trimmed)) }
+        case .rename:
+            Task { await model.perform(.rename(reference: model.currentReference, name: trimmed)) }
+        case .move:
+            Task { await model.perform(.move(reference: model.currentReference, destination: destination(trimmed))) }
+        case .copy:
+            Task { await model.perform(.copy(reference: model.currentReference, destination: destination(trimmed))) }
+        case .openLocation:
+            Task { await model.navigate(to: destination(trimmed)) }
+        default:
+            break
+        }
+    }
+
+    private var mutationParent: WorkspaceReference {
+        guard let node = model.node else { return model.currentReference }
+        switch node.surface {
+        case .directory, .directoryDocument, .collection: return node.reference
+        default: return node.reference.parent ?? workspace.home
+        }
+    }
+
+    private func destination(_ path: String) -> WorkspaceReference {
+        WorkspaceReference(
+            tree: model.currentReference.tree,
+            path: path.hasPrefix("/") ? path : "/\(path)"
+        )
+    }
+
+    private func conflictBar(_ conflict: WorkspaceDocumentConflict) -> some View {
+        HStack {
+            Label("This document changed outside the current edit session.", systemImage: "exclamationmark.triangle")
+            Spacer()
+            Button("Use Current") { Task { await model.resolveEditorConflict(preferSubmitted: false) } }
+            Button("Keep My Edit") { Task { await model.resolveEditorConflict(preferSubmitted: true) } }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(10)
+        .background(.orange.opacity(0.16))
+        .accessibilityElement(children: .contain)
+        .help("Current revision: \(conflict.current.contentRevision)")
+    }
+
+    private var syncConflictBar: some View {
+        HStack {
+            Label("Synchronization needs a conflict choice.", systemImage: "arrow.triangle.branch")
+            Spacer()
+            Button("Review…") { presentedSheet = .syncConflict }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(10)
+        .background(.orange.opacity(0.16))
+        .accessibilityElement(children: .contain)
     }
 
     private func symbol(for surface: WorkspaceSurface) -> String {
@@ -81,38 +344,6 @@ struct ArborRootView: View {
         case .placeholder: "icloud.slash"
         case .diagnostic: "exclamationmark.triangle"
         case .historical: "clock.arrow.circlepath"
-        }
-    }
-}
-
-private extension WorkspaceSynchronization {
-    var label: String {
-        switch self {
-        case .offline: "Offline"
-        case .locallyPending: "Local changes"
-        case .requestPending: "Sync pending"
-        case .uploading: "Uploading"
-        case .downloading: "Downloading"
-        case .current: "Current"
-        case .autoMerged: "Merged"
-        case .approximatePlacement: "Merged approximately"
-        case .conflict: "Conflict"
-        case .authenticationFailure: "Sign in required"
-        case .revoked: "Device revoked"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .offline: "wifi.slash"
-        case .locallyPending, .requestPending: "arrow.trianglehead.2.clockwise.rotate.90"
-        case .uploading: "arrow.up.circle"
-        case .downloading: "arrow.down.circle"
-        case .current: "checkmark.icloud"
-        case .autoMerged, .approximatePlacement: "arrow.trianglehead.merge"
-        case .conflict: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90"
-        case .authenticationFailure: "person.crop.circle.badge.exclamationmark"
-        case .revoked: "person.crop.circle.badge.xmark"
         }
     }
 }
@@ -356,7 +587,11 @@ private struct WorkspaceSurfaceView: View {
                     Text(source).textSelection(.enabled)
                 case let .file(name, byteCount, mediaType):
                     LabeledContent("File", value: name)
-                    LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file))
+                    if let byteCount {
+                        LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file))
+                    } else {
+                        LabeledContent("Size", value: "Not reported by provider")
+                    }
                     if let mediaType { LabeledContent("Type", value: mediaType) }
                 case let .collection(kind, rowCount):
                     LabeledContent("Collection", value: kind)
