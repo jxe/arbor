@@ -12,7 +12,7 @@
 - **Depends on**: Plans 009 and 010
 - **Category**: production migration
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Progress**: IN PROGRESS — exact committed revision `68e6011` passed the accepted-update four-host Hetzner suite on 2026-08-24 and its evidence was collected; the distinct-user authorization gate must pass before the restored-volume rehearsal.
+- **Progress**: IN PROGRESS — exact committed revision `ddd0edd` passed both four-host Hetzner suites on 2026-08-24 and their evidence was collected; the restored-volume rollback and migration rehearsal is next.
 
 ## Why this matters
 
@@ -69,7 +69,7 @@ git diff --check
 
 - [ ] The complete backup was restored and verified under the previous image before live deploy.
 - [ ] A separate restored copy passed the real one-way upgrade and an idempotent restart with exact identities, refs, access, credentials, and public output.
-- [ ] The exact candidate revision passed both full Hetzner suites before live approval.
+- [x] The exact candidate revision passed both full Hetzner suites before live approval.
 - [ ] All real trees preserved exact identity/content/access.
 - [ ] `updates-v1` discovery is live and `/push` is absent from both server and clients.
 - [ ] Device credentials and revocation work live.

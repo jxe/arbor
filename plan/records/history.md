@@ -3,7 +3,15 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
-## Four-host accepted-update qualification
+## Four-host accepted-update and authorization qualification
+
+**Status: Passed and torn down on 2026-08-24.**
+
+The disposable Hetzner gate ran exact committed Arbor revision `ddd0edd15f6261e3cb07234e14a561b47965c4c4` on `arbor-community`, `arbor-alice`, `arbor-bob`, and `arbor-carol`. Run `20260824t112449z-98dedd` passed both full pre-Railway suites. The accepted-update suite repeated smoke, serial and offline additive convergence, canonical semantic-request replay, durable client-owned conflict and explicit resolution, current-object/private-history isolation, `/push` absence, one-use pairing, and revoked-device denial. The distinct-user suite proved Alice ownership, Bob byte-exact read access with existence-hiding write denial and no rejected-object/history retention, Carol write access with byte-exact convergence back to Alice and Bob, authenticated no-access denial for the original community owner, and anonymous `404` denial.
+
+The collected evidence contains the run state, four service/system reports, an SQLite authority backup, and the immutable-object archive. Its authorization tree was `tr_aba7pv3h2vxrexf3qvgab2ju6q`; the accepted-update trees were `tr_bpbc233d335owolxzetq7jf5ny` (additive), `tr_iqiwlnw2vwbgxsvpuecmjht34y` (conflict), and `tr_6q6aqsrd4p5t7x4udxeqwklbqy` (replay). The authority backup recorded four accounts, five devices, ten trees, and thirty accepted updates. The authorization tree had exactly two accepted updates, confirming that Bob's denied candidate created no authority history. The state and journals matched no credential/token patterns. Evidence was collected before all four exact-ID, label-verified VMs were deleted and Tailscale logout was requested.
+
+## First four-host accepted-update qualification
 
 **Status: Passed and torn down on 2026-08-24.**
 
