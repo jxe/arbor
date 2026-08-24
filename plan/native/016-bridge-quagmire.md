@@ -12,6 +12,13 @@
 - **Depends on**: Plans 012 and 014
 - **Category**: editor integration
 - **Planned at**: Arbor `dc34126`, Quagmire `4049fd4`, 2026-08-23
+- **Reconciled at**: Arbor `01776d6`, Quagmire `4049fd4`, 2026-08-24
+- **Completed**: 2026-08-24
+
+## Reconciled protocol decision
+
+- ArborQuagmire uses range-guarded local source replacements so untouched Markdown remains exact. Its durable admission result is still a complete authoritative source and revision.
+- The bridge does not emit wire `filePatches`. That optional transport optimization is deferred to Plan 021 after Plans 015 and 016 establish stable replica and editor behavior.
 
 ## Why this matters
 
@@ -70,6 +77,16 @@ git diff --check
 ```
 
 Expected: exact-source fixtures pass; immediate commit/flush cannot report false quiescence; destination failures leave source exact; Quagmire tag/source remain unchanged.
+
+Completed evidence: `ArborQuagmire` passed eight tests covering byte-exact no-op source with frontmatter/CRLF/raw constructs, all supported block kinds and H1-H6, semantic bold/italic/code/strike/link preservation after edits, one narrow guarded UTF-8 admission, sequential synchronous generations plus flush, shared PageID bindings across duplicate tabs, scoped references and destination failure safety, and clean accepted replacement with stable BlockIDs plus a remapped exact-source ledger. The app mounts exact Quagmire `0.1.0` for writable Markdown-capable sessions. Quagmire's unchanged verification script passed its package tests and macOS/iOS builds; Hunch and Quagmire remained unmodified.
+
+## Done criteria
+
+- [x] Untouched operational Markdown is byte-identical and edited blocks retain represented semantics.
+- [x] Every synchronous Quagmire commit is admitted to one ordered provider write chain before flush can finish.
+- [x] Accepted replacement preserves matching BlockIDs without creating authored undo or losing source-ledger fidelity.
+- [x] Duplicate tabs share the PageID-keyed binding while cross-document failures leave the source exact.
+- [x] Quagmire remains exact remote `0.1.0` with no Arbor or source-provenance API added to it.
 
 ## STOP conditions
 

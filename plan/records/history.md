@@ -3,6 +3,34 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
+## Native replica synchronization and Quagmire bridge
+
+**Status: Plans 015 and 016 implemented and verified on 2026-08-24.**
+
+`ArborSync` wraps the completed offline replica in a durable exact-request coordinator. It freezes and fsyncs one root-based update body before upload, requests the optional complete returned accepted snapshot, rehashes and validates the graph, distinguishes clean remote replacement from guarded pending-candidate integration, and advances the accepted base only after durable local application. New local roots admitted after a request remain the next candidate. Conflict responses retain local, current, and draft graphs plus structured reasons; explicit resolution uses the returned current update as its next base. Injected crashes before/after request persistence, upload, server acceptance, graph download, merged materialization, and base advancement replay the same body and semantic digest.
+
+Native account integration scans or pastes the versioned pairing payload, independently confirms the short code, stores a distinct device credential with ThisDeviceOnly Keychain protection, lists/revokes/forgets devices, lists writable trees, and places a selected tree in app-private replica storage. Sync state is projected through ArborKit without making local admission or close depend on the authority. The disposable protocol harness proves pairing/revocation, all update outcomes, returned graph bundles, two live Swift replicas, and shared authority merge behavior; the existing arbord self-sync qualification remains the independent macOS writer gate.
+
+`ArborQuagmire` depends on exact remote Quagmire `0.1.0` and keeps its Markdown parser, stable BlockID/source ledger, reference scope, and admission chain private to the host. Unchanged frontmatter, CRLF, raw Markdown, compatible blocks, and represented inline marks remain exact; an edited block is canonically regenerated in isolation and admitted as one range-guarded UTF-8 replacement against the authoritative revision. Sequential Quagmire commits enqueue immediately, flush awaits the tail, duplicate tabs share one PageID binding, accepted replacement remaps both BlockIDs and source records without authored undo, and failed cross-document destinations leave source exact.
+
+The wire spec now also defines `returnSnapshot` as a transport-only hint excluded from semantic request identity. Success/current may return the complete accepted graph and conflicts may additionally return the complete current graph. A negotiated `file-patches-v1` extension is specified but deliberately unimplemented; Plan 021 owns its hostile fixtures, authority reconstruction, Swift planning, accounting proof, and legacy fallback after Plans 015 and 016.
+
+Verification recorded with this delivery:
+
+```text
+bun run typecheck       passed
+bun test                226 passed, 0 failed
+bun run test:sync-merge 45 passed, 0 failed
+bun run test:protocol   8 TypeScript fixture tests, 13 ArborClient tests,
+                        9 ArborWire tests, and 7 ArborSync tests passed
+bun run build           passed
+ArborKit                7 tests passed
+ArborReplica            8 tests passed
+ArborQuagmire           8 tests passed
+Quagmire verify         package tests plus macOS/iOS builds passed unchanged
+Arbor app               macOS tests and iOS 27 build-for-testing passed
+```
+
 ## Offline Swift replica
 
 **Status: Plan 014 implemented and verified on 2026-08-24.**

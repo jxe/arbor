@@ -4,6 +4,29 @@ import Testing
 
 @Suite("Workspace coordination")
 struct WorkspaceCoordinatorTests {
+    @Test("Range-guarded source patches preserve untouched UTF-8 bytes")
+    func sourcePatch() throws {
+        let source = "---\r\nid: pg_patch\r\n---\r\n\r\n# Héllo\r\n\r\nKeep exactly.\r\n"
+        let needle = Data("Héllo".utf8)
+        let bytes = Data(source.utf8)
+        let start = try #require(bytes.range(of: needle)?.lowerBound)
+        let patch = WorkspaceDocumentPatch(
+            baseContentRevision: "rev-1",
+            edits: [WorkspaceSourceEdit(
+                utf8Range: start..<(start + needle.count),
+                replacement: "Hello",
+                expected: "Héllo"
+            )]
+        )
+        #expect(try patch.applying(to: source) == source.replacingOccurrences(of: "Héllo", with: "Hello"))
+        #expect(throws: WorkspacePatchError.self) {
+            try WorkspaceDocumentPatch(
+                baseContentRevision: "rev-1",
+                edits: [.init(utf8Range: start..<(start + needle.count), replacement: "x", expected: "wrong")]
+            ).applying(to: source)
+        }
+    }
+
     @Test("Duplicate tabs lease one PageID session")
     func duplicateLeases() async throws {
         let provider = InMemoryWorkspaceProvider.sample()

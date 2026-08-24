@@ -23,6 +23,7 @@ type TreeDescriptor = {
   access: AccessLevel;               // effective access for this response
   httpURL: string;
   arborURL: string;
+  capabilities?: string[];           // optional negotiated protocol extensions
 };
 
 type AccountDescriptor = {
@@ -71,7 +72,7 @@ GET    /.arbor/devices
 DELETE /.arbor/devices/{deviceID}
 ```
 
-Creating a pairing requires Bearer authentication and returns `{ id, secret, confirmationCode, expiresAt }` once with `cache-control: no-store`. Its QR/copy payload is versioned structured data `{ version: 1, origin, pairing: { id, secret } }`, not a navigation URL and never the existing device credential. Claim is unauthenticated but rate-limited; it accepts `{ secret, label }`, atomically consumes an unexpired pairing, and returns `{ deviceToken, device }` once. The old and new devices independently display `confirmationCode` before trust is accepted.
+Creating a pairing requires Bearer authentication and returns `{ id, secret, confirmationCode, expiresAt }` once with `cache-control: no-store`. Its QR/copy payload is versioned structured data `{ version: 1, origin, pairing: { id, secret } }`, not a navigation URL and never the existing device credential. Claim is unauthenticated but rate-limited; it accepts `{ secret, label }`, atomically consumes an unexpired pairing, and returns `{ deviceToken, device, confirmationCode }` once. The old and new devices independently display the same `confirmationCode` before trust is accepted.
 
 Listing and revoking devices require Bearer authentication. Safe device metadata is `{ id, account, label, createdAt, lastUsedAt, revokedAt }`; no list response contains credentials or pairing secrets. Pairing secrets are stored only as digests, compared in constant time, expire within ten minutes, and are single-use under concurrent claim. Revocation immediately denies future authority requests from that device without changing authored trees or already materialized local content.
 
@@ -178,11 +179,50 @@ GET  /.arbor/objects/{sha256}
 
 `POST .../updates` requires write access. It submits one candidate state for reconciliation against an exact accepted base:
 
+The optional `returnSnapshot: true` member is a transport hint, excluded from the semantic request digest. A successful/current response then includes `snapshot`, a complete root plus every reachable immutable object for the returned accepted update. A conflict additionally includes `currentSnapshot`. This lets a replica validate and apply the exact decision without an accepted-history endpoint or an object-by-object race. The ordinary object endpoint and responses without the hint remain valid.
+
+### Verified file-patch transport extension
+
+`file-patches-v1` is an optional update-envelope optimization. A host advertises it in the resolved tree capabilities before a client may send `filePatches`; absence means the client sends ordinary complete immutable objects. This extension does not change `updates-v1` request identity, candidate-root semantics, accepted history, or merge ownership.
+
+Each patch envelope names an immutable base file object, the expected resulting file-object hash, and ordered UTF-8 byte replacements over the decoded file payload:
+
+```json
+{
+  "base": "sha256:<base-file-object>",
+  "result": "sha256:<result-file-object>",
+  "edits": [
+    { "offset": 1204, "length": 31, "bytes": "<canonical padded base64>" }
+  ]
+}
+```
+
+When negotiated, the ordinary update body may add:
+
+```ts
+type FilePatch = {
+  base: Hash;
+  result: Hash;
+  edits: Array<{ offset: number; length: number; bytes: string }>;
+};
+
+type FilePatchUpdateExtension = {
+  filePatches?: FilePatch[];
+};
+```
+
+Offsets and lengths are nonnegative JSON safe integers addressing bytes in the decoded `file.bytes`, not CBOR-envelope offsets, Unicode scalar positions, or logical Markdown blocks. Edits are sorted by ascending offset, non-overlapping, in bounds, and interpreted simultaneously against the unmodified base payload. Empty edit lists, duplicate result objects, noncanonical base64, arithmetic overflow, and envelopes larger than the host's ordinary update limits are rejected.
+
+The base object must be a file reachable from the request's retained `base.root`; possession of a hash or unrelated write access is insufficient. The authority loads and hash-verifies that base, applies the edits, canonically encodes the resulting file object, verifies its hash equals `result`, and then treats the reconstructed object exactly like a supplied immutable object during graph validation and storage. A request may still supply complete objects, and clients should use whichever representation is smaller. New files and unsuitable/large patches use complete objects.
+
+`filePatches` is excluded from the canonical semantic request digest for the same reason as `objects`: it is a transport representation of the already-named candidate. An ambiguous retry may switch between a valid patch envelope and a complete object without changing request identity, though a client that persists an exact serialized request may simply replay it byte-for-byte. Automatic Markdown reconciliation remains authority-owned and operates only after the exact candidate graph has been reconstructed and validated.
+
 ```ts
 type UpdateRequest = {
   base: { root: Hash; update: string };
   candidate: Hash;
   objects: Array<{ hash: Hash; bytes: string }>; // standard padded base64
+  returnSnapshot?: boolean;                     // transport-only response hint
 };
 ```
 

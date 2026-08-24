@@ -7,7 +7,7 @@
 - Plans 002–005 captured a superseded TreeHopper/iCloud design and must not be executed. Their files remain as historical evidence.
 - The native product is **Arbor**, not TreeHopper: display name and scheme `Arbor`, app module `ArborApp`, bundle ID `org.nxhx.Arbor`, and iOS/macOS 27 deployment targets.
 - The app is new work under `native/`; it is not a renamed Hunch target and must not reuse Hunch defaults, caches, bookmarks, logs, app groups, bundle IDs, or iCloud containers.
-- Plans 012–014 are complete: the generated Arbor shell and UI-independent ArborKit contracts build on macOS and iOS 27; independent ArborWire conformance passes the shared fixtures and disposable authority harness; and ArborReplica provides the private, crash-recoverable offline provider without networking.
+- Plans 012–016 are complete: the generated Arbor shell and UI-independent ArborKit contracts build on macOS and iOS 27; independent ArborWire conformance passes the shared fixtures and disposable authority harness; ArborReplica provides the private crash-recoverable offline provider; ArborSync adds authority-owned convergence through validated returned snapshots; and ArborQuagmire mounts exact Quagmire `0.1.0` over source-preserving guarded admissions.
 
 Execution order:
 
@@ -26,6 +26,7 @@ Execution order:
 13. [018 — Hunch native strengths](018-port-hunch-strengths.md)
 14. [019 — one-time Hunch cutover](019-convert-hunch-workspace.md)
 15. [020 — device-management browser E2E](020-test-device-management-browser.md)
+16. [021 — verified wire file patches](021-add-wire-file-patches.md)
 
 ## Product and persistence boundary
 

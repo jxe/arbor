@@ -1,0 +1,24 @@
+{
+  "originHash" : "cba2546609af87647ce440888fab6593c05524f47c6e6e7424e3b5a52600df75",
+  "pins" : [
+    {
+      "identity" : "emojikit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/danielsaidi/EmojiKit.git",
+      "state" : {
+        "revision" : "8a7332d1b8c39d5a6ad2e5518431966f540ac8c7",
+        "version" : "3.0.1"
+      }
+    },
+    {
+      "identity" : "quagmire",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jxe/quagmire.git",
+      "state" : {
+        "revision" : "4049fd4d1d941a123a329597984a34ac61c8c03c",
+        "version" : "0.1.0"
+      }
+    }
+  ],
+  "version" : 3
+}

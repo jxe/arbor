@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   canonicalUpdateIntent,
   decodeObjectEnvelopes,
+  decodeUpdateRequestJSON,
   updateRequestDigest,
   type ObjectHash,
 } from "@arbor/wire";
@@ -64,5 +65,11 @@ describe("updates-v1 JSON identity", () => {
       { hash, bytes: "Yg==" },
     ])).toThrow("different bytes");
     expect(() => decodeObjectEnvelopes([{ hash, bytes: "YQ" }])).toThrow("padded base64");
+    expect(() => decodeUpdateRequestJSON({
+      base: fixtures.identity.base,
+      candidate: fixtures.identity.candidate,
+      objects: [],
+      returnSnapshot: "yes",
+    })).toThrow("returnSnapshot must be boolean");
   });
 });

@@ -17,6 +17,14 @@ settings:
 packages:
   ArborKit:
     path: Packages/ArborKit
+  ArborReplica:
+    path: Packages/ArborReplica
+  ArborWire:
+    path: Packages/ArborWire
+  ArborSync:
+    path: Packages/ArborSync
+  ArborQuagmire:
+    path: Packages/ArborQuagmire
 
 targets:
   Arbor:
@@ -26,11 +34,16 @@ targets:
       - path: ArborApp
     dependencies:
       - package: ArborKit
+      - package: ArborReplica
+      - package: ArborWire
+      - package: ArborSync
+      - package: ArborQuagmire
     info:
       path: ArborApp/Info.plist
       properties:
         CFBundleDisplayName: Arbor
         LSApplicationCategoryType: public.app-category.productivity
+        NSCameraUsageDescription: Scan one-time Arbor device-pairing QR codes.
         UILaunchScreen: {}
     settings:
       base:

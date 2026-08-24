@@ -179,17 +179,23 @@ struct LiveAuthorityTests {
 
         let candidateA = try snapshot(fileBytes: Data("candidate-a".utf8))
         let base = AuthorityUpdateBase(root: tree.ref, update: try #require(tree.update))
-        let accepted = try await client.submitUpdate(try await client.prepareUpdate(tree: tree.id, base: base, snapshot: candidateA))
-        guard case let .accepted(updateA) = accepted else { Issue.record("Expected accepted result"); return }
+        let accepted = try await client.submitUpdateResponse(
+            try await client.prepareUpdate(tree: tree.id, base: base, snapshot: candidateA, returnSnapshot: true)
+        )
+        guard case let .accepted(updateA) = accepted.result else { Issue.record("Expected accepted result"); return }
         #expect(updateA.root == candidateA.root)
+        #expect(accepted.snapshot?.sorted() == candidateA.sorted())
 
         let candidateB = try snapshot(fileBytes: Data("candidate-b".utf8))
         do {
-            _ = try await client.submitUpdate(try await client.prepareUpdate(tree: tree.id, base: base, snapshot: candidateB))
+            _ = try await client.submitUpdateResponse(
+                try await client.prepareUpdate(tree: tree.id, base: base, snapshot: candidateB, returnSnapshot: true)
+            )
             Issue.record("Expected binary conflict")
         } catch let error as AuthorityUpdateConflictError {
             #expect(error.conflict.conflicts.contains { $0.reason == "binary-conflict" })
             #expect(try WireObjectGraph.validate(error.conflict.draft).count >= 2)
+            #expect(error.conflict.currentSnapshot?.root == candidateA.root)
         }
 
         let offer = try await client.createPairing()

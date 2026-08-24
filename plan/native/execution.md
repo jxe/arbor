@@ -2,7 +2,7 @@
 
 These handoffs build separate components in dependency order. Each executor must read its assigned plan fully, run the drift check before editing, honor its scope and STOP conditions, run every verification gate, and update the status row here. Completing one plan does not authorize opportunistic implementation of a later milestone.
 
-Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd4` on 2026-08-23. Plans 012 and 013 were reconciled against clean Arbor `0c53964`; Plan 014 was reconciled after them at `3117f93` on 2026-08-24. Later executors must still reconcile live source before relying on any snapshot.
+Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd4` on 2026-08-23. Plans 012 and 013 were reconciled against clean Arbor `0c53964`; Plan 014 was reconciled after them at `3117f93`; Plans 015 and 016 were reconciled after Plan 014 at `01776d6` on 2026-08-24. Later executors must still reconcile live source before relying on any snapshot.
 
 ## Execution order and status
 
@@ -22,12 +22,13 @@ Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quag
 | [012](012-found-native-arbor.md) | Found the native Arbor shell | P1 | L | 006 | DONE — generated Arbor app, ArborKit contracts, and lifecycle tests verified |
 | [013](013-build-swift-arbor-wire.md) | Build the Swift ArborWire package | P1 | L | 007, 008, 010 | DONE — shared fixtures and disposable-authority conformance verified |
 | [014](014-build-offline-replica.md) | Build the offline Swift replica | P1 | XL | 007, 012 | DONE — durable offline provider and fault recovery verified |
-| [015](015-sync-native-replicas.md) | Synchronize native replicas through Arbor | P1 | XL | 009, 011, 013, 014 | TODO |
-| [016](016-bridge-quagmire.md) | Bridge Quagmire to Arbor documents | P1 | XL | 012, 014 | TODO |
+| [015](015-sync-native-replicas.md) | Synchronize native replicas through Arbor | P1 | XL | 009, 011, 013, 014 | DONE — crash-safe returned-snapshot sync and native pairing/placement verified |
+| [016](016-bridge-quagmire.md) | Bridge Quagmire to Arbor documents | P1 | XL | 012, 014 | DONE — exact-source Quagmire bridge and unchanged-package gates verified |
 | [017](017-complete-daily-driver.md) | Complete the native daily-driver core | P1 | XL | 015, 016 | TODO |
 | [018](018-port-hunch-strengths.md) | Port Hunch's native strengths | P1 | XL | 017 | TODO |
 | [019](019-convert-hunch-workspace.md) | Convert the live Hunch workspace and cut over | P1 | L | 018 | TODO |
 | [020](020-test-device-management-browser.md) | Complete device-management browser E2E | P2 | S | 010 | TODO |
+| [021](021-add-wire-file-patches.md) | Add verified wire file patches | P2 | L | 015, 016 | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
 
@@ -43,6 +44,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - 016 proves exact editor persistence independently of the broad product surface.
 - 019 is the only milestone allowed to read the live Hunch workspace or create its converted destination.
 - 020 is later browser-surface hardening. It does not block the already verified device protocol, Railway migration, or native implementation sequence.
+- 021 is a post-sync performance extension. Plans 015 and 016 use complete immutable file objects and must not depend on patch transport.
 
 ## Decisions carried by the plan set
 

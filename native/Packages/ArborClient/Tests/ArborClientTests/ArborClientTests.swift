@@ -334,7 +334,7 @@ final class ArborClientTests: XCTestCase {
     }
 
     func testAuthorityPairingClaimDoesNotSendExistingCredential() async throws {
-        let response = Data(#"{"deviceToken":"new-token","device":{"id":"dev_new","account":"acct_1","label":"iPad","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null}}"#.utf8)
+        let response = Data(#"{"deviceToken":"new-token","device":{"id":"dev_new","account":"acct_1","label":"iPad","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null},"confirmationCode":"123456"}"#.utf8)
         await URLProtocolStub.state.install { _, _ in (201, response) }
         let client = ArborAuthorityClient(
             origin: URL(string: "https://authority.test")!,
@@ -344,6 +344,7 @@ final class ArborClientTests: XCTestCase {
         let claimed = try await client.claimPairing(id: "pair_1", secret: "secret", label: "iPad")
         let snapshot = await URLProtocolStub.state.snapshot()
         XCTAssertEqual(claimed.deviceToken, "new-token")
+        XCTAssertEqual(claimed.confirmationCode, "123456")
         XCTAssertNil(snapshot.requests.first?.authorization)
         XCTAssertEqual(snapshot.requests.first?.path, "/.arbor/pairings/pair_1/claim")
     }

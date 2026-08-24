@@ -66,7 +66,15 @@ function descriptorWithUpdate(
 }
 
 function updateJSON(value: unknown): unknown {
-  if (!value || typeof value !== "object" || !("error" in value) || (value as { error?: unknown }).error !== "conflict") return value;
+  if (!value || typeof value !== "object") return value;
+  const encodeSnapshot = (snapshot: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> }) => ({
+    root: snapshot.root,
+    objects: snapshot.objects.map(({ hash, bytes }) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
+  });
+  if (!("error" in value) || (value as { error?: unknown }).error !== "conflict") {
+    const result = value as { snapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> } };
+    return result.snapshot ? { ...result, snapshot: encodeSnapshot(result.snapshot) } : value;
+  }
   const conflict = value as {
     error: "conflict";
     current: unknown;
@@ -74,13 +82,12 @@ function updateJSON(value: unknown): unknown {
     candidate: ObjectHash;
     conflicts: unknown[];
     draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> };
+    currentSnapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> };
   };
   return {
     ...conflict,
-    draft: {
-      root: conflict.draft.root,
-      objects: conflict.draft.objects.map(({ hash, bytes }) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
-    },
+    draft: encodeSnapshot(conflict.draft),
+    ...(conflict.currentSnapshot ? { currentSnapshot: encodeSnapshot(conflict.currentSnapshot) } : {}),
   };
 }
 
@@ -216,7 +223,7 @@ export async function serveWireHost(options: {
           const body = await request.json() as { secret?: unknown; label?: unknown };
           if (typeof body.secret !== "string" || typeof body.label !== "string") throw new Error("Pairing claim requires secret and label");
           const claimed = authority.claimPairing(pairingID, body.secret, body.label);
-          return json({ deviceToken: claimed.token, device: claimed.device }, 201);
+          return json({ deviceToken: claimed.token, device: claimed.device, confirmationCode: claimed.confirmationCode }, 201);
         }
         if (url.pathname === "/.arbor/devices" && request.method === "GET") {
           return json(authority.devices(requireAccount(request, authority)));
@@ -399,7 +406,20 @@ export async function serveWireHost(options: {
               linkDigest(request),
               authentication?.subject,
             );
-            return json(updateJSON(result.result), result.status);
+            if (!update.returnSnapshot) return json(updateJSON(result.result), result.status);
+            if ("error" in result.result) {
+              const currentSnapshot = await authority.snapshotForUpdate(treeID, result.result.current.id);
+              return json(updateJSON({ ...result.result, currentSnapshot: {
+                root: currentSnapshot.root,
+                objects: [...currentSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
+              } }), result.status);
+            }
+            const accepted = result.result.outcome === "current" ? result.result.current : result.result.update;
+            const snapshot = await authority.snapshotForUpdate(treeID, accepted.id);
+            return json(updateJSON({ ...result.result, snapshot: {
+              root: snapshot.root,
+              objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
+            } }), result.status);
           }
           return new Response("Method not allowed", { status: 405 });
         }

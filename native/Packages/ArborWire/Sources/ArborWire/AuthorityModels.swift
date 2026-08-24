@@ -106,6 +106,32 @@ public struct AuthorityAcceptedUpdate: Codable, Sendable, Equatable {
     public var remoteRoot: String?
     public var merge: AuthorityMergeSummary?
 
+    public init(
+        id: String,
+        tree: String,
+        root: String,
+        previousRoot: String? = nil,
+        kind: String,
+        acceptedAt: Double,
+        subject: String? = nil,
+        baseRoot: String? = nil,
+        candidateRoot: String? = nil,
+        remoteRoot: String? = nil,
+        merge: AuthorityMergeSummary? = nil
+    ) {
+        self.id = id
+        self.tree = tree
+        self.root = root
+        self.previousRoot = previousRoot
+        self.kind = kind
+        self.acceptedAt = acceptedAt
+        self.subject = subject
+        self.baseRoot = baseRoot
+        self.candidateRoot = candidateRoot
+        self.remoteRoot = remoteRoot
+        self.merge = merge
+    }
+
     public func validated() throws -> Self {
         guard !id.isEmpty, !tree.isEmpty, acceptedAt.isFinite else {
             throw ArborWireValidationError.invalidValue("Malformed accepted update identity")
@@ -154,11 +180,13 @@ public struct AuthorityUpdateRequest: Codable, Sendable, Equatable {
     public var base: AuthorityUpdateBase
     public var candidate: String
     public var objects: [AuthorityObject]
+    public var returnSnapshot: Bool?
 
-    public init(base: AuthorityUpdateBase, candidate: String, objects: [AuthorityObject]) {
+    public init(base: AuthorityUpdateBase, candidate: String, objects: [AuthorityObject], returnSnapshot: Bool = false) {
         self.base = base
         self.candidate = candidate
         self.objects = objects
+        self.returnSnapshot = returnSnapshot ? true : nil
     }
 }
 
@@ -177,6 +205,8 @@ public struct PreparedAuthorityUpdate: Sendable, Equatable {
 public struct AuthorityConflictReason: Codable, Sendable, Equatable {
     public var path: String
     public var reason: String
+
+    public init(path: String, reason: String) { self.path = path; self.reason = reason }
 }
 
 public struct AuthorityUpdateConflict: Codable, Sendable, Equatable {
@@ -187,7 +217,30 @@ public struct AuthorityUpdateConflict: Codable, Sendable, Equatable {
     public var base: String
     public var candidate: String
     public var draft: AuthoritySnapshot
+    public var currentSnapshot: AuthoritySnapshot?
     public var conflicts: [AuthorityConflictReason]
+
+    public init(
+        error: String = "conflict",
+        message: String,
+        retryable: Bool = false,
+        current: AuthorityAcceptedUpdate,
+        base: String,
+        candidate: String,
+        draft: AuthoritySnapshot,
+        currentSnapshot: AuthoritySnapshot? = nil,
+        conflicts: [AuthorityConflictReason]
+    ) {
+        self.error = error
+        self.message = message
+        self.retryable = retryable
+        self.current = current
+        self.base = base
+        self.candidate = candidate
+        self.draft = draft
+        self.currentSnapshot = currentSnapshot
+        self.conflicts = conflicts
+    }
 
     public func validated() throws -> Self {
         guard error == "conflict", !retryable else { throw ArborWireValidationError.invalidValue("Malformed conflict envelope") }
@@ -195,6 +248,12 @@ public struct AuthorityUpdateConflict: Codable, Sendable, Equatable {
         try validateObjectHash(base)
         try validateObjectHash(candidate)
         _ = try WireObjectGraph.validate(draft)
+        if let currentSnapshot {
+            _ = try WireObjectGraph.validate(currentSnapshot)
+            guard currentSnapshot.root == current.root else {
+                throw ArborWireValidationError.invalidValue("Conflict current snapshot root mismatch")
+            }
+        }
         guard conflicts.allSatisfy({ $0.path.hasPrefix("/") && !$0.reason.isEmpty }) else {
             throw ArborWireValidationError.invalidValue("Malformed conflict reason")
         }
@@ -206,6 +265,35 @@ public enum AuthorityUpdateResult: Sendable, Equatable {
     case current(AuthorityAcceptedUpdate)
     case accepted(AuthorityAcceptedUpdate)
     case merged(AuthorityAcceptedUpdate, AuthorityMergeSummary)
+}
+
+public struct AuthorityUpdateResponse: Sendable, Equatable, Decodable {
+    public var result: AuthorityUpdateResult
+    public var snapshot: AuthoritySnapshot?
+
+    private enum CodingKeys: String, CodingKey { case snapshot }
+
+    public init(result: AuthorityUpdateResult, snapshot: AuthoritySnapshot?) {
+        self.result = result
+        self.snapshot = snapshot
+    }
+
+    public init(from decoder: Decoder) throws {
+        result = try AuthorityUpdateResult(from: decoder)
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        snapshot = try values.decodeIfPresent(AuthoritySnapshot.self, forKey: .snapshot)
+        if let snapshot {
+            _ = try WireObjectGraph.validate(snapshot)
+            let acceptedRoot: String
+            switch result {
+            case let .current(update), let .accepted(update): acceptedRoot = update.root
+            case let .merged(update, _): acceptedRoot = update.root
+            }
+            guard snapshot.root == acceptedRoot else {
+                throw ArborWireValidationError.invalidValue("Returned snapshot root mismatch")
+            }
+        }
+    }
 }
 
 extension AuthorityUpdateResult: Decodable {
@@ -260,9 +348,12 @@ public struct AuthorityPairingOffer: Codable, Sendable, Equatable {
 public struct AuthorityPairingClaim: Codable, Sendable, Equatable {
     public var deviceToken: String
     public var device: AuthorityDevice
+    public var confirmationCode: String
 
     public func validated() throws -> Self {
-        guard !deviceToken.isEmpty else { throw ArborWireValidationError.invalidValue("Missing paired device token") }
+        guard !deviceToken.isEmpty, !confirmationCode.isEmpty else {
+            throw ArborWireValidationError.invalidValue("Missing paired device token or confirmation code")
+        }
         _ = try device.validated()
         return self
     }
@@ -270,6 +361,8 @@ public struct AuthorityPairingClaim: Codable, Sendable, Equatable {
 
 public struct AuthorityUpdateConflictError: Error, Sendable, Equatable {
     public var conflict: AuthorityUpdateConflict
+
+    public init(conflict: AuthorityUpdateConflict) { self.conflict = conflict }
 }
 
 public struct AuthorityHTTPError: Error, Sendable, Equatable {

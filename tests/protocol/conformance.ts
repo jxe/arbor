@@ -54,6 +54,14 @@ try {
         ARBOR_WIRE_TEST_TOKEN: authorityToken,
       },
     );
+    await run(
+      ["swift", "test", "--package-path", "native/Packages/ArborSync"],
+      {
+        ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../spec/fixtures"),
+        ARBOR_WIRE_TEST_URL: authority.url,
+        ARBOR_WIRE_TEST_TOKEN: authorityToken,
+      },
+    );
   } finally {
     authority.server.stop(true);
     await authority.authority[Symbol.asyncDispose]();

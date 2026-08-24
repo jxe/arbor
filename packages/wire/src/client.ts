@@ -8,7 +8,13 @@ import type {
   PairingOffer,
   TreeAccess,
 } from "./updates/types.ts";
-import type { ObjectHash, TreeSnapshot } from "./objects.ts";
+import {
+  decodeWireObject,
+  encodeWireObject,
+  hashObject,
+  type ObjectHash,
+  type TreeSnapshot,
+} from "./objects.ts";
 import {
   decodeBase64,
   encodeObjectEnvelopes,
@@ -53,6 +59,7 @@ export interface ClaimResult {
 export interface PairingClaimResult {
   deviceToken: string;
   device: AuthorityDevice;
+  confirmationCode: string;
 }
 
 export interface RemoteAccessEntry {
@@ -77,6 +84,39 @@ function encodedSnapshot(snapshot: TreeSnapshot) {
     root: snapshot.root,
     objects: encodeObjectEnvelopes(snapshot.objects),
   };
+}
+
+function decodedSnapshot(snapshot: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> }) {
+  if (!/^sha256:[a-f0-9]{64}$/.test(snapshot.root)) throw new Error("Snapshot root hash is invalid");
+  const objects = new Map<ObjectHash, Uint8Array>();
+  for (const envelope of snapshot.objects) {
+    if (!/^sha256:[a-f0-9]{64}$/.test(envelope.hash)) throw new Error("Snapshot object hash is invalid");
+    const bytes = decodeBase64(envelope.bytes);
+    if (hashObject(bytes) !== envelope.hash) throw new Error(`Snapshot object hash mismatch: ${envelope.hash}`);
+    const existing = objects.get(envelope.hash);
+    if (existing && (existing.length !== bytes.length || existing.some((byte, index) => byte !== bytes[index]))) {
+      throw new Error(`Snapshot object ${envelope.hash} was supplied with different bytes`);
+    }
+    objects.set(envelope.hash, bytes);
+  }
+  const visited = new Set<ObjectHash>();
+  const visit = (hash: ObjectHash) => {
+    if (visited.has(hash)) return;
+    const bytes = objects.get(hash);
+    if (!bytes) throw new Error(`Snapshot is missing reachable object: ${hash}`);
+    const object = decodeWireObject(bytes);
+    const canonical = encodeWireObject(object);
+    if (canonical.length !== bytes.length || canonical.some((byte, index) => byte !== bytes[index])) {
+      throw new Error(`Snapshot object is not canonical CBOR: ${hash}`);
+    }
+    visited.add(hash);
+    if (object.type === "directory") {
+      for (const entry of object.entries) if (entry.hash) visit(entry.hash);
+    }
+  };
+  visit(snapshot.root);
+  if (visited.size !== objects.size) throw new Error("Snapshot contains unreachable objects");
+  return { root: snapshot.root, objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
 }
 
 export class WireClient {
@@ -206,11 +246,13 @@ export class WireClient {
     tree: string,
     base: { root: ObjectHash; update: string },
     snapshot: TreeSnapshot,
+    options: { returnSnapshot?: boolean } = {},
   ): Promise<UpdateResult> {
     const request: UpdateRequest = {
       base,
       candidate: snapshot.root,
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
+      ...(options.returnSnapshot ? { returnSnapshot: true } : {}),
     };
     const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
       method: "POST",
@@ -218,25 +260,31 @@ export class WireClient {
       body: JSON.stringify(encodeUpdateRequestJSON(request)),
     });
     if (response.status === 409) {
-      const body = await response.json() as (Omit<UpdateConflictResult, "draft"> & {
+      type ConflictJSON = Omit<UpdateConflictResult, "draft" | "currentSnapshot"> & {
         draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
-      }) | { error?: unknown; message?: unknown };
+        currentSnapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
+      };
+      const body = await response.json() as ConflictJSON | { error?: unknown; message?: unknown };
       if (body.error === "conflict") {
-        const conflict = body as Omit<UpdateConflictResult, "draft"> & {
-          draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
-        };
+        const conflict = body as ConflictJSON;
+        const { draft, currentSnapshot, ...envelope } = conflict;
         throw new WireUpdateConflict({
-          ...conflict,
-          draft: {
-            root: conflict.draft.root,
-            objects: conflict.draft.objects.map(({ hash, bytes }) => ({ hash, bytes: decodeBase64(bytes) })),
-          },
+          ...envelope,
+          draft: decodedSnapshot(draft),
+          ...(currentSnapshot ? { currentSnapshot: decodedSnapshot(currentSnapshot) } : {}),
         });
       }
       const rejection = body as { error?: unknown; message?: unknown };
       throw new Error(`${response.url}: ${typeof rejection.error === "string" ? rejection.error : "update rejected"}${typeof rejection.message === "string" ? `: ${rejection.message}` : ""}`);
     }
-    return (await this.checked(response)).json();
+    const result = await (await this.checked(response)).json() as {
+      snapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
+      [key: string]: unknown;
+    };
+    return result.snapshot ? {
+      ...result,
+      snapshot: decodedSnapshot(result.snapshot),
+    } as UpdateResult : result as UpdateResult;
   }
 
   async access(tree: string): Promise<RemoteAccessEntry[]> {

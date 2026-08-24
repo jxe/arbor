@@ -461,6 +461,14 @@ export class WireAuthority implements AsyncDisposable {
     return this.acceptedStore.list(treeID);
   }
 
+  /** Complete graph for one retained update. Wire hosts expose it only as an
+   * opt-in response to the exact update request, never as history browsing. */
+  async snapshotForUpdate(treeID: string, updateID: string): Promise<TreeSnapshot> {
+    const update = this.update(updateID);
+    if (!update || update.tree !== treeID) throw new Error("Accepted update is not retained for this tree");
+    return this.completeSnapshot(update.root);
+  }
+
   boundary(path: string): AuthorityTree | null {
     return this.treeSelect("WHERE b.path = ?", normalizeBoundaryPath(path));
   }
@@ -544,7 +552,7 @@ export class WireAuthority implements AsyncDisposable {
     return { id, secret, confirmationCode, expiresAt };
   }
 
-  claimPairing(id: string, secret: string, label: string): { token: string; device: AuthorityDevice } {
+  claimPairing(id: string, secret: string, label: string): { token: string; device: AuthorityDevice; confirmationCode: string } {
     const safeLabel = label.trim();
     if (!safeLabel || safeLabel.length > 100) throw new Error("Device label is required and must be at most 100 characters");
     const pairing = this.db.query(`
@@ -554,6 +562,7 @@ export class WireAuthority implements AsyncDisposable {
     `).get(id) as {
       account_id: string;
       secret_digest: string;
+      confirmation_code: string;
       expires_at: number;
       claimed_at: number | null;
       account_enabled: number;
@@ -579,7 +588,11 @@ export class WireAuthority implements AsyncDisposable {
         [deviceID, pairing.account_id, safeLabel, sha256(token), now],
       );
     })();
-    return { token, device: this.deviceRow(this.db.query("SELECT * FROM devices WHERE id = ?").get(deviceID))! };
+    return {
+      token,
+      device: this.deviceRow(this.db.query("SELECT * FROM devices WHERE id = ?").get(deviceID))!,
+      confirmationCode: pairing.confirmation_code,
+    };
   }
 
   revokeDevice(account: AuthorityAccount, deviceID: string): AuthorityDevice {

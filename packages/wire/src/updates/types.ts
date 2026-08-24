@@ -58,12 +58,19 @@ export interface UpdateRequest {
   base: { root: ObjectHash; update: string };
   candidate: ObjectHash;
   objects: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
+  /** Transport hint only; excluded from the updates-v1 semantic request digest. */
+  returnSnapshot?: boolean;
 }
 
 export type UpdateResult =
-  | { outcome: "current"; current: AcceptedUpdate }
-  | { outcome: "accepted"; update: AcceptedUpdate }
-  | { outcome: "merged"; update: AcceptedUpdate; merge: MergeSummary };
+  | { outcome: "current"; current: AcceptedUpdate; snapshot?: TreeSnapshotEnvelope }
+  | { outcome: "accepted"; update: AcceptedUpdate; snapshot?: TreeSnapshotEnvelope }
+  | { outcome: "merged"; update: AcceptedUpdate; merge: MergeSummary; snapshot?: TreeSnapshotEnvelope };
+
+export interface TreeSnapshotEnvelope {
+  root: ObjectHash;
+  objects: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
+}
 
 export interface UpdateConflictResult {
   error: "conflict";
@@ -73,5 +80,7 @@ export interface UpdateConflictResult {
   base: ObjectHash;
   candidate: ObjectHash;
   draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> };
+  /** Present when the caller requested a complete accepted snapshot. */
+  currentSnapshot?: TreeSnapshotEnvelope;
   conflicts: UpdateConflict[];
 }

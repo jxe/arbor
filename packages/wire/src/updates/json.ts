@@ -10,6 +10,7 @@ export interface UpdateRequestJSON {
   base: { root: ObjectHash; update: string };
   candidate: ObjectHash;
   objects: ObjectEnvelopeJSON[];
+  returnSnapshot?: boolean;
 }
 
 export function encodeBase64(bytes: Uint8Array): string {
@@ -51,15 +52,19 @@ export function encodeObjectEnvelopes(objects: Iterable<readonly [ObjectHash, Ui
 
 export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
   if (!value || typeof value !== "object") throw new Error("Update body must be a JSON object");
-  const body = value as { base?: unknown; candidate?: unknown; objects?: unknown };
+  const body = value as { base?: unknown; candidate?: unknown; objects?: unknown; returnSnapshot?: unknown };
   const base = body.base as { root?: unknown; update?: unknown } | null;
   if (!base || typeof base.root !== "string" || typeof base.update !== "string" || typeof body.candidate !== "string") {
     throw new Error("Update requires base root/update and candidate root");
+  }
+  if (body.returnSnapshot !== undefined && typeof body.returnSnapshot !== "boolean") {
+    throw new Error("returnSnapshot must be boolean when present");
   }
   return {
     base: { root: base.root, update: base.update },
     candidate: body.candidate,
     objects: decodeObjectEnvelopes(body.objects),
+    ...(body.returnSnapshot === true ? { returnSnapshot: true } : {}),
   };
 }
 
@@ -68,5 +73,6 @@ export function encodeUpdateRequestJSON(request: UpdateRequest): UpdateRequestJS
     base: request.base,
     candidate: request.candidate,
     objects: request.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
+    ...(request.returnSnapshot ? { returnSnapshot: true } : {}),
   };
 }

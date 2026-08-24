@@ -98,6 +98,14 @@ describe("personal wire authority", () => {
     expect(accepted.outcome).toBe("accepted");
     const replayed = await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update! }, next);
     expect(replayed).toEqual(accepted);
+    const bundled = await client.submitUpdate(
+      tree.id,
+      { root: tree.ref, update: tree.update! },
+      next,
+      { returnSnapshot: true },
+    );
+    expect(bundled.snapshot?.root).toBe(next.root);
+    expect(bundled.snapshot?.objects.map(({ hash }) => hash).sort()).toEqual([...next.objects.keys()].sort());
     expect((await client.ref(tree.id)).ref).toBe(next.root);
     expect(running.authority.acceptedUpdates(tree.id).filter((item) => item.root === next.root)).toHaveLength(1);
 
@@ -265,12 +273,18 @@ describe("personal wire authority", () => {
       const candidateSnapshot = await snapshotDirectory(candidateFolder);
       let conflict: WireUpdateConflict | undefined;
       try {
-        await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update! }, candidateSnapshot);
+        await client.submitUpdate(
+          tree.id,
+          { root: tree.ref, update: tree.update! },
+          candidateSnapshot,
+          { returnSnapshot: true },
+        );
       } catch (error) {
         if (error instanceof WireUpdateConflict) conflict = error;
         else throw error;
       }
       expect(conflict?.result.conflicts).toEqual([{ path: "/asset.bin", reason: "binary-conflict" }]);
+      expect(conflict?.result.currentSnapshot?.root).toBe(remoteSnapshot.root);
       expect(conflict?.result.draft.objects.some(({ hash }) => hash === conflict?.result.draft.root)).toBe(true);
       expect(conflict?.result.draft.objects.length).toBeGreaterThanOrEqual(2);
       expect(running.authority.acceptedUpdates(tree.id)).toHaveLength(2);
@@ -281,6 +295,7 @@ describe("personal wire authority", () => {
         tree.id,
         { root: tree.ref, update: tree.update! },
         candidateSnapshot,
+        { returnSnapshot: true },
       )).rejects.toEqual(conflict);
       expect(running.authority.acceptedUpdates(tree.id)).toHaveLength(2);
     } finally {

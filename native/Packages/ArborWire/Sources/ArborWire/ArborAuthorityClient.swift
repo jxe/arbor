@@ -127,12 +127,18 @@ public actor ArborAuthorityClient {
     public func prepareUpdate(
         tree: String,
         base: AuthorityUpdateBase,
-        snapshot: AuthoritySnapshot
+        snapshot: AuthoritySnapshot,
+        returnSnapshot: Bool = false
     ) throws -> PreparedAuthorityUpdate {
         guard !tree.isEmpty, !base.update.isEmpty else { throw ArborWireValidationError.invalidValue("Update identity is empty") }
         try validateObjectHash(base.root)
         _ = try WireObjectGraph.validate(snapshot)
-        let request = AuthorityUpdateRequest(base: base, candidate: snapshot.root, objects: snapshot.objects)
+        let request = AuthorityUpdateRequest(
+            base: base,
+            candidate: snapshot.root,
+            objects: snapshot.objects,
+            returnSnapshot: returnSnapshot
+        )
         return PreparedAuthorityUpdate(
             tree: tree,
             body: try encoder.encode(request),
@@ -141,6 +147,10 @@ public actor ArborAuthorityClient {
     }
 
     public func submitUpdate(_ prepared: PreparedAuthorityUpdate) async throws -> AuthorityUpdateResult {
+        (try await submitUpdateResponse(prepared)).result
+    }
+
+    public func submitUpdateResponse(_ prepared: PreparedAuthorityUpdate) async throws -> AuthorityUpdateResponse {
         var request = try await authorizedRequest(path: "/.arbor/trees/\(component(prepared.tree))/updates")
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -159,7 +169,7 @@ public actor ArborAuthorityClient {
                     throw RetryableAuthorityError()
                 }
                 try validate(data: data, status: status)
-                return try decoder.decode(AuthorityUpdateResult.self, from: data)
+                return try decoder.decode(AuthorityUpdateResponse.self, from: data)
             } catch let error as AuthorityUpdateConflictError {
                 throw error
             } catch let error as AuthorityHTTPError {

@@ -67,6 +67,48 @@ public enum WorkspaceMaterialization: String, Hashable, Codable, Sendable {
     case unavailable
 }
 
+public enum WorkspaceSynchronization: String, Hashable, Codable, Sendable {
+    case offline
+    case locallyPending
+    case requestPending
+    case uploading
+    case downloading
+    case current
+    case autoMerged
+    case approximatePlacement
+    case conflict
+    case authenticationFailure
+    case revoked
+}
+
+public struct WorkspaceSyncPresentation: Hashable, Codable, Sendable {
+    public var state: WorkspaceSynchronization
+    public var detail: String?
+    public var acceptedRoot: String?
+    public var localRoot: String?
+    public var localAdditions: Bool
+    public var remoteAdditions: Bool
+    public var approximatePlacements: Int
+
+    public init(
+        state: WorkspaceSynchronization,
+        detail: String? = nil,
+        acceptedRoot: String? = nil,
+        localRoot: String? = nil,
+        localAdditions: Bool = false,
+        remoteAdditions: Bool = false,
+        approximatePlacements: Int = 0
+    ) {
+        self.state = state
+        self.detail = detail
+        self.acceptedRoot = acceptedRoot
+        self.localRoot = localRoot
+        self.localAdditions = localAdditions
+        self.remoteAdditions = remoteAdditions
+        self.approximatePlacements = approximatePlacements
+    }
+}
+
 public struct WorkspaceProvenance: Hashable, Codable, Sendable {
     public var authority: WorkspaceAuthority
     public var sourceDescription: String

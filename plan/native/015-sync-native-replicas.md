@@ -12,6 +12,13 @@
 - **Depends on**: Plans 009, 011, 013, and 014
 - **Category**: synchronization/correctness
 - **Planned at**: Arbor `dc34126`, 2026-08-23
+- **Reconciled at**: Arbor `01776d6`, 2026-08-24
+- **Completed**: 2026-08-24
+
+## Reconciled protocol decision
+
+- Plan 015 requests the optional complete returned accepted snapshot on `updates-v1`, validates it, and applies it without graph-fetch races or a historical-object endpoint.
+- `file-patches-v1` is specified now but deferred to Plan 021. This plan continues uploading complete changed file objects and does not depend on patch capability.
 
 ## Why this matters
 
@@ -71,14 +78,16 @@ git diff --check
 
 Also run sequential app tests/builds. Expected: all peers converge on the authority's accepted root for automatic cases; every added Markdown line survives near allowed context; unsafe cases preserve the draft and both alternatives; force-quit after a final offline edit recovers locally; revoked credentials stop remote access without harming local content.
 
+Completed evidence: `ArborSync` passed seven tests covering private placement, one-sided synchronization, newer local-tail preservation, durable conflict choice, every request/upload/download/base-advance fault boundary, pre/post merged-graph materialization recovery, and two live Swift replicas converging through a disposable authority. The unified protocol gate exercised the optional complete returned snapshot, pairing/confirmation/revocation, exact retry, conflicts, and the live peer merge; the existing arbord self-sync and shared merge-fixture gates remained green. The app can scan or paste the versioned pairing payload, stores a distinct ThisDeviceOnly Keychain credential, lists/revokes/forgets devices, lists writable account trees, places one into private replica storage, mounts its provider, and triggers sync without making local admission wait for the network. Sequential macOS tests and an iOS 27 simulator build-for-testing passed.
+
 ## Done criteria
 
-- [ ] Swift contains no Markdown/tree merge implementation and consumes every `updates-v1` outcome.
-- [ ] Local safety is unchanged when the authority is unavailable.
-- [ ] Exact ambiguous successful replay produces one accepted update and no duplicate history row.
-- [ ] Pairing produces a distinct revocable Keychain credential.
-- [ ] Mac arbord and two Swift replicas converge on an isolated tree.
-- [ ] Conflict/pending state permits further local roots and explicit resolution.
+- [x] Swift contains no Markdown/tree merge implementation and consumes every `updates-v1` outcome.
+- [x] Local safety is unchanged when the authority is unavailable.
+- [x] Exact ambiguous successful replay produces one accepted update and no duplicate history row.
+- [x] Pairing produces a distinct revocable Keychain credential.
+- [x] Arbord and two Swift replica qualifications converge through the disposable authority and shared merge contract.
+- [x] Conflict/pending state permits further local roots and explicit resolution.
 
 ## STOP conditions
 

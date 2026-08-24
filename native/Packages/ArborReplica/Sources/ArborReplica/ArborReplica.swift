@@ -136,10 +136,39 @@ public actor ArborReplica {
         control = next
     }
 
+    public func initializeFromSystem(_ replacement: ReplicaSystemReplacement) throws {
+        try requireOpen()
+        guard control.generation == 0,
+              control.acceptedRoot == nil,
+              state.nodes.count == 1,
+              state.nodes[0].path == "/",
+              state.nodes[0].kind == .directory,
+              state.nodes[0].source == nil else {
+            throw ReplicaError.pendingLocalChanges
+        }
+        try replaceWithAccepted(replacement, mutation: "initialize-from-system")
+    }
+
+    public func integrateAccepted(
+        _ replacement: ReplicaSystemReplacement,
+        expectedCandidate: String
+    ) throws {
+        try requireOpen()
+        guard control.materializedRoot == expectedCandidate,
+              control.pendingRoot == expectedCandidate else {
+            throw ReplicaError.pendingLocalChanges
+        }
+        try replaceWithAccepted(replacement, mutation: "integrate-accepted")
+    }
+
     public func replaceFromSystem(_ replacement: ReplicaSystemReplacement) throws {
         try requireOpen()
-        guard !replacement.update.isEmpty else { throw ReplicaError.corruptState("System update ID is empty") }
         guard control.pendingRoot == nil else { throw ReplicaError.pendingLocalChanges }
+        try replaceWithAccepted(replacement, mutation: "system-replacement")
+    }
+
+    private func replaceWithAccepted(_ replacement: ReplicaSystemReplacement, mutation: String) throws {
+        guard !replacement.update.isEmpty else { throw ReplicaError.corruptState("System update ID is empty") }
         let nodes = replacement.nodes.map { node -> ReplicaNodeRecord in
             switch node.content {
             case let .directory(source):
@@ -161,7 +190,7 @@ public actor ArborReplica {
         let computed = try ReplicaWireCodec.snapshot(for: replacementState)
         guard computed.root == replacement.root else { throw ReplicaError.corruptState("System replacement root mismatch") }
         try transact(
-            mutation: "system-replacement",
+            mutation: mutation,
             pageKey: "_system",
             accepted: (replacement.root, replacement.update, replacement.cursor)
         ) { next in
@@ -531,7 +560,7 @@ public actor ArborReplica {
         )
     }
 
-    func treeID() -> TreeID { TreeID(rawValue: state.tree) }
+    public func treeID() -> TreeID { TreeID(rawValue: state.tree) }
 
     private func relocate(_ node: ReplicaNodeRecord, to destination: String, mutation: String) throws -> ReplicaNodeRecord {
         var moved: ReplicaNodeRecord!
