@@ -13,12 +13,12 @@ struct ArborRootView: View {
     @State private var model: ArborAppModel
     @State private var accountPresented = false
     @State private var presentedSheet: ArborPresentedSheet?
+    @State private var searchPresented = false
     @State private var searchText = ""
     @State private var workspaceImporterPresented = false
     @State private var assetImporterPresented = false
     @State private var trashConfirmationPresented = false
     @State private var arbordLogs = ""
-    @FocusState private var searchFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
 
     init(workspace: ArborWorkspaceState) {
@@ -28,52 +28,83 @@ struct ArborRootView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(sidebarItems) { node in
+            List {
                 Button {
-                    Task {
-                        searchText = ""
-                        await model.navigate(to: node.reference)
-                    }
+                    searchPresented = true
                 } label: {
-                    VStack(alignment: .leading) {
-                        Label(node.title, systemImage: symbol(for: node.surface))
-                        if let result = model.searchResults.first(where: { $0.reference == node.reference }),
-                           let excerpt = result.excerpt {
-                            Text(excerpt).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                        }
+                    HStack {
+                        Label("Search", systemImage: "magnifyingglass")
+                        Spacer()
+#if os(macOS)
+                        Text("⌘P")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+#endif
                     }
                 }
                 .buttonStyle(.plain)
+
+                Section {
+                    if let parent = model.sidebarReference.parent {
+                        Button {
+                            Task { await model.navigate(to: parent) }
+                        } label: {
+                            Label("Parent directory", systemImage: "arrow.up")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    ForEach(model.children) { node in
+                        ArborSidebarRow(
+                            node: node,
+                            isCurrent: isCurrent(node.reference),
+                            open: { Task { await model.navigate(to: node.reference) } },
+                            openInNewTab: { Task { await model.openInNewTab(node.reference) } },
+                            trash: { Task { await model.perform(.trash(reference: node.reference), navigateToResult: false) } }
+                        )
+                    }
+                } header: {
+                    Text(model.sidebarReference.pathHint == "/" ? "Home" : model.sidebarReference.pathHint)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
+            .listStyle(.sidebar)
             .navigationTitle("Arbor")
-            .searchable(text: $searchText, prompt: "Search this tree")
-            .focused($searchFocused)
-            .onSubmit(of: .search) { Task { await model.search(searchText) } }
-            .onChange(of: searchText) { _, value in
-                if value.isEmpty { Task { await model.search("") } }
-            }
             .overlay {
-                if sidebarItems.isEmpty {
-                    ContentUnavailableView(searchText.isEmpty ? "No children" : "No results", systemImage: "tree")
+                if model.children.isEmpty {
+                    ContentUnavailableView("No children", systemImage: "tree")
+                        .allowsHitTesting(false)
                 }
             }
         } detail: {
             VStack(spacing: 0) {
-                ArborTabStrip(
-                    tabs: model.tabItems,
-                    selected: model.selectedTabID,
-                    title: { tab in tab.current.pathHint == "/" ? "Home" : tab.current.pathHint.split(separator: "/").last.map(String.init) ?? "Arbor" },
-                    select: { id in Task { await model.selectTab(id) } },
-                    close: { Task { await model.closeSelectedTab() } },
-                    create: { Task { await model.newTab() } }
-                )
+                if model.tabItems.count > 1 {
+                    ArborTabStrip(
+                        tabs: model.tabItems,
+                        selected: model.selectedTabID,
+                        title: { tab in tab.current.pathHint == "/" ? "Home" : tab.current.pathHint.split(separator: "/").last.map(String.init) ?? "Arbor" },
+                        select: { id in Task { await model.selectTab(id) } },
+                        close: { Task { await model.closeSelectedTab() } },
+                        create: { Task { await model.newTab() } }
+                    )
+                }
                 ArborBreadcrumbs(reference: model.currentReference) { reference in
                     Task { await model.navigate(to: reference) }
                 }
                 Group {
                     if let node = model.node {
                         if let lease = model.editorLease, let host = model.editorHost {
-                            ArborEditorSurface(binding: lease.binding, host: host)
+                            ArborEditorSurface(binding: lease.binding, host: host) {
+                                ArborDocumentFooter(
+                                    provider: workspace.providerDetail,
+                                    sync: workspace.syncPresentation,
+                                    binding: lease.binding,
+                                    backlinks: model.backlinks,
+                                    open: { reference in Task { await model.navigate(to: reference) } },
+                                    syncNow: { Task { await workspace.syncNow() } }
+                                )
+                            }
                         } else {
                             WorkspaceSurfaceView(node: node)
                         }
@@ -84,18 +115,15 @@ struct ArborRootView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if let conflict = model.binding?.conflict {
-                    conflictBar(conflict)
-                }
-                if workspace.syncConflict != nil {
-                    syncConflictBar
-                }
-                ArborStatusBar(
-                    provider: workspace.providerDetail,
-                    sync: workspace.syncPresentation,
-                    binding: model.binding
-                )
             }
+            .overlay(alignment: .top) {
+                attentionBanner
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: 560)
+                    .padding(.top, 8)
+            }
+            .animation(.easeInOut(duration: 0.2), value: model.binding?.conflict != nil)
+            .animation(.easeInOut(duration: 0.2), value: workspace.syncConflict != nil)
             .navigationTitle(model.node?.title ?? "Arbor")
             .navigationSubtitle(model.currentReference.pathHint)
             .toolbar {
@@ -104,19 +132,15 @@ struct ArborRootView: View {
                         .disabled(!model.canGoBack)
                     Button("Forward", systemImage: "chevron.right") { Task { await model.goForward() } }
                         .disabled(!model.canGoForward)
-                    Button("Parent", systemImage: "arrow.up") { Task { await model.goParent() } }
-                        .disabled(!model.canGoParent)
-                    Button("Home", systemImage: "house") { Task { await model.goHome() } }
-                    Button("Open Location", systemImage: "location") { presentedSheet = .openLocation }
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
-                        Task { await workspace.syncNow() }
-                    } label: {
-                        Label(workspace.syncPresentation.state.label, systemImage: workspace.syncPresentation.state.symbol)
-                    }
-                        .help(workspace.syncPresentation.detail ?? workspace.syncPresentation.state.label)
+                    Button("Search", systemImage: "magnifyingglass") { searchPresented = true }
                     Menu("Actions", systemImage: "ellipsis.circle") {
+                        Button("Open Location…", systemImage: "location") { presentedSheet = .openLocation }
+                        Button("Go to Parent", systemImage: "arrow.up") { Task { await model.goParent() } }
+                            .disabled(!model.canGoParent)
+                        Button("Go Home", systemImage: "house") { Task { await model.goHome() } }
+                        Divider()
                         Button("New Document…", systemImage: "doc.badge.plus") { presentedSheet = .createMarkdown }
                         Button("New Folder…", systemImage: "folder.badge.plus") { presentedSheet = .createDirectory }
                         Button("Rename…", systemImage: "pencil") { presentedSheet = .rename }
@@ -173,6 +197,17 @@ struct ArborRootView: View {
                 try await workspace.place(tree: tree, from: origin)
             }
         }
+        .sheet(isPresented: $searchPresented, onDismiss: {
+            searchText = ""
+            Task { await model.search("") }
+        }) {
+            ArborSearchPalette(
+                query: $searchText,
+                results: model.searchResults,
+                search: { await model.search($0) },
+                open: { reference in Task { await model.navigate(to: reference) } }
+            )
+        }
         .sheet(item: $presentedSheet, content: sheet)
         .confirmationDialog("Move this node to Trash?", isPresented: $trashConfirmationPresented) {
             Button("Move to Trash", role: .destructive) {
@@ -211,17 +246,8 @@ struct ArborRootView: View {
         .focusedSceneValue(\.arborWindowCommands, windowCommands)
     }
 
-    private var sidebarItems: [WorkspaceNode] {
-        guard !searchText.isEmpty else { return model.children }
-        return model.searchResults.map { result in
-            WorkspaceNode(
-                reference: result.reference,
-                title: result.title,
-                surface: .markdown(source: "", contentRevision: "search"),
-                provenance: .init(authority: .local, sourceDescription: "Search result"),
-                isWritable: false
-            )
-        }
+    private func isCurrent(_ reference: WorkspaceReference) -> Bool {
+        reference.tree == model.currentReference.tree && reference.pathHint == model.currentReference.pathHint
     }
 
     private var errorPresented: Binding<Bool> {
@@ -234,7 +260,7 @@ struct ArborRootView: View {
             goBack: { Task { await model.goBack() } },
             newTab: { Task { await model.newTab() } },
             closeTab: { Task { await model.closeSelectedTab() } },
-            showSearch: { searchFocused = true },
+            showSearch: { searchPresented = true },
             showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
             canGoBack: model.canGoBack,
             canCloseTab: model.tabItems.count > 1,
@@ -308,42 +334,31 @@ struct ArborRootView: View {
         )
     }
 
-    private func conflictBar(_ conflict: WorkspaceDocumentConflict) -> some View {
-        HStack {
-            Label("This document changed outside the current edit session.", systemImage: "exclamationmark.triangle")
-            Spacer()
-            Button("Use Current") { Task { await model.resolveEditorConflict(preferSubmitted: false) } }
-            Button("Keep My Edit") { Task { await model.resolveEditorConflict(preferSubmitted: true) } }
-                .buttonStyle(.borderedProminent)
-        }
-        .padding(10)
-        .background(.orange.opacity(0.16))
-        .accessibilityElement(children: .contain)
-        .help("Current revision: \(conflict.current.contentRevision)")
-    }
-
-    private var syncConflictBar: some View {
-        HStack {
-            Label("Synchronization needs a conflict choice.", systemImage: "arrow.triangle.branch")
-            Spacer()
-            Button("Review…") { presentedSheet = .syncConflict }
-                .buttonStyle(.borderedProminent)
-        }
-        .padding(10)
-        .background(.orange.opacity(0.16))
-        .accessibilityElement(children: .contain)
-    }
-
-    private func symbol(for surface: WorkspaceSurface) -> String {
-        switch surface {
-        case .markdown: "doc.text"
-        case .directory: "folder"
-        case .directoryDocument: "folder.badge.gearshape"
-        case .file: "doc"
-        case .collection: "tablecells"
-        case .placeholder: "icloud.slash"
-        case .diagnostic: "exclamationmark.triangle"
-        case .historical: "clock.arrow.circlepath"
+    @ViewBuilder
+    private var attentionBanner: some View {
+        if let conflict = model.binding?.conflict {
+            ArborAttentionBanner(
+                message: "This document changed outside the current edit session.",
+                systemImage: "exclamationmark.triangle",
+                primaryLabel: "Keep My Edit",
+                primaryAction: { Task { await model.resolveEditorConflict(preferSubmitted: true) } },
+                secondaryLabel: "Use Current",
+                secondaryAction: { Task { await model.resolveEditorConflict(preferSubmitted: false) } }
+            )
+            .help("Current revision: \(conflict.current.contentRevision)")
+        } else if workspace.syncConflict != nil {
+            ArborAttentionBanner(
+                message: "Synchronization needs a conflict choice.",
+                systemImage: "arrow.triangle.branch",
+                primaryLabel: "Review…",
+                primaryAction: { presentedSheet = .syncConflict }
+            )
+        } else if model.binding?.lastError != nil {
+            ArborAttentionBanner(
+                message: "Arbor could not save the latest document edit.",
+                systemImage: "exclamationmark.circle",
+                tint: .red
+            )
         }
     }
 }

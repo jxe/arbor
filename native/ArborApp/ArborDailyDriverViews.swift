@@ -42,6 +42,251 @@ extension FocusedValues {
     }
 }
 
+struct ArborSidebarRow: View {
+    let node: WorkspaceNode
+    let isCurrent: Bool
+    let open: () -> Void
+    let openInNewTab: () -> Void
+    let trash: () -> Void
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .frame(width: 16)
+                    .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
+                Text(node.title)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if case .placeholder = node.surface {
+                    Text("offline")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .fontWeight(isCurrent ? .semibold : .regular)
+        .listRowBackground(isCurrent ? Color.accentColor.opacity(0.12) : Color.clear)
+        .contextMenu {
+            Button("Open", systemImage: "arrow.right", action: open)
+            Button("Open in New Tab", systemImage: "plus.square.on.square", action: openInNewTab)
+            if node.isWritable {
+                Divider()
+                Button("Move to Trash", systemImage: "trash", role: .destructive, action: trash)
+            }
+        }
+        .accessibilityLabel(node.title)
+        .accessibilityValue(isCurrent ? "Current page" : surfaceLabel)
+    }
+
+    private var symbol: String {
+        switch node.surface {
+        case .markdown: "doc.text"
+        case .directory: "folder"
+        case .directoryDocument: "folder.badge.gearshape"
+        case .file: "doc"
+        case .collection: "tablecells"
+        case .placeholder: "icloud.slash"
+        case .diagnostic: "exclamationmark.triangle"
+        case .historical: "clock.arrow.circlepath"
+        }
+    }
+
+    private var surfaceLabel: String {
+        switch node.surface {
+        case .markdown: "Document"
+        case .directory: "Folder"
+        case .directoryDocument: "Folder document"
+        case .file: "File"
+        case .collection: "Collection"
+        case .placeholder: "Offline"
+        case .diagnostic: "Diagnostic"
+        case .historical: "History"
+        }
+    }
+}
+
+struct ArborSearchPalette: View {
+    @Binding var query: String
+    let results: [WorkspaceSearchResult]
+    let search: @MainActor (String) async -> Void
+    let open: (WorkspaceReference) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var searchFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                TextField("Search titles and text", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($searchFocused)
+                    .padding(12)
+                Divider()
+                List(results) { result in
+                    Button {
+                        open(result.reference)
+                        dismiss()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(result.title)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.primary)
+                            if let excerpt = result.excerpt {
+                                Text(excerpt)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .overlay {
+                    if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ContentUnavailableView("Search this tree", systemImage: "magnifyingglass", description: Text("Titles and visible document text stay local."))
+                    } else if results.isEmpty {
+                        ContentUnavailableView.search(text: query)
+                    }
+                }
+            }
+            .navigationTitle("Search")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .frame(minWidth: 480, minHeight: 460)
+        .task { searchFocused = true }
+        .task(id: query) {
+            do { try await Task.sleep(for: .milliseconds(140)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            await search(query)
+        }
+    }
+}
+
+struct ArborAttentionBanner: View {
+    let message: String
+    let systemImage: String
+    var tint: Color = .orange
+    var primaryLabel: String?
+    var primaryAction: (() -> Void)?
+    var secondaryLabel: String?
+    var secondaryAction: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(tint)
+            Text(message)
+                .font(.system(size: 13))
+                .lineLimit(2)
+            Spacer(minLength: 4)
+            if let secondaryLabel, let secondaryAction {
+                Button(secondaryLabel, action: secondaryAction)
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 13, weight: .medium))
+            }
+            if let primaryLabel, let primaryAction {
+                Button(primaryLabel, action: primaryAction)
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: .rect(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.10), radius: 6, x: 0, y: 2)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+struct ArborDocumentFooter: View {
+    let provider: String
+    let sync: WorkspaceSyncPresentation
+    let binding: ArborDocumentBinding?
+    let backlinks: [WorkspaceSearchResult]
+    let open: (WorkspaceReference) -> Void
+    let syncNow: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            if !backlinks.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Linked from")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                    ForEach(backlinks) { entry in
+                        Button {
+                            open(entry.reference)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc.text")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(entry.title)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            Button(action: syncNow) {
+                VStack(spacing: 3) {
+                    Label(statusTitle, systemImage: statusSymbol)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(statusTint)
+                    Text(provider)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help(sync.detail ?? statusTitle)
+        }
+        .padding(.top, 24)
+        .padding(.bottom, 12)
+    }
+
+    private var statusTitle: String {
+        if binding?.isSaving == true { return "Saving" }
+        if binding?.conflict != nil { return "Edit conflict" }
+        if binding?.lastError != nil { return "Save failed" }
+        return sync.state.label
+    }
+
+    private var statusSymbol: String {
+        if binding?.isSaving == true { return "ellipsis.circle" }
+        if binding?.conflict != nil { return "exclamationmark.triangle" }
+        if binding?.lastError != nil { return "exclamationmark.circle" }
+        return sync.state.symbol
+    }
+
+    private var statusTint: Color {
+        if binding?.lastError != nil { return .red }
+        if binding?.conflict != nil || sync.state == .conflict { return .orange }
+        return .secondary
+    }
+}
+
 struct ArborTabStrip: View {
     let tabs: [BrowserTab]
     let selected: UUID

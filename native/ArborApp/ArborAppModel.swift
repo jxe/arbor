@@ -197,6 +197,7 @@ final class ArborAppModel {
     private(set) var tabs: BrowserTabController
     private(set) var node: WorkspaceNode?
     private(set) var children: [WorkspaceNode] = []
+    private(set) var sidebarReference: WorkspaceReference
     private(set) var errorMessage: String?
     private(set) var editorLease: ArborEditorLease?
     private(set) var editorHost: ArborEditorHost?
@@ -207,10 +208,12 @@ final class ArborAppModel {
     private(set) var tabVersion = 0
     private var observedWorkspaceGeneration: Int
     private var loadRequestID = 0
+    private var searchRequestID = 0
 
     init(workspace: ArborWorkspaceState) {
         self.workspace = workspace
         self.tabs = BrowserTabController(home: workspace.home)
+        self.sidebarReference = workspace.home
         self.observedWorkspaceGeneration = workspace.generation
     }
 
@@ -235,6 +238,7 @@ final class ArborAppModel {
         editorLease = nil
         editorHost = nil
         tabs = BrowserTabController(home: workspace.home)
+        sidebarReference = workspace.home
         tabVersion += 1
         await load()
     }
@@ -249,10 +253,17 @@ final class ArborAppModel {
         }
         do {
             let resolved = try await workspace.provider.resolve(currentReference)
-            let loadedChildren = try await workspace.provider.children(of: resolved.reference)
+            let sidebarBase: WorkspaceReference = switch resolved.surface {
+            case .directory, .directoryDocument, .collection:
+                resolved.reference
+            default:
+                resolved.reference.parent ?? workspace.home
+            }
+            let loadedChildren = try await workspace.provider.children(of: sidebarBase)
             guard requestID == loadRequestID, observedWorkspaceGeneration == workspace.generation else { return }
             node = resolved
             children = loadedChildren
+            sidebarReference = sidebarBase
             if resolved.surface.supportsDocumentSession, resolved.isWritable {
                 let lease = try await workspace.editorWorkspace.lease(resolved.reference)
                 guard requestID == loadRequestID else {
@@ -273,6 +284,7 @@ final class ArborAppModel {
             guard requestID == loadRequestID else { return }
             node = nil
             children = []
+            sidebarReference = currentReference.parent ?? workspace.home
             errorMessage = error.localizedDescription
         }
     }
@@ -294,6 +306,12 @@ final class ArborAppModel {
         await load()
     }
 
+    func openInNewTab(_ reference: WorkspaceReference) async {
+        tabs.newTab(at: reference)
+        tabVersion += 1
+        await load()
+    }
+
     func closeSelectedTab() async {
         tabs.closeTab(selectedTabID)
         tabVersion += 1
@@ -308,11 +326,18 @@ final class ArborAppModel {
     }
 
     func search(_ query: String) async {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        searchRequestID += 1
+        let requestID = searchRequestID
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
             searchResults = []
             return
         }
-        do { searchResults = try await workspace.provider.search(query, in: currentReference.tree) }
+        do {
+            let results = try await workspace.provider.search(trimmed, in: currentReference.tree)
+            guard requestID == searchRequestID else { return }
+            searchResults = results
+        }
         catch { errorMessage = error.localizedDescription }
     }
 

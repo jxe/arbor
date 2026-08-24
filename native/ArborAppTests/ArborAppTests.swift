@@ -14,6 +14,27 @@ struct ArborAppTests {
         #expect(model.children.map(\.title) == ["Welcome", "Files", "People", "Offline item", "Provider diagnostic"])
     }
 
+    @Test("A document keeps its containing directory visible in the sidebar")
+    func documentKeepsContainingDirectorySidebar() async {
+        let model = ArborAppModel()
+        await model.load()
+        await model.navigate(to: .init(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome"))
+
+        #expect(model.node?.title == "Welcome")
+        #expect(model.sidebarReference.pathHint == "/")
+        #expect(model.children.map(\.title) == ["Welcome", "Files", "People", "Offline item", "Provider diagnostic"])
+    }
+
+    @Test("A directory becomes the sidebar browsing context")
+    func directoryBecomesSidebarContext() async {
+        let model = ArborAppModel()
+        await model.load()
+        await model.navigate(to: .init(tree: "tr_sample", path: "/files"))
+
+        #expect(model.sidebarReference.pathHint == "/files")
+        #expect(model.children.map(\.title) == ["arbor.png"])
+    }
+
     @Test("Navigation exposes non-document surfaces without creating a document session")
     func navigatesToCollection() async {
         let model = ArborAppModel()
