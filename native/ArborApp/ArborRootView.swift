@@ -554,7 +554,9 @@ private struct ArborEditorUndoButtons: View {
 
     private var canRedo: Bool {
         _ = undoRevision
-        return undoController?.canRedo == true
+        // UndoManager.canRedo posts a checkpoint notification. Reading it while
+        // handling that notification creates an endless render/notification loop.
+        return (undoController?.undoManager.redoCount ?? 0) > 0
     }
 
     private func refreshIfCurrentUndoManager(_ notification: Notification) {
