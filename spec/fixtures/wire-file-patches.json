@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "valid": {
+    "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "edits": [
+      { "offset": 1, "length": 2, "bytes": "eA==" },
+      { "offset": 4, "length": 0, "bytes": "eQ==" }
+    ]
+  },
+  "invalid": [
+    {
+      "name": "empty edits",
+      "patches": [{
+        "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "edits": []
+      }]
+    },
+    {
+      "name": "overlapping edits",
+      "patches": [{
+        "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "edits": [
+          { "offset": 2, "length": 2, "bytes": "eA==" },
+          { "offset": 3, "length": 0, "bytes": "eQ==" }
+        ]
+      }]
+    },
+    {
+      "name": "noncanonical base64",
+      "patches": [{
+        "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "edits": [{ "offset": 0, "length": 0, "bytes": "eA" }]
+      }]
+    },
+    {
+      "name": "unsafe offset",
+      "patches": [{
+        "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "edits": [{ "offset": 9007199254740992, "length": 0, "bytes": "eA==" }]
+      }]
+    },
+    {
+      "name": "duplicate result",
+      "patches": [
+        {
+          "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "edits": [{ "offset": 0, "length": 0, "bytes": "eA==" }]
+        },
+        {
+          "base": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "result": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "edits": [{ "offset": 0, "length": 0, "bytes": "eQ==" }]
+        }
+      ]
+    }
+  ]
+}

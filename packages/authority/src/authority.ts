@@ -12,6 +12,7 @@ import {
   type AcceptedUpdate,
   type AuthorityDevice,
   type BoundaryKind,
+  type FilePatch,
   type MergeSummary,
   type ObjectHash,
   type PairingOffer,
@@ -968,6 +969,12 @@ export class WireAuthority implements AsyncDisposable {
       throw new UpdateProtocolError("base-not-retained", "Base update is not retained for this tree and root");
     }
     const proposed = new Map(request.objects.map(({ hash, bytes }) => [hash, bytes]));
+    const reconstructed = await this.reconstructFilePatches(request.base.root, request.filePatches ?? [], proposed);
+    for (const object of reconstructed) {
+      if (!await this.graphContainsProposed(request.candidate, object.hash, proposed)) {
+        throw new Error(`File patch result is not reachable from candidate: ${object.hash}`);
+      }
+    }
     await this.validateGraph(request.candidate, proposed);
     await this.validateReservedBoundaries(tree, request.candidate, proposed);
     if (tree.kind === "person-profile") await this.validateProfileRoot(request.candidate, proposed, "person");
@@ -1015,6 +1022,7 @@ export class WireAuthority implements AsyncDisposable {
         await this.validateReservedBoundaries(remoteTree, nextRoot, mergedObjects);
       }
       await this.storeObjects(request.objects);
+      await this.storeObjects(reconstructed);
       await this.storeObjects([...generated].map(([hash, bytes]) => ({ hash, bytes })));
       const now = Date.now();
       const accepted = this.acceptedStore.commit(opaqueID("up"), {
@@ -1357,6 +1365,88 @@ export class WireAuthority implements AsyncDisposable {
       }
     }
     return false;
+  }
+
+  private async graphContainsProposed(
+    root: ObjectHash,
+    target: ObjectHash,
+    proposed: ReadonlyMap<ObjectHash, Uint8Array>,
+  ): Promise<boolean> {
+    const pending = [root];
+    const seen = new Set<ObjectHash>();
+    while (pending.length) {
+      const hash = pending.pop()!;
+      if (hash === target) return true;
+      if (seen.has(hash)) continue;
+      seen.add(hash);
+      const bytes = proposed.get(hash) ?? (await this.hasObject(hash) ? await this.object(hash) : null);
+      if (!bytes) return false;
+      const object = decodeWireObject(bytes);
+      if (object.type === "directory") {
+        for (const entry of object.entries) if (entry.hash) pending.push(entry.hash);
+      }
+    }
+    return false;
+  }
+
+  private async reconstructFilePatches(
+    baseRoot: ObjectHash,
+    patches: FilePatch[],
+    proposed: Map<ObjectHash, Uint8Array>,
+  ): Promise<Array<{ hash: ObjectHash; bytes: Uint8Array }>> {
+    const reconstructed: Array<{ hash: ObjectHash; bytes: Uint8Array }> = [];
+    const results = new Set<ObjectHash>();
+    for (const patch of patches) {
+      if (!/^sha256:[a-f0-9]{64}$/.test(patch.base) || !/^sha256:[a-f0-9]{64}$/.test(patch.result)) {
+        throw new Error("Invalid file patch hash");
+      }
+      if (results.has(patch.result) || proposed.has(patch.result)) {
+        throw new Error(`Duplicate file patch result: ${patch.result}`);
+      }
+      results.add(patch.result);
+      if (!patch.edits.length) throw new Error("File patch edits must not be empty");
+      if (!await this.graphContains(baseRoot, patch.base)) {
+        throw new Error(`File patch base is not reachable from retained base: ${patch.base}`);
+      }
+      const baseObject = decodeWireObject(await this.object(patch.base));
+      if (baseObject.type !== "file") throw new Error("File patch base is not a file object");
+
+      let previousEnd = 0;
+      let resultLength = baseObject.bytes.byteLength;
+      for (const edit of patch.edits) {
+        if (!Number.isSafeInteger(edit.offset) || edit.offset < previousEnd
+          || !Number.isSafeInteger(edit.length) || edit.length < 0) {
+          throw new Error("Invalid or overlapping file patch edit");
+        }
+        const end = edit.offset + edit.length;
+        if (!Number.isSafeInteger(end) || end > baseObject.bytes.byteLength) {
+          throw new Error("File patch edit is out of bounds");
+        }
+        resultLength += edit.bytes.byteLength - edit.length;
+        if (!Number.isSafeInteger(resultLength) || resultLength < 0 || resultLength > 1_000_000_000) {
+          throw new Error("File patch result exceeds the storage quota");
+        }
+        previousEnd = end;
+      }
+
+      const payload = new Uint8Array(resultLength);
+      let sourceOffset = 0;
+      let resultOffset = 0;
+      for (const edit of patch.edits) {
+        const unchanged = baseObject.bytes.subarray(sourceOffset, edit.offset);
+        payload.set(unchanged, resultOffset);
+        resultOffset += unchanged.byteLength;
+        payload.set(edit.bytes, resultOffset);
+        resultOffset += edit.bytes.byteLength;
+        sourceOffset = edit.offset + edit.length;
+      }
+      payload.set(baseObject.bytes.subarray(sourceOffset), resultOffset);
+      const bytes = encodeWireObject({ type: "file", bytes: payload });
+      if (hashObject(bytes) !== patch.result) throw new Error(`File patch result hash mismatch: ${patch.result}`);
+      proposed.set(patch.result, bytes);
+      reconstructed.push({ hash: patch.result, bytes });
+    }
+    return reconstructed;
   }
 
   private async validateGraph(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void> {

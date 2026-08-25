@@ -54,12 +54,25 @@ export interface AcceptedUpdate {
   merge?: MergeSummary;
 }
 
+export interface FilePatchEdit {
+  offset: number;
+  length: number;
+  bytes: Uint8Array;
+}
+
+export interface FilePatch {
+  base: ObjectHash;
+  result: ObjectHash;
+  edits: FilePatchEdit[];
+}
+
 export interface UpdateRequest {
   base: { root: ObjectHash; update: string };
   candidate: ObjectHash;
   objects: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
+  filePatches?: FilePatch[];
   /** Transport hint only; excluded from the updates-v1 semantic request digest. */
-  returnSnapshot?: boolean;
+  returnSnapshot?: true | "if-result-differs";
 }
 
 export type UpdateResult =

@@ -126,6 +126,79 @@ describe("personal wire authority", () => {
     })).status).toBe(404);
   });
 
+  test("reconstructs a sparse candidate from a retained-base file patch", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "arbor-file-patch-"));
+    try {
+      const before = "# Patch\n\nBefore\n";
+      const after = "# Patch\n\nAfter\n";
+      await writeFile(join(folder, "note.md"), before);
+      const baseSnapshot = await snapshotDirectory(folder);
+      const tree = await client.create("/~owner/file-patch", baseSnapshot);
+      await writeFile(join(folder, "note.md"), after);
+      const candidate = await snapshotDirectory(folder);
+      const baseRoot = decodeWireObject(baseSnapshot.objects.get(baseSnapshot.root)!);
+      const candidateRoot = decodeWireObject(candidate.objects.get(candidate.root)!);
+      if (baseRoot.type !== "directory" || candidateRoot.type !== "directory") throw new Error("Expected directory roots");
+      const baseFile = baseRoot.entries.find((entry) => entry.name === "note.md")?.hash!;
+      const resultFile = candidateRoot.entries.find((entry) => entry.name === "note.md")?.hash!;
+      const offset = new TextEncoder().encode(before.slice(0, before.indexOf("Before"))).byteLength;
+      const request = (replacement: string, base = tree.ref, update = tree.update!, candidateRootHash = candidate.root) => ({
+        base: { root: base, update },
+        candidate: candidateRootHash,
+        objects: [{
+          hash: candidate.root,
+          bytes: Buffer.from(candidate.objects.get(candidate.root)!).toString("base64"),
+        }],
+        filePatches: [{
+          base: baseFile,
+          result: resultFile,
+          edits: [{ offset, length: 6, bytes: Buffer.from(replacement).toString("base64") }],
+        }],
+      });
+      const submit = (body: unknown) => fetch(`${running.url}/.arbor/trees/${tree.id}/updates`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const wrong = await submit(request("Wrong"));
+      expect(wrong.status).toBe(400);
+      expect(await wrong.json()).toMatchObject({ error: "invalid-request", message: expect.stringContaining("result hash mismatch") });
+      expect(running.authority.acceptedUpdates(tree.id)).toHaveLength(1);
+
+      const unreferenced = await submit({
+        ...request("After"),
+        candidate: tree.ref,
+        objects: [],
+      });
+      expect(unreferenced.status).toBe(400);
+      expect(await unreferenced.json()).toMatchObject({
+        error: "invalid-request",
+        message: expect.stringContaining("not reachable from candidate"),
+      });
+
+      const accepted = await submit(request("After"));
+      expect(accepted.status).toBe(201);
+      expect(await accepted.json()).toMatchObject({ outcome: "accepted", update: { root: candidate.root } });
+      expect(decodeWireObject(await running.authority.object(resultFile))).toEqual({
+        type: "file",
+        bytes: new TextEncoder().encode(after),
+      });
+      expect(await running.authority.object(baseFile)).toBeDefined();
+
+      const current = await client.ref(tree.id);
+      const unreachable = await submit(request("After", current.ref, current.update!, current.ref));
+      expect(unreachable.status).toBe(400);
+      expect(await unreachable.json()).toMatchObject({
+        error: "invalid-request",
+        message: expect.stringContaining("not reachable from retained base"),
+      });
+      expect(running.authority.acceptedUpdates(tree.id)).toHaveLength(2);
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+
   test("allows anonymous accepted updates only in public-write mode and survives restart", async () => {
     const tree = (await client.list()).find((item) => item.canonicalPath === "/~owner/notes")!;
     await client.setPublicAccess(tree.id, "write");
