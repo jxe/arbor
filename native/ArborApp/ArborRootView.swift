@@ -18,6 +18,7 @@ import VisionKit
 
 struct ArborRootView: View {
     let workspace: ArborWorkspaceState
+    let onDisconnect: @MainActor () -> Void
     @State private var model: ArborAppModel
     @State private var recordingSession: VoiceRecordingSession<PageID>
     @State private var accountPresented = false
@@ -35,8 +36,12 @@ struct ArborRootView: View {
 #endif
     @Environment(\.scenePhase) private var scenePhase
 
-    init(workspace: ArborWorkspaceState) {
+    init(
+        workspace: ArborWorkspaceState,
+        onDisconnect: @escaping @MainActor () -> Void = {}
+    ) {
         self.workspace = workspace
+        self.onDisconnect = onDisconnect
         _model = State(initialValue: ArborAppModel(workspace: workspace))
         _recordingSession = State(initialValue: VoiceRecordingSession(
             recoveryStore: PendingVoiceRecordingStore(
@@ -86,9 +91,7 @@ struct ArborRootView: View {
 #if os(macOS)
             MacArbordAccountPanel(workspace: workspace)
 #else
-            NativeAccountPanel { origin, tree in
-                try await workspace.place(tree: tree, from: origin)
-            }
+            IOSAccountPanel(workspace: workspace, onDisconnect: onDisconnect)
 #endif
         }
 #if os(macOS)
@@ -385,9 +388,6 @@ struct ArborRootView: View {
                     }
 #endif
                 }
-#if os(macOS)
-                Button("Pair iPhone", systemImage: "qrcode") { pairingPresented = true }
-#endif
                 Button("Account", systemImage: "person.crop.circle") { accountPresented = true }
             }
         }
@@ -571,6 +571,23 @@ private struct MacArbordAccountPanel: View {
     @State private var pairing: LocalArbordPairingPresentation?
     @State private var message: String?
 
+    private var currentTreeID: String { workspace.home.tree.rawValue }
+    private var currentTree: LocalArbordTreePresentation? {
+        account?.trees.first { $0.id == currentTreeID }
+    }
+    private var ordinaryTrees: [LocalArbordTreePresentation] {
+        account?.trees.filter { !($0.canonicalPath ?? "").contains("/railway-smoke-") } ?? []
+    }
+    private var testTrees: [LocalArbordTreePresentation] {
+        account?.trees.filter { ($0.canonicalPath ?? "").contains("/railway-smoke-") } ?? []
+    }
+    private var activeDevices: [AuthorityDevice] {
+        account?.devices.filter { $0.revokedAt == nil } ?? []
+    }
+    private var revokedDevices: [AuthorityDevice] {
+        account?.devices.filter { $0.revokedAt != nil } ?? []
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -578,35 +595,60 @@ private struct MacArbordAccountPanel: View {
                     Section("Account") {
                         LabeledContent("Signed in as", value: "~\(account.handle)")
                         LabeledContent("Authority", value: account.origin)
-                        LabeledContent("Credential", value: account.credentialAvailable ? "Available" : "Unavailable")
+                        LabeledContent("Mac credential", value: account.credentialAvailable ? "Connected" : "Missing")
                     }
-                    Section("Trees") {
-                        ForEach(account.trees) { tree in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(tree.canonicalPath ?? tree.name)
-                                Text([tree.access, tree.sync].compactMap { $0 }.joined(separator: " · "))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                    Section("Current workspace") {
+                        LabeledContent("Storage", value: "~/.arbor")
+                        if let currentTree {
+                            treeLabel(currentTree, current: true)
+                        } else {
+                            LabeledContent("Tree", value: currentTreeID)
+                                .font(.caption.monospaced())
                         }
                     }
-                    Section("Devices") {
-                        ForEach(account.devices, id: \.id) { device in
+                    Section {
+                        ForEach(ordinaryTrees) { tree in
+                            treeLabel(tree, current: tree.id == currentTreeID)
+                        }
+                        if !testTrees.isEmpty {
+                            DisclosureGroup("Test trees (\(testTrees.count))") {
+                                ForEach(testTrees) { tree in
+                                    treeLabel(tree, current: false)
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("Authority trees")
+                    } footer: {
+                        Text("These are roots the account can access, not folders in the current sidebar.")
+                    }
+                    Section {
+                        ForEach(activeDevices, id: \.id) { device in
                             HStack {
                                 VStack(alignment: .leading) {
                                     Text(device.label)
-                                    Text(device.revokedAt == nil ? "Active" : "Revoked")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    Text("Active credential").font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                if device.revokedAt == nil {
-                                    Button("Revoke", role: .destructive) {
-                                        Task { await revoke(device.id) }
+                                Button("Revoke", role: .destructive) {
+                                    Task { await revoke(device.id) }
+                                }
+                            }
+                        }
+                        if !revokedDevices.isEmpty {
+                            DisclosureGroup("Revoked devices (\(revokedDevices.count))") {
+                                ForEach(revokedDevices, id: \.id) { device in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(device.label)
+                                        Text("Revoked").font(.caption).foregroundStyle(.secondary)
                                     }
                                 }
                             }
                         }
+                    } header: {
+                        Text("Devices")
+                    } footer: {
+                        Text("Each active device has its own authority credential. Revoking one does not delete any tree data.")
                     }
                     Section("Pair iPhone") {
                         Button("Pair another iPhone…") { Task { await createPairing() } }
@@ -631,7 +673,25 @@ private struct MacArbordAccountPanel: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
         .frame(minWidth: 520, minHeight: 520)
+        .formStyle(.grouped)
         .task { await refresh() }
+    }
+
+    private func treeLabel(_ tree: LocalArbordTreePresentation, current: Bool) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(tree.canonicalPath ?? tree.name)
+                Text([tree.access?.capitalized, tree.sync?.capitalized].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if current {
+                Text("Current")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private func refresh() async {
@@ -757,7 +817,9 @@ struct ArborIOSLaunchView: View {
     var body: some View {
         Group {
             if ready {
-                ArborRootView(workspace: workspace)
+                ArborRootView(workspace: workspace) {
+                    resetForPairing()
+                }
             } else {
                 onboarding
             }
@@ -923,172 +985,106 @@ struct ArborIOSLaunchView: View {
             phase = .choosing
         }
     }
+
+    private func resetForPairing() {
+        service = nil
+        origin = nil
+        confirmationCode = nil
+        trees = []
+        syncingTree = nil
+        treeError = nil
+        scanError = nil
+        ready = false
+        phase = .scanning
+    }
 }
 #endif
 
-private struct NativeAccountPanel: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var origin = ""
-    @State private var pairingJSON = ""
-    @State private var label = "Arbor device"
-    @State private var confirmationCode: String?
-    @State private var devices: [AuthorityDevice] = []
-    @State private var trees: [AuthorityTreeDescriptor] = []
-    @State private var message: String?
-    @State private var service: NativeAccountService?
-    @State private var serviceOrigin: URL?
 #if os(iOS)
-    @State private var scannerPresented = false
-#endif
-    let onPlace: @MainActor (URL, AuthorityTreeDescriptor) async throws -> Void
+private struct IOSAccountPanel: View {
+    @Environment(\.dismiss) private var dismiss
+    let workspace: ArborWorkspaceState
+    let onDisconnect: @MainActor () -> Void
+    @State private var placement: NativePlacementRecord?
+    @State private var account: AuthorityAccountDescriptor?
+    @State private var devices: [AuthorityDevice] = []
+    @State private var message: String?
+    @State private var disconnectConfirmation = false
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Authority") {
-                    TextField("https://arbor.example", text: $origin)
-                        .textContentType(.URL)
-                        .autocorrectionDisabled()
-                    Button("Load devices") { Task { await loadDevices() } }
-                }
-                Section("Pair this device") {
-                    TextField("Device label", text: $label)
-#if os(iOS)
-                    Button("Scan pairing QR", systemImage: "qrcode.viewfinder") {
-                        if DataScannerViewController.isSupported, DataScannerViewController.isAvailable {
-                            scannerPresented = true
-                        } else {
-                            message = "QR scanning is unavailable on this device. Paste the pairing payload instead."
+                if let placement {
+                    Section("Account") {
+                        if let account {
+                            LabeledContent("Signed in as", value: "~\(account.handle)")
                         }
+                        LabeledContent("Authority", value: placement.origin.host() ?? placement.origin.absoluteString)
+                        LabeledContent("Folder", value: placement.tree.canonicalPath)
+                        LabeledContent("Access", value: placement.tree.access.capitalized)
                     }
-#endif
-                    TextField("Versioned pairing QR payload", text: $pairingJSON, axis: .vertical)
-                        .lineLimit(3...8)
-                    Button("Claim pairing") { Task { await claim() } }
-                    if let confirmationCode {
-                        LabeledContent("Confirm on both devices", value: confirmationCode)
-                            .font(.headline.monospacedDigit())
-                    }
-                }
-                Section {
-                    Button("Forget credential on this device", role: .destructive) { Task { await forget() } }
-                }
-                if !devices.isEmpty {
                     Section("Devices") {
                         ForEach(devices, id: \.id) { device in
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(device.label)
-                                    Text(device.revokedAt == nil ? "Active" : "Revoked").font(.caption)
-                                }
-                                Spacer()
-                                if device.revokedAt == nil {
-                                    Button("Revoke", role: .destructive) { Task { await revoke(device.id) } }
-                                }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(device.label)
+                                Text(device.revokedAt == nil ? "Active" : "Revoked")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
-                }
-                if !trees.isEmpty {
-                    Section("Trees") {
-                        ForEach(trees, id: \.id) { tree in
-                            Button {
-                                Task { await place(tree) }
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading) {
-                                        Text(tree.canonicalPath)
-                                        Text(tree.id).font(.caption.monospaced()).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Image(systemName: "arrow.down.to.line")
-                                }
-                            }
-                            .disabled(tree.access != "write")
+                    Section {
+                        Button("Disconnect and Pair Again…", role: .destructive) {
+                            disconnectConfirmation = true
                         }
+                    } footer: {
+                        Text("This removes the credential and local placement from this iPhone. The authority tree and its data are not deleted.")
                     }
+                } else if message == nil {
+                    Section { ProgressView("Loading account…") }
                 }
-                if let message { Section { Text(message).foregroundStyle(.secondary) } }
+                if let message { Section { Text(message).foregroundStyle(.red) } }
             }
             .navigationTitle("Arbor account")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
-        .frame(minWidth: 420, minHeight: 420)
-#if os(iOS)
-        .sheet(isPresented: $scannerPresented) {
-            NavigationStack {
-                PairingQRScanner { payload in
-                    pairingJSON = payload
-                    scannerPresented = false
-                }
-                .ignoresSafeArea()
-                .navigationTitle("Scan pairing QR")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { scannerPresented = false }
-                    }
-                }
+        .task { await load() }
+        .confirmationDialog(
+            "Disconnect this iPhone from Arbor?",
+            isPresented: $disconnectConfirmation
+        ) {
+            Button("Disconnect and Pair Again", role: .destructive) {
+                Task { await disconnect() }
             }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your authority tree is not deleted.")
         }
-#endif
     }
 
-    private func configuredService() throws -> NativeAccountService {
-        guard let url = URL(string: origin), url.scheme == "https" || url.host == "127.0.0.1" else {
-            throw ArborWireValidationError.invalidValue("Enter a valid authority URL")
-        }
-        if let service, serviceOrigin == url { return service }
-        let value = NativeAccountService(origin: url)
-        service = value
-        serviceOrigin = url
-        return value
-    }
-
-    private func claim() async {
+    private func load() async {
         do {
-            let payload = try JSONDecoder().decode(PairingPayload.self, from: Data(pairingJSON.utf8))
-            if origin.isEmpty { origin = payload.origin.absoluteString }
-            let result = try await configuredService().claim(payload, label: label)
-            confirmationCode = result.confirmationCode
-            message = "Distinct device credential stored in Keychain. Confirm the code before continuing."
-            await loadDevices()
-        } catch { message = String(describing: error) }
-    }
-
-    private func loadDevices() async {
-        do {
-            let configured = try configuredService()
-            async let loadedDevices = configured.devices()
-            async let loadedTrees = configured.trees()
-            (devices, trees) = try await (loadedDevices, loadedTrees)
-            message = devices.isEmpty ? "No devices" : nil
-        } catch { message = String(describing: error) }
-    }
-
-    private func revoke(_ id: String) async {
-        do { _ = try await configuredService().revoke(device: id); await loadDevices() }
-        catch { message = String(describing: error) }
-    }
-
-    private func forget() async {
-        do {
-            try await configuredService().forget()
-            devices = []
-            confirmationCode = nil
-            message = "This device's local authority credential was removed. Authored and replicated content was not changed."
-        } catch { message = String(describing: error) }
-    }
-
-    private func place(_ tree: AuthorityTreeDescriptor) async {
-        do {
-            guard let configuredOrigin = serviceOrigin else {
-                throw ArborWireValidationError.invalidValue("Configure the authority before placing a tree")
+            guard let placement = try await workspace.nativePlacement() else {
+                throw ArborWireValidationError.invalidValue("This iPhone has no saved Arbor placement")
             }
-            try await onPlace(configuredOrigin, tree)
-            message = "Placed \(tree.canonicalPath) in private replica storage."
+            self.placement = placement
+            let service = NativeAccountService(origin: placement.origin)
+            async let loadedAccount = service.account()
+            async let loadedDevices = service.devices()
+            (account, devices) = try await (loadedAccount, loadedDevices)
+            message = nil
+        } catch { message = String(describing: error) }
+    }
+
+    private func disconnect() async {
+        do {
+            try await workspace.disconnectNativeAccount()
+            dismiss()
+            onDisconnect()
         } catch { message = String(describing: error) }
     }
 }
+#endif
 
 #if os(iOS)
 private struct PairingQRScanner: UIViewControllerRepresentable {

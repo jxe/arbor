@@ -248,6 +248,52 @@ struct ReplicaProviderTests {
         }
     }
 
+    @Test("An open document session observes a system replacement")
+    func documentSessionObservesSystemReplacement() async throws {
+        try await withTemporaryReplica { root in
+            let tree: TreeID = "tr_observation"
+            let replica = try await ArborReplica.open(at: root, tree: tree)
+            let provider = ReplicaWorkspaceProvider(replica: replica)
+            let home = WorkspaceReference(tree: tree, path: "/")
+            let created = try #require(try await provider.perform(.createMarkdown(
+                parent: home,
+                name: "note",
+                source: "---\nid: pg_note\n---\n\n# Before\n"
+            )))
+            let accepted = try await replica.currentSnapshot()
+            try await replica.recordAccepted(root: accepted.root, update: "up_before")
+            let session = try await provider.openDocument(created.reference)
+            let before = try await session.snapshot()
+            let updates = try await session.updates()
+            var iterator = updates.makeAsyncIterator()
+            _ = try await iterator.next()
+
+            let afterSource = "---\nid: pg_note\n---\n\n# After\n"
+            let replacementState = ReplicaState(
+                tree: tree.rawValue,
+                nodes: [
+                    ReplicaNodeRecord(path: "/", kind: .directory),
+                    ReplicaNodeRecord(path: "/note", pageID: "pg_note", kind: .markdown, source: afterSource)
+                ]
+            )
+            let replacement = try ReplicaWireCodec.snapshot(for: replacementState)
+            try await replica.replaceFromSystem(ReplicaSystemReplacement(
+                root: replacement.root,
+                update: "up_after",
+                cursor: "up_after",
+                nodes: [
+                    ReplicaSystemNode(path: "/", content: .directory()),
+                    ReplicaSystemNode(path: "/note", pageID: "pg_note", content: .markdown(source: afterSource))
+                ]
+            ))
+
+            let observed = try #require(try await iterator.next())
+            #expect(observed.source == afterSource)
+            #expect(observed.contentRevision != before.contentRevision)
+            await session.close()
+        }
+    }
+
     @Test("Repeated mutations and restarts preserve exact roots and unique identities")
     func restartProperty() async throws {
         try await withTemporaryReplica { root in

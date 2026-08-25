@@ -195,6 +195,29 @@ public actor ReplicaDocumentSession: WorkspaceDocumentSession {
         return try await replica.documentSnapshot(initialReference)
     }
 
+    public func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> {
+        try requireOpen()
+        let changes = try await replica.changes()
+        let replica = replica
+        let reference = initialReference
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for await _ in changes {
+                        try Task.checkCancellation()
+                        continuation.yield(try await replica.documentSnapshot(reference))
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     public func admit(source: String, baseContentRevision: String) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         do {

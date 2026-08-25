@@ -11,6 +11,7 @@ public actor ArborReplica {
     private var control: ReplicaControl
     private var index: ReplicaSearchIndex
     private var terminal = false
+    private var changeObservers: [UUID: AsyncStream<Int>.Continuation] = [:]
 
     private init(
         files: DurableReplicaFiles,
@@ -119,6 +120,18 @@ public actor ArborReplica {
     public func currentSnapshot() throws -> ReplicaSnapshot {
         try requireOpen()
         return try ReplicaWireCodec.snapshot(for: state)
+    }
+
+    public func changes() throws -> AsyncStream<Int> {
+        try requireOpen()
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            changeObservers[id] = continuation
+            continuation.yield(control.generation)
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeChangeObserver(id) }
+            }
+        }
     }
 
     public func storedObjectBytes(hash: String) throws -> Data {
@@ -240,6 +253,8 @@ public actor ArborReplica {
 
     public func close() {
         terminal = true
+        for continuation in changeObservers.values { continuation.finish() }
+        changeObservers.removeAll()
     }
 
     func resolve(_ reference: WorkspaceReference) throws -> ReplicaNodeRecord {
@@ -698,6 +713,11 @@ public actor ArborReplica {
         state = intent.state
         control = nextControl
         index = nextIndex
+        for continuation in changeObservers.values { continuation.yield(nextControl.generation) }
+    }
+
+    private func removeChangeObserver(_ id: UUID) {
+        changeObservers.removeValue(forKey: id)
     }
 
     private func recoverPendingIntents() throws {

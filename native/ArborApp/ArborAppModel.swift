@@ -51,6 +51,7 @@ final class ArborWorkspaceState {
     var errorMessage: String?
 
     private var syncCoordinator: ReplicaSyncCoordinator?
+    private var authorityWatchTask: Task<Void, Never>?
 #if os(macOS)
     private var supervisor: ArbordProcessSupervisor?
     private var arbordClient: ArborClient?
@@ -72,6 +73,8 @@ final class ArborWorkspaceState {
 
     func place(tree: AuthorityTreeDescriptor, from origin: URL, remember: Bool = true) async throws {
         _ = try tree.validated()
+        authorityWatchTask?.cancel()
+        authorityWatchTask = nil
         let credentialProvider = StoredDeviceCredentialProvider(
             origin: origin,
             store: KeychainDeviceCredentialStore()
@@ -113,6 +116,7 @@ final class ArborWorkspaceState {
         syncCoordinator = coordinator
         syncPresentation = try await coordinator.presentation()
         syncConflict = try await coordinator.conflict()
+        startAuthorityWatch(client: client, tree: tree, coordinator: coordinator)
     }
 
 #if os(iOS)
@@ -126,12 +130,30 @@ final class ArborWorkspaceState {
             return false
         }
     }
+
+    func nativePlacement() async throws -> NativePlacementRecord? {
+        try await nativePlacementStore.load()
+    }
+
+    func disconnectNativeAccount() async throws {
+        guard let placement = try await nativePlacementStore.load() else { return }
+        try await NativeAccountService(origin: placement.origin).forget()
+        try await nativePlacementStore.clear()
+        authorityWatchTask?.cancel()
+        authorityWatchTask = nil
+        if let syncCoordinator { await syncCoordinator.close() }
+        syncCoordinator = nil
+        syncConflict = nil
+        await editorWorkspace.closeAll()
+    }
 #endif
 
 #if os(macOS)
     func openLocalWorkspace(_ url: URL, remember: Bool = true) async throws {
         try await editorWorkspace.flushAll()
         await editorWorkspace.closeAll()
+        authorityWatchTask?.cancel()
+        authorityWatchTask = nil
         if let supervisor { await supervisor.stop() }
         let launchPolicy: ArbordLaunchPolicy = ProcessInfo.processInfo.environment["ARBOR_TEST_SANDBOX_HELPER"] == "1"
             ? .automatic
@@ -298,6 +320,8 @@ final class ArborWorkspaceState {
     func shutdown() async {
         await flush()
         await editorWorkspace.closeAll()
+        authorityWatchTask?.cancel()
+        authorityWatchTask = nil
 #if os(macOS)
         if let supervisor { await supervisor.stop() }
         arbordClient = nil
@@ -317,6 +341,46 @@ final class ArborWorkspaceState {
         capabilities = await nextProvider.capabilities()
         generation += 1
         errorMessage = nil
+    }
+
+    private func startAuthorityWatch(
+        client: ArborAuthorityClient,
+        tree: AuthorityTreeDescriptor,
+        coordinator: ReplicaSyncCoordinator
+    ) {
+        authorityWatchTask = Task { [weak self] in
+            var lastEventID: String?
+            var reconnectAttempt = 0
+            while !Task.isCancelled {
+                do {
+                    let events = try await client.watch(tree: tree.id, lastEventID: lastEventID)
+                    reconnectAttempt = 0
+                    for try await event in events {
+                        try Task.checkCancellation()
+                        lastEventID = event.id
+                        guard event.tree.id == tree.id else { continue }
+                        let presentation = try await coordinator.presentation()
+                        let needsSync = event.tree.ref != presentation.acceptedRoot
+                            || presentation.localRoot != presentation.acceptedRoot
+                            || presentation.state == .offline
+                        if needsSync {
+                            _ = try await coordinator.syncOnce()
+                            await self?.refreshSyncPresentation(from: coordinator)
+                        }
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    reconnectAttempt += 1
+                }
+                do {
+                    let delay = min(5_000, 250 * (1 << min(reconnectAttempt, 5)))
+                    try await Task.sleep(for: .milliseconds(delay))
+                } catch {
+                    return
+                }
+            }
+        }
     }
 }
 

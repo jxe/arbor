@@ -133,54 +133,84 @@ struct ArborSearchPalette: View {
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                TextField("Search titles and text", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($searchFocused)
-                    .padding(12)
-                Divider()
-                List(results) { result in
-                    Button {
-                        open(result.reference)
-                        dismiss()
-                    } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(result.title)
-                                .fontWeight(.medium)
-                                .foregroundStyle(.primary)
-                            if let excerpt = result.excerpt {
-                                Text(excerpt)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
+        Group {
+#if os(iOS)
+            NavigationStack {
+                resultsList
+                    .navigationTitle("Search")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .searchable(
+                        text: $query,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Titles and text"
+                    )
+                    .searchFocused($searchFocused)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { dismiss() }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+            }
+            .presentationDetents([.large])
+#else
+            NavigationStack {
+                VStack(spacing: 0) {
+                    TextField("Search titles and text", text: $query)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($searchFocused)
+                        .padding(12)
+                    Divider()
+                    resultsList
                 }
-                .overlay {
-                    if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        ContentUnavailableView("Search this tree", systemImage: "magnifyingglass", description: Text("Titles and visible document text stay local."))
-                    } else if results.isEmpty {
-                        ContentUnavailableView.search(text: query)
-                    }
+                .navigationTitle("Search")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
                 }
             }
-            .navigationTitle("Search")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
+            .frame(minWidth: 480, minHeight: 460)
+#endif
         }
-        .frame(minWidth: 480, minHeight: 460)
         .task { searchFocused = true }
         .task(id: query) {
             do { try await Task.sleep(for: .milliseconds(140)) }
             catch { return }
             guard !Task.isCancelled else { return }
             await search(query)
+        }
+    }
+
+    private var resultsList: some View {
+        List(results) { result in
+            Button {
+                open(result.reference)
+                dismiss()
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(result.title)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.primary)
+                    if let excerpt = result.excerpt {
+                        Text(excerpt)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+        }
+        .overlay {
+            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ContentUnavailableView(
+                    "Search this tree",
+                    systemImage: "magnifyingglass",
+                    description: Text("Titles and visible document text stay local.")
+                )
+            } else if results.isEmpty {
+                ContentUnavailableView.search(text: query)
+            }
         }
     }
 }
