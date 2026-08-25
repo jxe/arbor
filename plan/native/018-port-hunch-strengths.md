@@ -36,9 +36,17 @@ Joe selected native Arbor as a Hunch replacement, not merely a protocol demo. Th
 - Async rendering must have explicit loading and missing states. A task keyed by the current source must not allow an old request to replace a newer source, and navigation or editor reuse must not turn a completed load into the wrong block's presentation.
 - Arbor's host resolves the active document to its tree, safely resolves or creates that tree's root `Assets` directory, stores through `WorkspaceProvider`, and returns provider-authored logical Markdown sources. It never exposes a physical path, temporary URL, or optimistic link to Quagmire.
 - Extend the provider contract with a stored-asset result containing the durable `WorkspaceReference` and canonical Markdown source, plus a provider-neutral ordinary-file byte read. Implement both contracts for the in-memory, arbord, and replica providers. Prefer a small tree-scoped arbord byte route over reconstructing physical paths or depending on browser `Referer` behavior.
-- Make explicit Import Asset use the same destination and naming helper as editor paste/drop. A successful asset write followed by a failed document admission may leave a safe orphan for later cleanup; a document must never commit a link to bytes that were not saved.
+- Do not expose a standalone Import Asset command. Editor paste/drop uses the one destination and naming helper. A successful asset write followed by a failed document admission may leave a safe orphan for later cleanup; a document must never commit a link to bytes that were not saved.
 - Prove the API against local Quagmire checkouts in both Hunch and Arbor before publishing. Hunch adapts its existing atomic `Assets` writes and local URL resolution; Arbor adapts provider storage and reads. Only then tag Quagmire `0.3.0`, replace both local overrides with exact remote `0.3.0`, regenerate Arbor's project, and commit each consumer adoption separately.
 - This host-neutral lifecycle change does not contradict Plan 021. It introduces no Arbor revisions, wire hashes, storage metadata, or patch lineage into Quagmire; the resulting Markdown insertion still flows through ArborQuagmire's ordinary guarded admission and immediate-patch optimization.
+
+## Title-driven rename and structural actions
+
+- Port Hunch's title-driven rename behavior, not its Clamshell implementation. After an admitted H1 title change remains stable for two seconds, offer a non-modal, once-per-proposal rename to a collision-safe title slug. Dismissal is session-local and editing remains uninterrupted.
+- Flush the shared PageID session before asking the provider to rename. The provider/replica owns the structural mutation, the authority owns cross-device merge, and the `TreeID`/`PageID` pair remains authoritative across path changes. Arbor must not write a local file directly or manufacture a same-device three-way merge.
+- Existing inbound links must resolve and render the new live title immediately by PageID. Path hints and authored Markdown destinations may converge lazily through normal provider/session writes; do not scan and eagerly rewrite the whole tree as part of the rename.
+- After success, update Home/current navigation frames, tabs, sidebar children, search, backlinks, and any provider-derived title/path caches without losing editor state or creating a second page identity. Cover case-only names, emoji-only titles, duplicate slugs, nested pages, multiple open sessions, offline rename, and authority convergence.
+- Remove the generic current-page Move and Copy forms. Physical Move is offered only from an eligible subpage-link action with destination-before-source guarantees; ordinary/non-child links remain content and never imply containment.
 
 ## Parity authority
 
@@ -76,10 +84,11 @@ Every current Hunch README feature must be implemented, deliberately different f
 7. Rev Quagmire's image host contract and editor paths locally. Cover navigation-mode paste, active-text paste, drag/drop, multi-image ordering, persistence-before-insertion, one-step undo/redo, partial failure, anchor removal while awaiting storage, and stale async rendering. Run Quagmire's public API and behavior suites before changing either consumer.
 8. Adapt Hunch to the local Quagmire checkout using its existing atomic Clamshell `Assets` write and local file resolver. Add regression coverage for exact bytes, reopen, recovery, multi-image order, and storage failure; do not change Hunch workspace identity or storage policy.
 9. Add provider-authored asset results and provider-neutral file reads to ArborKit. Implement them for in-memory, replica, and arbord providers, adding a tree-scoped REST v1 byte route and matching ArborClient operation if the existing logical route cannot satisfy native authenticated reads without presentation-only request context.
-10. Add one Arbor asset-location helper that resolves or creates root `/Assets` within the document's tree, tolerates a concurrent already-exists result by resolving again, and refuses read-only or mismatched-tree destinations. Route both explicit Import Asset and `ArborEditorHost` image paste/drop through it.
+10. Add one Arbor asset-location helper that resolves or creates root `/Assets` within the document's tree, tolerates a concurrent already-exists result by resolving again, and refuses read-only or mismatched-tree destinations. Route `ArborEditorHost` image paste/drop through it; do not add a standalone Import Asset surface.
 11. Implement Arbor's async image host adapter. Convert Quagmire paste data to `WorkspaceAsset`, return only provider-authored Markdown sources after successful durable stores, resolve relative sources within the same tree, read through the provider, and return data-backed image resources without direct `FileManager`, physical paths, or temporary placeholders.
 12. Prove Hunch and Arbor against the same local Quagmire revision, then tag Quagmire `0.3.0`. Replace local overrides with exact remote `0.3.0`, regenerate Arbor's tracked Xcode project, and re-run both consumers before committing their dependency adoptions separately.
-13. Finish the remaining editing/content clusters behind provider/session abstractions. Preserve destination-before-source, final-generation drain, safe externally rewritten document replacement, and exact built-artifact testing. Preserve Hunch's recovery bias as a server-merge product invariant—uncertain Markdown placement may duplicate near context but must not omit an added line—without porting Clamshell journals or block hashes. Add focused Quagmire/QuagmireExtras/ArborQuagmire/app/UI tests per cluster; avoid tests that assert Hunch or Clamshell implementation rather than user behavior. Run the manual exact-artifact matrix on macOS and the existing iOS 27 simulator/device, recording what was and was not verified.
+13. Implement title-driven provider rename and link-owned structural Move as specified above. Preserve PageID across the rename, keep old inbound links live, update provider-derived navigation/search/backlink state, and prove replica/authority convergence before removing the temporary macOS `Rename Page…` command.
+14. Finish the remaining editing/content clusters behind provider/session abstractions. Preserve destination-before-source, final-generation drain, safe externally rewritten document replacement, and exact built-artifact testing. Preserve Hunch's recovery bias as a server-merge product invariant—uncertain Markdown placement may duplicate near context but must not omit an added line—without porting Clamshell journals or block hashes. Add focused Quagmire/QuagmireExtras/ArborQuagmire/app/UI tests per cluster; avoid tests that assert Hunch or Clamshell implementation rather than user behavior. Run the manual exact-artifact matrix on macOS and the existing iOS 27 simulator/device, recording what was and was not verified.
 
 ## Implementation evidence
 
@@ -101,10 +110,10 @@ Use the exact newly built Arbor artifacts. These checks replace Computer Use; re
 - [ ] Drag images from Finder and a browser into the editor on macOS, then repeat an available Photos/files paste or drag on iOS 27.
 - [ ] Undo and redo one multi-image import; confirm the Markdown blocks act as one edit while the already durable assets remain safe.
 - [ ] Move or rename the containing page, relaunch, and confirm its logical asset references still render. Reopen a previously synchronized Arbor image while offline.
-- [ ] Import the same image twice and confirm the provider's documented collision/content-addressing behavior creates no silent overwrite.
+- [ ] Paste the same image twice and confirm the provider's documented collision/content-addressing behavior creates no silent overwrite.
 - [ ] Try paste/drop on a read-only, historical, ordinary-file, or conflict surface and confirm it cannot mutate the tree.
 - [ ] If convenient, interrupt or force one asset-store failure and confirm no broken image block is inserted, successful siblings retain order, and the error exposes no host path.
-- [ ] Use explicit Import Asset and editor paste in the same tree; confirm both place bytes under the same root `Assets` policy and render through the provider.
+- [ ] Confirm image paste/drop places bytes under the tree's root `Assets` policy and that no standalone Import Asset command appears on either platform.
 - [ ] Open the same image-backed page in two windows/tabs and confirm a delayed load or source edit never displays the prior image in the wrong block.
 
 ### Voice and recovery
@@ -127,7 +136,7 @@ Use the exact newly built Arbor artifacts. These checks replace Computer Use; re
 
 - [ ] On macOS, confirm the mic control, recording/transcribing states, alerts, editor actions, menus, keyboard navigation, and external-link presentation fit the existing Arbor shell.
 - [ ] On the existing iOS 27 device/simulator, repeat one toolbar recording and inspect touch focus, scrolling, background recovery, alert layout, and VoiceOver labels for the mic and recovery actions.
-- [ ] Recheck an internal link, Back, Move To, offline edit/reconnect, history/recovery, conflict choice, explicit Import Asset, and one non-document node so the Extras adoption has not disturbed Arbor's node-first behavior.
+- [ ] Recheck an internal link, Back, Move To, offline edit/reconnect, history/recovery, conflict choice, image paste/drop, and one non-document node so the Extras adoption has not disturbed Arbor's node-first behavior.
 - [ ] Launch the exact Hunch `d13087b` macOS/iOS artifacts against its ordinary workspace and confirm voice, links, and polishing still behave independently of Arbor.
 
 ## Verification

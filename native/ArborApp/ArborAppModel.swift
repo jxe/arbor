@@ -618,13 +618,6 @@ final class ArborAppModel {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    func importAsset(_ asset: WorkspaceAsset) async {
-        do {
-            _ = try await workspace.provider.store(asset: asset, in: currentReference)
-            await load()
-        } catch { errorMessage = error.localizedDescription }
-    }
-
     func startVoiceRecording(_ session: VoiceRecordingSession<PageID>) async {
         guard let node, node.isWritable, let pageID = binding?.reference.pageID else {
             session.reportError("Open a writable Arbor page before starting a recording.")

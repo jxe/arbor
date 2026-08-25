@@ -44,19 +44,12 @@ private struct ArborNavigationCommands: Commands {
             Button("Open Location…") { commands?.openLocation() }
                 .keyboardShortcut("l", modifiers: .command)
                 .disabled(commands == nil)
-#if os(macOS)
-            Button("Pair iPhone…") { commands?.showPairing() }
-                .disabled(commands == nil)
-#endif
             Divider()
             Button("New Tab") { commands?.newTab() }
                 .keyboardShortcut("t", modifiers: .command)
             Button("Close Tab") { commands?.closeTab() }
                 .keyboardShortcut("w", modifiers: .command)
                 .disabled(commands?.canCloseTab != true)
-            Divider()
-            Button("Search This Tree…") { commands?.showSearch() }
-                .keyboardShortcut("p", modifiers: .command)
             Button("Recover…") { commands?.showHistory() }
                 .keyboardShortcut("\\", modifiers: [.command, .shift])
                 .disabled(commands?.hasDocument != true)
@@ -80,10 +73,28 @@ private struct ArborNavigationCommands: Commands {
             Button("Source and Properties…") { commands?.showSource() }
                 .keyboardShortcut("i", modifiers: .command)
                 .disabled(commands?.hasNode != true)
-            Button("Save and Sync…") { commands?.showSyncStatus() }
-                .disabled(commands == nil)
         }
 #if os(macOS)
+        CommandMenu("Page") {
+            Button("Rename Page…") { commands?.renamePage() }
+                .disabled(commands?.canRenamePage != true)
+            Divider()
+            Button("Restore Page") { commands?.restorePage() }
+                .disabled(commands?.canRestorePage != true)
+            Button("Move Page to Trash…") { commands?.movePageToTrash() }
+                .disabled(commands?.canMovePageToTrash != true)
+        }
+        CommandMenu("Workspace") {
+            Button("Save and Sync…") { commands?.showSyncStatus() }
+                .disabled(commands == nil)
+            Button("Pair iPhone…") { commands?.showPairing() }
+                .disabled(commands == nil)
+            Divider()
+            Button("Reconnect to arbord") { commands?.reconnectArbord() }
+                .disabled(commands == nil)
+            Button("arbord Logs…") { commands?.showArbordLogs() }
+                .disabled(commands == nil)
+        }
         CommandGroup(replacing: .undoRedo) {
             ArborUndoRedoMenuItems()
         }

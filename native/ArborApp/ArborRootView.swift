@@ -27,7 +27,6 @@ struct ArborRootView: View {
     @State private var searchPresented = false
     @State private var searchText = ""
     @State private var workspaceImporterPresented = false
-    @State private var assetImporterPresented = false
     @State private var trashConfirmationPresented = false
     @State private var arbordLogs = ""
     @State private var voiceLaunchReady = false
@@ -132,19 +131,6 @@ struct ArborRootView: View {
             }
         }
 #endif
-        .fileImporter(isPresented: $assetImporterPresented, allowedContentTypes: [.data, .image]) { result in
-            if case let .success(url) = result {
-                Task {
-                    let accessing = url.startAccessingSecurityScopedResource()
-                    defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-                    do {
-                        let bytes = try Data(contentsOf: url)
-                        let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
-                        await model.importAsset(WorkspaceAsset(name: url.lastPathComponent, mediaType: type, bytes: bytes))
-                    } catch { workspace.errorMessage = error.localizedDescription }
-                }
-            }
-        }
         .focusedSceneValue(\.arborWindowCommands, windowCommands)
     }
 
@@ -192,11 +178,6 @@ struct ArborRootView: View {
                 HStack {
                     Label("Search", systemImage: "magnifyingglass")
                     Spacer()
-#if os(macOS)
-                    Text("⌘P")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-#endif
                 }
             }
             .buttonStyle(.plain)
@@ -299,18 +280,41 @@ struct ArborRootView: View {
             newFolder: { presentedSheet = .createDirectory },
             openLocation: { presentedSheet = .openLocation },
             openLocalWorkspace: { workspaceImporterPresented = true },
-            showSearch: { searchPresented = true },
             showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
             showBacklinks: { presentedSheet = .backlinks },
             showSource: { Task { await model.inspectSource(); presentedSheet = .source } },
             showSyncStatus: { presentedSheet = .syncStatus },
             showPairing: { pairingPresented = true },
+            renamePage: { presentedSheet = .rename },
+            movePageToTrash: { trashConfirmationPresented = true },
+            restorePage: {
+                Task { await model.perform(.restore(reference: model.currentReference)) }
+            },
+            reconnectArbord: {
+#if os(macOS)
+                Task { await workspace.restartArbord() }
+#endif
+            },
+            showArbordLogs: {
+#if os(macOS)
+                Task {
+                    arbordLogs = await workspace.arbordLogs()
+                    presentedSheet = .arbordLogs
+                }
+#endif
+            },
             canGoBack: model.canGoBack,
             canGoForward: model.canGoForward,
             canGoParent: model.canGoParent,
             canCloseTab: model.tabItems.count > 1,
             hasDocument: model.binding != nil,
-            hasNode: model.node != nil
+            hasNode: model.node != nil,
+            canRenamePage: model.node?.isWritable == true,
+            canMovePageToTrash: model.node?.isWritable == true
+                && model.currentReference.pathHint != "/"
+                && !model.currentReference.pathHint.hasPrefix("/Trash/"),
+            canRestorePage: model.node?.isWritable == true
+                && model.currentReference.pathHint.hasPrefix("/Trash/")
         )
     }
 
@@ -348,45 +352,18 @@ struct ArborRootView: View {
         .animation(.easeInOut(duration: 0.2), value: model.binding?.conflict != nil)
         .animation(.easeInOut(duration: 0.2), value: workspace.syncConflict != nil)
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
 #if os(iOS)
+            ToolbarItem(placement: .topBarLeading) {
                 Button("Pages", systemImage: "line.3.horizontal") { sidebarPresented = true }
+            }
 #endif
+            ToolbarItemGroup(placement: .primaryAction) {
                 if reference == model.currentReference,
                    model.node?.isWritable == true,
                    model.binding != nil {
                     VoiceRecordingButton(session: recordingSession) {
                         await model.startVoiceRecording(recordingSession)
                     }
-                }
-                Button("Search", systemImage: "magnifyingglass") { searchPresented = true }
-                Menu("Actions", systemImage: "ellipsis.circle") {
-                    Button("Rename…", systemImage: "pencil") { presentedSheet = .rename }
-                        .disabled(model.node?.isWritable != true)
-                    Button("Move…", systemImage: "folder") { presentedSheet = .move }
-                        .disabled(model.node?.isWritable != true)
-                    Button("Copy…", systemImage: "plus.square.on.square") { presentedSheet = .copy }
-                        .disabled(model.node == nil)
-                    Button("Import Asset…", systemImage: "photo.badge.plus") { assetImporterPresented = true }
-                        .disabled(!workspace.capabilities.assets)
-                    Divider()
-                    if model.currentReference.pathHint.hasPrefix("/Trash/") {
-                        Button("Restore", systemImage: "arrow.uturn.backward") {
-                            Task { await model.perform(.restore(reference: model.currentReference)) }
-                        }
-                    } else {
-                        Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                            trashConfirmationPresented = true
-                        }
-                        .disabled(model.node?.isWritable != true || model.currentReference.pathHint == "/")
-                    }
-#if os(macOS)
-                    Divider()
-                    Button("Reconnect to arbord", systemImage: "arrow.clockwise") { Task { await workspace.restartArbord() } }
-                    Button("arbord Logs…", systemImage: "doc.text.magnifyingglass") {
-                        Task { arbordLogs = await workspace.arbordLogs(); presentedSheet = .arbordLogs }
-                    }
-#endif
                 }
                 Button("Account", systemImage: "person.crop.circle") { accountPresented = true }
             }
@@ -475,10 +452,6 @@ struct ArborRootView: View {
             Task { await model.perform(.createDirectory(parent: mutationParent, name: trimmed)) }
         case .rename:
             Task { await model.perform(.rename(reference: model.currentReference, name: trimmed)) }
-        case .move:
-            Task { await model.perform(.move(reference: model.currentReference, destination: destination(trimmed))) }
-        case .copy:
-            Task { await model.perform(.copy(reference: model.currentReference, destination: destination(trimmed))) }
         case .openLocation:
             Task { await model.navigate(to: destination(trimmed)) }
         default:

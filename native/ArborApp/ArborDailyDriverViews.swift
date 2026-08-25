@@ -8,8 +8,6 @@ enum ArborPresentedSheet: String, Identifiable {
     case createMarkdown
     case createDirectory
     case rename
-    case move
-    case copy
     case openLocation
     case source
     case history
@@ -32,18 +30,25 @@ struct ArborWindowCommands {
     var newFolder: () -> Void
     var openLocation: () -> Void
     var openLocalWorkspace: () -> Void
-    var showSearch: () -> Void
     var showHistory: () -> Void
     var showBacklinks: () -> Void
     var showSource: () -> Void
     var showSyncStatus: () -> Void
     var showPairing: () -> Void
+    var renamePage: () -> Void
+    var movePageToTrash: () -> Void
+    var restorePage: () -> Void
+    var reconnectArbord: () -> Void
+    var showArbordLogs: () -> Void
     var canGoBack: Bool
     var canGoForward: Bool
     var canGoParent: Bool
     var canCloseTab: Bool
     var hasDocument: Bool
     var hasNode: Bool
+    var canRenamePage: Bool
+    var canMovePageToTrash: Bool
+    var canRestorePage: Bool
 }
 
 private struct ArborWindowCommandsKey: FocusedValueKey {
@@ -815,8 +820,6 @@ struct ArborMutationForm: View {
         case .createMarkdown: "New Document"
         case .createDirectory: "New Folder"
         case .rename: "Rename"
-        case .move: "Move"
-        case .copy: "Copy"
         case .openLocation: "Open Location"
         default: "Action"
         }
@@ -824,7 +827,7 @@ struct ArborMutationForm: View {
 
     private var prompt: String {
         switch mode {
-        case .move, .copy, .openLocation: "Location path"
+        case .openLocation: "Location path"
         case .rename: "New name"
         default: "Name"
         }
@@ -832,8 +835,6 @@ struct ArborMutationForm: View {
 
     private var actionTitle: String {
         switch mode {
-        case .move: "Move"
-        case .copy: "Copy"
         case .openLocation: "Open"
         case .rename: "Rename"
         default: "Create"
