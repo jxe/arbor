@@ -158,9 +158,9 @@ export class Workspace implements AsyncDisposable {
       displayName: options.displayName ?? await rootDisplayName(fs.root),
     });
     workspace.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
-    if (workspace.discovery === "recursive") {
-      await Promise.all([index.rebuild(discovery), workspace.generateTypes(discovery)]);
-    }
+    const startupTasks: Promise<unknown>[] = [index.rebuild(discovery)];
+    if (workspace.discovery === "recursive") startupTasks.push(workspace.generateTypes(discovery));
+    await Promise.all(startupTasks);
     await workspace.finishRecoveredMutations();
     return workspace;
   }
