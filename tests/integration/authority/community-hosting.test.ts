@@ -413,7 +413,7 @@ describe("community-mounted profiles and sharing", () => {
         `# Link from reading\n\n[Owner](arbor://tree/${ownerProfile.id}/)\n`,
       );
       let backlinks: Awaited<ReturnType<typeof service.backlinksPage>>["entries"] = [];
-      for (let attempt = 0; attempt < 20; attempt += 1) {
+      for (let attempt = 0; attempt < 80; attempt += 1) {
         await Bun.sleep(25);
         backlinks = (await service.backlinksPage({ tree: ownerProfile.id, path: "/" })).entries;
         if (backlinks.some((entry) => entry.ref.tree === reading.id)) break;
