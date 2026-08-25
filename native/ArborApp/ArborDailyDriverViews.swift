@@ -37,6 +37,7 @@ struct ArborWindowCommands {
     var showBacklinks: () -> Void
     var showSource: () -> Void
     var showSyncStatus: () -> Void
+    var showPairing: () -> Void
     var canGoBack: Bool
     var canGoForward: Bool
     var canGoParent: Bool

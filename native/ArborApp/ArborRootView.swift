@@ -8,8 +8,11 @@ import SwiftUI
 import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 #endif
 #if os(iOS)
+import UIKit
 import VisionKit
 #endif
 
@@ -18,6 +21,7 @@ struct ArborRootView: View {
     @State private var model: ArborAppModel
     @State private var recordingSession: VoiceRecordingSession<PageID>
     @State private var accountPresented = false
+    @State private var pairingPresented = false
     @State private var presentedSheet: ArborPresentedSheet?
     @State private var searchPresented = false
     @State private var searchText = ""
@@ -26,6 +30,9 @@ struct ArborRootView: View {
     @State private var trashConfirmationPresented = false
     @State private var arbordLogs = ""
     @State private var voiceLaunchReady = false
+#if os(iOS)
+    @State private var sidebarPresented = false
+#endif
     @Environment(\.scenePhase) private var scenePhase
 
     init(workspace: ArborWorkspaceState) {
@@ -43,65 +50,7 @@ struct ArborRootView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                Button {
-                    searchPresented = true
-                } label: {
-                    HStack {
-                        Label("Search", systemImage: "magnifyingglass")
-                        Spacer()
-#if os(macOS)
-                        Text("⌘P")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-#endif
-                    }
-                }
-                .buttonStyle(.plain)
-
-                Section {
-                    if let parent = model.sidebarReference.parent {
-                        Button {
-                            Task { await model.navigate(to: parent) }
-                        } label: {
-                            Label("Parent directory", systemImage: "arrow.up")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    ForEach(model.children) { node in
-                        ArborSidebarRow(
-                            node: node,
-                            isCurrent: isCurrent(node.reference),
-                            open: { Task { await model.navigate(to: node.reference) } },
-                            openInNewTab: { Task { await model.openInNewTab(node.reference) } },
-                            trash: { Task { await model.perform(.trash(reference: node.reference), navigateToResult: false) } }
-                        )
-                    }
-                } header: {
-                    Text(model.sidebarReference.pathHint == "/" ? "Home" : model.sidebarReference.pathHint)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-            .listStyle(.sidebar)
-            .navigationTitle("Arbor")
-            .overlay {
-                if model.children.isEmpty {
-                    ContentUnavailableView("No children", systemImage: "tree")
-                        .allowsHitTesting(false)
-                }
-            }
-        } detail: {
-            NavigationStack(path: navigationPathBinding) {
-                pageFrame(for: model.navigationRoot)
-                    .navigationDestination(for: WorkspaceReference.self) { reference in
-                        pageFrame(for: reference)
-                    }
-            }
-            .id(model.selectedTabID)
-        }
+        platformNavigation
         .task(id: workspace.generation) { await model.resetForWorkspace() }
         .task {
 #if os(macOS)
@@ -142,6 +91,11 @@ struct ArborRootView: View {
             }
 #endif
         }
+#if os(macOS)
+        .sheet(isPresented: $pairingPresented) {
+            MacPairingPanel(workspace: workspace)
+        }
+#endif
         .sheet(isPresented: $searchPresented, onDismiss: {
             searchText = ""
             Task { await model.search("") }
@@ -191,6 +145,94 @@ struct ArborRootView: View {
         .focusedSceneValue(\.arborWindowCommands, windowCommands)
     }
 
+    @ViewBuilder
+    private var platformNavigation: some View {
+#if os(iOS)
+        NavigationStack(path: navigationPathBinding) {
+            pageFrame(for: model.navigationRoot)
+                .navigationDestination(for: WorkspaceReference.self) { reference in
+                    pageFrame(for: reference)
+                }
+        }
+        .id(model.selectedTabID)
+        .sheet(isPresented: $sidebarPresented) {
+            NavigationStack {
+                sidebarContent
+                    .navigationTitle("Pages")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { sidebarPresented = false }
+                        }
+                    }
+            }
+        }
+#else
+        NavigationSplitView {
+            sidebarContent
+        } detail: {
+            NavigationStack(path: navigationPathBinding) {
+                pageFrame(for: model.navigationRoot)
+                    .navigationDestination(for: WorkspaceReference.self) { reference in
+                        pageFrame(for: reference)
+                    }
+            }
+            .id(model.selectedTabID)
+        }
+#endif
+    }
+
+    private var sidebarContent: some View {
+        List {
+            Button {
+                searchPresented = true
+            } label: {
+                HStack {
+                    Label("Search", systemImage: "magnifyingglass")
+                    Spacer()
+#if os(macOS)
+                    Text("⌘P")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+#endif
+                }
+            }
+            .buttonStyle(.plain)
+
+            Section {
+                if let parent = model.sidebarReference.parent {
+                    Button {
+                        openFromSidebar(parent)
+                    } label: {
+                        Label("Parent directory", systemImage: "arrow.up")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                ForEach(model.children) { node in
+                    ArborSidebarRow(
+                        node: node,
+                        isCurrent: isCurrent(node.reference),
+                        open: { openFromSidebar(node.reference) },
+                        openInNewTab: { Task { await model.openInNewTab(node.reference) } },
+                        trash: { Task { await model.perform(.trash(reference: node.reference), navigateToResult: false) } }
+                    )
+                }
+            } header: {
+                Text(model.sidebarReference.pathHint == "/" ? "Home" : model.sidebarReference.pathHint)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .listStyle(.sidebar)
+        .navigationTitle("Arbor")
+        .overlay {
+            if model.children.isEmpty {
+                ContentUnavailableView("No children", systemImage: "tree")
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
     private var recordingErrorBinding: Binding<Bool> {
         Binding(
             get: { recordingSession.errorMessage != nil },
@@ -226,6 +268,13 @@ struct ArborRootView: View {
         reference.tree == model.currentReference.tree && reference.pathHint == model.currentReference.pathHint
     }
 
+    private func openFromSidebar(_ reference: WorkspaceReference) {
+#if os(iOS)
+        sidebarPresented = false
+#endif
+        Task { await model.navigate(to: reference) }
+    }
+
     private var moveRequestBinding: Binding<ArborMoveRequest?> {
         Binding(
             get: { model.editorHost?.moveRequest },
@@ -252,6 +301,7 @@ struct ArborRootView: View {
             showBacklinks: { presentedSheet = .backlinks },
             showSource: { Task { await model.inspectSource(); presentedSheet = .source } },
             showSyncStatus: { presentedSheet = .syncStatus },
+            showPairing: { pairingPresented = true },
             canGoBack: model.canGoBack,
             canGoForward: model.canGoForward,
             canGoParent: model.canGoParent,
@@ -281,9 +331,6 @@ struct ArborRootView: View {
                     create: { Task { await model.newTab() } }
                 )
             }
-            ArborBreadcrumbs(reference: reference) { destination in
-                Task { await model.navigate(to: destination) }
-            }
             pageFrameContent(for: reference)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -297,10 +344,11 @@ struct ArborRootView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: model.binding?.conflict != nil)
         .animation(.easeInOut(duration: 0.2), value: workspace.syncConflict != nil)
-        .navigationTitle(pageFrameTitle(for: reference))
-        .navigationSubtitle(reference.pathHint)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+#if os(iOS)
+                Button("Pages", systemImage: "line.3.horizontal") { sidebarPresented = true }
+#endif
                 if reference == model.currentReference,
                    model.node?.isWritable == true,
                    model.binding != nil {
@@ -337,6 +385,9 @@ struct ArborRootView: View {
                     }
 #endif
                 }
+#if os(macOS)
+                Button("Pair iPhone", systemImage: "qrcode") { pairingPresented = true }
+#endif
                 Button("Account", systemImage: "person.crop.circle") { accountPresented = true }
             }
         }
@@ -375,12 +426,6 @@ struct ArborRootView: View {
         } else {
             ProgressView()
         }
-    }
-
-    private func pageFrameTitle(for reference: WorkspaceReference) -> String {
-        if reference == model.currentReference, let title = model.node?.title { return title }
-        if reference.pathHint == "/" { return "Home" }
-        return reference.pathHint.split(separator: "/").last.map(String.init) ?? "Arbor"
     }
 
     @ViewBuilder
@@ -564,14 +609,14 @@ private struct MacArbordAccountPanel: View {
                         }
                     }
                     Section("Pair iPhone") {
-                        Button("Create one-time pairing") { Task { await createPairing() } }
+                        Button("Pair another iPhone…") { Task { await createPairing() } }
                         if let pairing {
+                            PairingQRCode(payload: pairing.payload)
+                                .frame(width: 220, height: 220)
+                                .frame(maxWidth: .infinity)
                             LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
                                 .font(.headline.monospacedDigit())
-                            TextEditor(text: .constant(pairing.payload))
-                                .font(.caption.monospaced())
-                                .frame(minHeight: 80)
-                            Button("Copy pairing payload", systemImage: "doc.on.doc") {
+                            Button("Copy pairing code", systemImage: "doc.on.doc") {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(pairing.payload, forType: .string)
                             }
@@ -602,6 +647,281 @@ private struct MacArbordAccountPanel: View {
     private func revoke(_ id: String) async {
         do { try await workspace.revokeLocalArbordDevice(id); await refresh() }
         catch { message = error.localizedDescription }
+    }
+}
+
+private struct MacPairingPanel: View {
+    @Environment(\.dismiss) private var dismiss
+    let workspace: ArborWorkspaceState
+    @State private var pairing: LocalArbordPairingPresentation?
+    @State private var message: String?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                if let pairing {
+                    PairingQRCode(payload: pairing.payload)
+                        .frame(width: 300, height: 300)
+                    Text("Scan with Arbor on your iPhone")
+                        .font(.title2.weight(.semibold))
+                    LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
+                        .font(.headline.monospacedDigit())
+                        .frame(maxWidth: 320)
+                    Button("Copy pairing code", systemImage: "doc.on.doc") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(pairing.payload, forType: .string)
+                    }
+                } else if let message {
+                    ContentUnavailableView(
+                        "Unable to create pairing",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text(message)
+                    )
+                    Button("Try Again") { Task { await createPairing() } }
+                } else {
+                    ProgressView("Creating one-time pairing…")
+                }
+            }
+            .padding(32)
+            .frame(minWidth: 440, minHeight: 520)
+            .navigationTitle("Pair iPhone")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .task { await createPairing() }
+    }
+
+    private func createPairing() async {
+        do {
+            pairing = try await workspace.createLocalArbordPairing()
+            message = nil
+        } catch {
+            pairing = nil
+            message = error.localizedDescription
+        }
+    }
+}
+
+private struct PairingQRCode: View {
+    let payload: String
+
+    var body: some View {
+        if let image = Self.image(payload) {
+            Image(decorative: image, scale: 1)
+                .interpolation(.none)
+                .resizable()
+                .scaledToFit()
+                .padding(14)
+                .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                .accessibilityLabel("One-time iPhone pairing code")
+        } else {
+            ContentUnavailableView("QR code unavailable", systemImage: "qrcode")
+        }
+    }
+
+    private static func image(_ payload: String) -> CGImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(payload.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage else { return nil }
+        return CIContext().createCGImage(output, from: output.extent)
+    }
+}
+#endif
+
+#if os(iOS)
+struct ArborIOSLaunchView: View {
+    private enum Phase: Equatable {
+        case restoring
+        case scanning
+        case claiming
+        case choosing
+        case syncing
+    }
+
+    let workspace: ArborWorkspaceState
+    @State private var phase: Phase = .restoring
+    @State private var ready = false
+    @State private var started = false
+    @State private var scanError: String?
+    @State private var treeError: String?
+    @State private var confirmationCode: String?
+    @State private var origin: URL?
+    @State private var service: NativeAccountService?
+    @State private var trees: [AuthorityTreeDescriptor] = []
+    @State private var syncingTree: AuthorityTreeDescriptor?
+
+    var body: some View {
+        Group {
+            if ready {
+                ArborRootView(workspace: workspace)
+            } else {
+                onboarding
+            }
+        }
+        .task {
+            guard !started else { return }
+            started = true
+            if await workspace.restoreNativePlacementIfAvailable() {
+                ready = true
+            } else {
+                workspace.errorMessage = nil
+                phase = .scanning
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var onboarding: some View {
+        switch phase {
+        case .restoring:
+            ProgressView("Opening Arbor…")
+        case .scanning:
+            scanner
+        case .claiming:
+            ProgressView("Pairing with your Mac…")
+        case .choosing:
+            folderChooser
+        case .syncing:
+            VStack(spacing: 16) {
+                ProgressView()
+                Text("Syncing \(syncingTree?.canonicalPath ?? "folder")…")
+                    .font(.headline)
+                Text("Arbor will open it as soon as the local replica is ready.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding()
+        }
+    }
+
+    @ViewBuilder
+    private var scanner: some View {
+        if DataScannerViewController.isSupported, DataScannerViewController.isAvailable {
+            PairingQRScanner { payload in
+                guard phase == .scanning else { return }
+                phase = .claiming
+                Task { await claim(payload) }
+            }
+            .ignoresSafeArea()
+            .safeAreaInset(edge: .top) {
+                VStack(spacing: 5) {
+                    Text("Scan Arbor on your Mac")
+                        .font(.headline)
+                    Text("On the Mac, choose Pair iPhone.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(.regularMaterial)
+            }
+            .safeAreaInset(edge: .bottom) {
+                if let scanError {
+                    Text(scanError)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(.regularMaterial)
+                }
+            }
+        } else {
+            ContentUnavailableView(
+                "QR scanning unavailable",
+                systemImage: "qrcode.viewfinder",
+                description: Text("This iPhone cannot start the camera scanner.")
+            )
+        }
+    }
+
+    private var folderChooser: some View {
+        NavigationStack {
+            List {
+                if let confirmationCode {
+                    Section("Pairing") {
+                        LabeledContent("Confirm on your Mac", value: confirmationCode)
+                            .font(.headline.monospacedDigit())
+                    }
+                }
+                Section("Choose a folder") {
+                    ForEach(trees, id: \.id) { tree in
+                        Button {
+                            Task { await place(tree) }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(tree.canonicalPath)
+                                    Text(tree.access == "write" ? "Ready to sync" : "Read only")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "arrow.down.circle")
+                            }
+                        }
+                        .disabled(tree.access != "write")
+                    }
+                    if trees.isEmpty, treeError == nil {
+                        ProgressView("Loading folders…")
+                    }
+                }
+                if let treeError {
+                    Section {
+                        Text(treeError).foregroundStyle(.red)
+                        Button("Try Again") { Task { await loadTrees() } }
+                    }
+                }
+            }
+            .navigationTitle("Choose a folder")
+        }
+    }
+
+    private func claim(_ raw: String) async {
+        do {
+            let payload = try JSONDecoder().decode(PairingPayload.self, from: Data(raw.utf8)).validated()
+            let service = NativeAccountService(origin: payload.origin)
+            let label = UIDevice.current.name.isEmpty ? "iPhone" : UIDevice.current.name
+            let claim = try await service.claim(payload, label: label)
+            self.service = service
+            origin = payload.origin
+            confirmationCode = claim.confirmationCode
+            scanError = nil
+            phase = .choosing
+            await loadTrees()
+        } catch {
+            scanError = String(describing: error)
+            phase = .scanning
+        }
+    }
+
+    private func loadTrees() async {
+        guard let service else { return }
+        treeError = nil
+        do {
+            trees = try await service.trees().sorted { $0.canonicalPath < $1.canonicalPath }
+        } catch {
+            treeError = String(describing: error)
+        }
+    }
+
+    private func place(_ tree: AuthorityTreeDescriptor) async {
+        guard let origin else { return }
+        syncingTree = tree
+        treeError = nil
+        phase = .syncing
+        do {
+            try await workspace.place(tree: tree, from: origin)
+            ready = true
+        } catch {
+            treeError = String(describing: error)
+            phase = .choosing
+        }
     }
 }
 #endif

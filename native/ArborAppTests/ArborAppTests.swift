@@ -1,4 +1,5 @@
 import ArborKit
+import ArborWire
 import Foundation
 import Quagmire
 import QuagmireExtras
@@ -15,6 +16,34 @@ struct ArborAppTests {
             "/Arbor/Pending Voice Recordings"
         ))
         #expect(!ArborSupportDirectories.pendingVoiceRecordings.path.contains("Hunch"))
+    }
+
+    @Test("The iPhone placement survives a native app relaunch")
+    func nativePlacementRoundTrip() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "ArborNativePlacement-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NativePlacementStore(url: root.appending(path: "placement.json"))
+        let tree = AuthorityTreeDescriptor(
+            id: "tr_native",
+            canonicalPath: "/~joe/todos",
+            kind: "shared-subtree",
+            ref: "sha256:\(String(repeating: "a", count: 64))",
+            publicAccess: "none",
+            access: "write",
+            httpURL: "https://arbor.example/~joe/todos",
+            arborURL: "arbor://arbor.example/~joe/todos",
+            update: "up_native"
+        )
+        let record = NativePlacementRecord(
+            origin: try #require(URL(string: "https://arbor.example")),
+            tree: tree
+        )
+
+        try await store.save(record)
+        #expect(try await store.load() == record)
+        try await store.clear()
+        #expect(try await store.load() == nil)
     }
 
     @Test("The app opens the deterministic Home surface")

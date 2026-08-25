@@ -57,6 +57,9 @@ final class ArborWorkspaceState {
     private let bookmarks = SecurityScopedWorkspaceBookmarkStore()
     private var attemptedWorkspaceRestore = false
 #endif
+#if os(iOS)
+    private let nativePlacementStore = NativePlacementStore()
+#endif
 
     init(provider: InMemoryWorkspaceProvider = .sample()) {
         self.linkPreviewService = LinkPreviewService(
@@ -67,19 +70,15 @@ final class ArborWorkspaceState {
         self.home = WorkspaceReference(tree: "tr_sample", path: "/")
     }
 
-    func place(tree: AuthorityTreeDescriptor, from origin: URL) async throws {
+    func place(tree: AuthorityTreeDescriptor, from origin: URL, remember: Bool = true) async throws {
+        _ = try tree.validated()
         let credentialProvider = StoredDeviceCredentialProvider(
             origin: origin,
             store: KeychainDeviceCredentialStore()
         )
         let client = ArborAuthorityClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ArborWireReplicaTransport(client: client)
-        let root = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        ).appending(path: "Arbor", directoryHint: .isDirectory)
+        let root = ArborSupportDirectories.root
         let key = tree.id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? UUID().uuidString
         let replicaRoot = root.appending(path: "Replicas/\(key)", directoryHint: .isDirectory)
         let replica: ArborReplica
@@ -101,6 +100,11 @@ final class ArborWorkspaceState {
             await coordinator.syncImmediately(admission)
             await self?.refreshSyncPresentation(from: coordinator)
         }
+#if os(iOS)
+        if remember {
+            try await nativePlacementStore.save(NativePlacementRecord(origin: origin, tree: tree))
+        }
+#endif
         await switchProvider(
             nextProvider,
             home: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/"),
@@ -110,6 +114,19 @@ final class ArborWorkspaceState {
         syncPresentation = try await coordinator.presentation()
         syncConflict = try await coordinator.conflict()
     }
+
+#if os(iOS)
+    func restoreNativePlacementIfAvailable() async -> Bool {
+        do {
+            guard let record = try await nativePlacementStore.load() else { return false }
+            try await place(tree: record.tree, from: record.origin, remember: false)
+            return true
+        } catch {
+            errorMessage = "The saved iPhone workspace could not be reopened: \(error.localizedDescription)"
+            return false
+        }
+    }
+#endif
 
 #if os(macOS)
     func openLocalWorkspace(_ url: URL, remember: Bool = true) async throws {

@@ -13,8 +13,10 @@ struct ArborApplication: App {
 
     var body: some Scene {
         WindowGroup {
+#if os(iOS)
+            ArborIOSLaunchView(workspace: workspace)
+#else
             ArborRootView(workspace: workspace)
-#if os(macOS)
                 .task { appDelegate.workspace = workspace }
 #endif
         }
@@ -42,6 +44,10 @@ private struct ArborNavigationCommands: Commands {
             Button("Open Location…") { commands?.openLocation() }
                 .keyboardShortcut("l", modifiers: .command)
                 .disabled(commands == nil)
+#if os(macOS)
+            Button("Pair iPhone…") { commands?.showPairing() }
+                .disabled(commands == nil)
+#endif
             Divider()
             Button("New Tab") { commands?.newTab() }
                 .keyboardShortcut("t", modifiers: .command)
