@@ -52,7 +52,10 @@ export function encodeWireObject(object: WireObject): Uint8Array {
   return encodeCanonicalCBOR(object);
 }
 
-export function decodeWireObject(bytes: Uint8Array): WireObject {
+export function decodeWireObject(
+  bytes: Uint8Array,
+  options: { allowLegacyDirectoryOrder?: boolean } = {},
+): WireObject {
   const value = decodeCBOR(bytes);
   if (!value || typeof value !== "object") throw new Error("Wire object must be a map");
   const record = value as Record<string, unknown>;
@@ -82,7 +85,11 @@ export function decodeWireObject(bytes: Uint8Array): WireObject {
       if (names.has(item.name)) throw new Error("Duplicate directory entry name");
       names.add(item.name);
       const encodedName = new TextEncoder().encode(item.name);
-      if (previousName && compareUTF8(previousName, encodedName) >= 0) throw new Error("Directory entries are not in UTF-8 order");
+      if (
+        !options.allowLegacyDirectoryOrder
+        && previousName
+        && compareUTF8(previousName, encodedName) >= 0
+      ) throw new Error("Directory entries are not in UTF-8 order");
       previousName = encodedName;
       return {
         name: item.name,

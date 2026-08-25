@@ -48,6 +48,22 @@ describe("canonical tree objects", () => {
     }
   });
 
+  test("can traverse retained pre-foundation directory order only when explicitly requested", async () => {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/fixtures/wire-objects.json"), "utf8")) as {
+      invalid: Array<{ name: string; canonicalCborBase64: string }>;
+    };
+    const vector = fixture.invalid.find(({ name }) => name === "unsorted-directory")!;
+    const bytes = Buffer.from(vector.canonicalCborBase64, "base64");
+    expect(() => decodeWireObject(bytes)).toThrow("Directory entries are not in UTF-8 order");
+    expect(decodeWireObject(bytes, { allowLegacyDirectoryOrder: true })).toEqual({
+      type: "directory",
+      entries: [
+        { name: "z", hash: `sha256:${"0".repeat(64)}` },
+        { name: "A", hash: `sha256:${"0".repeat(64)}` },
+      ],
+    });
+  });
+
   test("encodes maps deterministically and hashes exact DAG-CBOR bytes", () => {
     const left = encodeCanonicalCBOR({ z: 1, a: { y: true, x: "value" } });
     const right = encodeCanonicalCBOR({ a: { x: "value", y: true }, z: 1 });

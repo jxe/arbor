@@ -1095,7 +1095,11 @@ export class WireAuthority implements AsyncDisposable {
       const hash = pending.pop()!;
       if (seen.has(hash)) continue;
       seen.add(hash);
-      const object = decodeWireObject(await this.object(hash));
+      // Authority releases before the portable wire foundation retained some
+      // accepted historical directory objects in host-locale order. Current
+      // graphs and every public decoder remain strict UTF-8, but those private
+      // immutable history objects must stay traversable for integrity checks.
+      const object = decodeWireObject(await this.object(hash), { allowLegacyDirectoryOrder: true });
       if (object.type === "directory") {
         for (const entry of object.entries) if (entry.hash) pending.push(entry.hash);
       }
