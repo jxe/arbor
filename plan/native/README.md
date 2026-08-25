@@ -3,7 +3,7 @@
 
 ## Status and identity
 
-- Quagmire `0.2.0` is published at commit `af61f9a`; Hunch commit `d13087b` and native Arbor both consume the exact remote release and use the optional `QuagmireExtras` product for link previews, voice/recovery, App Intent, and transcript polishing. Plan 001 remains the historical `0.1.0` publication milestone; Plan 018 records Arbor's separately verified adoption and hands-on acceptance checklist.
+- Quagmire `0.2.0` is published at commit `af61f9a`; Hunch commit `d13087b` and native Arbor both consume the exact remote release and use the optional `QuagmireExtras` product for link previews, voice/recovery, App Intent, and transcript polishing. Plan 001 remains the historical `0.1.0` publication milestone. Active Plan 018 records that adoption, its hands-on acceptance checklist, and the planned host-neutral async image lifecycle to prove in both consumers before tagging Quagmire `0.3.0`.
 - Plans 002–005 captured a superseded TreeHopper/iCloud design and must not be executed. Their files remain as historical evidence.
 - The native product is **Arbor**, not TreeHopper: display name and scheme `Arbor`, app module `ArborApp`, bundle ID `org.nxhx.Arbor`, and iOS/macOS 27 deployment targets.
 - The app is new work under `native/`; it is not a renamed Hunch target and must not reuse Hunch defaults, caches, bookmarks, logs, app groups, bundle IDs, or iCloud containers.
@@ -75,6 +75,8 @@ ArborApp
 `ArborQuagmire` is a thin private host. It maps exact provider Markdown to Quagmire blocks, keeps a private BlockID-keyed source ledger, admits every synchronous editor commit before returning, and submits exact source plus `baseContentRevision`. Quagmire remains format-, storage-, navigation-, and Arbor-neutral.
 
 `QuagmireExtras` supplies optional Apple-platform mechanisms, not Arbor product policy. Arbor owns its application-support/cache directories, `PageID` recording destinations, provider/session delivery, toolbar placement, permissions, errors, and shortcut phrases. Xcode requires the `AppShortcutsProvider` and its literal shortcut metadata to remain in the Arbor application target even though `StartVoiceRecordingIntent` and the launch handoff come from `QuagmireExtras`.
+
+Plan 018's image revision belongs to Quagmire core because asynchronous paste/drop ordering, undo grouping, normalization, and resource loading are editor behavior shared by Hunch and Arbor. Arbor still owns tree-scoped root `Assets` placement, provider-authored Markdown sources, authenticated/offline byte reads, read-only policy, and error presentation. Both consumers must pass against the same local Quagmire revision before the exact `0.3.0` release is tagged.
 
 ## Hunch replacement and cutover
 
