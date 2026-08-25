@@ -24,6 +24,7 @@ public struct ArbordRuntime: Sendable {
 
 public enum ArbordSupervisorError: Error, LocalizedError, Sendable {
     case executableUnavailable
+    case serviceUnavailable
     case incompatibleService(String)
     case launchFailed(String)
     case readinessTimedOut(String)
@@ -32,6 +33,8 @@ public enum ArbordSupervisorError: Error, LocalizedError, Sendable {
         switch self {
         case .executableUnavailable:
             "Arbor could not find its bundled arbord helper. Rebuild the macOS app with the helper phase enabled."
+        case .serviceUnavailable:
+            "Arbor could not find the user arbord on port 4317. Start arbor browse for this workspace, then retry."
         case let .incompatibleService(detail): "The loopback service is not a compatible arbord: \(detail)"
         case let .launchFailed(detail): "arbord could not start: \(detail)"
         case let .readinessTimedOut(detail): "arbord did not become ready: \(detail)"
@@ -39,14 +42,22 @@ public enum ArbordSupervisorError: Error, LocalizedError, Sendable {
     }
 }
 
+public enum ArbordLaunchPolicy: Sendable, Equatable {
+    case automatic
+    case attachOnly
+}
+
 public actor ArbordProcessSupervisor {
+    private let launchPolicy: ArbordLaunchPolicy
     private var process: Process?
     private var workspace: URL?
     private var accessedSecurityScope = false
     private var logURL: URL?
     private var runtime: ArbordRuntime?
 
-    public init() {}
+    public init(launchPolicy: ArbordLaunchPolicy = .automatic) {
+        self.launchPolicy = launchPolicy
+    }
 
     public func start(
         workspace: URL,
@@ -63,6 +74,10 @@ public actor ArbordProcessSupervisor {
         if let attached = try await attachIfCompatible(port: preferredPort, workspace: normalized) {
             runtime = attached
             return attached
+        }
+
+        guard launchPolicy == .automatic else {
+            throw ArbordSupervisorError.serviceUnavailable
         }
 
         let executable = try explicitExecutable ?? locateExecutable()
@@ -136,7 +151,11 @@ public actor ArbordProcessSupervisor {
     }
 
     public func logs() -> String {
-        guard let logURL, let data = try? Data(contentsOf: logURL) else { return "No arbord log output" }
+        guard let logURL, let data = try? Data(contentsOf: logURL) else {
+            return runtime?.attachedToExistingProcess == true
+                ? "This app is attached to the user arbord. Its output is in the terminal where arbor browse is running."
+                : "No arbord log output"
+        }
         let suffix = data.suffix(32_768)
         var value = String(decoding: suffix, as: UTF8.self)
         if let workspace { value = value.replacingOccurrences(of: workspace.path, with: "<workspace>") }

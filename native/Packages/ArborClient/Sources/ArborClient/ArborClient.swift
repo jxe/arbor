@@ -74,6 +74,22 @@ public actor ArborClient {
         try await get(path: "/v1/status", items: [])
     }
 
+    public func communityDevices() async throws -> [AuthorityDevice] {
+        try await get(path: "/v1/community/devices", items: [])
+    }
+
+    public func createCommunityPairing() async throws -> AuthorityPairingOffer {
+        var request = URLRequest(url: url("/v1/community/pairings"))
+        request.httpMethod = "POST"
+        return try await perform(request)
+    }
+
+    public func revokeCommunityDevice(_ id: String) async throws -> AuthorityDevice {
+        var request = URLRequest(url: url("/v1/community/devices/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)"))
+        request.httpMethod = "DELETE"
+        return try await perform(request)
+    }
+
     public func prepareContentMutation(
         _ operation: WorkspaceOperation,
         mutationID: String? = nil

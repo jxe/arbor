@@ -401,6 +401,39 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(revoked.id, "dv_1")
     }
 
+    func testLocalArbordCommunityDeviceAndPairingRoutes() async throws {
+        let device = #"{"id":"dv_1","account":"acct_1","label":"Mac","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null}"#
+        let pairing = #"{"id":"pair_1","secret":"one-time-secret","confirmationCode":"123456","expiresAt":1787529660000}"#
+        await URLProtocolStub.state.install { request, _ in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/v1/community/devices"): (200, Data("[\(device)]".utf8))
+            case ("POST", "/v1/community/pairings"): (201, Data(pairing.utf8))
+            case ("DELETE", "/v1/community/devices/dv_1"): (200, Data(device.utf8))
+            default: (404, Data(#"{"error":"not-found"}"#.utf8))
+            }
+        }
+        let client = ArborClient(
+            baseURL: URL(string: "http://127.0.0.1:4317")!,
+            session: stubSession()
+        )
+
+        let devices = try await client.communityDevices()
+        let offer = try await client.createCommunityPairing()
+        let revoked = try await client.revokeCommunityDevice("dv_1")
+
+        XCTAssertEqual(devices.first?.id, "dv_1")
+        XCTAssertEqual(offer.id, "pair_1")
+        XCTAssertEqual(offer.confirmationCode, "123456")
+        XCTAssertEqual(revoked.id, "dv_1")
+        let snapshot = await URLProtocolStub.state.snapshot()
+        XCTAssertEqual(snapshot.requests.map(\.method), ["GET", "POST", "DELETE"])
+        XCTAssertEqual(snapshot.requests.map(\.path), [
+            "/v1/community/devices",
+            "/v1/community/pairings",
+            "/v1/community/devices/dv_1",
+        ])
+    }
+
     private func stubSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]

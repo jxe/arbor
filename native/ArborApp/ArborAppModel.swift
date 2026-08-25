@@ -1,3 +1,4 @@
+import ArborClient
 import ArborKit
 import ArborProviders
 import ArborQuagmire
@@ -7,6 +8,30 @@ import ArborWire
 import Foundation
 import Observation
 import QuagmireExtras
+
+#if os(macOS)
+struct LocalArbordTreePresentation: Identifiable, Sendable, Equatable {
+    let id: String
+    let name: String
+    let canonicalPath: String?
+    let path: String?
+    let access: String?
+    let sync: String?
+}
+
+struct LocalArbordAccountPresentation: Sendable, Equatable {
+    let origin: String
+    let handle: String
+    let credentialAvailable: Bool
+    let trees: [LocalArbordTreePresentation]
+    let devices: [AuthorityDevice]
+}
+
+struct LocalArbordPairingPresentation: Sendable, Equatable {
+    let payload: String
+    let confirmationCode: String
+}
+#endif
 
 @MainActor
 @Observable
@@ -28,6 +53,7 @@ final class ArborWorkspaceState {
     private var syncCoordinator: ReplicaSyncCoordinator?
 #if os(macOS)
     private var supervisor: ArbordProcessSupervisor?
+    private var arbordClient: ArborClient?
     private let bookmarks = SecurityScopedWorkspaceBookmarkStore()
     private var attemptedWorkspaceRestore = false
 #endif
@@ -69,6 +95,7 @@ final class ArborWorkspaceState {
         )
 #if os(macOS)
         if let supervisor { await supervisor.stop(); self.supervisor = nil }
+        arbordClient = nil
 #endif
         let nextProvider = ReplicaWorkspaceProvider(replica: replica) { [weak self] admission in
             await coordinator.syncImmediately(admission)
@@ -89,17 +116,21 @@ final class ArborWorkspaceState {
         try await editorWorkspace.flushAll()
         await editorWorkspace.closeAll()
         if let supervisor { await supervisor.stop() }
-        let nextSupervisor = ArbordProcessSupervisor()
+        let launchPolicy: ArbordLaunchPolicy = ProcessInfo.processInfo.environment["ARBOR_TEST_SANDBOX_HELPER"] == "1"
+            ? .automatic
+            : .attachOnly
+        let nextSupervisor = ArbordProcessSupervisor(launchPolicy: launchPolicy)
         do {
             let runtime = try await nextSupervisor.start(workspace: url)
             supervisor = nextSupervisor
+            arbordClient = ArborClient(baseURL: runtime.origin)
             syncCoordinator = nil
             syncConflict = nil
             if remember { try await bookmarks.save(url) }
             await switchProvider(
                 runtime.provider,
                 home: runtime.home,
-                detail: runtime.attachedToExistingProcess ? "Local arbord · attached" : "Local arbord · supervised"
+                detail: runtime.attachedToExistingProcess ? "User arbord · ~/.arbor" : "Local arbord · supervised test helper"
             )
             syncPresentation = WorkspaceSyncPresentation(
                 state: .current,
@@ -108,6 +139,7 @@ final class ArborWorkspaceState {
         } catch {
             await nextSupervisor.stop()
             supervisor = nil
+            arbordClient = nil
             throw error
         }
     }
@@ -129,8 +161,9 @@ final class ArborWorkspaceState {
             try await editorWorkspace.flushAll()
             await editorWorkspace.closeAll()
             let runtime = try await supervisor.restart()
-            await switchProvider(runtime.provider, home: runtime.home, detail: "Local arbord · restarted")
-            syncPresentation = WorkspaceSyncPresentation(state: .current, detail: "arbord restarted and reconnected")
+            arbordClient = ArborClient(baseURL: runtime.origin)
+            await switchProvider(runtime.provider, home: runtime.home, detail: "User arbord · ~/.arbor")
+            syncPresentation = WorkspaceSyncPresentation(state: .current, detail: "Reconnected to the user arbord")
         } catch {
             errorMessage = error.localizedDescription
             syncPresentation = WorkspaceSyncPresentation(state: .offline, detail: error.localizedDescription)
@@ -138,7 +171,63 @@ final class ArborWorkspaceState {
     }
 
     func arbordLogs() async -> String {
-        await supervisor?.logs() ?? "No supervised arbord process"
+        await supervisor?.logs() ?? "This app does not supervise the user arbord. Its output is in the terminal where arbor browse is running."
+    }
+
+    func localArbordAccount() async throws -> LocalArbordAccountPresentation {
+        guard let client = arbordClient else { throw ArbordSupervisorError.serviceUnavailable }
+        let community = try await client.node(.path("/community", tree: "system"))
+        guard let frontmatter = community.document?.frontmatter,
+              frontmatter.bool("connected") == true,
+              let origin = frontmatter.string("origin"),
+              let handle = frontmatter.string("handle") else {
+            throw ArbordSupervisorError.incompatibleService("The user arbord is not connected to a community")
+        }
+        let directory = try await client.node(.path("/trees", tree: "system"))
+        var trees: [LocalArbordTreePresentation] = []
+        for child in directory.children ?? [] {
+            let node = try await client.node(.path(child.path, tree: "system"))
+            guard let values = node.document?.frontmatter, let id = values.string("id") else { continue }
+            trees.append(LocalArbordTreePresentation(
+                id: id,
+                name: values.string("name") ?? node.name,
+                canonicalPath: values.string("canonicalPath"),
+                path: values.string("path"),
+                access: values.string("access"),
+                sync: values.string("sync")
+            ))
+        }
+        return LocalArbordAccountPresentation(
+            origin: origin,
+            handle: handle,
+            credentialAvailable: frontmatter.bool("credentialAvailable") == true,
+            trees: trees.sorted { ($0.canonicalPath ?? $0.name) < ($1.canonicalPath ?? $1.name) },
+            devices: try await client.communityDevices()
+        )
+    }
+
+    func createLocalArbordPairing() async throws -> LocalArbordPairingPresentation {
+        guard let client = arbordClient else { throw ArbordSupervisorError.serviceUnavailable }
+        let account = try await localArbordAccount()
+        guard let origin = URL(string: account.origin) else {
+            throw ArbordSupervisorError.incompatibleService("The community origin is invalid")
+        }
+        let rawOffer = try await client.createCommunityPairing()
+        let offer = try rawOffer.validated()
+        let payload = PairingPayload(
+            origin: origin,
+            pairing: .init(id: offer.id, secret: offer.secret)
+        )
+        let data = try JSONEncoder().encode(payload)
+        return LocalArbordPairingPresentation(
+            payload: String(decoding: data, as: UTF8.self),
+            confirmationCode: offer.confirmationCode
+        )
+    }
+
+    func revokeLocalArbordDevice(_ id: String) async throws {
+        guard let client = arbordClient else { throw ArbordSupervisorError.serviceUnavailable }
+        _ = try await client.revokeCommunityDevice(id)
     }
 #endif
 
@@ -194,6 +283,7 @@ final class ArborWorkspaceState {
         await editorWorkspace.closeAll()
 #if os(macOS)
         if let supervisor { await supervisor.stop() }
+        arbordClient = nil
 #endif
     }
 
@@ -212,6 +302,20 @@ final class ArborWorkspaceState {
         errorMessage = nil
     }
 }
+
+#if os(macOS)
+private extension Dictionary where Key == String, Value == JSONValue {
+    func string(_ key: String) -> String? {
+        guard case let .string(value)? = self[key] else { return nil }
+        return value
+    }
+
+    func bool(_ key: String) -> Bool? {
+        guard case let .bool(value)? = self[key] else { return nil }
+        return value
+    }
+}
+#endif
 
 @MainActor
 @Observable

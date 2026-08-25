@@ -6,6 +6,9 @@ import Quagmire
 import QuagmireExtras
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 #if os(iOS)
 import VisionKit
 #endif
@@ -131,9 +134,13 @@ struct ArborRootView: View {
             Text(recordingRecoveryMessage)
         }
         .sheet(isPresented: $accountPresented) {
+#if os(macOS)
+            MacArbordAccountPanel(workspace: workspace)
+#else
             NativeAccountPanel { origin, tree in
                 try await workspace.place(tree: tree, from: origin)
             }
+#endif
         }
         .sheet(isPresented: $searchPresented, onDismiss: {
             searchText = ""
@@ -324,7 +331,7 @@ struct ArborRootView: View {
                     }
 #if os(macOS)
                     Divider()
-                    Button("Restart arbord", systemImage: "arrow.clockwise") { Task { await workspace.restartArbord() } }
+                    Button("Reconnect to arbord", systemImage: "arrow.clockwise") { Task { await workspace.restartArbord() } }
                     Button("arbord Logs…", systemImage: "doc.text.magnifyingglass") {
                         Task { arbordLogs = await workspace.arbordLogs(); presentedSheet = .arbordLogs }
                     }
@@ -510,6 +517,94 @@ private struct ArborEditorToolbarModifier: ViewModifier {
 #endif
     }
 }
+
+#if os(macOS)
+private struct MacArbordAccountPanel: View {
+    @Environment(\.dismiss) private var dismiss
+    let workspace: ArborWorkspaceState
+    @State private var account: LocalArbordAccountPresentation?
+    @State private var pairing: LocalArbordPairingPresentation?
+    @State private var message: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let account {
+                    Section("Account") {
+                        LabeledContent("Signed in as", value: "~\(account.handle)")
+                        LabeledContent("Authority", value: account.origin)
+                        LabeledContent("Credential", value: account.credentialAvailable ? "Available" : "Unavailable")
+                    }
+                    Section("Trees") {
+                        ForEach(account.trees) { tree in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(tree.canonicalPath ?? tree.name)
+                                Text([tree.access, tree.sync].compactMap { $0 }.joined(separator: " · "))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    Section("Devices") {
+                        ForEach(account.devices, id: \.id) { device in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(device.label)
+                                    Text(device.revokedAt == nil ? "Active" : "Revoked")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if device.revokedAt == nil {
+                                    Button("Revoke", role: .destructive) {
+                                        Task { await revoke(device.id) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Section("Pair iPhone") {
+                        Button("Create one-time pairing") { Task { await createPairing() } }
+                        if let pairing {
+                            LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
+                                .font(.headline.monospacedDigit())
+                            TextEditor(text: .constant(pairing.payload))
+                                .font(.caption.monospaced())
+                                .frame(minHeight: 80)
+                            Button("Copy pairing payload", systemImage: "doc.on.doc") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(pairing.payload, forType: .string)
+                            }
+                        }
+                    }
+                } else {
+                    Section { ProgressView("Loading ~/.arbor…") }
+                }
+                if let message { Section { Text(message).foregroundStyle(.secondary) } }
+            }
+            .navigationTitle("Arbor account")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .frame(minWidth: 520, minHeight: 520)
+        .task { await refresh() }
+    }
+
+    private func refresh() async {
+        do { account = try await workspace.localArbordAccount(); message = nil }
+        catch { message = error.localizedDescription }
+    }
+
+    private func createPairing() async {
+        do { pairing = try await workspace.createLocalArbordPairing(); message = nil }
+        catch { message = error.localizedDescription }
+    }
+
+    private func revoke(_ id: String) async {
+        do { try await workspace.revokeLocalArbordDevice(id); await refresh() }
+        catch { message = error.localizedDescription }
+    }
+}
+#endif
 
 private struct NativeAccountPanel: View {
     @Environment(\.dismiss) private var dismiss

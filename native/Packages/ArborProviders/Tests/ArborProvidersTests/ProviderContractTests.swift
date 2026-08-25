@@ -8,6 +8,19 @@ import Testing
 @Suite("Workspace provider contract", .serialized)
 struct ProviderContractTests {
 #if os(macOS)
+    @Test("Attach-only supervisor never launches a helper")
+    func attachOnlySupervisorRequiresUserArbord() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appending(path: "ArborAttachOnlyContract-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let supervisor = ArbordProcessSupervisor(launchPolicy: .attachOnly)
+        await #expect(throws: ArbordSupervisorError.self) {
+            _ = try await supervisor.start(workspace: rootURL, preferredPort: 0)
+        }
+    }
+
     @Test("Supervisor starts, reconnects, and stops a real arbord helper")
     func supervisedArbordLifecycle() async throws {
         guard let executablePath = ProcessInfo.processInfo.environment["ARBOR_EXECUTABLE"] else { return }
