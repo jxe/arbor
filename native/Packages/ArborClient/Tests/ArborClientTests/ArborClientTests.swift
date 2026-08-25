@@ -459,6 +459,27 @@ final class ArborClientTests: XCTestCase {
         ])
     }
 
+    func testRemoteNodeUsesCanonicalRemoteEndpointWithoutChangingWireTypes() async throws {
+        let response = try Data(contentsOf: fixtures.appending(path: "node.json"))
+        await URLProtocolStub.state.install { request, _ in
+            request.url?.path == "/v1/remote"
+                ? (200, response)
+                : (404, Data(#"{"error":"not-found"}"#.utf8))
+        }
+        let client = ArborClient(
+            baseURL: URL(string: "http://127.0.0.1:4317")!,
+            session: stubSession()
+        )
+
+        let node = try await client.remoteNode(locator: "arbor://example.test/~alice/notes/today")
+
+        XCTAssertEqual(node.ref.pageID, "abc123")
+        let captured = await URLProtocolStub.state.snapshot()
+        let request = try XCTUnwrap(captured.requests.first)
+        XCTAssertEqual(request.path, "/v1/remote")
+        XCTAssertEqual(request.query, "url=arbor://example.test/~alice/notes/today")
+    }
+
     private func stubSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]

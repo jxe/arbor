@@ -10,22 +10,55 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
     }
 
     public func resolve(_ reference: WorkspaceReference) async throws -> WorkspaceNode {
-        try Self.workspaceNode(from: await client.node(reference.nodeRef), fallbackTree: reference.tree)
+        try await resolve(.reference(reference))
     }
 
     public func children(of reference: WorkspaceReference) async throws -> [WorkspaceNode] {
-        let children = try await client.allChildren(reference.nodeRef)
-        var result: [WorkspaceNode] = []
-        result.reserveCapacity(children.count)
-        for child in children {
-            let childReference = WorkspaceReference(
-                tree: TreeID(rawValue: childTree(child, fallback: reference.tree.rawValue)),
-                path: child.path,
-                pageID: child.pageID.map(PageID.init(rawValue:))
+        try await children(of: .reference(reference))
+    }
+
+    public func resolve(_ location: WorkspaceLocation) async throws -> WorkspaceNode {
+        switch location {
+        case let .localPath(path):
+            let snapshot = try await client.node(.path(path, tree: "local"))
+            return try Self.workspaceNode(from: snapshot, fallbackTree: "local", requestedLocation: location)
+        case let .reference(reference):
+            let snapshot = try await client.node(reference.nodeRef)
+            return try Self.workspaceNode(from: snapshot, fallbackTree: reference.tree, requestedLocation: location)
+        case let .remote(locator, rootLocator):
+            let snapshot = try await client.remoteNode(locator: locator)
+            return try Self.workspaceNode(
+                from: snapshot,
+                fallbackTree: TreeID(rawValue: snapshot.tree ?? snapshot.ref.tree ?? "remote"),
+                requestedLocation: .remote(locator: locator, rootLocator: rootLocator)
             )
-            result.append(try await resolve(childReference))
         }
-        return result
+    }
+
+    public func children(of location: WorkspaceLocation) async throws -> [WorkspaceNode] {
+        switch location {
+        case let .localPath(path):
+            let parent = try await resolve(location)
+            let children = try await client.allChildren(.path(path, tree: "local"))
+            let parentPath = parent.location.pathHint
+            return try await resolveAll(children.map { child in
+                .local(URL(fileURLWithPath: parentPath).appending(path: child.name).path)
+            })
+        case let .reference(reference):
+            let children = try await client.allChildren(reference.nodeRef)
+            return try await resolveAll(children.map { child in
+                .reference(WorkspaceReference(
+                    tree: TreeID(rawValue: childTree(child, fallback: reference.tree.rawValue)),
+                    path: child.path,
+                    pageID: child.pageID.map(PageID.init(rawValue:))
+                ))
+            })
+        case let .remote(locator, rootLocator):
+            let snapshot = try await client.remoteNode(locator: locator)
+            return try await resolveAll((snapshot.children ?? []).map { child in
+                .remote(locator: Self.appendingRemotePath(child.name, to: locator), rootLocator: rootLocator)
+            })
+        }
     }
 
     public func search(_ query: String, in tree: TreeID) async throws -> [WorkspaceSearchResult] {
@@ -154,7 +187,11 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
             throw WorkspaceProviderError.notDocument(node.reference)
         }
         guard node.isWritable else { throw WorkspaceProviderError.readOnly(node.reference) }
-        if node.reference.pageID == nil, let revision = node.provenance.contentRevision {
+        // A local path outside every placed tree is deliberately addressed by
+        // its filesystem path. It remains editable, but it must not acquire an
+        // Arbor PageID merely because the editor opened it. Managed tree nodes
+        // still establish durable identity before the session begins.
+        if Self.requiresDocumentIdentity(node), let revision = node.provenance.contentRevision {
             _ = try await client.mutateContent(WorkspaceOperation(
                 op: "ensureDocumentIdentity",
                 ref: node.reference.nodeRef,
@@ -178,13 +215,42 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
         }
     }
 
-    private static func workspaceNode(from snapshot: NodeSnapshot, fallbackTree: TreeID) throws -> WorkspaceNode {
+    private func resolveAll(_ locations: [WorkspaceLocation]) async throws -> [WorkspaceNode] {
+        try await withThrowingTaskGroup(of: (Int, WorkspaceNode).self) { group in
+            for (index, location) in locations.enumerated() {
+                group.addTask { (index, try await resolve(location)) }
+            }
+            var loaded: [(Int, WorkspaceNode)] = []
+            loaded.reserveCapacity(locations.count)
+            for try await item in group { loaded.append(item) }
+            return loaded.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+
+    static func workspaceNode(
+        from snapshot: NodeSnapshot,
+        fallbackTree: TreeID,
+        requestedLocation: WorkspaceLocation? = nil
+    ) throws -> WorkspaceNode {
         let tree = TreeID(rawValue: snapshot.tree ?? snapshot.ref.tree ?? fallbackTree.rawValue)
         let reference = WorkspaceReference(
             tree: tree,
             path: snapshot.path,
             pageID: snapshot.ref.pageID.map(PageID.init(rawValue:))
         )
+        let treeRootURL = snapshot.enclosingTree?.osPath.map { URL(fileURLWithPath: $0) }
+        let physicalURL = treeRootURL.map { root in
+            snapshot.path == "/" ? root : root.appending(path: snapshot.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+        } ?? ((snapshot.tree ?? snapshot.ref.tree) == "local" ? URL(fileURLWithPath: snapshot.path) : nil)
+        let location: WorkspaceLocation = switch requestedLocation {
+        case .some(.localPath): physicalURL.map { .local($0.path) } ?? .local(snapshot.path)
+        case let .some(.remote(locator, rootLocator)):
+            .remote(
+                locator: Self.canonicalRemoteLocator(snapshot: snapshot, fallback: locator),
+                rootLocator: snapshot.enclosingTree?.httpURL ?? snapshot.enclosingTree?.canonical ?? rootLocator
+            )
+        default: .reference(reference)
+        }
         let surface: WorkspaceSurface
         switch snapshot.kind {
         case "markdown":
@@ -197,11 +263,20 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
                 surface = .directory(summary: snapshot.diagnostics.first?.message)
                 break
             }
-            surface = .directoryDocument(
-                source: document.source,
-                contentRevision: revision,
-                stored: snapshot.bodyState == "stored"
-            )
+            if tree.rawValue == "local", snapshot.bodyState != "stored" {
+                // Arbord synthesizes a useful Markdown directory summary even
+                // for ordinary filesystem folders. That summary is a browser
+                // representation, not an authored document: treating it as a
+                // document would make the editor try to mint a PageID outside
+                // any managed tree as soon as the user navigated upward.
+                surface = .directory(summary: snapshot.diagnostics.first?.message)
+            } else {
+                surface = .directoryDocument(
+                    source: document.source,
+                    contentRevision: revision,
+                    stored: snapshot.bodyState == "stored"
+                )
+            }
         case "collection", "database":
             surface = .collection(
                 kind: snapshot.collection?.backing ?? snapshot.kind,
@@ -220,6 +295,7 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
         }
         return WorkspaceNode(
             reference: reference,
+            location: location,
             title: Self.displayTitle(
                 source: snapshot.document?.source,
                 fallback: snapshot.name.isEmpty ? Self.name(of: snapshot.path) : snapshot.name
@@ -228,7 +304,8 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
             provenance: WorkspaceProvenance(
                 authority: snapshot.writable ? .local : .historical,
                 sourceDescription: snapshot.enclosingTree?.canonical ?? snapshot.enclosingTree?.name ?? "Local arbord",
-                physicalURL: snapshot.enclosingTree?.osPath.map { URL(fileURLWithPath: $0) },
+                physicalURL: physicalURL,
+                treeRootURL: treeRootURL,
                 contentRevision: snapshot.contentRevision
             ),
             materialization: Self.materialization(snapshot.materialization),
@@ -246,6 +323,10 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
         return fallback
     }
 
+    static func requiresDocumentIdentity(_ node: WorkspaceNode) -> Bool {
+        node.reference.tree.rawValue != "local" && node.reference.pageID == nil
+    }
+
     private static func materialization(_ value: String) -> WorkspaceMaterialization {
         switch value {
         case "available": .available
@@ -261,6 +342,20 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
 
     private static func name(of path: String) -> String {
         path.split(separator: "/").last.map(String.init) ?? "Home"
+    }
+
+    private static func appendingRemotePath(_ name: String, to locator: String) -> String {
+        guard let url = URL(string: locator) else { return locator }
+        return url.appending(path: name).absoluteString
+    }
+
+    private static func canonicalRemoteLocator(snapshot: NodeSnapshot, fallback: String) -> String {
+        guard let root = snapshot.enclosingTree?.httpURL ?? snapshot.enclosingTree?.canonical,
+              let rootURL = URL(string: root) else { return fallback }
+        guard snapshot.path != "/" else { return rootURL.absoluteString }
+        return snapshot.path.split(separator: "/").reduce(rootURL) { partial, component in
+            partial.appending(path: String(component))
+        }.absoluteString
     }
 
     private func childTree(_ child: TreeChild, fallback: String) -> String {

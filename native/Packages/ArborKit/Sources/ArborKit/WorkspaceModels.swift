@@ -48,6 +48,69 @@ public struct WorkspaceReference: Hashable, Codable, Sendable {
     }
 }
 
+/// The address a browser tab follows. A location deliberately remains
+/// separate from the resolved `WorkspaceReference`: local filesystem
+/// navigation must retain its absolute path when arbord resolves a node into
+/// an enclosing Arbor tree, while document and mutation APIs use that stable
+/// resolved identity.
+public enum WorkspaceLocation: Hashable, Codable, Sendable {
+    case localPath(String)
+    case reference(WorkspaceReference)
+    case remote(locator: String, rootLocator: String)
+
+    public static func local(_ path: String) -> WorkspaceLocation {
+        .localPath(Self.normalizedLocalPath(path))
+    }
+
+    public var parent: WorkspaceLocation? {
+        switch self {
+        case let .localPath(path):
+            guard path != "/" else { return nil }
+            return .local(URL(fileURLWithPath: path).deletingLastPathComponent().path)
+        case let .reference(reference):
+            return reference.parent.map(WorkspaceLocation.reference)
+        case let .remote(locator, rootLocator):
+            guard let current = URL(string: locator), let root = URL(string: rootLocator) else { return nil }
+            let currentPath = current.path.removingPercentEncoding ?? current.path
+            let rootPath = root.path.removingPercentEncoding ?? root.path
+            guard currentPath != rootPath, currentPath.hasPrefix(rootPath == "/" ? "/" : "\(rootPath)/") else {
+                return nil
+            }
+            let parentPath = URL(fileURLWithPath: currentPath).deletingLastPathComponent().path
+            var components = URLComponents(url: current, resolvingAgainstBaseURL: false)
+            components?.percentEncodedPath = parentPath
+                .split(separator: "/")
+                .map { $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0) }
+                .joined(separator: "/")
+                .withLeadingSlash
+            guard let parent = components?.url?.absoluteString else { return nil }
+            return .remote(locator: parent, rootLocator: rootLocator)
+        }
+    }
+
+    public var pathHint: String {
+        switch self {
+        case let .localPath(path): path
+        case let .reference(reference): reference.pathHint
+        case let .remote(locator, _):
+            URL(string: locator)?.path.removingPercentEncoding ?? locator
+        }
+    }
+
+    public var reference: WorkspaceReference? {
+        guard case let .reference(reference) = self else { return nil }
+        return reference
+    }
+
+    private static func normalizedLocalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+}
+
+private extension String {
+    var withLeadingSlash: String { hasPrefix("/") ? self : "/\(self)" }
+}
+
 public enum WorkspaceIdentity: Hashable, Codable, Sendable {
     case page(tree: TreeID, pageID: PageID)
     case path(tree: TreeID, path: String)
@@ -113,17 +176,20 @@ public struct WorkspaceProvenance: Hashable, Codable, Sendable {
     public var authority: WorkspaceAuthority
     public var sourceDescription: String
     public var physicalURL: URL?
+    public var treeRootURL: URL?
     public var contentRevision: String?
 
     public init(
         authority: WorkspaceAuthority,
         sourceDescription: String,
         physicalURL: URL? = nil,
+        treeRootURL: URL? = nil,
         contentRevision: String? = nil
     ) {
         self.authority = authority
         self.sourceDescription = sourceDescription
         self.physicalURL = physicalURL
+        self.treeRootURL = treeRootURL
         self.contentRevision = contentRevision
     }
 }
@@ -155,6 +221,7 @@ public enum WorkspaceSurface: Hashable, Codable, Sendable {
 
 public struct WorkspaceNode: Hashable, Codable, Sendable, Identifiable {
     public var reference: WorkspaceReference
+    public var location: WorkspaceLocation
     public var title: String
     public var surface: WorkspaceSurface
     public var provenance: WorkspaceProvenance
@@ -163,6 +230,7 @@ public struct WorkspaceNode: Hashable, Codable, Sendable, Identifiable {
 
     public init(
         reference: WorkspaceReference,
+        location: WorkspaceLocation? = nil,
         title: String,
         surface: WorkspaceSurface,
         provenance: WorkspaceProvenance,
@@ -170,6 +238,7 @@ public struct WorkspaceNode: Hashable, Codable, Sendable, Identifiable {
         isWritable: Bool = true
     ) {
         self.reference = reference
+        self.location = location ?? .reference(reference)
         self.title = title
         self.surface = surface
         self.provenance = provenance

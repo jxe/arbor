@@ -41,6 +41,7 @@ struct ArborWindowCommands {
     var canGoBack: Bool
     var canGoForward: Bool
     var canGoParent: Bool
+    var canGoHome: Bool
     var canCloseTab: Bool
     var hasDocument: Bool
     var hasNode: Bool

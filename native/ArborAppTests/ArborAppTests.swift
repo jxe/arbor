@@ -18,6 +18,17 @@ struct ArborAppTests {
         #expect(!ArborSupportDirectories.pendingVoiceRecordings.path.contains("Hunch"))
     }
 
+    @Test("Production startup does not expose the in-memory sample tree")
+    func productionStartupIsEmpty() async {
+        let workspace = ArborWorkspaceState()
+        let model = ArborAppModel(workspace: workspace)
+        await model.load()
+
+        #expect(model.node?.title == "No workspace open")
+        #expect(model.children.isEmpty)
+        #expect(workspace.providerDetail == "No workspace open")
+    }
+
     @Test("The iPhone placement survives a native app relaunch")
     func nativePlacementRoundTrip() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -61,7 +72,7 @@ struct ArborAppTests {
         await model.navigate(to: .init(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome"))
 
         #expect(model.node?.title == "Welcome")
-        #expect(model.sidebarReference.pathHint == "/")
+        #expect(model.sidebarLocation.pathHint == "/")
         #expect(model.children.map(\.title) == ["Welcome", "Files", "People", "Offline item", "Provider diagnostic"])
     }
 
@@ -74,8 +85,8 @@ struct ArborAppTests {
 
         await model.navigate(to: welcome)
 
-        #expect(model.navigationRoot == home)
-        #expect(model.navigationPath == [welcome])
+        #expect(model.navigationRoot == .reference(home))
+        #expect(model.navigationPath == [.reference(welcome)])
         #expect(!model.isLoading)
 
         model.setNavigationPath([])
@@ -89,7 +100,7 @@ struct ArborAppTests {
         await model.load()
         await model.navigate(to: .init(tree: "tr_sample", path: "/files"))
 
-        #expect(model.sidebarReference.pathHint == "/files")
+        #expect(model.sidebarLocation.pathHint == "/files")
         #expect(model.children.map(\.title) == ["arbor.png"])
     }
 
@@ -105,7 +116,7 @@ struct ArborAppTests {
 
     @Test("Two windows share one PageID binding without sharing tabs")
     func windowsSharePersistenceNotPresentation() async throws {
-        let workspace = ArborWorkspaceState()
+        let workspace = ArborWorkspaceState(provider: .sample())
         let first = ArborAppModel(workspace: workspace)
         let second = ArborAppModel(workspace: workspace)
         await first.load()
@@ -122,7 +133,7 @@ struct ArborAppTests {
 
     @Test("A final editor commit is durable before navigation completes")
     func navigationDrainsEditorTail() async throws {
-        let workspace = ArborWorkspaceState()
+        let workspace = ArborWorkspaceState(provider: .sample())
         let model = ArborAppModel(workspace: workspace)
         await model.load()
         await model.navigate(to: .init(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome"))
@@ -154,7 +165,7 @@ struct ArborAppTests {
 
     @Test("Voice delivery appends through the active PageID binding and reaches the provider")
     func activeVoiceDelivery() async throws {
-        let workspace = ArborWorkspaceState()
+        let workspace = ArborWorkspaceState(provider: .sample())
         let model = ArborAppModel(workspace: workspace)
         await model.load()
         let welcome = WorkspaceReference(
@@ -187,7 +198,7 @@ struct ArborAppTests {
 
     @Test("Recovered voice delivery resolves an inactive destination by PageID")
     func recoveredVoiceDelivery() async throws {
-        let workspace = ArborWorkspaceState()
+        let workspace = ArborWorkspaceState(provider: .sample())
         let welcome = WorkspaceReference(
             tree: "tr_sample",
             path: "/welcome",
@@ -208,9 +219,9 @@ struct ArborAppTests {
     }
 
 #if os(macOS)
-    @Test("The sandboxed app can supervise its inherited arbord helper")
-    func sandboxedHelperBoundary() async throws {
-        guard ProcessInfo.processInfo.environment["ARBOR_TEST_SANDBOX_HELPER"] == "1" else { return }
+    @Test("The signed app can supervise its bundled arbord helper")
+    func bundledHelperBoundary() async throws {
+        guard ProcessInfo.processInfo.environment["ARBOR_TEST_BUNDLED_HELPER"] == "1" else { return }
         let root = FileManager.default.temporaryDirectory
             .appending(path: "ArborSandboxHelper-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -222,7 +233,7 @@ struct ArborAppTests {
             name: "sandboxed",
             source: "# Sandboxed helper\n"
         )))
-        #expect(created.title == "sandboxed")
+        #expect(created.title == "Sandboxed helper")
         await workspace.shutdown()
     }
 #endif

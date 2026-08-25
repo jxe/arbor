@@ -8,6 +8,45 @@ import Testing
 @Suite("Workspace provider contract", .serialized)
 struct ProviderContractTests {
 #if os(macOS)
+    @Test("Bookmark restore migrates the former sandbox preferences domain")
+    func bookmarkMigrationFromSandboxPreferences() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appending(path: "ArborBookmarkMigration-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let currentDomain = "org.nxhx.ArborTests.BookmarkCurrent.\(UUID().uuidString)"
+        let currentDefaults = try #require(UserDefaults(suiteName: currentDomain))
+        defer {
+            UserDefaults.standard.removePersistentDomain(forName: currentDomain)
+        }
+
+        let key = "native-workspace-bookmark-v1"
+        let bookmark = try rootURL.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: [.isDirectoryKey],
+            relativeTo: nil
+        )
+        let legacyURL = rootURL.appending(path: "legacy.plist")
+        let plist = try PropertyListSerialization.data(
+            fromPropertyList: [key: bookmark],
+            format: .binary,
+            options: 0
+        )
+        try plist.write(to: legacyURL)
+
+        let migratedStore = SecurityScopedWorkspaceBookmarkStore(
+            defaults: currentDefaults,
+            key: key,
+            legacyPreferencesURL: legacyURL
+        )
+        let restored = try #require(try await migratedStore.load())
+
+        #expect(restored.standardizedFileURL == rootURL.standardizedFileURL)
+        let reloadedDefaults = try #require(UserDefaults(suiteName: currentDomain))
+        #expect(reloadedDefaults.data(forKey: key) == bookmark)
+    }
+
     @Test("Attach-only supervisor never launches a helper")
     func attachOnlySupervisorRequiresUserArbord() async throws {
         let rootURL = FileManager.default.temporaryDirectory
@@ -35,12 +74,14 @@ struct ProviderContractTests {
             executable: URL(fileURLWithPath: executablePath),
             preferredPort: 45170
         )
+        #expect(first.launchLocation == .local(rootURL.path))
         let created = try #require(try await first.provider.perform(.createMarkdown(
             parent: first.home,
             name: "supervised",
             source: "# 🌲 Supervised Page\n"
         )))
         let restarted = try await supervisor.restart()
+        #expect(restarted.launchLocation == .local(rootURL.path))
         let reopened = try await restarted.provider.resolve(created.reference)
         #expect(reopened.title == "🌲 Supervised Page")
         await supervisor.stop()
@@ -57,6 +98,55 @@ struct ProviderContractTests {
             source: "Body without a title.\n",
             fallback: "filename"
         ) == "filename")
+    }
+
+    @Test("Ordinary implicit directories remain browser-only path locations")
+    func ordinaryImplicitDirectorySurface() throws {
+        let node = try ArbordWorkspaceProvider.workspaceNode(
+            from: directorySnapshot(tree: "local", bodyState: "implicit"),
+            fallbackTree: "local",
+            requestedLocation: .local("/tmp/ordinary")
+        )
+
+        guard case .directory = node.surface else {
+            Issue.record("An implicit ordinary directory was surfaced as an editable document")
+            return
+        }
+        #expect(node.location == .local("/tmp/ordinary"))
+        #expect(!node.surface.supportsDocumentSession)
+        #expect(!ArbordWorkspaceProvider.requiresDocumentIdentity(node))
+    }
+
+    @Test("Stored path documents edit without minting managed identity")
+    func ordinaryStoredDirectoryDocument() throws {
+        let node = try ArbordWorkspaceProvider.workspaceNode(
+            from: directorySnapshot(tree: "local", bodyState: "stored"),
+            fallbackTree: "local",
+            requestedLocation: .local("/tmp/ordinary")
+        )
+
+        guard case let .directoryDocument(_, _, stored) = node.surface else {
+            Issue.record("A stored ordinary directory body was not surfaced as a document")
+            return
+        }
+        #expect(stored)
+        #expect(node.surface.supportsDocumentSession)
+        #expect(!ArbordWorkspaceProvider.requiresDocumentIdentity(node))
+    }
+
+    @Test("Managed implicit directory documents establish durable identity")
+    func managedImplicitDirectoryDocument() throws {
+        let node = try ArbordWorkspaceProvider.workspaceNode(
+            from: directorySnapshot(tree: "rt_managed", bodyState: "implicit"),
+            fallbackTree: "rt_managed"
+        )
+
+        guard case let .directoryDocument(_, _, stored) = node.surface else {
+            Issue.record("A managed implicit directory was not surfaced as an editable document")
+            return
+        }
+        #expect(!stored)
+        #expect(ArbordWorkspaceProvider.requiresDocumentIdentity(node))
     }
 
     @Test("In-memory provider")
@@ -239,5 +329,30 @@ struct ProviderContractTests {
         await #expect(throws: Error.self) {
             _ = try await provider.openDocument(asset.reference)
         }
+    }
+
+    private func directorySnapshot(tree: String, bodyState: String) throws -> NodeSnapshot {
+        let json = """
+        {
+          "ref": { "tree": "\(tree)", "path": "/tmp/ordinary" },
+          "tree": "\(tree)",
+          "path": "/tmp/ordinary",
+          "name": "ordinary",
+          "kind": "directory",
+          "writable": true,
+          "materialization": "available",
+          "contentRevision": "rev_directory",
+          "bodyState": "\(bodyState)",
+          "document": {
+            "source": "# ordinary\\n",
+            "frontmatter": {},
+            "bodySource": "# ordinary\\n",
+            "blocks": []
+          },
+          "diagnostics": [],
+          "observedThrough": "evt_1"
+        }
+        """
+        return try JSONDecoder().decode(NodeSnapshot.self, from: Data(json.utf8))
     }
 }

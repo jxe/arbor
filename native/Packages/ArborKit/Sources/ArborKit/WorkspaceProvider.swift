@@ -156,6 +156,8 @@ public protocol WorkspaceProvider: Sendable {
     func capabilities() async -> WorkspaceProviderCapabilities
     func resolve(_ reference: WorkspaceReference) async throws -> WorkspaceNode
     func children(of reference: WorkspaceReference) async throws -> [WorkspaceNode]
+    func resolve(_ location: WorkspaceLocation) async throws -> WorkspaceNode
+    func children(of location: WorkspaceLocation) async throws -> [WorkspaceNode]
     func search(_ query: String, in tree: TreeID) async throws -> [WorkspaceSearchResult]
     func backlinks(to reference: WorkspaceReference) async throws -> [WorkspaceSearchResult]
     func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode?
@@ -166,6 +168,20 @@ public protocol WorkspaceProvider: Sendable {
 
 public extension WorkspaceProvider {
     func capabilities() async -> WorkspaceProviderCapabilities { .full }
+
+    func resolve(_ location: WorkspaceLocation) async throws -> WorkspaceNode {
+        guard case let .reference(reference) = location else {
+            throw WorkspaceProviderError.invalidAction("This provider does not support \(location.pathHint)")
+        }
+        return try await resolve(reference)
+    }
+
+    func children(of location: WorkspaceLocation) async throws -> [WorkspaceNode] {
+        guard case let .reference(reference) = location else {
+            throw WorkspaceProviderError.invalidAction("This provider does not support \(location.pathHint)")
+        }
+        return try await children(of: reference)
+    }
 }
 
 public enum WorkspaceProviderError: Error, Equatable, Sendable {

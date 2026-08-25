@@ -86,10 +86,10 @@ struct BrowserTabControllerTests {
         let home = WorkspaceReference(tree: "tr_sample", path: "/")
         let controller = BrowserTabController(home: home)
         let firstID = controller.selectedTabID
-        controller.navigate(to: .init(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome"))
+        controller.navigate(to: .reference(.init(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome")))
         controller.updatePresentation(.init(selection: "block-a", scrollAnchor: "block-a", inspectorPresented: true))
 
-        let secondID = controller.newTab(at: .init(tree: "tr_sample", path: "/people"))
+        let secondID = controller.newTab(at: .reference(.init(tree: "tr_sample", path: "/people")))
         controller.updatePresentation(.init(selection: "row-2"))
         #expect(controller.selectedTab.presentation.selection == "row-2")
 
@@ -98,7 +98,7 @@ struct BrowserTabControllerTests {
         #expect(controller.selectedTab.presentation.selection == "block-a")
         #expect(controller.canGoBack)
         controller.goBack()
-        #expect(controller.selectedTab.current == home)
+        #expect(controller.selectedTab.current == .reference(home))
 
         controller.selectTab(secondID)
         #expect(controller.selectedTab.current.pathHint == "/people")
@@ -109,7 +109,7 @@ struct BrowserTabControllerTests {
         let controller = BrowserTabController(home: .init(tree: "tr_sample", path: "/"))
         #expect(!controller.canGoBack)
         #expect(!controller.canGoParent)
-        controller.navigate(to: .init(tree: "tr_sample", path: "/files/arbor.png"))
+        controller.navigate(to: .reference(.init(tree: "tr_sample", path: "/files/arbor.png")))
         #expect(controller.canGoBack)
         #expect(controller.canGoParent)
         controller.goParent()
@@ -123,24 +123,24 @@ struct BrowserTabControllerTests {
         let second = WorkspaceReference(tree: "tr_sample", path: "/second", pageID: "pg_second")
         let controller = BrowserTabController(home: home)
 
-        controller.navigate(to: first)
-        controller.navigate(to: second)
+        controller.navigate(to: .reference(first))
+        controller.navigate(to: .reference(second))
 
-        #expect(controller.navigationRoot == home)
-        #expect(controller.navigationPath == [first, second])
+        #expect(controller.navigationRoot == .reference(home))
+        #expect(controller.navigationPath == [.reference(first), .reference(second)])
 
-        controller.setNavigationPath([first])
-        #expect(controller.selectedTab.current == first)
-        #expect(controller.navigationPath == [first])
+        controller.setNavigationPath([.reference(first)])
+        #expect(controller.selectedTab.current == .reference(first))
+        #expect(controller.navigationPath == [.reference(first)])
         #expect(controller.canGoForward)
 
         controller.goForward()
-        #expect(controller.navigationPath == [first, second])
+        #expect(controller.navigationPath == [.reference(first), .reference(second)])
 
-        controller.goHome()
-        #expect(controller.selectedTab.current == home)
-        #expect(controller.navigationPath.isEmpty)
-        #expect(controller.canGoForward)
+        controller.goHome(to: .reference(home))
+        #expect(controller.selectedTab.current == .reference(home))
+        #expect(controller.navigationPath.last == .reference(home))
+        #expect(controller.canGoBack)
     }
 
     @Test("A PageID rename reconciles every trail without adding navigation")
@@ -149,16 +149,51 @@ struct BrowserTabControllerTests {
         let old = WorkspaceReference(tree: "tr_sample", path: "/old", pageID: "pg_stable")
         let renamed = WorkspaceReference(tree: "tr_sample", path: "/new", pageID: "pg_stable")
         let controller = BrowserTabController(home: home)
-        controller.navigate(to: old)
-        controller.navigate(to: .init(tree: "tr_sample", path: "/other"))
-        controller.newTab(at: old)
+        controller.navigate(to: .reference(old))
+        controller.navigate(to: .reference(.init(tree: "tr_sample", path: "/other")))
+        controller.newTab(at: .reference(old))
 
         controller.reconcileReference(renamed)
 
-        #expect(controller.selectedTab.current == renamed)
+        #expect(controller.selectedTab.current == .reference(renamed))
         controller.selectTab(controller.tabs.first!.id)
-        #expect(controller.selectedTab.back.last == renamed)
+        #expect(controller.selectedTab.back.last == .reference(renamed))
         #expect(controller.navigationPath.count == 2)
+    }
+
+    @Test("Local locations climb through tree boundaries to filesystem root")
+    func localParentReachesFilesystemRoot() {
+        let location = WorkspaceLocation.local("/Users/example/tree/page")
+        #expect(location.parent == .local("/Users/example/tree"))
+        #expect(location.parent?.parent == .local("/Users/example"))
+        #expect(WorkspaceLocation.local("/").parent == nil)
+    }
+
+    @Test("Tree and remote locations stop at their own roots")
+    func scopedParentsStopAtTreeRoot() {
+        let treeRoot = WorkspaceLocation.reference(.init(tree: "tr_sample", path: "/"))
+        #expect(treeRoot.parent == nil)
+        let remoteRoot = WorkspaceLocation.remote(
+            locator: "https://example.test/~joe/tree",
+            rootLocator: "https://example.test/~joe/tree"
+        )
+        #expect(remoteRoot.parent == nil)
+        let remoteChild = WorkspaceLocation.remote(
+            locator: "https://example.test/~joe/tree/page",
+            rootLocator: "https://example.test/~joe/tree"
+        )
+        #expect(remoteChild.parent == remoteRoot)
+    }
+
+    @Test("Launch location remains distinct from a computed Home destination")
+    func launchAndHomeAreDistinct() {
+        let launch = WorkspaceLocation.local("/Users/example/tree/deep")
+        let home = WorkspaceLocation.local("/Users/example/tree")
+        let controller = BrowserTabController(launchLocation: launch)
+        controller.goHome(to: home)
+        #expect(controller.launchLocation == launch)
+        #expect(controller.selectedTab.current == home)
+        #expect(controller.canGoBack)
     }
 }
 

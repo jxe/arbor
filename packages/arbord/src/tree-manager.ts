@@ -44,8 +44,17 @@ export class TreeManager implements AsyncDisposable {
   private workspaceOptions: Omit<WorkspaceOptions, "events" | "tree" | "tracking"> = {};
   private stopWatching?: () => void;
   private reloadTail: Promise<void> = Promise.resolve();
+  private descriptorRevisionValue = 0;
 
   constructor(readonly events: EventBus) {}
+
+  get descriptorRevision(): number {
+    return this.descriptorRevisionValue;
+  }
+
+  invalidateDescriptors(): void {
+    this.descriptorRevisionValue += 1;
+  }
 
   async init(): Promise<void> {
     const snapshot = await loadTreeRegistry();
@@ -226,6 +235,7 @@ export class TreeManager implements AsyncDisposable {
     if (publish) {
       this.events.emit({ tree: "system", kind: "updated", path: "/trees", origin: "external" });
     }
+    this.invalidateDescriptors();
     return true;
   }
 
@@ -399,7 +409,9 @@ export class TreeManager implements AsyncDisposable {
   }
 
   setSyncState(tree: string, state: NonNullable<TreeDescriptor["sync"]>): void {
+    if (this.syncStates.get(tree) === state) return;
     this.syncStates.set(tree, state);
+    this.invalidateDescriptors();
   }
 
   private canonicalPath(root: KnownRoot): string | null {

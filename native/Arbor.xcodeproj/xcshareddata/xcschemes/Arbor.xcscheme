@@ -69,7 +69,12 @@
       </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable
-            key = "ARBOR_TEST_SANDBOX_HELPER"
+            key = "ARBOR_DATA_HOME"
+            value = "/tmp/ArborNativeAppTests"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "ARBOR_TEST_BUNDLED_HELPER"
             value = "1"
             isEnabled = "YES">
          </EnvironmentVariable>

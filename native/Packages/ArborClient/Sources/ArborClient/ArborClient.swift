@@ -123,6 +123,15 @@ public actor ArborClient {
         try await hydrateNode(try await nodeSnapshot(ref))
     }
 
+    /// Fetch one unplaced canonical node through arbord's read-only proxy.
+    /// Remote directory snapshots already carry their immediate children.
+    public func remoteNode(locator: String) async throws -> NodeSnapshot {
+        try await get(
+            path: "/v1/remote",
+            items: [URLQueryItem(name: "url", value: locator)]
+        )
+    }
+
     /// Read the exact current bytes of an ordinary file.
     public func file(_ ref: NodeRef) async throws -> Data {
         var components = URLComponents(url: url("/v1/file"), resolvingAgainstBaseURL: false)!

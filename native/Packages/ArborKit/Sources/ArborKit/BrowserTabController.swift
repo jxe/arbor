@@ -14,12 +14,12 @@ public struct BrowserTabPresentation: Hashable, Codable, Sendable {
 
 public struct BrowserTab: Hashable, Codable, Sendable, Identifiable {
     public var id: UUID
-    public var current: WorkspaceReference
-    public var back: [WorkspaceReference]
-    public var forward: [WorkspaceReference]
+    public var current: WorkspaceLocation
+    public var back: [WorkspaceLocation]
+    public var forward: [WorkspaceLocation]
     public var presentation: BrowserTabPresentation
 
-    public init(id: UUID = UUID(), current: WorkspaceReference) {
+    public init(id: UUID = UUID(), current: WorkspaceLocation) {
         self.id = id
         self.current = current
         self.back = []
@@ -32,14 +32,18 @@ public struct BrowserTab: Hashable, Codable, Sendable, Identifiable {
 public final class BrowserTabController {
     public private(set) var tabs: [BrowserTab]
     public private(set) var selectedTabID: UUID
-    public private(set) var home: WorkspaceReference
+    public private(set) var launchLocation: WorkspaceLocation
     public var sidebarPresented = true
 
-    public init(home: WorkspaceReference) {
-        let tab = BrowserTab(current: home)
-        self.home = home
+    public init(launchLocation: WorkspaceLocation) {
+        let tab = BrowserTab(current: launchLocation)
+        self.launchLocation = launchLocation
         self.tabs = [tab]
         self.selectedTabID = tab.id
+    }
+
+    public convenience init(home: WorkspaceReference) {
+        self.init(launchLocation: .reference(home))
     }
 
     public var selectedTab: BrowserTab {
@@ -49,17 +53,17 @@ public final class BrowserTabController {
     public var canGoBack: Bool { !selectedTab.back.isEmpty }
     public var canGoForward: Bool { !selectedTab.forward.isEmpty }
     public var canGoParent: Bool { selectedTab.current.parent != nil }
-    public var navigationRoot: WorkspaceReference {
+    public var navigationRoot: WorkspaceLocation {
         selectedTab.back.first ?? selectedTab.current
     }
-    public var navigationPath: [WorkspaceReference] {
+    public var navigationPath: [WorkspaceLocation] {
         guard !selectedTab.back.isEmpty else { return [] }
         return Array(selectedTab.back.dropFirst()) + [selectedTab.current]
     }
 
     @discardableResult
-    public func newTab(at reference: WorkspaceReference? = nil) -> UUID {
-        let tab = BrowserTab(current: reference ?? home)
+    public func newTab(at location: WorkspaceLocation? = nil) -> UUID {
+        let tab = BrowserTab(current: location ?? launchLocation)
         tabs.append(tab)
         selectedTabID = tab.id
         return tab.id
@@ -76,11 +80,11 @@ public final class BrowserTabController {
         selectedTabID = id
     }
 
-    public func navigate(to reference: WorkspaceReference) {
+    public func navigate(to location: WorkspaceLocation) {
         mutateSelected { tab in
-            guard tab.current != reference else { return }
+            guard tab.current != location else { return }
             tab.back.append(tab.current)
-            tab.current = reference
+            tab.current = location
             tab.forward.removeAll()
         }
     }
@@ -105,31 +109,33 @@ public final class BrowserTabController {
         if let parent = selectedTab.current.parent { navigate(to: parent) }
     }
 
-    public func goHome() {
-        if navigationRoot == home {
-            setNavigationPath([])
-        } else {
-            navigate(to: home)
-        }
+    public func goHome(to location: WorkspaceLocation) { navigate(to: location) }
+    public func setLaunchLocation(_ location: WorkspaceLocation) { launchLocation = location }
+
+    public func replaceCurrent(with location: WorkspaceLocation) {
+        mutateSelected { $0.current = location }
     }
-    public func setHome(_ reference: WorkspaceReference) { home = reference }
 
     /// Replace stale path hints for one stable identity without adding a
     /// navigation step or disturbing per-tab presentation.
     public func reconcileReference(_ reference: WorkspaceReference) {
         let identity = reference.identity
-        if home.identity == identity { home = reference }
+        let reconcile: (WorkspaceLocation) -> WorkspaceLocation = { location in
+            guard case let .reference(current) = location, current.identity == identity else { return location }
+            return .reference(reference)
+        }
+        launchLocation = reconcile(launchLocation)
         for index in tabs.indices {
-            if tabs[index].current.identity == identity { tabs[index].current = reference }
-            tabs[index].back = tabs[index].back.map { $0.identity == identity ? reference : $0 }
-            tabs[index].forward = tabs[index].forward.map { $0.identity == identity ? reference : $0 }
+            tabs[index].current = reconcile(tabs[index].current)
+            tabs[index].back = tabs[index].back.map(reconcile)
+            tabs[index].forward = tabs[index].forward.map(reconcile)
         }
     }
 
     /// Reconciles a system NavigationStack pop with this tab's browser history.
     /// Programmatic pushes continue to flow through `navigate(to:)`, while a
     /// native back gesture or toolbar action writes the shorter visible path.
-    public func setNavigationPath(_ path: [WorkspaceReference]) {
+    public func setNavigationPath(_ path: [WorkspaceLocation]) {
         let root = navigationRoot
         let previous = navigationPath
         guard path != previous else { return }

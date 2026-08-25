@@ -34,7 +34,9 @@ An independently versioned `TreeID` is an **Arbor tree** whether its audience is
 
 Cross-device synchronization uses an Arbor authority, never iCloud Drive or CloudKit. The configured Railway authority is the intended acceptance host, but its URL and credentials remain runtime configuration and must never be hardcoded in source, fixtures, plans, logs, or manifests.
 
-- On macOS, native Arbor uses arbord as the sole first-party writer for ordinary folders and placed trees.
+- On macOS, native Arbor uses arbord as the sole first-party writer for ordinary folders and placed trees. The directly signed desktop app is intentionally not App Sandbox-confined: it starts and supervises its bundled arbord when no compatible user process is already listening, so that one process can own `~/.arbor` and absolute filesystem navigation. Launch restores the saved folder, migrates the former sandbox preference bookmark once when necessary, and otherwise opens the user's real home directory; “no provider” is never a steady production state. Test helpers use an isolated data home and port range. A future independently persistent arbord should be a user LaunchAgent registered with `SMAppService`, not another app-owned storage implementation.
+- macOS tabs retain absolute filesystem locations independently of arbord's resolved node identity. Parent may cross placed-tree boundaries to filesystem `/`; Home means the current resolved tree root and is disabled in ordinary filesystem space. The launch/restored folder is only the new-tab starting location.
+- The macOS sidebar's Trees section is a location switcher: placed roots open locally, durable unplaced visits reopen read-only through arbord, and a visit never creates a placement implicitly.
 - On iOS, native Arbor uses an app-managed private replica with full offline reads and writes.
 - The iOS replica does not appear as a live editable Files-app folder. Import/export/share operations are explicit.
 - Each device keeps a local PageID-keyed crash-recovery journal. Recovery journals, indexes, caches, and device identity never enter authored trees or the wire.
@@ -57,7 +59,7 @@ The authority retains accepted-update history indefinitely as private operationa
 ```text
 ArborApp
   ├─ ArborKit
-  │    ├─ WorkspaceReference / WorkspaceNode / WorkspaceSurface
+  │    ├─ WorkspaceLocation / WorkspaceReference / WorkspaceNode / WorkspaceSurface
   │    ├─ BrowserTabController / WorkspaceCoordinator
   │    ├─ ArbordWorkspaceProvider ─ ArborClient ─ arbord (macOS)
   │    └─ ReplicaWorkspaceProvider ─ ArborReplica ─ ArborWire (iOS)
@@ -71,6 +73,8 @@ ArborApp
 ```
 
 `ArborKit` is UI-independent and node-first. A node may be a Markdown document, bodyless directory, directory document, collection, database row, ordinary file, placeholder, diagnostic, or historical view. It opens a document session only for Markdown-capable surfaces. One `WorkspaceCoordinator` owns the canonical document/write stream per `(tree, PageID)`, with path fallback only while no durable ID exists; duplicate tabs keep independent history, selection, scroll, and inspector presentation.
+
+`WorkspaceLocation` is browser state; `WorkspaceReference` is resolved operational identity. Tabs, history, breadcrumbs, Parent, Home, and sidebar navigation carry locations, while document sessions and mutation APIs carry references. The macOS arbord provider supports local absolute, tree-scoped, and read-only remote locations; in-memory and replica providers remain tree-scoped. Account UI and the Trees sidebar consume one cached `LocalArbordOverview`, refresh its independent resources concurrently, and observe system events rather than performing a fresh sequential authority walk for each presentation.
 
 `ArborQuagmire` is a thin private host. It maps exact provider Markdown to Quagmire blocks, keeps a private BlockID-keyed source ledger, admits every synchronous editor commit before returning, and submits exact source plus `baseContentRevision`. Quagmire remains format-, storage-, navigation-, and Arbor-neutral.
 

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveArbor } from "@arbor/arbord";
+import { ArborService, serveArbor } from "@arbor/arbord";
 import { ArbordClient } from "@arbor/client";
 import { serveWireHost } from "@arbor/authority";
 
@@ -136,14 +136,92 @@ describe("system tree control", () => {
     expect((await textFiles(state)).join("\n")).not.toContain(rawToken);
   });
 
+  test("hydrates every system tree record from one coherent authority projection", async () => {
+    const originalFetch = globalThis.fetch;
+    const authorityRequests: string[] = [];
+    const countingFetch = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.startsWith(host.url)) authorityRequests.push(new URL(url).pathname);
+      return originalFetch(input, init);
+    };
+    globalThis.fetch = Object.assign(countingFetch, { preconnect: originalFetch.preconnect });
+    try {
+      arbor.service.trees.invalidateDescriptors();
+      const directory = await client.node({ tree: "system", path: "/trees" });
+      await Promise.all((directory.children ?? []).map((child) =>
+        client.node({ tree: "system", path: child.path })
+      ));
+      await Promise.all((directory.children ?? []).map((child) =>
+        client.node({ tree: "system", path: child.path })
+      ));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(authorityRequests.filter((path) => path === "/.arbor/trees")).toHaveLength(1);
+    expect(authorityRequests.filter((path) => path === "/.arbor/account")).toHaveLength(1);
+    const accessRequests = authorityRequests.filter((path) => path.endsWith("/access"));
+    expect(new Set(accessRequests).size).toBe(accessRequests.length);
+  });
+
+  test("projection freshness, revision invalidation, and in-flight coalescing use an injected monotonic clock", async () => {
+    let now = 0;
+    const control = await ArborService.openControl({ autoSync: false, monotonicNow: () => now });
+    const originalFetch = globalThis.fetch;
+    const authorityRequests: string[] = [];
+    const countingFetch = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.startsWith(host.url)) authorityRequests.push(new URL(url).pathname);
+      return originalFetch(input, init);
+    };
+    globalThis.fetch = Object.assign(countingFetch, { preconnect: originalFetch.preconnect });
+    try {
+      const directory = await control.snapshot({ tree: "system", path: "/trees" });
+      const children = directory.children ?? [];
+      await Promise.all(children.map((child) => control.snapshot({ tree: "system", path: child.path })));
+      expect(authorityRequests.filter((path) => path === "/.arbor/trees")).toHaveLength(1);
+      const readDirectChild = () => control.snapshot({ tree: "system", path: "/trees/not-present" }).catch(() => null);
+
+      now = 999;
+      await readDirectChild();
+      expect(authorityRequests.filter((path) => path === "/.arbor/trees")).toHaveLength(1);
+
+      now = 1_001;
+      await readDirectChild();
+      expect(authorityRequests.filter((path) => path === "/.arbor/trees")).toHaveLength(2);
+
+      control.trees.invalidateDescriptors();
+      await Promise.all(Array.from({ length: 7 }, readDirectChild));
+      expect(authorityRequests.filter((path) => path === "/.arbor/trees")).toHaveLength(3);
+    } finally {
+      globalThis.fetch = originalFetch;
+      await control[Symbol.asyncDispose]();
+    }
+  });
+
   test("returns bounded local tree state and marks placements offline", async () => {
     host.server.stop(true);
+    arbor.service.trees.invalidateDescriptors();
+    const originalFetch = globalThis.fetch;
+    let authorityTreeRequests = 0;
+    const countingFetch = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.startsWith(host.url) && new URL(url).pathname === "/.arbor/trees") authorityTreeRequests += 1;
+      return originalFetch(input, init);
+    };
+    globalThis.fetch = Object.assign(countingFetch, { preconnect: originalFetch.preconnect });
     const started = performance.now();
-    const trees = await client.node({ tree: "system", path: "/trees" });
-    const shared = await Promise.all((trees.children ?? []).map((child) =>
-      client.node({ tree: "system", path: child.path })
-    ));
+    let shared: Awaited<ReturnType<ArbordClient["node"]>>[];
+    try {
+      const trees = await client.node({ tree: "system", path: "/trees" });
+      shared = await Promise.all((trees.children ?? []).map((child) =>
+        client.node({ tree: "system", path: child.path })
+      ));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
     expect(performance.now() - started).toBeLessThan(1_000);
+    expect(authorityTreeRequests).toBe(1);
     expect(shared.some((record) => record.document?.frontmatter.sync === "offline")).toBe(true);
   });
 });

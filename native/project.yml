@@ -139,6 +139,7 @@ schemes:
     test:
       config: Debug
       environmentVariables:
-        ARBOR_TEST_SANDBOX_HELPER: "1"
+        ARBOR_TEST_BUNDLED_HELPER: "1"
+        ARBOR_DATA_HOME: "/tmp/ArborNativeAppTests"
       targets:
         - ArborAppTests

@@ -66,7 +66,7 @@ private struct ArborNavigationCommands: Commands {
                 .disabled(commands?.canGoParent != true)
             Button("Home") { commands?.goHome() }
                 .keyboardShortcut("h", modifiers: [.command, .shift])
-                .disabled(commands == nil)
+                .disabled(commands?.canGoHome != true)
             Divider()
             Button("Linked From…") { commands?.showBacklinks() }
                 .disabled(commands?.hasNode != true)

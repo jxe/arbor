@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { performance } from "node:perf_hooks";
 import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import type {
@@ -51,6 +52,28 @@ type ResolvedScope =
   | { kind: "local"; path: string; ref: NodeRef }
   | { kind: "system"; path: string };
 
+interface SystemTreeSegment {
+  readonly segment: string;
+  readonly tree: TreeDescriptor;
+  readonly source: string;
+}
+
+interface SystemTreeProjection {
+  readonly revision: number;
+  readonly expiresAt: number;
+  readonly segments: readonly SystemTreeSegment[];
+}
+
+interface SystemTreeProjectionBuild {
+  readonly revision: number;
+  readonly segments: readonly SystemTreeSegment[];
+}
+
+interface ArborServiceOptions {
+  autoSync?: boolean;
+  monotonicNow?: () => number;
+}
+
 export function resolveUserPath(input: string, home = homedir()): string {
   const value = input.trim();
   if (value === "~") return home;
@@ -76,11 +99,15 @@ export class ArborService implements AsyncDisposable {
   private syncing = false;
   private syncRequested = false;
   private syncConflicts = new Set<string>();
+  private systemTreeProjection?: SystemTreeProjection;
+  private systemTreeProjectionInFlight?: { revision: number; promise: Promise<readonly SystemTreeSegment[]> };
+  private readonly monotonicNow: () => number;
 
-  private constructor(events: EventBus, trees: TreeManager, options: { autoSync?: boolean } = {}) {
+  private constructor(events: EventBus, trees: TreeManager, options: ArborServiceOptions = {}) {
     this.events = events;
     this.trees = trees;
     this.localFs = new FilesystemService(events);
+    this.monotonicNow = options.monotonicNow ?? (() => performance.now());
     if (options.autoSync !== false) {
       this.syncTimer = setInterval(() => { void this.syncAll(); }, 2_000);
       this.syncTimer.unref?.();
@@ -102,11 +129,11 @@ export class ArborService implements AsyncDisposable {
   }
 
   /** Open system/account authority without attaching Arbor to a filesystem session. */
-  static async openControl(options: { autoSync?: boolean } = {}): Promise<ArborService> {
+  static async openControl(options: ArborServiceOptions = {}): Promise<ArborService> {
     const events = new EventBus();
     const trees = new TreeManager(events);
     await trees.init();
-    const service = new ArborService(events, trees, { autoSync: options.autoSync ?? false });
+    const service = new ArborService(events, trees, { ...options, autoSync: options.autoSync ?? false });
     await service.migrateLegacyCommunityConfig();
     return service;
   }
@@ -711,7 +738,7 @@ export class ArborService implements AsyncDisposable {
     throw new ProtocolError("invalid-reference", `system:${path.slice(1)} does not have children`, 400, { path });
   }
 
-  private async systemTreeSegments() {
+  private async buildSystemTreeSegments(): Promise<SystemTreeProjectionBuild> {
     const configured = await this.communityConfig.get();
     let remote: RemoteTreeDescriptor[] = [];
     let writable = new Set<string>();
@@ -759,7 +786,7 @@ export class ArborService implements AsyncDisposable {
         sync: current?.sync,
       });
     }
-    return Promise.all([...byID.values()].map(async (tree) => ({
+    const segments = await Promise.all([...byID.values()].map(async (tree) => ({
       segment: tree.id,
       tree,
       source: this.treeRecordSource(
@@ -767,6 +794,36 @@ export class ArborService implements AsyncDisposable {
         tree.placement === "shared" ? await treeConflict(tree.id) : undefined,
       ),
     })));
+    return { revision: this.trees.descriptorRevision, segments };
+  }
+
+  private async systemTreeSegments(): Promise<readonly SystemTreeSegment[]> {
+    const revision = this.trees.descriptorRevision;
+    const now = this.monotonicNow();
+    const cached = this.systemTreeProjection;
+    if (cached && cached.revision === revision && cached.expiresAt > now) return cached.segments;
+    const inFlight = this.systemTreeProjectionInFlight;
+    if (inFlight) return inFlight.promise;
+
+    const promise = (async () => {
+      const build = await this.buildSystemTreeSegments();
+      if (this.trees.descriptorRevision === build.revision) {
+        this.systemTreeProjection = {
+          revision: build.revision,
+          expiresAt: this.monotonicNow() + 1_000,
+          segments: build.segments,
+        };
+      }
+      return build.segments;
+    })();
+    this.systemTreeProjectionInFlight = { revision, promise };
+    try {
+      return await promise;
+    } finally {
+      if (this.systemTreeProjectionInFlight?.promise === promise) {
+        this.systemTreeProjectionInFlight = undefined;
+      }
+    }
   }
 
   private async systemTreeChildren() {
@@ -940,6 +997,7 @@ export class ArborService implements AsyncDisposable {
     } else {
       effects = await this.setTreeAccess(operation.tree, operation.subject, operation.access);
     }
+    this.trees.invalidateDescriptors();
     await this.systemMutations.markMaterialized(mutationID, requestHash, effects);
     let cursor = this.events.currentCursor();
     for (const effect of effects) {

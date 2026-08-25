@@ -17,6 +17,10 @@ Directory children, search results, backlinks, Trash/recovery rows, visited tree
 
 A remote visit does not invent local identity, a placement, or a temporary directory. If the same Arbor tree has a local placement, arbord may resolve the visit to it without changing the tree/path identity.
 
+A browsing client preserves the initiating locator separately from the resolved `NodeRef`. On macOS, an absolute filesystem location remains the tab, history, breadcrumb, Parent, and sidebar address even when arbord resolves it into an enclosing tree and returns a stable `TreeID`/`PageID`; document sessions, mutations, search, and backlinks use that resolved identity. A remote canonical locator likewise remains a read-only navigation address with an explicit tree-root locator. Resolution must not silently replace either address with a tree-relative path. iOS may use only tree-scoped locations because its private replica is deliberately confined to one placement.
+
+Home is derived from the currently resolved node, not from the launch location: it is the enclosing placed-tree root for a local filesystem address, `/` for a tree-scoped address, and the canonical tree root for a remote visit. It is unavailable in ordinary untracked filesystem space. Parent follows the preserved location, so a local client may cross tree boundaries and continue to filesystem `/`; crossing a boundary changes resolved identity and capabilities, not the visible route.
+
 ## Source-preserving Markdown
 
 `MarkdownDocument.source` is the authoritative operational Markdown, including frontmatter. Parsed frontmatter and blocks are read conveniences derived by the provider; clients never submit them as authored truth. A structured editor may change only the source constructs represented by an authored edit; unrelated frontmatter order, whitespace, syntax, and unsupported Markdown remain intact or enter a clear raw-source mode.

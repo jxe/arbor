@@ -68,7 +68,7 @@ Then run sequential macOS/iOS 27 Xcode tests/builds and `git diff --check`. Expe
 
 - The unchanged provider contract passed against the in-memory provider, the offline replica, and a live temporary `arbord`; it covers identity promotion, immediate search/backlinks, hierarchy mutations, assets, recovery, and concurrent stale-edit rejection.
 - `bun run test:protocol` passed all REST fixtures and Swift client/provider/wire/sync suites.
-- ArborKit (7), ArborReplica (8), ArborQuagmire (8), macOS app (5), and iOS app (4) tests passed. The macOS suite exercised the signed, sandboxed app and its inherited bundled `arbord` helper; the iOS suite used the existing iOS 27 simulator.
+- ArborKit (7), ArborReplica (8), ArborQuagmire (8), macOS app (5), and iOS app (4) tests passed. The original macOS suite exercised a sandbox-inherited helper; later filesystem-navigation work removed the macOS App Sandbox, made the signed app supervise its bundled `arbord` against the real `~/.arbor`, and isolated test helpers by data home and port. The iOS app remains sandboxed and uses the existing iOS 27 simulator.
 - `bun run typecheck`, the full 226-test Bun suite, and `git diff --check` passed.
 - The exact signed macOS artifact was inspected manually: Home/sidebar, tabs, breadcrumbs, search, status, Quagmire document editing, navigation, and the core Actions menu were present and accessible.
 
@@ -90,3 +90,5 @@ Then run sequential macOS/iOS 27 Xcode tests/builds and `git diff --check`. Expe
 ## Maintenance note
 
 Plan 018 adds native strengths without changing this provider/session/sync foundation. Product polish must not bypass capability checks or persistence ordering.
+
+Deferred filesystem presentation follow-up: when macOS browses an ordinary directory outside every managed tree, preserve and display arbord's fabricated `_index.md` source as a read-only directory preview. The preview must remain distinct from a stored directory document: opening or merely displaying it must not start a document session, call `ensureDocumentIdentity`, mint a `PageID`, or write an `_index.md`. If an authored `_index.md` already exists, continue to expose the ordinary path-based editable document. Cover the synthesized-preview, stored-path-document, and managed-tree-document cases independently.

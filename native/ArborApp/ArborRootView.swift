@@ -64,7 +64,11 @@ struct ArborRootView: View {
         }
         .task {
 #if os(macOS)
-            await workspace.restoreLocalWorkspaceIfAvailable()
+            // The hosted test app must not restore a real user bookmark: tests open
+            // their own temporary workspace and own that helper's full lifetime.
+            if ProcessInfo.processInfo.environment["ARBOR_TEST_BUNDLED_HELPER"] != "1" {
+                await workspace.restoreLocalWorkspaceIfAvailable()
+            }
 #endif
             voiceLaunchReady = true
             forwardPendingVoiceRecording()
@@ -72,6 +76,9 @@ struct ArborRootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 forwardPendingVoiceRecording()
+#if os(macOS)
+                Task { await workspace.refreshLocalArbordOverview() }
+#endif
             } else {
                 Task { await workspace.flush() }
             }
@@ -94,7 +101,7 @@ struct ArborRootView: View {
         }
         .sheet(isPresented: $accountPresented) {
 #if os(macOS)
-            MacArbordAccountPanel(workspace: workspace)
+            MacArbordAccountPanel(workspace: workspace, currentNode: model.node)
 #else
             IOSAccountPanel(workspace: workspace, onDisconnect: onDisconnect)
 #endif
@@ -150,8 +157,8 @@ struct ArborRootView: View {
 #if os(iOS)
         NavigationStack(path: navigationPathBinding) {
             pageFrame(for: model.navigationRoot)
-                .navigationDestination(for: WorkspaceReference.self) { reference in
-                    pageFrame(for: reference)
+                .navigationDestination(for: WorkspaceLocation.self) { location in
+                    pageFrame(for: location)
                 }
         }
         .id(model.selectedTabID)
@@ -172,8 +179,8 @@ struct ArborRootView: View {
         } detail: {
             NavigationStack(path: navigationPathBinding) {
                 pageFrame(for: model.navigationRoot)
-                    .navigationDestination(for: WorkspaceReference.self) { reference in
-                        pageFrame(for: reference)
+                    .navigationDestination(for: WorkspaceLocation.self) { location in
+                        pageFrame(for: location)
                     }
             }
             .id(model.selectedTabID)
@@ -183,6 +190,9 @@ struct ArborRootView: View {
 
     private var sidebarContent: some View {
         List {
+#if os(macOS)
+            localTreesSections
+#endif
             Button {
                 searchPresented = true
             } label: {
@@ -194,7 +204,7 @@ struct ArborRootView: View {
             .buttonStyle(.plain)
 
             Section {
-                if let parent = model.sidebarReference.parent {
+                if let parent = model.sidebarLocation.parent {
                     Button {
                         openFromSidebar(parent)
                     } label: {
@@ -206,14 +216,14 @@ struct ArborRootView: View {
                 ForEach(model.children) { node in
                     ArborSidebarRow(
                         node: node,
-                        isCurrent: isCurrent(node.reference),
-                        open: { openFromSidebar(node.reference) },
-                        openInNewTab: { Task { await model.openInNewTab(node.reference) } },
+                        isCurrent: isCurrent(node.location),
+                        open: { openFromSidebar(node.location) },
+                        openInNewTab: { Task { await model.openInNewTab(node.location) } },
                         trash: { Task { await model.perform(.trash(reference: node.reference), navigateToResult: false) } }
                     )
                 }
             } header: {
-                Text(model.sidebarReference.pathHint == "/" ? "Home" : model.sidebarReference.pathHint)
+                Text(model.sidebarLocation.pathHint == "/" ? "Home" : model.sidebarLocation.pathHint)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -227,6 +237,54 @@ struct ArborRootView: View {
             }
         }
     }
+
+#if os(macOS)
+    @ViewBuilder
+    private var localTreesSections: some View {
+        let overview = workspace.localArbordOverview
+        let visits = recentUnplacedVisits
+        if let placed = overview?.trees.filter({ $0.path != nil }), !placed.isEmpty {
+            Section("On This Mac") {
+                ForEach(placed) { tree in
+                    if let path = tree.path {
+                        Button {
+                            openFromSidebar(.local(path))
+                        } label: {
+                            Label(tree.canonicalPath ?? tree.name, systemImage: "externaldrive")
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        if !visits.isEmpty {
+            Section("Recently Visited") {
+                ForEach(visits) { visit in
+                    Button {
+                        openFromSidebar(.remote(
+                            locator: visit.canonical ?? visit.locator,
+                            rootLocator: visit.canonical ?? visit.locator
+                        ))
+                    } label: {
+                        Label(visit.name, systemImage: "network")
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var recentUnplacedVisits: [LocalArbordVisitPresentation] {
+        guard let overview = workspace.localArbordOverview else { return [] }
+        let placedTreeIDs = Set(overview.trees.compactMap { $0.path == nil ? nil : $0.id })
+        var seen = Set<String>()
+        return overview.visits.filter { visit in
+            !placedTreeIDs.contains(visit.tree) && seen.insert(visit.tree).inserted
+        }
+    }
+#endif
 
     private var recordingErrorBinding: Binding<Bool> {
         Binding(
@@ -259,15 +317,15 @@ struct ArborRootView: View {
         }
     }
 
-    private func isCurrent(_ reference: WorkspaceReference) -> Bool {
-        reference.tree == model.currentReference.tree && reference.pathHint == model.currentReference.pathHint
+    private func isCurrent(_ location: WorkspaceLocation) -> Bool {
+        location == model.currentLocation
     }
 
-    private func openFromSidebar(_ reference: WorkspaceReference) {
+    private func openFromSidebar(_ location: WorkspaceLocation) {
 #if os(iOS)
         sidebarPresented = false
 #endif
-        Task { await model.navigate(to: reference) }
+        Task { await model.navigate(to: location) }
     }
 
     private var moveRequestBinding: Binding<ArborMoveRequest?> {
@@ -325,6 +383,7 @@ struct ArborRootView: View {
             canGoBack: model.canGoBack,
             canGoForward: model.canGoForward,
             canGoParent: model.canGoParent,
+            canGoHome: model.canGoHome,
             canCloseTab: model.tabItems.count > 1,
             hasDocument: model.binding != nil,
             hasNode: model.node != nil,
@@ -336,7 +395,7 @@ struct ArborRootView: View {
         )
     }
 
-    private var navigationPathBinding: Binding<[WorkspaceReference]> {
+    private var navigationPathBinding: Binding<[WorkspaceLocation]> {
         Binding(
             get: { model.navigationPath },
             set: { model.setNavigationPath($0) }
@@ -344,7 +403,7 @@ struct ArborRootView: View {
     }
 
     @ViewBuilder
-    private func pageFrame(for reference: WorkspaceReference) -> some View {
+    private func pageFrame(for location: WorkspaceLocation) -> some View {
         VStack(spacing: 0) {
             if model.tabItems.count > 1 {
                 ArborTabStrip(
@@ -356,11 +415,11 @@ struct ArborRootView: View {
                     create: { Task { await model.newTab() } }
                 )
             }
-            pageFrameContent(for: reference)
+            pageFrameContent(for: location)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .overlay(alignment: .top) {
-            if reference == model.currentReference {
+            if location == model.currentLocation {
                 attentionBanner
                     .padding(.horizontal, 16)
                     .frame(maxWidth: 560)
@@ -379,21 +438,26 @@ struct ArborRootView: View {
 #if os(iOS)
                 ArborEditorUndoButtons()
 #endif
-                if reference == model.currentReference,
+                if location == model.currentLocation,
                    model.node?.isWritable == true,
                    model.binding != nil {
                     VoiceRecordingButton(session: recordingSession) {
                         await model.startVoiceRecording(recordingSession)
                     }
                 }
-                Button("Account", systemImage: "person.crop.circle") { accountPresented = true }
+                Button("Account", systemImage: "person.crop.circle") {
+                    accountPresented = true
+#if os(macOS)
+                    Task { await workspace.refreshLocalArbordOverview() }
+#endif
+                }
             }
         }
     }
 
     @ViewBuilder
-    private func pageFrameContent(for reference: WorkspaceReference) -> some View {
-        if reference != model.currentReference || model.isLoading {
+    private func pageFrameContent(for location: WorkspaceLocation) -> some View {
+        if location != model.currentLocation || model.isLoading {
             ProgressView()
         } else if let node = model.node {
             if node.surface.supportsDocumentSession, node.isWritable {
@@ -489,11 +553,38 @@ struct ArborRootView: View {
         }
     }
 
-    private func destination(_ path: String) -> WorkspaceReference {
-        WorkspaceReference(
+    private func destination(_ value: String) -> WorkspaceLocation {
+#if os(macOS)
+        if let url = URL(string: value), ["http", "https", "arbor"].contains(url.scheme?.lowercased() ?? "") {
+            return .remote(locator: url.absoluteString, rootLocator: url.absoluteString)
+        }
+        let expanded: String
+        if value == "~" {
+            expanded = FileManager.default.homeDirectoryForCurrentUser.path
+        } else if value.hasPrefix("~/") {
+            expanded = FileManager.default.homeDirectoryForCurrentUser.appending(path: String(value.dropFirst(2))).path
+        } else if value.hasPrefix("/") {
+            expanded = value
+        } else {
+            let base: String = switch model.currentLocation {
+            case let .localPath(path):
+                switch model.node?.surface {
+                case .directory, .directoryDocument, .collection:
+                    path
+                default:
+                    URL(fileURLWithPath: path).deletingLastPathComponent().path
+                }
+            default: workspace.launchLocation.pathHint
+            }
+            expanded = URL(fileURLWithPath: base).appending(path: value).path
+        }
+        return .local(expanded)
+#else
+        return .reference(WorkspaceReference(
             tree: model.currentReference.tree,
-            path: path.hasPrefix("/") ? path : "/\(path)"
-        )
+            path: value.hasPrefix("/") ? value : "/\(value)"
+        ))
+#endif
     }
 
     @ViewBuilder
@@ -609,13 +700,23 @@ private struct ArborEditorUndoButtons: View {
 private struct MacArbordAccountPanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: ArborWorkspaceState
-    @State private var account: LocalArbordAccountPresentation?
+    let currentNode: WorkspaceNode?
     @State private var pairing: LocalArbordPairingPresentation?
     @State private var message: String?
 
-    private var currentTreeID: String { workspace.home.tree.rawValue }
+    private var account: LocalArbordOverview? { workspace.localArbordOverview }
+    private var currentTreeID: String? {
+        guard let currentNode, currentNode.reference.tree.rawValue != "local" else { return nil }
+        if case .localPath = currentNode.location {
+            return account?.trees.first {
+                $0.id == currentNode.reference.tree.rawValue && $0.path != nil
+            }?.id
+        }
+        return currentNode.reference.tree.rawValue
+    }
     private var currentTree: LocalArbordTreePresentation? {
-        account?.trees.first { $0.id == currentTreeID }
+        guard let currentTreeID else { return nil }
+        return account?.trees.first { $0.id == currentTreeID }
     }
     private var ordinaryTrees: [LocalArbordTreePresentation] {
         account?.trees.filter { !($0.canonicalPath ?? "").contains("/railway-smoke-") } ?? []
@@ -635,79 +736,106 @@ private struct MacArbordAccountPanel: View {
             Form {
                 if let account {
                     Section("Account") {
-                        LabeledContent("Signed in as", value: "~\(account.handle)")
-                        LabeledContent("Authority", value: account.origin)
-                        LabeledContent("Mac credential", value: account.credentialAvailable ? "Connected" : "Missing")
+                        if let handle = account.handle, let origin = account.origin {
+                            LabeledContent("Signed in as", value: "~\(handle)")
+                            LabeledContent("Authority", value: origin)
+                            LabeledContent("Mac credential", value: account.credentialAvailable ? "Connected" : "Missing")
+                        } else {
+                            LabeledContent("Community", value: "Not connected")
+                            Text("Connect this Mac with `arbor connect` to manage authority trees, devices, and iPhone pairing.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    Section("Current workspace") {
-                        LabeledContent("Storage", value: "~/.arbor")
+                    Section("Location") {
+                        LabeledContent("Data home", value: "~/.arbor")
                         if let currentTree {
                             treeLabel(currentTree, current: true)
-                        } else {
-                            LabeledContent("Tree", value: currentTreeID)
+                        } else if let currentTreeID {
+                            LabeledContent("Current tree", value: currentTreeID)
                                 .font(.caption.monospaced())
+                        } else {
+                            LabeledContent("Current tree", value: "Ordinary filesystem")
                         }
                     }
-                    Section {
-                        ForEach(ordinaryTrees) { tree in
-                            treeLabel(tree, current: tree.id == currentTreeID)
-                        }
-                        if !testTrees.isEmpty {
-                            DisclosureGroup("Test trees (\(testTrees.count))") {
-                                ForEach(testTrees) { tree in
-                                    treeLabel(tree, current: false)
-                                }
+                    if !ordinaryTrees.isEmpty || !testTrees.isEmpty {
+                        Section {
+                            ForEach(ordinaryTrees) { tree in
+                                treeLabel(tree, current: tree.id == currentTreeID)
                             }
-                        }
-                    } header: {
-                        Text("Authority trees")
-                    } footer: {
-                        Text("These are roots the account can access, not folders in the current sidebar.")
-                    }
-                    Section {
-                        ForEach(activeDevices, id: \.id) { device in
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(device.label)
-                                    Text("Active credential").font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button("Revoke", role: .destructive) {
-                                    Task { await revoke(device.id) }
-                                }
-                            }
-                        }
-                        if !revokedDevices.isEmpty {
-                            DisclosureGroup("Revoked devices (\(revokedDevices.count))") {
-                                ForEach(revokedDevices, id: \.id) { device in
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(device.label)
-                                        Text("Revoked").font(.caption).foregroundStyle(.secondary)
+                            if !testTrees.isEmpty {
+                                DisclosureGroup("Test trees (\(testTrees.count))") {
+                                    ForEach(testTrees) { tree in
+                                        treeLabel(tree, current: false)
                                     }
                                 }
                             }
+                        } header: {
+                            Text("Authority trees")
+                        } footer: {
+                            Text("These are roots the account can access, not folders in the current sidebar.")
                         }
-                    } header: {
-                        Text("Devices")
-                    } footer: {
-                        Text("Each active device has its own authority credential. Revoking one does not delete any tree data.")
                     }
-                    Section("Pair iPhone") {
-                        Button("Pair another iPhone…") { Task { await createPairing() } }
-                        if let pairing {
-                            PairingQRCode(payload: pairing.payload)
-                                .frame(width: 220, height: 220)
-                                .frame(maxWidth: .infinity)
-                            LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
-                                .font(.headline.monospacedDigit())
-                            Button("Copy pairing code", systemImage: "doc.on.doc") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(pairing.payload, forType: .string)
+                    if account.handle != nil {
+                        Section {
+                            ForEach(activeDevices, id: \.id) { device in
+                                HStack {
+                                    VStack(alignment: .leading) {
+                                        Text(device.label)
+                                        Text("Active credential").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Button("Revoke", role: .destructive) {
+                                        Task { await revoke(device.id) }
+                                    }
+                                }
+                            }
+                            if !revokedDevices.isEmpty {
+                                DisclosureGroup("Revoked devices (\(revokedDevices.count))") {
+                                    ForEach(revokedDevices, id: \.id) { device in
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(device.label)
+                                            Text("Revoked").font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                        } header: {
+                            Text("Devices")
+                        } footer: {
+                            Text("Each active device has its own authority credential. Revoking one does not delete any tree data.")
+                        }
+                        Section("Pair iPhone") {
+                            Button("Pair another iPhone…") { Task { await createPairing() } }
+                            if let pairing {
+                                PairingQRCode(payload: pairing.payload)
+                                    .frame(width: 220, height: 220)
+                                    .frame(maxWidth: .infinity)
+                                LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
+                                    .font(.headline.monospacedDigit())
+                                Button("Copy pairing code", systemImage: "doc.on.doc") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(pairing.payload, forType: .string)
+                                }
                             }
                         }
                     }
                 } else {
-                    Section { ProgressView("Loading ~/.arbor…") }
+                    if let error = workspace.localArbordOverviewError {
+                        Section {
+                            Text(error).foregroundStyle(.red)
+                            Button("Try Again") { Task { await refresh() } }
+                        }
+                    } else {
+                        Section { ProgressView("Loading account…") }
+                    }
+                }
+                if account != nil, let error = workspace.localArbordOverviewError {
+                    Section {
+                        Label("Could not refresh: \(error)", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Button("Try Again") { Task { await refresh() } }
+                    }
                 }
                 if let message { Section { Text(message).foregroundStyle(.secondary) } }
             }
@@ -737,8 +865,10 @@ private struct MacArbordAccountPanel: View {
     }
 
     private func refresh() async {
-        do { account = try await workspace.localArbordAccount(); message = nil }
-        catch { message = error.localizedDescription }
+        if workspace.localArbordOverview == nil {
+            await workspace.restartArbord()
+        }
+        await workspace.refreshLocalArbordOverview()
     }
 
     private func createPairing() async {
@@ -747,7 +877,7 @@ private struct MacArbordAccountPanel: View {
     }
 
     private func revoke(_ id: String) async {
-        do { try await workspace.revokeLocalArbordDevice(id); await refresh() }
+        do { try await workspace.revokeLocalArbordDevice(id) }
         catch { message = error.localizedDescription }
     }
 }

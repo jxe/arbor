@@ -7,17 +7,20 @@ public struct ArbordRuntime: Sendable {
     public let origin: URL
     public let provider: ArbordWorkspaceProvider
     public let home: WorkspaceReference
+    public let launchLocation: WorkspaceLocation
     public let attachedToExistingProcess: Bool
 
     public init(
         origin: URL,
         provider: ArbordWorkspaceProvider,
         home: WorkspaceReference,
+        launchLocation: WorkspaceLocation,
         attachedToExistingProcess: Bool
     ) {
         self.origin = origin
         self.provider = provider
         self.home = home
+        self.launchLocation = launchLocation
         self.attachedToExistingProcess = attachedToExistingProcess
     }
 }
@@ -34,7 +37,7 @@ public enum ArbordSupervisorError: Error, LocalizedError, Sendable {
         case .executableUnavailable:
             "Arbor could not find its bundled arbord helper. Rebuild the macOS app with the helper phase enabled."
         case .serviceUnavailable:
-            "Arbor could not find the user arbord on port 4317. Start arbor browse for this workspace, then retry."
+            "Arbor is not connected to arbord. Reopen the saved workspace or try again."
         case let .incompatibleService(detail): "The loopback service is not a compatible arbord: \(detail)"
         case let .launchFailed(detail): "arbord could not start: \(detail)"
         case let .readinessTimedOut(detail): "arbord did not become ready: \(detail)"
@@ -192,6 +195,7 @@ public actor ArbordProcessSupervisor {
             origin: origin,
             provider: ArbordWorkspaceProvider(client: client),
             home: home,
+            launchLocation: .local(workspace.path),
             attachedToExistingProcess: attached
         )
     }
