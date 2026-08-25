@@ -32,7 +32,6 @@ struct ArborRootView: View {
     @State private var voiceLaunchReady = false
 #if os(iOS)
     @State private var sidebarPresented = false
-    @FocusedValue(\.documentUndoController) private var undoController
 #endif
     @Environment(\.scenePhase) private var scenePhase
 
@@ -361,15 +360,7 @@ struct ArborRootView: View {
             ToolbarItemGroup(placement: .primaryAction) {
 #if os(iOS)
                 if reference == model.currentReference, model.binding != nil {
-                    Button("Undo", systemImage: "arrow.uturn.backward") {
-                        undoController?.undo()
-                    }
-                    .disabled(undoController == nil)
-
-                    Button("Redo", systemImage: "arrow.uturn.forward") {
-                        undoController?.redo()
-                    }
-                    .disabled(undoController == nil)
+                    ArborEditorUndoButtons()
                 }
 #endif
                 if reference == model.currentReference,
@@ -527,6 +518,52 @@ struct ArborRootView: View {
         }
     }
 }
+
+#if os(iOS)
+private struct ArborEditorUndoButtons: View {
+    @FocusedValue(\.documentUndoController) private var undoController
+    @State private var undoRevision = 0
+
+    var body: some View {
+        Button("Undo", systemImage: "arrow.uturn.backward") {
+            undoController?.undo()
+        }
+        .disabled(!canUndo)
+
+        Button("Redo", systemImage: "arrow.uturn.forward") {
+            undoController?.redo()
+        }
+        .disabled(!canRedo)
+        // Keep the focus lookup below the root view: reading a scene-focused value
+        // from the view that also owns the editor creates a SwiftUI focus cycle.
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerCheckpoint)) {
+            refreshIfCurrentUndoManager($0)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) {
+            refreshIfCurrentUndoManager($0)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange)) {
+            refreshIfCurrentUndoManager($0)
+        }
+    }
+
+    private var canUndo: Bool {
+        _ = undoRevision
+        return undoController?.canUndo == true
+    }
+
+    private var canRedo: Bool {
+        _ = undoRevision
+        return undoController?.canRedo == true
+    }
+
+    private func refreshIfCurrentUndoManager(_ notification: Notification) {
+        guard let manager = notification.object as? UndoManager,
+              manager === undoController?.undoManager else { return }
+        undoRevision &+= 1
+    }
+}
+#endif
 
 #if os(macOS)
 private struct MacArbordAccountPanel: View {
