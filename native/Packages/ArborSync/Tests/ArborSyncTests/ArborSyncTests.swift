@@ -78,6 +78,86 @@ struct ArborSyncTests {
         }
     }
 
+    @Test("A provider-confirmed editor patch syncs immediately and falls back by size")
+    func immediateEditorPatch() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_patch"
+            let initialSource = "---\nid: pg_note\n---\n\n# Note\n\nBase\n" + String(repeating: "Shared text.\n", count: 1_024)
+            let initial = try snapshot(markdown: initialSource)
+            let transport = ClosureTransport(initial: initial) { prepared, call in
+                let request = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: prepared.body)
+                let update = accepted(
+                    id: "up_patch_\(call)",
+                    tree: tree,
+                    root: request.candidate,
+                    base: request.base.root,
+                    candidate: request.candidate
+                )
+                return AuthorityUpdateResponse(result: .accepted(update), snapshot: nil)
+            }
+            let replica = try await ReplicaPlacementService.place(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"),
+                transport: transport
+            )
+            let coordinator = try ReplicaSyncCoordinator(
+                replica: replica,
+                transport: transport,
+                stateRoot: root.appending(path: "sync")
+            )
+            let provider = ReplicaWorkspaceProvider(replica: replica) { admission in
+                await coordinator.syncImmediately(admission)
+            }
+            let session = try await provider.openDocument(
+                .init(tree: TreeID(rawValue: tree), path: "/note", pageID: "pg_note")
+            )
+            let base = try await session.snapshot()
+            let baseBytes = Data(base.source.utf8)
+            let target = Data("Base".utf8)
+            let range = try #require(baseBytes.range(of: target))
+            _ = try await session.admit(patch: WorkspaceDocumentPatch(
+                baseContentRevision: base.contentRevision,
+                edits: [WorkspaceSourceEdit(
+                    utf8Range: range,
+                    replacement: "Edited",
+                    expected: "Base"
+                )]
+            ))
+            for _ in 0..<100 where await transport.requests.count < 1 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            let firstPrepared = try #require(await transport.requests.first)
+            let first = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: firstPrepared.body)
+            let patch = try #require(first.filePatches?.first)
+            #expect(first.returnSnapshot == .ifResultDiffers)
+            #expect(patch.edits == [AuthorityFilePatchEdit(
+                offset: range.lowerBound,
+                length: range.count,
+                bytes: Data("Edited".utf8)
+            )])
+            #expect(!first.objects.contains(where: { $0.hash == patch.result }))
+
+            let large = try await session.snapshot()
+            let fallbackSource = "---\nid: pg_note\n---\n\n# Small fallback\n"
+            _ = try await session.admit(patch: WorkspaceDocumentPatch(
+                baseContentRevision: large.contentRevision,
+                edits: [WorkspaceSourceEdit(
+                    utf8Range: 0..<Data(large.source.utf8).count,
+                    replacement: fallbackSource,
+                    expected: large.source
+                )]
+            ))
+            for _ in 0..<100 where await transport.requests.count < 2 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            let secondPrepared = try #require(await transport.requests.dropFirst().first)
+            let second = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: secondPrepared.body)
+            #expect(second.filePatches == nil)
+            #expect(!second.objects.isEmpty)
+            #expect(try await replica.heads().pendingRoot == nil)
+        }
+    }
+
     @Test("A frozen request never absorbs newer admitted local work")
     func localTail() async throws {
         try await withTemporaryRoot { root in

@@ -65,7 +65,10 @@ final class ArborWorkspaceState {
 #if os(macOS)
         if let supervisor { await supervisor.stop(); self.supervisor = nil }
 #endif
-        let nextProvider = ReplicaWorkspaceProvider(replica: replica)
+        let nextProvider = ReplicaWorkspaceProvider(replica: replica) { [weak self] admission in
+            await coordinator.syncImmediately(admission)
+            await self?.refreshSyncPresentation(from: coordinator)
+        }
         await switchProvider(
             nextProvider,
             home: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/"),
@@ -145,6 +148,13 @@ final class ArborWorkspaceState {
                 ?? WorkspaceSyncPresentation(state: .offline, detail: String(describing: error))
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func refreshSyncPresentation(from coordinator: ReplicaSyncCoordinator) async {
+        guard syncCoordinator === coordinator else { return }
+        syncPresentation = (try? await coordinator.presentation())
+            ?? WorkspaceSyncPresentation(state: .offline, detail: "Immediate synchronization failed")
+        syncConflict = try? await coordinator.conflict()
     }
 
     func resolveSyncConflictKeepingLocal() async {

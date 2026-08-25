@@ -52,7 +52,13 @@ enum CanonicalCBOR {
         if value <= 0xff { return Data([major | 24, UInt8(value)]) }
         if value <= 0xffff { return Data([major | 25, UInt8(value >> 8), UInt8(value & 0xff)]) }
         if UInt64(value) <= UInt64(UInt32.max) {
-            return Data([major | 26, UInt8(value >> 24), UInt8(value >> 16), UInt8(value >> 8), UInt8(value)].map { $0 })
+            return Data([
+                major | 26,
+                UInt8((value >> 24) & 0xff),
+                UInt8((value >> 16) & 0xff),
+                UInt8((value >> 8) & 0xff),
+                UInt8(value & 0xff),
+            ])
         }
         let number = UInt64(value)
         return Data([major | 27] + (0..<8).reversed().map { UInt8((number >> UInt64($0 * 8)) & 0xff) })

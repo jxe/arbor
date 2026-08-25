@@ -10,6 +10,8 @@ public actor ReplicaSyncCoordinator {
     private let faultInjector: any ReplicaSyncFaultInjector
     private var control: DurableSyncControl
     private var terminal = false
+    private var syncActive = false
+    private var syncAgain = false
 
     public init(
         replica: ArborReplica,
@@ -50,11 +52,44 @@ public actor ReplicaSyncCoordinator {
 
     @discardableResult
     public func syncOnce() async throws -> WorkspaceSyncPresentation {
+        try await synchronize(admission: nil)
+    }
+
+    /** Best-effort, nonblocking-from-the-editor handoff for one just-durable patch admission. */
+    public func syncImmediately(_ admission: ReplicaPatchAdmission) async {
+        _ = try? await synchronize(admission: admission)
+    }
+
+    private func synchronize(admission: ReplicaPatchAdmission?) async throws -> WorkspaceSyncPresentation {
         try requireOpen()
+        if syncActive {
+            syncAgain = true
+            return try await presentation()
+        }
+        syncActive = true
+        defer { syncActive = false }
+        var nextAdmission = admission
+        var followUp = admission != nil && control.attempt != nil
+        var result = try await presentation()
+        repeat {
+            syncAgain = false
+            result = try await syncPass(admission: nextAdmission)
+            nextAdmission = nil
+            if syncAgain || followUp {
+                followUp = false
+                let heads = try await replica.heads()
+                if heads.pendingRoot == nil || control.conflict != nil { syncAgain = false }
+                else { syncAgain = true }
+            }
+        } while syncAgain
+        return result
+    }
+
+    private func syncPass(admission: ReplicaPatchAdmission?) async throws -> WorkspaceSyncPresentation {
         guard control.conflict == nil else { return try await presentation() }
         let attempt: DurableSyncAttempt
         if let existing = control.attempt { attempt = existing }
-        else { attempt = try await createAttempt() }
+        else { attempt = try await createAttempt(admission: admission) }
         do {
             control.presentation = WorkspaceSyncPresentation(
                 state: .uploading,
@@ -117,7 +152,7 @@ public actor ReplicaSyncCoordinator {
 
     public func close() { terminal = true }
 
-    private func createAttempt() async throws -> DurableSyncAttempt {
+    private func createAttempt(admission: ReplicaPatchAdmission? = nil) async throws -> DurableSyncAttempt {
         let heads = try await replica.heads()
         let base: AuthorityUpdateBase
         if let nextBase = control.nextBase {
@@ -135,11 +170,21 @@ public actor ReplicaSyncCoordinator {
         )
         _ = try WireObjectGraph.validate(authoritySnapshot)
         let retained = (try? await retainedObjectHashes(root: base.root)) ?? []
-        let sparseObjects = authoritySnapshot.objects.filter { !retained.contains($0.hash) }
+        let filePatch = try await immediateFilePatch(
+            admission,
+            heads: heads,
+            base: base,
+            snapshot: authoritySnapshot,
+            retained: retained
+        )
+        let sparseObjects = authoritySnapshot.objects.filter {
+            !retained.contains($0.hash) && $0.hash != filePatch?.result
+        }
         let request = AuthorityUpdateRequest(
             base: base,
             candidate: snapshot.root,
             objects: sparseObjects,
+            filePatches: filePatch.map { [$0] } ?? [],
             returnSnapshot: .ifResultDiffers
         )
         let encoder = JSONEncoder()
@@ -163,6 +208,53 @@ public actor ReplicaSyncCoordinator {
         try files.write(control)
         try faultInjector.reached(.afterRequestPersistence)
         return attempt
+    }
+
+    private func immediateFilePatch(
+        _ admission: ReplicaPatchAdmission?,
+        heads: ReplicaHeads,
+        base: AuthorityUpdateBase,
+        snapshot: AuthoritySnapshot,
+        retained: Set<String>
+    ) async throws -> AuthorityFilePatch? {
+        guard let admission,
+              admission.baseWasAccepted,
+              admission.baseRoot == base.root,
+              heads.acceptedRoot == admission.baseRoot,
+              heads.materializedRoot == admission.candidateRoot,
+              heads.pendingRoot == admission.candidateRoot,
+              heads.generation == admission.generation,
+              snapshot.root == admission.candidateRoot,
+              retained.contains(admission.baseFile),
+              let resultEnvelope = snapshot.objects.first(where: { $0.hash == admission.resultFile }) else {
+            return nil
+        }
+        let baseBytes = try await replica.storedObjectBytes(hash: admission.baseFile)
+        guard case let .file(basePayload) = try WireObjectCodec.decode(baseBytes),
+              let baseSource = String(data: basePayload, encoding: .utf8) else {
+            return nil
+        }
+        let resultSource: String
+        do { resultSource = try admission.patch.applying(to: baseSource) }
+        catch { return nil }
+        let reconstructed = try WireObjectCodec.encode(.file(Data(resultSource.utf8)))
+        guard WireObjectCodec.hash(reconstructed) == admission.resultFile,
+              reconstructed == resultEnvelope.bytes else { return nil }
+        let patch = try AuthorityFilePatch(
+            base: admission.baseFile,
+            result: admission.resultFile,
+            edits: admission.patch.edits.map { edit in
+                AuthorityFilePatchEdit(
+                    offset: edit.utf8Range.lowerBound,
+                    length: edit.utf8Range.count,
+                    bytes: Data(edit.replacement.utf8)
+                )
+            }
+        ).validated()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard try encoder.encode(patch).count < encoder.encode(resultEnvelope).count else { return nil }
+        return patch
     }
 
     private func apply(_ response: AuthorityUpdateResponse, for attempt: DurableSyncAttempt) async throws {

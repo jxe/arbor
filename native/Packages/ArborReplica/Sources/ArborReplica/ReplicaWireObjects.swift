@@ -96,9 +96,15 @@ enum ReplicaWireCodec {
         let prefix = major << 5
         if count < 24 { return Data([prefix | UInt8(count)]) }
         if count <= 0xff { return Data([prefix | 24, UInt8(count)]) }
-        if count <= 0xffff { return Data([prefix | 25, UInt8(count >> 8), UInt8(count)]) }
+        if count <= 0xffff { return Data([prefix | 25, UInt8((count >> 8) & 0xff), UInt8(count & 0xff)]) }
         if UInt64(count) <= UInt64(UInt32.max) {
-            return Data([prefix | 26, UInt8(count >> 24), UInt8(count >> 16), UInt8(count >> 8), UInt8(count)])
+            return Data([
+                prefix | 26,
+                UInt8((count >> 24) & 0xff),
+                UInt8((count >> 16) & 0xff),
+                UInt8((count >> 8) & 0xff),
+                UInt8(count & 0xff),
+            ])
         }
         let value = UInt64(count)
         return Data([prefix | 27] + (0..<8).reversed().map { UInt8((value >> UInt64($0 * 8)) & 0xff) })

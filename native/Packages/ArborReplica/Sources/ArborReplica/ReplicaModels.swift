@@ -63,6 +63,38 @@ public struct ReplicaSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+/** One locally durable editor admission that may seed a single immediate sync attempt. */
+public struct ReplicaPatchAdmission: Sendable, Equatable {
+    public var reference: WorkspaceReference
+    public var baseRoot: String
+    public var candidateRoot: String
+    public var generation: Int
+    public var baseFile: String
+    public var resultFile: String
+    public var patch: WorkspaceDocumentPatch
+    public var baseWasAccepted: Bool
+
+    public init(
+        reference: WorkspaceReference,
+        baseRoot: String,
+        candidateRoot: String,
+        generation: Int,
+        baseFile: String,
+        resultFile: String,
+        patch: WorkspaceDocumentPatch,
+        baseWasAccepted: Bool
+    ) {
+        self.reference = reference
+        self.baseRoot = baseRoot
+        self.candidateRoot = candidateRoot
+        self.generation = generation
+        self.baseFile = baseFile
+        self.resultFile = resultFile
+        self.patch = patch
+        self.baseWasAccepted = baseWasAccepted
+    }
+}
+
 public struct ReplicaDiagnostic: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var title: String

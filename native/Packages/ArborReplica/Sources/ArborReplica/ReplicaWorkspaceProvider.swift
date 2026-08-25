@@ -3,9 +3,14 @@ import Foundation
 
 public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
     public let replica: ArborReplica
+    private let onPatchAdmission: (@Sendable (ReplicaPatchAdmission) async -> Void)?
 
-    public init(replica: ArborReplica) {
+    public init(
+        replica: ArborReplica,
+        onPatchAdmission: (@Sendable (ReplicaPatchAdmission) async -> Void)? = nil
+    ) {
         self.replica = replica
+        self.onPatchAdmission = onPatchAdmission
     }
 
     public func resolve(_ reference: WorkspaceReference) async throws -> WorkspaceNode {
@@ -82,7 +87,11 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
     public func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession {
         let node = try await resolve(reference)
         guard node.surface.supportsDocumentSession else { throw WorkspaceProviderError.notDocument(node.reference) }
-        return ReplicaDocumentSession(replica: replica, reference: node.reference)
+        return ReplicaDocumentSession(
+            replica: replica,
+            reference: node.reference,
+            onPatchAdmission: onPatchAdmission
+        )
     }
 
     @discardableResult
@@ -167,11 +176,17 @@ public actor ReplicaDocumentSession: WorkspaceDocumentSession {
     public nonisolated let identity: WorkspaceIdentity
     private let replica: ArborReplica
     private let initialReference: WorkspaceReference
+    private let onPatchAdmission: (@Sendable (ReplicaPatchAdmission) async -> Void)?
     private var terminal = false
 
-    init(replica: ArborReplica, reference: WorkspaceReference) {
+    init(
+        replica: ArborReplica,
+        reference: WorkspaceReference,
+        onPatchAdmission: (@Sendable (ReplicaPatchAdmission) async -> Void)?
+    ) {
         self.replica = replica
         self.initialReference = reference
+        self.onPatchAdmission = onPatchAdmission
         self.identity = reference.identity
     }
 
@@ -187,6 +202,22 @@ public actor ReplicaDocumentSession: WorkspaceDocumentSession {
         } catch ReplicaError.staleRevision {
             let current = try await replica.documentSnapshot(initialReference)
             throw WorkspaceDocumentConflict(current: current, submittedSource: source)
+        }
+    }
+
+    public func admit(patch: WorkspaceDocumentPatch) async throws -> WorkspaceDocumentSnapshot {
+        try requireOpen()
+        do {
+            let result = try await replica.writeDocument(initialReference, patch: patch)
+            if let onPatchAdmission {
+                let admission = result.admission
+                Task { await onPatchAdmission(admission) }
+            }
+            return result.snapshot
+        } catch ReplicaError.staleRevision {
+            let current = try await replica.documentSnapshot(initialReference)
+            let submitted = (try? patch.applying(to: current.source)) ?? current.source
+            throw WorkspaceDocumentConflict(current: current, submittedSource: submitted)
         }
     }
 

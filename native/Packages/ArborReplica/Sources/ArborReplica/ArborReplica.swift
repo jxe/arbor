@@ -523,6 +523,38 @@ public actor ArborReplica {
         )
     }
 
+    func writeDocument(
+        _ reference: WorkspaceReference,
+        patch: WorkspaceDocumentPatch
+    ) throws -> (snapshot: WorkspaceDocumentSnapshot, admission: ReplicaPatchAdmission) {
+        let current = try documentSnapshot(reference)
+        guard current.contentRevision == patch.baseContentRevision else {
+            throw ReplicaError.staleRevision(expected: patch.baseContentRevision, actual: current.contentRevision)
+        }
+        let before = control.heads
+        let submitted = try patch.applying(to: current.source)
+        let snapshot = try writeDocument(
+            reference,
+            source: submitted,
+            baseRevision: patch.baseContentRevision
+        )
+        let baseObject = ReplicaWireCodec.file(Data(current.source.utf8))
+        let resultObject = ReplicaWireCodec.file(Data(snapshot.source.utf8))
+        return (
+            snapshot,
+            ReplicaPatchAdmission(
+                reference: snapshot.reference,
+                baseRoot: before.materializedRoot,
+                candidateRoot: control.materializedRoot,
+                generation: control.generation,
+                baseFile: ReplicaWireCodec.hash(baseObject),
+                resultFile: ReplicaWireCodec.hash(resultObject),
+                patch: patch,
+                baseWasAccepted: before.pendingRoot == nil && before.acceptedRoot == before.materializedRoot
+            )
+        )
+    }
+
     func history(for reference: WorkspaceReference) throws -> [WorkspaceHistoryEntry] {
         let current = try resolve(reference)
         let records = try files.historyURLs().map { try files.readDated(ReplicaHistoryRecord.self, from: $0) }
