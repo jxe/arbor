@@ -66,10 +66,13 @@ public enum ArborMarkdownCodec {
         }
 
         var parsed: [(block: Block, raw: String)] = []
-        var leading = envelope
+        // The frontmatter envelope is stored separately and emitted once by
+        // `admission`. Starting the first block's raw source with it as well
+        // duplicates the envelope on the first authored edit.
+        var leading = ""
         var ordinal = 0
         while cursor < lines.count {
-            if lines[cursor].content.isEmpty {
+            if isBlankLine(lines[cursor].content) {
                 leading += lines[cursor].raw
                 cursor += 1
                 continue
@@ -88,16 +91,34 @@ public enum ArborMarkdownCodec {
                 cursor += 1
             } else {
                 cursor += 1
-                while cursor < lines.count, !lines[cursor].content.isEmpty, !structuralLine(lines[cursor].content) {
+                while cursor < lines.count, !isBlankLine(lines[cursor].content), !structuralLine(lines[cursor].content) {
                     cursor += 1
                 }
             }
-            while cursor < lines.count, lines[cursor].content.isEmpty { cursor += 1 }
-            let raw = leading + lines[start..<cursor].map(\.raw).joined()
+            let contentEnd = cursor
+            while cursor < lines.count, isBlankLine(lines[cursor].content) { cursor += 1 }
+            let blankEnd = cursor
+            let hasFollowingBlock = blankEnd < lines.count
+            let separatorEnd = hasFollowingBlock && contentEnd < blankEnd
+                ? contentEnd + 1
+                : blankEnd
+            let raw = leading + lines[start..<separatorEnd].map(\.raw).joined()
             leading = ""
             let id = stableID(seed: identitySeed, ordinal: ordinal)
             ordinal += 1
-            parsed.append((parseBlock(Array(lines[start..<cursor]), id: id), raw))
+            parsed.append((parseBlock(Array(lines[start..<contentEnd]), id: id), raw))
+
+            // CommonMark gives one blank line to ordinary block separation.
+            // Every additional blank line between authored blocks represents
+            // one intentional empty Quagmire paragraph, matching Hunch's
+            // human-readable Markdown convention.
+            if hasFollowingBlock, separatorEnd < blankEnd {
+                for blank in lines[separatorEnd..<blankEnd] {
+                    let emptyID = stableID(seed: identitySeed, ordinal: ordinal)
+                    ordinal += 1
+                    parsed.append((.paragraph(text: AttributedString(), id: emptyID), blank.raw))
+                }
+            }
         }
         if !leading.isEmpty, parsed.isEmpty { envelope += leading }
         else if !leading.isEmpty, let last = parsed.indices.last { parsed[last].raw += leading }
@@ -116,17 +137,31 @@ public enum ArborMarkdownCodec {
 
     static func admission(blocks: [Block], ledger: ArborSourceLedger) -> (ArborMarkdownAdmission, ArborSourceLedger) {
         var chunks: [String] = [ledger.envelope]
+        var emittedTail = String(ledger.envelope.suffix(max(2, ledger.newline.count * 2)))
         var nextRecords: [BlockID: SourceRecord] = [:]
+        var emittedAuthoredBlock = false
+        let flattened = flattenedBlocks(blocks)
+        var remainingNonemptyBlocks = flattened.reduce(into: 0) { count, block in
+            if !isEmptyParagraph(block) { count += 1 }
+        }
         func append(_ block: Block, depth: Int, listDepth: Int) {
+            let emptyParagraph = isEmptyParagraph(block)
+            if !emptyParagraph { remainingNonemptyBlocks -= 1 }
             var raw: String
             if let record = ledger.records[block.id], record.block.kind == block.kind, record.depth == depth {
                 raw = record.raw
             } else {
-                raw = canonical(block, newline: ledger.newline, indent: listDepth)
+                let needsExplicitEmptyMarker = emptyParagraph
+                    && (!emittedAuthoredBlock || remainingNonemptyBlocks == 0)
+                raw = canonical(
+                    block,
+                    newline: ledger.newline,
+                    indent: listDepth,
+                    explicitEmptyMarker: needsExplicitEmptyMarker
+                )
                 if listDepth == 0,
-                   let previous = chunks.last,
-                   !previous.isEmpty,
-                   !previous.hasSuffix(ledger.newline + ledger.newline),
+                   !emittedTail.isEmpty,
+                   !emittedTail.hasSuffix(ledger.newline + ledger.newline),
                    !raw.hasPrefix(ledger.newline) {
                     // A byte-preserved final block may end in a single newline.
                     // Keep no-op source exact, but separate a newly appended
@@ -136,7 +171,9 @@ public enum ArborMarkdownCodec {
                 }
             }
             chunks.append(raw)
+            emittedTail = String((emittedTail + raw).suffix(max(2, ledger.newline.count * 2)))
             nextRecords[block.id] = SourceRecord(block: block, raw: raw, depth: depth)
+            emittedAuthoredBlock = true
             let addsListDepth: Bool
             switch block.kind {
             case .bullet, .numbered, .todo: addsListDepth = true
@@ -165,17 +202,35 @@ public enum ArborMarkdownCodec {
 
     static func rebased(_ opened: ArborMarkdownOpenedDocument, preserving current: [Block]) -> ArborMarkdownOpenedDocument {
         var oldBySignature: [String: [Block]] = [:]
+        var preservedIDBySourceID: [BlockID: BlockID] = [:]
         var sourceIDByResultID: [BlockID: BlockID] = [:]
         walk(current) { block, _ in oldBySignature[signature(block), default: []].append(block) }
+
+        // Decide every identity reuse before assigning IDs to newly parsed
+        // blocks. Parsed IDs are ordinal-derived, so an insertion can otherwise
+        // claim an ID that belongs to a later preserved block.
+        walk(opened.blocks) { block, _ in
+            guard var candidates = oldBySignature[signature(block)], !candidates.isEmpty else { return }
+            let chosen = candidates.removeFirst()
+            oldBySignature[signature(block)] = candidates
+            preservedIDBySourceID[block.id] = chosen.id
+        }
+        let reservedIDs = Set(preservedIDBySourceID.values)
+        var usedIDs: Set<BlockID> = []
         func reuse(_ block: Block) -> Block {
             var value = block
-            if var candidates = oldBySignature[signature(block)], !candidates.isEmpty {
-                let chosen = candidates.removeFirst()
-                oldBySignature[signature(block)] = candidates
-                value = Block(id: chosen.id, kind: block.kind, children: block.children.map(reuse))
+            let resultID: BlockID
+            if let preservedID = preservedIDBySourceID[block.id] {
+                resultID = preservedID
+            } else if reservedIDs.contains(block.id) || usedIDs.contains(block.id) {
+                var fresh = BlockID()
+                while reservedIDs.contains(fresh) || usedIDs.contains(fresh) { fresh = BlockID() }
+                resultID = fresh
             } else {
-                value.children = value.children.map(reuse)
+                resultID = block.id
             }
+            usedIDs.insert(resultID)
+            value = Block(id: resultID, kind: block.kind, children: block.children.map(reuse))
             sourceIDByResultID[value.id] = block.id
             return value
         }
@@ -212,17 +267,22 @@ public enum ArborMarkdownCodec {
     }
 
     private static func structuralLine(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: .whitespaces)
-        return trimmed.hasPrefix("#") || trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ")
-            || trimmed.hasPrefix("> ") || trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")
+        let leadingTrimmed = String(value.drop(while: { $0 == " " || $0 == "\t" }))
+        let trimmed = leadingTrimmed.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("#") || leadingTrimmed.hasPrefix("- ") || leadingTrimmed.hasPrefix("* ")
+            || leadingTrimmed.hasPrefix("> ") || trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")
             || trimmed.hasPrefix("<") || trimmed.hasPrefix("$$") || trimmed.hasPrefix("[^_")
-            || trimmed.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil
+            || leadingTrimmed.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil
             || trimmed == "---" || trimmed == "***" || trimmed == "___"
     }
 
     private static func parseBlock(_ lines: [SourceLine], id: BlockID) -> Block {
         let first = lines.first?.content ?? ""
-        let trimmed = first.trimmingCharacters(in: .whitespaces)
+        let leadingTrimmed = String(first.drop(while: { $0 == " " || $0 == "\t" }))
+        let trimmed = leadingTrimmed.trimmingCharacters(in: .whitespaces)
+        if leadingTrimmed == "\u{00A0}" {
+            return .paragraph(text: AttributedString(), id: id)
+        }
         if let match = trimmed.range(of: #"^#{1,6}\s+"#, options: .regularExpression) {
             let level = trimmed[..<match.upperBound].filter { $0 == "#" }.count
             return .heading(level: level, text: parseInline(String(trimmed[match.upperBound...])), id: id)
@@ -232,17 +292,18 @@ public enum ArborMarkdownCodec {
             let body = lines.dropFirst().dropLast().map(\.content).joined(separator: "\n")
             return .code(source: body, language: language.isEmpty ? nil : language, id: id)
         }
-        if trimmed.hasPrefix("- [") || trimmed.hasPrefix("* [") {
-            let done = trimmed.prefix(5).lowercased().contains("[x]")
-            return .todo(text: parseInline(String(trimmed.dropFirst(6))), done: done, id: id)
+        let taskPrefix = String(leadingTrimmed.prefix(6)).lowercased()
+        if ["- [ ] ", "- [x] ", "* [ ] ", "* [x] "].contains(taskPrefix) {
+            let done = taskPrefix.contains("[x]")
+            return .todo(text: parseInline(String(leadingTrimmed.dropFirst(6))), done: done, id: id)
         }
-        if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
-            return .bullet(text: parseInline(String(trimmed.dropFirst(2))), id: id)
+        if leadingTrimmed.hasPrefix("- ") || leadingTrimmed.hasPrefix("* ") {
+            return .bullet(text: parseInline(String(leadingTrimmed.dropFirst(2))), id: id)
         }
-        if let match = trimmed.range(of: #"^\d+\.\s"#, options: .regularExpression) {
-            return .numbered(text: parseInline(String(trimmed[match.upperBound...])), id: id)
+        if let match = leadingTrimmed.range(of: #"^\d+\.\s"#, options: .regularExpression) {
+            return .numbered(text: parseInline(String(leadingTrimmed[match.upperBound...])), id: id)
         }
-        if trimmed.hasPrefix("> ") { return .quote(text: parseInline(String(trimmed.dropFirst(2))), id: id) }
+        if leadingTrimmed.hasPrefix("> ") { return .quote(text: parseInline(String(leadingTrimmed.dropFirst(2))), id: id) }
         if ["---", "***", "___"].contains(trimmed) { return .divider(id: id) }
         if let pair = wholeLink(trimmed) {
             return .documentLink(label: AttributedString(pair.label), reference: DocumentReference(pair.target), id: id)
@@ -265,11 +326,20 @@ public enum ArborMarkdownCodec {
         return (String(value[value.index(value.startIndex, offsetBy: 2)..<middle.lowerBound]), String(value[middle.upperBound..<value.index(before: value.endIndex)]))
     }
 
-    private static func canonical(_ block: Block, newline: String, indent: Int) -> String {
+    private static func canonical(
+        _ block: Block,
+        newline: String,
+        indent: Int,
+        explicitEmptyMarker: Bool = false
+    ) -> String {
         let prefix = String(repeating: "  ", count: indent)
         let line: String
         switch block.kind {
-        case let .paragraph(text): line = inline(text)
+        case let .paragraph(text):
+            if text.characters.isEmpty {
+                return explicitEmptyMarker ? prefix + "\u{00A0}" + newline + newline : newline
+            }
+            line = inline(text)
         case let .heading(level, text): line = String(repeating: "#", count: level.rawValue) + " " + inline(text)
         case let .bullet(text): line = prefix + "- " + inline(text)
         case let .numbered(text): line = prefix + "1. " + inline(text)
@@ -453,5 +523,20 @@ public enum ArborMarkdownCodec {
             visit(block, depth)
             walk(block.children, depth: depth + 1, visit: visit)
         }
+    }
+
+    private static func isBlankLine(_ value: String) -> Bool {
+        value.allSatisfy { $0 == " " || $0 == "\t" || $0 == "\r" }
+    }
+
+    private static func isEmptyParagraph(_ block: Block) -> Bool {
+        guard case let .paragraph(text) = block.kind else { return false }
+        return text.characters.isEmpty
+    }
+
+    private static func flattenedBlocks(_ blocks: [Block]) -> [Block] {
+        var result: [Block] = []
+        walk(blocks) { block, _ in result.append(block) }
+        return result
     }
 }

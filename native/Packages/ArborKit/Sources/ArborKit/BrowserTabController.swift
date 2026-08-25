@@ -49,6 +49,13 @@ public final class BrowserTabController {
     public var canGoBack: Bool { !selectedTab.back.isEmpty }
     public var canGoForward: Bool { !selectedTab.forward.isEmpty }
     public var canGoParent: Bool { selectedTab.current.parent != nil }
+    public var navigationRoot: WorkspaceReference {
+        selectedTab.back.first ?? selectedTab.current
+    }
+    public var navigationPath: [WorkspaceReference] {
+        guard !selectedTab.back.isEmpty else { return [] }
+        return Array(selectedTab.back.dropFirst()) + [selectedTab.current]
+    }
 
     @discardableResult
     public func newTab(at reference: WorkspaceReference? = nil) -> UUID {
@@ -98,8 +105,37 @@ public final class BrowserTabController {
         if let parent = selectedTab.current.parent { navigate(to: parent) }
     }
 
-    public func goHome() { navigate(to: home) }
+    public func goHome() {
+        if navigationRoot == home {
+            setNavigationPath([])
+        } else {
+            navigate(to: home)
+        }
+    }
     public func setHome(_ reference: WorkspaceReference) { home = reference }
+
+    /// Reconciles a system NavigationStack pop with this tab's browser history.
+    /// Programmatic pushes continue to flow through `navigate(to:)`, while a
+    /// native back gesture or toolbar action writes the shorter visible path.
+    public func setNavigationPath(_ path: [WorkspaceReference]) {
+        let root = navigationRoot
+        let previous = navigationPath
+        guard path != previous else { return }
+        mutateSelected { tab in
+            if path.count < previous.count, Array(previous.prefix(path.count)) == path {
+                tab.forward.append(contentsOf: previous.dropFirst(path.count).reversed())
+            } else {
+                tab.forward.removeAll()
+            }
+            if let current = path.last {
+                tab.current = current
+                tab.back = [root] + path.dropLast()
+            } else {
+                tab.current = root
+                tab.back = []
+            }
+        }
+    }
 
     public func updatePresentation(_ presentation: BrowserTabPresentation) {
         mutateSelected { $0.presentation = presentation }

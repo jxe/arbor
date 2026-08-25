@@ -21,7 +21,8 @@
     "test:e2e": "playwright test",
     "test:protocol": "bun tests/protocol/conformance.ts",
     "test:performance": "bun tests/performance/indexer.bench.ts",
-    "lab:hcloud": "bun tools/hcloud-sync-lab.ts"
+    "lab:hcloud": "bun tools/hcloud-sync-lab.ts",
+    "hunch:rehearsal": "bun tools/hunch-rehearsal/cli.ts"
   },
   "dependencies": {
     "@arbor/cli": "workspace:*",

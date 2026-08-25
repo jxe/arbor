@@ -26,7 +26,7 @@ Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quag
 | [016](016-bridge-quagmire.md) | Bridge Quagmire to Arbor documents | P1 | XL | 012, 014 | DONE — exact-source Quagmire bridge and unchanged-package gates verified |
 | [017](017-complete-daily-driver.md) | Complete the native daily-driver core | P1 | XL | 015, 016 | DONE — shared providers, signed sandboxed `arbord` helper, and daily-driver workflows verified |
 | [018](018-port-hunch-strengths.md) | Port Hunch's native strengths | P1 | XL | 017 | IN PROGRESS — Extras work implemented; async provider-backed images, Quagmire `0.3.0`, hands-on checks, and older partial rows remain |
-| [019](019-convert-hunch-workspace.md) | Convert the live Hunch workspace and cut over | P1 | L | 018 | TODO |
+| [019](019-convert-hunch-workspace.md) | Rehearse Hunch conversion and later cut over | P1 | L | 017 for rehearsals; 018 for final adoption | IN PROGRESS — converter, private stable recipe, and first verified rehearsal complete; backup proof, promoted multi-device qualification, and final adoption pending |
 | [020](020-test-device-management-browser.md) | Complete device-management browser E2E | P2 | S | 010 | TODO |
 | [021](021-add-wire-file-patches.md) | Send editor patches in immediate authority updates | P1 | L | 015, 016 | DONE — immediate verified patches, sparse fallback, and conditional snapshots verified |
 
@@ -43,7 +43,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - 014 proves local safety without a network; 015 adds synchronization without changing local durability.
 - 016 proves exact editor persistence independently of the broad product surface.
 - 018 first upgrades the existing bridge to exact remote Quagmire `0.2.0` and consumes `QuagmireExtras` for voice/recovery, transcript polishing, and link previews while Arbor retains product identity, provider, destination, and support-path ownership. It then proves host-neutral async image persistence/loading in both Hunch and Arbor against one local Quagmire revision, tags exact `0.3.0`, and keeps Arbor asset placement and byte access provider-owned.
-- 019 is the only milestone allowed to read the live Hunch workspace or create its converted destination.
+- 019 is the only milestone allowed to read the live Hunch workspace or create converted destinations. It may create repeatable, isolated rehearsal trees after Plan 017 while Hunch remains the active writer; final adoption still waits for Plan 018 and separate explicit approval.
 - 020 is later browser-surface hardening. It does not block the already verified device protocol, Railway migration, or native implementation sequence.
 - 021 completes the first-alpha synchronization transport. Immediately after a durable local editor admission, it uses that just-verified patch when the authority base and sync scheduler are ready; otherwise it falls back to the ordinary sparse complete-object candidate. It also avoids downloading a returned snapshot when the authority accepted the submitted candidate unchanged.
 

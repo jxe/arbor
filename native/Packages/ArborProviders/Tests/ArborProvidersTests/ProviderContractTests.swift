@@ -67,6 +67,23 @@ struct ProviderContractTests {
         )
     }
 
+    @Test("Live arbord resolves an existing path when the protocol harness supplies it")
+    func arbordExistingPath() async throws {
+        guard let raw = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"],
+              let origin = URL(string: raw),
+              let path = ProcessInfo.processInfo.environment["ARBOR_TEST_EXISTING_PATH"] else {
+            return
+        }
+        let client = ArborClient(baseURL: origin)
+        let snapshot = try await client.node(.path("/"))
+        let tree = TreeID(rawValue: snapshot.tree ?? snapshot.ref.tree ?? "local")
+        let node = try await ArbordWorkspaceProvider(client: client).resolve(
+            WorkspaceReference(tree: tree, path: path)
+        )
+        #expect(node.reference.pathHint == path)
+        #expect(node.surface.supportsDocumentSession)
+    }
+
     private func verify(provider: any WorkspaceProvider, root: WorkspaceReference) async throws {
         let suffix = UUID().uuidString.lowercased().prefix(8)
         let folder = try #require(try await provider.perform(.createDirectory(

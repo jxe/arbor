@@ -24,7 +24,7 @@ Execution order:
 11. [016 — Quagmire bridge](016-bridge-quagmire.md)
 12. [017 — daily-driver core](017-complete-daily-driver.md)
 13. [018 — Hunch native strengths](018-port-hunch-strengths.md)
-14. [019 — one-time Hunch cutover](019-convert-hunch-workspace.md)
+14. [019 — repeatable Hunch conversion rehearsals and later cutover](019-convert-hunch-workspace.md)
 15. [020 — device-management browser E2E](020-test-device-management-browser.md)
 16. [021 — immediate editor-patch authority updates](021-add-wire-file-patches.md)
 
@@ -78,15 +78,19 @@ ArborApp
 
 Plan 018's image revision belongs to Quagmire core because asynchronous paste/drop ordering, undo grouping, normalization, and resource loading are editor behavior shared by Hunch and Arbor. Arbor still owns tree-scoped root `Assets` placement, provider-authored Markdown sources, authenticated/offline byte reads, read-only policy, and error presentation. Both consumers must pass against the same local Quagmire revision before the exact `0.3.0` release is tagged.
 
-## Hunch replacement and cutover
+## Hunch rehearsals, replacement, and cutover
 
-Native Arbor must reproduce Hunch's accepted daily-use strengths before cutover: editing and selection, undo, gestures/reorder, mentions/document links, images/assets, emoji/icons, voice/transcription, transcript polishing, native menus/shortcuts, search/backlinks, recovery/history, conflicts, tabs/windows, accessibility, and crash-safe cross-document actions. Arbor remains node-first and browser-like; it does not inherit Hunch's flat page graph or Clamshell storage.
+Native Arbor must reproduce Hunch's accepted daily-use strengths before final adoption: editing and selection, undo, gestures/reorder, mentions/document links, images/assets, emoji/icons, voice/transcription, transcript polishing, native menus/shortcuts, search/backlinks, recovery/history, conflicts, tabs/windows, accessibility, and crash-safe cross-document actions. Arbor remains node-first and browser-like; it does not inherit Hunch's flat page graph or Clamshell storage.
 
-The active Hunch workspace is `/Users/joe/Documents/todos`. Plan 019 performs a one-time copy conversion into `/Users/joe/Documents/todos-arbor`; it is not an app import feature. The original, Trash, and `.history` remain in a hash-verified backup. The converted tree contains 70 curated live pages and 17 assets, preserves 61 existing IDs, mints reviewed IDs for nine retained ID-less pages, uses `Console.md` as Home, and discards only the seven explicitly reviewed `main N.md` iCloud collision artifacts. Hunch and Arbor must never coauthor the same folder.
+The active Hunch workspace is `/Users/joe/Documents/todos`. Plan 019 first supports repeatable, copy-only rehearsal imports into new run-specific destinations. Hunch remains the active writer throughout rehearsals; Arbor never opens the source folder for writing, and edits made while evaluating one rehearsal tree never flow back into Hunch or silently seed a later rehearsal. A stable private conversion recipe preserves the same reviewed PageIDs across runs. Every rehearsal gets a fresh destination and run manifest; a rehearsal promoted for multi-device testing also receives a fresh private TreeID and canonical path. This is focused operator tooling, not an app import feature.
+
+The disposable repository-local converter is implemented under [`tools/hunch-rehearsal`](../../tools/hunch-rehearsal). It inventories without writes, drafts a private recipe, requires two identical dry-run confirmations, stages and verifies every output byte before publishing a new destination, and can verify the untouched import baseline afterward. No personal recipe, manifest, content, or hash is checked in. The first private rehearsal was created and verified on 2026-08-25, then opened repeatedly in signed native Arbor builds while the Hunch source remained unchanged.
+
+Final adoption is a later, separately authorized use of the same verified conversion. It starts from a fresh locked Hunch snapshot rather than promoting an arbitrarily modified rehearsal tree. The original, Trash, and `.history` remain in a hash-verified backup. The current reviewed conversion contains 70 curated live pages and 17 assets, preserves 61 existing IDs, mints stable reviewed IDs for nine retained ID-less pages, uses `Console.md` as Home, and discards only the seven explicitly reviewed `main N.md` iCloud collision artifacts. Hunch and Arbor must never coauthor the same folder.
 
 ## Release gates
 
-The final native cutover requires:
+Rehearsals may begin after the Plan 017 daily-driver gates and must record the exact Arbor build plus known incomplete parity rows. The final native cutover requires:
 
 - deterministic authority merge fixtures and TypeScript/Swift sync-protocol fixtures;
 - the backed-up, restore-tested Railway sync/history migration, followed by a clean-runtime restart;
@@ -96,6 +100,7 @@ The final native cutover requires:
 - exact built-app metadata proving the packaged voice intent and Arbor-owned shortcut provider/phrases were extracted;
 - two-device offline convergence, crash/restart, history, conflict, and credential-revocation tests;
 - full Hunch parity inventory and exact-artifact manual checks;
-- two identical conversion dry-run manifests and matching Mac/host/iOS accepted roots before writes are enabled.
+- two identical conversion dry-run manifests and matching Mac/host/iOS accepted roots before final writes are enabled;
+- at least one successful promoted rehearsal from a fresh Hunch snapshot, with matching Mac/host/iOS roots and its Arbor-only experiments treated as disposable evaluation state rather than migration input.
 
 STOP rather than improvise if deterministic object encodings differ between languages, a migration cannot restore exact legacy refs, an automatic merge can omit an added Markdown line, a conflict path would discard either side, Quagmire identity changes under an in-place edit, a local admitted edit depends on network availability for safety, or Hunch/Arbor could write the same source folder.

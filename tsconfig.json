@@ -25,5 +25,5 @@
       "@arbor/wire": ["packages/wire/src/index.ts"]
     }
   },
-  "include": ["packages/**/*.ts", "packages/**/*.tsx", "tests/**/*.ts"]
+  "include": ["packages/**/*.ts", "packages/**/*.tsx", "tests/**/*.ts", "tools/hunch-rehearsal/**/*.ts"]
 }

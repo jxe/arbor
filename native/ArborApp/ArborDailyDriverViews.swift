@@ -25,14 +25,24 @@ struct ArborWindowCommands {
     var goHome: () -> Void
     var goBack: () -> Void
     var goForward: () -> Void
+    var goParent: () -> Void
     var newTab: () -> Void
     var closeTab: () -> Void
+    var newDocument: () -> Void
+    var newFolder: () -> Void
+    var openLocation: () -> Void
+    var openLocalWorkspace: () -> Void
     var showSearch: () -> Void
     var showHistory: () -> Void
+    var showBacklinks: () -> Void
+    var showSource: () -> Void
+    var showSyncStatus: () -> Void
     var canGoBack: Bool
     var canGoForward: Bool
+    var canGoParent: Bool
     var canCloseTab: Bool
     var hasDocument: Bool
+    var hasNode: Bool
 }
 
 private struct ArborWindowCommandsKey: FocusedValueKey {
@@ -461,10 +471,14 @@ struct ArborSyncStatusView: View {
             Form {
                 Section("Current document") {
                     LabeledContent("Save status", value: saveStatus)
-                    if binding?.lastError != nil {
+                    if let error = binding?.lastError {
                         Text("The latest edit remains in this session but has not reached durable provider storage. Retry before closing or navigating away.")
                             .font(.caption)
                             .foregroundStyle(.red)
+                        Text(error.localizedDescription)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
                     }
                 }
                 Section("Workspace") {

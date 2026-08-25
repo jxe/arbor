@@ -138,7 +138,7 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported {
     }
 
     public func openDocument(_ reference: DocumentReference) {
-        guard let decoded = ArborDocumentReferenceCodec.decode(reference) else { return }
+        guard let decoded = workspaceReference(for: reference) else { return }
         openAction(decoded)
     }
 
@@ -146,7 +146,7 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported {
 
     public func lookupDocument(_ reference: DocumentReference) -> DocumentLookup {
         if let value = lookups[reference] { return value }
-        guard let decoded = ArborDocumentReferenceCodec.decode(reference) else { return .missing }
+        guard let decoded = workspaceReference(for: reference) else { return .missing }
         lookups[reference] = .pending
         if lookupTasks[reference] == nil {
             lookupTasks[reference] = Task { @MainActor [weak self] in
@@ -169,11 +169,31 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported {
 
     public func resolveReference(from url: URL, in _: Document) -> DocumentReference? {
         if url.scheme == "arbor" { return DocumentReference(url.absoluteString) }
-        guard url.scheme == nil, let parent = binding.reference.parent else { return nil }
-        let raw = url.relativeString.removingPercentEncoding ?? url.relativeString
+        guard let reference = workspaceReference(for: url) else { return nil }
+        return ArborDocumentReferenceCodec.encode(reference)
+    }
+
+    private func workspaceReference(for reference: DocumentReference) -> WorkspaceReference? {
+        if let decoded = ArborDocumentReferenceCodec.decode(reference) { return decoded }
+        guard let url = URL(string: reference.rawValue) else { return nil }
+        return workspaceReference(for: url)
+    }
+
+    private func workspaceReference(for url: URL) -> WorkspaceReference? {
+        guard url.scheme == nil else { return nil }
+        let parent: WorkspaceReference
+        if let containing = binding.reference.parent {
+            parent = containing
+        } else if binding.reference.pathHint == "/" {
+            parent = binding.reference
+        } else {
+            return nil
+        }
+        let raw = url.path.removingPercentEncoding ?? url.path
+        guard !raw.isEmpty else { return nil }
         let path = raw.hasPrefix("/") ? raw : (parent.pathHint == "/" ? "/\(raw)" : "\(parent.pathHint)/\(raw)")
-        let logical = path.hasSuffix(".md") ? String(path.dropLast(3)) : path
-        return ArborDocumentReferenceCodec.encode(WorkspaceReference(tree: binding.reference.tree, path: logical))
+        let logical = path.lowercased().hasSuffix(".md") ? String(path.dropLast(3)) : path
+        return WorkspaceReference(tree: binding.reference.tree, path: logical)
     }
 
     public func linkURL(for reference: DocumentReference, in _: Document) -> URL? {
@@ -185,7 +205,7 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported {
         requestedReference: DocumentReference?,
         initialContent: [Block]?
     ) async -> DocumentReference? {
-        let requested = requestedReference.flatMap(ArborDocumentReferenceCodec.decode)
+        let requested = requestedReference.flatMap(workspaceReference(for:))
         let parent = requested?.parent ?? binding.reference.parent ?? WorkspaceReference(tree: binding.reference.tree, path: "/")
         let requestedName = requested?.pathHint.split(separator: "/").last.map(String.init)
         let name = requestedName ?? slug(title)
@@ -196,7 +216,7 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported {
     }
 
     public func loadDocumentBlocks(_ reference: DocumentReference) async -> [Block]? {
-        guard let decoded = ArborDocumentReferenceCodec.decode(reference),
+        guard let decoded = workspaceReference(for: reference),
               let session = try? await provider.openDocument(decoded),
               let snapshot = try? await session.snapshot() else { return nil }
         await session.close()
@@ -204,13 +224,13 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported {
     }
 
     public func inlineAndRetireDocument(_ reference: DocumentReference, parent _: Document) async -> Bool {
-        guard let decoded = ArborDocumentReferenceCodec.decode(reference) else { return false }
+        guard let decoded = workspaceReference(for: reference) else { return false }
         await binding.flush()
         return (try? await provider.perform(.trash(reference: decoded))) != nil
     }
 
     public func appendToDocument(_ reference: DocumentReference, _ blocks: [Block]) async -> Bool {
-        guard let decoded = ArborDocumentReferenceCodec.decode(reference),
+        guard let decoded = workspaceReference(for: reference),
               let session = try? await provider.openDocument(decoded),
               let snapshot = try? await session.snapshot() else { return false }
         let opened = ArborMarkdownCodec.open(

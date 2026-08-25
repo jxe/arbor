@@ -229,6 +229,7 @@ final class ArborAppModel {
     private(set) var history: [WorkspaceHistoryEntry] = []
     private(set) var sourceSnapshot: WorkspaceDocumentSnapshot?
     private(set) var tabVersion = 0
+    private(set) var isLoading = false
     private var observedWorkspaceGeneration: Int
     private var loadRequestID = 0
     private var searchRequestID = 0
@@ -251,6 +252,14 @@ final class ArborAppModel {
     var selectedTabID: UUID { tabs.selectedTabID }
     var tabItems: [BrowserTab] { tabs.tabs }
     var binding: ArborDocumentBinding? { editorLease?.binding }
+    var navigationRoot: WorkspaceReference {
+        _ = tabVersion
+        return tabs.navigationRoot
+    }
+    var navigationPath: [WorkspaceReference] {
+        _ = tabVersion
+        return tabs.navigationPath
+    }
 
     func resetForWorkspace() async {
         guard observedWorkspaceGeneration != workspace.generation else {
@@ -270,6 +279,7 @@ final class ArborAppModel {
     func load() async {
         loadRequestID += 1
         let requestID = loadRequestID
+        isLoading = true
         if let editorLease {
             editorHost?.resolveMoveRequest(with: nil)
             await workspace.editorWorkspace.release(editorLease)
@@ -305,6 +315,7 @@ final class ArborAppModel {
                 )
             }
             errorMessage = nil
+            isLoading = false
             Task { await self.loadBacklinks() }
         } catch {
             guard requestID == loadRequestID else { return }
@@ -312,6 +323,7 @@ final class ArborAppModel {
             children = []
             sidebarReference = currentReference.parent ?? workspace.home
             errorMessage = error.localizedDescription
+            isLoading = false
         }
     }
 
@@ -325,6 +337,13 @@ final class ArborAppModel {
     func goForward() async { tabs.goForward(); tabVersion += 1; await load() }
     func goParent() async { tabs.goParent(); tabVersion += 1; await load() }
     func goHome() async { tabs.goHome(); tabVersion += 1; await load() }
+
+    func setNavigationPath(_ path: [WorkspaceReference]) {
+        guard path != tabs.navigationPath else { return }
+        tabs.setNavigationPath(path)
+        tabVersion += 1
+        Task { await load() }
+    }
 
     func newTab() async {
         tabs.newTab(at: currentReference)

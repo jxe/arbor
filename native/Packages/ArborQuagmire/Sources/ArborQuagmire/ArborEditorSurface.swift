@@ -20,6 +20,15 @@ public struct ArborEditorSurface<Footer: View>: View {
     }
 
     public var body: some View {
+        #if os(macOS)
+        editor
+            .focusEffectDisabled()
+        #else
+        editor
+        #endif
+    }
+
+    private var editor: some View {
         EditorView(
             document: binding.document,
             state: binding.editorState,

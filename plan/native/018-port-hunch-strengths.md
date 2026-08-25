@@ -13,7 +13,7 @@
 - **Category**: product/parity
 - **Planned at**: Arbor `dc34126`, Hunch `a1e8379`, Quagmire `4049fd4`, 2026-08-23
 - **Reconciled at**: Arbor `f00aa87`, Hunch `d13087b`, Quagmire `af61f9a` / `0.2.0`, 2026-08-25; image work planned at Arbor `a3a9ffd`, 2026-08-25
-- **Progress**: Shell, Move To, typography/editing feedback, native editor commands, safety presentation, and the QuagmireExtras `0.2.0` adoption are implemented. Arbor now uses shared voice/recovery, external-link preview, and transcript-polishing mechanisms behind Arbor-owned PageID/provider/support-directory adapters. Automated gates pass. Async image paste/render through Arbor providers, its Quagmire `0.3.0` release, the hands-on checklist below, and the older partial parity rows remain. Live parity matrix at [`hunch-parity.md`](hunch-parity.md)
+- **Progress**: Shell, pushed page-frame navigation, Move To, typography/editing feedback, native editor commands, safety presentation, and the QuagmireExtras `0.2.0` adoption are implemented. Arbor now uses shared voice/recovery, external-link preview, and transcript-polishing mechanisms behind Arbor-owned PageID/provider/support-directory adapters. Automated gates pass. Async image paste/render through Arbor providers, its Quagmire `0.3.0` release, the hands-on checklist below, and the older partial parity rows remain. Live parity matrix at [`hunch-parity.md`](hunch-parity.md)
 
 ## Why this matters
 

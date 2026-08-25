@@ -36,6 +36,24 @@ struct ArborAppTests {
         #expect(model.children.map(\.title) == ["Welcome", "Files", "People", "Offline item", "Provider diagnostic"])
     }
 
+    @Test("Opening a page pushes a native page-frame path")
+    func openingPushesPageFrame() async {
+        let model = ArborAppModel()
+        await model.load()
+        let home = model.currentReference
+        let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome")
+
+        await model.navigate(to: welcome)
+
+        #expect(model.navigationRoot == home)
+        #expect(model.navigationPath == [welcome])
+        #expect(!model.isLoading)
+
+        model.setNavigationPath([])
+        #expect(model.currentReference == home)
+        #expect(model.navigationPath.isEmpty)
+    }
+
     @Test("A directory becomes the sidebar browsing context")
     func directoryBecomesSidebarContext() async {
         let model = ArborAppModel()

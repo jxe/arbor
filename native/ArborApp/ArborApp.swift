@@ -29,6 +29,20 @@ private struct ArborNavigationCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
+            Button("New Document…") { commands?.newDocument() }
+                .disabled(commands == nil)
+            Button("New Folder…") { commands?.newFolder() }
+                .disabled(commands == nil)
+            Divider()
+#if os(macOS)
+            Button("Open Local Workspace…") { commands?.openLocalWorkspace() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .disabled(commands == nil)
+#endif
+            Button("Open Location…") { commands?.openLocation() }
+                .keyboardShortcut("l", modifiers: .command)
+                .disabled(commands == nil)
+            Divider()
             Button("New Tab") { commands?.newTab() }
                 .keyboardShortcut("t", modifiers: .command)
             Button("Close Tab") { commands?.closeTab() }
@@ -48,8 +62,19 @@ private struct ArborNavigationCommands: Commands {
             Button("Forward") { commands?.goForward() }
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(commands?.canGoForward != true)
+            Button("Go to Parent") { commands?.goParent() }
+                .keyboardShortcut(.upArrow, modifiers: .command)
+                .disabled(commands?.canGoParent != true)
             Button("Home") { commands?.goHome() }
                 .keyboardShortcut("h", modifiers: [.command, .shift])
+                .disabled(commands == nil)
+            Divider()
+            Button("Linked From…") { commands?.showBacklinks() }
+                .disabled(commands?.hasNode != true)
+            Button("Source and Properties…") { commands?.showSource() }
+                .keyboardShortcut("i", modifiers: .command)
+                .disabled(commands?.hasNode != true)
+            Button("Save and Sync…") { commands?.showSyncStatus() }
                 .disabled(commands == nil)
         }
 #if os(macOS)

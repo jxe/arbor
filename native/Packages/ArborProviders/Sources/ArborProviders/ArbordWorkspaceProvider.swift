@@ -279,6 +279,7 @@ public actor ArbordDocumentSession: WorkspaceDocumentSession {
                 actual: current.contentRevision
             )
         }
+        guard !patch.edits.isEmpty else { return current }
         let source = try patch.applying(to: current.source)
         let edits = patch.edits.map { edit in
             ProtocolSourceEdit(

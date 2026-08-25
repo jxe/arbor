@@ -115,4 +115,31 @@ struct BrowserTabControllerTests {
         controller.goParent()
         #expect(controller.selectedTab.current.pathHint == "/files")
     }
+
+    @Test("A tab exposes its trail as pushed page frames")
+    func pushedPageFrames() {
+        let home = WorkspaceReference(tree: "tr_sample", path: "/")
+        let first = WorkspaceReference(tree: "tr_sample", path: "/first", pageID: "pg_first")
+        let second = WorkspaceReference(tree: "tr_sample", path: "/second", pageID: "pg_second")
+        let controller = BrowserTabController(home: home)
+
+        controller.navigate(to: first)
+        controller.navigate(to: second)
+
+        #expect(controller.navigationRoot == home)
+        #expect(controller.navigationPath == [first, second])
+
+        controller.setNavigationPath([first])
+        #expect(controller.selectedTab.current == first)
+        #expect(controller.navigationPath == [first])
+        #expect(controller.canGoForward)
+
+        controller.goForward()
+        #expect(controller.navigationPath == [first, second])
+
+        controller.goHome()
+        #expect(controller.selectedTab.current == home)
+        #expect(controller.navigationPath.isEmpty)
+        #expect(controller.canGoForward)
+    }
 }

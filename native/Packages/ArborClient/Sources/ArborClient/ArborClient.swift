@@ -1,8 +1,10 @@
 import Foundation
 
-public struct ArbordServerError: Error, Sendable {
+public struct ArbordServerError: Error, LocalizedError, Sendable {
     public var status: Int
     public var value: ArbordErrorValue
+
+    public var errorDescription: String? { value.message }
 }
 
 public struct AmbiguousMutationError: Error, Sendable {

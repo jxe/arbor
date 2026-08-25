@@ -134,18 +134,38 @@ public final class ArborDocumentBinding {
                 to: source,
                 revision: accepted.contentRevision
             )
+            // Quagmire may report a follow-up commit after the authored source
+            // is already current (for example, after splitting a block). It is
+            // saved by definition and must not become an empty provider write.
+            guard !patch.edits.isEmpty else {
+                conflict = nil
+                lastError = nil
+                if admittedGeneration == generation { isSaving = false }
+                return
+            }
             let confirmed = try await session.admit(patch: patch)
             accepted = confirmed
             reference = confirmed.reference
             if admittedGeneration == generation {
-                let opened = ArborMarkdownCodec.open(
-                    source: confirmed.source,
-                    revision: confirmed.contentRevision,
-                    identitySeed: String(describing: confirmed.reference.identity)
-                )
-                let rebased = ArborMarkdownCodec.rebased(opened, preserving: document.children)
-                ledger = rebased.ledger
-                if rebased.blocks != document.children { _ = document.replaceChildrenReconciled(rebased.blocks) }
+                if confirmed.source == source {
+                    // This is the provider acknowledging the exact local tree
+                    // already mounted in Quagmire. Advance source authority
+                    // without reparsing/replacing it: a self-confirmation must
+                    // not disturb focus, selection, typing, or undo coalescing.
+                    ledger.source = confirmed.source
+                    ledger.revision = confirmed.contentRevision
+                } else {
+                    // A provider-returned transformation is genuinely new
+                    // authoritative content and still needs reconciliation.
+                    let opened = ArborMarkdownCodec.open(
+                        source: confirmed.source,
+                        revision: confirmed.contentRevision,
+                        identitySeed: String(describing: confirmed.reference.identity)
+                    )
+                    let rebased = ArborMarkdownCodec.rebased(opened, preserving: document.children)
+                    ledger = rebased.ledger
+                    if rebased.blocks != document.children { _ = document.replaceChildrenReconciled(rebased.blocks) }
+                }
             }
             conflict = nil
             lastError = nil

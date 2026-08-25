@@ -91,122 +91,13 @@ struct ArborRootView: View {
                 }
             }
         } detail: {
-            VStack(spacing: 0) {
-                if model.tabItems.count > 1 {
-                    ArborTabStrip(
-                        tabs: model.tabItems,
-                        selected: model.selectedTabID,
-                        title: { tab in tab.current.pathHint == "/" ? "Home" : tab.current.pathHint.split(separator: "/").last.map(String.init) ?? "Arbor" },
-                        select: { id in Task { await model.selectTab(id) } },
-                        close: { Task { await model.closeSelectedTab() } },
-                        create: { Task { await model.newTab() } }
-                    )
-                }
-                ArborBreadcrumbs(reference: model.currentReference) { reference in
-                    Task { await model.navigate(to: reference) }
-                }
-                Group {
-                    if let node = model.node {
-                        if let lease = model.editorLease, let host = model.editorHost {
-                            ArborEditorSurface(
-                                binding: lease.binding,
-                                host: host,
-                                configuration: ArborStyle.editorConfiguration
-                            ) {
-                                ArborDocumentFooter(
-                                    provider: workspace.providerDetail,
-                                    sync: workspace.syncPresentation,
-                                    binding: lease.binding,
-                                    backlinks: model.backlinks,
-                                    open: { reference in Task { await model.navigate(to: reference) } },
-                                    showStatus: { presentedSheet = .syncStatus }
-                                )
-                            }
-                            .modifier(ArborEditorToolbarModifier())
-                        } else {
-                            WorkspaceSurfaceView(node: node)
-                        }
-                    } else if let message = model.errorMessage {
-                        ContentUnavailableView("Unable to open", systemImage: "exclamationmark.triangle", description: Text(message))
-                    } else {
-                        ProgressView()
+            NavigationStack(path: navigationPathBinding) {
+                pageFrame(for: model.navigationRoot)
+                    .navigationDestination(for: WorkspaceReference.self) { reference in
+                        pageFrame(for: reference)
                     }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .overlay(alignment: .top) {
-                attentionBanner
-                    .padding(.horizontal, 16)
-                    .frame(maxWidth: 560)
-                    .padding(.top, 8)
-            }
-            .animation(.easeInOut(duration: 0.2), value: model.binding?.conflict != nil)
-            .animation(.easeInOut(duration: 0.2), value: workspace.syncConflict != nil)
-            .navigationTitle(model.node?.title ?? "Arbor")
-            .navigationSubtitle(model.currentReference.pathHint)
-            .toolbar {
-                ToolbarItemGroup(placement: .navigation) {
-                    Button("Back", systemImage: "chevron.left") { Task { await model.goBack() } }
-                        .disabled(!model.canGoBack)
-                    Button("Forward", systemImage: "chevron.right") { Task { await model.goForward() } }
-                        .disabled(!model.canGoForward)
-                }
-                ToolbarItemGroup(placement: .primaryAction) {
-                    if model.node?.isWritable == true, model.binding != nil {
-                        VoiceRecordingButton(session: recordingSession) {
-                            await model.startVoiceRecording(recordingSession)
-                        }
-                    }
-                    Button("Search", systemImage: "magnifyingglass") { searchPresented = true }
-                    Menu("Actions", systemImage: "ellipsis.circle") {
-                        Button("Open Location…", systemImage: "location") { presentedSheet = .openLocation }
-                        Button("Go to Parent", systemImage: "arrow.up") { Task { await model.goParent() } }
-                            .disabled(!model.canGoParent)
-                        Button("Go Home", systemImage: "house") { Task { await model.goHome() } }
-                        Divider()
-                        Button("New Document…", systemImage: "doc.badge.plus") { presentedSheet = .createMarkdown }
-                        Button("New Folder…", systemImage: "folder.badge.plus") { presentedSheet = .createDirectory }
-                        Button("Rename…", systemImage: "pencil") { presentedSheet = .rename }
-                            .disabled(model.node?.isWritable != true)
-                        Button("Move…", systemImage: "folder") { presentedSheet = .move }
-                            .disabled(model.node?.isWritable != true)
-                        Button("Copy…", systemImage: "plus.square.on.square") { presentedSheet = .copy }
-                            .disabled(model.node == nil)
-                        Button("Import Asset…", systemImage: "photo.badge.plus") { assetImporterPresented = true }
-                            .disabled(!workspace.capabilities.assets)
-                        Divider()
-                        Button("Linked From…", systemImage: "link") { presentedSheet = .backlinks }
-                        Button("Recover…", systemImage: "clock.arrow.circlepath") {
-                            Task { await model.loadHistory(); presentedSheet = .history }
-                        }
-                            .disabled(model.binding == nil)
-                        Button("Source and Properties…", systemImage: "doc.plaintext") {
-                            Task { await model.inspectSource(); presentedSheet = .source }
-                        }
-                            .disabled(model.node == nil)
-                        Divider()
-                        if model.currentReference.pathHint.hasPrefix("/Trash/") {
-                            Button("Restore", systemImage: "arrow.uturn.backward") {
-                                Task { await model.perform(.restore(reference: model.currentReference)) }
-                            }
-                        } else {
-                            Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                                trashConfirmationPresented = true
-                            }
-                            .disabled(model.node?.isWritable != true || model.currentReference.pathHint == "/")
-                        }
-#if os(macOS)
-                        Divider()
-                        Button("Open Local Workspace…", systemImage: "folder") { workspaceImporterPresented = true }
-                        Button("Restart arbord", systemImage: "arrow.clockwise") { Task { await workspace.restartArbord() } }
-                        Button("arbord Logs…", systemImage: "doc.text.magnifyingglass") {
-                            Task { arbordLogs = await workspace.arbordLogs(); presentedSheet = .arbordLogs }
-                        }
-#endif
-                    }
-                    Button("Account", systemImage: "person.crop.circle") { accountPresented = true }
-                }
-            }
+            .id(model.selectedTabID)
         }
         .task(id: workspace.generation) { await model.resetForWorkspace() }
         .task {
@@ -342,15 +233,147 @@ struct ArborRootView: View {
             goHome: { Task { await model.goHome() } },
             goBack: { Task { await model.goBack() } },
             goForward: { Task { await model.goForward() } },
+            goParent: { Task { await model.goParent() } },
             newTab: { Task { await model.newTab() } },
             closeTab: { Task { await model.closeSelectedTab() } },
+            newDocument: { presentedSheet = .createMarkdown },
+            newFolder: { presentedSheet = .createDirectory },
+            openLocation: { presentedSheet = .openLocation },
+            openLocalWorkspace: { workspaceImporterPresented = true },
             showSearch: { searchPresented = true },
             showHistory: { Task { await model.loadHistory(); presentedSheet = .history } },
+            showBacklinks: { presentedSheet = .backlinks },
+            showSource: { Task { await model.inspectSource(); presentedSheet = .source } },
+            showSyncStatus: { presentedSheet = .syncStatus },
             canGoBack: model.canGoBack,
             canGoForward: model.canGoForward,
+            canGoParent: model.canGoParent,
             canCloseTab: model.tabItems.count > 1,
-            hasDocument: model.binding != nil
+            hasDocument: model.binding != nil,
+            hasNode: model.node != nil
         )
+    }
+
+    private var navigationPathBinding: Binding<[WorkspaceReference]> {
+        Binding(
+            get: { model.navigationPath },
+            set: { model.setNavigationPath($0) }
+        )
+    }
+
+    @ViewBuilder
+    private func pageFrame(for reference: WorkspaceReference) -> some View {
+        VStack(spacing: 0) {
+            if model.tabItems.count > 1 {
+                ArborTabStrip(
+                    tabs: model.tabItems,
+                    selected: model.selectedTabID,
+                    title: { tab in tab.current.pathHint == "/" ? "Home" : tab.current.pathHint.split(separator: "/").last.map(String.init) ?? "Arbor" },
+                    select: { id in Task { await model.selectTab(id) } },
+                    close: { Task { await model.closeSelectedTab() } },
+                    create: { Task { await model.newTab() } }
+                )
+            }
+            ArborBreadcrumbs(reference: reference) { destination in
+                Task { await model.navigate(to: destination) }
+            }
+            pageFrameContent(for: reference)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .overlay(alignment: .top) {
+            if reference == model.currentReference {
+                attentionBanner
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: 560)
+                    .padding(.top, 8)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: model.binding?.conflict != nil)
+        .animation(.easeInOut(duration: 0.2), value: workspace.syncConflict != nil)
+        .navigationTitle(pageFrameTitle(for: reference))
+        .navigationSubtitle(reference.pathHint)
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if reference == model.currentReference,
+                   model.node?.isWritable == true,
+                   model.binding != nil {
+                    VoiceRecordingButton(session: recordingSession) {
+                        await model.startVoiceRecording(recordingSession)
+                    }
+                }
+                Button("Search", systemImage: "magnifyingglass") { searchPresented = true }
+                Menu("Actions", systemImage: "ellipsis.circle") {
+                    Button("Rename…", systemImage: "pencil") { presentedSheet = .rename }
+                        .disabled(model.node?.isWritable != true)
+                    Button("Move…", systemImage: "folder") { presentedSheet = .move }
+                        .disabled(model.node?.isWritable != true)
+                    Button("Copy…", systemImage: "plus.square.on.square") { presentedSheet = .copy }
+                        .disabled(model.node == nil)
+                    Button("Import Asset…", systemImage: "photo.badge.plus") { assetImporterPresented = true }
+                        .disabled(!workspace.capabilities.assets)
+                    Divider()
+                    if model.currentReference.pathHint.hasPrefix("/Trash/") {
+                        Button("Restore", systemImage: "arrow.uturn.backward") {
+                            Task { await model.perform(.restore(reference: model.currentReference)) }
+                        }
+                    } else {
+                        Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                            trashConfirmationPresented = true
+                        }
+                        .disabled(model.node?.isWritable != true || model.currentReference.pathHint == "/")
+                    }
+#if os(macOS)
+                    Divider()
+                    Button("Restart arbord", systemImage: "arrow.clockwise") { Task { await workspace.restartArbord() } }
+                    Button("arbord Logs…", systemImage: "doc.text.magnifyingglass") {
+                        Task { arbordLogs = await workspace.arbordLogs(); presentedSheet = .arbordLogs }
+                    }
+#endif
+                }
+                Button("Account", systemImage: "person.crop.circle") { accountPresented = true }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pageFrameContent(for reference: WorkspaceReference) -> some View {
+        if reference != model.currentReference || model.isLoading {
+            ProgressView()
+        } else if let node = model.node {
+            if node.surface.supportsDocumentSession, node.isWritable {
+                if let lease = model.editorLease, let host = model.editorHost {
+                    ArborEditorSurface(
+                        binding: lease.binding,
+                        host: host,
+                        configuration: ArborStyle.editorConfiguration
+                    ) {
+                        ArborDocumentFooter(
+                            provider: workspace.providerDetail,
+                            sync: workspace.syncPresentation,
+                            binding: lease.binding,
+                            backlinks: model.backlinks,
+                            open: { destination in Task { await model.navigate(to: destination) } },
+                            showStatus: { presentedSheet = .syncStatus }
+                        )
+                    }
+                    .modifier(ArborEditorToolbarModifier())
+                } else {
+                    ProgressView()
+                }
+            } else {
+                WorkspaceSurfaceView(node: node)
+            }
+        } else if let message = model.errorMessage {
+            ContentUnavailableView("Unable to open", systemImage: "exclamationmark.triangle", description: Text(message))
+        } else {
+            ProgressView()
+        }
+    }
+
+    private func pageFrameTitle(for reference: WorkspaceReference) -> String {
+        if reference == model.currentReference, let title = model.node?.title { return title }
+        if reference.pathHint == "/" { return "Home" }
+        return reference.pathHint.split(separator: "/").last.map(String.init) ?? "Arbor"
     }
 
     @ViewBuilder
