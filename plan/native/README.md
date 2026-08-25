@@ -3,7 +3,7 @@
 
 ## Status and identity
 
-- Quagmire `0.1.0` is published in `/Users/joe/src/quagmire`; Hunch commit `a1e8379` consumes it remotely. The old publication Plan 001 is complete.
+- Quagmire `0.2.0` is published at commit `af61f9a`; Hunch commit `d13087b` consumes the exact remote release and has replaced its duplicated link-preview, voice/recovery, App Intent, and transcript-polishing implementations with the optional `QuagmireExtras` product. Plan 001 remains the historical `0.1.0` publication milestone. Native Arbor still resolves `0.1.0` until Plan 018 performs its separately verified exact-version adoption.
 - Plans 002–005 captured a superseded TreeHopper/iCloud design and must not be executed. Their files remain as historical evidence.
 - The native product is **Arbor**, not TreeHopper: display name and scheme `Arbor`, app module `ArborApp`, bundle ID `org.nxhx.Arbor`, and iOS/macOS 27 deployment targets.
 - The app is new work under `native/`; it is not a renamed Hunch target and must not reuse Hunch defaults, caches, bookmarks, logs, app groups, bundle IDs, or iCloud containers.
@@ -61,15 +61,20 @@ ArborApp
   │    ├─ BrowserTabController / WorkspaceCoordinator
   │    ├─ ArbordWorkspaceProvider ─ ArborClient ─ arbord (macOS)
   │    └─ ReplicaWorkspaceProvider ─ ArborReplica ─ ArborWire (iOS)
-  └─ ArborQuagmire
-       ├─ Markdown codec + private source ledger
-       ├─ EditorHost implementation
-       └─ Quagmire 0.1
+  ├─ ArborQuagmire
+  │    ├─ Markdown codec + private source ledger
+  │    ├─ EditorHost implementation
+  │    └─ Quagmire 0.2
+  └─ QuagmireExtras 0.2
+       ├─ Links + transcript-polishing mechanisms via ArborQuagmire
+       └─ Voice session/button/App Intent via ArborApp
 ```
 
 `ArborKit` is UI-independent and node-first. A node may be a Markdown document, bodyless directory, directory document, collection, database row, ordinary file, placeholder, diagnostic, or historical view. It opens a document session only for Markdown-capable surfaces. One `WorkspaceCoordinator` owns the canonical document/write stream per `(tree, PageID)`, with path fallback only while no durable ID exists; duplicate tabs keep independent history, selection, scroll, and inspector presentation.
 
 `ArborQuagmire` is a thin private host. It maps exact provider Markdown to Quagmire blocks, keeps a private BlockID-keyed source ledger, admits every synchronous editor commit before returning, and submits exact source plus `baseContentRevision`. Quagmire remains format-, storage-, navigation-, and Arbor-neutral.
+
+`QuagmireExtras` supplies optional Apple-platform mechanisms, not Arbor product policy. Arbor owns its application-support/cache directories, `PageID` recording destinations, provider/session delivery, toolbar placement, permissions, errors, and shortcut phrases. Xcode requires the `AppShortcutsProvider` and its literal shortcut metadata to remain in the Arbor application target even though `StartVoiceRecordingIntent` and the launch handoff come from `QuagmireExtras`.
 
 ## Hunch replacement and cutover
 
@@ -84,8 +89,9 @@ The final native cutover requires:
 - deterministic authority merge fixtures and TypeScript/Swift sync-protocol fixtures;
 - the backed-up, restore-tested Railway sync/history migration, followed by a clean-runtime restart;
 - distinct revocable device credentials and one-time pairing;
-- standalone ArborKit, ArborWire, ArborReplica, ArborQuagmire, ArborClient, and Quagmire tests;
+- standalone ArborKit, ArborWire, ArborReplica, ArborQuagmire, ArborClient, Quagmire, and QuagmireExtras tests;
 - sequential macOS and iOS 27 Xcode builds/tests;
+- exact built-app metadata proving the packaged voice intent and Arbor-owned shortcut provider/phrases were extracted;
 - two-device offline convergence, crash/restart, history, conflict, and credential-revocation tests;
 - full Hunch parity inventory and exact-artifact manual checks;
 - two identical conversion dry-run manifests and matching Mac/host/iOS accepted roots before writes are enabled.

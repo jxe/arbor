@@ -2,7 +2,7 @@
 
 These handoffs build separate components in dependency order. Each executor must read its assigned plan fully, run the drift check before editing, honor its scope and STOP conditions, run every verification gate, and update the status row here. Completing one plan does not authorize opportunistic implementation of a later milestone.
 
-Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd4` on 2026-08-23. Plans 012 and 013 were reconciled against clean Arbor `0c53964`; Plan 014 was reconciled after them at `3117f93`; Plans 015 and 016 were reconciled after Plan 014 at `01776d6`; Plan 017 was reconciled at `1def896` and completed in the working tree on 2026-08-24. Later executors must still reconcile live source before relying on any snapshot.
+Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd4` on 2026-08-23. Plans 012 and 013 were reconciled against clean Arbor `0c53964`; Plan 014 was reconciled after them at `3117f93`; Plans 015 and 016 were reconciled after Plan 014 at `01776d6`; Plan 017 was reconciled at `1def896` and completed on 2026-08-24. Plan 018's remaining capture/content work was reconciled at Arbor `f00aa87` against Hunch `d13087b` and Quagmire `af61f9a` / `0.2.0` on 2026-08-25. Later executors must still reconcile live source before relying on any snapshot.
 
 ## Execution order and status
 
@@ -25,7 +25,7 @@ Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quag
 | [015](015-sync-native-replicas.md) | Synchronize native replicas through Arbor | P1 | XL | 009, 011, 013, 014 | DONE — crash-safe returned-snapshot sync and native pairing/placement verified |
 | [016](016-bridge-quagmire.md) | Bridge Quagmire to Arbor documents | P1 | XL | 012, 014 | DONE — exact-source Quagmire bridge and unchanged-package gates verified |
 | [017](017-complete-daily-driver.md) | Complete the native daily-driver core | P1 | XL | 015, 016 | DONE — shared providers, signed sandboxed `arbord` helper, and daily-driver workflows verified |
-| [018](018-port-hunch-strengths.md) | Port Hunch's native strengths | P1 | XL | 017 | IN PROGRESS — shell, Move To, editing feel, commands, and safety presentation implemented; capture/content integrations remain |
+| [018](018-port-hunch-strengths.md) | Port Hunch's native strengths | P1 | XL | 017 | IN PROGRESS — shell/editing/safety implemented; exact QuagmireExtras `0.2.0` adoption, capture, polish, and link previews are next |
 | [019](019-convert-hunch-workspace.md) | Convert the live Hunch workspace and cut over | P1 | L | 018 | TODO |
 | [020](020-test-device-management-browser.md) | Complete device-management browser E2E | P2 | S | 010 | TODO |
 | [021](021-add-wire-file-patches.md) | Send editor patches in immediate authority updates | P1 | L | 015, 016 | DONE — immediate verified patches, sparse fallback, and conditional snapshots verified |
@@ -42,6 +42,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - 012 and 013 may be developed after their stated dependencies, but the recommended execution remains serial so each handoff starts from a verified main branch.
 - 014 proves local safety without a network; 015 adds synchronization without changing local durability.
 - 016 proves exact editor persistence independently of the broad product surface.
+- 018 first upgrades the existing bridge to exact remote Quagmire `0.2.0` and re-proves its source/identity invariants, then consumes `QuagmireExtras` for voice/recovery, transcript polishing, and link previews while Arbor retains all product identity, provider, destination, and support-path ownership.
 - 019 is the only milestone allowed to read the live Hunch workspace or create its converted destination.
 - 020 is later browser-surface hardening. It does not block the already verified device protocol, Railway migration, or native implementation sequence.
 - 021 completes the first-alpha synchronization transport. Immediately after a durable local editor admission, it uses that just-verified patch when the authority base and sync scheduler are ready; otherwise it falls back to the ordinary sparse complete-object candidate. It also avoids downloading a returned snapshot when the authority accepted the submitted candidate unchanged.
@@ -54,7 +55,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - The authority retains synchronized history indefinitely in v1. Historical bytes require write access.
 - The authority performs automatic merges. Markdown body merges preserve added lines from both sides near surviving context and prefer duplication over omission; unsafe structural/binary/frontmatter overlap remains visible without conflict copies or data loss.
 - A paired device receives its own revocable Keychain credential.
-- Quagmire stays at exact `0.1.0` unless a separately reviewed package defect requires a release.
+- Plan 016's historical completion evidence remains exact `0.1.0`; active Plan 018 upgrades native Arbor to exact remote Quagmire/QuagmireExtras `0.2.0`, with no path/branch/revision pin and no duplicated Extras implementation.
 - Hunch conversion is a bespoke operator action, not a permanent application feature.
 
 ## Considered and rejected
