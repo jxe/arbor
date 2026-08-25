@@ -5,6 +5,8 @@ An Arbor wire host represents one community. It owns canonical namespace boundar
 
 All `/.arbor/*` request and response JSON is UTF-8 with `content-type: application/json`. Unless stated otherwise responses use `cache-control: no-store`. Clients ignore unknown descriptive response fields but reject missing required fields and malformed values.
 
+The first alpha has one wire contract. Arbor clients, arbord, and authorities advance together; descriptors do not advertise protocol capabilities and mixed-version deployments are unsupported. Complete-object update envelopes remain valid as an ordinary representation choice within that one contract, not as a downgrade path.
+
 ## 1. Values and descriptors
 
 ```ts
@@ -23,7 +25,6 @@ type TreeDescriptor = {
   access: AccessLevel;               // effective access for this response
   httpURL: string;
   arborURL: string;
-  capabilities?: string[];           // optional negotiated protocol extensions
 };
 
 type AccountDescriptor = {
@@ -179,11 +180,11 @@ GET  /.arbor/objects/{sha256}
 
 `POST .../updates` requires write access. It submits one candidate state for reconciliation against an exact accepted base:
 
-The optional `returnSnapshot: true` member is a transport hint, excluded from the semantic request digest. A successful/current response then includes `snapshot`, a complete root plus every reachable immutable object for the returned accepted update. A conflict additionally includes `currentSnapshot`. This lets a replica validate and apply the exact decision without an accepted-history endpoint or an object-by-object race. The ordinary object endpoint and responses without the hint remain valid.
+The optional `returnSnapshot` member is a transport hint, excluded from the semantic request digest. With `true`, a successful/current response includes `snapshot`, a complete root plus every reachable immutable object for the returned accepted update, and a conflict additionally includes `currentSnapshot`. With `"if-result-differs"`, the host omits `snapshot` only when the returned accepted root equals the submitted candidate; it includes the complete accepted snapshot when those roots differ and includes `currentSnapshot` on conflict. This lets a replica avoid downloading its own accepted graph while still validating and applying a remote-current, merged, or conflicted decision without an accepted-history endpoint or an object-by-object race. The ordinary object endpoint and responses without the hint remain valid.
 
 ### Verified file-patch transport extension
 
-`file-patches-v1` is an optional update-envelope optimization. A host advertises it in the resolved tree capabilities before a client may send `filePatches`; absence means the client sends ordinary complete immutable objects. This extension does not change `updates-v1` request identity, candidate-root semantics, accepted history, or merge ownership.
+`file-patches-v1` is an update-envelope optimization in the first alpha wire contract. Alpha clients, arbord, and authorities advance together; they do not negotiate mixed protocol versions. A client may still send ordinary complete immutable objects whenever a patch is unavailable or unsuitable. This representation does not change `updates-v1` request identity, candidate-root semantics, accepted history, or merge ownership.
 
 Each patch envelope names an immutable base file object, the expected resulting file-object hash, and ordered UTF-8 byte replacements over the decoded file payload:
 
@@ -222,7 +223,8 @@ type UpdateRequest = {
   base: { root: Hash; update: string };
   candidate: Hash;
   objects: Array<{ hash: Hash; bytes: string }>; // standard padded base64
-  returnSnapshot?: boolean;                     // transport-only response hint
+  filePatches?: FilePatch[];
+  returnSnapshot?: true | "if-result-differs";   // transport-only response hint
 };
 ```
 
@@ -234,7 +236,7 @@ The update named by `base.update` must belong to this tree and have `base.root`;
 4. Both changed safely: merge once on the authority, atomically accept the merged root, and return `201 { outcome: "merged", update, merge }`.
 5. Unsafe overlap: return `409 conflict` with current/base/candidate, structured reasons, and a complete draft snapshot consisting of its root plus every reachable object required to persist it. The accepted ref does not advance, no accepted update is created, and the authority retains neither the rejected candidate nor the conflict response/draft.
 
-The authority derives request identity from semantic JSON rather than a caller-supplied key. It constructs `{ base, candidate, tree, version: "updates-v1" }`, canonicalizes that all-string I-JSON value using RFC 8785 JSON Canonicalization Scheme rules, and names the request `sha256:<lowercase hex SHA-256 of the canonical UTF-8 bytes>`. `objects` is deliberately excluded: it is a transport envelope, so ordering may change and objects already held by the authority may be omitted on retry. Any supplied envelope is still hash-verified before use.
+The authority derives request identity from semantic JSON rather than a caller-supplied key. It constructs `{ base, candidate, tree, version: "updates-v1" }`, canonicalizes that all-string I-JSON value using RFC 8785 JSON Canonicalization Scheme rules, and names the request `sha256:<lowercase hex SHA-256 of the canonical UTF-8 bytes>`. `objects` is deliberately excluded: it is a transport envelope, so ordering may change and objects already held by the authority may be omitted on retry. A client should normally walk the retained base and candidate graphs together, omit unchanged objects reachable from `base.root`, and supply only changed directory objects plus complete or patched changed file objects. Any supplied envelope is still hash-verified before use, and omitting an object not available from retained authority state makes the candidate incomplete rather than weakening validation.
 
 Identity is scoped to `(tree, authenticated credential subject, derived request digest)`. An accepted or merged row stores its digest in the same transaction as the new root; repeating that semantic request returns the original result without another accepted update. `current` and `conflict` perform no mutation and retain no replay record, so an ambiguous retry safely recomputes against the then-current accepted update. The client durably records the exact base, candidate, and required objects before transmission and persists a received conflict response before acknowledging it locally. An explicit resolution naturally has a different base or candidate and therefore a different digest.
 

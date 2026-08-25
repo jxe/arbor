@@ -32,7 +32,7 @@ The authority already stores immutable file/directory objects, a current directo
 
 ## Target protocol
 
-Discovery advertises mandatory `updates: "updates-v1"` for new native clients. Define JSON request/result shapes around unchanged CBOR objects. Request identity is derived from the semantic JSON rather than supplied as a header or second public resource:
+The first alpha client, arbord, and authority implement one mandatory `updates-v1` contract and advance together; discovery does not negotiate protocol versions. Define JSON request/result shapes around unchanged CBOR objects. Request identity is derived from the semantic JSON rather than supplied as a header or second public resource:
 
 ```ts
 type UpdateRequest = {
@@ -145,4 +145,4 @@ Expected: every fixture is internally valid, existing deterministic object hashe
 
 ## Maintenance note
 
-The authority's merge implementation may evolve only behind a new advertised updates version or fixture-compatible behavior. Hunch informs the loss-averse placement policy; Arbor does not adopt Clamshell journals, atomic block hashes, or Hunch's storage model.
+During the first alpha, the authority's merge implementation evolves only through fixture-compatible behavior or a lockstep contract change across the client, arbord, and authority. Hunch informs the loss-averse placement policy; Arbor does not adopt Clamshell journals, atomic block hashes, or Hunch's storage model. Version negotiation for mixed deployments remains a post-alpha decision.

@@ -124,4 +124,4 @@ Expected: all fixture additions survive in accepted/draft Markdown; fixed-input 
 
 ## Maintenance note
 
-Retain accepted updates indefinitely in v1. Never retain rejected candidates, conflict responses, or drafts. Any merge-policy change must remain fixture-compatible or advertise a new updates version; do not distribute server merge internals into clients. Do not reintroduce dormant startup migrations: schema changes require an explicit, rehearsed migration release followed by another clean-runtime deployment.
+Retain accepted updates indefinitely in v1. Never retain rejected candidates, conflict responses, or drafts. During the first alpha, any merge-policy change must remain fixture-compatible or update the client, arbord, and authority contract in lockstep; do not distribute server merge internals into clients. Mixed-version negotiation is a post-alpha decision. Do not reintroduce dormant startup migrations: schema changes require an explicit, rehearsed migration release followed by another clean-runtime deployment.

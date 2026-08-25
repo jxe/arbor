@@ -26,7 +26,7 @@ Execution order:
 13. [018 — Hunch native strengths](018-port-hunch-strengths.md)
 14. [019 — one-time Hunch cutover](019-convert-hunch-workspace.md)
 15. [020 — device-management browser E2E](020-test-device-management-browser.md)
-16. [021 — verified wire file patches](021-add-wire-file-patches.md)
+16. [021 — immediate editor-patch authority updates](021-add-wire-file-patches.md)
 
 ## Product and persistence boundary
 

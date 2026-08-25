@@ -18,7 +18,7 @@
 ## Reconciled protocol decision
 
 - ArborQuagmire uses range-guarded local source replacements so untouched Markdown remains exact. Its durable admission result is still a complete authoritative source and revision.
-- The bridge does not emit wire `filePatches`. That optional transport optimization is deferred to Plan 021 after Plans 015 and 016 establish stable replica and editor behavior.
+- The bridge does not yet emit wire `filePatches`. That per-admission transport representation is deferred to Plan 021 after Plans 015 and 016 establish stable replica and editor behavior; it is not a negotiated mixed-version capability.
 
 ## Why this matters
 

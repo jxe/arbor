@@ -202,10 +202,18 @@ type ContentOperation =
       ref: NodeRef;
       baseContentRevision: Hash;
       source: string;
+      sourceEdits?: Array<{
+        offset: number;
+        length: number;
+        replacement: string;
+        expected?: string;
+      }>;
     }
   | { op: "restoreRecovery"; ref: NodeRef; hash: Hash; baseContentRevision?: Hash }
   | { op: "ensureDocumentIdentity"; ref: NodeRef; baseContentRevision: Hash };
 ```
+
+`sourceEdits`, when present, are optional provenance for a source-preserving editor admission. Offsets and lengths are nonnegative JSON safe integers addressing UTF-8 bytes in the exact source named by `baseContentRevision`. Edits are ordered, non-overlapping, in bounds, and interpreted simultaneously against that source. `expected`, when present, must equal the replaced UTF-8 text. Arbord applies the edits and requires the byte-exact result to equal `source`; otherwise it rejects the request before durable intent. A client may omit `sourceEdits`, and arbord may discard valid provenance when later provider behavior prevents it from proving the corresponding immutable base/result file objects.
 
 Structural operations are:
 

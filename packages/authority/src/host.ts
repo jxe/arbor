@@ -378,7 +378,6 @@ export async function serveWireHost(options: {
               authority.canWrite(account, resolved.tree.id, linkDigest(request)) ? "write" : "read",
             ),
             path: resolved.path,
-            capabilities: { updates: "updates-v1" },
           });
         }
         const ref = /^\/\.arbor\/trees\/([^/]+)\/ref$/.exec(url.pathname);

@@ -53,7 +53,7 @@ Submit `{ base: { root, update }, candidate, objects }` to `POST .../updates`; t
 4. Apply current/accepted/merged roots with existing destination-safe materialization and only then advance `placement.ref`; reconcile a crash between remote acceptance and local application by replaying the exact request.
 5. Persist conflict roots, reasons, and the complete returned draft snapshot in client/placement state outside authored trees. Add CLI/system diagnostics that identify affected paths/reasons and provide explicit inspect/choose/edit/resubmit operations without leaking content or credentials into safe records.
 6. Permit further local mutations while pending/conflicted. Rebase only through a new server sync after the previous result is known; never discard or overwrite an unsubmitted local generation.
-7. Remove legacy `/push` and root-CAS negotiation from arbord and the TypeScript client. Every configured authority must advertise `updates-v1`; there is no downgrade path.
+7. Remove legacy `/push` and root-CAS negotiation from arbord and the TypeScript client. Every configured authority must implement `updates-v1`; there is no downgrade path or mixed-version negotiation in the first alpha.
 8. Add two-placement restart tests for one-sided upload/download, server merge, same-slot Markdown additions, request replay, conflict draft, continued local edits, nested trees, and explicit resolution. Deeper process-kill fault injection may be added later as hardening.
 
 ## Verification
