@@ -165,6 +165,37 @@ function optionalString(value: unknown, field: string): void {
   }
 }
 
+function validateSourceEdits(value: unknown): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 100_000) {
+    throw new ProtocolError("invalid-reference", "writeMarkdown.sourceEdits must be a non-empty bounded array", 400);
+  }
+  let priorEnd = 0;
+  let replacementBytes = 0;
+  for (const [index, edit] of value.entries()) {
+    if (
+      !isRecord(edit)
+      || !Number.isSafeInteger(edit.offset)
+      || !Number.isSafeInteger(edit.length)
+      || (edit.offset as number) < priorEnd
+      || (edit.length as number) < 0
+      || typeof edit.replacement !== "string"
+      || (edit.expected !== undefined && typeof edit.expected !== "string")
+    ) {
+      throw new ProtocolError("invalid-reference", `writeMarkdown.sourceEdits[${index}] is invalid or overlaps`, 400);
+    }
+    const end = (edit.offset as number) + (edit.length as number);
+    if (!Number.isSafeInteger(end)) {
+      throw new ProtocolError("invalid-reference", `writeMarkdown.sourceEdits[${index}] range overflows`, 400);
+    }
+    priorEnd = end;
+    replacementBytes += new TextEncoder().encode(edit.replacement).length;
+    if (!Number.isSafeInteger(replacementBytes) || replacementBytes > 64 * 1024 * 1024) {
+      throw new ProtocolError("invalid-reference", "writeMarkdown.sourceEdits replacement bytes exceed the request quota", 400);
+    }
+  }
+}
+
 function validateOperation(value: unknown): void {
   if (!isRecord(value) || typeof value.op !== "string" || !value.op) {
     throw new ProtocolError("invalid-reference", "Every operation requires an op discriminator", 400);
@@ -178,6 +209,7 @@ function validateOperation(value: unknown): void {
       if ("blocks" in value || "frontmatterPatch" in value) {
         throw new ProtocolError("invalid-reference", "writeMarkdown accepts exact source, not blocks or frontmatterPatch", 400);
       }
+      validateSourceEdits(value.sourceEdits);
       return;
     case "createDirectory":
       if (typeof value.path !== "string" || !value.path) {

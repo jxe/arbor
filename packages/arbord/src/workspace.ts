@@ -29,6 +29,7 @@ import type {
 import {
   canonicalJSONString,
   canonicalNodePath,
+  applySourceEdits,
   isPageID,
   nodeDisplayName,
   resolveTreePath,
@@ -329,6 +330,7 @@ export class Workspace implements AsyncDisposable {
         422,
       );
     }
+    await this.verifySourceEdits(request.operations);
     const requestHash = sha256(canonicalJSONString(request));
     const existing = await this.mutations.prepare(request.mutationID, requestHash, request);
     await this.protocolFault("protocol:intent-recorded");
@@ -360,6 +362,37 @@ export class Workspace implements AsyncDisposable {
     await this.mutations.markMaterialized(request.mutationID, requestHash, effects);
     if (!materializationFaulted) await this.protocolFault("protocol:materialized");
     return this.completeMaterialized(request.mutationID, requestHash, effects, "api");
+  }
+
+  /** Validate editor provenance before the durable mutation-intent boundary. */
+  private async verifySourceEdits(operations: readonly WorkspaceOperation[]): Promise<void> {
+    const operation = operations.find((candidate) => candidate.op === "writeMarkdown");
+    if (!operation || !operation.sourceEdits) return;
+    const path = await this.resolveRef(operation.ref);
+    const current = await this.node(path);
+    if (!current.document) {
+      throw new ProtocolError("unsupported-operation", `${current.path} is not a document`, 422);
+    }
+    if (current.revision !== operation.baseContentRevision) throw new RevisionConflictError(current);
+    let result: string;
+    try {
+      result = applySourceEdits(current.document.source, operation.sourceEdits);
+    } catch (error) {
+      throw new ProtocolError(
+        "invalid-reference",
+        error instanceof Error ? error.message : "sourceEdits are invalid",
+        400,
+        { path: current.path },
+      );
+    }
+    if (result !== operation.source) {
+      throw new ProtocolError(
+        "invalid-reference",
+        "sourceEdits do not produce the submitted exact source",
+        400,
+        { path: current.path },
+      );
+    }
   }
 
   async protocolFault(stage: string): Promise<void> {

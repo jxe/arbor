@@ -277,6 +277,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
     public var destination: NodeRef?
     public var baseContentRevision: String?
     public var source: String?
+    public var sourceEdits: [ProtocolSourceEdit]?
     public var hash: String?
     public var origin: String?
     public var accountToken: String?
@@ -300,6 +301,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         destination: NodeRef? = nil,
         baseContentRevision: String? = nil,
         source: String? = nil,
+        sourceEdits: [ProtocolSourceEdit]? = nil,
         hash: String? = nil,
         origin: String? = nil,
         accountToken: String? = nil,
@@ -322,6 +324,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         self.destination = destination
         self.baseContentRevision = baseContentRevision
         self.source = source
+        self.sourceEdits = sourceEdits
         self.hash = hash
         self.origin = origin
         self.accountToken = accountToken
@@ -338,6 +341,20 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
 
     public var isContentOperation: Bool {
         op == "writeMarkdown" || op == "restoreRecovery" || op == "ensureDocumentIdentity"
+    }
+}
+
+public struct ProtocolSourceEdit: Codable, Sendable, Equatable {
+    public var offset: Int
+    public var length: Int
+    public var replacement: String
+    public var expected: String?
+
+    public init(offset: Int, length: Int, replacement: String, expected: String? = nil) {
+        self.offset = offset
+        self.length = length
+        self.replacement = replacement
+        self.expected = expected
     }
 }
 

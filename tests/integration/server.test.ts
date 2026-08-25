@@ -88,6 +88,41 @@ describe("arbord REST v1", () => {
     });
   });
 
+  test("verifies guarded UTF-8 source edits before recording a content intent", async () => {
+    const before = await client.node({ path: "/page" });
+    const original = before.document!.source;
+    const originalBytes = Buffer.from(original);
+    const target = Buffer.from("REST");
+    const offset = originalBytes.indexOf(target);
+    expect(offset).toBeGreaterThanOrEqual(0);
+    const source = original.replace("REST", "UTF-8 🌳");
+    const edit = { offset, length: target.length, replacement: "UTF-8 🌳", expected: "REST" };
+
+    await expect(client.mutate({
+      mutationID: "bad-source-edit-result",
+      operations: [{
+        op: "writeMarkdown",
+        ref: { path: "/page" },
+        baseContentRevision: before.contentRevision!,
+        source: `${source}wrong`,
+        sourceEdits: [edit],
+      }],
+    })).rejects.toMatchObject({ status: 400, value: { code: "invalid-reference" } });
+    expect((await client.node({ path: "/page" })).document?.source).toBe(original);
+
+    await client.mutate({
+      mutationID: "valid-source-edit",
+      operations: [{
+        op: "writeMarkdown",
+        ref: { path: "/page" },
+        baseContentRevision: before.contentRevision!,
+        source,
+        sourceEdits: [edit],
+      }],
+    });
+    expect((await client.node({ path: "/page" })).document?.source).toBe(source);
+  });
+
   test("rejects malformed and empty mutation batches at the protocol boundary", async () => {
     const fixture = JSON.parse(await readFile(
       join(import.meta.dir, "../../spec/fixtures/malformed-mutation.json"),
@@ -98,6 +133,8 @@ describe("arbord REST v1", () => {
       { mutationID: "old-write-shape", operations: [{ op: "writeMarkdown", ref: { path: "/page" }, baseContentRevision: "sha256:old", blocks: [] }] },
       { mutationID: "bad-ref", operations: [{ op: "rename", ref: { path: "/renamed", pageID: "both" }, name: "nope" }] },
       { mutationID: "bad-move", operations: [{ op: "move", refs: [], destination: { path: "/" } }] },
+      { mutationID: "bad-source-edits", operations: [{ op: "writeMarkdown", ref: { path: "/page" }, baseContentRevision: "sha256:old", source: "x", sourceEdits: [] }] },
+      { mutationID: "overlapping-source-edits", operations: [{ op: "writeMarkdown", ref: { path: "/page" }, baseContentRevision: "sha256:old", source: "x", sourceEdits: [{ offset: 2, length: 2, replacement: "a" }, { offset: 3, length: 1, replacement: "b" }] }] },
     ]) {
       const response = await fetch(`${base}/v1/mutations`, {
         method: "POST",

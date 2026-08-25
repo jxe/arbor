@@ -242,6 +242,27 @@ final class ArborClientTests: XCTestCase {
         }
     }
 
+    func testWorkspaceOperationEncodesUTF8SourceEditProvenance() throws {
+        let operation = WorkspaceOperation(
+            op: "writeMarkdown",
+            ref: .path("/page"),
+            baseContentRevision: "sha256:base",
+            source: "Hello 🌳\n",
+            sourceEdits: [ProtocolSourceEdit(
+                offset: 6,
+                length: 0,
+                replacement: "🌳",
+                expected: ""
+            )]
+        )
+        let data = try JSONEncoder().encode(operation)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let edits = try XCTUnwrap(json["sourceEdits"] as? [[String: Any]])
+        XCTAssertEqual(edits.first?["offset"] as? Int, 6)
+        XCTAssertEqual(edits.first?["replacement"] as? String, "🌳")
+        XCTAssertEqual(try JSONDecoder().decode(WorkspaceOperation.self, from: data), operation)
+    }
+
     func testMultipartRetriesTheSameEncodedRequest() async throws {
         let receipt = try String(contentsOf: fixtures.appending(path: "receipt.json"), encoding: .utf8)
         let response = Data(#"{"receipt":\#(receipt),"path":"/Assets/example.txt","markdownPath":"../Assets/example.txt"}"#.utf8)

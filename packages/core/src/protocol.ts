@@ -157,12 +157,77 @@ export interface RecoveryPage {
   observedThrough: EventCursor;
 }
 
+/** One simultaneous UTF-8 byte replacement against an exact source revision. */
+export interface SourceEdit {
+  offset: number;
+  length: number;
+  replacement: string;
+  expected?: string;
+}
+
+export class SourceEditError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SourceEditError";
+  }
+}
+
+/** Apply guarded, ordered source edits without ever indexing JavaScript UTF-16. */
+export function applySourceEdits(source: string, edits: readonly SourceEdit[]): string {
+  const original = new TextEncoder().encode(source);
+  const chunks: Uint8Array[] = [];
+  let cursor = 0;
+  let size = 0;
+  for (const [index, edit] of edits.entries()) {
+    if (
+      !Number.isSafeInteger(edit.offset)
+      || !Number.isSafeInteger(edit.length)
+      || edit.offset < cursor
+      || edit.length < 0
+      || edit.offset > original.length
+      || edit.length > original.length - edit.offset
+    ) {
+      throw new SourceEditError(`sourceEdits[${index}] has an invalid or overlapping UTF-8 range`);
+    }
+    const unchanged = original.subarray(cursor, edit.offset);
+    chunks.push(unchanged);
+    size += unchanged.length;
+    const replaced = original.subarray(edit.offset, edit.offset + edit.length);
+    if (edit.expected !== undefined) {
+      const expected = new TextEncoder().encode(edit.expected);
+      if (expected.length !== replaced.length || expected.some((byte, offset) => byte !== replaced[offset])) {
+        throw new SourceEditError(`sourceEdits[${index}] expected bytes do not match the current source`);
+      }
+    }
+    const replacement = new TextEncoder().encode(edit.replacement);
+    chunks.push(replacement);
+    size += replacement.length;
+    cursor = edit.offset + edit.length;
+  }
+  const tail = original.subarray(cursor);
+  chunks.push(tail);
+  size += tail.length;
+  const result = new Uint8Array(size);
+  let position = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, position);
+    position += chunk.length;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(result);
+  } catch {
+    throw new SourceEditError("sourceEdits produce invalid UTF-8");
+  }
+}
+
 export type ContentWorkspaceOperation =
   | {
     op: "writeMarkdown";
     ref: NodeRef;
     baseContentRevision: ContentRevision;
     source: string;
+    /** Optional editor provenance; the complete `source` remains authoritative. */
+    sourceEdits?: SourceEdit[];
   }
   | {
     op: "restoreRecovery";

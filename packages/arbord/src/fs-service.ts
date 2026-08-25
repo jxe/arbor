@@ -14,6 +14,7 @@ import type {
 } from "@arbor/core";
 import {
   LOCAL_TREE,
+  applySourceEdits,
   canonicalJSONString,
   canonicalNodePath,
   nodeDisplayName,
@@ -317,6 +318,26 @@ export class FilesystemService implements AsyncDisposable {
   }
 
   async executeMutation(request: MutationRequest): Promise<MutationReceipt> {
+    const patchWrite = request.operations.find((operation) => operation.op === "writeMarkdown");
+    if (patchWrite?.sourceEdits) {
+      const current = await this.node(this.refPath(patchWrite.ref));
+      if (current.revision !== patchWrite.baseContentRevision) {
+        throw new ProtocolError("stale-content-revision", "The file changed since it was opened", 409, { path: current.path });
+      }
+      let result: string;
+      try {
+        result = applySourceEdits(current.document?.source ?? "", patchWrite.sourceEdits);
+      } catch (error) {
+        throw new ProtocolError("invalid-reference", error instanceof Error ? error.message : "sourceEdits are invalid", 400, {
+          path: current.path,
+        });
+      }
+      if (result !== patchWrite.source) {
+        throw new ProtocolError("invalid-reference", "sourceEdits do not produce the submitted exact source", 400, {
+          path: current.path,
+        });
+      }
+    }
     const requestHash = sha256(canonicalJSONString(request));
     const existing = this.receipts.get(request.mutationID);
     if (existing) {

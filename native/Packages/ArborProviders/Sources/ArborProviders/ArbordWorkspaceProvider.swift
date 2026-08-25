@@ -268,13 +268,46 @@ public actor ArbordDocumentSession: WorkspaceDocumentSession {
     }
 
     public func admit(source: String, baseContentRevision: String) async throws -> WorkspaceDocumentSnapshot {
+        try await admit(source: source, baseContentRevision: baseContentRevision, sourceEdits: nil)
+    }
+
+    public func admit(patch: WorkspaceDocumentPatch) async throws -> WorkspaceDocumentSnapshot {
+        let current = try await snapshot()
+        guard current.contentRevision == patch.baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(
+                expected: patch.baseContentRevision,
+                actual: current.contentRevision
+            )
+        }
+        let source = try patch.applying(to: current.source)
+        let edits = patch.edits.map { edit in
+            ProtocolSourceEdit(
+                offset: edit.utf8Range.lowerBound,
+                length: edit.utf8Range.count,
+                replacement: edit.replacement,
+                expected: edit.expected
+            )
+        }
+        return try await admit(
+            source: source,
+            baseContentRevision: patch.baseContentRevision,
+            sourceEdits: edits
+        )
+    }
+
+    private func admit(
+        source: String,
+        baseContentRevision: String,
+        sourceEdits: [ProtocolSourceEdit]?
+    ) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         do {
             _ = try await client.mutateContent(WorkspaceOperation(
                 op: "writeMarkdown",
                 ref: initialReference.nodeRef,
                 baseContentRevision: baseContentRevision,
-                source: source
+                source: source,
+                sourceEdits: sourceEdits
             ))
             return try await snapshot()
         } catch let error as ArbordServerError where error.value.code == "stale-content-revision" {
