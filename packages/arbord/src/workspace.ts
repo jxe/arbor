@@ -73,6 +73,12 @@ export interface WorkspaceOptions {
   excludedRoots?: readonly string[];
 }
 
+export interface ConfirmedSourcePatch {
+  baseSource: string;
+  resultSource: string;
+  edits: NonNullable<Extract<WorkspaceOperation, { op: "writeMarkdown" }>["sourceEdits"]>;
+}
+
 export class RevisionConflictError extends Error {
   constructor(public current: TreeNode) { super("The file changed since it was opened"); }
 }
@@ -330,7 +336,7 @@ export class Workspace implements AsyncDisposable {
         422,
       );
     }
-    await this.verifySourceEdits(request.operations);
+    await this.prepareSourcePatch(request.operations);
     const requestHash = sha256(canonicalJSONString(request));
     const existing = await this.mutations.prepare(request.mutationID, requestHash, request);
     await this.protocolFault("protocol:intent-recorded");
@@ -365,9 +371,9 @@ export class Workspace implements AsyncDisposable {
   }
 
   /** Validate editor provenance before the durable mutation-intent boundary. */
-  private async verifySourceEdits(operations: readonly WorkspaceOperation[]): Promise<void> {
+  async prepareSourcePatch(operations: readonly WorkspaceOperation[]): Promise<ConfirmedSourcePatch | undefined> {
     const operation = operations.find((candidate) => candidate.op === "writeMarkdown");
-    if (!operation || !operation.sourceEdits) return;
+    if (!operation || !operation.sourceEdits) return undefined;
     const path = await this.resolveRef(operation.ref);
     const current = await this.node(path);
     if (!current.document) {
@@ -393,6 +399,7 @@ export class Workspace implements AsyncDisposable {
         { path: current.path },
       );
     }
+    return { baseSource: current.document.source, resultSource: operation.source, edits: operation.sourceEdits };
   }
 
   async protocolFault(stage: string): Promise<void> {

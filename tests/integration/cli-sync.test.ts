@@ -272,7 +272,12 @@ describe("primary CLI sync forms", () => {
         mutationID: "anonymous-public-write",
         operations: [{ op: "createMarkdown", tree, path: "/public-note" }],
       });
-      const publishedRoot = decodeWireObject(await host.authority.object(host.authority.get(tree)!.ref));
+      let publishedRoot = decodeWireObject(await host.authority.object(host.authority.get(tree)!.ref));
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        if (publishedRoot.type === "directory" && publishedRoot.entries.some((entry) => entry.name === "public-note.md")) break;
+        await Bun.sleep(100);
+        publishedRoot = decodeWireObject(await host.authority.object(host.authority.get(tree)!.ref));
+      }
       expect(publishedRoot.type === "directory" && publishedRoot.entries.some((entry) => entry.name === "public-note.md")).toBe(true);
     } finally {
       await service[Symbol.asyncDispose]();

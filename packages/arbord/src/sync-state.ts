@@ -1,17 +1,24 @@
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { arborDataRoot, prepareArborDataRoot } from "@arbor/stores";
-import type { ObjectHash, TreeSnapshot, UpdateConflictResult } from "@arbor/wire";
+import type { FilePatch, ObjectHash, TreeSnapshot, UpdateConflictResult } from "@arbor/wire";
 
 interface StoredObject {
   hash: ObjectHash;
   bytes: string;
 }
 
+interface StoredFilePatch {
+  base: ObjectHash;
+  result: ObjectHash;
+  edits: Array<{ offset: number; length: number; bytes: string }>;
+}
+
 export interface PendingTreeUpdate {
   base: { root: ObjectHash; update: string };
   candidate: ObjectHash;
   objects: StoredObject[];
+  filePatches?: StoredFilePatch[];
 }
 
 export interface AcceptedTreeObjects {
@@ -79,6 +86,34 @@ export function snapshotFromPending(pending: PendingTreeUpdate): TreeSnapshot {
   return {
     root: pending.candidate,
     objects: new Map(pending.objects.map(({ hash, bytes }) => [hash, new Uint8Array(Buffer.from(bytes, "base64"))])),
+  };
+}
+
+export function filePatchesFromPending(pending: PendingTreeUpdate): FilePatch[] | undefined {
+  return pending.filePatches?.map((patch) => ({
+    base: patch.base,
+    result: patch.result,
+    edits: patch.edits.map((edit) => ({
+      offset: edit.offset,
+      length: edit.length,
+      bytes: new Uint8Array(Buffer.from(edit.bytes, "base64")),
+    })),
+  }));
+}
+
+export function withFilePatch(pending: PendingTreeUpdate, patch: FilePatch): PendingTreeUpdate {
+  return {
+    ...pending,
+    objects: pending.objects.filter((object) => object.hash !== patch.result),
+    filePatches: [{
+      base: patch.base,
+      result: patch.result,
+      edits: patch.edits.map((edit) => ({
+        offset: edit.offset,
+        length: edit.length,
+        bytes: Buffer.from(edit.bytes).toString("base64"),
+      })),
+    }],
   };
 }
 

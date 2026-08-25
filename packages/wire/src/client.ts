@@ -4,6 +4,7 @@ import type {
   UpdateConflictResult,
   UpdateRequest,
   UpdateResult,
+  FilePatch,
   AuthorityDevice,
   PairingOffer,
   TreeAccess,
@@ -246,12 +247,13 @@ export class WireClient {
     tree: string,
     base: { root: ObjectHash; update: string },
     snapshot: TreeSnapshot,
-    options: { returnSnapshot?: true | "if-result-differs" } = {},
+    options: { returnSnapshot?: true | "if-result-differs"; filePatches?: FilePatch[] } = {},
   ): Promise<UpdateResult> {
     const request: UpdateRequest = {
       base,
       candidate: snapshot.root,
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
+      ...(options.filePatches?.length ? { filePatches: options.filePatches } : {}),
       ...(options.returnSnapshot ? { returnSnapshot: options.returnSnapshot } : {}),
     };
     const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
