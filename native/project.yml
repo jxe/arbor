@@ -50,6 +50,7 @@ targets:
       path: ArborApp/Info.plist
       properties:
         CFBundleDisplayName: Arbor
+        LSMultipleInstancesProhibited: true
         LSApplicationCategoryType: public.app-category.productivity
         NSCameraUsageDescription: Scan one-time Arbor device-pairing QR codes.
         NSMicrophoneUsageDescription: Record voice notes to add to Arbor pages.

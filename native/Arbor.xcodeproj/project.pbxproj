@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2E013A3F6D4817A1314B35F6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3AC49A8DD32DA714FB06F11E /* Assets.xcassets */; };
 		321414EED0DBE45187CC1086 /* ArborDailyDriverViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8278F4D043CD87121556B664 /* ArborDailyDriverViews.swift */; };
 		4196E094F43B370CE7E86DC7 /* ArborReplica in Frameworks */ = {isa = PBXBuildFile; productRef = CE998621587AADDAF474B4ED /* ArborReplica */; };
 		458E81B568F6213E55FEC3AC /* ArborSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F299E4C90ABCF2B66C525FF /* ArborSupportDirectories.swift */; };
@@ -40,6 +41,7 @@
 		1E659894DB90798769861B59 /* ArborProviders */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborProviders; path = Packages/ArborProviders; sourceTree = SOURCE_ROOT; };
 		24B7B875410B0C94CDD95EF0 /* ArborAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborAppModel.swift; sourceTree = "<group>"; };
 		288990A21FB0D222423967A4 /* ArborQuagmire */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborQuagmire; path = Packages/ArborQuagmire; sourceTree = SOURCE_ROOT; };
+		3AC49A8DD32DA714FB06F11E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		3D2630E60EAEFC5EACBFFF9B /* ArborWire */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborWire; path = Packages/ArborWire; sourceTree = SOURCE_ROOT; };
 		45675C08297B01C04578CF4E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7D4421060DE0D52EB928CB83 /* ArborAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborAppTests.swift; sourceTree = "<group>"; };
@@ -85,6 +87,7 @@
 				B7994449946DFB23BD2F4810 /* ArborRootView.swift */,
 				0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */,
 				0F299E4C90ABCF2B66C525FF /* ArborSupportDirectories.swift */,
+				3AC49A8DD32DA714FB06F11E /* Assets.xcassets */,
 				45675C08297B01C04578CF4E /* Info.plist */,
 				B060659FC85121ACFD5F6758 /* VoiceRecordingIntents.swift */,
 			);
@@ -140,6 +143,7 @@
 			buildPhases = (
 				5E5E06E071555B3E2F0DEC7C /* Build arbord helper */,
 				C4195B3B1D0B70661C221418 /* Sources */,
+				FB702F201BCF85D4335215ED /* Resources */,
 				9D987E1E2A7D8A121B5B688E /* Frameworks */,
 			);
 			buildRules = (
@@ -221,6 +225,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		FB702F201BCF85D4335215ED /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2E013A3F6D4817A1314B35F6 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		5E5E06E071555B3E2F0DEC7C /* Build arbord helper */ = {

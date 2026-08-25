@@ -22,6 +22,8 @@
 	<string>1</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
+	<key>LSMultipleInstancesProhibited</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan one-time Arbor device-pairing QR codes.</string>
 	<key>NSMicrophoneUsageDescription</key>
