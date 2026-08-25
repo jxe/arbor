@@ -143,40 +143,73 @@ public final class ArborDocumentBinding {
                 if admittedGeneration == generation { isSaving = false }
                 return
             }
-            let confirmed = try await session.admit(patch: patch)
-            accepted = confirmed
-            reference = confirmed.reference
-            if admittedGeneration == generation {
-                if confirmed.source == source {
-                    // This is the provider acknowledging the exact local tree
-                    // already mounted in Quagmire. Advance source authority
-                    // without reparsing/replacing it: a self-confirmation must
-                    // not disturb focus, selection, typing, or undo coalescing.
-                    ledger.source = confirmed.source
-                    ledger.revision = confirmed.contentRevision
-                } else {
-                    // A provider-returned transformation is genuinely new
-                    // authoritative content and still needs reconciliation.
-                    let opened = ArborMarkdownCodec.open(
-                        source: confirmed.source,
-                        revision: confirmed.contentRevision,
-                        identitySeed: String(describing: confirmed.reference.identity)
-                    )
-                    let rebased = ArborMarkdownCodec.rebased(opened, preserving: document.children)
-                    ledger = rebased.ledger
-                    if rebased.blocks != document.children { _ = document.replaceChildrenReconciled(rebased.blocks) }
-                }
-            }
-            conflict = nil
-            lastError = nil
-            if admittedGeneration == generation { isSaving = false }
+            accept(try await session.admit(patch: patch), submittedSource: source, generation: admittedGeneration)
         } catch let value as WorkspaceDocumentConflict {
-            conflict = value
-            lastError = value
-            if admittedGeneration == generation { isSaving = false }
+            if value.current.source == source {
+                accept(value.current, submittedSource: source, generation: admittedGeneration)
+            } else {
+                conflict = value
+                lastError = value
+                if admittedGeneration == generation { isSaving = false }
+            }
+        } catch let value as WorkspacePatchError {
+            guard case .staleRevision = value else {
+                lastError = value
+                if admittedGeneration == generation { isSaving = false }
+                return
+            }
+            do {
+                let current = try await session.snapshot()
+                if current.source == source {
+                    // A durable provider write can win the race with its local
+                    // acknowledgement. Exact bytes are an idempotent success.
+                    accept(current, submittedSource: source, generation: admittedGeneration)
+                } else {
+                    let conflict = WorkspaceDocumentConflict(current: current, submittedSource: source)
+                    self.conflict = conflict
+                    lastError = conflict
+                    if admittedGeneration == generation { isSaving = false }
+                }
+            } catch {
+                lastError = error
+                if admittedGeneration == generation { isSaving = false }
+            }
         } catch {
             lastError = error
             if admittedGeneration == generation { isSaving = false }
         }
+    }
+
+    private func accept(
+        _ confirmed: WorkspaceDocumentSnapshot,
+        submittedSource source: String,
+        generation admittedGeneration: Int
+    ) {
+        accepted = confirmed
+        reference = confirmed.reference
+        if admittedGeneration == generation {
+            if confirmed.source == source {
+                // This is the provider acknowledging the exact local tree
+                // already mounted in Quagmire. Advance source authority
+                // without reparsing/replacing it: a self-confirmation must
+                // not disturb focus, selection, typing, or undo coalescing.
+                ledger.source = confirmed.source
+                ledger.revision = confirmed.contentRevision
+            } else {
+                // A provider-returned transformation is genuinely new
+                // authoritative content and still needs reconciliation.
+                let opened = ArborMarkdownCodec.open(
+                    source: confirmed.source,
+                    revision: confirmed.contentRevision,
+                    identitySeed: String(describing: confirmed.reference.identity)
+                )
+                let rebased = ArborMarkdownCodec.rebased(opened, preserving: document.children)
+                ledger = rebased.ledger
+                if rebased.blocks != document.children { _ = document.replaceChildrenReconciled(rebased.blocks) }
+            }
+        }
+        conflict = nil
+        lastError = nil
+        if admittedGeneration == generation { isSaving = false }
     }
 }

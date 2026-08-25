@@ -322,6 +322,39 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("An already durable edit resolves a stale acknowledgement as success")
+    func staleExactSaveIsIdempotent() async throws {
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome")
+        let session = AlreadyAppliedStaleSession(snapshot: .init(
+            reference: reference,
+            source: "# Welcome\n\nBefore.\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: InMemoryWorkspaceProvider.sample(),
+            linkPreviewService: linkPreviewService()
+        )
+        let paragraph = try #require(binding.document.children.first?.children.first?.id)
+        var replacements: [DocumentReplacement] = []
+        binding.document.didReplaceChildren = { replacements.append($0) }
+        binding.document.transaction(name: "Edit") {
+            _ = binding.document.setText(paragraph, AttributedString("Already durable."))
+        }
+
+        host.persistCommit(changes: [], in: binding.document)
+        await host.flush(binding.document)
+
+        #expect(binding.lastError == nil, Comment(rawValue: String(reflecting: binding.lastError)))
+        #expect(binding.conflict == nil)
+        #expect(replacements.isEmpty)
+        let saved = try await session.snapshot()
+        #expect(saved.contentRevision == "r2")
+        #expect(saved.source.contains("Already durable."))
+    }
+
+    @MainActor
     @Test("Duplicate tabs share one binding and save chain by PageID")
     func duplicateTabs() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
@@ -623,4 +656,49 @@ struct ArborQuagmireTests {
         #expect(noOp.source == confirmed.source)
         #expect(noOp.patch.edits.isEmpty)
     }
+}
+
+private actor AlreadyAppliedStaleSession: WorkspaceDocumentSession {
+    nonisolated let identity: WorkspaceIdentity
+    private var current: WorkspaceDocumentSnapshot
+
+    init(snapshot: WorkspaceDocumentSnapshot) {
+        identity = snapshot.reference.identity
+        current = snapshot
+    }
+
+    func snapshot() throws -> WorkspaceDocumentSnapshot { current }
+
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        guard current.contentRevision == baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(
+                expected: baseContentRevision,
+                actual: current.contentRevision
+            )
+        }
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: source,
+            contentRevision: "r2"
+        )
+        return current
+    }
+
+    func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
+        let source = try patch.applying(to: current.source)
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: source,
+            contentRevision: "r2"
+        )
+        throw WorkspacePatchError.staleRevision(
+            expected: patch.baseContentRevision,
+            actual: current.contentRevision
+        )
+    }
+
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) throws -> WorkspaceDocumentSnapshot { current }
+    func close() {}
 }
