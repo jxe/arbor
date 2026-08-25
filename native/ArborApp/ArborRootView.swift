@@ -32,6 +32,7 @@ struct ArborRootView: View {
     @State private var voiceLaunchReady = false
 #if os(iOS)
     @State private var sidebarPresented = false
+    @FocusedValue(\.documentUndoController) private var undoController
 #endif
     @Environment(\.scenePhase) private var scenePhase
 
@@ -358,6 +359,19 @@ struct ArborRootView: View {
             }
 #endif
             ToolbarItemGroup(placement: .primaryAction) {
+#if os(iOS)
+                if reference == model.currentReference, model.binding != nil {
+                    Button("Undo", systemImage: "arrow.uturn.backward") {
+                        undoController?.undo()
+                    }
+                    .disabled(undoController == nil)
+
+                    Button("Redo", systemImage: "arrow.uturn.forward") {
+                        undoController?.redo()
+                    }
+                    .disabled(undoController == nil)
+                }
+#endif
                 if reference == model.currentReference,
                    model.node?.isWritable == true,
                    model.binding != nil {
@@ -391,7 +405,6 @@ struct ArborRootView: View {
                             showStatus: { presentedSheet = .syncStatus }
                         )
                     }
-                    .modifier(ArborEditorToolbarModifier())
                 } else {
                     ProgressView()
                 }
@@ -512,27 +525,6 @@ struct ArborRootView: View {
                 primaryAction: { workspace.errorMessage = nil }
             )
         }
-    }
-}
-
-private struct ArborEditorToolbarModifier: ViewModifier {
-    @FocusedValue(\.documentUndoController) private var undoController
-
-    func body(content: Content) -> some View {
-        content
-#if os(iOS)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Undo", systemImage: "arrow.uturn.backward") { undoController?.undo() }
-                        .disabled(undoController?.canUndo != true)
-                }
-                if undoController?.canRedo == true {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Redo", systemImage: "arrow.uturn.forward") { undoController?.redo() }
-                    }
-                }
-            }
-#endif
     }
 }
 
