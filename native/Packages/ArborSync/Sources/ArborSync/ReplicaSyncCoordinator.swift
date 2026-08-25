@@ -134,7 +134,14 @@ public actor ReplicaSyncCoordinator {
             objects: snapshot.objects.map { AuthorityObject(hash: $0.hash, bytes: $0.bytes) }
         )
         _ = try WireObjectGraph.validate(authoritySnapshot)
-        let request = AuthorityUpdateRequest(base: base, candidate: snapshot.root, objects: authoritySnapshot.objects, returnSnapshot: true)
+        let retained = (try? await retainedObjectHashes(root: base.root)) ?? []
+        let sparseObjects = authoritySnapshot.objects.filter { !retained.contains($0.hash) }
+        let request = AuthorityUpdateRequest(
+            base: base,
+            candidate: snapshot.root,
+            objects: sparseObjects,
+            returnSnapshot: .ifResultDiffers
+        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let attempt = DurableSyncAttempt(
@@ -159,8 +166,6 @@ public actor ReplicaSyncCoordinator {
     }
 
     private func apply(_ response: AuthorityUpdateResponse, for attempt: DurableSyncAttempt) async throws {
-        guard let snapshot = response.snapshot else { throw ReplicaSyncError.returnedSnapshotMissing }
-        _ = try WireObjectGraph.validate(snapshot)
         let accepted: AuthorityAcceptedUpdate
         let merge: AuthorityMergeSummary?
         switch response.result {
@@ -168,7 +173,12 @@ public actor ReplicaSyncCoordinator {
         case let .accepted(update): accepted = update; merge = nil
         case let .merged(update, summary): accepted = update; merge = summary
         }
-        guard snapshot.root == accepted.root else { throw ReplicaSyncError.returnedSnapshotMismatch }
+        if let snapshot = response.snapshot {
+            _ = try WireObjectGraph.validate(snapshot)
+            guard snapshot.root == accepted.root else { throw ReplicaSyncError.returnedSnapshotMismatch }
+        } else if accepted.root != attempt.candidate {
+            throw ReplicaSyncError.returnedSnapshotMissing
+        }
         try faultInjector.reached(.duringGraphDownload)
 
         let heads = try await replica.heads()
@@ -204,6 +214,7 @@ public actor ReplicaSyncCoordinator {
             try faultInjector.reached(.beforeBaseAdvancement)
             try await replica.recordAccepted(root: accepted.root, update: accepted.id, cursor: accepted.id)
         } else {
+            guard let snapshot = response.snapshot else { throw ReplicaSyncError.returnedSnapshotMissing }
             try faultInjector.reached(.duringMaterialization)
             let replacement = try SnapshotBridge.replacement(
                 snapshot: snapshot,
@@ -222,6 +233,20 @@ public actor ReplicaSyncCoordinator {
         control.nextBase = nil
         setAppliedPresentation(accepted: accepted, merge: merge)
         try files.write(control)
+    }
+
+    private func retainedObjectHashes(root: String) async throws -> Set<String> {
+        var pending = [root]
+        var visited = Set<String>()
+        while let hash = pending.popLast() {
+            if !visited.insert(hash).inserted { continue }
+            let bytes = try await replica.storedObjectBytes(hash: hash)
+            let object = try WireObjectCodec.decode(bytes)
+            if case let .directory(entries) = object {
+                pending.append(contentsOf: entries.compactMap(\.hash))
+            }
+        }
+        return visited
     }
 
     private func setAppliedPresentation(accepted: AuthorityAcceptedUpdate, merge: AuthorityMergeSummary?) {

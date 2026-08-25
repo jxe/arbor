@@ -414,6 +414,9 @@ export async function serveWireHost(options: {
               } }), result.status);
             }
             const accepted = result.result.outcome === "current" ? result.result.current : result.result.update;
+            if (update.returnSnapshot === "if-result-differs" && accepted.root === update.candidate) {
+              return json(updateJSON(result.result), result.status);
+            }
             const snapshot = await authority.snapshotForUpdate(treeID, accepted.id);
             return json(updateJSON({ ...result.result, snapshot: {
               root: snapshot.root,

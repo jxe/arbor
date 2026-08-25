@@ -20,18 +20,20 @@ import { LOCAL_TREE, SYSTEM_TREE, canonicalJSONString, canonicalNodePath, revisi
 import { completeDirectoryDocument, parseMarkdown } from "@arbor/editor";
 import { FsConflictError, MutationJournal } from "@arbor/fs";
 import { CommunityConfigStore, VisitedTreeStore, arborDataRoot } from "@arbor/stores";
-import { WireClient, WireUpdateConflict, decodeWireObject, materializeTree, resolveWireLogicalNode, snapshotDirectory, type AuthorityDevice, type PairingOffer, type RemoteTreeDescriptor } from "@arbor/wire";
+import { WireClient, WireUpdateConflict, decodeWireObject, materializeTree, resolveWireLogicalNode, snapshotDirectory, type AuthorityDevice, type ObjectHash, type PairingOffer, type RemoteTreeDescriptor } from "@arbor/wire";
 import { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { ProtocolError, RevisionConflictError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 import {
+  acceptedTreeObjects,
   clearPendingTreeUpdate,
   clearTreeConflict,
   pendingFromSnapshot,
   pendingTreeUpdate,
   savePendingTreeUpdate,
+  saveAcceptedTreeObjects,
   saveTreeConflict,
   snapshotFromPending,
   snapshotFromConflictDraft,
@@ -1250,6 +1252,9 @@ export class ArborService implements AsyncDisposable {
         publicAccess: remote.publicAccess,
         access: remote.access,
       });
+      const acceptedLocal = await this.snapshotWorkspace(workspace, client);
+      if (acceptedLocal.root !== remote.ref) throw new Error("Materialized remote tree does not match its authority root");
+      await saveAcceptedTreeObjects(tree, acceptedLocal);
       await clearPendingTreeUpdate(tree);
       await clearTreeConflict(tree);
       this.trees.setSyncState(tree, "idle");
@@ -1362,6 +1367,7 @@ export class ArborService implements AsyncDisposable {
       await this.trees.applySharedPlacement({ ...placement, ref: remote.ref, update: remote.update });
       this.trees.setSyncState(workspace.tree, "idle");
       this.syncConflicts.delete(workspace.tree);
+      await saveAcceptedTreeObjects(workspace.tree, local);
       return;
     }
     if (placement.access !== "write") {
@@ -1370,7 +1376,9 @@ export class ArborService implements AsyncDisposable {
     }
     if (!pending) {
       if (!placement.update) throw new Error("Shared placement has no accepted-update base");
-      pending = pendingFromSnapshot({ root: placement.ref, update: placement.update }, local);
+      const retained = await acceptedTreeObjects(workspace.tree);
+      const retainedHashes = retained?.root === placement.ref ? new Set(retained.hashes) : new Set<ObjectHash>();
+      pending = pendingFromSnapshot({ root: placement.ref, update: placement.update }, local, retainedHashes);
       await savePendingTreeUpdate(workspace.tree, pending);
     }
 
@@ -1384,7 +1392,9 @@ export class ArborService implements AsyncDisposable {
         const accepted = result.outcome === "current" ? result.current : result.update;
         local = await this.snapshotWorkspace(workspace, client, remoteTrees);
         if (local.root !== pending.candidate) {
-          pending = pendingFromSnapshot(pending.base, local);
+          const retained = await acceptedTreeObjects(workspace.tree);
+          const retainedHashes = retained?.root === pending.base.root ? new Set(retained.hashes) : new Set<ObjectHash>();
+          pending = pendingFromSnapshot(pending.base, local, retainedHashes);
           await savePendingTreeUpdate(workspace.tree, pending);
           continue;
         }
@@ -1401,6 +1411,9 @@ export class ArborService implements AsyncDisposable {
           update: accepted.id,
           publicAccess: remote.publicAccess,
         });
+        const acceptedLocal = await this.snapshotWorkspace(workspace, client, remoteTrees);
+        if (acceptedLocal.root !== accepted.root) throw new Error("Materialized accepted tree does not match its authority root");
+        await saveAcceptedTreeObjects(workspace.tree, acceptedLocal);
         await clearPendingTreeUpdate(workspace.tree);
         await clearTreeConflict(workspace.tree);
         this.trees.setSyncState(workspace.tree, "idle");

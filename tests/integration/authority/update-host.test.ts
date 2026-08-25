@@ -106,6 +106,13 @@ describe("personal wire authority", () => {
     );
     expect(bundled.snapshot?.root).toBe(next.root);
     expect(bundled.snapshot?.objects.map(({ hash }) => hash).sort()).toEqual([...next.objects.keys()].sort());
+    const conditional = await client.submitUpdate(
+      tree.id,
+      { root: tree.ref, update: tree.update! },
+      next,
+      { returnSnapshot: "if-result-differs" },
+    );
+    expect(conditional.snapshot).toBeUndefined();
     expect((await client.ref(tree.id)).ref).toBe(next.root);
     expect(running.authority.acceptedUpdates(tree.id).filter((item) => item.root === next.root)).toHaveLength(1);
 
@@ -305,8 +312,10 @@ describe("personal wire authority", () => {
         tree.id,
         { root: tree.ref, update: tree.update! },
         candidateSnapshot,
+        { returnSnapshot: "if-result-differs" },
       );
       expect(merged.outcome).toBe("merged");
+      expect(merged.snapshot?.root).toBe(merged.outcome === "current" ? merged.current.root : merged.update.root);
       const accepted = merged.outcome === "current" ? merged.current : merged.update;
       const logical = await resolveWireLogicalNode(accepted.root, "/note", (hash) => running.authority.object(hash));
       expect(logical?.object.type).toBe("file");
@@ -350,7 +359,7 @@ describe("personal wire authority", () => {
           tree.id,
           { root: tree.ref, update: tree.update! },
           candidateSnapshot,
-          { returnSnapshot: true },
+          { returnSnapshot: "if-result-differs" },
         );
       } catch (error) {
         if (error instanceof WireUpdateConflict) conflict = error;

@@ -14,6 +14,11 @@ export interface PendingTreeUpdate {
   objects: StoredObject[];
 }
 
+export interface AcceptedTreeObjects {
+  root: ObjectHash;
+  hashes: ObjectHash[];
+}
+
 export interface StoredTreeConflict extends Omit<UpdateConflictResult, "draft"> {
   draft: { root: ObjectHash; objects: StoredObject[] };
 }
@@ -21,6 +26,7 @@ export interface StoredTreeConflict extends Omit<UpdateConflictResult, "draft"> 
 interface TreeSyncState {
   pending?: PendingTreeUpdate;
   conflict?: StoredTreeConflict;
+  accepted?: AcceptedTreeObjects;
 }
 
 function safeTreeID(tree: string): string {
@@ -45,7 +51,7 @@ async function save(tree: string, state: TreeSyncState): Promise<void> {
   const directory = join(arborDataRoot(), "sync");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const destination = pathFor(tree);
-  if (!state.pending && !state.conflict) {
+  if (!state.pending && !state.conflict && !state.accepted) {
     await rm(destination, { force: true });
     return;
   }
@@ -58,11 +64,14 @@ async function save(tree: string, state: TreeSyncState): Promise<void> {
 export function pendingFromSnapshot(
   base: { root: ObjectHash; update: string },
   snapshot: TreeSnapshot,
+  retained: ReadonlySet<ObjectHash> = new Set(),
 ): PendingTreeUpdate {
   return {
     base,
     candidate: snapshot.root,
-    objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
+    objects: [...snapshot.objects]
+      .filter(([hash]) => !retained.has(hash))
+      .map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
   };
 }
 
@@ -82,6 +91,18 @@ export function snapshotFromConflictDraft(conflict: StoredTreeConflict): TreeSna
 
 export async function pendingTreeUpdate(tree: string): Promise<PendingTreeUpdate | undefined> {
   return (await load(tree)).pending;
+}
+
+export async function acceptedTreeObjects(tree: string): Promise<AcceptedTreeObjects | undefined> {
+  return (await load(tree)).accepted;
+}
+
+export async function saveAcceptedTreeObjects(tree: string, snapshot: TreeSnapshot): Promise<void> {
+  const state = await load(tree);
+  await save(tree, {
+    ...state,
+    accepted: { root: snapshot.root, hashes: [...snapshot.objects.keys()].sort() },
+  });
 }
 
 export async function treeConflict(tree: string): Promise<StoredTreeConflict | undefined> {

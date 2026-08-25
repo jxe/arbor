@@ -121,6 +121,15 @@ public actor ArborReplica {
         return try ReplicaWireCodec.snapshot(for: state)
     }
 
+    public func storedObjectBytes(hash: String) throws -> Data {
+        try requireOpen()
+        let bytes = try Data(contentsOf: files.objectURL(hash: hash))
+        guard ReplicaSemantics.sha256(bytes) == hash else {
+            throw ReplicaError.corruptState("Immutable object hash mismatch for \(hash)")
+        }
+        return bytes
+    }
+
     public func recordAccepted(root: String, update: String, cursor: String? = nil) throws {
         try requireOpen()
         guard !update.isEmpty else { throw ReplicaError.corruptState("Accepted update ID is empty") }

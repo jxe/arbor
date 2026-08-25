@@ -176,17 +176,152 @@ public struct AuthorityUpdateBase: Codable, Sendable, Equatable {
     }
 }
 
+public struct AuthorityFilePatchEdit: Codable, Sendable, Equatable {
+    public var offset: Int
+    public var length: Int
+    public var bytes: Data
+
+    public init(offset: Int, length: Int, bytes: Data) {
+        self.offset = offset
+        self.length = length
+        self.bytes = bytes
+    }
+
+    private enum CodingKeys: String, CodingKey { case offset, length, bytes }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        offset = try values.decode(Int.self, forKey: .offset)
+        length = try values.decode(Int.self, forKey: .length)
+        let encoded = try values.decode(String.self, forKey: .bytes)
+        guard offset >= 0, length >= 0,
+              offset <= 9_007_199_254_740_991, length <= 9_007_199_254_740_991,
+              let decoded = Data(base64Encoded: encoded),
+              decoded.base64EncodedString() == encoded else {
+            throw ArborWireValidationError.invalidValue("Invalid file patch edit")
+        }
+        bytes = decoded
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(offset, forKey: .offset)
+        try values.encode(length, forKey: .length)
+        try values.encode(bytes.base64EncodedString(), forKey: .bytes)
+    }
+}
+
+public struct AuthorityFilePatch: Codable, Sendable, Equatable {
+    public var base: String
+    public var result: String
+    public var edits: [AuthorityFilePatchEdit]
+
+    public init(base: String, result: String, edits: [AuthorityFilePatchEdit]) {
+        self.base = base
+        self.result = result
+        self.edits = edits
+    }
+
+    public func validated() throws -> Self {
+        try validateObjectHash(base)
+        try validateObjectHash(result)
+        guard !edits.isEmpty else { throw ArborWireValidationError.invalidValue("File patch edits are empty") }
+        var previousEnd = 0
+        for edit in edits {
+            guard edit.offset >= previousEnd, edit.length >= 0,
+                  edit.offset <= Int.max - edit.length else {
+                throw ArborWireValidationError.invalidValue("File patch edits overlap or overflow")
+            }
+            previousEnd = edit.offset + edit.length
+        }
+        return self
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        base = try values.decode(String.self, forKey: .base)
+        result = try values.decode(String.self, forKey: .result)
+        edits = try values.decode([AuthorityFilePatchEdit].self, forKey: .edits)
+        _ = try validated()
+    }
+}
+
+public enum AuthoritySnapshotReturn: Sendable, Equatable, Codable {
+    case always
+    case ifResultDiffers
+
+    public init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer()
+        if let boolean = try? value.decode(Bool.self), boolean { self = .always; return }
+        if let string = try? value.decode(String.self), string == "if-result-differs" { self = .ifResultDiffers; return }
+        throw ArborWireValidationError.invalidValue("Invalid returnSnapshot mode")
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var value = encoder.singleValueContainer()
+        switch self {
+        case .always: try value.encode(true)
+        case .ifResultDiffers: try value.encode("if-result-differs")
+        }
+    }
+}
+
 public struct AuthorityUpdateRequest: Codable, Sendable, Equatable {
     public var base: AuthorityUpdateBase
     public var candidate: String
     public var objects: [AuthorityObject]
-    public var returnSnapshot: Bool?
+    public var filePatches: [AuthorityFilePatch]?
+    public var returnSnapshot: AuthoritySnapshotReturn?
 
-    public init(base: AuthorityUpdateBase, candidate: String, objects: [AuthorityObject], returnSnapshot: Bool = false) {
+    public init(
+        base: AuthorityUpdateBase,
+        candidate: String,
+        objects: [AuthorityObject],
+        filePatches: [AuthorityFilePatch] = [],
+        returnSnapshot: AuthoritySnapshotReturn? = nil
+    ) {
         self.base = base
         self.candidate = candidate
         self.objects = objects
-        self.returnSnapshot = returnSnapshot ? true : nil
+        self.filePatches = filePatches.isEmpty ? nil : filePatches
+        self.returnSnapshot = returnSnapshot
+    }
+
+    public init(base: AuthorityUpdateBase, candidate: String, objects: [AuthorityObject], returnSnapshot: Bool) {
+        self.init(
+            base: base,
+            candidate: candidate,
+            objects: objects,
+            returnSnapshot: returnSnapshot ? .always : nil
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey { case base, candidate, objects, filePatches, returnSnapshot }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        base = try values.decode(AuthorityUpdateBase.self, forKey: .base)
+        candidate = try values.decode(String.self, forKey: .candidate)
+        objects = try values.decode([AuthorityObject].self, forKey: .objects)
+        filePatches = try values.decodeIfPresent([AuthorityFilePatch].self, forKey: .filePatches)
+        returnSnapshot = try values.decodeIfPresent(AuthoritySnapshotReturn.self, forKey: .returnSnapshot)
+        if let filePatches {
+            guard filePatches.count <= 10_000,
+                  filePatches.reduce(0, { $0 + $1.edits.count }) <= 100_000,
+                  filePatches.reduce(0, { partial, patch in
+                      partial + patch.edits.reduce(0, { $0 + $1.bytes.count })
+                  }) <= 64 * 1024 * 1024 else {
+                throw ArborWireValidationError.invalidValue("File patches exceed transport quotas")
+            }
+            let results = filePatches.map(\.result)
+            guard Set(results).count == results.count else {
+                throw ArborWireValidationError.invalidValue("Duplicate file patch result")
+            }
+            let complete = Set(objects.map(\.hash))
+            guard results.allSatisfy({ !complete.contains($0) }) else {
+                throw ArborWireValidationError.invalidValue("File patch result also supplied as complete object")
+            }
+        }
     }
 }
 

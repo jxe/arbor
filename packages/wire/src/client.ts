@@ -246,13 +246,13 @@ export class WireClient {
     tree: string,
     base: { root: ObjectHash; update: string },
     snapshot: TreeSnapshot,
-    options: { returnSnapshot?: boolean } = {},
+    options: { returnSnapshot?: true | "if-result-differs" } = {},
   ): Promise<UpdateResult> {
     const request: UpdateRequest = {
       base,
       candidate: snapshot.root,
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
-      ...(options.returnSnapshot ? { returnSnapshot: true } : {}),
+      ...(options.returnSnapshot ? { returnSnapshot: options.returnSnapshot } : {}),
     };
     const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
       method: "POST",

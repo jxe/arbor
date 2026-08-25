@@ -47,16 +47,17 @@ struct ArborSyncTests {
         #expect(try payload.validated() == payload)
     }
 
-    @Test("Placement and one-sided synchronization apply complete returned snapshots")
+    @Test("One-sided synchronization accepts its candidate without a returned snapshot")
     func placementAndSync() async throws {
         try await withTemporaryRoot { root in
             let tree = "tr_sync"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
             let transport = ClosureTransport(initial: initial) { prepared, _ in
                 let request = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: prepared.body)
-                let candidate = AuthoritySnapshot(root: request.candidate, objects: request.objects)
+                let candidate = try completeCandidate(request, retained: initial)
                 let update = accepted(id: "up_local", tree: tree, root: candidate.root, base: request.base.root, candidate: candidate.root)
-                return AuthorityUpdateResponse(result: .accepted(update), snapshot: candidate)
+                #expect(request.returnSnapshot == .ifResultDiffers)
+                return AuthorityUpdateResponse(result: .accepted(update), snapshot: nil)
             }
             let replica = try await ReplicaPlacementService.place(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -100,7 +101,7 @@ struct ArborSyncTests {
                     let current = try await session.snapshot()
                     _ = try await session.admit(source: current.source + "Tail\n", baseContentRevision: current.contentRevision)
                 }
-                let returned = AuthoritySnapshot(root: request.candidate, objects: request.objects)
+                let returned = try completeCandidate(request, retained: initial)
                 let update = accepted(id: "up_\(call)", tree: tree, root: returned.root, base: request.base.root, candidate: returned.root)
                 return AuthorityUpdateResponse(result: .accepted(update), snapshot: returned)
             }
@@ -164,7 +165,7 @@ struct ArborSyncTests {
                 let request = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: prepared.body)
                 #expect(request.base.root == remote.root)
                 #expect(request.base.update == "up_remote")
-                let candidate = AuthoritySnapshot(root: request.candidate, objects: request.objects)
+                let candidate = try completeCandidate(request, retained: initial)
                 return AuthorityUpdateResponse(
                     result: .accepted(accepted(id: "up_resolved", tree: tree, root: candidate.root, base: remote.root, candidate: candidate.root)),
                     snapshot: candidate
@@ -183,7 +184,7 @@ struct ArborSyncTests {
                 let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n")
                 let transport = ClosureTransport(initial: initial) { prepared, _ in
                     let request = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: prepared.body)
-                    let candidate = AuthoritySnapshot(root: request.candidate, objects: request.objects)
+                    let candidate = try completeCandidate(request, retained: initial)
                     return AuthorityUpdateResponse(
                         result: .accepted(accepted(id: "up_done", tree: tree, root: candidate.root, base: request.base.root, candidate: candidate.root)),
                         snapshot: candidate
@@ -210,6 +211,9 @@ struct ArborSyncTests {
                 let resumed = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)
                 #expect(try await resumed.syncOnce().state == .current)
                 let requests = await transport.requests
+                let frozen = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: try #require(requests.first).body)
+                #expect(frozen.returnSnapshot == .ifResultDiffers)
+                #expect(frozen.objects.count < (try await replica.currentSnapshot()).objects.count)
                 if requests.count > 1 {
                     #expect(Set(requests.map(\.requestDigest)).count == 1)
                     #expect(Set(requests.map(\.body)).count == 1)
@@ -326,6 +330,23 @@ private func snapshot(markdown: String) throws -> AuthoritySnapshot {
     let file = try WireObjectCodec.object(.file(Data(markdown.utf8)))
     let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
     return AuthoritySnapshot(root: root.hash, objects: [file, root].sorted { $0.hash < $1.hash })
+}
+
+private func completeCandidate(_ request: AuthorityUpdateRequest, retained: AuthoritySnapshot) throws -> AuthoritySnapshot {
+    var envelopes = Dictionary(uniqueKeysWithValues: retained.objects.map { ($0.hash, $0) })
+    for object in request.objects { envelopes[object.hash] = object }
+    var pending = [request.candidate]
+    var visited = Set<String>()
+    var objects: [AuthorityObject] = []
+    while let hash = pending.popLast() {
+        if !visited.insert(hash).inserted { continue }
+        let envelope = try #require(envelopes[hash])
+        objects.append(envelope)
+        if case let .directory(entries) = try WireObjectCodec.decode(envelope.bytes) {
+            pending.append(contentsOf: entries.compactMap(\.hash))
+        }
+    }
+    return AuthoritySnapshot(root: request.candidate, objects: objects.sorted { $0.hash < $1.hash })
 }
 
 private func descriptor(tree: String, snapshot: AuthoritySnapshot, update: String) -> AuthorityTreeDescriptor {

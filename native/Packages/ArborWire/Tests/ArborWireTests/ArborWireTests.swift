@@ -82,6 +82,45 @@ struct UpdateProtocolTests {
         #expect(updateRequestDigest(tree: tree, base: value, candidate: candidate) == identity["digest"] as? String)
     }
 
+    @Test("Swift consumes the shared file-patch and conditional-snapshot fixtures")
+    func filePatchFixtures() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "wire-file-patches.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let valid = try #require(fixture["valid"] as? [String: Any])
+        let validData = try JSONSerialization.data(withJSONObject: valid)
+        let patch = try JSONDecoder().decode(AuthorityFilePatch.self, from: validData)
+        #expect(patch.edits.map(\.offset) == [1, 4])
+        #expect(patch.edits.map(\.bytes) == [Data("x".utf8), Data("y".utf8)])
+
+        let base = AuthorityUpdateBase(root: "sha256:" + String(repeating: "0", count: 64), update: "up_base")
+        let request = AuthorityUpdateRequest(
+            base: base,
+            candidate: "sha256:" + String(repeating: "1", count: 64),
+            objects: [],
+            filePatches: [patch],
+            returnSnapshot: .ifResultDiffers
+        )
+        let encoded = try JSONEncoder().encode(request)
+        let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(json["returnSnapshot"] as? String == "if-result-differs")
+        #expect((json["filePatches"] as? [[String: Any]])?.count == 1)
+
+        let invalid = try #require(fixture["invalid"] as? [[String: Any]])
+        for vector in invalid {
+            let patches = try #require(vector["patches"] as? [[String: Any]])
+            let body: [String: Any] = [
+                "base": ["root": base.root, "update": base.update],
+                "candidate": "sha256:" + String(repeating: "1", count: 64),
+                "objects": [],
+                "filePatches": patches,
+            ]
+            let bodyData = try JSONSerialization.data(withJSONObject: body)
+            #expect(throws: (any Error).self) {
+                _ = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: bodyData)
+            }
+        }
+    }
+
     @Test("Endpoint result fixture decodes with required accepted-update fields")
     func endpointResult() throws {
         let data = try Data(contentsOf: fixtures.appending(path: "wire-endpoints.json"))
