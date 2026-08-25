@@ -168,6 +168,89 @@ describe("private self-sync", () => {
     await fallback.close();
   });
 
+  test("rebases a later local save on the just-accepted local generation", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const before = await author.client.node({ tree, path: "/note" });
+    const firstSource = "# Rapid generation one\n";
+    const secondSource = "# Rapid generation two\n";
+    const updateBodies: any[] = [];
+    const systemFetch = globalThis.fetch;
+    let releaseFirst!: () => void;
+    const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let observeFirst!: () => void;
+    const firstObserved = new Promise<void>((resolve) => { observeFirst = resolve; });
+    let blockNextUpdate = true;
+    globalThis.fetch = (async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/.arbor/trees/") && url.endsWith("/updates") && typeof init?.body === "string") {
+        updateBodies.push(JSON.parse(init.body));
+        if (blockNextUpdate) {
+          blockNextUpdate = false;
+          observeFirst();
+          await firstReleased;
+        }
+      }
+      return systemFetch(input, init);
+    }) as typeof fetch;
+    try {
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref: { tree, path: "/note" },
+        baseContentRevision: before.contentRevision!,
+        source: firstSource,
+        sourceEdits: [{
+          offset: 0,
+          length: Buffer.byteLength(before.document!.source),
+          replacement: firstSource,
+          expected: before.document!.source,
+        }],
+      });
+      await firstObserved;
+      const afterFirst = await author.client.node({ tree, path: "/note" });
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref: { tree, path: "/note" },
+        baseContentRevision: afterFirst.contentRevision!,
+        source: secondSource,
+        sourceEdits: [{
+          offset: 0,
+          length: Buffer.byteLength(afterFirst.document!.source),
+          replacement: secondSource,
+          expected: afterFirst.document!.source,
+        }],
+      });
+      releaseFirst();
+      await waitFor(async () => updateBodies.length >= 2
+        && (await author.running.service.trees.descriptors())
+          .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    } finally {
+      releaseFirst();
+      globalThis.fetch = systemFetch;
+    }
+
+    expect(updateBodies[1].base.root).toBe(updateBodies[0].candidate);
+    expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
+    const after = await author.client.node({ tree, path: "/note" });
+    const restoredSource = "# Complete-object fallback\n";
+    await author.client.mutateContent({
+      op: "writeMarkdown",
+      ref: { tree, path: "/note" },
+      baseContentRevision: after.contentRevision!,
+      source: restoredSource,
+      sourceEdits: [{
+        offset: 0,
+        length: Buffer.byteLength(after.document!.source),
+        replacement: restoredSource,
+        expected: after.document!.source,
+      }],
+    });
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    await author.close();
+  });
+
   test("preserves both sides when devices diverge offline", async () => {
     const commonRef = host.authority.get(tree)!.ref;
     host.server.stop(true);

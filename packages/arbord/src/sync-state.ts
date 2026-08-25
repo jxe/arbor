@@ -133,10 +133,20 @@ export async function acceptedTreeObjects(tree: string): Promise<AcceptedTreeObj
 }
 
 export async function saveAcceptedTreeObjects(tree: string, snapshot: TreeSnapshot): Promise<void> {
+  await saveAcceptedTreeObjectHashes(tree, {
+    root: snapshot.root,
+    hashes: [...snapshot.objects.keys()],
+  });
+}
+
+export async function saveAcceptedTreeObjectHashes(
+  tree: string,
+  accepted: AcceptedTreeObjects,
+): Promise<void> {
   const state = await load(tree);
   await save(tree, {
     ...state,
-    accepted: { root: snapshot.root, hashes: [...snapshot.objects.keys()].sort() },
+    accepted: { root: accepted.root, hashes: [...accepted.hashes].sort() },
   });
 }
 

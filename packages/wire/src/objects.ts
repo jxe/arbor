@@ -316,6 +316,11 @@ export async function materializeTree(
     const object = decodeWireObject(bytes);
     if (object.type === "file") {
       await mkdir(dirname(path), { recursive: true });
+      const existing = await readFile(path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (existing?.equals(Buffer.from(object.bytes))) return;
       await writeFile(path, object.bytes);
       return;
     }

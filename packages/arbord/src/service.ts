@@ -34,6 +34,7 @@ import {
   pendingFromSnapshot,
   pendingTreeUpdate,
   savePendingTreeUpdate,
+  saveAcceptedTreeObjectHashes,
   saveAcceptedTreeObjects,
   saveTreeConflict,
   snapshotFromPending,
@@ -1445,9 +1446,40 @@ export class ArborService implements AsyncDisposable {
         const accepted = result.outcome === "current" ? result.current : result.update;
         local = await this.snapshotWorkspace(workspace, client, remoteTrees);
         if (local.root !== pending.candidate) {
-          const retained = await acceptedTreeObjects(workspace.tree);
-          const retainedHashes = retained?.root === pending.base.root ? new Set(retained.hashes) : new Set<ObjectHash>();
-          pending = pendingFromSnapshot(pending.base, local, retainedHashes);
+          if (accepted.root === pending.candidate) {
+            // The authority accepted this local generation while a later local
+            // save was already durable. Advance that later generation's base
+            // to the just-accepted update; resubmitting it against the older
+            // base would manufacture a same-device three-way merge and can
+            // rematerialize the editor's own tree underneath its session.
+            const retained = await acceptedTreeObjects(workspace.tree);
+            const retainedHashes = new Set<ObjectHash>(retained?.hashes ?? []);
+            retainedHashes.add(accepted.root);
+            for (const object of pending.objects) retainedHashes.add(object.hash);
+            for (const patch of pending.filePatches ?? []) retainedHashes.add(patch.result);
+            placement = {
+              ...placement,
+              ref: accepted.root,
+              update: accepted.id,
+              publicAccess: remote.publicAccess,
+            };
+            await this.trees.applySharedPlacement(placement);
+            await saveAcceptedTreeObjectHashes(workspace.tree, {
+              root: accepted.root,
+              hashes: [...retainedHashes],
+            });
+            pending = pendingFromSnapshot(
+              { root: accepted.root, update: accepted.id },
+              local,
+              retainedHashes,
+            );
+          } else {
+            const retained = await acceptedTreeObjects(workspace.tree);
+            const retainedHashes = retained?.root === pending.base.root
+              ? new Set(retained.hashes)
+              : new Set<ObjectHash>();
+            pending = pendingFromSnapshot(pending.base, local, retainedHashes);
+          }
           await savePendingTreeUpdate(workspace.tree, pending);
           continue;
         }

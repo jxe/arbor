@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -122,6 +122,26 @@ describe("canonical tree objects", () => {
     const afterHash = hashObject(after);
     const objects = new Map([[hashA, fileA], [hashB, fileB], [beforeHash, before], [afterHash, after]]);
     expect(await changedPaths(beforeHash, afterHash, async (hash) => objects.get(hash)!)).toEqual(["/note.md"]);
+  });
+
+  test("materialization leaves byte-identical authored files untouched", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-materialize-identical-"));
+    try {
+      const path = join(root, "note.md");
+      await writeFile(path, "same bytes\n");
+      const fixed = new Date("2024-01-01T00:00:00.000Z");
+      await utimes(path, fixed, fixed);
+      const before = await stat(path);
+      const snapshot = await snapshotDirectory(root);
+
+      await materializeTree(root, snapshot.root, async (hash) => snapshot.objects.get(hash)!);
+
+      const after = await stat(path);
+      expect(after.mtimeMs).toBe(before.mtimeMs);
+      expect(await readFile(path, "utf8")).toBe("same bytes\n");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("keeps reader-local mounts out of snapshots and pull deletion", async () => {
