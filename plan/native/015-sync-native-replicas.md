@@ -18,7 +18,7 @@
 ## Reconciled protocol decision
 
 - Plan 015 requests the optional complete returned accepted snapshot on `updates-v1`, validates it, and applies it without graph-fetch races or a historical-object endpoint.
-- `file-patches-v1` is specified now but deferred to Plan 021. This plan continues uploading complete changed file objects.
+- At this plan's completion, `file-patches-v1` remained deferred. Plan 021 subsequently added immediate verified editor patches while retaining this plan's complete changed-object path as the fallback.
 
 ## Why this matters
 

@@ -28,7 +28,7 @@ Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quag
 | [018](018-port-hunch-strengths.md) | Port Hunch's native strengths | P1 | XL | 017 | IN PROGRESS — shell, Move To, editing feel, commands, and safety presentation implemented; capture/content integrations remain |
 | [019](019-convert-hunch-workspace.md) | Convert the live Hunch workspace and cut over | P1 | L | 018 | TODO |
 | [020](020-test-device-management-browser.md) | Complete device-management browser E2E | P2 | S | 010 | TODO |
-| [021](021-add-wire-file-patches.md) | Send editor patches in immediate authority updates | P1 | L | 015, 016 | TODO — NEXT SYNC WORK |
+| [021](021-add-wire-file-patches.md) | Send editor patches in immediate authority updates | P1 | L | 015, 016 | DONE — immediate verified patches, sparse fallback, and conditional snapshots verified |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
 
@@ -44,7 +44,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - 016 proves exact editor persistence independently of the broad product surface.
 - 019 is the only milestone allowed to read the live Hunch workspace or create its converted destination.
 - 020 is later browser-surface hardening. It does not block the already verified device protocol, Railway migration, or native implementation sequence.
-- 021 is the next synchronization milestone. Immediately after a durable local editor admission, it uses that just-verified patch when the authority base and sync scheduler are ready; otherwise it falls back to the ordinary full-object candidate. It also sends sparse candidate envelopes and avoids downloading a returned snapshot when the authority accepted the submitted candidate unchanged.
+- 021 completes the first-alpha synchronization transport. Immediately after a durable local editor admission, it uses that just-verified patch when the authority base and sync scheduler are ready; otherwise it falls back to the ordinary sparse complete-object candidate. It also avoids downloading a returned snapshot when the authority accepted the submitted candidate unchanged.
 
 ## Decisions carried by the plan set
 

@@ -3,6 +3,16 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
+## Immediate editor-patch synchronization
+
+**Status: Plan 021 implemented and verified on 2026-08-25.**
+
+ArborQuagmire's guarded UTF-8 source edits now survive the provider boundary without entering Quagmire's public model. Arbord verifies them against the exact current source before recording durable mutation intent and retains the complete resulting source as the local authority. The offline replica returns a one-shot confirmed admission only after its journal, immutable objects, materialization, history, and control heads are durable. Neither local acknowledgement path waits for the network.
+
+Both sync coordinators map an immediately eligible admission to canonical base/result file-object hashes, verify the result again at request creation, freeze the exact sparse attempt, and send `filePatches` instead of the complete changed Markdown object. A retained-base mismatch, earlier pending attempt, intervening generation, provider adjustment, invalid mapping, or unfavorable size automatically uses the sparse complete-object request. Overlapping immediate schedules coalesce without composing patch lineage. The authority reconstructs canonical file objects only from retained base-reachable payloads, verifies the declared result hash, and then uses the unchanged root validation, merge, and accepted-history path.
+
+Clients now send `returnSnapshot: "if-result-differs"`: unchanged candidate acceptance needs no download, while current/merged roots and conflicts still carry the complete graph needed for safe application. Shared TypeScript/Swift fixtures and hostile authority tests cover byte bounds, overlap, overflow, base64, wrong/unreachable hashes, duplicate result objects, sparse envelopes, fallback, exact retry, and conditional snapshots. A real arbord/authority self-sync test captures the patch request and proves saving still returns while that authority is unavailable; native tests capture the equivalent iOS request and its size fallback. The large-file accounting test also exposed and fixed Swift canonical-CBOR length encoding beyond one-byte payloads.
+
 ## Native replica synchronization and Quagmire bridge
 
 **Status: Plans 015 and 016 implemented and verified on 2026-08-24.**
@@ -13,7 +23,7 @@ Native account integration scans or pastes the versioned pairing payload, indepe
 
 `ArborQuagmire` depends on exact remote Quagmire `0.1.0` and keeps its Markdown parser, stable BlockID/source ledger, reference scope, and admission chain private to the host. Unchanged frontmatter, CRLF, raw Markdown, compatible blocks, and represented inline marks remain exact; an edited block is canonically regenerated in isolation and admitted as one range-guarded UTF-8 replacement against the authoritative revision. Sequential Quagmire commits enqueue immediately, flush awaits the tail, duplicate tabs share one PageID binding, accepted replacement remaps both BlockIDs and source records without authored undo, and failed cross-document destinations leave source exact.
 
-The wire spec now also defines `returnSnapshot` as a transport-only hint excluded from semantic request identity. Success/current may return the complete accepted graph and conflicts may additionally return the complete current graph. The first-alpha `file-patches-v1` representation is specified but deliberately unimplemented; Plan 021 owns its hostile fixtures, authority reconstruction, Swift planning, accounting proof, and ordinary complete-object fallback after Plans 015 and 016. Alpha clients, arbord, and authorities move together rather than negotiating mixed protocol versions.
+The wire spec also defines `returnSnapshot` as a transport-only hint excluded from semantic request identity. Plan 021 subsequently implemented its first-alpha `file-patches-v1` representation, hostile fixtures, authority reconstruction, Swift clients, accounting proof, and ordinary complete-object fallback. Alpha clients, arbord, and authorities continue moving together rather than negotiating mixed protocol versions.
 
 Verification recorded with this delivery:
 

@@ -12,6 +12,7 @@
 - **Depends on**: Plans 015 and 016
 - **Category**: protocol/performance
 - **Planned at**: Arbor `01776d6`, 2026-08-24; reconciled around immediate editor-originated patches on 2026-08-25
+- **Completed**: 2026-08-25 in `50fe817` through `6f05ca5`
 
 ## Why this matters
 
@@ -117,15 +118,15 @@ Expected: an immediately eligible editor admission becomes a verified file-patch
 
 ## Done criteria
 
-- [ ] A just-confirmed Quagmire patch becomes the authority file patch on both macOS and iOS when all immediate-eligibility checks hold.
-- [ ] Losing or declining the optimization never loses local work and always retains complete-object fallback.
-- [ ] Patch and complete-object transports are semantically interchangeable.
-- [ ] Sparse requests omit unchanged base-reachable objects while remaining graph-valid at the authority.
-- [ ] Base reachability and all byte-range/hash invariants are enforced.
-- [ ] `if-result-differs` omits only snapshots the client can prove it already has.
-- [ ] Ambiguous retry and accepted history remain exactly-once.
-- [ ] No path mutation, patch lineage, or merge behavior enters the patch codec.
-- [ ] Quagmire's public block/document model remains storage-neutral and at exact `0.1.0`.
+- [x] A just-confirmed Quagmire patch becomes the authority file patch on both macOS and iOS when all immediate-eligibility checks hold.
+- [x] Losing or declining the optimization never loses local work and always retains complete-object fallback.
+- [x] Patch and complete-object transports are semantically interchangeable.
+- [x] Sparse requests omit unchanged base-reachable objects while remaining graph-valid at the authority.
+- [x] Base reachability and all byte-range/hash invariants are enforced.
+- [x] `if-result-differs` omits only snapshots the client can prove it already has.
+- [x] Ambiguous retry and accepted history remain exactly-once.
+- [x] No path mutation, patch lineage, or merge behavior enters the patch codec.
+- [x] Quagmire's public block/document model remains storage-neutral and at exact `0.1.0`.
 
 ## STOP conditions
 
