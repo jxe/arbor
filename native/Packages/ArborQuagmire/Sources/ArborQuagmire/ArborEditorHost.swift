@@ -2,6 +2,7 @@ import ArborKit
 import Foundation
 import Observation
 import Quagmire
+import QuagmireExtras
 
 public struct ArborMoveRequest: Identifiable {
     public let id = UUID()
@@ -52,10 +53,11 @@ public enum ArborDocumentReferenceCodec {
 
 @MainActor
 @Observable
-public final class ArborEditorHost: EditorHost, ImagesUnsupported, LinkPreviewsUnsupported, BlockActionsUnsupported {
+public final class ArborEditorHost: EditorHost, ImagesUnsupported {
     public let binding: ArborDocumentBinding
     public private(set) var moveRequest: ArborMoveRequest?
     private let provider: any WorkspaceProvider
+    private let linkPreviewService: LinkPreviewService
     private let openAction: @MainActor (WorkspaceReference) -> Void
     private let backAction: @MainActor () -> Void
     private var lookups: [DocumentReference: DocumentLookup] = [:]
@@ -64,11 +66,13 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported, LinkPreviewsU
     public init(
         binding: ArborDocumentBinding,
         provider: any WorkspaceProvider,
+        linkPreviewService: LinkPreviewService,
         open: @escaping @MainActor (WorkspaceReference) -> Void = { _ in },
         navigateBack: @escaping @MainActor () -> Void = {}
     ) {
         self.binding = binding
         self.provider = provider
+        self.linkPreviewService = linkPreviewService
         self.openAction = open
         self.backAction = navigateBack
     }
@@ -245,6 +249,14 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported, LinkPreviewsU
     public func parseBlocksFromPasteboard(_ string: String) -> [Block]? {
         let blocks = ArborMarkdownCodec.parseBlocks(string)
         return blocks.isEmpty ? nil : blocks
+    }
+
+    public func linkPreview(for url: URL) async -> LinkPreview? {
+        await linkPreviewService.preview(for: url)
+    }
+
+    public func blockActions(in _: Document) -> [EditorBlockAction] {
+        TranscriptPolishingActions.actions()
     }
 
     private func slug(_ value: String) -> String {

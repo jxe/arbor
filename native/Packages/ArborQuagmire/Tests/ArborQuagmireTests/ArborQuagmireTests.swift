@@ -2,10 +2,17 @@ import ArborKit
 @testable import ArborQuagmire
 import Foundation
 import Quagmire
+import QuagmireExtras
 import Testing
 
 @Suite("Source-preserving Quagmire codec")
 struct ArborQuagmireTests {
+    private func linkPreviewService() -> LinkPreviewService {
+        LinkPreviewService(
+            cacheDirectory: FileManager.default.temporaryDirectory
+                .appending(path: "ArborQuagmireTests-\(UUID().uuidString)")
+        )
+    }
     @Test("No-op is byte-identical across envelopes, CRLF, marks, and raw Markdown")
     func noOp() throws {
         let source = "---\r\nid: pg_exact\r\ntitle:  A  \r\n---\r\n\r\n# Heading *as authored*\r\n\r\nParagraph with **bold**, [link](other.md), $x^2$, and  two spaces.\r\n\r\n<table><tr><td>raw</td></tr></table>\r\n"
@@ -72,7 +79,11 @@ struct ArborQuagmireTests {
             contentRevision: "r1"
         ))
         let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
-        let host = ArborEditorHost(binding: binding, provider: provider)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
         let document = binding.document
         var textIDs: [BlockID] = []
         document.walk { block, _, _ in
@@ -107,6 +118,39 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("Provider-backed transcript delivery updates an active PageID binding")
+    func activeTranscriptDelivery() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let workspace = ArborEditorWorkspace(provider: provider)
+        let reference = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            pageID: "pg_welcome"
+        )
+        let lease = try await workspace.lease(reference)
+
+        try await workspace.appendTranscript(
+            "Captured through the workspace.",
+            to: "pg_welcome",
+            in: "tr_sample"
+        )
+
+        var texts: [String] = []
+        lease.binding.document.walk { block, _, _ in
+            texts.append(String(block.text.characters))
+        }
+        let snapshot = try await lease.binding.snapshot()
+        #expect(
+            texts.contains("Captured through the workspace."),
+            Comment(rawValue: "texts=\(texts) source=\(snapshot.source)")
+        )
+        #expect(snapshot.source.contains(
+            "Captured through the workspace."
+        ))
+        await workspace.release(lease)
+    }
+
+    @MainActor
     @Test("Destination failure leaves the source exact and references retain tree plus PageID scope")
     func safeActions() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
@@ -115,7 +159,11 @@ struct ArborQuagmireTests {
             reference: .init(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome"),
             session: session
         )
-        let host = ArborEditorHost(binding: binding, provider: provider)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
         let before = try await session.snapshot()
         let scoped = ArborDocumentReferenceCodec.encode(before.reference)
         #expect(ArborDocumentReferenceCodec.decode(scoped) == before.reference)
@@ -145,7 +193,11 @@ struct ArborQuagmireTests {
         )
         let session = try await provider.openDocument(home.reference)
         let binding = try await ArborDocumentBinding.open(reference: home.reference, session: session)
-        let host = ArborEditorHost(binding: binding, provider: provider)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
 
         let documents = await host.moveDocuments(matching: "")
         #expect(documents.map(\.title) == ["Destination"])
@@ -157,6 +209,38 @@ struct ArborQuagmireTests {
         #expect(host.moveRequest?.inDocumentCandidates == [target])
         host.resolveMoveRequest(with: .block(targetID))
         #expect(await requestTask.value == .block(targetID))
+    }
+
+    @MainActor
+    @Test("Editor host delegates external previews and transcript actions to QuagmireExtras")
+    func extrasHostServices() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            pageID: "pg_welcome"
+        )
+        let session = try await provider.openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let url = try #require(URL(string: "https://example.com/article"))
+        let cacheDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "ArborQuagmireExtras-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let service = LinkPreviewService(cacheDirectory: cacheDirectory) { requested in
+            LinkPreview(url: requested, title: "Example article", iconPNG: nil)
+        }
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: service
+        )
+
+        let preview = await host.linkPreview(for: url)
+        #expect(preview?.url == url)
+        #expect(preview?.title == "Example article")
+        #expect(host.blockActions(in: binding.document).map(\.id)
+            == TranscriptPolishingActions.actions().map(\.id))
+        await session.close()
     }
 
     @MainActor

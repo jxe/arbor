@@ -3,11 +3,11 @@
 
 ## Status and identity
 
-- Quagmire `0.2.0` is published at commit `af61f9a`; Hunch commit `d13087b` consumes the exact remote release and has replaced its duplicated link-preview, voice/recovery, App Intent, and transcript-polishing implementations with the optional `QuagmireExtras` product. Plan 001 remains the historical `0.1.0` publication milestone. Native Arbor still resolves `0.1.0` until Plan 018 performs its separately verified exact-version adoption.
+- Quagmire `0.2.0` is published at commit `af61f9a`; Hunch commit `d13087b` and native Arbor both consume the exact remote release and use the optional `QuagmireExtras` product for link previews, voice/recovery, App Intent, and transcript polishing. Plan 001 remains the historical `0.1.0` publication milestone; Plan 018 records Arbor's separately verified adoption and hands-on acceptance checklist.
 - Plans 002–005 captured a superseded TreeHopper/iCloud design and must not be executed. Their files remain as historical evidence.
 - The native product is **Arbor**, not TreeHopper: display name and scheme `Arbor`, app module `ArborApp`, bundle ID `org.nxhx.Arbor`, and iOS/macOS 27 deployment targets.
 - The app is new work under `native/`; it is not a renamed Hunch target and must not reuse Hunch defaults, caches, bookmarks, logs, app groups, bundle IDs, or iCloud containers.
-- Plans 012–016 and 021 are complete: the generated Arbor shell and UI-independent ArborKit contracts build on macOS and iOS 27; independent ArborWire conformance passes the shared fixtures and disposable authority harness; ArborReplica provides the private crash-recoverable offline provider; ArborSync adds authority-owned convergence with immediate verified editor patches, sparse complete-object fallback, and conditional returned snapshots; and ArborQuagmire mounts exact Quagmire `0.1.0` over source-preserving guarded admissions.
+- Plans 012–016 and 021 are complete: the generated Arbor shell and UI-independent ArborKit contracts build on macOS and iOS 27; independent ArborWire conformance passes the shared fixtures and disposable authority harness; ArborReplica provides the private crash-recoverable offline provider; ArborSync adds authority-owned convergence with immediate verified editor patches, sparse complete-object fallback, and conditional returned snapshots. Plan 016's historical ArborQuagmire milestone used exact Quagmire `0.1.0`; active Plan 018 has since upgraded the bridge and app to exact `0.2.0` plus QuagmireExtras while retaining source-preserving guarded admissions.
 
 Execution order:
 

@@ -118,11 +118,22 @@ public enum ArborMarkdownCodec {
         var chunks: [String] = [ledger.envelope]
         var nextRecords: [BlockID: SourceRecord] = [:]
         func append(_ block: Block, depth: Int, listDepth: Int) {
-            let raw: String
+            var raw: String
             if let record = ledger.records[block.id], record.block.kind == block.kind, record.depth == depth {
                 raw = record.raw
             } else {
                 raw = canonical(block, newline: ledger.newline, indent: listDepth)
+                if listDepth == 0,
+                   let previous = chunks.last,
+                   !previous.isEmpty,
+                   !previous.hasSuffix(ledger.newline + ledger.newline),
+                   !raw.hasPrefix(ledger.newline) {
+                    // A byte-preserved final block may end in a single newline.
+                    // Keep no-op source exact, but separate a newly appended
+                    // non-list block so Markdown does not fold its text into
+                    // the preceding paragraph.
+                    raw = ledger.newline + raw
+                }
             }
             chunks.append(raw)
             nextRecords[block.id] = SourceRecord(block: block, raw: raw, depth: depth)

@@ -6,6 +6,7 @@ import ArborSync
 import ArborWire
 import Foundation
 import Observation
+import QuagmireExtras
 
 @MainActor
 @Observable
@@ -21,6 +22,7 @@ final class ArborWorkspaceState {
         detail: "Local sample workspace; no authority configured"
     )
     private(set) var syncConflict: ReplicaConflictPresentation?
+    let linkPreviewService: LinkPreviewService
     var errorMessage: String?
 
     private var syncCoordinator: ReplicaSyncCoordinator?
@@ -31,6 +33,9 @@ final class ArborWorkspaceState {
 #endif
 
     init(provider: InMemoryWorkspaceProvider = .sample()) {
+        self.linkPreviewService = LinkPreviewService(
+            cacheDirectory: ArborSupportDirectories.linkPreviews
+        )
         self.provider = provider
         self.editorWorkspace = ArborEditorWorkspace(provider: provider)
         self.home = WorkspaceReference(tree: "tr_sample", path: "/")
@@ -176,6 +181,14 @@ final class ArborWorkspaceState {
         catch { errorMessage = "Saving did not finish: \(error.localizedDescription)" }
     }
 
+    func deliverVoiceTranscript(_ transcript: String, to pageID: PageID) async throws {
+        try await editorWorkspace.appendTranscript(
+            transcript,
+            to: pageID,
+            in: home.tree
+        )
+    }
+
     func shutdown() async {
         await flush()
         await editorWorkspace.closeAll()
@@ -286,6 +299,7 @@ final class ArborAppModel {
                 editorHost = ArborEditorHost(
                     binding: lease.binding,
                     provider: workspace.provider,
+                    linkPreviewService: workspace.linkPreviewService,
                     open: { [weak self] reference in Task { await self?.navigate(to: reference) } },
                     navigateBack: { [weak self] in Task { await self?.goBack() } }
                 )
@@ -405,5 +419,36 @@ final class ArborAppModel {
             _ = try await workspace.provider.store(asset: asset, in: currentReference)
             await load()
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    func startVoiceRecording(_ session: VoiceRecordingSession<PageID>) async {
+        guard let node, node.isWritable, let pageID = binding?.reference.pageID else {
+            session.reportError("Open a writable Arbor page before starting a recording.")
+            return
+        }
+        await session.start(destination: pageID)
+    }
+
+    func toggleVoiceRecordingFromShortcut(_ session: VoiceRecordingSession<PageID>) async {
+        switch session.state {
+        case .idle:
+            do {
+                let homeNode = try await workspace.provider.resolve(workspace.home)
+                guard homeNode.isWritable,
+                      homeNode.surface.supportsDocumentSession,
+                      let pageID = homeNode.reference.pageID else {
+                    session.reportError("The Home node must be a writable Arbor page before starting a Shortcut recording.")
+                    return
+                }
+                await navigate(to: homeNode.reference)
+                await session.start(destination: pageID)
+            } catch {
+                session.reportError("Arbor could not open Home for recording: \(error.localizedDescription)")
+            }
+        case .recording:
+            await session.stopAndDeliver()
+        case .transcribing:
+            session.cancelTranscription()
+        }
     }
 }

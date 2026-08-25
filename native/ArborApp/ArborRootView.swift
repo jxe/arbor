@@ -3,6 +3,7 @@ import ArborQuagmire
 import ArborSync
 import ArborWire
 import Quagmire
+import QuagmireExtras
 import SwiftUI
 import UniformTypeIdentifiers
 #if os(iOS)
@@ -12,6 +13,7 @@ import VisionKit
 struct ArborRootView: View {
     let workspace: ArborWorkspaceState
     @State private var model: ArborAppModel
+    @State private var recordingSession: VoiceRecordingSession<PageID>
     @State private var accountPresented = false
     @State private var presentedSheet: ArborPresentedSheet?
     @State private var searchPresented = false
@@ -20,11 +22,21 @@ struct ArborRootView: View {
     @State private var assetImporterPresented = false
     @State private var trashConfirmationPresented = false
     @State private var arbordLogs = ""
+    @State private var voiceLaunchReady = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(workspace: ArborWorkspaceState) {
         self.workspace = workspace
         _model = State(initialValue: ArborAppModel(workspace: workspace))
+        _recordingSession = State(initialValue: VoiceRecordingSession(
+            recoveryStore: PendingVoiceRecordingStore(
+                directoryURL: ArborSupportDirectories.pendingVoiceRecordings
+            ),
+            loggingSubsystem: "org.nxhx.Arbor",
+            recoveryDelivery: { transcript, pageID in
+                try await workspace.deliverVoiceTranscript(transcript, to: pageID)
+            }
+        ))
     }
 
     var body: some View {
@@ -140,6 +152,11 @@ struct ArborRootView: View {
                         .disabled(!model.canGoForward)
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
+                    if model.node?.isWritable == true, model.binding != nil {
+                        VoiceRecordingButton(session: recordingSession) {
+                            await model.startVoiceRecording(recordingSession)
+                        }
+                    }
                     Button("Search", systemImage: "magnifyingglass") { searchPresented = true }
                     Menu("Actions", systemImage: "ellipsis.circle") {
                         Button("Open Location…", systemImage: "location") { presentedSheet = .openLocation }
@@ -192,11 +209,35 @@ struct ArborRootView: View {
             }
         }
         .task(id: workspace.generation) { await model.resetForWorkspace() }
+        .task {
 #if os(macOS)
-        .task { await workspace.restoreLocalWorkspaceIfAvailable() }
+            await workspace.restoreLocalWorkspaceIfAvailable()
 #endif
+            voiceLaunchReady = true
+            forwardPendingVoiceRecording()
+        }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { Task { await workspace.flush() } }
+            if phase == .active {
+                forwardPendingVoiceRecording()
+            } else {
+                Task { await workspace.flush() }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: VoiceRecordingLaunchRequest.notificationName)) { _ in
+            forwardPendingVoiceRecording()
+        }
+        .alert("Recording", isPresented: recordingErrorBinding) {
+            Button("OK") { recordingSession.errorMessage = nil }
+        } message: {
+            Text(recordingSession.errorMessage ?? "")
+        }
+        .alert("Recover Recording?", isPresented: recordingRecoveryBinding) {
+            Button("Transcribe and Add") {
+                Task { await recordingSession.recoverPendingRecording() }
+            }
+            Button("Later", role: .cancel) { recordingSession.deferPendingRecovery() }
+        } message: {
+            Text(recordingRecoveryMessage)
         }
         .sheet(isPresented: $accountPresented) {
             NativeAccountPanel { origin, tree in
@@ -250,6 +291,37 @@ struct ArborRootView: View {
             }
         }
         .focusedSceneValue(\.arborWindowCommands, windowCommands)
+    }
+
+    private var recordingErrorBinding: Binding<Bool> {
+        Binding(
+            get: { recordingSession.errorMessage != nil },
+            set: { if !$0 { recordingSession.errorMessage = nil } }
+        )
+    }
+
+    private var recordingRecoveryBinding: Binding<Bool> {
+        Binding(
+            get: {
+                recordingSession.pendingRecovery != nil
+                    && recordingSession.errorMessage == nil
+            },
+            set: { _ in }
+        )
+    }
+
+    private var recordingRecoveryMessage: String {
+        guard let recording = recordingSession.pendingRecovery else { return "" }
+        let date = recording.createdAt.formatted(date: .abbreviated, time: .shortened)
+        return "Arbor preserved an unfinished recording from \(date). It will be transcribed and added to its original page."
+    }
+
+    private func forwardPendingVoiceRecording() {
+        guard voiceLaunchReady else { return }
+        guard VoiceRecordingLaunchRequest.consumePendingStart() else { return }
+        Task { @MainActor in
+            await model.toggleVoiceRecordingFromShortcut(recordingSession)
+        }
     }
 
     private func isCurrent(_ reference: WorkspaceReference) -> Bool {

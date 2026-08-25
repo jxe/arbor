@@ -7,16 +7,25 @@ let package = Package(
     products: [.library(name: "ArborQuagmire", targets: ["ArborQuagmire"])],
     dependencies: [
         .package(path: "../ArborKit"),
-        .package(url: "https://github.com/jxe/quagmire.git", exact: "0.1.0")
+        .package(url: "https://github.com/jxe/quagmire.git", exact: "0.2.0")
     ],
     targets: [
         .target(
             name: "ArborQuagmire",
-            dependencies: ["ArborKit", .product(name: "Quagmire", package: "quagmire")]
+            dependencies: [
+                "ArborKit",
+                .product(name: "Quagmire", package: "quagmire"),
+                .product(name: "QuagmireExtras", package: "quagmire")
+            ]
         ),
         .testTarget(
             name: "ArborQuagmireTests",
-            dependencies: ["ArborQuagmire", "ArborKit", .product(name: "Quagmire", package: "quagmire")]
+            dependencies: [
+                "ArborQuagmire",
+                "ArborKit",
+                .product(name: "Quagmire", package: "quagmire"),
+                .product(name: "QuagmireExtras", package: "quagmire")
+            ]
         )
     ],
     swiftLanguageModes: [.v6]

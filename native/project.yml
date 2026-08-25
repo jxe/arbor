@@ -25,6 +25,9 @@ packages:
     path: Packages/ArborSync
   ArborQuagmire:
     path: Packages/ArborQuagmire
+  Quagmire:
+    url: https://github.com/jxe/quagmire.git
+    exactVersion: 0.2.0
   ArborProviders:
     path: Packages/ArborProviders
 
@@ -41,12 +44,16 @@ targets:
       - package: ArborSync
       - package: ArborQuagmire
       - package: ArborProviders
+      - package: Quagmire
+        product: QuagmireExtras
     info:
       path: ArborApp/Info.plist
       properties:
         CFBundleDisplayName: Arbor
         LSApplicationCategoryType: public.app-category.productivity
         NSCameraUsageDescription: Scan one-time Arbor device-pairing QR codes.
+        NSMicrophoneUsageDescription: Record voice notes to add to Arbor pages.
+        NSSpeechRecognitionUsageDescription: Transcribe voice notes into Arbor pages.
         UILaunchScreen: {}
     settings:
       base:

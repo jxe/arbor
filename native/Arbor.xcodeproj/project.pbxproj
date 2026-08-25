@@ -9,10 +9,13 @@
 /* Begin PBXBuildFile section */
 		321414EED0DBE45187CC1086 /* ArborDailyDriverViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8278F4D043CD87121556B664 /* ArborDailyDriverViews.swift */; };
 		4196E094F43B370CE7E86DC7 /* ArborReplica in Frameworks */ = {isa = PBXBuildFile; productRef = CE998621587AADDAF474B4ED /* ArborReplica */; };
+		458E81B568F6213E55FEC3AC /* ArborSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F299E4C90ABCF2B66C525FF /* ArborSupportDirectories.swift */; };
 		49918DF0BE00F770672896EF /* ArborRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7994449946DFB23BD2F4810 /* ArborRootView.swift */; };
 		4B214D2CBCB31FCF80729BD1 /* ArborAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D4421060DE0D52EB928CB83 /* ArborAppTests.swift */; };
 		4F9D4E223AB8F9EC50BFDA1F /* ArborWire in Frameworks */ = {isa = PBXBuildFile; productRef = 540CECB7BA0B67B0E3F6418F /* ArborWire */; };
+		5062566B174504F107111229 /* VoiceRecordingIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B060659FC85121ACFD5F6758 /* VoiceRecordingIntents.swift */; };
 		689B52D368DB30134530C123 /* ArborProviders in Frameworks */ = {isa = PBXBuildFile; productRef = 17EF6FF7B3B5C09E32F630D8 /* ArborProviders */; };
+		70A4EBBBD20A51A044D10D49 /* QuagmireExtras in Frameworks */ = {isa = PBXBuildFile; productRef = 58BDC1D3069C577A3C27996C /* QuagmireExtras */; };
 		8879915EF65A25600F6AABF6 /* ArborQuagmire in Frameworks */ = {isa = PBXBuildFile; productRef = 00048AC9019C9BC06814ED85 /* ArborQuagmire */; };
 		BCE1A74E18AC59895789A289 /* ArborSync in Frameworks */ = {isa = PBXBuildFile; productRef = 36CB136427AFA030550F9B5F /* ArborSync */; };
 		BD21C668E72EED6BE354C453 /* ArborStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */; };
@@ -33,6 +36,7 @@
 
 /* Begin PBXFileReference section */
 		0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborStyle.swift; sourceTree = "<group>"; };
+		0F299E4C90ABCF2B66C525FF /* ArborSupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSupportDirectories.swift; sourceTree = "<group>"; };
 		1E659894DB90798769861B59 /* ArborProviders */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborProviders; path = Packages/ArborProviders; sourceTree = SOURCE_ROOT; };
 		24B7B875410B0C94CDD95EF0 /* ArborAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborAppModel.swift; sourceTree = "<group>"; };
 		288990A21FB0D222423967A4 /* ArborQuagmire */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborQuagmire; path = Packages/ArborQuagmire; sourceTree = SOURCE_ROOT; };
@@ -46,6 +50,7 @@
 		AD896C37BD5C09F278E58C52 /* ArborKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborKit; path = Packages/ArborKit; sourceTree = SOURCE_ROOT; };
 		AF413A530D273F3DD668F9FB /* ArborReplica */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborReplica; path = Packages/ArborReplica; sourceTree = SOURCE_ROOT; };
 		AF5FF8D863EECB201E9FC2A2 /* ArborSync */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborSync; path = Packages/ArborSync; sourceTree = SOURCE_ROOT; };
+		B060659FC85121ACFD5F6758 /* VoiceRecordingIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingIntents.swift; sourceTree = "<group>"; };
 		B7994449946DFB23BD2F4810 /* ArborRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborRootView.swift; sourceTree = "<group>"; };
 		CBAC62CC4DC9451138C0087B /* Arbor.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Arbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DA724AAFA4CDE566A1A36442 /* ArborAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ArborAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -62,6 +67,7 @@
 				BCE1A74E18AC59895789A289 /* ArborSync in Frameworks */,
 				8879915EF65A25600F6AABF6 /* ArborQuagmire in Frameworks */,
 				689B52D368DB30134530C123 /* ArborProviders in Frameworks */,
+				70A4EBBBD20A51A044D10D49 /* QuagmireExtras in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,7 +84,9 @@
 				8278F4D043CD87121556B664 /* ArborDailyDriverViews.swift */,
 				B7994449946DFB23BD2F4810 /* ArborRootView.swift */,
 				0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */,
+				0F299E4C90ABCF2B66C525FF /* ArborSupportDirectories.swift */,
 				45675C08297B01C04578CF4E /* Info.plist */,
+				B060659FC85121ACFD5F6758 /* VoiceRecordingIntents.swift */,
 			);
 			path = ArborApp;
 			sourceTree = "<group>";
@@ -146,6 +154,7 @@
 				36CB136427AFA030550F9B5F /* ArborSync */,
 				00048AC9019C9BC06814ED85 /* ArborQuagmire */,
 				17EF6FF7B3B5C09E32F630D8 /* ArborProviders */,
+				58BDC1D3069C577A3C27996C /* QuagmireExtras */,
 			);
 			productName = Arbor;
 			productReference = CBAC62CC4DC9451138C0087B /* Arbor.app */;
@@ -194,6 +203,7 @@
 			mainGroup = D456DBA015945693DC8C5A27;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				1192F4E788C6EF5C26724C74 /* XCRemoteSwiftPackageReference "quagmire" */,
 				F63E7F980F71FDEE16232E33 /* XCLocalSwiftPackageReference "Packages/ArborKit" */,
 				AAEB8A5B11A45E9BC0A4D392 /* XCLocalSwiftPackageReference "Packages/ArborProviders" */,
 				29463BC7E721D7865A0CD0C8 /* XCLocalSwiftPackageReference "Packages/ArborQuagmire" */,
@@ -252,6 +262,8 @@
 				321414EED0DBE45187CC1086 /* ArborDailyDriverViews.swift in Sources */,
 				49918DF0BE00F770672896EF /* ArborRootView.swift in Sources */,
 				BD21C668E72EED6BE354C453 /* ArborStyle.swift in Sources */,
+				458E81B568F6213E55FEC3AC /* ArborSupportDirectories.swift in Sources */,
+				5062566B174504F107111229 /* VoiceRecordingIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -548,6 +560,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		1192F4E788C6EF5C26724C74 /* XCRemoteSwiftPackageReference "quagmire" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jxe/quagmire.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.2.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		00048AC9019C9BC06814ED85 /* ArborQuagmire */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -568,6 +591,11 @@
 		540CECB7BA0B67B0E3F6418F /* ArborWire */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ArborWire;
+		};
+		58BDC1D3069C577A3C27996C /* QuagmireExtras */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1192F4E788C6EF5C26724C74 /* XCRemoteSwiftPackageReference "quagmire" */;
+			productName = QuagmireExtras;
 		};
 		CE998621587AADDAF474B4ED /* ArborReplica */ = {
 			isa = XCSwiftPackageProductDependency;

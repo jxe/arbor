@@ -1,11 +1,22 @@
 import ArborKit
 import Foundation
 import Quagmire
+import QuagmireExtras
 import Testing
 @testable import ArborApp
 
 @MainActor
 struct ArborAppTests {
+    @Test("Extras state uses Arbor-owned support directories")
+    func extrasSupportDirectories() {
+        #expect(ArborSupportDirectories.root.lastPathComponent == "Arbor")
+        #expect(ArborSupportDirectories.linkPreviews.path.hasSuffix("/Arbor/LinkPreviews"))
+        #expect(ArborSupportDirectories.pendingVoiceRecordings.path.hasSuffix(
+            "/Arbor/Pending Voice Recordings"
+        ))
+        #expect(!ArborSupportDirectories.pendingVoiceRecordings.path.contains("Hunch"))
+    }
+
     @Test("The app opens the deterministic Home surface")
     func loadsHome() async {
         let model = ArborAppModel()
@@ -92,6 +103,61 @@ struct ArborAppTests {
             return
         }
         #expect(source.contains("Saved at navigation"))
+    }
+
+    @Test("Voice delivery appends through the active PageID binding and reaches the provider")
+    func activeVoiceDelivery() async throws {
+        let workspace = ArborWorkspaceState()
+        let model = ArborAppModel(workspace: workspace)
+        await model.load()
+        let welcome = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            pageID: "pg_welcome"
+        )
+        await model.navigate(to: welcome)
+
+        try await workspace.deliverVoiceTranscript(
+            "Captured through Arbor voice.",
+            to: "pg_welcome"
+        )
+
+        let binding = try #require(model.binding)
+        var inserted = false
+        binding.document.walk { block, _, _ in
+            if String(block.text.characters) == "Captured through Arbor voice." {
+                inserted = true
+            }
+        }
+        #expect(inserted)
+        let saved = try await workspace.provider.resolve(welcome)
+        guard case let .markdown(source, _) = saved.surface else {
+            Issue.record("Welcome was no longer a Markdown surface")
+            return
+        }
+        #expect(source.contains("Captured through Arbor voice."))
+    }
+
+    @Test("Recovered voice delivery resolves an inactive destination by PageID")
+    func recoveredVoiceDelivery() async throws {
+        let workspace = ArborWorkspaceState()
+        let welcome = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            pageID: "pg_welcome"
+        )
+
+        try await workspace.deliverVoiceTranscript(
+            "Recovered after interruption.",
+            to: "pg_welcome"
+        )
+
+        let saved = try await workspace.provider.resolve(welcome)
+        guard case let .markdown(source, _) = saved.surface else {
+            Issue.record("Welcome was no longer a Markdown surface")
+            return
+        }
+        #expect(source.contains("Recovered after interruption."))
     }
 
 #if os(macOS)
