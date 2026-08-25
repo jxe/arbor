@@ -50,6 +50,59 @@ public actor ReplicaSyncCoordinator {
         )
     }
 
+    public func watchCursor() async throws -> String? {
+        try requireOpen()
+        return try await replica.heads().acceptedCursor
+    }
+
+    /** Applies one accepted-state invalidation without turning a clean pull into a write. */
+    @discardableResult
+    public func observe(_ event: AuthorityWatchEvent) async throws -> WorkspaceSyncPresentation {
+        try requireOpen()
+        let treeID = await replica.treeID().rawValue
+        guard event.tree.id == treeID else { return try await presentation() }
+        let heads = try await replica.heads()
+        if event.id == heads.acceptedCursor { return try await presentation() }
+        if let requestDigest = event.requestDigest,
+           requestDigest == control.attempt?.digest {
+            // The watch won the response race, or the response was lost. Replaying
+            // the exact durable request obtains the authority's stored response.
+            return try await synchronize(admission: nil)
+        }
+        if control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
+            return try await synchronize(admission: nil)
+        }
+        let current = try await transport.currentSnapshot(tree: event.tree.id)
+        guard let update = current.tree.update else { throw ReplicaSyncError.replicaIsNotPlaced }
+        let latestHeads = try await replica.heads()
+        if latestHeads.pendingRoot != nil || latestHeads.materializedRoot != heads.materializedRoot {
+            return try await synchronize(admission: nil)
+        }
+        do {
+            if current.snapshot.root == latestHeads.materializedRoot {
+                try await replica.recordAccepted(root: current.snapshot.root, update: update, cursor: update)
+            } else {
+                let replacement = try SnapshotBridge.replacement(
+                    snapshot: current.snapshot,
+                    tree: await replica.treeID(),
+                    update: update,
+                    cursor: update
+                )
+                try await replica.replaceFromSystem(replacement)
+            }
+        } catch ReplicaError.pendingLocalChanges {
+            return try await synchronize(admission: nil)
+        }
+        control.presentation = WorkspaceSyncPresentation(
+            state: .current,
+            detail: "Applied the authority's current snapshot",
+            acceptedRoot: current.snapshot.root,
+            localRoot: current.snapshot.root
+        )
+        try files.write(control)
+        return control.presentation
+    }
+
     @discardableResult
     public func syncOnce() async throws -> WorkspaceSyncPresentation {
         try await synchronize(admission: nil)
@@ -258,6 +311,9 @@ public actor ReplicaSyncCoordinator {
     }
 
     private func apply(_ response: AuthorityUpdateResponse, for attempt: DurableSyncAttempt) async throws {
+        guard response.requestDigest == attempt.digest else {
+            throw ReplicaSyncError.returnedRequestDigestMismatch
+        }
         let accepted: AuthorityAcceptedUpdate
         let merge: AuthorityMergeSummary?
         switch response.result {
@@ -365,10 +421,15 @@ public enum ReplicaPlacementService {
         at replicaRoot: URL,
         transport: any ReplicaAuthorityTransport
     ) async throws -> ArborReplica {
-        guard let update = tree.update else { throw ReplicaSyncError.replicaIsNotPlaced }
-        let snapshot = try await transport.snapshot(root: tree.ref)
+        let current = try await transport.currentSnapshot(tree: tree.id)
+        guard let update = current.tree.update else { throw ReplicaSyncError.replicaIsNotPlaced }
         let replica = try await ArborReplica.open(at: replicaRoot, tree: TreeID(rawValue: tree.id))
-        let replacement = try SnapshotBridge.replacement(snapshot: snapshot, tree: TreeID(rawValue: tree.id), update: update, cursor: update)
+        let replacement = try SnapshotBridge.replacement(
+            snapshot: current.snapshot,
+            tree: TreeID(rawValue: tree.id),
+            update: update,
+            cursor: update
+        )
         try await replica.initializeFromSystem(replacement)
         return replica
     }

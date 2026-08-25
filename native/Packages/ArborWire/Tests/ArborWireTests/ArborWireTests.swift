@@ -165,8 +165,13 @@ struct UpdateProtocolTests {
         let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
         let snapshot = AuthoritySnapshot(root: root.hash, objects: [file, root])
         let baseHash = "sha256:" + String(repeating: "0", count: 64)
+        let requestDigest = updateRequestDigest(
+            tree: "tr_retry",
+            base: AuthorityUpdateBase(root: baseHash, update: "up_base"),
+            candidate: root.hash
+        )
         let response = Data("""
-        {"outcome":"accepted","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"}}
+        {"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"}}
         """.utf8)
         await WireURLProtocolStub.state.install { _, attempt in
             attempt == 1

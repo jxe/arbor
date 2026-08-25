@@ -53,6 +53,15 @@ A placed tree exposes understandable idle, syncing, offline, conflict, and error
 
 An unsafe merge remains client state. The client shows the affected paths and reasons, preserves the local files and complete returned draft across restart, permits further local edits, and offers explicit inspect/edit/choose-and-resubmit actions. Resolution is a new ordinary update against the returned current accepted update. There is no server conflict record, accepted-history page, historical-object fetch, or authored conflict-copy file.
 
+A clean replica reacts to a ref watch event by reading one coherent current
+snapshot. It submits an update only when it has a local candidate to reconcile.
+Successful submissions verify the authority's round-tripped semantic request
+digest and advance the durable watch cursor to their accepted update ID. An
+already-open watch can carry the same digest back only to the exact submitting
+device credential, allowing the client to correlate its own accepted write or
+recover a lost response without reconnecting. `Last-Event-ID` is reserved for
+reconnect/resume.
+
 The profile control includes **Pair a device** and device management without revealing an existing credential. Pairing uses a short-lived one-use secret plus a confirmation code; a claimed installation receives its own revocable credential and safe device label. Active and revoked devices are identified by stable device identity rather than their mutable labels, and revocation is explicit. The QR/pairing payload is not an Arbor navigation URL and never places a durable credential in browser history.
 
 ## Labels and actions

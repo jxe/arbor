@@ -16,6 +16,7 @@ import {
   decodeWireObject,
   resolveWireLogicalNode,
   type BoundaryKind,
+  type AcceptedUpdate,
   type ObjectHash,
   type PublicAccess,
   type RemoteAccountDescriptor,
@@ -63,6 +64,20 @@ function descriptorWithUpdate(
   access: TreeAccess = "read",
 ): RemoteTreeDescriptor {
   return { ...descriptor(origin, tree, access), update: authority.currentUpdate(tree.id)?.id };
+}
+
+function watchDescriptor(
+  origin: string,
+  tree: AuthorityTree,
+  update: AcceptedUpdate,
+  access: TreeAccess,
+  requestDigest?: ObjectHash | null,
+): RemoteTreeDescriptor {
+  return {
+    ...descriptor(origin, { ...tree, ref: update.root }, access),
+    update: update.id,
+    ...(requestDigest ? { requestDigest } : {}),
+  };
 }
 
 function updateJSON(value: unknown): unknown {
@@ -391,6 +406,32 @@ export async function serveWireHost(options: {
             authority.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read",
           ));
         }
+        const currentSnapshot = /^\/\.arbor\/trees\/([^/]+)\/snapshot$/.exec(url.pathname);
+        if (currentSnapshot && request.method === "GET") {
+          const treeID = decodeURIComponent(currentSnapshot[1]!);
+          const tree = authority.get(treeID);
+          if (!tree || !authority.canRead(account, tree.id, linkDigest(request))) return new Response("Not found", { status: 404 });
+          const current = authority.currentUpdate(tree.id);
+          if (!current) return wireError("not-ready", "Tree has no accepted update", 409, true);
+          const snapshot = await authority.snapshotForUpdate(tree.id, current.id);
+          return json({
+            tree: {
+              ...descriptor(
+                publicOrigin,
+                { ...tree, ref: current.root },
+                authority.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read",
+              ),
+              update: current.id,
+            },
+            snapshot: {
+              root: snapshot.root,
+              objects: [...snapshot.objects].map(([hash, bytes]) => ({
+                hash,
+                bytes: Buffer.from(bytes).toString("base64"),
+              })),
+            },
+          });
+        }
         const updates = /^\/\.arbor\/trees\/([^/]+)\/updates$/.exec(url.pathname);
         if (updates) {
           const treeID = decodeURIComponent(updates[1]!);
@@ -430,13 +471,28 @@ export async function serveWireHost(options: {
           const tree = authority.get(decodeURIComponent(watch[1]!));
           if (!tree || !authority.canRead(account, tree.id, linkDigest(request))) return new Response("Not found", { status: 404 });
           const encoder = new TextEncoder();
+          const credentialSubject = authentication?.subject;
+          const access = authority.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read";
+          const lastEventID = request.headers.get("last-event-id");
+          const frame = (updated: AuthorityTree, accepted: AcceptedUpdate, digest?: ObjectHash | null) =>
+            `id: ${accepted.id}\nevent: ref\ndata: ${JSON.stringify(watchDescriptor(publicOrigin, updated, accepted, access, digest))}\n\n`;
           return new Response(new ReadableStream({
             start(controller) {
-              const currentUpdate = authority.currentUpdate(tree.id);
-              controller.enqueue(encoder.encode(`${currentUpdate ? `id: ${currentUpdate.id}\n` : ""}event: ref\ndata: ${JSON.stringify(descriptorWithUpdate(publicOrigin, authority, tree, authority.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read"))}\n\n`));
-              const stop = authority.subscribe(tree.id, (updated, accepted) => {
-                controller.enqueue(encoder.encode(`id: ${accepted.id}\nevent: ref\ndata: ${JSON.stringify(descriptorWithUpdate(publicOrigin, authority, updated, authority.canWrite(account, updated.id, linkDigest(request)) ? "write" : "read"))}\n\n`));
+              const stop = authority.subscribe(tree.id, (updated, accepted, digest) => {
+                const visibleDigest = credentialSubject && accepted.subject === credentialSubject ? digest : undefined;
+                controller.enqueue(encoder.encode(frame(updated, accepted, visibleDigest)));
               });
+              const accepted = authority.acceptedUpdates(tree.id);
+              const cursorIndex = lastEventID ? accepted.findIndex((update) => update.id === lastEventID) : -1;
+              const replay = lastEventID === null
+                ? accepted.slice(-1)
+                : cursorIndex >= 0
+                  ? accepted.slice(cursorIndex + 1)
+                  : accepted.slice(-1);
+              for (const update of replay) {
+                const digest = authority.matchingRequestDigest(update.id, credentialSubject);
+                controller.enqueue(encoder.encode(frame(tree, update, digest)));
+              }
               request.signal.addEventListener("abort", () => {
                 stop();
                 try { controller.close(); } catch {}

@@ -325,7 +325,7 @@ export class ReservedBoundaryConflictError extends Error {
 export class WireAuthority implements AsyncDisposable {
   private db: Database;
   private acceptedStore: AcceptedUpdateStore;
-  private listeners = new Map<string, Set<(tree: AuthorityTree, update: AcceptedUpdate) => void>>();
+  private listeners = new Map<string, Set<(tree: AuthorityTree, update: AcceptedUpdate, requestDigest?: ObjectHash) => void>>();
   private updateLocks = new Map<string, Promise<void>>();
 
   private constructor(readonly dataRoot: string, db: Database) {
@@ -460,6 +460,10 @@ export class WireAuthority implements AsyncDisposable {
   /** Internal operational history; deliberately not exposed by the wire host. */
   acceptedUpdates(treeID: string): AcceptedUpdate[] {
     return this.acceptedStore.list(treeID);
+  }
+
+  matchingRequestDigest(updateID: string, credentialSubject?: string): ObjectHash | null {
+    return credentialSubject ? this.acceptedStore.matchingRequestDigest(updateID, credentialSubject) : null;
   }
 
   /** Complete graph for one retained update. Wire hosts expose it only as an
@@ -992,7 +996,7 @@ export class WireAuthority implements AsyncDisposable {
         (hash) => this.loadObject(hash, proposed),
       );
       if (reconciled.outcome === "current") {
-        return { status: 200, result: { outcome: "current", current: remoteUpdate } };
+        return { status: 200, result: { outcome: "current", current: remoteUpdate, requestDigest } };
       }
 
       const nextRoot = reconciled.root;
@@ -1042,15 +1046,15 @@ export class WireAuthority implements AsyncDisposable {
       if (!accepted) continue;
       if (remoteTree.kind === "community-profile") this.reconcileCommunityAccounts();
       const updatedTree = this.get(treeID)!;
-      for (const listener of this.listeners.get(treeID) ?? []) listener(updatedTree, accepted);
+      for (const listener of this.listeners.get(treeID) ?? []) listener(updatedTree, accepted, requestDigest);
       return kind === "merged"
-        ? { status: 201, result: { outcome: "merged", update: accepted, merge: merge! } }
-        : { status: 201, result: { outcome: "accepted", update: accepted } };
+        ? { status: 201, result: { outcome: "merged", update: accepted, merge: merge!, requestDigest } }
+        : { status: 201, result: { outcome: "accepted", update: accepted, requestDigest } };
     }
     throw new UpdateProtocolError("authority-busy", "Authority update changed repeatedly during merge");
   }
 
-  subscribe(id: string, listener: (tree: AuthorityTree, update: AcceptedUpdate) => void): () => void {
+  subscribe(id: string, listener: (tree: AuthorityTree, update: AcceptedUpdate, requestDigest?: ObjectHash) => void): () => void {
     const listeners = this.listeners.get(id) ?? new Set();
     listeners.add(listener);
     this.listeners.set(id, listeners);

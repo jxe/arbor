@@ -10,6 +10,27 @@ public struct ArborMoveRequest: Identifiable {
     let completion: (MoveDestination?) -> Void
 }
 
+public struct ArborStructuralMoveRequest: Identifiable {
+    public let id = UUID()
+    public let reference: WorkspaceReference
+    let completion: (WorkspaceReference?) -> Void
+}
+
+public struct ArborMoveDirectory: Identifiable, Hashable, Sendable {
+    public let reference: WorkspaceReference
+    public let title: String
+    public var id: WorkspaceIdentity { reference.identity }
+}
+
+private extension WorkspaceSurface {
+    var isDirectory: Bool {
+        switch self {
+        case .directory, .directoryDocument: true
+        default: false
+        }
+    }
+}
+
 public struct ArborMoveDocument: Identifiable, Hashable, Sendable {
     public let reference: DocumentReference
     public let title: String
@@ -53,13 +74,15 @@ public enum ArborDocumentReferenceCodec {
 
 @MainActor
 @Observable
-public final class ArborEditorHost: EditorHost, ImagesUnsupported {
+public final class ArborEditorHost: EditorHost {
     public let binding: ArborDocumentBinding
     public private(set) var moveRequest: ArborMoveRequest?
+    public private(set) var structuralMoveRequest: ArborStructuralMoveRequest?
     private let provider: any WorkspaceProvider
     private let linkPreviewService: LinkPreviewService
     private let openAction: @MainActor (WorkspaceReference) -> Void
     private let backAction: @MainActor () -> Void
+    private let errorAction: @MainActor (String) -> Void
     private var lookups: [DocumentReference: DocumentLookup] = [:]
     private var lookupTasks: [DocumentReference: Task<Void, Never>] = [:]
 
@@ -68,13 +91,15 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported {
         provider: any WorkspaceProvider,
         linkPreviewService: LinkPreviewService,
         open: @escaping @MainActor (WorkspaceReference) -> Void = { _ in },
-        navigateBack: @escaping @MainActor () -> Void = {}
+        navigateBack: @escaping @MainActor () -> Void = {},
+        reportError: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         self.binding = binding
         self.provider = provider
         self.linkPreviewService = linkPreviewService
         self.openAction = open
         self.backAction = navigateBack
+        self.errorAction = reportError
     }
 
     public var supportsDocumentCreation: Bool { true }
@@ -153,8 +178,11 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported {
                 guard let self else { return }
                 do {
                     let node = try await provider.resolve(decoded)
-                    let capabilities: DocumentCapabilities = node.isWritable && node.surface.supportsDocumentSession
+                    var capabilities: DocumentCapabilities = node.isWritable && node.surface.supportsDocumentSession
                         ? [.navigate, .receiveBlocks, .inline] : [.navigate]
+                    if node.isWritable, isEligibleLinkedChild(node.reference) {
+                        capabilities.insert(.relocate)
+                    }
                     lookups[reference] = .present(.init(title: node.title, capabilities: capabilities))
                 } catch {
                     lookups[reference] = .missing
@@ -250,6 +278,77 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported {
         }
     }
 
+    public func relocateDocument(_ reference: DocumentReference, from document: Document) async -> Bool {
+        guard document === binding.document,
+              let decoded = workspaceReference(for: reference),
+              let node = try? await provider.resolve(decoded),
+              isEligibleLinkedChild(node.reference) else { return false }
+        let currentReference = node.reference
+        if let pending = structuralMoveRequest {
+            structuralMoveRequest = nil
+            pending.completion(nil)
+        }
+        let destination = await withCheckedContinuation { continuation in
+            structuralMoveRequest = ArborStructuralMoveRequest(
+                reference: currentReference,
+                completion: { continuation.resume(returning: $0) }
+            )
+        }
+        guard let destination else { return false }
+        await binding.flush()
+        guard binding.lastError == nil, binding.conflict == nil else { return false }
+        do {
+            guard let moved = try await provider.perform(.move(reference: currentReference, destination: destination)) else {
+                return false
+            }
+            lookups[reference] = .present(.init(
+                title: moved.title,
+                capabilities: moved.isWritable ? [.navigate, .receiveBlocks, .inline] : [.navigate]
+            ))
+            return true
+        } catch {
+            errorAction("Failed to move linked page: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func resolveStructuralMoveRequest(with destination: WorkspaceReference?) {
+        guard let request = structuralMoveRequest else { return }
+        structuralMoveRequest = nil
+        request.completion(destination)
+    }
+
+    public func moveDirectories(for reference: WorkspaceReference, matching rawQuery: String) async -> [ArborMoveDirectory] {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let root = WorkspaceReference(tree: reference.tree, path: "/")
+        var queue = [root]
+        var visited = Set<WorkspaceIdentity>()
+        var result: [ArborMoveDirectory] = []
+        while !queue.isEmpty, visited.count < 500 {
+            let candidate = queue.removeFirst()
+            guard let node = try? await provider.resolve(candidate), visited.insert(node.id).inserted else { continue }
+            guard node.reference.tree == reference.tree else { continue }
+            guard node.surface.isDirectory else { continue }
+            if let children = try? await provider.children(of: node.reference) {
+                queue.append(contentsOf: children.map(\.reference))
+            }
+            let path = node.reference.pathHint
+            let containsTarget = path == reference.pathHint || path.hasPrefix(reference.pathHint + "/")
+            let sameParent = reference.parent?.pathHint == path
+            let matches = query.isEmpty
+                || node.title.localizedCaseInsensitiveContains(query)
+                || path.localizedCaseInsensitiveContains(query)
+            if node.isWritable, !containsTarget, !sameParent, matches {
+                result.append(ArborMoveDirectory(reference: node.reference, title: node.title))
+            }
+        }
+        return result.sorted {
+            if $0.reference.pathHint == "/" { return true }
+            if $1.reference.pathHint == "/" { return false }
+            return $0.reference.pathHint.localizedStandardCompare($1.reference.pathHint) == .orderedAscending
+        }
+    }
+
     public func navigateBack() { backAction() }
 
     public func persistCommit(changes _: [DocumentChange], in document: Document) {
@@ -260,6 +359,50 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported {
     public func flush(_ document: Document) async {
         guard document === binding.document else { return }
         await binding.flush()
+    }
+
+    public func saveImages(_ items: [PastedImage], in document: Document) async -> [String] {
+        guard document === binding.document, !items.isEmpty else { return [] }
+        let assets: WorkspaceReference
+        do {
+            assets = try await assetsDirectory()
+        } catch {
+            errorAction("Failed to prepare Assets: \(error.localizedDescription)")
+            return []
+        }
+
+        var sources: [String] = []
+        sources.reserveCapacity(items.count)
+        for item in items {
+            let ext = imageExtension(item.ext)
+            do {
+                let stored = try await provider.store(
+                    asset: WorkspaceAsset(
+                        name: "pasted-\(UUID().uuidString.lowercased()).\(ext)",
+                        mediaType: imageMediaType(ext),
+                        bytes: item.data
+                    ),
+                    in: assets
+                )
+                sources.append(stored.markdownSource)
+            } catch {
+                // Quagmire maps returned sources positionally to the pasted
+                // items, so partial success must always be a durable prefix.
+                errorAction("Failed to save pasted image: \(error.localizedDescription)")
+                break
+            }
+        }
+        return sources
+    }
+
+    public func imageResource(for source: String, in document: Document) async -> EditorImageResource? {
+        guard document === binding.document,
+              let reference = imageReference(for: source) else { return nil }
+        do {
+            return .data(try await provider.readFile(reference))
+        } catch {
+            return nil
+        }
     }
 
     public func serializeBlocksForPasteboard(_ blocks: [Block]) -> String {
@@ -277,6 +420,62 @@ public final class ArborEditorHost: EditorHost, ImagesUnsupported {
 
     public func blockActions(in _: Document) -> [EditorBlockAction] {
         TranscriptPolishingActions.actions()
+    }
+
+    private func assetsDirectory() async throws -> WorkspaceReference {
+        let reference = WorkspaceReference(tree: binding.reference.tree, path: "/Assets")
+        if let node = try? await provider.resolve(reference), node.surface.isDirectory {
+            return node.reference
+        }
+        if let created = try await provider.perform(.createDirectory(
+            parent: WorkspaceReference(tree: binding.reference.tree, path: "/"),
+            name: "Assets"
+        )) {
+            return created.reference
+        }
+        let resolved = try await provider.resolve(reference)
+        guard resolved.surface.isDirectory else {
+            throw WorkspaceProviderError.invalidAction("/Assets is not a directory")
+        }
+        return resolved.reference
+    }
+
+    private func imageReference(for source: String) -> WorkspaceReference? {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("://"), !trimmed.hasPrefix("data:") else { return nil }
+        let decoded = trimmed.removingPercentEncoding ?? trimmed
+        let withoutFragment = decoded.split(separator: "#", maxSplits: 1).first.map(String.init) ?? decoded
+        guard !withoutFragment.isEmpty else { return nil }
+        let path: String
+        if withoutFragment.hasPrefix("/") {
+            path = withoutFragment
+        } else {
+            let parent = binding.reference.parent?.pathHint ?? "/"
+            path = parent == "/" ? "/\(withoutFragment)" : "\(parent)/\(withoutFragment)"
+        }
+        return WorkspaceReference(tree: binding.reference.tree, path: path)
+    }
+
+    private func imageExtension(_ value: String) -> String {
+        let normalized = value.lowercased().filter { $0.isLetter || $0.isNumber }
+        return normalized.isEmpty ? "bin" : String(normalized.prefix(12))
+    }
+
+    private func imageMediaType(_ ext: String) -> String {
+        switch ext {
+        case "png": "image/png"
+        case "jpg", "jpeg": "image/jpeg"
+        case "gif": "image/gif"
+        case "webp": "image/webp"
+        case "heic", "heif": "image/heic"
+        default: "application/octet-stream"
+        }
+    }
+
+    private func isEligibleLinkedChild(_ reference: WorkspaceReference) -> Bool {
+        reference.tree == binding.reference.tree
+            && reference.parent?.pathHint == binding.reference.pathHint
+            && reference.identity != binding.reference.identity
     }
 
     private func slug(_ value: String) -> String {

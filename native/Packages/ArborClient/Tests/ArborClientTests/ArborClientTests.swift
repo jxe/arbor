@@ -289,10 +289,35 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(snapshot.bodies[0], snapshot.bodies[1])
     }
 
+    func testFileReadsExactBytesFromExplicitReference() async throws {
+        let bytes = Data([0, 1, 2, 255])
+        await URLProtocolStub.state.install { request, _ in
+            request.url?.path == "/v1/file" ? (200, bytes) : (404, Data())
+        }
+        let client = ArborClient(
+            baseURL: URL(string: "https://arbord.test")!,
+            session: stubSession()
+        )
+
+        let result = try await client.file(
+            .pageID("pg_image", pathHint: "/Assets/photo.png", tree: "tr_notes")
+        )
+        XCTAssertEqual(result, bytes)
+        let snapshot = await URLProtocolStub.state.snapshot()
+        let request = try XCTUnwrap(snapshot.requests.first)
+        XCTAssertEqual(request.path, "/v1/file")
+        XCTAssertEqual(request.query, "tree=tr_notes&pageID=pg_image&pathHint=/Assets/photo.png")
+    }
+
     func testAuthorityClientDecodesAcceptedUpdateAndRetriesExactPreparedBody() async throws {
         let authoritySnapshot = try authoritySnapshot("root")
+        let requestDigest = updateRequestDigest(
+            tree: "tr_atlas",
+            base: AuthorityUpdateBase(root: authoritySnapshot.root, update: "up_atlas1"),
+            candidate: authoritySnapshot.root
+        )
         let response = Data("""
-        {"outcome":"current","current":{"id":"up_atlas1","tree":"tr_atlas","root":"\(authoritySnapshot.root)","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null}}
+        {"outcome":"current","requestDigest":"\(requestDigest)","current":{"id":"up_atlas1","tree":"tr_atlas","root":"\(authoritySnapshot.root)","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null}}
         """.utf8)
         await URLProtocolStub.state.install { _, attempt in
             attempt == 1
@@ -467,6 +492,7 @@ private actor URLProtocolStubState {
         bodies.append(request.httpBody ?? Data())
         requests.append(CapturedRequest(
             path: request.url?.path,
+            query: request.url?.query,
             method: request.httpMethod,
             authorization: request.value(forHTTPHeaderField: "Authorization"),
             idempotencyKey: request.value(forHTTPHeaderField: "Idempotency-Key")
@@ -481,6 +507,7 @@ private actor URLProtocolStubState {
 
 private struct CapturedRequest: Sendable {
     var path: String?
+    var query: String?
     var method: String?
     var authorization: String?
     var idempotencyKey: String?

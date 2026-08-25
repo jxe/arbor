@@ -79,9 +79,14 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
         return try await workspaceNode(node)
     }
 
-    public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceReference {
+    public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset {
         let node = try await replica.storeAsset(asset, in: parent)
-        return await replica.workspaceReference(node)
+        let reference = await replica.workspaceReference(node)
+        return WorkspaceStoredAsset(reference: reference, markdownSource: reference.pathHint)
+    }
+
+    public func readFile(_ reference: WorkspaceReference) async throws -> Data {
+        try await replica.fileBytes(reference)
     }
 
     public func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession {

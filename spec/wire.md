@@ -169,6 +169,7 @@ The supplied reachable root must be a valid visible person-profile document. The
 
 ```text
 GET  /.arbor/trees/{TreeID}/ref
+GET  /.arbor/trees/{TreeID}/snapshot
 POST /.arbor/trees/{TreeID}/updates
 GET  /.arbor/trees/{TreeID}/watch
 GET  /.arbor/objects/{sha256}
@@ -176,11 +177,22 @@ GET  /.arbor/objects/{sha256}
 
 `GET .../ref` returns a `TreeDescriptor`. Read access is required.
 
+`GET .../snapshot` returns `{ tree, snapshot }`, where `tree` is one coherent
+current `TreeDescriptor` (including its accepted-update ID) and `snapshot` is
+the complete root plus every reachable immutable object for that descriptor.
+Read access is required. The authority captures the current accepted update
+once and may finish serving that retained graph if a newer update is accepted
+while the response is being encoded. There is no update selector: this is an
+atomic current-state read, not accepted-history or historical-object access.
+Clients use it for initial placement and for a clean replica invalidated by
+watch, instead of submitting an unchanged candidate merely to obtain a
+snapshot.
+
 `GET .../objects/{sha256}` returns exact canonical CBOR bytes with `content-type: application/vnd.ipld.dag-cbor`, `cache-control: public, immutable`, and an ETag equal to the quoted hash. The host verifies the request hash syntax. Possession of an object hash is not authorization: every subject, including a writer, can retrieve only objects reachable from a currently readable root. Accepted history remains private authority state and does not create a historical-object capability. Rejected candidates and client-owned conflict drafts never expand object authorization.
 
 `POST .../updates` requires write access. It submits one candidate state for reconciliation against an exact accepted base:
 
-The optional `returnSnapshot` member is a transport hint, excluded from the semantic request digest. With `true`, a successful/current response includes `snapshot`, a complete root plus every reachable immutable object for the returned accepted update, and a conflict additionally includes `currentSnapshot`. With `"if-result-differs"`, the host omits `snapshot` only when the returned accepted root equals the submitted candidate; it includes the complete accepted snapshot when those roots differ and includes `currentSnapshot` on conflict. This lets a replica avoid downloading its own accepted graph while still validating and applying a remote-current, merged, or conflicted decision without an accepted-history endpoint or an object-by-object race. The ordinary object endpoint and responses without the hint remain valid.
+The optional `returnSnapshot` member is a transport hint, excluded from the semantic request digest. Every successful `current`, `accepted`, or `merged` response includes `requestDigest`, the authority-derived canonical `updates-v1` semantic request digest. With `true`, a successful/current response also includes `snapshot`, a complete root plus every reachable immutable object for the returned accepted update, and a conflict additionally includes `currentSnapshot`. With `"if-result-differs"`, the host omits `snapshot` only when the returned accepted root equals the submitted candidate; it includes the complete accepted snapshot when those roots differ and includes `currentSnapshot` on conflict. This lets a replica avoid downloading its own accepted graph while still validating and applying a remote-current, merged, or conflicted decision without an accepted-history endpoint or an object-by-object race. The ordinary object endpoint and responses without the hint remain valid.
 
 ### Verified file-patch transport extension
 
@@ -253,7 +265,9 @@ data: {...TreeDescriptor...}
 
 ```
 
-Only `event: ref` is normative. `id` is the opaque accepted-update ID, so restoring a previously used root remains a distinct event. Multiple `data:` lines join with newline before JSON decoding; comments are keepalives. `Last-Event-ID` names the last observed accepted update. A host may immediately send the current descriptor when that update is no longer in its replay window. Watch is an invalidation channel: clients always verify the returned descriptor and fetch objects by hash. Conflicts are client-owned and never appear on this accepted-state channel.
+Only `event: ref` is normative. `id` is the opaque accepted-update ID, so restoring a previously used root remains a distinct event. Multiple `data:` lines join with newline before JSON decoding; comments are keepalives. `data` is a `TreeDescriptor` and may additionally contain `requestDigest`. The host includes that digest only when the event is delivered to the exact authenticated bearer-credential subject that submitted the accepted request; it is absent for public, link-only, account-fallback, and different-credential readers. It is a correlation value, not an authorization capability or a second update identity.
+
+`Last-Event-ID` names the last observed accepted update. When that update is retained, the host sends only later accepted updates; when it is current, the initial replay is empty. When it is not retained, the host may immediately send the current descriptor. The accepted-update ID returned by a successful update submission is also a valid watch cursor and is durably recorded with the accepted base. An already-open watch does not reconnect after a write: it correlates a live frame's `requestDigest` with the client's durable pending request. A matching frame may be ignored after the response has been applied or may trigger an idempotent replay of the exact request after an ambiguous/lost response. Watch remains an invalidation channel: after validating a genuinely remote descriptor, a clean client reads the coherent current snapshot; a client with local changes submits its ordinary candidate for authority reconciliation. Conflicts are client-owned and never appear on this accepted-state channel.
 
 ### Access
 

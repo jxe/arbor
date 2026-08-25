@@ -159,7 +159,8 @@ public protocol WorkspaceProvider: Sendable {
     func search(_ query: String, in tree: TreeID) async throws -> [WorkspaceSearchResult]
     func backlinks(to reference: WorkspaceReference) async throws -> [WorkspaceSearchResult]
     func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode?
-    func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceReference
+    func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset
+    func readFile(_ reference: WorkspaceReference) async throws -> Data
     func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession
 }
 

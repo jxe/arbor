@@ -13,6 +13,7 @@ public final class ArborDocumentBinding {
     public private(set) var conflict: WorkspaceDocumentConflict?
     public private(set) var lastEnqueuedSource: String?
     public private(set) var isSaving = false
+    public private(set) var acceptedTitle: String
 
     let session: any WorkspaceDocumentSession
     private var accepted: WorkspaceDocumentSnapshot
@@ -45,11 +46,13 @@ public final class ArborDocumentBinding {
             identitySeed: String(describing: snapshot.reference.identity)
         )
         self.ledger = opened.ledger
-        self.document = Document(
+        let document = Document(
             id: DocumentID(String(describing: snapshot.reference.identity)),
             children: opened.blocks,
             fallbackTitle: snapshot.reference.pathHint.split(separator: "/").last.map(String.init)
         )
+        self.document = document
+        self.acceptedTitle = document.title
         self.editorState = EditorState()
     }
 
@@ -81,6 +84,14 @@ public final class ArborDocumentBinding {
     public func snapshot() async throws -> WorkspaceDocumentSnapshot {
         await flush()
         return try await session.snapshot()
+    }
+
+    /// Reconcile a provider-authored path change for this stable PageID
+    /// without replacing the live editor tree.
+    public func reconcileReference(_ reference: WorkspaceReference) {
+        guard reference.identity == self.reference.identity else { return }
+        self.reference = reference
+        document.fallbackTitle = reference.pathHint.split(separator: "/").last.map(String.init)
     }
 
     public func history() async throws -> [WorkspaceHistoryEntry] {
@@ -121,6 +132,7 @@ public final class ArborDocumentBinding {
         accepted = snapshot
         reference = snapshot.reference
         ledger = rebased.ledger
+        acceptedTitle = document.title
         conflict = nil
         lastError = nil
     }
@@ -242,6 +254,7 @@ public final class ArborDocumentBinding {
                 ledger = rebased.ledger
                 if rebased.blocks != document.children { _ = document.replaceChildrenReconciled(rebased.blocks) }
             }
+            acceptedTitle = document.title
         }
         conflict = nil
         lastError = nil

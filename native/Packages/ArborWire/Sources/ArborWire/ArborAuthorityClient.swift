@@ -68,6 +68,13 @@ public actor ArborAuthorityClient {
         return try value.validated()
     }
 
+    public func currentSnapshot(tree: String) async throws -> AuthorityCurrentSnapshot {
+        let value: AuthorityCurrentSnapshot = try await get(
+            path: "/.arbor/trees/\(component(tree))/snapshot"
+        )
+        return try value.validated(expectedTree: tree)
+    }
+
     public func resolve(path: String) async throws -> AuthorityTreeDescriptor {
         let encoded = path == "/" ? "" : "/" + path.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
         let value: AuthorityTreeDescriptor = try await get(path: "/.well-known/arbor\(encoded)")
@@ -169,7 +176,11 @@ public actor ArborAuthorityClient {
                     throw RetryableAuthorityError()
                 }
                 try validate(data: data, status: status)
-                return try decoder.decode(AuthorityUpdateResponse.self, from: data)
+                let decoded = try decoder.decode(AuthorityUpdateResponse.self, from: data)
+                guard decoded.requestDigest == prepared.requestDigest else {
+                    throw ArborWireValidationError.invalidValue("Authority response request digest mismatch")
+                }
+                return decoded
             } catch let error as AuthorityUpdateConflictError {
                 throw error
             } catch let error as AuthorityHTTPError {
@@ -233,7 +244,11 @@ public actor ArborAuthorityClient {
                             guard frame.event == nil || frame.event == "ref" else { continue }
                             guard let id = frame.id, !id.isEmpty else { throw ArborWireValidationError.malformedSSE("Ref event has no ID") }
                             let descriptor = try JSONDecoder().decode(AuthorityTreeDescriptor.self, from: Data(frame.data.utf8)).validated()
-                            continuation.yield(AuthorityWatchEvent(id: id, tree: descriptor))
+                            continuation.yield(AuthorityWatchEvent(
+                                id: id,
+                                tree: descriptor,
+                                requestDigest: descriptor.requestDigest
+                            ))
                         }
                     }
                     _ = try parser.finish()

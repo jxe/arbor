@@ -23,6 +23,8 @@ public struct AuthorityTreeDescriptor: Codable, Sendable, Equatable {
     public var arborURL: String
     public var update: String?
     public var path: String?
+    /** Same-credential correlation value; present only on watch frames. */
+    public var requestDigest: String?
 
     public init(
         id: String,
@@ -35,7 +37,8 @@ public struct AuthorityTreeDescriptor: Codable, Sendable, Equatable {
         httpURL: String,
         arborURL: String,
         update: String? = nil,
-        path: String? = nil
+        path: String? = nil,
+        requestDigest: String? = nil
     ) {
         self.id = id
         self.canonicalPath = canonicalPath
@@ -48,6 +51,7 @@ public struct AuthorityTreeDescriptor: Codable, Sendable, Equatable {
         self.arborURL = arborURL
         self.update = update
         self.path = path
+        self.requestDigest = requestDigest
     }
 
     public func validated() throws -> Self {
@@ -63,6 +67,7 @@ public struct AuthorityTreeDescriptor: Codable, Sendable, Equatable {
         guard URL(string: httpURL) != nil, URL(string: arborURL) != nil else {
             throw ArborWireValidationError.invalidValue("Malformed descriptor URL")
         }
+        if let requestDigest { try validateObjectHash(requestDigest) }
         return self
     }
 }
@@ -163,6 +168,27 @@ public struct AuthoritySnapshot: Codable, Sendable, Equatable {
     public init(root: String, objects: [AuthorityObject]) {
         self.root = root
         self.objects = objects
+    }
+}
+
+public struct AuthorityCurrentSnapshot: Codable, Sendable, Equatable {
+    public var tree: AuthorityTreeDescriptor
+    public var snapshot: AuthoritySnapshot
+
+    public init(tree: AuthorityTreeDescriptor, snapshot: AuthoritySnapshot) {
+        self.tree = tree
+        self.snapshot = snapshot
+    }
+
+    public func validated(expectedTree: String? = nil) throws -> Self {
+        let tree = try tree.validated()
+        _ = try WireObjectGraph.validate(snapshot)
+        guard tree.ref == snapshot.root,
+              tree.update?.isEmpty == false,
+              expectedTree == nil || tree.id == expectedTree else {
+            throw ArborWireValidationError.invalidValue("Current snapshot descriptor does not match its graph")
+        }
+        return self
     }
 }
 
@@ -404,18 +430,22 @@ public enum AuthorityUpdateResult: Sendable, Equatable {
 
 public struct AuthorityUpdateResponse: Sendable, Equatable, Decodable {
     public var result: AuthorityUpdateResult
+    public var requestDigest: String
     public var snapshot: AuthoritySnapshot?
 
-    private enum CodingKeys: String, CodingKey { case snapshot }
+    private enum CodingKeys: String, CodingKey { case requestDigest, snapshot }
 
-    public init(result: AuthorityUpdateResult, snapshot: AuthoritySnapshot?) {
+    public init(result: AuthorityUpdateResult, requestDigest: String, snapshot: AuthoritySnapshot?) {
         self.result = result
+        self.requestDigest = requestDigest
         self.snapshot = snapshot
     }
 
     public init(from decoder: Decoder) throws {
         result = try AuthorityUpdateResult(from: decoder)
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        requestDigest = try values.decode(String.self, forKey: .requestDigest)
+        try validateObjectHash(requestDigest)
         snapshot = try values.decodeIfPresent(AuthoritySnapshot.self, forKey: .snapshot)
         if let snapshot {
             _ = try WireObjectGraph.validate(snapshot)

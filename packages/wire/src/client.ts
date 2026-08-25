@@ -7,6 +7,7 @@ import type {
   FilePatch,
   AuthorityDevice,
   PairingOffer,
+  TreeSnapshotEnvelope,
   TreeAccess,
 } from "./updates/types.ts";
 import {
@@ -21,6 +22,7 @@ import {
   encodeObjectEnvelopes,
   encodeUpdateRequestJSON,
 } from "./updates/json.ts";
+import { updateRequestDigest } from "./updates/intent.ts";
 
 export interface RemoteTreeDescriptor {
   id: string;
@@ -33,6 +35,13 @@ export interface RemoteTreeDescriptor {
   httpURL: string;
   arborURL: string;
   update?: string;
+  /** Present only on same-credential watch frames for a correlated accepted request. */
+  requestDigest?: ObjectHash;
+}
+
+export interface CurrentTreeSnapshot {
+  tree: RemoteTreeDescriptor;
+  snapshot: TreeSnapshotEnvelope;
 }
 
 export class WireUpdateConflict extends Error {
@@ -235,6 +244,22 @@ export class WireClient {
     return response.json();
   }
 
+  async currentSnapshot(tree: string): Promise<CurrentTreeSnapshot> {
+    const response = await this.checked(await this.request(
+      `/.arbor/trees/${encodeURIComponent(tree)}/snapshot`,
+      { headers: this.headers() },
+    ));
+    const value = await response.json() as {
+      tree: RemoteTreeDescriptor;
+      snapshot: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
+    };
+    const snapshot = decodedSnapshot(value.snapshot);
+    if (value.tree.id !== tree || value.tree.ref !== snapshot.root || !value.tree.update) {
+      throw new Error("Current snapshot descriptor does not match its graph");
+    }
+    return { tree: value.tree, snapshot };
+  }
+
   async resolve(path: string): Promise<RemoteTreeDescriptor & { path: string }> {
     const canonical = path === "/" ? "" : `/${path.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
     const response = await this.checked(await this.request(`/.well-known/arbor${canonical}`, {
@@ -280,9 +305,13 @@ export class WireClient {
       throw new Error(`${response.url}: ${typeof rejection.error === "string" ? rejection.error : "update rejected"}${typeof rejection.message === "string" ? `: ${rejection.message}` : ""}`);
     }
     const result = await (await this.checked(response)).json() as {
+      requestDigest?: unknown;
       snapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
       [key: string]: unknown;
     };
+    if (result.requestDigest !== updateRequestDigest(tree, request)) {
+      throw new Error("Authority response request digest mismatch");
+    }
     return result.snapshot ? {
       ...result,
       snapshot: decodedSnapshot(result.snapshot),

@@ -221,7 +221,9 @@ struct ProviderContractTests {
             asset: WorkspaceAsset(name: "contract.txt", mediaType: "text/plain", bytes: Data("asset".utf8)),
             in: folder.reference
         )
-        #expect(asset.pathHint.contains("Assets") || asset.pathHint.hasSuffix("contract.txt"))
+        #expect(asset.reference.pathHint.contains("Assets") || asset.reference.pathHint.hasSuffix("contract.txt"))
+        #expect(!asset.markdownSource.isEmpty)
+        #expect(try await provider.readFile(asset.reference) == Data("asset".utf8))
 
         let trashed = try #require(try await provider.perform(.trash(reference: copied.reference)))
         #expect(trashed.reference.pathHint.hasPrefix("/Trash"))
@@ -235,7 +237,7 @@ struct ProviderContractTests {
         await session.close()
 
         await #expect(throws: Error.self) {
-            _ = try await provider.openDocument(asset)
+            _ = try await provider.openDocument(asset.reference)
         }
     }
 }

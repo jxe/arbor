@@ -291,6 +291,34 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("Pasted images persist in order and resolve through provider bytes")
+    func imageLifecycle() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome")
+        let session = try await provider.openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+        let first = Data([0, 1, 2])
+        let second = Data([3, 4, 5])
+
+        let sources = await host.saveImages([
+            PastedImage(data: first, ext: "PNG"),
+            PastedImage(data: second, ext: "jpg"),
+        ], in: binding.document)
+
+        #expect(sources.count == 2)
+        #expect(sources.allSatisfy { $0.hasPrefix("/Assets/pasted-") })
+        #expect(await host.imageResource(for: sources[0], in: binding.document) == .data(first))
+        #expect(await host.imageResource(for: sources[1], in: binding.document) == .data(second))
+        #expect(await host.imageResource(for: "https://example.com/image.png", in: binding.document) == nil)
+        await session.close()
+    }
+
+    @MainActor
     @Test("An exact self-confirmation does not replace the live editor tree")
     func exactSaveDoesNotReload() async throws {
         let reference = WorkspaceReference(tree: "tr_sample", path: "/blank", pageID: "pg_blank")
@@ -598,6 +626,69 @@ struct ArborQuagmireTests {
         #expect(host.moveRequest?.inDocumentCandidates == [target])
         host.resolveMoveRequest(with: .block(targetID))
         #expect(await requestTask.value == .block(targetID))
+    }
+
+    @MainActor
+    @Test("Only a linked immediate child receives provider-owned structural Move")
+    func linkedChildStructuralMove() async throws {
+        let tree: TreeID = "tr_structural_move"
+        let root = WorkspaceNode(
+            reference: .init(tree: tree, path: "/"),
+            title: "Home",
+            surface: .directoryDocument(source: "# Home\n", contentRevision: "r1", stored: true),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let parent = WorkspaceNode(
+            reference: .init(tree: tree, path: "/parent", pageID: "pg_parent"),
+            title: "Parent",
+            surface: .directoryDocument(source: "# Parent\n", contentRevision: "r1", stored: true),
+            provenance: root.provenance
+        )
+        let child = WorkspaceNode(
+            reference: .init(tree: tree, path: "/parent/child", pageID: "pg_child"),
+            title: "Child",
+            surface: .markdown(source: "# Child\n", contentRevision: "r1"),
+            provenance: root.provenance
+        )
+        let destination = WorkspaceNode(
+            reference: .init(tree: tree, path: "/destination"),
+            title: "Destination",
+            surface: .directory(summary: nil),
+            provenance: root.provenance
+        )
+        let provider = InMemoryWorkspaceProvider(
+            nodes: [root, parent, child, destination],
+            children: [
+                root.id: [parent.id, destination.id],
+                parent.id: [child.id],
+            ]
+        )
+        let session = try await provider.openDocument(parent.reference)
+        let binding = try await ArborDocumentBinding.open(reference: parent.reference, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+        let reference = ArborDocumentReferenceCodec.encode(.init(
+            tree: tree,
+            path: "/stale-child-hint",
+            pageID: "pg_child"
+        ))
+
+        let move = Task { await host.relocateDocument(reference, from: binding.document) }
+        for _ in 0..<20 where host.structuralMoveRequest == nil { await Task.yield() }
+        #expect(host.structuralMoveRequest?.reference.identity == child.reference.identity)
+        host.resolveStructuralMoveRequest(with: destination.reference)
+        #expect(await move.value)
+
+        let resolved = try await provider.resolve(.init(tree: tree, path: "/stale", pageID: "pg_child"))
+        #expect(resolved.reference.pathHint == "/destination/child")
+        #expect(!(await host.relocateDocument(
+            ArborDocumentReferenceCodec.encode(destination.reference),
+            from: binding.document
+        )))
+        await session.close()
     }
 
     @MainActor

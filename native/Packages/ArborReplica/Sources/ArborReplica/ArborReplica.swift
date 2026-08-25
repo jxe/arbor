@@ -388,6 +388,12 @@ public actor ArborReplica {
         return try importFile(name: uniqueName, bytes: asset.bytes, mediaType: asset.mediaType, parent: parent)
     }
 
+    func fileBytes(_ reference: WorkspaceReference) throws -> Data {
+        let node = try resolve(reference)
+        guard node.kind == .file, let bytes = node.bytes else { throw ReplicaError.notFound(reference) }
+        return bytes
+    }
+
     @discardableResult
     func rename(_ reference: WorkspaceReference, name: String) throws -> ReplicaNodeRecord {
         try ReplicaSemantics.validateName(name)

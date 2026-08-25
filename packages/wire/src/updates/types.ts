@@ -76,9 +76,9 @@ export interface UpdateRequest {
 }
 
 export type UpdateResult =
-  | { outcome: "current"; current: AcceptedUpdate; snapshot?: TreeSnapshotEnvelope }
-  | { outcome: "accepted"; update: AcceptedUpdate; snapshot?: TreeSnapshotEnvelope }
-  | { outcome: "merged"; update: AcceptedUpdate; merge: MergeSummary; snapshot?: TreeSnapshotEnvelope };
+  | { outcome: "current"; current: AcceptedUpdate; requestDigest: ObjectHash; snapshot?: TreeSnapshotEnvelope }
+  | { outcome: "accepted"; update: AcceptedUpdate; requestDigest: ObjectHash; snapshot?: TreeSnapshotEnvelope }
+  | { outcome: "merged"; update: AcceptedUpdate; merge: MergeSummary; requestDigest: ObjectHash; snapshot?: TreeSnapshotEnvelope };
 
 export interface TreeSnapshotEnvelope {
   root: ObjectHash;

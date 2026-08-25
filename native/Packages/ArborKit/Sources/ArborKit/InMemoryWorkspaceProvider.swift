@@ -3,6 +3,7 @@ import Foundation
 public actor InMemoryWorkspaceProvider: WorkspaceProvider {
     private var nodesByIdentity: [WorkspaceIdentity: WorkspaceNode]
     private var childrenByIdentity: [WorkspaceIdentity: [WorkspaceIdentity]]
+    private var fileBytesByIdentity: [WorkspaceIdentity: Data] = [:]
 
     public init(nodes: [WorkspaceNode], children: [WorkspaceIdentity: [WorkspaceIdentity]] = [:]) {
         self.nodesByIdentity = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
@@ -176,7 +177,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         }
     }
 
-    public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceReference {
+    public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset {
         let parentNode = try await resolve(parent)
         let path = parentNode.reference.pathHint == "/" ? "/\(asset.name)" : "\(parentNode.reference.pathHint)/\(asset.name)"
         let node = WorkspaceNode(
@@ -186,8 +187,16 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             provenance: parentNode.provenance
         )
         nodesByIdentity[node.id] = node
+        fileBytesByIdentity[node.id] = asset.bytes
         childrenByIdentity[parentNode.id, default: []].append(node.id)
-        return node.reference
+        return WorkspaceStoredAsset(reference: node.reference, markdownSource: node.reference.pathHint)
+    }
+
+    public func readFile(_ reference: WorkspaceReference) async throws -> Data {
+        let node = try await resolve(reference)
+        guard case .file = node.surface else { throw WorkspaceProviderError.notFound(reference) }
+        guard let bytes = fileBytesByIdentity[node.id] else { throw WorkspaceProviderError.notFound(reference) }
+        return bytes
     }
 
     public func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession {
@@ -289,6 +298,9 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             nodesByIdentity.removeValue(forKey: oldID)
             nodesByIdentity[value.id] = value
             if oldID != value.id {
+                if let bytes = fileBytesByIdentity.removeValue(forKey: oldID) {
+                    fileBytesByIdentity[value.id] = bytes
+                }
                 if let children = childrenByIdentity.removeValue(forKey: oldID) {
                     childrenByIdentity[value.id] = children
                 }
@@ -331,6 +343,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             copied.reference.pathHint = path + suffix
             if value.reference.pageID != nil { copied.reference.pageID = PageID(rawValue: "pg_\(UUID().uuidString.lowercased())") }
             nodesByIdentity[copied.id] = copied
+            if let bytes = fileBytesByIdentity[value.id] { fileBytesByIdentity[copied.id] = bytes }
             copiedByOldID[value.id] = copied.id
             if suffix.isEmpty { copiedRoot = copied }
         }

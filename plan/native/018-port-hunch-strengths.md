@@ -12,8 +12,8 @@
 - **Depends on**: Plan 017
 - **Category**: product/parity
 - **Planned at**: Arbor `dc34126`, Hunch `a1e8379`, Quagmire `4049fd4`, 2026-08-23
-- **Reconciled at**: Arbor `f00aa87`, Hunch `d13087b`, Quagmire `af61f9a` / `0.2.0`, 2026-08-25; image work planned at Arbor `a3a9ffd`, 2026-08-25
-- **Progress**: Shell, pushed page-frame navigation, Move To, typography/editing feedback, native editor commands, safety presentation, and the QuagmireExtras `0.2.0` adoption are implemented. Arbor now uses shared voice/recovery, external-link preview, and transcript-polishing mechanisms behind Arbor-owned PageID/provider/support-directory adapters. Automated gates pass. Async image paste/render through Arbor providers, its Quagmire `0.3.0` release, the hands-on checklist below, and the older partial parity rows remain. Live parity matrix at [`hunch-parity.md`](hunch-parity.md)
+- **Reconciled at**: Arbor `f00aa87`, Hunch `d13087b`, Quagmire `af61f9a` / `0.2.0`, 2026-08-25; image work planned at Arbor `a3a9ffd`; Quagmire `adab6d6` / `0.3.0` and Hunch `bc2d792` released/adopted 2026-08-25
+- **Progress**: The coordinated Quagmire `0.3.0` image lifecycle, provider-backed Arbor asset path, title-driven PageID-preserving rename, link-owned structural Move, and recovery/accessibility presentation are implemented. Quagmire, Hunch, and Arbor pass the local-before-tag and exact-remote-after-tag automated gates. Joe accepted voice, links, transcript polishing, navigation, and menus. The remaining work is the explicitly listed hands-on image/title/recovery/accessibility audit and the authority deployment gate for the updated watch/snapshot protocol. Live parity matrix at [`hunch-parity.md`](hunch-parity.md)
 
 ## Why this matters
 
@@ -22,12 +22,12 @@ Joe selected native Arbor as a Hunch replacement, not merely a protocol demo. Th
 ## Reconciled QuagmireExtras boundary
 
 - Quagmire `0.2.0` adds the separately imported `QuagmireExtras` product. Hunch `d13087b` proves exact remote consumption on macOS and iOS 27, including 345 macOS tests, 19 iOS UI tests, and built-app shortcut metadata for `QuagmireExtras.StartVoiceRecordingIntent`.
-- Native Arbor now consumes exact remote Quagmire `0.2.0` and imports the separate `QuagmireExtras` product. ArborQuagmire's source ledger, BlockIDs, guarded admissions, and no-op byte fidelity remain covered by the unchanged and expanded bridge suite.
+- Native Arbor first consumed exact remote Quagmire `0.2.0` for this boundary and now consumes `0.3.0`, retaining the separate `QuagmireExtras` product. ArborQuagmire's source ledger, BlockIDs, guarded admissions, and no-op byte fidelity remain covered by the unchanged and expanded bridge suite.
 - Reuse `LinkPreviewService`, `VoiceRecordingSession<PageID>`, `VoiceRecordingButton`, `VoiceRecordingLaunchRequest`, `StartVoiceRecordingIntent`, `TranscriptPolishingActions`, and their shared recovery/transformation policies. Do not copy their Hunch-era implementations into Arbor.
 - Arbor still owns all product decisions: its own support/cache roots, current/Home destination policy, provider-backed transcript delivery, permissions and error surfaces, toolbar/menu placement, and literal shortcut phrases.
 - Keep a tiny `AppShortcutsProvider` in the Arbor application target. Xcode does not extract a provider or shortcut metadata abstracted behind the Swift package; the local provider must instantiate the packaged intent with literal phrases, title, image, and color.
 
-## Planned Quagmire 0.3 image boundary
+## Implemented Quagmire 0.3 image boundary
 
 - Rev Quagmire core, not `QuagmireExtras`, because paste/drop ordering, undo grouping, and image-view loading are editor mechanics shared by Hunch and Arbor. Keep Arbor provider types, `TreeID`, networking, and the `/Assets` convention out of Quagmire.
 - Replace the synchronous image host hooks with document-scoped asynchronous persistence and loading. The intended shape is `saveImages(_:in:) async -> [String]` plus `imageResource(for:in:) async -> EditorImageResource?`, where a resource can be local file-backed for Hunch or in-memory data for Arbor.
@@ -69,7 +69,7 @@ Every current Hunch README feature must be implemented, deliberately different f
 
 ## Scope
 
-**In scope**: the implemented exact remote Quagmire `0.2.0`/`QuagmireExtras` adoption; a coordinated Quagmire core `0.3.0` async-image revision proven in Hunch and Arbor before tagging; ArborApp integrations/resources/tests; and narrow ArborClient, ArborKit, provider, arbord, and ArborQuagmire hooks required by the named behavior.
+**In scope**: the implemented exact remote Quagmire `0.3.0`/`QuagmireExtras` adoption; its coordinated core async-image revision proven in Hunch and Arbor before tagging; ArborApp integrations/resources/tests; and narrow ArborClient, ArborKit, provider, arbord, and ArborQuagmire hooks required by the named behavior.
 
 **Out of scope**: unrelated Hunch/Quagmire source changes, moving image storage policy into Quagmire, Clamshell/iCloud redesign, app bundle/default/cache reuse, mutable collections, scripts/agents, full community/access admin, real data conversion, remote-image downloading, image editing, thumbnail pipelines, and orphan-asset garbage collection.
 
@@ -92,12 +92,15 @@ Every current Hunch README feature must be implemented, deliberately different f
 
 ## Implementation evidence
 
-- Both Arbor dependency graphs resolve `https://github.com/jxe/quagmire.git` at exact `0.2.0` / `af61f9ad922e4d39de16383ef64f21dd92294ff2`; there is no path, branch, or revision override.
+- Both Arbor dependency graphs resolve `https://github.com/jxe/quagmire.git` at exact `0.3.0` / `adab6d6`; there is no path, branch, or revision override. Hunch independently consumes the same exact release at `bc2d792`.
+- Quagmire owns document-scoped asynchronous persistence/resource loading, serialized import order, loading/missing presentation, and stale-load cancellation. Arbor owns provider-authored Markdown sources, root `Assets` placement, authenticated/offline bytes, and error presentation.
+- `ArborService.scopedFileSurface` is the single ordinary-file byte dispatcher and `fileResponse` is the single conditional/range responder. The explicit native `GET /v1/file` operation and context-inferred browser route are adapters over that implementation rather than duplicate read paths.
+- Title proposals are derived from admitted H1 text after a two-second pause; provider rename preserves PageID and tab/session state. Structural Move is exposed only by an eligible resolved child link and never rewrites that referring block.
 - `ArborEditorHost` delegates external previews and transcript polishing to `QuagmireExtras`. Cache state lives under Arbor's application-support identity and remains derived state.
 - `VoiceRecordingSession<PageID>` owns recording/recovery policy. Toolbar voice targets the current writable document; the App Intent targets writable Home; delivery resolves the recorded PageID through the provider-backed editor coordinator.
 - Active and inactive PageID transcript delivery, Arbor-owned support roots, bridge delegation, exact source preservation, and destination failure are automated tests.
 - The exact macOS and iOS 27 simulator artifacts contain `QuagmireExtras.StartVoiceRecordingIntent`, Arbor's app-target `ArborAppShortcuts` provider, and the literal Arbor phrases.
-- Quagmire verification, all native package suites, Arbor's signed macOS tests, Arbor's iOS 27 simulator tests, the full 229-test Bun suite, typecheck, protocol conformance, Hunch's 345 macOS tests, and Hunch's iOS 27 simulator build pass.
+- Quagmire's 355 package tests and full macOS/iOS package matrix pass. Hunch's macOS tests and iOS 27 build pass against local Quagmire and exact remote `0.3.0`; ArborQuagmire's 24 tests plus Arbor's macOS and iOS 27 builds pass against exact remote `0.3.0`. Root typecheck, shared TypeScript/Swift protocol conformance, all 239 Bun tests, and the exact iOS app-intent/shortcut metadata inspection pass.
 
 ## Hands-on verification checklist
 
@@ -158,18 +161,18 @@ For the image revision, run Hunch and Arbor against the same local Quagmire chec
 
 ## Done criteria
 
-- [ ] Every current Hunch capability has a reviewed parity disposition.
-- [x] Arbor consumes exact remote Quagmire/QuagmireExtras `0.2.0`; existing source-preservation and editor identity gates remain unchanged.
+- [x] Every current Hunch capability has a reviewed parity disposition; remaining hands-on audits are named per row rather than summarized as vague partial parity.
+- [x] Arbor consumes exact remote Quagmire/QuagmireExtras `0.3.0`; existing source-preservation and editor identity gates remain unchanged.
 - [x] Voice recording, recovery, link previews, and transcript polishing reuse QuagmireExtras rather than local copies.
-- [ ] Quagmire `0.3.0` supplies async persistence-before-insertion and async resource loading without Arbor storage or wire concepts.
-- [ ] Hunch and Arbor independently pass image paste/drop/render regressions against the same revision before the `0.3.0` tag, then consume that exact remote tag.
-- [ ] Arbor stores pasted/imported assets under the tree's root `Assets` policy and renders them through provider reads on macOS, iOS, reopen, and offline paths.
+- [x] Quagmire `0.3.0` supplies async persistence-before-insertion and async resource loading without Arbor storage or wire concepts.
+- [x] Hunch and Arbor independently passed against the same local revision before the `0.3.0` tag, then passed again while consuming that exact remote tag.
+- [x] Arbor's automated provider/host gates store pasted assets under the tree's root `Assets` policy and render through provider reads; reopen/offline/two-window behavior remains in the hands-on image matrix.
 - [x] Recording destinations and transcript writes use durable `PageID` plus provider/session APIs; cache and recovery state use Arbor-owned support roots.
 - [x] The exact iOS artifact contains the packaged intent and Arbor's local shortcut metadata.
 - [ ] Accepted daily-use capabilities pass automated/manual gates.
 - [x] Arbor contains no Hunch persistence identity or Clamshell ownership.
 - [x] Node-first navigation and non-document surfaces remain intact.
-- [ ] Hunch still builds and works independently against its original workspace.
+- [x] Hunch's macOS tests and iOS 27 build pass independently against exact Quagmire `0.3.0`; the original workspace was not modified by this release work.
 
 ## STOP conditions
 
@@ -177,7 +180,7 @@ For the image revision, run Hunch and Arbor against the same local Quagmire chec
 - Porting requires reusing Hunch bundle IDs/default keys/bookmarks/cache roots/writer IDs.
 - A test launches an installed stale app instead of the exact build artifact.
 - A capability would weaken provider/session/sync durability.
-- Quagmire `0.2.0` changes ArborQuagmire BlockID reconciliation, guarded source admission, or no-op byte fidelity.
+- Quagmire `0.3.0` changes ArborQuagmire BlockID reconciliation, guarded source admission, or no-op byte fidelity.
 - Quagmire inserts an image block before its bytes are durably stored, or gains Arbor provider, path, identity, or wire concepts.
 - Arbor image rendering requires a physical path, browser-only referrer state, or direct filesystem access outside the provider.
 - Quagmire `0.3.0` would be tagged before both Hunch and Arbor pass against the identical local revision.

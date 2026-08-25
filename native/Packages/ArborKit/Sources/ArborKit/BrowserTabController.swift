@@ -114,6 +114,18 @@ public final class BrowserTabController {
     }
     public func setHome(_ reference: WorkspaceReference) { home = reference }
 
+    /// Replace stale path hints for one stable identity without adding a
+    /// navigation step or disturbing per-tab presentation.
+    public func reconcileReference(_ reference: WorkspaceReference) {
+        let identity = reference.identity
+        if home.identity == identity { home = reference }
+        for index in tabs.indices {
+            if tabs[index].current.identity == identity { tabs[index].current = reference }
+            tabs[index].back = tabs[index].back.map { $0.identity == identity ? reference : $0 }
+            tabs[index].forward = tabs[index].forward.map { $0.identity == identity ? reference : $0 }
+        }
+    }
+
     /// Reconciles a system NavigationStack pop with this tab's browser history.
     /// Programmatic pushes continue to flow through `navigate(to:)`, while a
     /// native back gesture or toolbar action writes the shorter visible path.

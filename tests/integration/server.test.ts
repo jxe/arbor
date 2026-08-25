@@ -511,6 +511,15 @@ describe("arbord REST v1", () => {
     const served = await fetch(`${base}${root}${result.path}`);
     expect(served.status).toBe(200);
     expect(await served.text()).toBe("img");
+
+    const exact = await fetch(`${base}/v1/file?path=${encodeURIComponent(result.path)}`);
+    expect(exact.status).toBe(200);
+    expect(exact.headers.get("content-type")).toBe("image/png");
+    expect(exact.headers.get("cache-control")).toBe("no-store");
+    expect(await exact.text()).toBe("img");
+
+    const document = await fetch(`${base}/v1/file?path=${encodeURIComponent("/page")}`);
+    expect(document.status).toBe(404);
   });
 
   test("returns the durable original receipt after an arbord restart", async () => {

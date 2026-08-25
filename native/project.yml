@@ -27,7 +27,7 @@ packages:
     path: Packages/ArborQuagmire
   Quagmire:
     url: https://github.com/jxe/quagmire.git
-    exactVersion: 0.2.0
+    exactVersion: 0.3.0
   ArborProviders:
     path: Packages/ArborProviders
 

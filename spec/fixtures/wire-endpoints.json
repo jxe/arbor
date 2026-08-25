@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "tree": {
     "id": "tr_atlas",
     "canonicalPath": "/~alice/atlas",
@@ -58,6 +58,7 @@
         "status": 200,
         "body": {
           "outcome": "current",
+          "requestDigest": "sha256:a6e2c7c02cd1cf6e094b115a95fc4c454ed22c9ce9270fc2a3060fcd0a1f4ba5",
           "current": {
             "id": "up_atlas1",
             "tree": "tr_atlas",

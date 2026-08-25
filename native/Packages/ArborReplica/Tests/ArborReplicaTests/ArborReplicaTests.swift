@@ -135,9 +135,11 @@ struct ReplicaProviderTests {
             #expect(restored.reference.pathHint == "/archive/renamed")
 
             let asset = WorkspaceAsset(name: "diagram.bin", mediaType: "application/octet-stream", bytes: Data([0, 1, 2, 3]))
-            let assetRef = try await provider.store(asset: asset, in: archive.reference)
-            #expect(assetRef.pathHint.contains("diagram.bin"))
-            #expect(try await provider.store(asset: asset, in: archive.reference) == assetRef)
+            let storedAsset = try await provider.store(asset: asset, in: archive.reference)
+            #expect(storedAsset.reference.pathHint.contains("diagram.bin"))
+            #expect(storedAsset.markdownSource == storedAsset.reference.pathHint)
+            #expect(try await provider.readFile(storedAsset.reference) == asset.bytes)
+            #expect(try await provider.store(asset: asset, in: archive.reference) == storedAsset)
             await #expect(throws: ReplicaError.self) {
                 _ = try await provider.store(asset: WorkspaceAsset(name: "../escape", bytes: Data()), in: archive.reference)
             }

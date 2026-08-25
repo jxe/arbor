@@ -123,6 +123,15 @@ public actor ArborClient {
         try await hydrateNode(try await nodeSnapshot(ref))
     }
 
+    /// Read the exact current bytes of an ordinary file.
+    public func file(_ ref: NodeRef) async throws -> Data {
+        var components = URLComponents(url: url("/v1/file"), resolvingAgainstBaseURL: false)!
+        components.queryItems = queryItems(ref)
+        let (data, response) = try await session.data(for: URLRequest(url: components.url!))
+        try validate(data: data, status: try statusCode(response))
+        return data
+    }
+
     public func openNodeView(_ ref: NodeRef) async throws -> ObservedNodeView {
         let snapshot = try await nodeSnapshot(ref)
         let observedRef = snapshot.ref.pageID.map {

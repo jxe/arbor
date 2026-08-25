@@ -72,4 +72,11 @@ public struct ArborSSEParser: Sendable {
 public struct AuthorityWatchEvent: Equatable, Sendable {
     public var id: String
     public var tree: AuthorityTreeDescriptor
+    public var requestDigest: String?
+
+    public init(id: String, tree: AuthorityTreeDescriptor, requestDigest: String? = nil) {
+        self.id = id
+        self.tree = tree
+        self.requestDigest = requestDigest
+    }
 }

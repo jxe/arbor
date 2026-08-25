@@ -131,14 +131,21 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
         return try await resolveOrFallback(resolved, fallback: fallback)
     }
 
-    public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceReference {
+    public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset {
         let result = try await client.asset(
             directory: parent.nodeRef,
             filename: asset.name,
             contentType: asset.mediaType ?? "application/octet-stream",
             data: asset.bytes
         )
-        return WorkspaceReference(tree: parent.tree, path: result.path)
+        return WorkspaceStoredAsset(
+            reference: WorkspaceReference(tree: parent.tree, path: result.path),
+            markdownSource: result.markdownPath
+        )
+    }
+
+    public func readFile(_ reference: WorkspaceReference) async throws -> Data {
+        try await client.file(reference.nodeRef)
     }
 
     public func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession {

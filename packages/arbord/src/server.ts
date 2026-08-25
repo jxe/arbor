@@ -20,11 +20,48 @@ const MIME: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".heic": "image/heic",
   ".woff2": "font/woff2",
 };
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
+}
+
+function fileResponse(
+  request: Request,
+  surface: { bytes: Uint8Array; revision: string; path: string },
+  options: { raw?: boolean; noStore?: boolean } = {},
+): Response {
+  const etag = `"${surface.revision}"`;
+  const baseHeaders: Record<string, string> = {
+    "content-type": MIME[extname(surface.path)]
+      ?? (options.raw ? "text/markdown; charset=utf-8" : "application/octet-stream"),
+    etag,
+    "accept-ranges": "bytes",
+    ...(options.noStore ? { "cache-control": "no-store" } : {}),
+  };
+  if (request.headers.get("if-none-match") === etag) {
+    return new Response(null, { status: 304, headers: baseHeaders });
+  }
+  const range = request.headers.get("range")?.match(/^bytes=(\d*)-(\d*)$/);
+  if (range && (range[1] || range[2])) {
+    const size = surface.bytes.byteLength;
+    const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+    const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+    if (start > end || start >= size) {
+      return new Response(null, { status: 416, headers: { ...baseHeaders, "content-range": `bytes */${size}` } });
+    }
+    return new Response(request.method === "HEAD" ? null : Buffer.from(surface.bytes.slice(start, end + 1)), {
+      status: 206,
+      headers: { ...baseHeaders, "content-range": `bytes ${start}-${end}/${size}` },
+    });
+  }
+  return new Response(request.method === "HEAD" ? null : Buffer.from(surface.bytes), { headers: baseHeaders });
 }
 
 function errorResponse(
@@ -450,6 +487,9 @@ function startArborServer(
         if (request.method === "GET" && url.pathname === "/v1/node") {
           return json(await service.snapshot(queryRef(url)));
         }
+        if (request.method === "GET" && url.pathname === "/v1/file") {
+          return fileResponse(request, await service.file(queryRef(url)), { noStore: true });
+        }
         if (request.method === "GET" && url.pathname === "/v1/remote") {
           const locator = url.searchParams.get("url");
           if (!locator) throw new ProtocolError("invalid-reference", "Remote URL is required", 400);
@@ -548,31 +588,7 @@ function startArborServer(
           }
         }
         if (surface) {
-          const etag = `"${surface.revision}"`;
-          const contentType = MIME[extname(surface.path)]
-            ?? (raw ? "text/markdown; charset=utf-8" : "application/octet-stream");
-          const baseHeaders: Record<string, string> = {
-            "content-type": contentType,
-            etag,
-            "accept-ranges": "bytes",
-          };
-          if (request.headers.get("if-none-match") === etag) {
-            return new Response(null, { status: 304, headers: baseHeaders });
-          }
-          const range = request.headers.get("range")?.match(/^bytes=(\d*)-(\d*)$/);
-          if (range && (range[1] || range[2])) {
-            const size = surface.bytes.byteLength;
-            const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
-            const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
-            if (start > end || start >= size) {
-              return new Response(null, { status: 416, headers: { ...baseHeaders, "content-range": `bytes */${size}` } });
-            }
-            return new Response(request.method === "HEAD" ? null : Buffer.from(surface.bytes.slice(start, end + 1)), {
-              status: 206,
-              headers: { ...baseHeaders, "content-range": `bytes ${start}-${end}/${size}` },
-            });
-          }
-          return new Response(request.method === "HEAD" ? null : Buffer.from(surface.bytes), { headers: baseHeaders });
+          return fileResponse(request, surface, { raw });
         }
         const index = join(renderRoot, "index.html");
         if (!existsSync(index)) return new Response("Arbor web is not built. Run `bun run build:web`.", { status: 503 });

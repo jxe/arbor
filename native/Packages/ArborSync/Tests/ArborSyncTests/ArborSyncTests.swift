@@ -8,11 +8,13 @@ import Testing
 private actor ClosureTransport: ReplicaAuthorityTransport {
     typealias Submit = @Sendable (PreparedAuthorityUpdate, Int) async throws -> AuthorityUpdateResponse
     let initial: AuthoritySnapshot
+    let currentUpdate: String
     let submitter: Submit
     private(set) var requests: [PreparedAuthorityUpdate] = []
 
-    init(initial: AuthoritySnapshot, submitter: @escaping Submit) {
+    init(initial: AuthoritySnapshot, currentUpdate: String = "up_initial", submitter: @escaping Submit) {
         self.initial = initial
+        self.currentUpdate = currentUpdate
         self.submitter = submitter
     }
 
@@ -21,9 +23,11 @@ private actor ClosureTransport: ReplicaAuthorityTransport {
         return try await submitter(prepared, requests.count)
     }
 
-    func snapshot(root: String) async throws -> AuthoritySnapshot {
-        guard root == initial.root else { throw ArborWireValidationError.incompleteGraph(root) }
-        return initial
+    func currentSnapshot(tree: String) async throws -> AuthorityCurrentSnapshot {
+        return AuthorityCurrentSnapshot(
+            tree: descriptor(tree: tree, snapshot: initial, update: currentUpdate),
+            snapshot: initial
+        )
     }
 }
 
@@ -57,7 +61,7 @@ struct ArborSyncTests {
                 let candidate = try completeCandidate(request, retained: initial)
                 let update = accepted(id: "up_local", tree: tree, root: candidate.root, base: request.base.root, candidate: candidate.root)
                 #expect(request.returnSnapshot == .ifResultDiffers)
-                return AuthorityUpdateResponse(result: .accepted(update), snapshot: nil)
+                return AuthorityUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: nil)
             }
             let replica = try await ReplicaPlacementService.place(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -93,7 +97,7 @@ struct ArborSyncTests {
                     base: request.base.root,
                     candidate: request.candidate
                 )
-                return AuthorityUpdateResponse(result: .accepted(update), snapshot: nil)
+                return AuthorityUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: nil)
             }
             let replica = try await ReplicaPlacementService.place(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -158,6 +162,94 @@ struct ArborSyncTests {
         }
     }
 
+    @Test("A clean watch invalidation reads the coherent current snapshot without submitting")
+    func cleanWatchPull() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_watch_pull"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOne\n")
+            let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nTwo\n")
+            let bootstrap = ClosureTransport(initial: initial) { _, _ in
+                throw ArborWireValidationError.invalidValue("Placement must not submit")
+            }
+            let replica = try await ReplicaPlacementService.place(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"),
+                transport: bootstrap
+            )
+            let remoteTransport = ClosureTransport(initial: remote, currentUpdate: "up_remote") { _, _ in
+                throw ArborWireValidationError.invalidValue("A clean watch pull must not submit")
+            }
+            let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: remoteTransport, stateRoot: root)
+            let event = AuthorityWatchEvent(
+                id: "up_remote",
+                tree: descriptor(tree: tree, snapshot: remote, update: "up_remote")
+            )
+            let result = try await coordinator.observe(event)
+            #expect(result.state == .current)
+            #expect(result.acceptedRoot == remote.root)
+            #expect(try await replica.heads().acceptedCursor == "up_remote")
+            #expect(await remoteTransport.requests.isEmpty)
+        }
+    }
+
+    @Test("A matching watch digest recovers a lost update response without reconnecting")
+    func watchDigestRecovery() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_watch_digest"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let transport = ClosureTransport(initial: initial) { prepared, call in
+                if call == 1 { throw InjectedSyncCrash() }
+                let request = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: prepared.body)
+                let update = accepted(
+                    id: "up_local",
+                    tree: tree,
+                    root: request.candidate,
+                    base: request.base.root,
+                    candidate: request.candidate
+                )
+                return AuthorityUpdateResponse(
+                    result: .accepted(update),
+                    requestDigest: prepared.requestDigest,
+                    snapshot: nil
+                )
+            }
+            let replica = try await ReplicaPlacementService.place(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"),
+                transport: transport
+            )
+            let session = try await ReplicaWorkspaceProvider(replica: replica).openDocument(
+                .init(tree: TreeID(rawValue: tree), path: "/note", pageID: "pg_note")
+            )
+            let base = try await session.snapshot()
+            _ = try await session.admit(source: base.source + "Local\n", baseContentRevision: base.contentRevision)
+            let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)
+            await #expect(throws: InjectedSyncCrash.self) { try await coordinator.syncOnce() }
+            let frozen = try #require(await transport.requests.first)
+            let request = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: frozen.body)
+            let eventTree = AuthorityTreeDescriptor(
+                id: tree,
+                canonicalPath: "/~owner/watch-digest",
+                kind: "shared-subtree",
+                ref: request.candidate,
+                publicAccess: "none",
+                access: "write",
+                httpURL: "https://example.test/~owner/watch-digest",
+                arborURL: "arbor://example.test/~owner/watch-digest",
+                update: "up_local",
+                requestDigest: frozen.requestDigest
+            )
+            let result = try await coordinator.observe(.init(
+                id: "up_local",
+                tree: eventTree,
+                requestDigest: frozen.requestDigest
+            ))
+            #expect(result.state == .current)
+            #expect(await transport.requests.count == 2)
+            #expect(try await replica.heads().acceptedCursor == "up_local")
+        }
+    }
+
     @Test("A frozen request never absorbs newer admitted local work")
     func localTail() async throws {
         try await withTemporaryRoot { root in
@@ -183,7 +275,7 @@ struct ArborSyncTests {
                 }
                 let returned = try completeCandidate(request, retained: initial)
                 let update = accepted(id: "up_\(call)", tree: tree, root: returned.root, base: request.base.root, candidate: returned.root)
-                return AuthorityUpdateResponse(result: .accepted(update), snapshot: returned)
+                return AuthorityUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: returned)
             }
             let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)
             let first = try await coordinator.syncOnce()
@@ -248,6 +340,7 @@ struct ArborSyncTests {
                 let candidate = try completeCandidate(request, retained: initial)
                 return AuthorityUpdateResponse(
                     result: .accepted(accepted(id: "up_resolved", tree: tree, root: candidate.root, base: remote.root, candidate: candidate.root)),
+                    requestDigest: prepared.requestDigest,
                     snapshot: candidate
                 )
             }
@@ -267,6 +360,7 @@ struct ArborSyncTests {
                     let candidate = try completeCandidate(request, retained: initial)
                     return AuthorityUpdateResponse(
                         result: .accepted(accepted(id: "up_done", tree: tree, root: candidate.root, base: request.base.root, candidate: candidate.root)),
+                        requestDigest: prepared.requestDigest,
                         snapshot: candidate
                     )
                 }
@@ -324,7 +418,7 @@ struct ArborSyncTests {
                         remoteRoot: initial.root,
                         merge: summary
                     )
-                    return AuthorityUpdateResponse(result: .merged(update, summary), snapshot: merged)
+                    return AuthorityUpdateResponse(result: .merged(update, summary), requestDigest: prepared.requestDigest, snapshot: merged)
                 }
                 let replica = try await ReplicaPlacementService.place(
                     tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),

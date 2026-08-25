@@ -8,3 +8,4 @@ test-results/
 .env
 native/Packages/*/.build/
 native/Packages/*/.swiftpm/
+native/Arbor.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved

@@ -56,6 +56,12 @@ struct ArborRootView: View {
     var body: some View {
         platformNavigation
         .task(id: workspace.generation) { await model.resetForWorkspace() }
+        .task(id: model.binding?.acceptedTitle) {
+            guard model.binding != nil else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            await model.evaluateTitleRenameProposal()
+        }
         .task {
 #if os(macOS)
             await workspace.restoreLocalWorkspaceIfAvailable()
@@ -113,6 +119,11 @@ struct ArborRootView: View {
         .sheet(item: moveRequestBinding) { request in
             if let host = model.editorHost {
                 ArborMoveDestinationSheet(host: host, request: request)
+            }
+        }
+        .sheet(item: structuralMoveRequestBinding) { request in
+            if let host = model.editorHost {
+                ArborStructuralMoveSheet(host: host, request: request)
             }
         }
         .confirmationDialog("Move this node to Trash?", isPresented: $trashConfirmationPresented) {
@@ -268,6 +279,15 @@ struct ArborRootView: View {
         )
     }
 
+    private var structuralMoveRequestBinding: Binding<ArborStructuralMoveRequest?> {
+        Binding(
+            get: { model.editorHost?.structuralMoveRequest },
+            set: { request in
+                if request == nil { model.editorHost?.resolveStructuralMoveRequest(with: nil) }
+            }
+        )
+    }
+
     private var windowCommands: ArborWindowCommands {
         ArborWindowCommands(
             goHome: { Task { await model.goHome() } },
@@ -285,7 +305,6 @@ struct ArborRootView: View {
             showSource: { Task { await model.inspectSource(); presentedSheet = .source } },
             showSyncStatus: { presentedSheet = .syncStatus },
             showPairing: { pairingPresented = true },
-            renamePage: { presentedSheet = .rename },
             movePageToTrash: { trashConfirmationPresented = true },
             restorePage: {
                 Task { await model.perform(.restore(reference: model.currentReference)) }
@@ -309,7 +328,6 @@ struct ArborRootView: View {
             canCloseTab: model.tabItems.count > 1,
             hasDocument: model.binding != nil,
             hasNode: model.node != nil,
-            canRenamePage: model.node?.isWritable == true,
             canMovePageToTrash: model.node?.isWritable == true
                 && model.currentReference.pathHint != "/"
                 && !model.currentReference.pathHint.hasPrefix("/Trash/"),
@@ -413,7 +431,11 @@ struct ArborRootView: View {
         case .source:
             if let node = model.node { ArborSourceInspector(node: node, snapshot: model.sourceSnapshot) }
         case .history:
-            ArborHistoryView(entries: model.history) { revision in Task { await model.recover(revision) } }
+            ArborHistoryView(entries: model.history) { revision in
+                Task {
+                    if await model.recover(revision) { presentedSheet = nil }
+                }
+            }
         case .backlinks:
             ArborBacklinksView(entries: model.backlinks) { reference in
                 presentedSheet = nil
@@ -452,8 +474,6 @@ struct ArborRootView: View {
             Task { await model.perform(.createMarkdown(parent: mutationParent, name: trimmed, source: source.isEmpty ? "# \(trimmed)\n" : source)) }
         case .createDirectory:
             Task { await model.perform(.createDirectory(parent: mutationParent, name: trimmed)) }
-        case .rename:
-            Task { await model.perform(.rename(reference: model.currentReference, name: trimmed)) }
         case .openLocation:
             Task { await model.navigate(to: destination(trimmed)) }
         default:
@@ -495,6 +515,15 @@ struct ArborRootView: View {
                 primaryLabel: "Review…",
                 primaryAction: { presentedSheet = .syncConflict }
             )
+        } else if let proposal = model.titleRenameProposal {
+            ArborAttentionBanner(
+                message: "Rename this page to \"\(proposal.proposedName)\" to match its title?",
+                systemImage: "pencil",
+                primaryLabel: "Rename",
+                primaryAction: { Task { await model.acceptTitleRenameProposal() } },
+                secondaryLabel: "Not Now",
+                secondaryAction: { model.dismissTitleRenameProposal() }
+            )
         } else if model.binding?.lastError != nil {
             ArborAttentionBanner(
                 message: "Arbor could not save the latest document edit.",
@@ -504,6 +533,14 @@ struct ArborRootView: View {
                 primaryAction: { Task { await model.retryDocumentSave() } },
                 secondaryLabel: "Details…",
                 secondaryAction: { presentedSheet = .syncStatus }
+            )
+        } else if let message = model.errorMessage {
+            ArborAttentionBanner(
+                message: message,
+                systemImage: "exclamationmark.circle",
+                tint: .red,
+                primaryLabel: "Dismiss",
+                primaryAction: { model.dismissError() }
             )
         } else if let message = workspace.errorMessage {
             ArborAttentionBanner(

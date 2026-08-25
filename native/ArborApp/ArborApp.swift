@@ -76,9 +76,6 @@ private struct ArborNavigationCommands: Commands {
         }
 #if os(macOS)
         CommandMenu("Page") {
-            Button("Rename Page…") { commands?.renamePage() }
-                .disabled(commands?.canRenamePage != true)
-            Divider()
             Button("Restore Page") { commands?.restorePage() }
                 .disabled(commands?.canRestorePage != true)
             Button("Move Page to Trash…") { commands?.movePageToTrash() }

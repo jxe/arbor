@@ -219,3 +219,13 @@ public struct WorkspaceAsset: Hashable, Codable, Sendable {
         self.bytes = bytes
     }
 }
+
+public struct WorkspaceStoredAsset: Hashable, Codable, Sendable {
+    public var reference: WorkspaceReference
+    public var markdownSource: String
+
+    public init(reference: WorkspaceReference, markdownSource: String) {
+        self.reference = reference
+        self.markdownSource = markdownSource
+    }
+}

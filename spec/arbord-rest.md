@@ -63,6 +63,7 @@ type Resolution = {
 ```text
 GET /v1/trees
 GET /v1/node?tree={tree}&path={path}[&pageID={id}][&revision={hash}]
+GET /v1/file?tree={tree}&path={path}
 GET /v1/children?tree={tree}&path={path}[&revision={hash}][&cursor={cursor}]
 GET /v1/search?tree={tree}&query={query}[&cursor={cursor}]
 GET /v1/backlinks?tree={tree}&path={path}[&pageID={id}][&cursor={cursor}]
@@ -143,6 +144,15 @@ type Page<T> = {
 ```
 
 `canonicalPath` is the tree's current public boundary path, distinct from its full canonical locator. `accessEntries` carries safe entry metadata; link secrets never appear. `bodyOrigin` is optional diagnostic provenance and is meaningful only when a body is stored. `bodyState: "implicit"` means no body bytes exist yet, although `document.source` is still the complete operational directory Markdown. Reading it never materializes a file.
+
+`GET /v1/file` returns the exact current bytes of an ordinary file and is the
+provider-neutral byte surface for native clients. Its body is not JSON. The
+response uses the file's media type when known, otherwise
+`application/octet-stream`, and carries the current object revision as an
+`ETag`. A directory, Markdown document, missing file, or historical reference
+does not fall through to a rendered representation: it returns the ordinary
+REST error for that reference. The route exposes current materialization only;
+REST v1 does not provide historical ordinary-file access.
 
 `MarkdownDocument`, `CollectionSummary`, and `Diagnostic` use the corresponding language-neutral shapes in the fixtures. Children, search hits, backlinks, collection rows, and recovery results carry explicit `ResolvedNodeRef` or equivalent explicit `tree` and path fields. Pagination cursors are opaque and scoped to their route and query. A cursor from another query is invalid.
 

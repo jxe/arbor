@@ -11,6 +11,29 @@ let source: string;
 let running: Awaited<ReturnType<typeof serveWireHost>>;
 let client: WireClient;
 
+function watchFrames(response: Response) {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  return {
+    async next(): Promise<{ id: string; data: Record<string, unknown> }> {
+      while (!buffered.includes("\n\n")) {
+        const chunk = await reader.read();
+        if (chunk.done) throw new Error("Watch ended before the next frame");
+        buffered += decoder.decode(chunk.value, { stream: true });
+      }
+      const boundary = buffered.indexOf("\n\n");
+      const frame = buffered.slice(0, boundary);
+      buffered = buffered.slice(boundary + 2);
+      const lines = frame.split("\n");
+      const id = lines.find((line) => line.startsWith("id: "))?.slice(4);
+      const data = lines.filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("\n");
+      if (!id || !data) throw new Error(`Malformed watch frame: ${frame}`);
+      return { id, data: JSON.parse(data) as Record<string, unknown> };
+    },
+  };
+}
+
 async function start() {
   running = await serveWireHost({
     dataRoot,
@@ -131,6 +154,78 @@ describe("personal wire authority", () => {
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: "{}",
     })).status).toBe(404);
+  });
+
+  test("current snapshots are coherent and watch correlates only the submitting credential", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "arbor-watch-correlation-"));
+    const ownerAbort = new AbortController();
+    const peerAbort = new AbortController();
+    const resumeAbort = new AbortController();
+    let peerDevice: string | undefined;
+    try {
+      await writeFile(join(folder, "note.md"), "one\n");
+      const initial = await snapshotDirectory(folder);
+      const tree = await client.create("/~owner/watch-correlation", initial);
+      const coherent = await client.currentSnapshot(tree.id);
+      expect(coherent.tree.update).toBe(tree.update);
+      expect(coherent.tree.ref).toBe(coherent.snapshot.root);
+      expect(coherent.snapshot.objects.map(({ hash }) => hash).sort()).toEqual([...initial.objects.keys()].sort());
+
+      const offer = await client.createPairing();
+      const peerClaim = await client.claimPairing(offer.id, offer.secret, "Watch privacy peer");
+      peerDevice = peerClaim.device.id;
+      const ownerResponse = await fetch(`${running.url}/.arbor/trees/${tree.id}/watch`, {
+        headers: { authorization: `Bearer ${token}` },
+        signal: ownerAbort.signal,
+      });
+      const peerResponse = await fetch(`${running.url}/.arbor/trees/${tree.id}/watch`, {
+        headers: { authorization: `Bearer ${peerClaim.deviceToken}` },
+        signal: peerAbort.signal,
+      });
+      const ownerWatch = watchFrames(ownerResponse);
+      const peerWatch = watchFrames(peerResponse);
+      expect((await ownerWatch.next()).id).toBe(tree.update!);
+      expect((await peerWatch.next()).id).toBe(tree.update!);
+
+      await writeFile(join(folder, "note.md"), "two\n");
+      const second = await snapshotDirectory(folder);
+      const accepted = await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update! }, second);
+      expect(accepted.outcome).toBe("accepted");
+      const acceptedUpdate = accepted.outcome === "current" ? accepted.current : accepted.update;
+      const ownerFrame = await ownerWatch.next();
+      const peerFrame = await peerWatch.next();
+      expect(ownerFrame.id).toBe(acceptedUpdate.id);
+      expect(ownerFrame.data.requestDigest).toBe(accepted.requestDigest);
+      expect(peerFrame.id).toBe(acceptedUpdate.id);
+      expect(peerFrame.data.requestDigest).toBeUndefined();
+
+      const resumedResponse = fetch(`${running.url}/.arbor/trees/${tree.id}/watch`, {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "last-event-id": acceptedUpdate.id,
+        },
+        signal: resumeAbort.signal,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await writeFile(join(folder, "note.md"), "three\n");
+      const third = await snapshotDirectory(folder);
+      const next = await client.submitUpdate(
+        tree.id,
+        { root: acceptedUpdate.root, update: acceptedUpdate.id },
+        third,
+      );
+      const nextUpdate = next.outcome === "current" ? next.current : next.update;
+      const resumed = watchFrames(await resumedResponse);
+      const resumedFrame = await resumed.next();
+      expect(resumedFrame.id).toBe(nextUpdate.id);
+      expect(resumedFrame.data.requestDigest).toBe(next.requestDigest);
+    } finally {
+      ownerAbort.abort();
+      peerAbort.abort();
+      resumeAbort.abort();
+      if (peerDevice) await client.revokeDevice(peerDevice).catch(() => {});
+      await rm(folder, { recursive: true, force: true });
+    }
   });
 
   test("reconstructs a sparse candidate from a retained-base file patch", async () => {

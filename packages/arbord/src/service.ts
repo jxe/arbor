@@ -485,6 +485,22 @@ export class ArborService implements AsyncDisposable {
     });
   }
 
+  /** Read the exact current bytes of one ordinary file in its explicit scope. */
+  async file(ref: NodeRef): Promise<{ bytes: Uint8Array; revision: string; path: string }> {
+    const scope = await this.resolveScope(ref);
+    if (scope.kind === "system") {
+      throw new ProtocolError("unsupported-operation", "Files are unavailable in the system scope", 422);
+    }
+    const path = scope.kind === "root"
+      ? ("path" in scope.ref ? scope.ref.path : (await scope.workspace.snapshot(scope.ref)).path)
+      : scope.path;
+    const surface = await this.scopedFileSurface(scope, path, false);
+    if (!surface) {
+      throw new ProtocolError("not-found", "Reference is not a readable ordinary file", 404);
+    }
+    return surface;
+  }
+
   async importV1(mutationID: string, destination: NodeRef, entries: Parameters<Workspace["importV1"]>[2]) {
     const scope = await this.resolveScope(destination);
     if (scope.kind !== "root") {
@@ -545,7 +561,7 @@ export class ArborService implements AsyncDisposable {
     try {
       const scope = await this.resolveScope({ tree: LOCAL_TREE, path: referrerUrlPath });
       if (scope.kind !== "root") return null;
-      return await scope.workspace.fileSurface(treeRootedPath, raw).catch(() => null);
+      return await this.scopedFileSurface(scope, treeRootedPath, raw);
     } catch {
       return null;
     }
@@ -558,10 +574,20 @@ export class ArborService implements AsyncDisposable {
     } catch {
       return null;
     }
-    if (scope.kind === "root") {
-      return scope.workspace.fileSurface("path" in scope.ref ? scope.ref.path : "/", raw).catch(() => null);
-    }
-    if (scope.kind === "local") return this.localFs.fileSurface(scope.path, raw).catch(() => null);
+    const path = scope.kind === "root" && "path" in scope.ref ? scope.ref.path
+      : scope.kind === "local" ? scope.path
+      : "/";
+    return this.scopedFileSurface(scope, path, raw);
+  }
+
+  /** The only ordinary-file/document byte dispatcher; URL surfaces are adapters. */
+  private async scopedFileSurface(
+    scope: ResolvedScope,
+    path: string,
+    raw: boolean,
+  ): Promise<{ bytes: Uint8Array; revision: string; path: string } | null> {
+    if (scope.kind === "root") return scope.workspace.fileSurface(path, raw).catch(() => null);
+    if (scope.kind === "local") return this.localFs.fileSurface(path, raw).catch(() => null);
     return null;
   }
 

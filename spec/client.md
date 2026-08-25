@@ -35,6 +35,21 @@ The client begins observing from a read response's `observedThrough` cursor earl
 
 For authority synchronization, the client durably records the exact accepted base update, candidate root, and immutable objects before `POST .../updates`. It retries only that semantic intent after an ambiguous outcome; the authority derives its identity from canonical JSON, so there is no caller-supplied idempotency key. A native/offline client may request the transport-only complete returned snapshot, avoiding graph-fetch races without changing semantic request identity. An accepted or merged update becomes the new base only after its graph has been rehashed, validated, and applied locally. A conflict has no authority-side record: the response contains the current accepted update, the client's base/candidate identities, structured reasons, and a complete draft snapshot; when requested it also carries the complete current accepted snapshot. The client durably stores that response, permits further local work, and later submits an explicit new candidate against the returned current update.
 
+Initial placement and a watch-invalidated replica with no local changes use the
+authority's coherent current-snapshot read. They do not manufacture a
+candidate-equals-base update submission merely to pull current state. The
+accepted-update ID returned by either a current snapshot or a successful update
+is stored as both the accepted base identity and the next watch cursor.
+
+The client verifies that every successful update response repeats its locally
+derived semantic request digest. A continuously open watch may receive that
+same digest on the accepted ref event only when authenticated as the exact
+submitting bearer-credential subject. A match correlates the event with the
+durable attempt without reconnecting the stream: after an already-applied
+response it is redundant, while after an ambiguous response it prompts an
+idempotent replay of the exact request. `Last-Event-ID` remains solely the
+durable reconnect/resume cursor.
+
 Unknown error codes and descriptive response fields do not crash the client. Missing required fields and malformed values do not silently become empty or local state.
 
 ## Secrets and access

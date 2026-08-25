@@ -105,9 +105,17 @@ export class AcceptedUpdateStore {
     `).get(tree, subject, digest));
     if (!accepted) return null;
     if (accepted.kind === "merged" && accepted.merge) {
-      return { status: 201, result: { outcome: "merged", update: accepted, merge: accepted.merge } };
+      return { status: 201, result: { outcome: "merged", update: accepted, merge: accepted.merge, requestDigest: digest as ObjectHash } };
     }
-    return { status: 201, result: { outcome: "accepted", update: accepted } };
+    return { status: 201, result: { outcome: "accepted", update: accepted, requestDigest: digest as ObjectHash } };
+  }
+
+  matchingRequestDigest(update: string, subject: string): ObjectHash | null {
+    const row = this.db.query(`
+      SELECT request_digest FROM accepted_updates
+      WHERE id = ? AND subject = ? AND request_digest IS NOT NULL
+    `).get(update, subject) as { request_digest: ObjectHash } | null;
+    return row?.request_digest ?? null;
   }
 
   insert(id: string, input: AcceptedUpdateInput): AcceptedUpdate {

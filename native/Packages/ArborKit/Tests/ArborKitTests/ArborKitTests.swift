@@ -142,4 +142,34 @@ struct BrowserTabControllerTests {
         #expect(controller.navigationPath.isEmpty)
         #expect(controller.canGoForward)
     }
+
+    @Test("A PageID rename reconciles every trail without adding navigation")
+    func reconcileRenamedReference() {
+        let home = WorkspaceReference(tree: "tr_sample", path: "/")
+        let old = WorkspaceReference(tree: "tr_sample", path: "/old", pageID: "pg_stable")
+        let renamed = WorkspaceReference(tree: "tr_sample", path: "/new", pageID: "pg_stable")
+        let controller = BrowserTabController(home: home)
+        controller.navigate(to: old)
+        controller.navigate(to: .init(tree: "tr_sample", path: "/other"))
+        controller.newTab(at: old)
+
+        controller.reconcileReference(renamed)
+
+        #expect(controller.selectedTab.current == renamed)
+        controller.selectTab(controller.tabs.first!.id)
+        #expect(controller.selectedTab.back.last == renamed)
+        #expect(controller.navigationPath.count == 2)
+    }
+}
+
+@Suite("Title filename proposals")
+struct WorkspaceTitleSlugTests {
+    @Test("Text, case, disambiguation, and emoji-only titles are stable")
+    func proposals() {
+        #expect(WorkspaceTitleSlug.name(for: "Hello, Arbor!") == "Hello-Arbor")
+        #expect(WorkspaceTitleSlug.matches(name: "hello-arbor", title: "Hello, Arbor!"))
+        #expect(WorkspaceTitleSlug.matches(name: "Hello-Arbor-2", title: "Hello, Arbor!"))
+        #expect(!WorkspaceTitleSlug.matches(name: "Hello-Arbor-copy", title: "Hello, Arbor!"))
+        #expect(WorkspaceTitleSlug.name(for: "🎉") == "party-popper")
+    }
 }

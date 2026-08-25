@@ -349,7 +349,7 @@ final class ArborWorkspaceState {
         coordinator: ReplicaSyncCoordinator
     ) {
         authorityWatchTask = Task { [weak self] in
-            var lastEventID: String?
+            var lastEventID = try? await coordinator.watchCursor()
             var reconnectAttempt = 0
             while !Task.isCancelled {
                 do {
@@ -359,14 +359,8 @@ final class ArborWorkspaceState {
                         try Task.checkCancellation()
                         lastEventID = event.id
                         guard event.tree.id == tree.id else { continue }
-                        let presentation = try await coordinator.presentation()
-                        let needsSync = event.tree.ref != presentation.acceptedRoot
-                            || presentation.localRoot != presentation.acceptedRoot
-                            || presentation.state == .offline
-                        if needsSync {
-                            _ = try await coordinator.syncOnce()
-                            await self?.refreshSyncPresentation(from: coordinator)
-                        }
+                        _ = try await coordinator.observe(event)
+                        await self?.refreshSyncPresentation(from: coordinator)
                     }
                 } catch is CancellationError {
                     return
@@ -401,6 +395,13 @@ private extension Dictionary where Key == String, Value == JSONValue {
 @MainActor
 @Observable
 final class ArborAppModel {
+    struct TitleRenameProposal: Identifiable, Equatable {
+        var reference: WorkspaceReference
+        var title: String
+        var proposedName: String
+        var id: String { "\(reference.identity)|\(proposedName)" }
+    }
+
     let workspace: ArborWorkspaceState
     private(set) var tabs: BrowserTabController
     private(set) var node: WorkspaceNode?
@@ -415,9 +416,11 @@ final class ArborAppModel {
     private(set) var sourceSnapshot: WorkspaceDocumentSnapshot?
     private(set) var tabVersion = 0
     private(set) var isLoading = false
+    private(set) var titleRenameProposal: TitleRenameProposal?
     private var observedWorkspaceGeneration: Int
     private var loadRequestID = 0
     private var searchRequestID = 0
+    private var dismissedTitleRenameProposals = Set<String>()
 
     init(workspace: ArborWorkspaceState) {
         self.workspace = workspace
@@ -453,6 +456,7 @@ final class ArborAppModel {
         }
         observedWorkspaceGeneration = workspace.generation
         editorHost?.resolveMoveRequest(with: nil)
+        editorHost?.resolveStructuralMoveRequest(with: nil)
         editorLease = nil
         editorHost = nil
         tabs = BrowserTabController(home: workspace.home)
@@ -467,6 +471,7 @@ final class ArborAppModel {
         isLoading = true
         if let editorLease {
             editorHost?.resolveMoveRequest(with: nil)
+            editorHost?.resolveStructuralMoveRequest(with: nil)
             await workspace.editorWorkspace.release(editorLease)
             self.editorLease = nil
             editorHost = nil
@@ -496,10 +501,12 @@ final class ArborAppModel {
                     provider: workspace.provider,
                     linkPreviewService: workspace.linkPreviewService,
                     open: { [weak self] reference in Task { await self?.navigate(to: reference) } },
-                    navigateBack: { [weak self] in Task { await self?.goBack() } }
+                    navigateBack: { [weak self] in Task { await self?.goBack() } },
+                    reportError: { [weak self] message in self?.errorMessage = message }
                 )
             }
             errorMessage = nil
+            titleRenameProposal = nil
             isLoading = false
             Task { await self.loadBacklinks() }
         } catch {
@@ -589,13 +596,19 @@ final class ArborAppModel {
         catch { errorMessage = error.localizedDescription }
     }
 
-    func recover(_ revision: String) async {
-        guard let binding else { return }
+    func recover(_ revision: String) async -> Bool {
+        guard let binding else { return false }
         do {
             sourceSnapshot = try await binding.recover(revision: revision)
             await load()
-        } catch { errorMessage = error.localizedDescription }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
     }
+
+    func dismissError() { errorMessage = nil }
 
     func resolveEditorConflict(preferSubmitted: Bool) async {
         guard let binding else { return }
@@ -607,6 +620,73 @@ final class ArborAppModel {
 
     func retryDocumentSave() async {
         await binding?.retryLastSave()
+    }
+
+    func evaluateTitleRenameProposal() async {
+        guard let binding, let node, node.isWritable,
+              binding.reference.pathHint != "/",
+              binding.lastError == nil, binding.conflict == nil else {
+            titleRenameProposal = nil
+            return
+        }
+        let title = binding.acceptedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentName = binding.reference.pathHint.split(separator: "/").last.map(String.init) ?? ""
+        guard !title.isEmpty, !WorkspaceTitleSlug.matches(name: currentName, title: title) else {
+            titleRenameProposal = nil
+            return
+        }
+        let parent = binding.reference.parent ?? WorkspaceReference(tree: binding.reference.tree, path: "/")
+        let siblings = (try? await workspace.provider.children(of: parent)) ?? []
+        let occupied = Set(siblings.compactMap { sibling -> String? in
+            guard sibling.reference.identity != binding.reference.identity else { return nil }
+            return sibling.reference.pathHint.split(separator: "/").last.map(String.init)?.lowercased()
+        })
+        let stem = WorkspaceTitleSlug.name(for: title)
+        var proposed = stem
+        var suffix = 2
+        while occupied.contains(proposed.lowercased()) {
+            proposed = "\(stem)-\(suffix)"
+            suffix += 1
+        }
+        let proposal = TitleRenameProposal(reference: binding.reference, title: title, proposedName: proposed)
+        guard !dismissedTitleRenameProposals.contains(proposal.id) else { return }
+        titleRenameProposal = proposal
+    }
+
+    func dismissTitleRenameProposal() {
+        if let proposal = titleRenameProposal { dismissedTitleRenameProposals.insert(proposal.id) }
+        titleRenameProposal = nil
+    }
+
+    func acceptTitleRenameProposal() async {
+        guard let proposal = titleRenameProposal, let binding,
+              binding.reference.identity == proposal.reference.identity else { return }
+        dismissTitleRenameProposal()
+        await binding.flush()
+        guard binding.lastError == nil, binding.conflict == nil else { return }
+        do {
+            guard let renamed = try await workspace.provider.perform(.rename(
+                reference: binding.reference,
+                name: proposal.proposedName
+            )) else { return }
+            binding.reconcileReference(renamed.reference)
+            tabs.reconcileReference(renamed.reference)
+            tabVersion += 1
+            node = renamed
+            sidebarReference = renamed.reference.parent ?? workspace.home
+            children = try await workspace.provider.children(of: sidebarReference)
+            searchResults = searchResults.map { result in
+                guard result.reference.identity == renamed.reference.identity else { return result }
+                return WorkspaceSearchResult(
+                    reference: renamed.reference,
+                    title: renamed.title,
+                    excerpt: result.excerpt
+                )
+            }
+            await loadBacklinks()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func perform(_ action: WorkspaceStructuralAction, navigateToResult: Bool = true) async {

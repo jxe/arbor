@@ -6,6 +6,7 @@ public enum ReplicaSyncError: Error, Equatable, Sendable {
     case replicaIsNotPlaced
     case returnedSnapshotMissing
     case returnedSnapshotMismatch
+    case returnedRequestDigestMismatch
     case conflictSnapshotMissing
     case noConflict
     case localWorkAdvanced
@@ -34,7 +35,7 @@ public struct NoReplicaSyncFaults: ReplicaSyncFaultInjector {
 
 public protocol ReplicaAuthorityTransport: Sendable {
     func submit(_ prepared: PreparedAuthorityUpdate) async throws -> AuthorityUpdateResponse
-    func snapshot(root: String) async throws -> AuthoritySnapshot
+    func currentSnapshot(tree: String) async throws -> AuthorityCurrentSnapshot
 }
 
 public struct ArborWireReplicaTransport: ReplicaAuthorityTransport, Sendable {
@@ -44,8 +45,8 @@ public struct ArborWireReplicaTransport: ReplicaAuthorityTransport, Sendable {
     public func submit(_ prepared: PreparedAuthorityUpdate) async throws -> AuthorityUpdateResponse {
         try await client.submitUpdateResponse(prepared)
     }
-    public func snapshot(root: String) async throws -> AuthoritySnapshot {
-        try await client.snapshot(root: root)
+    public func currentSnapshot(tree: String) async throws -> AuthorityCurrentSnapshot {
+        try await client.currentSnapshot(tree: tree)
     }
 }
 

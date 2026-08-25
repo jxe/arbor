@@ -7,7 +7,6 @@ import SwiftUI
 enum ArborPresentedSheet: String, Identifiable {
     case createMarkdown
     case createDirectory
-    case rename
     case openLocation
     case source
     case history
@@ -35,7 +34,6 @@ struct ArborWindowCommands {
     var showSource: () -> Void
     var showSyncStatus: () -> Void
     var showPairing: () -> Void
-    var renamePage: () -> Void
     var movePageToTrash: () -> Void
     var restorePage: () -> Void
     var reconnectArbord: () -> Void
@@ -46,7 +44,6 @@ struct ArborWindowCommands {
     var canCloseTab: Bool
     var hasDocument: Bool
     var hasNode: Bool
-    var canRenamePage: Bool
     var canMovePageToTrash: Bool
     var canRestorePage: Bool
 }
@@ -376,6 +373,80 @@ struct ArborMoveDestinationSheet: View {
     }
 }
 
+struct ArborStructuralMoveSheet: View {
+    let host: ArborEditorHost
+    let request: ArborStructuralMoveRequest
+
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var searchFocused: Bool
+    @State private var query = ""
+    @State private var directories: [ArborMoveDirectory] = []
+    @State private var isLoading = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                TextField("Search folders", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($searchFocused)
+                    .padding(12)
+                Divider()
+                List(directories) { directory in
+                    Button {
+                        host.resolveStructuralMoveRequest(with: directory.reference)
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: directory.reference.pathHint == "/" ? "house" : "folder")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 18)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(directory.title)
+                                    .font(ArborStyle.shellFont(size: 14, weight: .medium))
+                                Text(directory.reference.pathHint)
+                                    .font(ArborStyle.shellFont(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Moves the linked page into this folder")
+                }
+                .overlay {
+                    if isLoading, directories.isEmpty {
+                        ProgressView("Finding folders")
+                    } else if directories.isEmpty {
+                        ContentUnavailableView("No legal destinations", systemImage: "folder.badge.questionmark")
+                    }
+                }
+            }
+            .navigationTitle("Move Linked Page")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        host.resolveStructuralMoveRequest(with: nil)
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 440, minHeight: 420)
+        .task(id: query) {
+            isLoading = true
+            let loaded = await host.moveDirectories(for: request.reference, matching: query)
+            guard !Task.isCancelled else { return }
+            directories = loaded
+            isLoading = false
+            searchFocused = true
+        }
+        .interactiveDismissDisabled()
+    }
+}
+
 struct ArborAttentionBanner: View {
     let message: String
     let systemImage: String
@@ -697,6 +768,7 @@ struct ArborSourceInspector: View {
 struct ArborHistoryView: View {
     let entries: [WorkspaceHistoryEntry]
     let recover: (String) -> Void
+    @State private var pendingRecovery: WorkspaceHistoryEntry?
 
     var body: some View {
         NavigationStack {
@@ -709,7 +781,9 @@ struct ArborHistoryView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Restore as New Change") { recover(entry.revision) }
+                    Button("Restore as New Change") { pendingRecovery = entry }
+                        .accessibilityLabel("Restore \(entry.title)")
+                        .accessibilityHint("Creates a new current revision without erasing later recovery history")
                 }
             }
             .overlay {
@@ -718,6 +792,29 @@ struct ArborHistoryView: View {
                 }
             }
             .navigationTitle("Recover")
+            .safeAreaInset(edge: .bottom) {
+                Text("Recovery creates a new local change. It does not rewind shared authority history.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(.bar)
+            }
+            .confirmationDialog(
+                "Restore this revision as a new change?",
+                isPresented: Binding(
+                    get: { pendingRecovery != nil },
+                    set: { if !$0 { pendingRecovery = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Restore as New Change") {
+                    guard let entry = pendingRecovery else { return }
+                    pendingRecovery = nil
+                    recover(entry.revision)
+                }
+                Button("Cancel", role: .cancel) { pendingRecovery = nil }
+            }
         }
         .frame(minWidth: 500, minHeight: 420)
     }
@@ -819,7 +916,6 @@ struct ArborMutationForm: View {
         switch mode {
         case .createMarkdown: "New Document"
         case .createDirectory: "New Folder"
-        case .rename: "Rename"
         case .openLocation: "Open Location"
         default: "Action"
         }
@@ -828,7 +924,6 @@ struct ArborMutationForm: View {
     private var prompt: String {
         switch mode {
         case .openLocation: "Location path"
-        case .rename: "New name"
         default: "Name"
         }
     }
@@ -836,7 +931,6 @@ struct ArborMutationForm: View {
     private var actionTitle: String {
         switch mode {
         case .openLocation: "Open"
-        case .rename: "Rename"
         default: "Create"
         }
     }
