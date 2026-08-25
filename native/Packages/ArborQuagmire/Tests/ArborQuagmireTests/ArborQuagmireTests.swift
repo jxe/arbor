@@ -668,8 +668,19 @@ struct ArborQuagmireTests {
         let host = ArborEditorHost(
             binding: binding,
             provider: provider,
-            linkPreviewService: linkPreviewService()
+            linkPreviewService: linkPreviewService(),
+            relativeReferenceBase: parent.reference
         )
+        let generatedChildLink = try #require(host.resolveReference(
+            from: URL(string: "child")!,
+            in: binding.document
+        ))
+        #expect(ArborDocumentReferenceCodec.decode(generatedChildLink)?.pathHint == "/parent/child")
+        let relativeSiblingLink = try #require(host.resolveReference(
+            from: URL(string: "../destination")!,
+            in: binding.document
+        ))
+        #expect(ArborDocumentReferenceCodec.decode(relativeSiblingLink)?.pathHint == "/destination")
         let reference = ArborDocumentReferenceCodec.encode(.init(
             tree: tree,
             path: "/stale-child-hint",

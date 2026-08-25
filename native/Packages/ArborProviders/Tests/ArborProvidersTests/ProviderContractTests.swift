@@ -100,7 +100,7 @@ struct ProviderContractTests {
         ) == "filename")
     }
 
-    @Test("Ordinary implicit directories remain browser-only path locations")
+    @Test("Ordinary implicit directories are editable without managed identity")
     func ordinaryImplicitDirectorySurface() throws {
         let node = try ArbordWorkspaceProvider.workspaceNode(
             from: directorySnapshot(tree: "local", bodyState: "implicit"),
@@ -108,12 +108,15 @@ struct ProviderContractTests {
             requestedLocation: .local("/tmp/ordinary")
         )
 
-        guard case .directory = node.surface else {
-            Issue.record("An implicit ordinary directory was surfaced as an editable document")
+        guard case let .directoryDocument(source, _, stored) = node.surface else {
+            Issue.record("An implicit ordinary directory was not surfaced as an editable projection")
             return
         }
+        #expect(source == "# ordinary\n")
+        #expect(!stored)
         #expect(node.location == .local("/tmp/ordinary"))
-        #expect(!node.surface.supportsDocumentSession)
+        #expect(node.surface.supportsDocumentSession)
+        #expect(node.isWritable)
         #expect(!ArbordWorkspaceProvider.requiresDocumentIdentity(node))
     }
 

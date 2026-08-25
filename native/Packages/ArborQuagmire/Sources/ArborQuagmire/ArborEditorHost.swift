@@ -80,6 +80,7 @@ public final class ArborEditorHost: EditorHost {
     public private(set) var structuralMoveRequest: ArborStructuralMoveRequest?
     private let provider: any WorkspaceProvider
     private let linkPreviewService: LinkPreviewService
+    private let relativeReferenceBase: WorkspaceReference
     private let openAction: @MainActor (WorkspaceReference) -> Void
     private let backAction: @MainActor () -> Void
     private let errorAction: @MainActor (String) -> Void
@@ -90,6 +91,7 @@ public final class ArborEditorHost: EditorHost {
         binding: ArborDocumentBinding,
         provider: any WorkspaceProvider,
         linkPreviewService: LinkPreviewService,
+        relativeReferenceBase: WorkspaceReference? = nil,
         open: @escaping @MainActor (WorkspaceReference) -> Void = { _ in },
         navigateBack: @escaping @MainActor () -> Void = {},
         reportError: @escaping @MainActor (String) -> Void = { _ in }
@@ -97,6 +99,9 @@ public final class ArborEditorHost: EditorHost {
         self.binding = binding
         self.provider = provider
         self.linkPreviewService = linkPreviewService
+        self.relativeReferenceBase = relativeReferenceBase
+            ?? binding.reference.parent
+            ?? binding.reference
         self.openAction = open
         self.backAction = navigateBack
         self.errorAction = reportError
@@ -209,17 +214,13 @@ public final class ArborEditorHost: EditorHost {
 
     private func workspaceReference(for url: URL) -> WorkspaceReference? {
         guard url.scheme == nil else { return nil }
-        let parent: WorkspaceReference
-        if let containing = binding.reference.parent {
-            parent = containing
-        } else if binding.reference.pathHint == "/" {
-            parent = binding.reference
-        } else {
-            return nil
-        }
         let raw = url.path.removingPercentEncoding ?? url.path
         guard !raw.isEmpty else { return nil }
-        let path = raw.hasPrefix("/") ? raw : (parent.pathHint == "/" ? "/\(raw)" : "\(parent.pathHint)/\(raw)")
+        let path = raw.hasPrefix("/")
+            ? raw
+            : (relativeReferenceBase.pathHint == "/"
+                ? "/\(raw)"
+                : "\(relativeReferenceBase.pathHint)/\(raw)")
         let logical = path.lowercased().hasSuffix(".md") ? String(path.dropLast(3)) : path
         return WorkspaceReference(tree: binding.reference.tree, path: logical)
     }
@@ -450,8 +451,8 @@ public final class ArborEditorHost: EditorHost {
         if withoutFragment.hasPrefix("/") {
             path = withoutFragment
         } else {
-            let parent = binding.reference.parent?.pathHint ?? "/"
-            path = parent == "/" ? "/\(withoutFragment)" : "\(parent)/\(withoutFragment)"
+            let base = relativeReferenceBase.pathHint
+            path = base == "/" ? "/\(withoutFragment)" : "\(base)/\(withoutFragment)"
         }
         return WorkspaceReference(tree: binding.reference.tree, path: path)
     }

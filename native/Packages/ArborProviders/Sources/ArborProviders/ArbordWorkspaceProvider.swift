@@ -263,20 +263,15 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
                 surface = .directory(summary: snapshot.diagnostics.first?.message)
                 break
             }
-            if tree.rawValue == "local", snapshot.bodyState != "stored" {
-                // Arbord synthesizes a useful Markdown directory summary even
-                // for ordinary filesystem folders. That summary is a browser
-                // representation, not an authored document: treating it as a
-                // document would make the editor try to mint a PageID outside
-                // any managed tree as soon as the user navigated upward.
-                surface = .directory(summary: snapshot.diagnostics.first?.message)
-            } else {
-                surface = .directoryDocument(
-                    source: document.source,
-                    contentRevision: revision,
-                    stored: snapshot.bodyState == "stored"
-                )
-            }
+            // Implicit directory Markdown is a real editable projection. In a
+            // managed tree the session establishes PageID identity first; in
+            // ordinary filesystem space it remains path-addressed, and the
+            // first authored edit materializes `_index.md` without an ID.
+            surface = .directoryDocument(
+                source: document.source,
+                contentRevision: revision,
+                stored: snapshot.bodyState == "stored"
+            )
         case "collection", "database":
             surface = .collection(
                 kind: snapshot.collection?.backing ?? snapshot.kind,

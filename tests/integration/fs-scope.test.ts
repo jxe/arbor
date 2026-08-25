@@ -32,6 +32,8 @@ beforeAll(async () => {
   await writeFile(join(outer, "stray", "ordered", "_index.md"), "[First](first)\n\n[Second](second)\n");
   await writeFile(join(outer, "stray", "ordered", "first.md"), "First\n");
   await writeFile(join(outer, "stray", "ordered", "second.md"), "Second\n");
+  await mkdir(join(outer, "implicit-edit"));
+  await writeFile(join(outer, "implicit-edit", "child.md"), "Child\n");
   await symlink(join(root, "inside.md"), join(outer, "stray", "link-into-root.md"));
   const running = await serveArbor(root, { port: 0 });
   base = running.url;
@@ -174,6 +176,28 @@ describe("the local filesystem scope", () => {
         "first",
       ]);
     expect(await readFile(join(absolute, "_index.md"), "utf8")).not.toContain("id:");
+  });
+
+  test("materializes an implicit untracked directory only after an authored edit", async () => {
+    const absolute = join(outer, "implicit-edit");
+    const before = await client.node({ tree: "local", path: absolute });
+    expect(before.bodyState).toBe("implicit");
+    expect(before.ref.pageID).toBeUndefined();
+    await expect(readFile(join(absolute, "_index.md"), "utf8")).rejects.toThrow();
+
+    const source = `${before.document!.source}\nAuthored directory note.\n`;
+    await client.mutateContent({
+      op: "writeMarkdown",
+      ref: { tree: "local", path: absolute },
+      baseContentRevision: before.contentRevision!,
+      source,
+    }, "untracked-implicit-directory-edit");
+
+    expect(await readFile(join(absolute, "_index.md"), "utf8")).toBe(source);
+    const after = await client.node({ tree: "local", path: absolute });
+    expect(after.bodyState).toBe("stored");
+    expect(after.ref.pageID).toBeUndefined();
+    expect(after.document?.frontmatter.id).toBeUndefined();
   });
 
   test("refuses managed-workspace capabilities in untracked space", async () => {

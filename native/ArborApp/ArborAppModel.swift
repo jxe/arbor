@@ -731,10 +731,18 @@ final class ArborAppModel {
                     return
                 }
                 editorLease = lease
+                let relativeReferenceBase: WorkspaceReference
+                switch resolved.surface {
+                case .directoryDocument:
+                    relativeReferenceBase = resolved.reference
+                default:
+                    relativeReferenceBase = resolved.reference.parent ?? resolved.reference
+                }
                 editorHost = ArborEditorHost(
                     binding: lease.binding,
                     provider: workspace.provider,
                     linkPreviewService: workspace.linkPreviewService,
+                    relativeReferenceBase: relativeReferenceBase,
                     open: { [weak self] reference in Task { await self?.navigate(to: reference) } },
                     navigateBack: { [weak self] in Task { await self?.goBack() } },
                     reportError: { [weak self] message in self?.errorMessage = message }
