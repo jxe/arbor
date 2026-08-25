@@ -359,9 +359,7 @@ struct ArborRootView: View {
 #endif
             ToolbarItemGroup(placement: .primaryAction) {
 #if os(iOS)
-                if reference == model.currentReference, model.binding != nil {
-                    ArborEditorUndoButtons()
-                }
+                ArborEditorUndoButtons()
 #endif
                 if reference == model.currentReference,
                    model.node?.isWritable == true,
@@ -525,15 +523,18 @@ private struct ArborEditorUndoButtons: View {
     @State private var undoRevision = 0
 
     var body: some View {
-        Button("Undo", systemImage: "arrow.uturn.backward") {
-            undoController?.undo()
-        }
-        .disabled(!canUndo)
+        Group {
+            Button("Undo", systemImage: "arrow.uturn.backward") {
+                undoController?.undo()
+            }
+            .disabled(!canUndo)
 
-        Button("Redo", systemImage: "arrow.uturn.forward") {
-            undoController?.redo()
+            if canRedo {
+                Button("Redo", systemImage: "arrow.uturn.forward") {
+                    undoController?.redo()
+                }
+            }
         }
-        .disabled(!canRedo)
         // Keep the focus lookup below the root view: reading a scene-focused value
         // from the view that also owns the editor creates a SwiftUI focus cycle.
         .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerCheckpoint)) {

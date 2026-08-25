@@ -38,14 +38,26 @@ struct ProviderContractTests {
         let created = try #require(try await first.provider.perform(.createMarkdown(
             parent: first.home,
             name: "supervised",
-            source: "# Supervised\n"
+            source: "# 🌲 Supervised Page\n"
         )))
         let restarted = try await supervisor.restart()
         let reopened = try await restarted.provider.resolve(created.reference)
-        #expect(reopened.title == "supervised")
+        #expect(reopened.title == "🌲 Supervised Page")
         await supervisor.stop()
     }
 #endif
+
+    @Test("arbord display titles match replica heading semantics")
+    func arbordDisplayTitle() {
+        #expect(ArbordWorkspaceProvider.displayTitle(
+            source: "---\nid: pg_title\n---\n\n# 🌲 Authored Page Title\n\nBody.\n",
+            fallback: "authored-page-title"
+        ) == "🌲 Authored Page Title")
+        #expect(ArbordWorkspaceProvider.displayTitle(
+            source: "Body without a title.\n",
+            fallback: "filename"
+        ) == "filename")
+    }
 
     @Test("In-memory provider")
     func inMemory() async throws {

@@ -213,7 +213,10 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
         }
         return WorkspaceNode(
             reference: reference,
-            title: snapshot.name.isEmpty ? Self.name(of: snapshot.path) : snapshot.name,
+            title: Self.displayTitle(
+                source: snapshot.document?.source,
+                fallback: snapshot.name.isEmpty ? Self.name(of: snapshot.path) : snapshot.name
+            ),
             surface: surface,
             provenance: WorkspaceProvenance(
                 authority: snapshot.writable ? .local : .historical,
@@ -224,6 +227,16 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
             materialization: Self.materialization(snapshot.materialization),
             isWritable: snapshot.writable
         )
+    }
+
+    static func displayTitle(source: String?, fallback: String) -> String {
+        if let source {
+            for line in source.split(whereSeparator: \.isNewline) where line.hasPrefix("# ") {
+                let title = line.dropFirst(2).trimmingCharacters(in: .whitespaces)
+                if !title.isEmpty { return title }
+            }
+        }
+        return fallback
     }
 
     private static func materialization(_ value: String) -> WorkspaceMaterialization {
