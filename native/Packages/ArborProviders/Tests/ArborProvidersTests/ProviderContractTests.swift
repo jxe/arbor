@@ -97,6 +97,50 @@ struct ProviderContractTests {
         #expect(node.surface.supportsDocumentSession)
     }
 
+    @Test("Live arbord document sessions observe a later authoritative revision")
+    func arbordDocumentUpdates() async throws {
+        guard let raw = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"], let origin = URL(string: raw) else {
+            return
+        }
+        let client = ArborClient(baseURL: origin)
+        let rootSnapshot = try await client.node(.path("/"))
+        let tree = TreeID(rawValue: rootSnapshot.tree ?? rootSnapshot.ref.tree ?? "local")
+        let root = WorkspaceReference(tree: tree, path: "/")
+        let provider = ArbordWorkspaceProvider(client: client)
+        let suffix = UUID().uuidString.lowercased().prefix(8)
+        let node = try #require(try await provider.perform(.createMarkdown(
+            parent: root,
+            name: "observed-\(suffix)",
+            source: "# Observed\n"
+        )))
+        let observing = try await provider.openDocument(node.reference)
+        let initial = try await observing.snapshot()
+        let updates = try await observing.updates()
+        let next = Task<WorkspaceDocumentSnapshot, Error> {
+            for try await update in updates where update.contentRevision != initial.contentRevision {
+                return update
+            }
+            throw CancellationError()
+        }
+        let writer = try await provider.openDocument(node.reference)
+        let source = initial.source + "\nAuthoritative update.\n"
+        _ = try await writer.admit(source: source, baseContentRevision: initial.contentRevision)
+
+        let observed = try await withThrowingTaskGroup(of: WorkspaceDocumentSnapshot.self) { group in
+            group.addTask { try await next.value }
+            group.addTask {
+                try await Task.sleep(for: .seconds(2))
+                throw CancellationError()
+            }
+            let value = try await group.next()!
+            group.cancelAll()
+            return value
+        }
+        #expect(observed.source == source)
+        await writer.close()
+        await observing.close()
+    }
+
     private func verify(provider: any WorkspaceProvider, root: WorkspaceReference) async throws {
         let suffix = UUID().uuidString.lowercased().prefix(8)
         let folder = try #require(try await provider.perform(.createDirectory(

@@ -126,6 +126,7 @@ public enum WorkspacePatchError: Error, Equatable, Sendable {
 public protocol WorkspaceDocumentSession: Actor, Sendable {
     var identity: WorkspaceIdentity { get }
     func snapshot() async throws -> WorkspaceDocumentSnapshot
+    func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>
     func admit(source: String, baseContentRevision: String) async throws -> WorkspaceDocumentSnapshot
     func admit(patch: WorkspaceDocumentPatch) async throws -> WorkspaceDocumentSnapshot
     func flush() async throws
@@ -135,6 +136,10 @@ public protocol WorkspaceDocumentSession: Actor, Sendable {
 }
 
 public extension WorkspaceDocumentSession {
+    func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> {
+        AsyncThrowingStream { continuation in continuation.finish() }
+    }
+
     func admit(patch: WorkspaceDocumentPatch) async throws -> WorkspaceDocumentSnapshot {
         let current = try await snapshot()
         guard current.contentRevision == patch.baseContentRevision else {

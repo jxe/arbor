@@ -41,6 +41,7 @@ public final class ArborEditorWorkspace {
     public func release(_ lease: ArborEditorLease) async {
         guard var entry = entries[lease.identity], let workspaceLease = entry.workspaceLeases.removeValue(forKey: lease.id) else { return }
         if entry.workspaceLeases.isEmpty {
+            entry.binding.stopObserving()
             await entry.binding.flush()
             entries.removeValue(forKey: lease.identity)
         } else {
@@ -112,6 +113,7 @@ public final class ArborEditorWorkspace {
 
     public func closeAll() async {
         for entry in entries.values {
+            entry.binding.stopObserving()
             await entry.binding.flush()
             for lease in entry.workspaceLeases.values { await coordinator.release(lease) }
         }

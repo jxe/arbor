@@ -18,6 +18,7 @@ public final class ArborDocumentBinding {
     private var accepted: WorkspaceDocumentSnapshot
     private var ledger: ArborSourceLedger
     private var tail: Task<Void, Never>?
+    private var updatesTask: Task<Void, Never>?
     private(set) var generation = 0
 
     public static func open(
@@ -25,7 +26,9 @@ public final class ArborDocumentBinding {
         session: any WorkspaceDocumentSession
     ) async throws -> ArborDocumentBinding {
         let snapshot = try await session.snapshot()
-        return ArborDocumentBinding(reference: reference, session: session, snapshot: snapshot)
+        let binding = ArborDocumentBinding(reference: reference, session: session, snapshot: snapshot)
+        await binding.observeAuthoritativeUpdates()
+        return binding
     }
 
     private init(
@@ -123,8 +126,40 @@ public final class ArborDocumentBinding {
     }
 
     public func close() async {
+        stopObserving()
         await flush()
         await session.close()
+    }
+
+    func stopObserving() {
+        updatesTask?.cancel()
+        updatesTask = nil
+    }
+
+    private func observeAuthoritativeUpdates() async {
+        guard let updates = try? await session.updates() else { return }
+        updatesTask = Task { @MainActor [weak self] in
+            do {
+                for try await snapshot in updates {
+                    guard let self else { return }
+                    await self.receiveAuthoritativeUpdate(snapshot)
+                }
+            } catch is CancellationError {
+            } catch {
+                // Observation reconnect and resync belong to the provider. A
+                // failed live view must not turn an otherwise durable editor
+                // session into a save failure.
+            }
+        }
+    }
+
+    private func receiveAuthoritativeUpdate(_ snapshot: WorkspaceDocumentSnapshot) async {
+        guard snapshot.contentRevision != accepted.contentRevision else { return }
+        await flush()
+        guard conflict == nil, lastError == nil, !isSaving else { return }
+        guard let current = try? await session.snapshot(),
+              current.contentRevision != accepted.contentRevision else { return }
+        await applyAcceptedReplacement(current)
     }
 
     private func persist(source: String, generation admittedGeneration: Int) async {

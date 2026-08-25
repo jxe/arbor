@@ -267,6 +267,41 @@ public actor ArbordDocumentSession: WorkspaceDocumentSession {
         return try Self.documentSnapshot(await client.node(initialReference.nodeRef), fallback: initialReference)
     }
 
+    public func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> {
+        try requireOpen()
+        let client = self.client
+        let reference = initialReference
+        let view = try await client.openNodeView(reference.nodeRef)
+        let initial = try Self.documentSnapshot(view.snapshot, fallback: reference)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    continuation.yield(initial)
+                    var revision = view.snapshot.contentRevision
+                    for try await update in view.updates {
+                        let snapshot: NodeSnapshot
+                        switch update {
+                        case let .resync(value):
+                            snapshot = value
+                        case let .event(event):
+                            guard Self.targets(event, reference: reference) else { continue }
+                            snapshot = try await client.node(reference.nodeRef)
+                        }
+                        guard snapshot.contentRevision != revision else { continue }
+                        revision = snapshot.contentRevision
+                        continuation.yield(try Self.documentSnapshot(snapshot, fallback: reference))
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     public func admit(source: String, baseContentRevision: String) async throws -> WorkspaceDocumentSnapshot {
         try await admit(source: source, baseContentRevision: baseContentRevision, sourceEdits: nil)
     }
@@ -362,6 +397,17 @@ public actor ArbordDocumentSession: WorkspaceDocumentSession {
     }
 
     public func close() async { terminal = true }
+
+    private nonisolated static func targets(
+        _ event: WorkspaceEvent,
+        reference: WorkspaceReference
+    ) -> Bool {
+        if let tree = event.tree, tree != reference.tree.rawValue { return false }
+        if let pageID = reference.pageID?.rawValue, let eventPageID = event.pageID {
+            return pageID == eventPageID
+        }
+        return event.path == reference.pathHint || event.previousPath == reference.pathHint
+    }
 
     private func requireOpen() throws {
         if terminal { throw WorkspaceProviderError.invalidAction("The arbord document session is closed") }

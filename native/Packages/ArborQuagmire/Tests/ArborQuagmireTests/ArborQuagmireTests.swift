@@ -656,6 +656,37 @@ struct ArborQuagmireTests {
         #expect(noOp.source == confirmed.source)
         #expect(noOp.patch.edits.isEmpty)
     }
+
+    @MainActor
+    @Test("A clean open editor reconciles a live authoritative update in place")
+    func liveAuthoritativeUpdate() async throws {
+        let reference = WorkspaceReference(tree: "tr_live", path: "/", pageID: "pg_live")
+        let initial = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "---\nid: pg_live\n---\n\n# Live\n",
+            contentRevision: "r1"
+        )
+        let session = LiveUpdateSession(snapshot: initial)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let originalHeadingID = binding.document.children.first?.id
+        func blockCount() -> Int {
+            var count = 0
+            binding.document.walk { _, _, _ in count += 1 }
+            return count
+        }
+
+        await Task.yield()
+        await session.publish(source: initial.source + "\nChicken McNuggets?\n", revision: "r2")
+        for _ in 0..<100 where blockCount() < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(blockCount() == 2)
+        #expect(binding.document.children.first?.id == originalHeadingID)
+        #expect(binding.lastError == nil)
+        #expect(!binding.isSaving)
+        await binding.close()
+    }
 }
 
 private actor AlreadyAppliedStaleSession: WorkspaceDocumentSession {
@@ -701,4 +732,48 @@ private actor AlreadyAppliedStaleSession: WorkspaceDocumentSession {
     func history() -> [WorkspaceHistoryEntry] { [] }
     func recover(revision: String) throws -> WorkspaceDocumentSnapshot { current }
     func close() {}
+}
+
+private actor LiveUpdateSession: WorkspaceDocumentSession {
+    nonisolated let identity: WorkspaceIdentity
+    private var current: WorkspaceDocumentSnapshot
+    private let stream: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>
+    private let continuation: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>.Continuation
+
+    init(snapshot: WorkspaceDocumentSnapshot) {
+        identity = snapshot.reference.identity
+        current = snapshot
+        let pair = AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>.makeStream()
+        stream = pair.stream
+        continuation = pair.continuation
+    }
+
+    func snapshot() -> WorkspaceDocumentSnapshot { current }
+    func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> { stream }
+
+    func publish(source: String, revision: String) {
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: source,
+            contentRevision: revision
+        )
+        continuation.yield(current)
+    }
+
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        guard current.contentRevision == baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(expected: baseContentRevision, actual: current.contentRevision)
+        }
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: source,
+            contentRevision: "r-local"
+        )
+        return current
+    }
+
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) -> WorkspaceDocumentSnapshot { current }
+    func close() { continuation.finish() }
 }
