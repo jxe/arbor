@@ -1,0 +1,495 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: practiceSearch result 1`] = `
+[
+  {
+    "about": "A turn-taking practice for careful group attention.",
+    "authors": [
+      {
+        "handle": "bo",
+        "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "Bo Berg",
+        "portrait": "https://example.test/bo.jpg",
+      },
+    ],
+    "id": "00000000-0000-4000-8000-000000000002",
+    "name": "Listening circles",
+  },
+]
+`;
+
+exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: popularLists result 1`] = `
+[
+  {
+    "about": "Practices for showing up for one another.",
+    "id": "10000000-0000-4000-8000-000000000001",
+    "kind": "tagged",
+    "name": "Community care",
+    "owner": {
+      "handle": "ada",
+      "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Ada Adebayo",
+      "portrait": null,
+    },
+    "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "practiceCount": 2,
+    "reactionCount": 2,
+    "reactionProfiles": [
+      {
+        "profile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+      {
+        "profile": "tr_cccccccccccccccccccccccccc",
+      },
+    ],
+    "visibility": "public",
+  },
+  {
+    "about": "Practices that make attention tangible.",
+    "id": "10000000-0000-4000-8000-000000000003",
+    "kind": "standard",
+    "name": "Ways to listen",
+    "owner": {
+      "handle": "bo",
+      "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "Bo Berg",
+      "portrait": "https://example.test/bo.jpg",
+    },
+    "ownerProfile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "practiceCount": 1,
+    "reactionCount": 1,
+    "reactionProfiles": [
+      {
+        "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    ],
+    "visibility": "public",
+  },
+]
+`;
+
+exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: profile result 1`] = `
+{
+  "bio": "Makes tools for neighborhood cooperation.",
+  "handle": "ada",
+  "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "lists": [
+    {
+      "about": "Practices for showing up for one another.",
+      "id": "10000000-0000-4000-8000-000000000001",
+      "kind": "tagged",
+      "name": "Community care",
+      "owner": {
+        "handle": "ada",
+        "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "Ada Adebayo",
+        "portrait": null,
+      },
+      "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "practiceCount": 2,
+      "reactionCount": 2,
+      "reactionProfiles": [
+        {
+          "profile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        },
+        {
+          "profile": "tr_cccccccccccccccccccccccccc",
+        },
+      ],
+      "visibility": "public",
+    },
+  ],
+  "name": "Ada Adebayo",
+  "portrait": null,
+  "practices": [
+    {
+      "about": "Neighbors share practical help and resources.",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Mutual aid",
+    },
+  ],
+}
+`;
+
+exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: list result 1`] = `
+{
+  "about": "Practices for showing up for one another.",
+  "allowArborUserEdits": true,
+  "contributors": [
+    {
+      "handle": "bo",
+      "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "Bo Berg",
+      "portrait": "https://example.test/bo.jpg",
+    },
+  ],
+  "id": "10000000-0000-4000-8000-000000000001",
+  "items": [
+    {
+      "position": 0,
+      "practice": {
+        "about": "Neighbors share practical help and resources.",
+        "authors": [
+          {
+            "handle": "ada",
+            "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "name": "Ada Adebayo",
+            "portrait": null,
+          },
+        ],
+        "id": "00000000-0000-4000-8000-000000000001",
+        "name": "Mutual aid",
+      },
+      "tags": [
+        {
+          "color": "#ef4444",
+          "id": "care",
+          "name": "Care",
+        },
+      ],
+    },
+    {
+      "position": 1,
+      "practice": {
+        "about": "A turn-taking practice for careful group attention.",
+        "authors": [
+          {
+            "handle": "bo",
+            "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "name": "Bo Berg",
+            "portrait": "https://example.test/bo.jpg",
+          },
+        ],
+        "id": "00000000-0000-4000-8000-000000000002",
+        "name": "Listening circles",
+      },
+      "tags": [],
+    },
+  ],
+  "kind": "tagged",
+  "name": "Community care",
+  "owner": {
+    "handle": "ada",
+    "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "name": "Ada Adebayo",
+    "portrait": null,
+  },
+  "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reactions": [
+    {
+      "emoji": "👍",
+      "profile": {
+        "handle": "bo",
+        "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "Bo Berg",
+        "portrait": "https://example.test/bo.jpg",
+      },
+    },
+    {
+      "emoji": "❤️",
+      "profile": {
+        "handle": "cy",
+        "id": "tr_cccccccccccccccccccccccccc",
+        "name": "Cy Chen",
+        "portrait": null,
+      },
+    },
+  ],
+  "tags": [
+    {
+      "color": "#ef4444",
+      "id": "care",
+      "name": "Care",
+    },
+    {
+      "color": null,
+      "id": "local",
+      "name": "Local",
+    },
+  ],
+  "visibility": "public",
+}
+`;
+
+exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: practiceChoices result 1`] = `
+[
+  {
+    "about": "A turn-taking practice for careful group attention.",
+    "authors": [
+      {
+        "handle": "bo",
+        "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "Bo Berg",
+        "portrait": "https://example.test/bo.jpg",
+      },
+    ],
+    "id": "00000000-0000-4000-8000-000000000002",
+    "name": "Listening circles",
+  },
+  {
+    "about": "Neighbors share practical help and resources.",
+    "authors": [
+      {
+        "handle": "ada",
+        "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "Ada Adebayo",
+        "portrait": null,
+      },
+    ],
+    "id": "00000000-0000-4000-8000-000000000001",
+    "name": "Mutual aid",
+  },
+  {
+    "about": "Walk together and notice the place you share.",
+    "authors": [],
+    "id": "00000000-0000-4000-8000-000000000003",
+    "name": "Neighborhood walks",
+  },
+]
+`;
+
+exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: practice result 1`] = `
+{
+  "about": "A turn-taking practice for careful group attention.",
+  "authors": [
+    {
+      "handle": "bo",
+      "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "Bo Berg",
+      "portrait": "https://example.test/bo.jpg",
+    },
+  ],
+  "id": "00000000-0000-4000-8000-000000000002",
+  "lists": [
+    {
+      "about": "Practices for showing up for one another.",
+      "id": "10000000-0000-4000-8000-000000000001",
+      "kind": "tagged",
+      "name": "Community care",
+      "owner": {
+        "handle": "ada",
+        "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "Ada Adebayo",
+        "portrait": null,
+      },
+      "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "practiceCount": 2,
+      "reactionCount": 2,
+      "reactionProfiles": [
+        {
+          "profile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        },
+        {
+          "profile": "tr_cccccccccccccccccccccccccc",
+        },
+      ],
+      "visibility": "public",
+    },
+    {
+      "about": "Practices that make attention tangible.",
+      "id": "10000000-0000-4000-8000-000000000003",
+      "kind": "standard",
+      "name": "Ways to listen",
+      "owner": {
+        "handle": "bo",
+        "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "Bo Berg",
+        "portrait": "https://example.test/bo.jpg",
+      },
+      "ownerProfile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "practiceCount": 1,
+      "reactionCount": 1,
+      "reactionProfiles": [
+        {
+          "profile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        },
+      ],
+      "visibility": "public",
+    },
+  ],
+  "name": "Listening circles",
+}
+`;
+
+exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: myLists result 1`] = `
+[
+  {
+    "about": "A private working list.",
+    "id": "10000000-0000-4000-8000-000000000002",
+    "kind": "standard",
+    "name": "Quiet experiments",
+    "owner": {
+      "handle": "ada",
+      "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Ada Adebayo",
+      "portrait": null,
+    },
+    "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "practiceCount": 1,
+    "practiceMemberships": [
+      {
+        "practice_id": "00000000-0000-4000-8000-000000000003",
+      },
+    ],
+    "reactionCount": 0,
+    "reactionProfiles": [],
+    "visibility": "private",
+  },
+  {
+    "about": "Practices for showing up for one another.",
+    "id": "10000000-0000-4000-8000-000000000001",
+    "kind": "tagged",
+    "name": "Community care",
+    "owner": {
+      "handle": "ada",
+      "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "Ada Adebayo",
+      "portrait": null,
+    },
+    "ownerProfile": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "practiceCount": 2,
+    "practiceMemberships": [
+      {
+        "practice_id": "00000000-0000-4000-8000-000000000001",
+      },
+      {
+        "practice_id": "00000000-0000-4000-8000-000000000002",
+      },
+    ],
+    "reactionCount": 2,
+    "reactionProfiles": [
+      {
+        "profile": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+      {
+        "profile": "tr_cccccccccccccccccccccccccc",
+      },
+    ],
+    "visibility": "public",
+  },
+]
+`;
+
+exports[`Supplies SQLite query engine executes every checked-in Supplies query with shaped, deterministic results: SQLite query plans 1`] = `
+{
+  "list": [
+    [
+      "SEARCH root USING INDEX sqlite_autoindex_lists_1 (id=?)",
+    ],
+    [
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_list_contributors_1 (list_id=?)",
+    ],
+    [
+      "SEARCH related USING INDEX sqlite_autoindex_list_practices_2 (list_id=?)",
+    ],
+    [
+      "SEARCH related USING INDEX sqlite_autoindex_practices_1 (id=?)",
+    ],
+    [
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_practice_authors_1 (practice_id=?)",
+    ],
+    [
+      "MULTI-INDEX OR",
+      "INDEX 1",
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_practice_tags_1 (list_id=? AND practice_id=?)",
+      "INDEX 2",
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_practice_tags_1 (list_id=? AND practice_id=?)",
+      "SEARCH related USING INDEX sqlite_autoindex_list_tags_1 (list_id=? AND id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING INDEX sqlite_autoindex_list_reactions_1 (list_id=?)",
+    ],
+    [
+      "SEARCH related USING INDEX sqlite_autoindex_list_tags_1 (list_id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+  ],
+  "myLists": [
+    [
+      "SEARCH root USING INDEX lists_by_owner_updated (owner_profile=?)",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_list_practices_2 (list_id=?)",
+      "CORRELATED SCALAR SUBQUERY 2",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_list_reactions_1 (list_id=?)",
+    ],
+    [
+      "SEARCH related USING COVERING INDEX sqlite_autoindex_list_reactions_1 (list_id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING INDEX sqlite_autoindex_list_practices_2 (list_id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+  ],
+  "popularLists": [
+    [
+      "SCAN root",
+      "CORRELATED SCALAR SUBQUERY 2",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_list_reactions_1 (list_id=?)",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_list_practices_2 (list_id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING COVERING INDEX sqlite_autoindex_list_reactions_1 (list_id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+  ],
+  "practice": [
+    [
+      "SEARCH root USING INDEX sqlite_autoindex_practices_1 (id=?)",
+    ],
+    [
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_practice_authors_1 (practice_id=?)",
+    ],
+    [
+      "SEARCH link USING COVERING INDEX list_practices_by_practice (practice_id=?)",
+      "SEARCH related USING INDEX sqlite_autoindex_lists_1 (id=?)",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_list_practices_2 (list_id=?)",
+      "CORRELATED SCALAR SUBQUERY 2",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_list_reactions_1 (list_id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING COVERING INDEX sqlite_autoindex_list_reactions_1 (list_id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+  ],
+  "practiceChoices": [
+    [
+      "SCAN root USING INDEX sqlite_autoindex_practices_2",
+    ],
+    [
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_practice_authors_1 (practice_id=?)",
+    ],
+  ],
+  "practiceSearch": [
+    [
+      "SCAN root USING INDEX sqlite_autoindex_practices_2",
+    ],
+    [
+      "SEARCH link USING COVERING INDEX sqlite_autoindex_practice_authors_1 (practice_id=?)",
+    ],
+  ],
+  "profile": [
+    [
+      "SEARCH link USING COVERING INDEX practice_authors_by_author (author_profile=?)",
+      "SEARCH related USING INDEX sqlite_autoindex_practices_1 (id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING INDEX lists_by_owner_updated (owner_profile=?)",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_list_practices_2 (list_id=?)",
+      "CORRELATED SCALAR SUBQUERY 2",
+      "SEARCH counted USING COVERING INDEX sqlite_autoindex_list_reactions_1 (list_id=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+    ],
+    [
+      "SEARCH related USING COVERING INDEX sqlite_autoindex_list_reactions_1 (list_id=?)",
+    ],
+  ],
+}
+`;

@@ -5,6 +5,9 @@
   "type": "module",
   "packageManager": "bun@1.3.14",
   "workspaces": ["packages/*"],
+  "exports": {
+    "./data": "./packages/data/src/index.ts"
+  },
   "bin": {
     "arbor": "./packages/cli/src/index.ts",
     "arborsync": "./packages/arborsync/src/cli.ts",
@@ -25,11 +28,13 @@
     "test:e2e": "playwright test",
     "test:protocol": "bun tests/protocol/conformance.ts",
     "test:performance": "bun tests/performance/indexer.bench.ts",
+    "seed:supplies": "bun tools/seed-supplies-fixture.ts",
     "lab:hcloud": "bun tools/hcloud-sync-lab.ts",
     "hunch:rehearsal": "bun tools/hunch-rehearsal/cli.ts"
   },
   "dependencies": {
     "@arbor/cli": "workspace:*",
+    "@arbor/data": "workspace:*",
     "@blocknote/core": "0.52.1",
     "@blocknote/mantine": "0.52.1",
     "@blocknote/react": "0.52.1",

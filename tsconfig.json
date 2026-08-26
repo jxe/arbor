@@ -16,6 +16,8 @@
       "@arbor/core": ["packages/core/src/index.ts"],
       "@arbor/core/logical-path": ["packages/core/src/logical-path.ts"],
       "@arbor/core/logical-url": ["packages/core/src/logical-url.ts"],
+      "@arbor/data": ["packages/data/src/index.ts"],
+      "arbor/data": ["packages/data/src/index.ts"],
       "@arbor/stores": ["packages/stores/src/index.ts"],
       "@arbor/editor": ["packages/editor/src/index.ts"],
       "@arbor/fs": ["packages/fs/src/index.ts"],

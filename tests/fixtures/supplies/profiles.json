@@ -1,0 +1,23 @@
+[
+  {
+    "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "name": "Ada Adebayo",
+    "handle": "ada",
+    "portrait": null,
+    "bio": "Makes tools for neighborhood cooperation."
+  },
+  {
+    "id": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "name": "Bo Berg",
+    "handle": "bo",
+    "portrait": "https://example.test/bo.jpg",
+    "bio": "Facilitates listening practices."
+  },
+  {
+    "id": "tr_cccccccccccccccccccccccccc",
+    "name": "Cy Chen",
+    "handle": "cy",
+    "portrait": null,
+    "bio": null
+  }
+]

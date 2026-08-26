@@ -5,7 +5,7 @@ create table lists (
   about text not null default '',
   visibility text not null check (visibility in ('public', 'private')),
   kind text not null check (kind in ('standard', 'tagged')),
-  allow_arbor_user_edits integer not null default 0,
+  allow_arbor_user_edits boolean not null default false,
   created_at text not null,
   updated_at text not null
 );
@@ -63,3 +63,7 @@ create table list_contributors (
   last_contributed_at text not null,
   primary key (list_id, profile)
 );
+
+create index lists_by_owner_updated on lists(owner_profile, updated_at desc, id);
+create index practice_authors_by_author on practice_authors(author_profile, practice_id);
+create index list_practices_by_practice on list_practices(practice_id, list_id);

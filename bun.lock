@@ -6,6 +6,7 @@
       "name": "arbor",
       "dependencies": {
         "@arbor/cli": "workspace:*",
+        "@arbor/data": "workspace:*",
         "@blocknote/core": "0.52.1",
         "@blocknote/mantine": "0.52.1",
         "@blocknote/react": "0.52.1",
@@ -90,6 +91,13 @@
         "@noble/hashes": "^2.2.0",
       },
     },
+    "packages/data": {
+      "name": "@arbor/data",
+      "version": "0.1.0",
+      "dependencies": {
+        "@arbor/core": "workspace:*",
+      },
+    },
     "packages/editor": {
       "name": "@arbor/editor",
       "version": "0.1.0",
@@ -159,6 +167,8 @@
     "@arbor/client": ["@arbor/client@workspace:packages/client"],
 
     "@arbor/core": ["@arbor/core@workspace:packages/core"],
+
+    "@arbor/data": ["@arbor/data@workspace:packages/data"],
 
     "@arbor/editor": ["@arbor/editor@workspace:packages/editor"],
 

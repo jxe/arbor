@@ -66,6 +66,8 @@ Completion gate: Alice mounts two different Arbor trees at locally meaningful pa
 
 **Status: Next.**
 
+Phase 1, the headless Supplies SQLite query engine, was implemented on 2026-08-26. Phase 2, race-free query-result streaming, is next; the milestone remains incomplete until every surface and the real-data migration pass the gate below.
+
 Outcome: the checked-in Supplies tree is the first complete executable Arbor site—SQLite-backed, live, editable, Arbor-user-aware, locally browsable, native-presented, Canopy-hosted, and finally populated from the real service.
 
 1. Build the SQLite query engine against every checked-in Supplies callable query plan, including schema/result type inference, named relationship metadata, and profile-tree joins. Support `query.many`/`one`/`maybe`, `pick`, callable relations, typed predicates and counts, omitted no-input schemas, inferred stable keys, and automatic deterministic tie-breakers. Keep query returns factual; calculate editability and other presentation state in React with `useUser()`.

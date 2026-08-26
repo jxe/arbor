@@ -13,7 +13,7 @@ Each root `.mdx` or `.tsx` document is an ordinary Arbor location. `Home.mdx` is
 
 The root `_index.md` is ordinary explanatory Arbor content. `Home.mdx` provides editorial layout; interaction-heavy documents remain TSX. A renderable document default-exports its component (the MDX body supplies that default automatically) and receives the request's ordinary `URLSearchParams` as `search`. It renders `<title>` and `<meta>` normally; React hoists them into the document head.
 
-The source intentionally imports proposed `arbor/react` and `arbor/data` APIs that do not exist yet. It is expected not to compile until those Arbor features are implemented. The port itself is the executable design target for those packages.
+The Phase 1 `arbor/data` query authoring and SQLite execution surface now exists and is tested directly against this source. `arbor/react`, schema-generated authoring declarations, and executable-document compilation do not exist yet, so the tree is not yet a runnable document site.
 
 ## Ported so far
 
@@ -38,11 +38,17 @@ The source intentionally imports proposed `arbor/react` and `arbor/data` APIs th
 - partition-safe ordered relation mutations instead of calculating positions from row counts;
 - ordinary relative links and result-dependent `useNavigate` calls with no React Router or Prisma imports.
 
+## Implemented Arbor foundation
+
+- symbolic query plans execute their callbacks once and reject unsupported fields and ambiguous singular roots;
+- SQLite schema/key/index introspection and reviewed `relationships.json` metadata share one schema fingerprint;
+- all checked-in Supplies queries compile to parameterized, projected SQLite reads with deterministic key tie-breakers;
+- ProfileID-backed relations resolve in batches without placing profile data in the Supplies database;
+- the deterministic nonempty fixture, shaped-result snapshots, query-plan snapshots, and private-row disclosure tests pass.
+
 ## Known Arbor implementation gaps
 
-- executable MDX/TSX document and data authoring packages;
-- callable symbolic-query lowering, relationship metadata, type inference, and SQLite compilation; a Postgres runtime adapter is later and need-driven;
-- profile trees as a batchable virtual relation;
+- executable MDX/TSX compilation, `arbor/react`, generated authoring declarations, and source-located compiler diagnostics;
 - transaction row APIs and retry-stable mutation context;
 - SSR/hydration and active-query discovery from the addressed document component;
 - React Action adaptation, hoisted-head streaming, built-in Tailwind compilation, Markdown, and document boundaries;

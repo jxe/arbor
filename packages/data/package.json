@@ -1,0 +1,9 @@
+{
+  "name": "@arbor/data",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@arbor/core": "workspace:*"
+  }
+}

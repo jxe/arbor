@@ -105,6 +105,8 @@ Each phase below names concrete code to add and checks to run. The checked-in Su
 
 ### Phase 1 — query engine
 
+**Status: Implemented and verified on 2026-08-26.** The `arbor/data` runtime, SQLite/schema introspection, reviewed relationship metadata, symbolic relational IR, parameterized execution, batched ProfileID resolution, deterministic fixture, result snapshots, query-plan snapshots, and disclosure checks pass against every checked-in query. Generated authoring declarations and source-located document diagnostics remain correctly owned by Phase 4.
+
 1. Add an `arbor/data` runtime package with `database`, schema-derived callable relation handles, `query.many`, `query.one`, `query.maybe`, `mutation`, `RowOf`, and `ResultOf` public types; accept any Standard Schema-compatible input validator and use Zod in the reference tree.
 2. Resolve `database("./data")` and `database("../data")` from the importing Arbor module, cross the nested-tree boundary through existing longest-prefix resolution, and canonicalize both spellings to one store identity.
 3. Introspect `sites/supplies/data/schema.sql` and `_store.sqlite3`; generate relation field/nullability/key metadata plus the `arbor_profiles` virtual relation backed by ProfileID trees. Add the smallest portable schema-adjacent relationship declaration needed for Supplies' product-named, through, and ProfileID-backed relationships; include it in the schema fingerprint and generated authoring types.
@@ -117,6 +119,8 @@ Each phase below names concrete code to add and checks to run. The checked-in Su
 Finish the phase by invoking every Supplies query directly in a headless harness, proving that anonymous callers cannot receive private lists and that no query loads the full database into JavaScript.
 
 ### Phase 2 — query result streaming
+
+**Status: Next.**
 
 1. Add a committed-change observer to the SQLite store broker. Arbor-owned transactions emit ordered cursor, collection, primary-key, changed-field, and before/after information only after commit.
 2. Derive a sensitivity plan from each normalized query: exact rows/fields, predicates that a new row may enter, correlation keys, aggregates, ordering/window boundaries, schema identity, profile-tree refs, and user/access context.

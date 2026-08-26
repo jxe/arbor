@@ -3,6 +3,42 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
+## Supplies SQLite query engine
+
+**Status: Live data documents Phase 1 implemented and verified on 2026-08-26.**
+
+The new `arbor/data` package supplies `database`, symbolic callable relations, `query.many`/`one`/`maybe`, Standard Schema input validation, `mutation`, `publicError`, `RowOf`, and `ResultOf`. Query planner callbacks run once against symbolic rows, input, and Arbor-user values. Compilation rejects unknown fields, unsupported projections, unstable repeated results, and singular roots without a proved unique predicate before execution.
+
+The SQLite driver introspects both `schema.sql` and `_store.sqlite3`, checks their complete table/index definitions, and combines them with the reviewed schema-adjacent `relationships.json` declaration and virtual `arbor_profiles` relation in one fingerprint. Module-relative `database("./data")` and `database("../data")` locations canonicalize to the same physical store while retaining the longest nested-tree boundary. Queries compile to parameterized projected SQL with deterministic stable-key tie-breakers, correlated counts, batched nested reads, and batch ProfileID resolution. Declared SQLite booleans normalize from physical `0`/`1` values at the driver boundary.
+
+The formerly empty Supplies database is now a reproducible nonempty fixture with public/private lists, practices, authors, ordered memberships, reactions, tags, contributors, and separate ProfileID fixtures. All seven checked-in query handles run directly in a headless harness. Result and `EXPLAIN QUERY PLAN` snapshots cover nested shapes and index use; disclosure tests prove anonymous callers cannot read private lists while their owner can.
+
+Primary ownership:
+
+- [`packages/data`](../../packages/data)
+- [`sites/supplies/data`](../../sites/supplies/data)
+- [`tests/integration/supplies-queries.test.ts`](../../tests/integration/supplies-queries.test.ts)
+- [`tools/seed-supplies-fixture.ts`](../../tools/seed-supplies-fixture.ts)
+
+Intentional limits:
+
+- query result observation and streaming begin in Phase 2;
+- transactions, durable mutation receipts, and ordered writes begin in Phase 3;
+- generated source types, source-located diagnostics, document compilation, and `arbor/react` begin in Phase 4;
+- executable web/native/Canopy presentation and real-data migration remain later Supplies phases;
+- Postgres execution remains need-driven and is not part of the SQLite-first milestone.
+
+Verification recorded with this delivery:
+
+```text
+bun run typecheck       passed
+bun test                241 passed, 0 failed
+bun run build           passed
+focused query tests     9 passed, 8 result/query-plan snapshots
+SQLite integrity/FKs    passed
+git diff --check        passed
+```
+
 ## Immediate editor-patch synchronization
 
 **Status: Plan 021 implemented and verified on 2026-08-25.**

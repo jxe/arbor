@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "virtualRelations": {
+    "arbor_profiles": {
+      "source": "arbor-profile",
+      "primaryKey": ["id"],
+      "fields": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "handle": { "type": "string" },
+        "portrait": { "type": "string", "nullable": true },
+        "bio": { "type": "string", "nullable": true }
+      }
+    }
+  },
+  "relationships": {
+    "lists.owner": {
+      "target": "arbor_profiles",
+      "cardinality": "one",
+      "direct": [{ "source": "owner_profile", "target": "id" }]
+    },
+    "lists.contributors": {
+      "target": "arbor_profiles",
+      "cardinality": "many",
+      "key": ["id"],
+      "through": {
+        "relation": "list_contributors",
+        "source": [{ "source": "id", "through": "list_id" }],
+        "target": [{ "through": "profile", "target": "id" }]
+      }
+    },
+    "lists.items": {
+      "target": "list_practices",
+      "cardinality": "many",
+      "key": ["practice_id"],
+      "direct": [{ "source": "id", "target": "list_id" }]
+    },
+    "lists.reactions": {
+      "target": "list_reactions",
+      "cardinality": "many",
+      "key": ["profile"],
+      "direct": [{ "source": "id", "target": "list_id" }]
+    },
+    "lists.tags": {
+      "target": "list_tags",
+      "cardinality": "many",
+      "key": ["id"],
+      "direct": [{ "source": "id", "target": "list_id" }]
+    },
+    "practices.authors": {
+      "target": "arbor_profiles",
+      "cardinality": "many",
+      "key": ["id"],
+      "through": {
+        "relation": "practice_authors",
+        "source": [{ "source": "id", "through": "practice_id" }],
+        "target": [{ "through": "author_profile", "target": "id" }]
+      }
+    },
+    "practices.lists": {
+      "target": "lists",
+      "cardinality": "many",
+      "key": ["id"],
+      "through": {
+        "relation": "list_practices",
+        "source": [{ "source": "id", "through": "practice_id" }],
+        "target": [{ "through": "list_id", "target": "id" }]
+      }
+    },
+    "arbor_profiles.practices": {
+      "target": "practices",
+      "cardinality": "many",
+      "key": ["id"],
+      "through": {
+        "relation": "practice_authors",
+        "source": [{ "source": "id", "through": "author_profile" }],
+        "target": [{ "through": "practice_id", "target": "id" }]
+      }
+    },
+    "arbor_profiles.lists": {
+      "target": "lists",
+      "cardinality": "many",
+      "key": ["id"],
+      "direct": [{ "source": "id", "target": "owner_profile" }]
+    },
+    "list_practices.practice": {
+      "target": "practices",
+      "cardinality": "one",
+      "direct": [{ "source": "practice_id", "target": "id" }]
+    },
+    "list_practices.tags": {
+      "target": "list_tags",
+      "cardinality": "many",
+      "key": ["id"],
+      "through": {
+        "relation": "practice_tags",
+        "source": [
+          { "source": "list_id", "through": "list_id" },
+          { "source": "practice_id", "through": "practice_id" }
+        ],
+        "target": [
+          { "through": "list_id", "target": "list_id" },
+          { "through": "tag_id", "target": "id" }
+        ]
+      }
+    },
+    "list_reactions.person": {
+      "target": "arbor_profiles",
+      "cardinality": "one",
+      "direct": [{ "source": "profile", "target": "id" }]
+    }
+  }
+}
