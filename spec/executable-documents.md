@@ -159,7 +159,7 @@ Anonymous, Arbor-user, and tree-principal executions are separate cache and subs
 
 The host resolves the requested Arbor path, loads one coherent executable-document version, passes its query string, evaluates mounted query reads, server-renders the component tree, and embeds only validated results plus public handle metadata. Hydration reuses those values. `useQuery` follows React Suspense semantics for its initial value and throws failures to the nearest error boundary.
 
-Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [wire protocol](wire.md#11-executable-document-data-and-effects).
+Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [wire protocol](wire.md#15-stream-live-query-updates).
 
 Mutation handles are React Actions as well as typed imperative handles. `useMutationAction(handle)` returns `[state, action, pending]`. Its Action converts `FormData`, validates it through the handle's Standard Schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. Successful return commits the runner-owned transaction; throwing rolls it back. Ordinary forms retain React's reset behavior.
 
