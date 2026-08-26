@@ -44,7 +44,7 @@ An external URL parser percent-decodes each path component exactly once at the p
 
 `.` and `..` are resolved only while parsing a local path or URL. A resolved logical path is absolute within its tree, contains no empty interior component, and cannot escape its tree root. Backslash and NUL are invalid logical-path characters. URL serialization percent-encodes decoded components once.
 
-Authored `.md`, `/_index.md`, and legacy `tree:` spellings may be accepted as input aliases, but emitted links and canonical locations use extensionless logical paths and the locator forms above.
+Authored `.md`, `.mdx`, `.tsx`, `/_index.md`, and legacy `tree:` spellings may be accepted as input aliases, but emitted links and canonical locations use extensionless logical paths and the locator forms above.
 
 ## Resolution rules
 

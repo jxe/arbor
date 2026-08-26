@@ -1,0 +1,20 @@
+import { PopularLists } from "./components/PopularLists"
+import { PracticeSearch } from "./components/PracticeSearch"
+import { Shell } from "./components/shared"
+
+<title>Meaning Supplies</title>
+<meta name="description" content="A directory of social practices" />
+
+<Shell title={<span className="text-base font-normal text-slate-500">Discover and share social practices</span>}>
+
+<PracticeSearch />
+
+<section className="mt-10">
+
+<h2 className="mb-3 text-xl font-semibold">Popular lists</h2>
+
+<PopularLists />
+
+</section>
+
+</Shell>

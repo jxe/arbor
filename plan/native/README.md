@@ -28,6 +28,8 @@ Execution order:
 15. [020 — device-management browser E2E](020-test-device-management-browser.md)
 16. [021 — immediate editor-patch authority updates](021-add-wire-file-patches.md)
 
+The next cross-workstream product target is the checked-in [Meaning Supplies executable site](../product/supplies-live-site.md). Its native gate is deliberately macOS-first: native Arbor presents arbord's same local executable-document runtime in a constrained web surface while retaining native tab identity, provenance, navigation, and source controls. It does not fork Supplies into Swift. Authority-hosted presentation on iOS may follow once the shared runtime exists; a fully offline iOS script/query runtime is a separate explicit milestone rather than an implication of the macOS result.
+
 ## Product and persistence boundary
 
 An independently versioned `TreeID` is an **Arbor tree** whether its audience is private, public, or selected people/groups. Sharing changes access; it does not switch storage or synchronization technology.

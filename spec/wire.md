@@ -64,6 +64,12 @@ A request may supply both; the host grants their maximum valid access. Tokens an
 
 Access is whole-tree and independently evaluated at every nested boundary. Levels are `none`, `read`, and `write`. A profile entry names a stable person/group profile `TreeID`. Group-derived authority evaluates verified current authored membership; membership alone does not grant write to the group tree. Revocation prevents future wire reads/writes but cannot erase bytes already materialized by a reader.
 
+### Authority browser sessions
+
+A live application on an Arbor authority consumes the same account/profile identity; it does not create an application-specific user or authentication database. The authority may represent an authenticated browser with an opaque, Secure, HttpOnly, same-origin session cookie bound to one non-revoked account device and its current person-profile `TreeID`. The raw account/device token never enters application JavaScript, browser storage, an application URL, or authored content.
+
+Session establishment, renewal, identity switching, and recovery are authority/platform operations. However established, the authority derives executable-document user identity from the verified account's `profileTree`, not from a caller-supplied handle, route parameter, form field, or authority-local account ID. Revoking the bound device invalidates its browser sessions. Anonymous public requests have no user profile. Executable-document runtimes receive only the safe user descriptor defined by [applications](applications.md), while ordinary wire authorization continues to use the credential subject internally.
+
 ### Device pairing
 
 ```text
@@ -343,6 +349,8 @@ Each tree has one mutable ref, a linear sequence of accepted updates, and immuta
 ## 7. Safe public HTTP projection
 
 The canonical HTTP URL projects the current accessible tree/path. Extensionless URLs are canonical for Markdown logical nodes. An `Accept` header including `text/markdown` returns the untouched stored Markdown bytes with an appropriate Markdown content type. Otherwise a host may return safe semantic HTML.
+
+The same extensionless projection addresses `.mdx` and `.tsx` logical bodies. A host advertising executable-document support renders a default component under the confinement, SSR, and disclosure rules in [applications](applications.md). A host without that capability reports the unsupported representation clearly; it never executes source accidentally or treats JSX as safe Markdown. Raw MDX/TSX source is returned only through an authorized source/tree read or an explicit supported source media type, not because public rendered output is accessible.
 
 Semantic HTML preserves headings, paragraphs, lists, code, images, toggles, footnotes, authored links, and accessible immediate-child navigation. `_index.md` is the directory body, not a child. Inaccessible nested boundaries and private children are omitted. Raw authored HTML, scripts, event handlers, and unsafe URL schemes are escaped or removed. Private content returns no bytes without valid account/profile/link authority.
 

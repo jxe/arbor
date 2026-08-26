@@ -51,6 +51,16 @@ Markdown uses CommonMark/GFM plus the readable Clamshell toggle extension (`▸ 
 
 Markdown page names are logical and extensionless in Arbor. `x.md` supplies `/x`'s body and a sibling `x/` supplies its children, so a page can gain children without moving or rewriting its body. If `x.md` is absent, `x/_index.md` is the fallback directory body. Both body files at once are a blocking duplicate-body diagnostic. Arbord nevertheless presents every physical directory as complete operational Markdown: the first standalone link to each child sets its authored position, and missing child links are appended deterministically without materializing a file until the first authored write. Thus this repository's `spec.md` is the body of `/spec`, while `spec/` contains its children.
 
+## Executable reference site
+
+[`sites/supplies`](sites/supplies) is the checked-in Meaning Supplies executable-document reference tree. It is already browsable as ordinary Arbor source:
+
+```sh
+bun run arbor browse sites/supplies
+```
+
+The executable runtime is not implemented yet. The [Supplies live-site plan](plan/product/supplies-live-site.md) now drives that work end to end: local Arbor web, signed macOS Arbor, explicit authority activation at the tree's canonical website, and finally a repeatable migration of the real Meaning Supplies Postgres corpus into the private SQLite data tree.
+
 ## Testing
 
 Install the browser binary once, then run every automated gate:
@@ -105,7 +115,8 @@ Working documents:
 - **[plan/](plan/README.md)** — planning organized by product direction, native work, hardening, and implemented records.
 - **[docs/arbor-client.md](docs/arbor-client.md)** — non-normative Arbor client interaction design.
 - **[docs/reference-implementation.md](docs/reference-implementation.md)** — replaceable Bun/TypeScript/Swift architecture, private-state mechanics, and verification details.
-- **[plan/product/roadmap.md](plan/product/roadmap.md)** — the forward roadmap: canonical hosting, community profiles/groups/sharing, workspace composition, scripts, agents, data, fuller publication, and non-blocking polish.
+- **[plan/product/roadmap.md](plan/product/roadmap.md)** — the forward roadmap, now led by the checked-in Supplies live-site vertical slice.
+- **[plan/product/supplies-live-site.md](plan/product/supplies-live-site.md)** — concrete local web, native, authority, live-streaming, and real-data migration gates for `sites/supplies`.
 - **[plan/records/history.md](plan/records/history.md)** — implemented browser/editor, REST/client, daily-driver, and tracked-root milestones with verification evidence.
 - **[plan/native/README.md](plan/native/README.md)** — the canonical architecture for native Arbor: revisioned authority sync, offline replicas, Quagmire hosting, Hunch replacement, and native product surfaces.
 - **[plan/native/](plan/native/execution.md)** — native Arbor architecture and active numbered implementation handoffs.

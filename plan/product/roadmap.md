@@ -5,22 +5,21 @@
 
 The local daily driver and the reference community-hosting foundation are implemented. Arbor can browse and edit the local filesystem, promote ordinary folders into canonical Arbor trees, host person and group profiles, claim reserved profiles, synchronize placements, and apply whole-tree access through the browser and CLI.
 
-Workspace composition is now implemented. The roadmap begins with data and SQLite rather than the operational and account-lifecycle follow-ups left by the community-hosting foundation.
+Workspace composition is now implemented. The roadmap now begins with one vertical live-data document milestone, using the Supplies port to design and prove data, scripts, components, Arbor users, and authority-hosted streaming together rather than committing the data API in isolation.
 
 | Status | Milestone | Outcome |
 |---|---|---|
 | **Implemented** | 1. Workspace composition | Distinct trees mount in a reader-local layout; visits and merged surfaces preserve provenance. |
-| **Next** | 2. Data and SQLite | Transaction-safe SQLite backing and backing-independent collection mutations. |
-| **Planned** | 3. Agents | File-defined agents using built-in Arbor operations over restricted composed namespaces. |
-| **Planned** | 4. Scripts runtime | Colocated components, queries, mutations, and custom agent tools with typed handles, isolation, and reactive execution. |
-| **Planned** | 5. Deployable applications | Static baking, portable application manifests, live handlers, and deployment adapters. |
-| **Later** | 6. Account lifecycle and hosting administration | Pairing, identity switching, recovery, disputes, and production operational tooling. |
+| **Next** | 2. Live data documents | Portable relational data, colocated queries/mutations/components, Arbor users, efficient subscriptions, and one authority-hosted Supplies site. |
+| **Planned** | 3. Agents | File-defined agents using built-in Arbor operations and compiled script handles over restricted composed namespaces. |
+| **Planned** | 4. Portable deployment | Static baking and additional live adapters over the location/handle manifest proven in Milestone 2. |
+| **Later** | 5. Account lifecycle and hosting administration | Pairing, identity switching/recovery UX, disputes, and production operational tooling. |
 
-Milestone numbers express product priority, not a claim that every implementation task is serial. Data and SQLite come first to establish one backing-independent collection mutation contract. Agents then begin with Arbor's built-in tree operations rather than waiting for the general scripts runtime; that runtime follows the first agent slice and consumes the collection contract established by Milestone 2.
+Milestone numbers express product priority, not a claim that every implementation task is serial. Milestone 2 is now the checked-in [`sites/supplies`](../../sites/supplies) vertical slice: implement only what makes that unchanged tree run in local Arbor web, signed macOS Arbor, and its canonical authority website, then migrate the real Meaning Supplies corpus. The site, rather than a synthetic framework demo or a backing matrix, freezes the relational authoring surface, location model, collection contract, and observation behavior. Agents follow and can reuse both built-in tree operations and compiled query/mutation handles. Additional backing/deployment adapters follow only when a concrete second target needs them.
 
 ```text
 implemented local + community-hosting foundation + workspace composition
-   └── data + SQLite ── agents ── scripts runtime ── deployable applications
+   └── live data documents (Supplies) ── agents ── portable deployment
 
 account lifecycle, hosting administration, and hardening follow
 without blocking those forward product capabilities
@@ -46,7 +45,7 @@ The durable product contracts live in the topic specifications rather than this 
 - [CLI](../../spec/cli.md) owns command forms and deployment arguments;
 - [`system:` and placements](../../spec/system.md) owns the data home, `trees.yaml`, safe account state, credentials, visits, nested placements, and local durability;
 - [arbord REST](../../spec/arbord-rest.md) owns the local client and mutation boundary.
-- [stores](../../spec/stores.md), [scripts](../../spec/scripts.md), and [agents](../../spec/agents.md) own their respective authored/runtime contracts.
+- [stores](../../spec/stores.md), [scripts](../../spec/scripts.md), [applications](../../spec/applications.md), and [agents](../../spec/agents.md) own their respective authored/runtime contracts.
 
 ---
 
@@ -63,28 +62,31 @@ Outcome: a workspace can mount distinct local and Arbor trees wherever they make
 
 Completion gate: Alice mounts two different Arbor trees at locally meaningful paths, visits a third unplaced tree, adds it to her workspace, and sees provenance-correct search, backlinks, Trash, and recovery results without changing remote access or duplicating mounted content.
 
-## Milestone 2 — data and SQLite
+## Milestone 2 — live data documents
 
 **Status: Next.**
 
-Outcome: file and SQLite collections use the same typed query/mutation surface while retaining backing-appropriate durability.
+Outcome: the checked-in Supplies tree is the first complete executable Arbor site—SQLite-backed, live, editable, Arbor-user-aware, locally browsable, native-presented, authority-hosted, and finally populated from the real service.
 
-- Recognize `_store.sqlite3` collections and bare database nodes.
-- Introspect tables and expose the same typed collection surface.
-- Observe commits and run row mutations inside SQLite transactions.
-- Snapshot through backup/checkpoint APIs; never copy a live main/WAL pair naively.
-- Run the backing-independent collection corpus on SQLite.
-- Preserve concurrent revisions as whole-database conflicts until logical changesets exist.
+1. Build the SQLite query engine against every checked-in Supplies `rel` block, including schema/result type inference and profile-tree joins. Keep query returns factual; calculate editability and other presentation state in React with `useUser()`.
+2. Add race-free query-result streaming from committed SQLite/profile changes with semantic sensitivity, snapshot-then-follow, output hashing, multiplexed delivery, and explicit resync.
+3. Add the mutation runner with Standard Schema inputs, injected Arbor users, a default transaction exposed as `tx`, in-transaction authorization, retry-stable IDs/time/receipts, ordered relation primitives, and post-commit change publication.
+4. Add MDX/TSX compilation and development typechecking, server/client extraction, Standard Schema-derived handle types, generated `RowOf`/`ResultOf` declarations, zero-import Tailwind, manifests, watch diagnostics, and `arbor check`.
+5. Make the components run first in local `arbor browse` and then through the same SSR/hydration/Action/stream stack at ordinary authority HTTP paths after explicit tree activation.
+6. Present the same local runtime in signed macOS Arbor through a constrained native web surface while preserving native tab/location/provenance and source controls.
+7. Add the deterministic fixture, import the real Postgres corpus into SQLite with reviewed legacy-ID/ProfileID mapping, stage side by side, and cut over with redirects, backups, and rollback.
 
-Completion gate: changing a file collection to SQLite changes no backing-independent query or mutation call sites; external SQLite writes remain observable and snapshots remain consistent during WAL activity.
+SQLite is the one required backing for this milestone. The portable contract must leave room for Postgres, but implementing and operating two database compilers before Supplies works is no longer a gate. The first correctness strategy remains dependency-directed reruns, output hashing, and keyed result diffs; incremental maintenance follows only if measurement requires it.
+
+Completion gate: the unchanged `sites/supplies` source runs in local Arbor web, signed macOS Arbor, and its canonical authority website; two clients update without refresh after related mutations and profile edits; unrelated precise changes avoid reruns; reconnects cannot leave stale results; raw private data stays private; every person-valued row uses a stable Arbor ProfileID; and the verified real-data migration can cut over with stable redirects and rollback. The concrete phase-by-phase implementation plan is [Supplies live-site implementation plan](supplies-live-site.md).
 
 ## Milestone 3 — agents
 
-**Status: Planned. Depends on the implemented workspace composition and is scheduled after Data and SQLite, but not on the general scripts runtime.**
+**Status: Planned. Depends on the implemented workspace composition and the built-in operations/compiled handles available after Milestone 2.**
 
 Outcome: a Markdown-defined agent runs against a legible, permission-bounded view of the same workspace humans browse.
 
-- Define agents as Markdown prompt/config pages whose initial tools are Arbor's built-in read, search, navigation, and mutation operations.
+- Define agents as Markdown prompt/config pages whose tools may include Arbor's built-in read, search, navigation, and mutation operations plus explicitly named compiled query/mutation handles.
 - Assemble restricted namespaces from visible shared-tree placements, remote access, and explicit process ceilings.
 - Run agents in an isolated process/runtime that can address only its assembled namespace.
 - Render the same agent in the CLI and Arbor clients with inspectable ordinary-tree transcripts and effects.
@@ -92,37 +94,21 @@ Outcome: a Markdown-defined agent runs against a legible, permission-bounded vie
 
 Completion gate: a file-defined agent can research and update two mounted trees with explicit consent, cannot address content outside its assembled namespace, and leaves a readable versioned transcript of its actions.
 
-## Milestone 4 — scripts runtime
+## Milestone 4 — portable deployment
 
-**Status: Planned. Follows the first built-in-tool agent slice and uses the backing-independent collection contract from Milestone 2.**
+**Status: Planned. Follows the compiled executable-document graphs proven by Milestone 2.**
 
-Outcome: ordinary `.tsx` files can safely read, render, and mutate workspace content through generated, inspectable boundaries, and their handles can become optional agent tools.
+Outcome: the same tree and executable documents can be published statically where valid and run on additional supported live hosts without adapter-specific source.
 
-- Recognize explicit query/mutation constructors while retaining ordinary TypeScript inference.
-- Generate validators and stable typed handles; infer literal read/write prefixes and require declarations for computed paths.
-- Run deterministic handlers in isolated workers with a scoped tree client as their only authority.
-- Track read sets and rerun affected subscriptions.
-- Render components as sandboxed Arbor web islands.
-- Add `arbor run` over the same handle identity.
-- Allow an agent configuration to name typed query/mutation handles as additional tools without widening its namespace.
-
-Completion gate: one `.tsx` file colocates a component, query, and mutation over two existing backings; client bundles contain handles but no handler code; invalid input and undeclared paths fail before data access; one agent safely uses a generated mutation handle.
-
-## Milestone 5 — deployable applications
-
-**Status: Planned. Canonical live HTTP publication is already part of the implemented foundation.**
-
-Outcome: the same tree and script application can be published statically or run on supported live hosts from one portable description.
-
-- `arbor bake` emits a static ref/object directory for a dumb host.
-- Compile one portable application manifest for pages, assets, static query results, and live handlers.
-- Add one static and two live adapters only after the common manifest exists.
-- Protect deployed handlers with the same tree access and process validators as local execution.
+- `arbor bake` emits a static ref/object directory for a dumb host when every selected document and query is statically valid.
+- Preserve portable per-document graphs for assets, static query results, live handlers, capabilities, and schema requirements.
+- Add another live adapter only after a concrete site needs it and it can implement the document graphs' identity, transaction, subscription, and resync semantics honestly.
+- Protect deployed handlers with the same Standard Schema input contracts, Arbor user identity, tree execution principal, and process limits as the reference authority host.
 - Emit `<link rel="arbor">` and `Arbor-Tree` crosslinks.
 
-Completion gate: one tree publishes statically with working links/assets, and one custom live script deploys to both chosen live targets from the same manifest.
+Completion gate: one Arbor site publishes statically with working links/assets, and one concrete additional live target runs unchanged executable documents with equivalent identity, mutation, and resync behavior.
 
-## Milestone 6 — account lifecycle and hosting administration
+## Milestone 5 — account lifecycle and hosting administration
 
 **Status: Later. These follow-ups do not block the forward workspace, script, data, or application milestones.**
 

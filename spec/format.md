@@ -3,11 +3,11 @@
 
 ## Logical nodes
 
-A logical node may have both a body and children. `x.md` supplies the body for logical path `/x`; sibling directory `x/` supplies its children. When `x.md` is absent, `x/_index.md` is the directory-body fallback. URLs, links, API paths, search results, and visible names use extensionless logical paths.
+A logical node may have both a body and children. One of `x.md`, `x.mdx`, or `x.tsx` supplies the body for logical path `/x`; sibling directory `x/` supplies its children. `.md` supplies non-executable Markdown, while `.mdx` and a default-exporting `.tsx` may supply an executable component body as specified by [executable web documents](applications.md). When no sibling body exists, `x/_index.md` is the Markdown directory-body fallback. URLs, links, API paths, search results, and visible names use extensionless logical paths.
 
-`x.md` and `x/` therefore coexist as one logical node. Creating a child does not move or rename `x.md`. Merely reading a bodyless directory does not create `_index.md`. The first authored body/property edit, authored child ordering, or operation requiring durable document identity may materialize it.
+One body file and `x/` therefore coexist as one logical node. Creating a child does not move or rename the body. Merely reading a bodyless directory does not create `_index.md`. The first authored Markdown body/property edit, authored child ordering, or operation requiring durable Markdown document identity may materialize it.
 
-`x.md` together with `x/_index.md` is ambiguous. A conforming implementation reports `duplicate-body-representation` and refuses mutations of that logical node until a person explicitly chooses which body remains. Rename, move, copy, trash, and restore treat a sibling body and directory as one logical unit and never silently merge an occupied destination.
+More than one sibling body representation—such as `x.md` with `x.mdx`—is ambiguous. A sibling body together with `x/_index.md` is also ambiguous. A conforming implementation reports `duplicate-body-representation` and refuses rendering or mutation of that logical node until a person explicitly chooses which body remains. Rename, move, copy, trash, and restore treat a sibling body and directory as one logical unit and never silently merge an occupied destination.
 
 ## Markdown documents and identity
 
@@ -26,7 +26,7 @@ Authored Markdown is canonical. A client may parse it into an interactive model,
 
 ## Complete directory documents
 
-Every physical directory has one operational Markdown document. The provider forms it from the stored sibling/index body, or an empty implicit body, as follows:
+Every physical directory without an executable sibling body has one operational Markdown document. The provider forms it from the stored sibling/index Markdown body, or an empty implicit body, as follows:
 
 1. Walk standalone links in source order. The first link that resolves to each immediate physical child represents that child at its authored position. Inline links never qualify, and later standalone links to the same child remain ordinary duplicate links.
 2. Append one ordinary standalone Markdown link for every otherwise-unmentioned immediate physical child. Sort unmatched children by unsigned lexicographic UTF-8 bytes of canonical logical path, never locale or filesystem enumeration order.
@@ -61,7 +61,8 @@ The profile tree's `TreeID`, not its mutable title or root `PageID`, is the stab
 
 - `schema.ts` declares a file-backed collection row schema as specified by [stores](stores.md).
 - `_store.csv`, `_store.jsonl`, `_store.sqlite3`, and `_store.postgres` select collection backing behavior specified by [stores](stores.md).
-- `.tsx` files may define Arbor scripts as specified by [scripts](scripts.md).
+- `.ts` and `.tsx` files may define Arbor scripts and components as specified by [scripts](scripts.md).
+- `.mdx` files may define explicit executable component documents as specified by [scripts](scripts.md) and [executable web documents](applications.md).
 - Markdown files may define agents as specified by [agents](agents.md).
 
 These recognizers do not make generated declarations, compiled bundles, database credentials, or execution transcripts part of this format unless they are themselves deliberately authored ordinary tree content.

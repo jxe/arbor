@@ -34,6 +34,7 @@ Ordinary unpromoted files are browsable as `tree: "local"`, without gaining a du
 | [client](spec/client.md) | Client resolution, exact-source preservation, provenance, retry/resync, secrets, and persistence authority |
 | [stores](spec/stores.md) | Markdown, CSV, JSONL, SQLite, and Postgres collection behavior |
 | [scripts](spec/scripts.md) | Script authoring, compilation boundaries, queries, mutations, components, confinement, and consent |
+| [applications](spec/applications.md) | Authority-hosted executable MDX/TSX documents, ordinary Arbor navigation, Arbor user identity, server rendering, and live query delivery |
 | [agents](spec/agents.md) | Agent files, tools, context, confinement, consent, effects, and transcripts |
 | [wire](spec/wire.md) | Community authority, identity, claims, access, deterministic objects, sync, watch, and public HTTP projection |
 | [CLI](spec/cli.md) | Portable command surface for browsing, synchronization, serving, scripts, and deployment |
@@ -48,5 +49,6 @@ Language-neutral conformance vectors live in [spec/fixtures](spec/fixtures). [Ar
 - A **wire client** resolves community names, transfers deterministic objects, performs compare-and-swap synchronization, and applies access without disclosing credentials or link secrets.
 - A **store driver** supplies the backing-appropriate reads, transactions, observation, schema, and consistent snapshot needed by the common collection contract.
 - A **script or agent runtime** supplies the explicitly scoped execution environment described by its authored file. It has no ambient authority beyond that environment.
+- An **executable-document runtime** renders a reviewed MDX/TSX node at its ordinary Arbor location, injects authenticated Arbor user context, executes its server handles, and streams validated live-query results without exposing the backing data authority.
 
 The wire carries shared-tree identity and revisions; it does not dictate private local indexes, journals, caches, or UI. The only standardized local control file is `trees.yaml`, together with the Arbor data-home selection rule.
