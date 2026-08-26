@@ -71,12 +71,50 @@ public struct ArborSSEParser: Sendable {
 
 public struct AuthorityWatchEvent: Equatable, Sendable {
     public var id: String
+    public var cursor: String
+    public var kind: String
+    public var treeID: String
     public var tree: AuthorityTreeDescriptor
     public var requestDigest: String?
 
     public init(id: String, tree: AuthorityTreeDescriptor, requestDigest: String? = nil) {
         self.id = id
+        self.cursor = id
+        self.kind = "tree.ref"
+        self.treeID = tree.id
         self.tree = tree
         self.requestDigest = requestDigest
     }
+
+    public init(cursor: String, treeID: String, kind: String, tree: AuthorityTreeDescriptor, requestDigest: String? = nil) {
+        self.id = cursor
+        self.cursor = cursor
+        self.kind = kind
+        self.treeID = treeID
+        self.tree = tree
+        self.requestDigest = requestDigest
+    }
+}
+
+public struct AuthorityTreeRefChange: Codable, Sendable, Equatable {
+    public var descriptor: AuthorityTreeDescriptor
+    public var requestDigest: String?
+}
+
+public struct AuthorityTreeRefObservation: Codable, Sendable, Equatable {
+    public var cursor: String
+    public var tree: String
+    public var kind: String
+    public var change: AuthorityTreeRefChange
+}
+
+public struct AuthorityResyncChange: Codable, Sendable, Equatable {
+    public var reason: String
+}
+
+public struct AuthorityResyncObservation: Codable, Sendable, Equatable {
+    public var cursor: String
+    public var tree: String
+    public var kind: String
+    public var change: AuthorityResyncChange
 }

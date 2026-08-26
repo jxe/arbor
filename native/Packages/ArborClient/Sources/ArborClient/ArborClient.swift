@@ -45,6 +45,11 @@ public struct AssetResult: Codable, Sendable, Equatable {
     public var markdownPath: String
 }
 
+public struct FileRead: Sendable, Equatable {
+    public var bytes: Data
+    public var revision: String
+}
+
 public actor ArborClient {
     public typealias MutationIDGenerator = @Sendable () -> String
     public typealias RetryDelay = @Sendable (_ attempt: Int) async throws -> Void
@@ -74,19 +79,24 @@ public actor ArborClient {
         try await get(path: "/v1/status", items: [])
     }
 
-    public func communityDevices() async throws -> [AuthorityDevice] {
-        try await get(path: "/v1/community/devices", items: [])
+    public func trees() async throws -> SnapshotEnvelope<[LocalTreeDescriptor]> {
+        try await get(path: "/v1/trees", items: [])
+    }
+
+    public func resolve(_ locator: String) async throws -> LocatorResolution {
+        try await get(path: "/v1/resolve", items: [URLQueryItem(name: "locator", value: locator)])
+    }
+
+    public func treeID() async throws -> String {
+        var request = URLRequest(url: url("/v1/tree-ids"))
+        request.httpMethod = "POST"
+        let generated: GeneratedTreeID = try await perform(request)
+        return generated.id
     }
 
     public func createCommunityPairing() async throws -> AuthorityPairingOffer {
-        var request = URLRequest(url: url("/v1/community/pairings"))
+        var request = URLRequest(url: url("/v1/bootstrap/pairings"))
         request.httpMethod = "POST"
-        return try await perform(request)
-    }
-
-    public func revokeCommunityDevice(_ id: String) async throws -> AuthorityDevice {
-        var request = URLRequest(url: url("/v1/community/devices/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)"))
-        request.httpMethod = "DELETE"
         return try await perform(request)
     }
 
@@ -95,7 +105,7 @@ public actor ArborClient {
         mutationID: String? = nil
     ) throws -> MutationRequest {
         guard operation.isContentOperation else {
-            throw InvalidMutationDomainError("A content mutation requires writeMarkdown or restoreRecovery")
+            throw InvalidMutationDomainError("A content mutation requires writeText, writeMarkdown, or restoreRecovery")
         }
         return MutationRequest(
             mutationID: mutationID ?? mutationIDGenerator(),
@@ -123,29 +133,51 @@ public actor ArborClient {
         try await hydrateNode(try await nodeSnapshot(ref))
     }
 
-    /// Fetch one unplaced canonical node through arbord's read-only proxy.
-    /// Remote directory snapshots already carry their immediate children.
-    public func remoteNode(locator: String) async throws -> NodeSnapshot {
-        try await get(
-            path: "/v1/remote",
-            items: [URLQueryItem(name: "url", value: locator)]
-        )
-    }
-
     /// Read the exact current bytes of an ordinary file.
-    public func file(_ ref: NodeRef) async throws -> Data {
+    public func file(_ ref: NodeRef) async throws -> FileRead {
         var components = URLComponents(url: url("/v1/file"), resolvingAgainstBaseURL: false)!
         components.queryItems = queryItems(ref)
         let (data, response) = try await session.data(for: URLRequest(url: components.url!))
         try validate(data: data, status: try statusCode(response))
-        return data
+        guard let http = response as? HTTPURLResponse,
+              let revision = http.value(forHTTPHeaderField: "ETag")?.trimmingCharacters(in: CharacterSet(charactersIn: "\"")),
+              !revision.isEmpty else {
+            throw URLError(.badServerResponse)
+        }
+        return FileRead(bytes: data, revision: revision)
+    }
+
+    public func writeText(
+        _ ref: NodeRef,
+        baseContentRevision: String,
+        source: String,
+        mutationID: String? = nil
+    ) async throws -> MutationReceipt {
+        try await mutateContent(
+            WorkspaceOperation(op: "writeText", ref: ref, baseContentRevision: baseContentRevision, source: source),
+            mutationID: mutationID
+        )
+    }
+
+    public func claimProfile(origin: String, handle: String, path: String, displayName: String? = nil) async throws -> MutationReceipt {
+        var request = URLRequest(url: url("/v1/bootstrap/claims"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(ClaimBootstrapBody(origin: origin, handle: handle, path: path, displayName: displayName))
+        return try await perform(request)
+    }
+
+    public func forgetLocalAccount() async throws {
+        var request = URLRequest(url: url("/v1/local/forget"))
+        request.httpMethod = "POST"
+        let _: ForgetResult = try await perform(request)
     }
 
     public func openNodeView(_ ref: NodeRef) async throws -> ObservedNodeView {
         let snapshot = try await nodeSnapshot(ref)
         let observedRef = snapshot.ref.pageID.map {
-            NodeRef.pageID($0, pathHint: snapshot.path, tree: snapshot.tree ?? snapshot.ref.tree)
-        } ?? .path(snapshot.path, tree: snapshot.tree ?? snapshot.ref.tree)
+            NodeRef.pageID($0, pathHint: snapshot.path, tree: snapshot.tree)
+        } ?? .path(snapshot.path, tree: snapshot.tree)
         let updates = nodeUpdates(ref: observedRef, after: snapshot.observedThrough)
         return ObservedNodeView(snapshot: try await hydrateNode(snapshot), updates: updates)
     }
@@ -158,8 +190,8 @@ public actor ArborClient {
         var snapshot = initial
         if snapshot.kind == "directory" || snapshot.kind == "collection" {
             let ref = snapshot.ref.pageID.map {
-                NodeRef.pageID($0, pathHint: snapshot.ref.path, tree: snapshot.tree ?? snapshot.ref.tree)
-            } ?? .path(snapshot.ref.path, tree: snapshot.tree ?? snapshot.ref.tree)
+                NodeRef.pageID($0, pathHint: snapshot.ref.path, tree: snapshot.tree)
+            } ?? .path(snapshot.ref.path, tree: snapshot.tree)
             snapshot.children = try await allChildren(ref)
         }
         return snapshot
@@ -180,9 +212,8 @@ public actor ArborClient {
         return items
     }
 
-    public func search(_ query: String, tree: String? = nil, cursor: String? = nil) async throws -> SearchPage {
-        var items = [URLQueryItem(name: "q", value: query)]
-        if let tree { items.append(URLQueryItem(name: "tree", value: tree)) }
+    public func search(tree: String, query: String, cursor: String? = nil) async throws -> SearchPage {
+        var items = [URLQueryItem(name: "tree", value: tree), URLQueryItem(name: "q", value: query)]
         if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
         return try await get(path: "/v1/search", items: items)
     }
@@ -348,8 +379,14 @@ public actor ArborClient {
                             let text = String(decoding: frame, as: UTF8.self)
                                 .replacingOccurrences(of: "\r\n", with: "\n")
                             frame.removeAll(keepingCapacity: true)
-                            let dataLines = text
-                                .split(separator: "\n", omittingEmptySubsequences: false)
+                            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+                            let eventID = lines.first(where: { $0.hasPrefix("id:") }).map {
+                                String($0.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                            }
+                            let eventKind = lines.first(where: { $0.hasPrefix("event:") }).map {
+                                String($0.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                            }
+                            let dataLines = lines
                                 .filter { $0.hasPrefix("data:") }
                                 .map { line in
                                     String(line.dropFirst(5))
@@ -361,7 +398,27 @@ public actor ArborClient {
                                 }
                             if !dataLines.isEmpty {
                                 let data = Data(dataLines.joined(separator: "\n").utf8)
+                                if eventKind == "resync-required" {
+                                    let event = try decoder.decode(LocalResyncObservation.self, from: data)
+                                    guard eventID == event.cursor, event.kind == eventKind else {
+                                        throw URLError(.cannotParseResponse)
+                                    }
+                                    throw ArbordServerError(
+                                        status: 409,
+                                        value: ArbordErrorValue(
+                                            code: "resync-required",
+                                            message: "The observation cursor is no longer retained",
+                                            retryable: true,
+                                            tree: event.tree,
+                                            path: nil,
+                                            details: nil
+                                        )
+                                    )
+                                }
                                 let event = try decoder.decode(WorkspaceEvent.self, from: data)
+                                guard eventID == event.cursor, eventKind == event.kind else {
+                                    throw URLError(.cannotParseResponse)
+                                }
                                 cursor = event.cursor
                                 continuation.yield(event)
                             }
@@ -424,6 +481,14 @@ public actor ArborClient {
     private func validateMutationDomain(_ request: MutationRequest) throws {
         guard !request.mutationID.isEmpty, !request.operations.isEmpty else {
             throw InvalidMutationDomainError("A mutation requires a non-empty mutation ID and operations array")
+        }
+        guard request.operations.allSatisfy({ operation in
+            operation.ref?.tree.isEmpty != true
+                && operation.refs?.contains(where: { $0.tree.isEmpty }) != true
+                && operation.destination?.tree.isEmpty != true
+                && (operation.path == nil || operation.tree?.isEmpty == false)
+        }) else {
+            throw InvalidMutationDomainError("Every mutation reference requires explicit tree scope")
         }
         let contentCount = request.operations.filter(\.isContentOperation).count
         if contentCount > 0 && (contentCount != 1 || request.operations.count != 1) {
@@ -508,8 +573,7 @@ public actor ArborClient {
     }
 
     private func queryItems(_ ref: NodeRef) -> [URLQueryItem] {
-        var items: [URLQueryItem] = []
-        if let tree = ref.tree { items.append(URLQueryItem(name: "tree", value: tree)) }
+        var items: [URLQueryItem] = [URLQueryItem(name: "tree", value: ref.tree)]
         if let path = ref.path {
             items.append(URLQueryItem(name: "path", value: path))
         } else if let pageID = ref.pageID {
@@ -539,6 +603,11 @@ public actor ArborClient {
         return result
     }
 }
+
+private struct GeneratedTreeID: Decodable { var id: String }
+private struct ClaimBootstrapBody: Encodable { var origin: String; var handle: String; var path: String; var displayName: String? }
+private struct ForgetResult: Decodable { var forgotten: Bool }
+private struct LocalResyncObservation: Decodable { var cursor: String; var tree: String; var kind: String }
 
 private struct RetryableServerError: Error {}
 

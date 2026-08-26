@@ -50,7 +50,7 @@ describe("accepted-update transaction store", () => {
     expect(store.list("tr_test")).toHaveLength(2);
     expect(store.acceptedRequest("tr_test", "device:one", "sha256:request")).toEqual({
       status: 201,
-      result: { outcome: "accepted", update: accepted!, requestDigest: "sha256:request" },
+      result: { outcome: "accepted", update: accepted!, requestDigest: "sha256:request", observedThrough: "up_next" },
     });
   });
 

@@ -7,18 +7,18 @@ import { api } from "./api.ts";
 export function CollectionView({ node, navigate, refresh }: { node: NodeSnapshot; navigate: (path: string) => void; refresh: () => void }) {
   const [page, setPage] = useState<CollectionPage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const scopedApi = api.scoped(node.tree);
   useEffect(() => {
-    const table = node.path.split("/").pop();
-    api.collection(node.path).then(setPage).catch((error: Error) => setError(error.message));
-  }, [node.path, node.contentRevision]);
+    scopedApi.collection(node.path).then(setPage).catch((error: Error) => setError(error.message));
+  }, [node.tree, node.path, node.contentRevision]);
   if (error) return <div className="empty error">{error}</div>;
   if (!page) return <div className="empty">Loading collection…</div>;
   const edit = async (rowPath: string | undefined, field: string, value: string) => {
     if (!rowPath) return;
     const path = `${node.path}/${rowPath}`.replaceAll("//", "/");
-    const record = await api.node(path);
+    const record = await scopedApi.node(path);
     if (!record.document) return;
-    await api.write(path, {
+    await scopedApi.write(path, {
       baseContentRevision: record.contentRevision!,
       source: serializeMarkdown(record.document, record.document.blocks, { [field]: value }),
     });
@@ -31,6 +31,6 @@ export function CollectionView({ node, navigate, refresh }: { node: NodeSnapshot
         ? <input defaultValue={String(row.values[column] ?? "")} onBlur={(event) => edit(row.path, column, event.target.value)} />
         : String(row.values[column] ?? "")}</td>)}<td>{row.path && <button className="quiet" onClick={() => navigate(`${node.path}/${row.path}`.replaceAll("//", "/"))}>Open</button>}</td></tr>)}</tbody>
     </table></div>
-    {page.nextCursor && <button onClick={async () => setPage(await api.collection(node.path, page.nextCursor))}>Next page</button>}
+    {page.nextCursor && <button onClick={async () => setPage(await scopedApi.collection(node.path, page.nextCursor))}>Next page</button>}
   </section>;
 }

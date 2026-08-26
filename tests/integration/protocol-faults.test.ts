@@ -39,9 +39,10 @@ describe("REST v1 protocol fault recovery", () => {
           }
         },
       });
+      const tree = first.tree;
       const request: MutationRequest = {
         mutationID: `fault-${stage}`,
-        operations: [{ op: "createDirectory", path: "/once" }],
+        operations: [{ op: "createDirectory", tree, path: "/once" }],
       };
       await expect(first.executeMutation(request)).rejects.toThrow(stage);
       await first[Symbol.asyncDispose]();
@@ -49,7 +50,7 @@ describe("REST v1 protocol fault recovery", () => {
       const recovered = await Workspace.open(root);
       const receipt = await recovered.executeMutation(request);
       expect(receipt.effects[0]).toMatchObject({ kind: "created", path: "/once" });
-      expect((await recovered.snapshot({ path: "/once" })).path).toBe("/once");
+      expect((await recovered.snapshot({ tree, path: "/once" })).path).toBe("/once");
       expect(await recovered.executeMutation(request)).toEqual(receipt);
       await recovered[Symbol.asyncDispose]();
     });
@@ -71,11 +72,11 @@ describe("REST v1 protocol fault recovery", () => {
     try {
       const client = new ArbordClient({ baseURL: running.url, retryDelay: async () => {} });
       const receipt = await client.mutateStructural(
-        [{ op: "createDirectory", path: "/after-response-loss" }],
+        [{ op: "createDirectory", tree: running.workspace.tree, path: "/after-response-loss" }],
         "response-delivery",
       );
       expect(receipt.effects[0]).toMatchObject({ kind: "created", path: "/after-response-loss" });
-      expect((await client.node({ path: "/after-response-loss" })).path).toBe("/after-response-loss");
+      expect((await client.node({ tree: running.workspace.tree, path: "/after-response-loss" })).path).toBe("/after-response-loss");
     } finally {
       running.server.stop(true);
       await running.workspace[Symbol.asyncDispose]();

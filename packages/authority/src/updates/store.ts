@@ -105,9 +105,9 @@ export class AcceptedUpdateStore {
     `).get(tree, subject, digest));
     if (!accepted) return null;
     if (accepted.kind === "merged" && accepted.merge) {
-      return { status: 201, result: { outcome: "merged", update: accepted, merge: accepted.merge, requestDigest: digest as ObjectHash } };
+      return { status: 201, result: { outcome: "merged", update: accepted, merge: accepted.merge, requestDigest: digest as ObjectHash, observedThrough: accepted.id } };
     }
-    return { status: 201, result: { outcome: "accepted", update: accepted, requestDigest: digest as ObjectHash } };
+    return { status: 201, result: { outcome: "accepted", update: accepted, requestDigest: digest as ObjectHash, observedThrough: accepted.id } };
   }
 
   matchingRequestDigest(update: string, subject: string): ObjectHash | null {
@@ -140,7 +140,7 @@ export class AcceptedUpdateStore {
     return this.get(id)!;
   }
 
-  commit(id: string, input: AcceptedCommitInput): AcceptedUpdate | null {
+  commit(id: string, input: AcceptedCommitInput, withinTransaction?: () => void): AcceptedUpdate | null {
     let accepted: AcceptedUpdate | null = null;
     this.db.transaction(() => {
       const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
@@ -156,6 +156,7 @@ export class AcceptedUpdateStore {
         input.expectedRoot,
         input.acceptedAt,
       ]);
+      withinTransaction?.();
       accepted = this.insert(id, input);
     })();
     return accepted;

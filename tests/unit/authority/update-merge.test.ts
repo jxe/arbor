@@ -173,7 +173,10 @@ describe("language-neutral authority merge fixtures", () => {
       expect(repeated.source).toBe(source);
       expectNoAddedLineOmitted(fixture.base, fixture.candidate, fixture.remote, source);
       if (fixture.expected.approximatePlacements !== undefined) {
-        expect(result.summary.approximatePlacements).toBe(fixture.expected.approximatePlacements);
+        expect(result.summary.version).toBe("markdown-additive-v1");
+        if (result.summary.version === "markdown-additive-v1") {
+          expect(result.summary.approximatePlacements).toBe(fixture.expected.approximatePlacements);
+        }
       }
       for (const value of fixture.expected.contains ?? []) expect(source).toContain(value);
       for (const value of fixture.expected.absent ?? []) expect(source).not.toContain(value);

@@ -35,7 +35,7 @@ The repository already contains `Dockerfile.host` and `railway.toml`. Railway bu
 
    The first response is `{"status":"ok"}`. The second is the unclaimed profile page and tells you to open Arbor locally.
 
-Railway volumes persist across deploys and restarts. Restart or redeploy the service after claiming and confirm that the profile URL still resolves. Configure volume backups before using the authority for anything non-disposable.
+Railway volumes persist across deploys and restarts. Restart or redeploy the service after claiming and confirm that the profile URL still resolves. Configure volume backups before using the authority for anything non-disposable. Keep this SQLite reference authority at one replica.
 
 Railway references: [Docker/config-as-code](https://docs.railway.com/config-as-code/reference), [public domains and ports](https://docs.railway.com/public-networking), [custom-domain DNS](https://docs.railway.com/networking/domains/working-with-domains), and [persistent volumes](https://docs.railway.com/volumes).
 
@@ -55,11 +55,27 @@ In Arbor web:
 2. Choose a visible local folder such as `~/.arbor/profile`.
 3. Select **Claim profile** in the sheet.
 
-The local arbord creates or validates a `type: person` profile, submits it to the remote authority, stores the returned device credential in the operating-system credential store, and mounts the profile locally. No claim credential appears in the browser URL, shell history, Arbor content, or server logs.
+The local arbord creates or validates a `type: person` profile and generates the profile TreeID, account-configuration TreeID, DeviceID, and device credential locally. One bootstrap request atomically creates the profile, account, canonical boundary and ACL, private configuration tree, credential binding, and first administrator. The authority receives only the credential digest and never returns the raw credential. The resulting `account.yaml`, `trees.yaml`, and `devices/<DeviceID>.yaml` checkout is installed at `${ARBOR_DATA_HOME:-~/.arbor}`; implementation state lives beneath its excluded `.state` mount.
 
-After claiming, create a small folder elsewhere on the Mac and use **Share** to publish it at `/~joe/test` with **Public read**. Verify `https://garden.example.com/~joe/test` remotely. The source folder should remain at its original OS path and should not appear as a duplicate inside the physical profile folder.
+After claiming, create a small folder elsewhere on the Mac and use **Share** to publish it at `/~joe/test` with **Public read**. The UI obtains a fresh client-generated TreeID, source-preservingly adds its declaration and `everyone: read` rule to `trees.yaml`, adds the local path to the current device's `placements`, and initializes the reserved tree. Verify `https://garden.example.com/~joe/test` remotely. The source folder remains at its original OS path.
 
 First-claim-wins is deliberately the current v1 policy. Claim the first-writer profile promptly and treat this deployment as disposable until end-user recovery and dispute resolution exist.
+
+## Coordinated alpha upgrades
+
+Arbord, the authority, TypeScript and Swift clients, specifications, and fixtures share one alpha protocol version. Do not deploy a wire-contract or account-configuration change while an old arbord is still writing, and do not start a new arbord against an old authority.
+
+For an existing authority:
+
+1. Stop every known arbord writer and record the exact deployed revision, current tree identities and refs, ACLs, accepted-update boundaries, public-output hashes, SQLite integrity, and immutable-object integrity.
+2. Create an application-consistent SQLite backup plus the complete immutable-object store. Retain an off-volume copy and prove it starts under the old image.
+3. Start the exact candidate revision against a separate restored copy. Require restart-idempotent schema/configuration migration and exact equivalence of identities, refs, history, boundaries, ACLs, public output, objects, accounts, and active devices.
+4. Rehearse each real local data home from a copy. Require preserved authored bytes and placement metadata, private-state relocation beneath `.state`, and a valid installed account-configuration checkout.
+5. Only after those rehearsals, deploy the exact tested commit. Verify the authority before reconnecting clients.
+6. Run `arbor connect <community-origin>` in each real data home to install the configuration checkout and migrate legacy placements, then rebuild/restart packaged clients.
+7. Wait for every placement to become idle with local refs equal to authority refs, confirm that authored snapshots did not change, and run an isolated private synchronization/revocation smoke. Restore the complete backup and old image on any authority equivalence failure.
+
+Never put raw credentials, credential digests, access-link secrets, or user content in a migration report or shell history.
 
 ### Development credential reset
 

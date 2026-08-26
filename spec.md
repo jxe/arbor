@@ -7,7 +7,7 @@ This is the aspirational public contract for Arbor. It describes behavior an imp
 
 Requirements apply to the component they name. An implementation need not provide every Arbor component, but a component it does claim to provide must satisfy that component's specification. For example, a wire-only host need not implement a local workspace or human client, and a conforming human client may use a wholly different UI from Arbor web or native Arbor.
 
-The normative surface includes authored formats, locators, `trees.yaml`, local server and client behavior, stores, scripts, agents, the CLI, wire hosting and synchronization, and safe public HTTP projection. Language/runtime choices, UI controls, package topology, retry counts, journal layout, and test machinery are reference choices unless a topic specification explicitly makes their observable behavior portable.
+The normative surface includes authored formats, locators, the complete Arbor data-home and synchronized account-configuration tree, local server and client behavior, stores, scripts, agents, the CLI, wire hosting and synchronization, and safe public HTTP projection. Language/runtime choices, UI controls, package topology, retry counts, private `.state` layout, and test machinery are reference choices unless a topic specification explicitly makes their observable behavior portable.
 
 ## Thesis
 
@@ -29,7 +29,7 @@ Ordinary unpromoted files are browsable as `tree: "local"`, without gaining a du
 |---|---|
 | [format](spec/format.md) | Portable authored formats, logical nodes, complete directory documents, profile documents, and reserved names |
 | [locators](spec/locators.md) | Local, canonical, raw-identity, revision, fragment, and `system:` locators |
-| [system](spec/system.md) | Arbor data home, `trees.yaml`, placements, `system:` records, local durability, visits, and nested mounts |
+| [system](spec/system.md) | Complete Arbor data-home layout, governed account YAML, placements, private `.state`, visits, and nested mounts |
 | [arbord REST](spec/arbord-rest.md) | REST v1 schemas, resolution, reads, mutations, receipts, errors, events, and conformance rules |
 | [client](spec/client.md) | Client resolution, exact-source preservation, provenance, retry/resync, secrets, and persistence authority |
 | [stores](spec/stores.md) | Markdown, CSV, JSONL, SQLite, and Postgres collection behavior |
@@ -43,12 +43,12 @@ Language-neutral conformance vectors live in [spec/fixtures](spec/fixtures). [Ar
 
 ## Component roles
 
-- A **local arbord** resolves the local filesystem and placements, owns durable authored mutations, exposes loopback REST v1, manages local credentials without exposing them as content, and synchronizes placed Arbor trees.
+- A **local arbord** resolves the local filesystem and placements, owns durable authored mutations, watches the synchronized account-configuration checkout, exposes loopback REST v1, manages local credentials without exposing them as content, and synchronizes placed Arbor trees.
 - An **arbord client** consumes REST v1 and treats arbord as the persistence authority. It may be a human UI, CLI, script host, agent host, backup tool, or another program.
-- A **wire host** represents one community and owns profile/account identity, canonical boundary records, mutable refs, immutable objects, claims, access entries, and watch streams. It does not need local filesystem materialization.
+- A **wire host** represents one community and owns profile/account identity, governed private account-configuration trees, canonical boundary records, mutable refs, immutable objects, claims, access enforcement, and watch streams. It does not need local filesystem materialization.
 - A **wire client** resolves community names, transfers deterministic objects, performs compare-and-swap synchronization, and applies access without disclosing credentials or link secrets.
 - A **store driver** supplies the backing-appropriate reads, transactions, observation, schema, and consistent snapshot needed by the common collection contract.
 - A **script or agent runtime** supplies the explicitly scoped execution environment described by its authored file. It has no ambient authority beyond that environment.
 - An **executable-document runtime** renders a reviewed MDX/TSX node at its ordinary Arbor location, injects authenticated Arbor user context, executes its server handles, and streams validated live-query results without exposing the backing data authority.
 
-The wire carries shared-tree identity and revisions; it does not dictate private local indexes, journals, caches, or UI. The only standardized local control file is `trees.yaml`, together with the Arbor data-home selection rule.
+The wire carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, or UI. The complete standardized local layout and control-file contracts are defined in [system.md](spec/system.md).

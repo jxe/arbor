@@ -33,7 +33,8 @@ function paragraph(id: string, content: string): ArborBlock {
 
 function tree(revision: string, snapshot: DocumentSnapshot): NodeSnapshot {
   return {
-    ref: { path: "/page", pageID: "abc123" },
+    ref: { tree: "local", path: "/page", pageID: "abc123" },
+    tree: "local",
     path: "/page",
     name: "page",
     kind: "markdown",

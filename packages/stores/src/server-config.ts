@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sha256 } from "@arbor/core";
-import { arborDataRoot, prepareArborDataRoot } from "./private-state.ts";
+import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
 const SERVICE = "org.arbor.community-account";
 const LEGACY_SERVICE = "org.arbor.personal-server";
@@ -24,6 +24,9 @@ export interface CommunityAccountMetadata {
   profileURL: string | null;
   communityTree: string;
   communityURL: string;
+  configurationTree: string;
+  configurationRef?: string;
+  configurationUpdate?: string;
 }
 
 export interface SafeCommunityRecord extends CommunityAccountMetadata {
@@ -34,12 +37,21 @@ export interface SafeCommunityRecord extends CommunityAccountMetadata {
 }
 
 export class CommunityConfigStore {
-  private path = join(arborDataRoot(), "system", "community.md");
-  private legacyPath = join(arborDataRoot(), "system", "server.md");
+  private path = join(arborPrivateRoot(), "system", "community.md");
+  private legacyPath = join(arborPrivateRoot(), "system", "server.md");
   private credentialName = communityCredentialName();
 
   private credentialReference(): string {
     return `${SERVICE}/${this.credentialName}`;
+  }
+
+  async storeProvisionalCredential(value: string): Promise<void> {
+    if (!value) throw new Error("Device credential must not be empty");
+    await Bun.secrets.set({ service: SERVICE, name: this.credentialName, value });
+  }
+
+  async provisionalCredential(): Promise<string | null> {
+    return Bun.secrets.get({ service: SERVICE, name: this.credentialName }).catch(() => null);
   }
 
   async set(
@@ -58,7 +70,7 @@ export class CommunityConfigStore {
       connected: true,
     };
     await Bun.secrets.set({ service: SERVICE, name: this.credentialName, value: accountToken });
-    await mkdir(join(arborDataRoot(), "system"), { recursive: true, mode: 0o700 });
+    await mkdir(join(arborPrivateRoot(), "system"), { recursive: true, mode: 0o700 });
     await writeFile(this.path, [
       "---",
       `origin: ${JSON.stringify(origin)}`,
@@ -68,6 +80,9 @@ export class CommunityConfigStore {
       ...(record.profileURL ? [`profileURL: ${JSON.stringify(record.profileURL)}`] : []),
       `communityTree: ${JSON.stringify(record.communityTree)}`,
       `communityURL: ${JSON.stringify(record.communityURL)}`,
+      `configurationTree: ${JSON.stringify(record.configurationTree)}`,
+      ...(record.configurationRef ? [`configurationRef: ${JSON.stringify(record.configurationRef)}`] : []),
+      ...(record.configurationUpdate ? [`configurationUpdate: ${JSON.stringify(record.configurationUpdate)}`] : []),
       `credential: ${JSON.stringify(record.credential)}`,
       `tokenDigest: ${JSON.stringify(record.tokenDigest)}`,
       "connected: true",
@@ -90,9 +105,10 @@ export class CommunityConfigStore {
       const handle = value("handle");
       const communityTree = value("communityTree");
       const communityURL = value("communityURL");
+      const configurationTree = value("configurationTree");
       const credential = value("credential");
       const tokenDigest = value("tokenDigest");
-      if (!origin || !id || !handle || !communityTree || !communityURL || !credential || !tokenDigest) return null;
+      if (!origin || !id || !handle || !communityTree || !communityURL || !configurationTree || !credential || !tokenDigest) return null;
       return {
         origin,
         id,
@@ -101,6 +117,9 @@ export class CommunityConfigStore {
         profileURL: value("profileURL") ?? null,
         communityTree,
         communityURL,
+        configurationTree,
+        ...(value("configurationRef") ? { configurationRef: value("configurationRef") } : {}),
+        ...(value("configurationUpdate") ? { configurationUpdate: value("configurationUpdate") } : {}),
         credential,
         tokenDigest,
         connected: true,
@@ -129,6 +148,9 @@ export class CommunityConfigStore {
         profileURL: record.profileURL,
         communityTree: record.communityTree,
         communityURL: record.communityURL,
+        configurationTree: record.configurationTree,
+        ...(record.configurationRef ? { configurationRef: record.configurationRef } : {}),
+        ...(record.configurationUpdate ? { configurationUpdate: record.configurationUpdate } : {}),
       });
       return { record: migrated, accountToken };
     } catch {

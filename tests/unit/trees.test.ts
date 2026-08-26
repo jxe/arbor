@@ -1,22 +1,62 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  deleteTreePlacement,
+  arborPrivateRoot,
+  loadAccountConfiguration,
   loadTreeRegistry,
-  saveLocalTreePlacement,
-  treesFilePath,
+  parseAccountConfiguration,
+  parseDeviceConfiguration,
+  parseTreesConfiguration,
+  saveCurrentDeviceID,
 } from "@arbor/stores";
 
 const previousDataHome = process.env.ARBOR_DATA_HOME;
 const temporary: string[] = [];
+const profile = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
+const shared = "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb";
+const device = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-async function state(): Promise<string> {
-  const path = await mkdtemp(join(tmpdir(), "arbor-trees-"));
+async function dataHome(): Promise<string> {
+  const path = await mkdtemp(join(tmpdir(), "arbor-account-config-"));
   temporary.push(path);
   process.env.ARBOR_DATA_HOME = path;
   return path;
+}
+
+async function writeConfiguration(home: string, placementPath?: string): Promise<void> {
+  await mkdir(join(home, "devices"), { recursive: true });
+  await writeFile(join(home, "account.yaml"), [
+    "version: 1",
+    "community: https://community.example",
+    `profile: { tree: ${profile}, handle: joe }`,
+    `admins: [${device}]`,
+    "",
+  ].join("\n"));
+  await writeFile(join(home, "trees.yaml"), [
+    "version: 1",
+    "trees:",
+    `  ${profile}:`,
+    "    kind: person-profile",
+    "    canonicalPath: /~joe",
+    "    access: [{ subject: { kind: everyone }, access: read }]",
+    `  ${shared}:`,
+    "    kind: shared-subtree",
+    "    canonicalPath: /~joe/shared",
+    "    access: []",
+    "",
+  ].join("\n"));
+  await writeFile(join(home, "devices", `${device}.yaml`), [
+    "version: 1",
+    "label: Joe's Mac",
+    "placements:",
+    `  ${shared}:`,
+    "    authority: https://community.example",
+    ...(placementPath ? [`    path: ${JSON.stringify(placementPath)}`] : []),
+    "",
+  ].join("\n"));
+  await saveCurrentDeviceID(device);
 }
 
 afterEach(async () => {
@@ -25,76 +65,63 @@ afterEach(async () => {
   await Promise.all(temporary.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-describe("trees.yaml", () => {
-  test("creates an empty user-only registry on first load", async () => {
-    const home = await state();
-
-    expect((await loadTreeRegistry()).placements).toEqual([]);
-    expect(await readFile(treesFilePath(), "utf8")).toBe("{}\n");
-    expect((await stat(treesFilePath())).mode & 0o777).toBe(0o600);
-    expect(await readdir(home)).toEqual(["trees.yaml"]);
-  });
-
-  test("stores path-keyed local objects and preserves comments and order", async () => {
-    const home = await state();
-    const first = join(home, "first");
-    const second = join(home, "second");
-    await mkdir(first);
-    await mkdir(second);
-    await writeFile(treesFilePath(), `# My trees\n${first}:\n  # Keep this source local\n  source: local\n`);
-
-    await saveLocalTreePlacement(first);
-    await saveLocalTreePlacement(second);
-    const source = await readFile(treesFilePath(), "utf8");
-    expect(source).toContain("# My trees");
-    expect(source).toContain("# Keep this source local");
-    expect(source).toContain(`"${first}"`);
-    expect(source.indexOf(first)).toBeLessThan(source.indexOf(second));
-    expect(source).toContain(`"${second}"`);
-    expect((await loadTreeRegistry()).placements).toEqual([
-      { path: first, source: "local" },
-      { path: second, source: "local" },
-    ]);
-    expect((await readdir(home)).some((name) => name.includes(".arbor-write-"))).toBe(false);
-  });
-
-  test("retains a valid empty mapping after deleting the last placement", async () => {
-    const home = await state();
-    const root = join(home, "root");
-    await mkdir(root);
-    await saveLocalTreePlacement(root);
-    await deleteTreePlacement(root);
-    expect(await readFile(treesFilePath(), "utf8")).toBe("{}\n");
-  });
-
-  test("rejects scalar and incomplete shared-tree entries", async () => {
-    const home = await state();
-    const local = join(home, "local");
-    const shared = join(home, "shared");
-    const named = join(home, "named");
-    await writeFile(treesFilePath(), [
-      `${JSON.stringify(local)}: local`,
-      `${JSON.stringify(shared)}:`,
-      `  source: "arbor://tree/tr_example/notes"`,
-      `  revision: tip`,
-      `  access: read`,
-      `${JSON.stringify(named)}:`,
-      `  source: "arbor://library.meaningalignment.org/essays/drift"`,
-      `  overlay: "local:annotations/drift"`,
-      "",
-    ].join("\n"));
-
+describe("account configuration YAML", () => {
+  test("loads only the current device placements and materializes a pathless private replica", async () => {
+    const home = await dataHome();
+    await writeConfiguration(home);
     const snapshot = await loadTreeRegistry();
-    expect(snapshot.placements).toEqual([]);
-    expect(snapshot.diagnostics.map((item) => item.code)).toEqual([
-      "invalid-tree-placement",
-      "invalid-tree-placement",
-      "invalid-tree-source",
+    expect(snapshot.diagnostics).toEqual([]);
+    expect(snapshot.configuration.currentDevice?.id).toBe(device);
+    expect(snapshot.placements).toEqual([expect.objectContaining({
+      tree: shared,
+      endpoint: "https://community.example",
+      path: join(arborPrivateRoot(), "replicas", shared),
+      replica: true,
+      access: "write",
+    })]);
+  });
+
+  test("uses an explicit filesystem placement without copying or normalizing it", async () => {
+    const home = await dataHome();
+    const placed = join(home, "authored-tree");
+    await mkdir(placed);
+    await writeConfiguration(home, placed);
+    expect((await loadTreeRegistry()).placements).toEqual([
+      expect.objectContaining({ tree: shared, path: placed, replica: false }),
     ]);
   });
 
-  test("requires canonical absolute paths", async () => {
-    await state();
-    await expect(saveLocalTreePlacement("relative/path")).rejects.toThrow("canonical and absolute");
+  test("strictly rejects duplicate keys, aliases, unknown fields, stored none, and relative paths", async () => {
+    expect(() => parseTreesConfiguration("version: 1\ntrees: {}\ntrees: {}\n")).toThrow();
+    expect(() => parseTreesConfiguration("version: 1\ntrees: &x {}\ncopy: *x\n")).toThrow("aliases");
+    expect(() => parseAccountConfiguration([
+      "version: 1",
+      "community: https://community.example",
+      `profile: { tree: ${profile}, handle: joe }`,
+      `admins: [${device}]`,
+      "status: syncing",
+    ].join("\n"))).toThrow("unknown fields");
+    expect(() => parseTreesConfiguration([
+      "version: 1", "trees:", `  ${profile}:`, "    kind: person-profile", "    canonicalPath: /~joe",
+      "    access: [{ subject: { kind: everyone }, access: none }]",
+    ].join("\n"))).toThrow("read or write");
+    expect(() => parseDeviceConfiguration([
+      "version: 1", "label: Laptop", "placements:", `  ${profile}:`,
+      "    authority: https://community.example", "    path: relative/path",
+    ].join("\n"), device, `devices/${device}.yaml`)).toThrow("canonical and absolute");
+  });
+
+  test("reports invalid candidates without inventing active configuration", async () => {
+    const home = await dataHome();
+    await mkdir(join(home, "devices"));
+    await writeFile(join(home, "account.yaml"), "version: 1\nadmins: []\n");
+    await writeFile(join(home, "trees.yaml"), "version: 1\ntrees: {}\ntrees: {}\n");
+    await writeFile(join(home, "devices", "laptop.yaml"), "version: 1\nlabel: Laptop\nplacements: {}\n");
+    const result = await loadAccountConfiguration();
+    expect(result.account).toBeUndefined();
+    expect(result.trees).toBeUndefined();
+    expect(result.diagnostics.map((entry) => entry.code)).toEqual([
+      "invalid-account-yaml", "invalid-trees-yaml", "invalid-device-file",
+    ]);
   });
 });

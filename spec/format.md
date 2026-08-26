@@ -73,6 +73,7 @@ These recognizers do not make generated declarations, compiled bundles, database
 - `_store.*` names select the enclosing collection's backing and are not ordinary row children.
 - `Trash` is a recovery namespace owned by the enclosing local durability domain; it is not synchronized as an ordinary user directory unless explicitly authored outside that role.
 - `Assets` is the conventional destination for imported binary assets and remains ordinary content.
-- `.arbor` is reserved so legacy or implementation-maintained material cannot be mistaken for authored content. Its presence is not required, and it must not be synchronized unless another specification explicitly says so.
+- `.arbor` is reserved so legacy or implementation-maintained material cannot be mistaken for portable authored content. When it is the selected Arbor data home, [system.md](system.md) explicitly defines its account-configuration tree and excludes its nested `.state` mount from that tree. An ordinary authored tree must not infer those control semantics merely from a coincidental directory name.
+- `.state` is forbidden in an account-configuration graph and is always the reserved local private-state mount at the root of an Arbor data home.
 
-Credentials, access-link secrets, private indexes, journals, recovery databases, and device identity records are never portable authored format.
+The account YAML is human-editable special control content, not portable authored format. Credentials, access-link secrets, private indexes, journals, recovery databases, and private device credential records are never portable authored format.

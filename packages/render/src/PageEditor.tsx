@@ -291,7 +291,7 @@ function trashedPath(path: string): string {
 
 interface ChildDocumentRow {
   blockID: string;
-  ref: { path: string; pageID?: string };
+  ref: NodeRef;
   kind: string;
   materialization: string;
 }
@@ -312,7 +312,9 @@ function childDocumentRows(directory: string, blocks: readonly ArborBlock[], chi
           matched.add(child);
           rows.push({
             blockID: block.id,
-            ref: { path: canonicalNodePath(child.path), ...(child.pageID ? { pageID: child.pageID } : {}) },
+            ref: child.pageID
+              ? { tree: child.tree, pageID: child.pageID, pathHint: canonicalNodePath(child.path) }
+              : { tree: child.tree, path: canonicalNodePath(child.path) },
             kind: child.kind,
             materialization: child.materialization,
           });
@@ -325,7 +327,7 @@ function childDocumentRows(directory: string, blocks: readonly ArborBlock[], chi
   return rows;
 }
 
-function inverseMoves(moved: BrowserMutationResult["moved"]): StructuralWorkspaceOperation[] {
+function inverseMoves(moved: BrowserMutationResult["moved"], tree: string): StructuralWorkspaceOperation[] {
   const byParent = new Map<string, string[]>();
   for (const item of moved) {
     const paths = byParent.get(parentPath(item.from)) ?? [];
@@ -334,8 +336,8 @@ function inverseMoves(moved: BrowserMutationResult["moved"]): StructuralWorkspac
   }
   return [...byParent].map(([destination, paths]) => ({
     op: "move",
-    refs: paths.map((path) => ({ path })),
-    destination: { path: destination },
+    refs: paths.map((path) => ({ tree, path })),
+    destination: { tree, path: destination },
   }));
 }
 
@@ -356,7 +358,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     () => childDocumentRows(node.path, authored, physicalChildren),
     [node.contentRevision, childrenRevision],
   );
-  const managedOrder = childRows.map((row) => row.ref.path);
+  const managedOrder = childRows.map((row) => "path" in row.ref ? row.ref.path : row.ref.pathHint!);
   const originals = useMemo(() => originalMap(initial), [node.contentRevision, childrenRevision]);
   const pageDirectory = isDirectory ? node.path : parentPath(node.path);
   const pageDirectoryRef = useRef(pageDirectory);
@@ -582,22 +584,22 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
             continue;
           }
           const event = update.event;
-          if (event.mutationID && api.client.isOwnMutation(event.mutationID)) continue;
+          if (event.change.mutationID && api.client.isOwnMutation(event.change.mutationID)) continue;
           if (event.tree !== undefined && currentNode.tree !== undefined && event.tree !== currentNode.tree) continue;
-          const affectsNode = event.path === currentNode.path
-            || event.previousPath === currentNode.path
-            || Boolean(currentNode.ref.pageID && event.pageID === currentNode.ref.pageID);
+          const affectsNode = event.change.path === currentNode.path
+            || event.change.previousPath === currentNode.path
+            || Boolean(currentNode.ref.pageID && event.change.pageID === currentNode.ref.pageID);
           const currentIsDirectory = currentNode.kind === "directory" || currentNode.kind === "collection";
           const affectsChildren = currentIsDirectory && (
-            parentPath(event.path) === currentNode.path
-            || (event.previousPath !== undefined && parentPath(event.previousPath) === currentNode.path)
+            parentPath(event.change.path) === currentNode.path
+            || (event.change.previousPath !== undefined && parentPath(event.change.previousPath) === currentNode.path)
           );
           if (!affectsNode && !affectsChildren) continue;
-          const ref = !currentNode.ref.pageID && event.previousPath === currentNode.path && event.kind === "moved"
-            ? { path: event.path } satisfies NodeRef
+          const ref = !currentNode.ref.pageID && event.change.previousPath === currentNode.path && event.kind === "moved"
+            ? { tree: currentNode.tree, path: event.change.path } satisfies NodeRef
             : currentNode.ref.pageID
-              ? { pageID: currentNode.ref.pageID, pathHint: currentNode.path }
-              : { path: currentNode.path };
+              ? { tree: currentNode.tree, pageID: currentNode.ref.pageID, pathHint: currentNode.path }
+              : { tree: currentNode.tree, path: currentNode.path };
           const loaded = await sapiRef.current.node(ref);
           if (affectsNode) coordinator.observeExternal(loaded);
           else observedOnSaved.current(loaded);
@@ -663,14 +665,14 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       let undoSelection: string[] = [];
       let redoSelection = nextSelection;
       if (result.created.length) {
-        undoOperations = [{ op: "trash", refs: result.created.map((path) => ({ path })) }];
-        redoOperations = [{ op: "restore", refs: result.created.map(trashedPath).map((path) => ({ path })) }];
+        undoOperations = [{ op: "trash", refs: result.created.map((path) => ({ tree: node.tree, path })) }];
+        redoOperations = [{ op: "restore", refs: result.created.map(trashedPath).map((path) => ({ tree: node.tree, path })) }];
         redoSelection = result.created;
       } else if (result.deleted.length) {
-        undoOperations = [{ op: "restore", refs: result.deleted.map(trashedPath).map((path) => ({ path })) }];
+        undoOperations = [{ op: "restore", refs: result.deleted.map(trashedPath).map((path) => ({ tree: node.tree, path })) }];
         undoSelection = result.deleted;
       } else if (result.moved.length) {
-        undoOperations = inverseMoves(result.moved);
+        undoOperations = inverseMoves(result.moved, node.tree);
         undoSelection = result.moved.map((item) => item.from);
         redoSelection = result.moved.map((item) => item.to);
       }
@@ -745,8 +747,8 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
         };
         pushHistory({
           label: "import",
-          undo: () => execute([{ op: "trash", refs: created.map((path) => ({ path })) }], []),
-          redo: () => execute([{ op: "restore", refs: created.map(trashedPath).map((path) => ({ path })) }], created),
+          undo: () => execute([{ op: "trash", refs: created.map((path) => ({ tree: node.tree, path })) }], []),
+          redo: () => execute([{ op: "restore", refs: created.map(trashedPath).map((path) => ({ tree: node.tree, path })) }], created),
         });
       }
     } catch (error) {
@@ -792,8 +794,8 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       const moved = paths.map((path) => childPath(targetPath, path.slice(path.lastIndexOf("/") + 1)));
       await runMutation([{
         op: "move",
-        refs: paths.map((path) => ({ path })),
-        destination: { path: targetPath },
+        refs: paths.map((path) => ({ tree: node.tree, path })),
+        destination: { tree: node.tree, path: targetPath },
       }], moved);
       return;
     }
@@ -1079,7 +1081,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     if (!creating || !value) return;
     const path = childPath(node.path, value);
     try {
-      await runMutation([{ op: creating === "directory" ? "createDirectory" : "createMarkdown", path }], [path]);
+      await runMutation([{ op: creating === "directory" ? "createDirectory" : "createMarkdown", tree: node.tree, path }], [path]);
       setCreating(null);
       setCreateValue("");
     } catch {}
@@ -1106,7 +1108,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     if (name === path.slice(path.lastIndexOf("/") + 1)) { setRenamingPath(null); return; }
     const next = childPath(parentPath(path), name);
     setRenamingPath(null);
-    try { await runMutation([{ op: "rename", ref: { path }, name }], [next]); } catch {}
+    try { await runMutation([{ op: "rename", ref: { tree: node.tree, path }, name }], [next]); } catch {}
   }, [renameValue, renamingPath, runMutation]);
 
   const trashSelection = useCallback(async (focusPath?: string) => {
@@ -1114,7 +1116,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       ? [focusPath]
       : managedOrder.filter((path) => selected.has(path));
     if (!paths.length || !confirm(`Move ${paths.length === 1 ? paths[0] : `${paths.length} items`} to Trash?`)) return;
-    try { await runMutation([{ op: "trash", refs: paths.map((path) => ({ path })) }]); } catch {}
+    try { await runMutation([{ op: "trash", refs: paths.map((path) => ({ tree: node.tree, path })) }]); } catch {}
   }, [managedOrder.join("\0"), runMutation, selected]);
 
   useEffect(() => {
@@ -1180,7 +1182,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
 
   const keys = Object.keys(frontmatter);
   const propertyKeys = frontmatter.type === "group" && !("members" in frontmatter) ? [...keys, "members"] : keys;
-  const memberOrigin = communityArborOrigin(node.enclosingTree?.canonical);
+  const memberOrigin = communityArborOrigin(node.enclosingTree?.canonical?.locator);
   const openInternalLink = (event: React.MouseEvent) => {
     const anchor = (event.target as Element).closest("a");
     const href = anchor?.getAttribute("href");
@@ -1191,9 +1193,9 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     if (link?.kind === "external") return;
     event.preventDefault();
     if (link?.kind === "local") {
-      navigate(link.pageID ? { pageID: link.pageID, pathHint: link.path } : link.path);
+      navigate(link.pageID ? { tree: node.tree, pageID: link.pageID, pathHint: link.path } : link.path);
     } else if (link?.kind === "fragment") {
-      navigate({ pageID: link.pageID });
+      navigate({ tree: node.tree, pageID: link.pageID });
     }
     // arbor://, system:, and local: destinations wait on mount/visit resolution.
   };
@@ -1237,7 +1239,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
               property={key}
               values={value}
               communityOrigin={memberOrigin}
-              communityMembers={key === "members" && node.enclosingTree?.canonicalPath === "/"}
+              communityMembers={key === "members" && node.enclosingTree?.canonical?.path === "/"}
               onChange={(items) => {
                 const next = { ...frontmatter, [key]: items };
                 setFrontmatter(next);
@@ -1332,8 +1334,8 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
             if (!block) {
               void runMutation([{
                 op: "move",
-                refs: paths.map((path) => ({ path })),
-                destination: { path: node.path },
+                refs: paths.map((path) => ({ tree: node.tree, path })),
+                destination: { tree: node.tree, path: node.path },
               }], paths);
               return;
             }

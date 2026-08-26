@@ -3,17 +3,18 @@
   "tree": "tr_notes7f3q2ab7c",
   "enclosingTree": {
     "id": "tr_notes7f3q2ab7c",
+    "kind": "shared-subtree",
+    "access": "write",
     "name": "notes",
     "osPath": "/Users/joe/notes",
-    "canonical": "arbor://notes.example/~joe/notes",
-    "canonicalPath": "/~joe/notes",
-    "httpURL": "https://notes.example/~joe/notes",
-    "endpoint": "https://notes.example",
-    "publicAccess": "none",
-    "accessEntries": [
-      { "id": "ax_alice", "kind": "profile", "access": "read", "locator": "arbor://notes.example/~alice" }
-    ],
-    "placement": "shared",
+    "canonical": {
+      "locator": "arbor://notes.example/~joe/notes",
+      "path": "/~joe/notes",
+      "endpoint": "https://notes.example",
+      "httpURL": "https://notes.example/~joe/notes",
+      "parentTree": null
+    },
+    "placement": "placed",
     "sync": "idle"
   },
   "path": "/notes/today",

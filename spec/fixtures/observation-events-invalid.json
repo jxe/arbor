@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "cases": [
+    { "name": "id-cursor-mismatch", "frame": "id: up_a\nevent: tree.ref\ndata: {\"cursor\":\"up_b\",\"tree\":\"tr_a\",\"kind\":\"tree.ref\",\"change\":{}}\n\n" },
+    { "name": "event-kind-mismatch", "frame": "id: up_a\nevent: tree.ref\ndata: {\"cursor\":\"up_a\",\"tree\":\"tr_a\",\"kind\":\"tree.activation\",\"change\":{}}\n\n" },
+    { "name": "missing-tree", "frame": "id: up_a\nevent: tree.ref\ndata: {\"cursor\":\"up_a\",\"kind\":\"tree.ref\",\"change\":{}}\n\n" }
+  ]
+}

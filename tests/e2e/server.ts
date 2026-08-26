@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { serveArbor } from "@arbor/arbord";
 import { serveWireHost } from "@arbor/authority";
 import { snapshotDirectory, WireClient } from "@arbor/wire";
+import { generateArborID } from "@arbor/core";
+import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
+import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/authority/src/account-policy.ts";
 import { build } from "vite";
 
 await build({ configFile: join(import.meta.dir, "../../packages/render/vite.config.ts"), logLevel: "error" });
@@ -49,29 +52,68 @@ const host = await serveWireHost({
 await mkdir(editorsProfile, { recursive: true });
 await writeFile(join(editorsProfile, "_index.md"), "---\ntype: group\n---\n\n# Editors\n");
 await writeFile(join(editorsProfile, "guide.md"), "# Editorial guide\n\nA **remote** Markdown page.\n");
-await new WireClient(host.url, "e2e-owner-token").create(
-  "/~editors",
-  await snapshotDirectory(editorsProfile),
-  { kind: "group-profile", publicAccess: "read" },
+const authorityClient = new WireClient(host.url, "e2e-owner-token");
+const account = await authorityClient.account();
+let configuration = await authorityClient.currentSnapshot(account.account.configuration.id);
+const graph = readAccountConfigGraph({
+  root: configuration.snapshot.root,
+  objects: new Map(configuration.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])),
+}, account.account.configuration.id);
+const device = graph.account.admins[0]!;
+const editorsTree = generateArborID("tr");
+const fixtureTree = "tr_eeeeeeeeeeeeeeeeeeeeeeeeee";
+const configured = snapshotAccountConfig({
+  account: graph.account,
+  trees: { version: 1, trees: {
+    ...graph.trees.trees,
+    [editorsTree]: {
+      kind: "group-profile",
+      canonicalPath: "/~editors",
+      access: [{ subject: { kind: "everyone" }, access: "read" }],
+    },
+    [fixtureTree]: {
+      kind: "shared-subtree",
+      canonicalPath: "/~owner/fixture",
+      access: [],
+    },
+  } },
+  devices: { ...graph.devices, [device]: {
+    ...graph.devices[device]!,
+    placements: {
+      ...graph.devices[device]!.placements,
+      [editorsTree]: { authority: new URL(host.url).origin, path: editorsProfile },
+      [fixtureTree]: { authority: new URL(host.url).origin, path: root },
+    },
+  } },
+});
+await authorityClient.submitUpdate(
+  configuration.tree.id,
+  { root: configuration.tree.ref, update: configuration.tree.update },
+  configured,
 );
+await authorityClient.activateTree(editorsTree, await snapshotDirectory(editorsProfile));
+await authorityClient.activateTree(fixtureTree, await snapshotDirectory(root));
+configuration = await authorityClient.currentSnapshot(account.account.configuration.id);
+const acceptedGraph = readAccountConfigGraph({
+  root: configuration.snapshot.root,
+  objects: new Map(configuration.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])),
+}, account.account.configuration.id);
+await mkdir(join(state, "devices"), { recursive: true });
+for (const [path, source] of Object.entries(acceptedGraph.sources)) await writeFile(join(state, path), source);
+await saveCurrentDeviceID(device);
+const configurationRef = await authorityClient.ref(account.account.configuration.id);
+await new CommunityConfigStore().set(host.url, "e2e-owner-token", {
+  id: account.account.id,
+  handle: account.account.handle,
+  profileTree: account.account.profileTree,
+  profileURL: account.account.profileURL,
+  communityTree: account.account.community.id,
+  communityURL: account.account.community.canonical!.locator,
+  configurationTree: account.account.configuration.id,
+  configurationRef: configurationRef.snapshot.ref,
+  configurationUpdate: configurationRef.snapshot.update,
+});
 const running = await serveArbor(root, { port });
-await running.service.executeMutation({
-  mutationID: "e2e-configure-host",
-  operations: [{
-    op: "connectCommunity",
-    origin: host.url,
-    accountToken: "e2e-owner-token",
-  }],
-});
-await running.service.executeMutation({
-  mutationID: "e2e-promote-feature-fixture",
-  operations: [{
-    op: "promoteTree",
-    path: root,
-    canonicalPath: "/~owner/fixture",
-    audience: { kind: "private" },
-  }],
-});
 console.log(running.url);
 
 async function shutdown() {

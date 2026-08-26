@@ -6,6 +6,7 @@ import { ServerConfigStore } from "@arbor/stores";
 import { serveWireHost } from "@arbor/authority";
 import { decodeWireObject, WireClient } from "@arbor/wire";
 import { ArborService } from "@arbor/arbord";
+import { generateArborID, sha256 } from "@arbor/core";
 
 let sandbox: string;
 let source: string;
@@ -13,6 +14,7 @@ let destination: string;
 let stateA: string;
 let stateB: string;
 let host: Awaited<ReturnType<typeof serveWireHost>>;
+const stateBToken = "cli-sync-peer";
 
 async function arborOutput(args: string[], state: string): Promise<{ stdout: string; stderr: string }> {
   const process = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
@@ -20,7 +22,7 @@ async function arborOutput(args: string[], state: string): Promise<{ stdout: str
     env: {
       ...Bun.env,
       ARBOR_DATA_HOME: state,
-      ARBOR_ACCOUNT_TOKEN: "cli-sync-owner",
+      ARBOR_ACCOUNT_TOKEN: state === stateB ? stateBToken : "cli-sync-owner",
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -67,6 +69,13 @@ beforeAll(async () => {
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
+  });
+  const owner = new WireClient(host.url, "cli-sync-owner");
+  const pairing = await owner.createPairing();
+  await owner.claimPairing(pairing.id, pairing.secret, {
+    id: generateArborID("dv"),
+    label: "CLI peer",
+    credentialDigest: `sha256:${sha256(stateBToken)}`,
   });
 });
 
@@ -137,7 +146,7 @@ describe("primary CLI sync forms", () => {
     await arbor(["sync", "--access", "~owner=write", source, canonical], stateA);
     expect(host.authority.accessEntries(shared.id).some((entry) => entry.subjectKind === "profile")).toBe(true);
     await arbor(["sync", "--clear-access", "--access", "public=read", source, canonical], stateA);
-    expect(host.authority.accessEntries(shared.id).map((entry) => entry.subjectKind)).toEqual(["everyone", "profile"]);
+    expect(host.authority.accessEntries(shared.id).map((entry) => entry.subjectKind)).toEqual(["everyone"]);
 
     await arbor(["sync", "--access", "public=none", source, canonical], stateA);
     expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("none");
@@ -148,7 +157,7 @@ describe("primary CLI sync forms", () => {
     expect(root.type).toBe("directory");
     if (root.type === "directory") {
       for (const entry of root.entries) {
-        if (entry.hash) expect((await fetch(`${host.url}/.arbor/objects/${entry.hash}`)).status).toBe(200);
+        if (entry.hash) expect((await fetch(`${host.url}/.arbor/trees/${shared.id}/objects/${entry.hash}`)).status).toBe(200);
       }
     }
   });
@@ -248,25 +257,15 @@ describe("primary CLI sync forms", () => {
 
   test("idempotently places a canonical URL", async () => {
     const canonical = `${host.url}/~owner/notes`;
-    expect(await arbor(["sync", canonical, destination], stateB)).toContain("(read)");
-    expect(await arbor(["sync", canonical, destination], stateB)).toContain("(read)");
+    expect(await arbor(["connect", host.url], stateB)).toContain("Connected as ~owner");
+    expect(await arbor(["sync", canonical, destination], stateB)).toContain("(write)");
+    expect(await arbor(["sync", canonical, destination], stateB)).toContain("(write)");
     expect(await readFile(join(destination, "note.md"), "utf8")).toBe("# CLI sync\n");
 
     process.env.ARBOR_DATA_HOME = stateB;
     const tree = host.authority.boundary("/~owner/notes")!.id;
     const service = await ArborService.open(destination);
     try {
-      expect((await service.snapshot({ tree, path: "/note" })).writable).toBe(false);
-      await expect(service.executeMutation({
-        mutationID: "read-only-placement",
-        operations: [{ op: "createMarkdown", tree, path: "/blocked" }],
-      })).rejects.toMatchObject({ code: "read-only" });
-
-      await new WireClient(host.url, "cli-sync-owner").setPublicAccess(tree, "write");
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        if ((await service.snapshot({ tree, path: "/note" })).writable) break;
-        await Bun.sleep(100);
-      }
       expect((await service.snapshot({ tree, path: "/note" })).writable).toBe(true);
       await service.executeMutation({
         mutationID: "anonymous-public-write",
@@ -285,7 +284,7 @@ describe("primary CLI sync forms", () => {
 
     const mismatch = await arborFailure(
       ["unsync", `${host.url}/~owner/private-notes`, destination],
-      { ARBOR_DATA_HOME: stateB, ARBOR_ACCOUNT_TOKEN: "cli-sync-owner" },
+      { ARBOR_DATA_HOME: stateB, ARBOR_ACCOUNT_TOKEN: stateBToken },
     );
     expect(mismatch).toContain("is not synced with");
     expect(await readFile(join(destination, "note.md"), "utf8")).toBe("# CLI sync\n");

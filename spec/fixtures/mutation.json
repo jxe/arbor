@@ -3,8 +3,8 @@
   "operations": [
     {
       "op": "move",
-      "refs": [{ "pageID": "abc123", "pathHint": "/notes/old" }],
-      "destination": { "path": "/archive" }
+      "refs": [{ "tree": "tr_notes7f3q2ab7c", "pageID": "abc123", "pathHint": "/notes/old" }],
+      "destination": { "tree": "tr_notes7f3q2ab7c", "path": "/archive" }
     }
   ]
 }

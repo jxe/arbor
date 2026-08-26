@@ -26,7 +26,8 @@ private actor ClosureTransport: ReplicaAuthorityTransport {
     func currentSnapshot(tree: String) async throws -> AuthorityCurrentSnapshot {
         return AuthorityCurrentSnapshot(
             tree: descriptor(tree: tree, snapshot: initial, update: currentUpdate),
-            snapshot: initial
+            snapshot: initial,
+            observedThrough: currentUpdate
         )
     }
 }
@@ -61,7 +62,7 @@ struct ArborSyncTests {
                 let candidate = try completeCandidate(request, retained: initial)
                 let update = accepted(id: "up_local", tree: tree, root: candidate.root, base: request.base.root, candidate: candidate.root)
                 #expect(request.returnSnapshot == .ifResultDiffers)
-                return AuthorityUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: nil)
+                return AuthorityUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: nil, observedThrough: update.id)
             }
             let replica = try await ReplicaPlacementService.place(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -97,7 +98,7 @@ struct ArborSyncTests {
                     base: request.base.root,
                     candidate: request.candidate
                 )
-                return AuthorityUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: nil)
+                return AuthorityUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: nil, observedThrough: update.id)
             }
             let replica = try await ReplicaPlacementService.place(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -210,7 +211,8 @@ struct ArborSyncTests {
                 return AuthorityUpdateResponse(
                     result: .accepted(update),
                     requestDigest: prepared.requestDigest,
-                    snapshot: nil
+                    snapshot: nil,
+                    observedThrough: update.id
                 )
             }
             let replica = try await ReplicaPlacementService.place(
@@ -229,15 +231,16 @@ struct ArborSyncTests {
             let request = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: frozen.body)
             let eventTree = AuthorityTreeDescriptor(
                 id: tree,
-                canonicalPath: "/~owner/watch-digest",
                 kind: "shared-subtree",
                 ref: request.candidate,
-                publicAccess: "none",
                 access: "write",
-                httpURL: "https://example.test/~owner/watch-digest",
-                arborURL: "arbor://example.test/~owner/watch-digest",
-                update: "up_local",
-                requestDigest: frozen.requestDigest
+                canonical: AuthorityCanonicalDescriptor(
+                    locator: "arbor://example.test/~owner/watch-digest",
+                    path: "/~owner/watch-digest",
+                    endpoint: "https://example.test",
+                    httpURL: "https://example.test/~owner/watch-digest"
+                ),
+                update: "up_local"
             )
             let result = try await coordinator.observe(.init(
                 id: "up_local",
@@ -275,7 +278,7 @@ struct ArborSyncTests {
                 }
                 let returned = try completeCandidate(request, retained: initial)
                 let update = accepted(id: "up_\(call)", tree: tree, root: returned.root, base: request.base.root, candidate: returned.root)
-                return AuthorityUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: returned)
+                return AuthorityUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: returned, observedThrough: update.id)
             }
             let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)
             let first = try await coordinator.syncOnce()
@@ -341,7 +344,8 @@ struct ArborSyncTests {
                 return AuthorityUpdateResponse(
                     result: .accepted(accepted(id: "up_resolved", tree: tree, root: candidate.root, base: remote.root, candidate: candidate.root)),
                     requestDigest: prepared.requestDigest,
-                    snapshot: candidate
+                    snapshot: candidate,
+                    observedThrough: "up_resolved"
                 )
             }
             let resumed = try ReplicaSyncCoordinator(replica: replica, transport: accepting, stateRoot: root)
@@ -361,7 +365,8 @@ struct ArborSyncTests {
                     return AuthorityUpdateResponse(
                         result: .accepted(accepted(id: "up_done", tree: tree, root: candidate.root, base: request.base.root, candidate: candidate.root)),
                         requestDigest: prepared.requestDigest,
-                        snapshot: candidate
+                        snapshot: candidate,
+                        observedThrough: "up_done"
                     )
                 }
                 let replica = try await ReplicaPlacementService.place(
@@ -418,7 +423,7 @@ struct ArborSyncTests {
                         remoteRoot: initial.root,
                         merge: summary
                     )
-                    return AuthorityUpdateResponse(result: .merged(update, summary), requestDigest: prepared.requestDigest, snapshot: merged)
+                    return AuthorityUpdateResponse(result: .merged(update, summary), requestDigest: prepared.requestDigest, snapshot: merged, observedThrough: update.id)
                 }
                 let replica = try await ReplicaPlacementService.place(
                     tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -456,14 +461,11 @@ struct LiveNativePeerTests {
     func twoReplicas() async throws {
         guard let originValue = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_URL"],
               let origin = URL(string: originValue),
-              let token = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TOKEN"] else { return }
+              let token = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TOKEN"],
+              let treeID = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TREE"] else { return }
         try await withTemporaryRoot { root in
             let client = ArborAuthorityClient(origin: origin, credential: token, retryDelay: { _ in })
-            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
-            let tree = try await client.createTree(
-                canonicalPath: "/~owner/native-\(UUID().uuidString.lowercased())",
-                snapshot: initial
-            )
+            let tree = try await client.ref(tree: treeID).snapshot
             let transport = ArborWireReplicaTransport(client: client)
             let mac = try await ReplicaPlacementService.place(
                 tree: tree,
@@ -490,7 +492,7 @@ struct LiveNativePeerTests {
             #expect(merged.state == .autoMerged || merged.state == .approximatePlacement)
             _ = try await macSync.syncOnce()
 
-            let remote = try await client.ref(tree: tree.id)
+            let remote = try await client.ref(tree: tree.id).snapshot
             #expect(try await mac.heads().materializedRoot == remote.ref)
             #expect(try await tablet.heads().materializedRoot == remote.ref)
             let source = (try await macSession.snapshot()).source
@@ -526,13 +528,15 @@ private func completeCandidate(_ request: AuthorityUpdateRequest, retained: Auth
 private func descriptor(tree: String, snapshot: AuthoritySnapshot, update: String) -> AuthorityTreeDescriptor {
     AuthorityTreeDescriptor(
         id: tree,
-        canonicalPath: "/~owner/\(tree)",
         kind: "shared-subtree",
         ref: snapshot.root,
-        publicAccess: "none",
         access: "write",
-        httpURL: "https://arbor.example/~owner/\(tree)",
-        arborURL: "arbor://arbor.example/~owner/\(tree)",
+        canonical: AuthorityCanonicalDescriptor(
+            locator: "arbor://arbor.example/~owner/\(tree)",
+            path: "/~owner/\(tree)",
+            endpoint: "https://arbor.example",
+            httpURL: "https://arbor.example/~owner/\(tree)"
+        ),
         update: update
     )
 }

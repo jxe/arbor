@@ -7,36 +7,33 @@
         "ref": { "tree": "tr_notes7f3q2ab7c", "pageID": "abc123", "pathHint": "/notes/today" },
         "baseContentRevision": "sha256:content",
         "source": "---\nid: abc123\ntitle: Today\n---\nUpdated\n"
+      },
+      {
+        "op": "writeText",
+        "ref": { "tree": "tr_config7f3q2ab7c", "path": "/trees.yaml" },
+        "baseContentRevision": "sha256:configuration",
+        "source": "version: 1\ntrees: {}\n"
       }
     ]
   },
   {
     "mutationID": "55555555-5555-5555-5555-555555555552",
     "operations": [
-      {
-        "op": "createMarkdown",
-        "path": "/notes/tomorrow",
-        "source": "Tomorrow\n"
-      },
-      { "op": "createDirectory", "path": "/archive" },
-      { "op": "rename", "ref": { "path": "/draft" }, "name": "published" },
+      { "op": "createMarkdown", "tree": "tr_notes7f3q2ab7c", "path": "/notes/tomorrow", "source": "Tomorrow\n" },
+      { "op": "createDirectory", "tree": "tr_notes7f3q2ab7c", "path": "/archive" },
+      { "op": "rename", "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/draft" }, "name": "published" },
       {
         "op": "move",
-        "refs": [{ "path": "/notes/tomorrow" }],
-        "destination": { "path": "/archive" }
-      },
-      {
-        "op": "move",
-        "refs": [{ "path": "/notes/scratch" }],
-        "destination": { "path": "/archive" }
+        "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/notes/tomorrow" }],
+        "destination": { "tree": "tr_notes7f3q2ab7c", "path": "/archive" }
       },
       {
         "op": "copy",
-        "refs": [{ "path": "/notes/today" }],
-        "destination": { "path": "/archive" }
+        "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/notes/today" }],
+        "destination": { "tree": "tr_notes7f3q2ab7c", "path": "/archive" }
       },
-      { "op": "trash", "refs": [{ "path": "/draft" }] },
-      { "op": "restore", "refs": [{ "path": "/Trash/draft" }] }
+      { "op": "trash", "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/draft" }] },
+      { "op": "restore", "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/Trash/draft" }] }
     ]
   },
   {
@@ -44,117 +41,14 @@
     "operations": [
       {
         "op": "restoreRecovery",
-        "ref": { "pageID": "abc123", "pathHint": "/notes/today" },
+        "ref": { "tree": "tr_notes7f3q2ab7c", "pageID": "abc123", "pathHint": "/notes/today" },
         "hash": "sha256:lost",
         "baseContentRevision": "sha256:content"
-      }
-    ]
-  },
-  {
-    "mutationID": "55555555-5555-5555-5555-555555555554",
-    "operations": [
+      },
       {
         "op": "ensureDocumentIdentity",
-        "ref": { "path": "/projects/atlas" },
+        "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/projects/atlas" },
         "baseContentRevision": "sha256:content"
-      }
-    ]
-  },
-  {
-    "mutationID": "55555555-5555-5555-5555-555555555555",
-    "operations": [
-      {
-        "op": "connectCommunity",
-        "origin": "https://notes.example",
-        "accountToken": "fixture-account-token"
-      }
-    ]
-  },
-  {
-    "mutationID": "55555555-5555-5555-5555-555555555556",
-    "operations": [
-      {
-        "op": "promoteTree",
-        "path": "/Users/joe/notes",
-        "canonicalPath": "/~joe/notes",
-        "audience": {
-          "kind": "rules",
-          "rules": [
-            { "subject": { "kind": "everyone" }, "access": "read" },
-            { "subject": { "kind": "profile", "locator": "https://notes.example/~editors" }, "access": "write" }
-          ]
-        }
-      }
-    ]
-  },
-  {
-    "mutationID": "55555555-5555-5555-5555-555555555557",
-    "operations": [
-      {
-        "op": "placeTree",
-        "tree": "tr_notes7f3q2ab7c",
-        "path": "/Users/joe/notes"
-      }
-    ]
-  },
-  {
-    "mutationID": "55555555-5555-5555-5555-555555555558",
-    "operations": [
-      {
-        "op": "setTreeAccess",
-        "tree": "tr_notes7f3q2ab7c",
-        "subject": { "kind": "everyone" },
-        "access": "read"
-      }
-    ]
-  },
-  {
-    "mutationID": "55555555-5555-5555-5555-555555555559",
-    "operations": [
-      {
-        "op": "claimProfile",
-        "origin": "https://notes.example",
-        "handle": "alice",
-        "path": "/Users/alice/Arbor/alice"
-      }
-    ]
-  },
-  {
-    "mutationID": "55555555-5555-5555-5555-555555555560",
-    "operations": [
-      {
-        "op": "disconnectCommunity"
-      }
-    ]
-  },
-  {
-    "mutationID": "55555555-5555-5555-5555-555555555561",
-    "operations": [
-      {
-        "op": "createGroupProfile",
-        "handle": "editors",
-        "path": "/Users/alice/Arbor/editors"
-      }
-    ]
-  },
-  {
-    "mutationID": "55555555-5555-5555-5555-555555555562",
-    "operations": [
-      {
-        "op": "removeTreePlacement",
-        "path": "/Users/joe/notes",
-        "endpoint": "https://notes.example",
-        "canonicalPath": "/~joe/notes"
-      }
-    ]
-  },
-  {
-    "mutationID": "55555555-5555-5555-5555-555555555563",
-    "operations": [
-      {
-        "op": "resolveTreeConflict",
-        "tree": "tr_notes7f3q2ab7c",
-        "choice": "local"
       }
     ]
   }

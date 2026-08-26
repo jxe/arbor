@@ -1,18 +1,16 @@
-import { realpath, stat } from "node:fs/promises";
+import { mkdir, realpath, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
-import { canonicalNodePath, type Diagnostic, type TreeDescriptor } from "@arbor/core";
+import { canonicalNodePath, type Diagnostic, type LocalTreeDescriptor } from "@arbor/core";
 import {
   AmbiguousWorkspaceIdentityError,
+  arborPrivateRoot,
   arborDataHomeDiagnostics,
-  deleteTreePlacement,
   legacySystemRootsExist,
   loadTreeRegistry,
   type TreePlacement,
-  privateRootID,
-  saveSharedTreePlacement,
   watchTreeRegistry,
-  workspaceIdentity,
   type SharedTreePlacement,
+  savePlacementSyncMetadata,
 } from "@arbor/stores";
 import type { EventBus } from "./events.ts";
 import { rootDisplayName } from "./root-title.ts";
@@ -30,6 +28,18 @@ interface CandidateRoot extends KnownRoot {
   placement: TreePlacement;
 }
 
+function descriptorCanonical(placement: TreePlacement, parentTree: string | null = null): LocalTreeDescriptor["canonical"] {
+  if (!placement.canonical) return null;
+  const path = placement.canonicalPath ?? new URL(placement.canonical).pathname;
+  return {
+    locator: placement.canonical,
+    path,
+    httpURL: `${placement.endpoint}${path}`,
+    endpoint: placement.endpoint,
+    parentTree,
+  };
+}
+
 /**
  * Owns legacy and shared entries in `~/.arbor/trees.yaml` and the private
  * Workspace instances behind one shared event bus. Private workspace IDs
@@ -40,7 +50,7 @@ export class TreeManager implements AsyncDisposable {
   private known = new Map<string, KnownRoot>();
   private sessionID: string | null = null;
   private recordDiagnostics: Diagnostic[] = [];
-  private syncStates = new Map<string, NonNullable<TreeDescriptor["sync"]>>();
+  private syncStates = new Map<string, NonNullable<LocalTreeDescriptor["sync"]>>();
   private workspaceOptions: Omit<WorkspaceOptions, "events" | "tree" | "tracking"> = {};
   private stopWatching?: () => void;
   private reloadTail: Promise<void> = Promise.resolve();
@@ -62,8 +72,8 @@ export class TreeManager implements AsyncDisposable {
     if (await legacySystemRootsExist()) {
       this.recordDiagnostics.push({
         code: "legacy-system-roots",
-        message: "Legacy system/roots/*.md records are unsupported; convert them manually to path-keyed trees.yaml entries",
-        path: "system:trees",
+        message: "Legacy system/roots/*.md records are unsupported; migrate them into trees.yaml and the current device's placements",
+        path: "system:diagnostics",
         severity: "warning",
       });
     }
@@ -80,18 +90,17 @@ export class TreeManager implements AsyncDisposable {
       const canonical = await realpath(placement.path);
       const info = await stat(canonical);
       if (!info.isDirectory()) missing = true;
-      else if (canonical !== placement.path) {
-        throw new Error(`Tree placement key is not canonical: ${placement.path} resolves to ${canonical}`);
-      } else {
-        osPath = canonical;
-      }
+      else osPath = canonical;
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith("Tree placement key is not canonical:")) throw error;
-      missing = true;
+      await mkdir(placement.path, { recursive: true, mode: 0o700 }).catch(() => {});
+      try {
+        osPath = await realpath(placement.path);
+        missing = osPath !== placement.path;
+      } catch {
+        missing = true;
+      }
     }
-    const id = placement.source === "local"
-      ? (missing ? await privateRootID(placement.path) : (await workspaceIdentity(osPath)).rootID)
-      : placement.tree;
+    const id = placement.tree;
     return {
       id,
       placement,
@@ -148,7 +157,7 @@ export class TreeManager implements AsyncDisposable {
       this.recordDiagnostics = [{
         code: error instanceof AmbiguousWorkspaceIdentityError ? "ambiguous-tree-move" : "invalid-tree-placement",
         message: error instanceof Error ? error.message : String(error),
-        path: "system:trees",
+        path: "system:diagnostics",
         severity: "warning",
       }];
       return false;
@@ -201,17 +210,11 @@ export class TreeManager implements AsyncDisposable {
       if (open) {
         await open.activateRecursiveDiscovery();
         open.tracking = "tracked";
-        open.updateTreeDescriptor(candidate.placement.source === "local" ? {
-          legacy: true,
-        } : {
-          canonical: candidate.placement.canonical,
-          canonicalPath: new URL(candidate.placement.canonical).pathname,
-          httpURL: `${candidate.placement.endpoint}${new URL(candidate.placement.canonical).pathname}`,
-          endpoint: candidate.placement.endpoint,
-          publicAccess: candidate.placement.publicAccess ?? "none",
+        open.updateTreeDescriptor({
+          kind: candidate.placement.kind ?? "shared-subtree",
+          canonical: descriptorCanonical(candidate.placement),
           access: candidate.placement.access,
-          placement: "shared",
-          legacy: false,
+          placement: candidate.placement.replica ? "replica" : "placed",
         });
       }
     }
@@ -227,13 +230,13 @@ export class TreeManager implements AsyncDisposable {
     if (await legacySystemRootsExist()) {
       this.recordDiagnostics.push({
         code: "legacy-system-roots",
-        message: "Legacy system/roots/*.md records are unsupported; convert them manually to path-keyed trees.yaml entries",
-        path: "system:trees",
+        message: "Legacy system/roots/*.md records are unsupported; migrate them into trees.yaml and the current device's placements",
+        path: "system:diagnostics",
         severity: "warning",
       });
     }
     if (publish) {
-      this.events.emit({ tree: "system", kind: "updated", path: "/trees", origin: "external" });
+      this.events.emit({ tree: "system", kind: "updated", path: "/diagnostics", origin: "external" });
     }
     this.invalidateDescriptors();
     return true;
@@ -243,10 +246,14 @@ export class TreeManager implements AsyncDisposable {
     const snapshot = await loadTreeRegistry();
     if (snapshot.diagnostics.length) {
       this.recordDiagnostics = [...arborDataHomeDiagnostics(), ...snapshot.diagnostics];
-      this.events.emit({ tree: "system", kind: "diagnostic", path: "/trees", origin: "external" });
+      this.events.emit({ tree: "system", kind: "diagnostic", path: "/diagnostics", origin: "external" });
       return;
     }
     await this.applyPlacements(snapshot.placements, true);
+  }
+
+  async refreshConfiguration(): Promise<void> {
+    await this.reloadFromDisk();
   }
 
   async openSession(path: string, options: Omit<WorkspaceOptions, "events" | "tree" | "tracking"> = {}): Promise<Workspace> {
@@ -265,14 +272,11 @@ export class TreeManager implements AsyncDisposable {
       displayName: tracked?.name,
       tracking: tracked ? "tracked" : "session",
       discovery: tracked ? "recursive" : "shallow",
-      treeDescriptor: tracked?.placement?.source === "local" ? { legacy: true } : tracked?.placement ? {
-        canonical: tracked.placement.canonical,
-        canonicalPath: new URL(tracked.placement.canonical).pathname,
-        httpURL: `${tracked.placement.endpoint}${new URL(tracked.placement.canonical).pathname}`,
-        endpoint: tracked.placement.endpoint,
-        publicAccess: tracked.placement.publicAccess ?? "none",
+      treeDescriptor: tracked?.placement ? {
+        kind: tracked.placement.kind ?? "shared-subtree",
+        canonical: descriptorCanonical(tracked.placement),
         access: tracked.placement.access,
-        placement: "shared",
+        placement: tracked.placement.replica ? "replica" : "placed",
       } : undefined,
       excludedRoots: trackedID ? this.compositionFor(trackedID).excludedRoots : [],
     });
@@ -310,14 +314,11 @@ export class TreeManager implements AsyncDisposable {
       displayName: root.name,
       tracking: "tracked",
       discovery: "recursive",
-      treeDescriptor: root.placement?.source === "local" ? { legacy: true } : root.placement ? {
-        canonical: root.placement.canonical,
-        canonicalPath: new URL(root.placement.canonical).pathname,
-        httpURL: `${root.placement.endpoint}${new URL(root.placement.canonical).pathname}`,
-        endpoint: root.placement.endpoint,
-        publicAccess: root.placement.publicAccess ?? "none",
+      treeDescriptor: root.placement ? {
+        kind: root.placement.kind ?? "shared-subtree",
+        canonical: descriptorCanonical(root.placement),
         access: root.placement.access,
-        placement: "shared",
+        placement: root.placement.replica ? "replica" : "placed",
       } : undefined,
       excludedRoots: this.compositionFor(tree).excludedRoots,
     });
@@ -338,7 +339,7 @@ export class TreeManager implements AsyncDisposable {
     return this.list();
   }
 
-  async descriptors(): Promise<TreeDescriptor[]> {
+  async descriptors(): Promise<LocalTreeDescriptor[]> {
     await Promise.all([...this.known.entries()].map(async ([id, root]) => {
       const workspace = this.workspaces.get(id);
       if (workspace && workspace.root === root.osPath) {
@@ -347,21 +348,15 @@ export class TreeManager implements AsyncDisposable {
         root.name = await rootDisplayName(root.osPath);
       }
     }));
-    return [...this.known.entries()].filter(([, root]) => Boolean(root.placement)).map(([id, root]): TreeDescriptor => ({
+    return [...this.known.entries()].filter(([, root]) => Boolean(root.placement)).map(([id, root]): LocalTreeDescriptor => ({
       id,
       name: this.workspaces.get(id)?.descriptor().name ?? root.name,
       osPath: root.osPath,
-      placement: root.placement?.source === "local" || !root.placement ? "local" : "shared",
-      ...(root.placement?.source === "local" ? { legacy: true } : {}),
-      ...(root.placement && root.placement.source !== "local" ? {
-        canonical: root.placement.canonical,
-        canonicalPath: new URL(root.placement.canonical).pathname,
-        httpURL: `${root.placement.endpoint}${new URL(root.placement.canonical).pathname}`,
-        endpoint: root.placement.endpoint,
-        publicAccess: root.placement.publicAccess ?? "none",
-        access: root.placement.access,
-        sync: this.syncStates.get(id) ?? "idle",
-      } : {}),
+      kind: root.placement!.kind ?? "shared-subtree",
+      canonical: descriptorCanonical(root.placement!, this.canonicalParentOf(id)),
+      access: root.placement!.access,
+      placement: root.placement!.replica ? "replica" : "placed",
+      sync: this.syncStates.get(id) ?? (root.placement!.ref && root.placement!.update ? "idle" : "syncing"),
       ...(root.missing ? { missing: true } : {}),
     }));
   }
@@ -403,20 +398,19 @@ export class TreeManager implements AsyncDisposable {
   }
 
   sharedPlacements(): SharedTreePlacement[] {
-    return [...this.known.values()].flatMap((root) =>
-      root.placement && root.placement.source !== "local" ? [root.placement] : []
-    );
+    return [...this.known.values()].flatMap((root) => root.placement ? [root.placement] : []);
   }
 
-  setSyncState(tree: string, state: NonNullable<TreeDescriptor["sync"]>): void {
+  setSyncState(tree: string, state: NonNullable<LocalTreeDescriptor["sync"]>): void {
     if (this.syncStates.get(tree) === state) return;
     this.syncStates.set(tree, state);
     this.invalidateDescriptors();
   }
 
   private canonicalPath(root: KnownRoot): string | null {
-    if (!root.placement || root.placement.source === "local") return null;
-    return new URL(root.placement.canonical).pathname.replace(/\/$/, "") || "/";
+    if (!root.placement) return null;
+    if (!root.placement.canonical) return null;
+    return root.placement.canonicalPath ?? (new URL(root.placement.canonical).pathname.replace(/\/$/, "") || "/");
   }
 
   private canonicalParentOf(tree: string): string | null {
@@ -444,9 +438,10 @@ export class TreeManager implements AsyncDisposable {
     const parent = this.known.get(tree);
     if (!parent || parent.missing) return { boundaries, excludedRoots };
     const parentCanonical = this.canonicalPath(parent);
+    if (parent.placement?.kind === "account-configuration") excludedRoots.push(arborPrivateRoot());
 
     for (const [childTree, child] of this.known) {
-      if (childTree === tree || child.missing || !child.placement || child.placement.source === "local") continue;
+      if (childTree === tree || child.missing || !child.placement) continue;
       const childCanonical = this.canonicalPath(child);
       if (parentCanonical && childCanonical && this.canonicalParentOf(childTree) === tree) {
         const relativeCanonical = parentCanonical === "/"
@@ -458,7 +453,7 @@ export class TreeManager implements AsyncDisposable {
 
     const prefix = parent.osPath.endsWith("/") ? parent.osPath : `${parent.osPath}/`;
     for (const [childTree, child] of this.known) {
-      if (childTree === tree || child.missing || !child.placement || child.placement.source === "local") continue;
+      if (childTree === tree || child.missing || !child.placement) continue;
       if (!child.osPath.startsWith(prefix)) continue;
       if (boundaries.get(child.osPath) !== childTree) excludedRoots.push(child.osPath);
     }
@@ -511,15 +506,17 @@ export class TreeManager implements AsyncDisposable {
 
   reservedBoundary(tree: string, treePath: string): { tree: string; path: string; treePath: string; exact: boolean } | null {
     const parent = this.known.get(tree);
-    if (!parent?.placement || parent.placement.source === "local" || !parent.placement.canonical) return null;
-    const parentPath = new URL(parent.placement.canonical).pathname.replace(/\/$/, "") || "/";
+    if (!parent?.placement) return null;
+    const parentPath = this.canonicalPath(parent);
+    if (!parentPath) return null;
     const candidate = parentPath === "/"
       ? canonicalNodePath(treePath)
       : `${parentPath}${treePath === "/" ? "" : treePath}`;
     let best: { tree: string; path: string; treePath: string; exact: boolean } | null = null;
     for (const [childTree, root] of this.known) {
-      if (childTree === tree || root.placement?.source === "local" || !root.placement?.canonical) continue;
-      const childPath = new URL(root.placement.canonical).pathname.replace(/\/$/, "") || "/";
+      if (childTree === tree || !root.placement) continue;
+      const childPath = this.canonicalPath(root);
+      if (!childPath) continue;
       const insideParent = parentPath === "/"
         ? childPath !== "/"
         : childPath.startsWith(`${parentPath}/`);
@@ -541,16 +538,18 @@ export class TreeManager implements AsyncDisposable {
 
   mountedChildren(tree: string, treePath: string): Array<{ name: string; path: string; tree: string }> {
     const parent = this.known.get(tree);
-    if (!parent?.placement || parent.placement.source === "local" || !parent.placement.canonical) return [];
-    const parentCanonical = new URL(parent.placement.canonical).pathname.replace(/\/$/, "") || "/";
+    if (!parent?.placement) return [];
+    const parentCanonical = this.canonicalPath(parent);
+    if (!parentCanonical) return [];
     const directoryCanonical = parentCanonical === "/"
       ? canonicalNodePath(treePath)
       : `${parentCanonical}${treePath === "/" ? "" : treePath}`.replace(/\/$/, "");
     const directoryPrefix = directoryCanonical === "/" ? "/" : `${directoryCanonical}/`;
     const result: Array<{ name: string; path: string; tree: string }> = [];
     for (const [childTree, root] of this.known) {
-      if (childTree === tree || root.placement?.source === "local" || !root.placement?.canonical) continue;
-      const childCanonical = new URL(root.placement.canonical).pathname.replace(/\/$/, "") || "/";
+      if (childTree === tree || !root.placement) continue;
+      const childCanonical = this.canonicalPath(root);
+      if (!childCanonical) continue;
       if (childCanonical === "/" || !childCanonical.startsWith(directoryPrefix)) continue;
       const remainder = childCanonical.slice(directoryPrefix.length);
       if (!remainder || remainder.includes("/")) continue;
@@ -563,24 +562,16 @@ export class TreeManager implements AsyncDisposable {
     return result.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  async applySharedPlacement(placement: SharedTreePlacement): Promise<TreeDescriptor> {
-    await saveSharedTreePlacement(placement);
-    const snapshot = await loadTreeRegistry();
-    if (snapshot.diagnostics.length || !(await this.applyPlacements(snapshot.placements, true))) {
-      throw new Error(`Could not activate shared tree placement at ${placement.path}`);
-    }
+  async updateSyncMetadata(placement: SharedTreePlacement): Promise<LocalTreeDescriptor> {
+    const root = this.known.get(placement.tree);
+    if (!root?.placement || root.placement.path !== placement.path) throw new Error(`Unknown configured placement: ${placement.tree}`);
+    root.placement = { ...root.placement, ref: placement.ref, update: placement.update, access: placement.access };
+    await savePlacementSyncMetadata(placement.tree, { ref: placement.ref, update: placement.update, access: placement.access });
+    this.invalidateDescriptors();
     return (await this.descriptorFor(placement.tree))!;
   }
 
-  async removeSharedPlacement(path: string): Promise<void> {
-    await deleteTreePlacement(path);
-    const snapshot = await loadTreeRegistry();
-    if (snapshot.diagnostics.length || !(await this.applyPlacements(snapshot.placements, true))) {
-      throw new Error(`Could not remove shared tree placement at ${path}`);
-    }
-  }
-
-  private async descriptorFor(tree: string): Promise<TreeDescriptor | undefined> {
+  private async descriptorFor(tree: string): Promise<LocalTreeDescriptor | undefined> {
     return (await this.descriptors()).find((descriptor) => descriptor.id === tree);
   }
 

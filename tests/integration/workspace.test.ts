@@ -98,22 +98,22 @@ describe("workspace service", () => {
   });
 
   test("reports body state and unambiguous child identity", async () => {
-    const notes = await workspace.snapshot({ path: "/notes" });
+    const notes = await workspace.snapshot({ tree: "local", path: "/notes" });
     expect(notes.bodyState).toBe("stored");
     expect(notes.bodyOrigin).toBe("sibling");
     expect(notes.ref.pageID).toBeUndefined();
 
-    const materialized = await workspace.snapshot({ path: "/folder" });
+    const materialized = await workspace.snapshot({ tree: "local", path: "/folder" });
     expect(materialized.bodyState).toBe("stored");
     expect(materialized.bodyOrigin).toBe("index");
 
     await mkdir(join(root, "plain"));
-    const implicit = await workspace.snapshot({ path: "/plain" });
+    const implicit = await workspace.snapshot({ tree: "local", path: "/plain" });
     expect(implicit.bodyState).toBe("implicit");
     expect(implicit.bodyOrigin).toBeUndefined();
     expect(implicit.document?.blocks).toEqual([]);
 
-    const listing = await workspace.children({ path: "/" });
+    const listing = await workspace.children({ tree: "local", path: "/" });
     const child = listing.items.find((item) => item.path === "/notes");
     expect(child?.pageID).toBeUndefined();
     expect(listing.items.find((item) => item.path === "/plain")?.pageID).toBeUndefined();
@@ -121,7 +121,7 @@ describe("workspace service", () => {
 
   test("ensureDocumentIdentity mints lazily, no-ops when present, and replays idempotently", async () => {
     await mkdir(join(root, "bodyless"));
-    const before = await workspace.snapshot({ path: "/bodyless" });
+    const before = await workspace.snapshot({ tree: "local", path: "/bodyless" });
     expect(before.bodyState).toBe("implicit");
     expect(before.ref.pageID).toBeUndefined();
 
@@ -129,7 +129,7 @@ describe("workspace service", () => {
       mutationID: "identity-test-0001",
       operations: [{
         op: "ensureDocumentIdentity" as const,
-        ref: { path: "/bodyless" },
+        ref: { tree: "local", path: "/bodyless" },
         baseContentRevision: before.contentRevision!,
       }] as [never] & { 0: unknown },
     };
@@ -143,12 +143,12 @@ describe("workspace service", () => {
     const replayed = await workspace.executeMutation(request as never);
     expect(replayed).toEqual(receipt);
 
-    const after = await workspace.snapshot({ path: "/bodyless" });
+    const after = await workspace.snapshot({ tree: "local", path: "/bodyless" });
     const again = await workspace.executeMutation({
       mutationID: "identity-test-0002",
       operations: [{
         op: "ensureDocumentIdentity",
-        ref: { path: "/bodyless" },
+        ref: { tree: "local", path: "/bodyless" },
         baseContentRevision: "sha256:stale-is-fine-for-a-no-op",
       }],
     } as never);
@@ -160,7 +160,7 @@ describe("workspace service", () => {
     await writeFile(join(root, "unnamed.md"), "No identity yet\n");
     const receipt = await workspace.executeMutation({
       mutationID: "identity-rename-0001",
-      operations: [{ op: "rename", ref: { path: "/unnamed" }, name: "named" }],
+      operations: [{ op: "rename", ref: { tree: "local", path: "/unnamed" }, name: "named" }],
     } as never);
     const moved = receipt.effects.find((item) => item.path === "/named");
     expect(moved?.pageID).toMatch(/^[a-z0-9]{6}$/);
@@ -168,7 +168,7 @@ describe("workspace service", () => {
 
     const trashed = await workspace.executeMutation({
       mutationID: "identity-trash-0001",
-      operations: [{ op: "trash", refs: [{ path: "/named" }] }],
+      operations: [{ op: "trash", refs: [{ tree: "local", path: "/named" }] }],
     } as never);
     expect(trashed.effects.some((item) => item.pageID === moved!.pageID)).toBe(true);
   });

@@ -13,6 +13,7 @@ let base: string;
 let client: ArbordClient;
 let close: () => Promise<void>;
 let activeWorkspace: Workspace;
+let scope: string;
 let durableWriteRequest: MutationRequest;
 let durableWriteReceipt: Awaited<ReturnType<ArbordClient["mutate"]>>;
 
@@ -27,6 +28,7 @@ beforeAll(async () => {
   await writeFile(join(root, "duplicate-b.md"), "---\nid: duplicate-id\n---\nB\n");
   const running = await serveWorkspace(root, { port: 0 });
   activeWorkspace = running.workspace;
+  scope = activeWorkspace.tree;
   base = running.url;
   client = new ArbordClient({ baseURL: base, retryDelay: async () => {} });
   close = async () => {
@@ -46,10 +48,10 @@ describe("arbord REST v1", () => {
     const running = await serveArborControl({ port: 0 });
     try {
       const controlClient = new ArbordClient({ baseURL: running.url });
-      expect((await controlClient.node({ tree: "system", path: "/device" })).tree).toBe("system");
+      expect((await controlClient.node({ tree: "system", path: "/diagnostics" })).tree).toBe("system");
       const response = await fetch(`${running.url}/v1/node?path=%2F`);
-      expect(response.status).toBe(409);
-      expect((await response.json() as any).error).toBe("not-found");
+      expect(response.status).toBe(400);
+      expect((await response.json() as any).error).toBe("invalid-request");
     } finally {
       running.server.stop(true);
       await running.service[Symbol.asyncDispose]();
@@ -57,13 +59,13 @@ describe("arbord REST v1", () => {
   });
 
   test("reads and idempotently writes a Markdown node", async () => {
-    const node = await client.node({ path: "/page" });
+    const node = await client.node({ tree: scope, path: "/page" });
     const source = node.document!.source.replace("Hello API", "Changed through REST v1");
     const request: MutationRequest = {
       mutationID: "write-page-1",
       operations: [{
         op: "writeMarkdown",
-        ref: { path: "/page" },
+        ref: { tree: scope, path: "/page" },
         baseContentRevision: node.contentRevision!,
         source,
       }],
@@ -71,7 +73,7 @@ describe("arbord REST v1", () => {
     const first = await client.mutate(request);
     const retry = await client.mutate(request);
     expect(retry).toEqual(first);
-    const saved = await client.node({ path: "/page" });
+    const saved = await client.node({ tree: scope, path: "/page" });
     expect(saved.document?.source).toBe(source);
     expect(saved.document?.bodySource).toContain("Changed through REST v1");
     durableWriteRequest = request;
@@ -81,15 +83,12 @@ describe("arbord REST v1", () => {
   test("rejects mutation ID reuse with changed intent", async () => {
     await expect(client.mutate({
       mutationID: "write-page-1",
-      operations: [{ op: "createDirectory", path: "/wrong" }],
-    })).rejects.toMatchObject({
-      status: 409,
-      value: { code: "mutation-mismatch" },
-    });
+      operations: [{ op: "createDirectory", tree: scope, path: "/wrong" }],
+    })).rejects.toThrow("already used for a different request");
   });
 
   test("verifies guarded UTF-8 source edits before recording a content intent", async () => {
-    const before = await client.node({ path: "/page" });
+    const before = await client.node({ tree: scope, path: "/page" });
     const original = before.document!.source;
     const originalBytes = Buffer.from(original);
     const target = Buffer.from("REST");
@@ -102,25 +101,25 @@ describe("arbord REST v1", () => {
       mutationID: "bad-source-edit-result",
       operations: [{
         op: "writeMarkdown",
-        ref: { path: "/page" },
+        ref: { tree: scope, path: "/page" },
         baseContentRevision: before.contentRevision!,
         source: `${source}wrong`,
         sourceEdits: [edit],
       }],
-    })).rejects.toMatchObject({ status: 400, value: { code: "invalid-reference" } });
-    expect((await client.node({ path: "/page" })).document?.source).toBe(original);
+    })).rejects.toThrow("sourceEdits do not produce");
+    expect((await client.node({ tree: scope, path: "/page" })).document?.source).toBe(original);
 
     await client.mutate({
       mutationID: "valid-source-edit",
       operations: [{
         op: "writeMarkdown",
-        ref: { path: "/page" },
+        ref: { tree: scope, path: "/page" },
         baseContentRevision: before.contentRevision!,
         source,
         sourceEdits: [edit],
       }],
     });
-    expect((await client.node({ path: "/page" })).document?.source).toBe(source);
+    expect((await client.node({ tree: scope, path: "/page" })).document?.source).toBe(source);
   });
 
   test("rejects malformed and empty mutation batches at the protocol boundary", async () => {
@@ -142,7 +141,7 @@ describe("arbord REST v1", () => {
         body: JSON.stringify(body),
       });
       expect(response.status).toBe(400);
-      expect((await response.json() as any).error).toBe("invalid-reference");
+      expect((await response.json() as any).error).toBe("invalid-request");
     }
     const unsupported = await fetch(`${base}/v1/mutations`, {
       method: "POST",
@@ -154,24 +153,18 @@ describe("arbord REST v1", () => {
   });
 
   test("resolves renamed Markdown pages by opaque page ID", async () => {
-    await client.mutateStructural([{ op: "rename", ref: { path: "/page" }, name: "renamed" }], "rename-page");
-    const renamed = await client.node({ path: "/renamed" });
-    const after = await client.node({ pageID: renamed.ref.pageID!, pathHint: "/page" });
+    await client.mutateStructural([{ op: "rename", ref: { tree: scope, path: "/page" }, name: "renamed" }], "rename-page");
+    const renamed = await client.node({ tree: scope, path: "/renamed" });
+    const after = await client.node({ tree: scope, pageID: renamed.ref.pageID!, pathHint: "/page" });
     expect(after.path).toBe("/renamed");
   });
 
   test("reports duplicate page IDs deterministically", async () => {
-    await expect(client.node({ pageID: "duplicate-id" })).rejects.toMatchObject({
-      status: 409,
-      value: {
-        code: "duplicate-page-id",
-        owners: ["/duplicate-a", "/duplicate-b"],
-      },
-    });
+    await expect(client.node({ tree: scope, pageID: "duplicate-id" })).rejects.toThrow("multiple owners");
   });
 
   test("returns indexed backlinks by path or durable target identity", async () => {
-    const byPath = await client.backlinks({ path: "/target" });
+    const byPath = await client.backlinks({ tree: scope, path: "/target" });
     expect(byPath.target.pageID).toBe("target");
     expect(byPath.entries).toEqual([
       expect.objectContaining({
@@ -180,14 +173,14 @@ describe("arbord REST v1", () => {
         context: "See [Target](/target#target).",
       }),
     ]);
-    const byID = await client.backlinks({ pageID: "target", pathHint: "/stale" });
+    const byID = await client.backlinks({ tree: scope, pageID: "target", pathHint: "/stale" });
     expect(byID.entries).toEqual(byPath.entries);
   });
 
   test("commits structural batches atomically and rejects obsolete ordering fields", async () => {
     const receipt = await client.mutateStructural([
-      { op: "createDirectory", path: "/folder" },
-      { op: "createMarkdown", path: "/other" },
+      { op: "createDirectory", tree: scope, path: "/folder" },
+      { op: "createMarkdown", tree: scope, path: "/other" },
     ], "create-batch");
     expect(receipt.effects.filter((effect) => effect.kind === "created").map((effect) => effect.path)).toEqual(["/folder", "/other"]);
 
@@ -205,15 +198,15 @@ describe("arbord REST v1", () => {
       }),
     });
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: "invalid-reference" });
+    expect(await response.json()).toMatchObject({ error: "invalid-request" });
   });
 
   test("rejects mixed and multiple-content batches before recording intent", async () => {
-    const before = await client.node({ path: "/renamed" });
+    const before = await client.node({ tree: scope, path: "/renamed" });
     const source = before.document!.source.replace(before.document!.bodySource, "Must not materialize\n");
     const content = {
       op: "writeMarkdown",
-      ref: { pageID: before.ref.pageID!, pathHint: "/renamed" },
+      ref: { tree: scope, pageID: before.ref.pageID!, pathHint: "/renamed" },
       baseContentRevision: before.contentRevision!,
       source,
     };
@@ -221,15 +214,16 @@ describe("arbord REST v1", () => {
       join(import.meta.dir, "../../spec/fixtures/mixed-mutation.json"),
       "utf8",
     ));
-    mixedFixture.operations[0].ref = { pageID: before.ref.pageID!, pathHint: "/renamed" };
+    mixedFixture.operations[0].ref = { tree: scope, pageID: before.ref.pageID!, pathHint: "/renamed" };
     mixedFixture.operations[0].baseContentRevision = before.contentRevision!;
     mixedFixture.operations[0].source = source;
     mixedFixture.operations[1].path = "/mixed-success";
+    mixedFixture.operations[1].tree = scope;
     for (const [mutationID, operations] of [
       [mixedFixture.mutationID, mixedFixture.operations],
       ["multiple-content", [content, {
         op: "writeMarkdown",
-        ref: { pageID: before.ref.pageID!, pathHint: "/renamed" },
+        ref: { tree: scope, pageID: before.ref.pageID!, pathHint: "/renamed" },
         baseContentRevision: before.contentRevision!,
         source,
       }]],
@@ -244,9 +238,9 @@ describe("arbord REST v1", () => {
         error: "unsupported-operation",
       });
     }
-    expect((await client.node({ path: "/renamed" })).contentRevision).toBe(before.contentRevision);
-    await expect(client.node({ path: "/mixed-success" })).rejects.toMatchObject({ status: 404 });
-    expect((await client.search("Must not materialize")).results).toHaveLength(0);
+    expect((await client.node({ tree: scope, path: "/renamed" })).contentRevision).toBe(before.contentRevision);
+    await expect(client.node({ tree: scope, path: "/mixed-success" })).rejects.toMatchObject({ status: 404 });
+    expect((await client.search(scope, "Must not materialize")).results).toHaveLength(0);
     expect(() => client.prepareStructuralMutation([])).toThrow("at least one operation");
   });
 
@@ -265,32 +259,28 @@ describe("arbord REST v1", () => {
         return response;
       },
     });
-    const receipt = await lossy.mutateStructural([{ op: "createDirectory", path: "/after-loss" }], "lost-response");
+    const receipt = await lossy.mutateStructural([{ op: "createDirectory", tree: scope, path: "/after-loss" }], "lost-response");
     expect(receipt.mutationID).toBe("lost-response");
-    expect((await client.node({ path: "/after-loss" })).path).toBe("/after-loss");
+    expect((await client.node({ tree: scope, path: "/after-loss" })).path).toBe("/after-loss");
   });
 
   test("replays events after a snapshot cursor and rejects another epoch", async () => {
-    const snapshot = await client.node({ path: "/" });
-    await client.mutateStructural([{ op: "createDirectory", path: "/eventful" }], "eventful");
+    const snapshot = await client.node({ tree: scope, path: "/" });
+    await client.mutateStructural([{ op: "createDirectory", tree: scope, path: "/eventful" }], "eventful");
     const abort = new AbortController();
     let replayed: WorkspaceEvent | null = null;
     for await (const event of client.observe(snapshot.observedThrough, abort.signal)) {
-      if (event.mutationID === "eventful") {
+      if (event.change.mutationID === "eventful") {
         replayed = event;
         abort.abort();
         break;
       }
     }
-    expect(replayed?.path).toBe("/eventful");
+    expect(replayed?.change.path).toBe("/eventful");
 
-    await expect(fetch(`${base}/v1/events?after=${encodeURIComponent(`another-epoch:0`)}`).then(async (response) => ({
-      status: response.status,
-      body: await response.json(),
-    }))).resolves.toMatchObject({
-      status: 409,
-      body: { error: "resync-required" },
-    });
+    const terminal = await fetch(`${base}/v1/events?after=${encodeURIComponent(`another-epoch:0`)}`);
+    expect(terminal.status).toBe(200);
+    expect(await terminal.text()).toContain("event: resync-required");
   });
 
   test("buffers observed-view events while visible children are still loading", async () => {
@@ -309,15 +299,15 @@ describe("arbord REST v1", () => {
         return fetch(input, init);
       },
     });
-    const viewPromise = observing.openNodeView({ path: "/" });
+    const viewPromise = observing.openNodeView({ tree: scope, path: "/" });
     await childrenStarted;
-    await client.mutateStructural([{ op: "createDirectory", path: "/during-view-load" }], "during-view-load");
+    await client.mutateStructural([{ op: "createDirectory", tree: scope, path: "/during-view-load" }], "during-view-load");
     releaseChildren();
     const view = await viewPromise;
     try {
       for await (const update of view.updates) {
-        if (update.kind === "event" && update.event.mutationID === "during-view-load") {
-          expect(update.event.path).toBe("/during-view-load");
+        if (update.kind === "event" && update.event.change.mutationID === "during-view-load") {
+          expect(update.event.change.path).toBe("/during-view-load");
           break;
         }
       }
@@ -343,7 +333,7 @@ describe("arbord REST v1", () => {
         return fetch(input, init);
       },
     });
-    const view = await observing.openNodeView({ path: "/renamed" });
+    const view = await observing.openNodeView({ tree: scope, path: "/renamed" });
     try {
       for await (const update of view.updates) {
         if (update.kind === "resync") {
@@ -358,12 +348,12 @@ describe("arbord REST v1", () => {
   });
 
   test("imports a multipart directory manifest atomically", async () => {
-    const receipt = await client.import({ path: "/folder" }, [
+    const receipt = await client.import({ tree: scope, path: "/folder" }, [
       { path: "drop", kind: "directory" },
       { path: "drop/readme.md", kind: "file", file: new File(["Imported\n"], "readme.md", { type: "text/markdown" }) },
     ], "import-drop");
     expect(receipt.effects.some((effect) => effect.path === "/folder/drop")).toBe(true);
-    expect((await client.node({ path: "/folder/drop/readme" })).document?.bodySource).toBe("Imported\n");
+    expect((await client.node({ tree: scope, path: "/folder/drop/readme" })).document?.bodySource).toBe("Imported\n");
   });
 
   test("retries an asset transfer with the same mutation identity", async () => {
@@ -382,32 +372,32 @@ describe("arbord REST v1", () => {
       },
     });
     const file = new File(["asset bytes"], "diagram.txt", { type: "text/plain" });
-    const first = await lossy.asset({ path: "/folder" }, file, "asset-after-loss");
-    const retry = await client.asset({ path: "/folder" }, file, "asset-after-loss");
+    const first = await lossy.asset({ tree: scope, path: "/folder" }, file, "asset-after-loss");
+    const retry = await client.asset({ tree: scope, path: "/folder" }, file, "asset-after-loss");
     expect(retry.receipt).toEqual(first.receipt);
-    expect((await client.node({ path: first.path })).kind).toBe("file");
+    expect((await client.node({ tree: scope, path: first.path })).kind).toBe("file");
   });
 
   test("covers copy, trash, restore, and recovery restoration through logical operations", async () => {
     const copied = await client.mutateStructural([{
       op: "copy",
-      refs: [{ path: "/renamed" }],
-      destination: { path: "/folder" },
+      refs: [{ tree: scope, path: "/renamed" }],
+      destination: { tree: scope, path: "/folder" },
     }], "copy-page");
     const copyPath = copied.effects.find((effect) => effect.kind === "created")!.path;
-    const copiedNode = await client.node({ path: copyPath });
+    const copiedNode = await client.node({ tree: scope, path: copyPath });
     expect(copiedNode.kind).toBe("markdown");
-    expect(copiedNode.ref.pageID).not.toBe((await client.node({ path: "/renamed" })).ref.pageID);
+    expect(copiedNode.ref.pageID).not.toBe((await client.node({ tree: scope, path: "/renamed" })).ref.pageID);
 
-    const trashed = await client.mutateStructural([{ op: "trash", refs: [{ path: copyPath }] }], "trash-copy");
+    const trashed = await client.mutateStructural([{ op: "trash", refs: [{ tree: scope, path: copyPath }] }], "trash-copy");
     const trashPath = `/Trash${copyPath}`;
     expect(trashed.effects).toContainEqual(expect.objectContaining({ kind: "deleted", path: copyPath }));
-    await expect(client.node({ path: copyPath })).rejects.toMatchObject({ status: 404 });
-    const restored = await client.mutateStructural([{ op: "restore", refs: [{ path: trashPath }] }], "restore-copy");
-    expect((await client.node({ path: restored.effects[0]!.path })).kind).toBe("markdown");
+    await expect(client.node({ tree: scope, path: copyPath })).rejects.toMatchObject({ status: 404 });
+    const restored = await client.mutateStructural([{ op: "restore", refs: [{ tree: scope, path: trashPath }] }], "restore-copy");
+    expect((await client.node({ tree: scope, path: restored.effects[0]!.path })).kind).toBe("markdown");
 
-    const before = await client.node({ path: "/renamed" });
-    const pageRef = { pageID: before.ref.pageID!, pathHint: before.path };
+    const before = await client.node({ tree: scope, path: "/renamed" });
+    const pageRef = { tree: scope, pageID: before.ref.pageID!, pathHint: before.path };
     const recoverySourceText = before.document!.source.replace(before.document!.bodySource, "Recovery source\n");
     await client.mutateContent({
       op: "writeMarkdown",
@@ -437,9 +427,9 @@ describe("arbord REST v1", () => {
     }, "restore-recovery");
     expect((await client.node(pageRef)).document?.bodySource).toContain("Recovery source");
 
-    await client.mutateStructural([{ op: "createMarkdown", path: "/discarded" }], "create-discarded");
-    await client.mutateStructural([{ op: "trash", refs: [{ path: "/discarded" }] }], "trash-discarded");
-    const subtree = await client.recovery({ path: "/" }, { recursive: true });
+    await client.mutateStructural([{ op: "createMarkdown", tree: scope, path: "/discarded" }], "create-discarded");
+    await client.mutateStructural([{ op: "trash", refs: [{ tree: scope, path: "/discarded" }] }], "trash-discarded");
+    const subtree = await client.recovery({ tree: scope, path: "/" }, { recursive: true });
     expect(subtree.entries).not.toContainEqual(expect.objectContaining({
       kind: "block",
       ref: expect.objectContaining({ path: "/renamed" }),
@@ -498,7 +488,7 @@ describe("arbord REST v1", () => {
 
   test("asset receipts carry the tree-rooted markdown destination", async () => {
     const form = new FormData();
-    form.set("metadata", JSON.stringify({ mutationID: "asset-rooted-1", directory: { path: "/" } }));
+    form.set("metadata", JSON.stringify({ mutationID: "asset-rooted-1", directory: { tree: scope, path: "/" } }));
     form.set("file", new File([new TextEncoder().encode("img")], "leaf.png", { type: "image/png" }));
     const response = await fetch(`${base}/v1/assets`, { method: "POST", body: form });
     expect(response.status).toBe(200);
@@ -512,34 +502,35 @@ describe("arbord REST v1", () => {
     expect(served.status).toBe(200);
     expect(await served.text()).toBe("img");
 
-    const exact = await fetch(`${base}/v1/file?path=${encodeURIComponent(result.path)}`);
+    const exact = await fetch(`${base}/v1/file?tree=${encodeURIComponent(scope)}&path=${encodeURIComponent(result.path)}`);
     expect(exact.status).toBe(200);
     expect(exact.headers.get("content-type")).toBe("image/png");
     expect(exact.headers.get("cache-control")).toBe("no-store");
     expect(await exact.text()).toBe("img");
 
-    const document = await fetch(`${base}/v1/file?path=${encodeURIComponent("/page")}`);
+    const document = await fetch(`${base}/v1/file?tree=${encodeURIComponent(scope)}&path=${encodeURIComponent("/page")}`);
     expect(document.status).toBe(404);
   });
 
   test("returns the durable original receipt after an arbord restart", async () => {
-    await client.mutateStructural([{ op: "createDirectory", path: "/recovered-effect" }], "materialization-setup");
+    await client.mutateStructural([{ op: "createDirectory", tree: scope, path: "/recovered-effect" }], "materialization-setup");
     const recoveredRequest: MutationRequest = {
       mutationID: "materialized-before-crash",
-      operations: [{ op: "createDirectory", path: "/recovered-effect" }],
+      operations: [{ op: "createDirectory", tree: scope, path: "/recovered-effect" }],
     };
     const recoveredHash = sha256(canonicalJSONString(recoveredRequest));
     await activeWorkspace.mutations.prepare(recoveredRequest.mutationID, recoveredHash, recoveredRequest);
     await activeWorkspace.mutations.markMaterialized(recoveredRequest.mutationID, recoveredHash, [{
+      tree: scope,
       kind: "created",
       path: "/recovered-effect",
     }]);
-    const written = await client.node({ path: "/renamed" });
+    const written = await client.node({ tree: scope, path: "/renamed" });
     const recoveredWriteRequest: MutationRequest = {
       mutationID: "write-replaced-before-receipt",
       operations: [{
         op: "writeMarkdown",
-        ref: { pageID: written.ref.pageID!, pathHint: "/renamed" },
+        ref: { tree: scope, pageID: written.ref.pageID!, pathHint: "/renamed" },
         baseContentRevision: "sha256:pre-crash-base",
         source: written.document!.source,
       }],
@@ -547,6 +538,7 @@ describe("arbord REST v1", () => {
     const recoveredWriteHash = sha256(canonicalJSONString(recoveredWriteRequest));
     await activeWorkspace.mutations.prepare(recoveredWriteRequest.mutationID, recoveredWriteHash, recoveredWriteRequest);
     await activeWorkspace.mutations.markExpected(recoveredWriteRequest.mutationID, recoveredWriteHash, [{
+      tree: scope,
       kind: "updated",
       path: "/renamed",
       pageID: written.ref.pageID,
@@ -556,6 +548,7 @@ describe("arbord REST v1", () => {
     await close();
     const restarted = await serveWorkspace(root, { port: 0 });
     activeWorkspace = restarted.workspace;
+    scope = activeWorkspace.tree;
     base = restarted.url;
     client = new ArbordClient({ baseURL: base, retryDelay: async () => {} });
     close = async () => {
@@ -570,9 +563,9 @@ describe("arbord REST v1", () => {
       path: "/renamed",
       contentRevision: written.contentRevision,
     }]);
-    const oldCursor = durableWriteReceipt.eventCursor;
+    const oldCursor = durableWriteReceipt.observedThrough;
     const response = await fetch(`${base}/v1/events?after=${encodeURIComponent(oldCursor)}`);
-    expect(response.status).toBe(409);
-    expect((await response.json() as any).error).toBe("resync-required");
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("event: resync-required");
   });
 });

@@ -42,15 +42,15 @@ describe("REST v1 protocol fixtures", () => {
     expect(untracked.enclosingTree).toBeUndefined();
     expect(systemTree.tree).toBe("system");
     expect(systemTree.writable).toBe(false);
-    expect(systemTree.document?.frontmatter.placement).toBe("shared");
+    expect(systemTree.document?.frontmatter.credentialAvailable).toBe(true);
     expect(backlinks.entries[0]?.ref.pageID).toBe("week01");
     expect(recovery.entries.map((entry) => entry.kind)).toEqual(["block", "trash"]);
   });
 
-  test("keeps a legacy no-tree payload decodable (omitted scope = session root)", async () => {
+  test("keeps unknown fields decodable while requiring explicit tree scope", async () => {
     const node = await json<NodeSnapshot>("node-unknown-field.json");
-    expect(node.tree).toBeUndefined();
-    expect(node.ref.tree).toBeUndefined();
+    expect(node.tree).toBe("tr_notes7f3q2ab7c");
+    expect(node.ref.tree).toBe("tr_notes7f3q2ab7c");
   });
 
   test("covers every operation, current error code, cursor, and unknown response field", async () => {
@@ -62,25 +62,16 @@ describe("REST v1 protocol fixtures", () => {
       .flatMap((request) => [...request.operations] as WorkspaceOperation[])
       .map((operation) => operation.op)).toEqual([
       "writeMarkdown",
+      "writeText",
       "createMarkdown",
       "createDirectory",
       "rename",
-      "move",
       "move",
       "copy",
       "trash",
       "restore",
       "restoreRecovery",
       "ensureDocumentIdentity",
-      "connectCommunity",
-      "promoteTree",
-      "placeTree",
-      "setTreeAccess",
-      "claimProfile",
-      "disconnectCommunity",
-      "createGroupProfile",
-      "removeTreePlacement",
-      "resolveTreeConflict",
     ]);
     expect(errors.map((value) => value.error)).toContain("internal-error");
     expect(errors.at(-1)?.error).toBe("future-error-code");
@@ -100,7 +91,7 @@ describe("REST v1 protocol fixtures", () => {
     const data = source.split(/\r?\n/).find((line) => line.startsWith("data:"))!.slice(5).trim();
     const event = JSON.parse(data) as WorkspaceEvent;
     expect(event.cursor).toEndWith(":5");
-    expect(event.origin).toBe("api");
+    expect(event.change.origin).toBe("api");
   });
 
   test("keeps a malformed SSE frame as a negative fixture", async () => {
@@ -110,7 +101,7 @@ describe("REST v1 protocol fixtures", () => {
   });
 
   test("publishes registry and wire endpoint conformance vectors", async () => {
-    const registry = await json<{ cases: Array<{ name: string }> }>("trees-yaml.json");
+    const registry = await json<{ valid: Array<{ name: string }>; invalid: Array<{ name: string }>; behavior: Array<{ name: string }> }>("trees-yaml.json");
     const endpoints = await json<{ cases: Array<{ name: string; response: { status: number } }> }>("wire-endpoints.json");
     const merges = await json<{
       version: number;
@@ -119,17 +110,13 @@ describe("REST v1 protocol fixtures", () => {
       structuralCases: Array<{ name: string }>;
     }>("wire-merge.json");
     const intents = await json<{ version: number; replayCases: Array<{ name: string }> }>("wire-update-intent.json");
-    expect(registry.cases.map((item) => item.name)).toEqual(expect.arrayContaining([
-      "valid-empty",
-      "valid-shared",
-      "comments-and-order-survive-edit",
+    expect([...registry.valid, ...registry.invalid, ...registry.behavior].map((item) => item.name)).toEqual(expect.arrayContaining([
+      "filesystem-placement",
+      "pathless-replica-and-link-rule",
       "duplicate-key",
       "unknown-field",
-      "source-tree-mismatch",
-      "noncanonical-path",
-      "malformed-replacement-retains-active",
-      "nested-placement-excluded-from-parent",
-      "remove-placement-preserves-data",
+      "invalid-edit-retains-last-valid",
+      "removing-placement-preserves",
     ]));
     expect(endpoints.cases.map((item) => item.name)).toEqual([
       "read-ref",

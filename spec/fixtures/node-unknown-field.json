@@ -1,5 +1,6 @@
 {
-  "ref": { "path": "/notes/today", "pageID": "abc123" },
+  "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
+  "tree": "tr_notes7f3q2ab7c",
   "path": "/notes/today",
   "name": "today",
   "kind": "markdown",

@@ -2,7 +2,7 @@ import { link, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
-import { sha256 } from "@arbor/core";
+import { canonicalJSONString, generateArborID, isGeneratedArborID, sha256, type AccessRule, type TreeKind } from "@arbor/core";
 import {
   decodeWireObject,
   encodeWireObject,
@@ -25,6 +25,13 @@ import {
   type WireDirectory,
   type WireDirectoryEntry,
 } from "@arbor/wire";
+import {
+  authorizeAccountConfigTransition,
+  mergeAccountConfigGraphs,
+  readAccountConfigGraph,
+  snapshotAccountConfig,
+  type AccountConfigGraph,
+} from "./account-policy.ts";
 import { reconcileUpdate } from "./updates/reconcile.ts";
 import { AcceptedUpdateStore, type AcceptedUpdateInput } from "./updates/store.ts";
 
@@ -37,18 +44,22 @@ export interface CanonicalBoundary {
 
 export interface AuthorityTree {
   id: string;
-  canonicalPath: string;
+  canonicalPath: string | null;
   parentTree: string | null;
   kind: BoundaryKind;
   ref: ObjectHash;
   publicAccess: PublicAccess;
   updatedAt: number;
+  policy: "ordinary" | "account-config-v1";
+  status: "active" | "awaiting-initialization" | "error";
+  accountID: string | null;
 }
 
 export interface AuthorityAccount {
   id: string;
   handle: string;
   profileTree: string | null;
+  configTree: string | null;
   enabled: boolean;
 }
 
@@ -171,17 +182,19 @@ function profileSource(kind: "person" | "group", name: string, members: string[]
 }
 
 const AUTHORITY_SCHEMA = {
-  trees: ["id", "ref", "updated_at"],
+  trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],
   boundaries: ["path", "tree_id", "parent_tree", "kind"],
   reflog: ["tree_id", "ref", "previous_ref", "changed_at"],
   accepted_updates: [
     "id", "tree_id", "root", "previous_root", "kind", "accepted_at", "subject",
     "base_root", "candidate_root", "remote_root", "merge_summary", "request_digest",
   ],
-  accounts: ["id", "handle", "profile_tree", "token_digest", "enabled"],
+  accounts: ["id", "handle", "profile_tree", "config_tree", "token_digest", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
-  pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at"],
+  pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
   access: ["id", "tree_id", "subject_kind", "subject", "access", "claimed_profile"],
+  tree_reservations: ["id", "account_id", "kind", "canonical_path", "status", "error"],
+  observation_events: ["cursor", "tree_id", "kind", "change_json", "created_at"],
   meta: ["key", "value"],
 } as const;
 
@@ -190,7 +203,10 @@ function createAuthoritySchema(db: Database): void {
     CREATE TABLE trees (
       id TEXT PRIMARY KEY,
       ref TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      policy TEXT NOT NULL DEFAULT 'ordinary',
+      status TEXT NOT NULL DEFAULT 'active',
+      account_id TEXT
     )
   `);
   db.run(`
@@ -215,8 +231,10 @@ function createAuthoritySchema(db: Database): void {
       id TEXT PRIMARY KEY,
       handle TEXT NOT NULL UNIQUE,
       profile_tree TEXT,
+      config_tree TEXT,
       token_digest TEXT NOT NULL UNIQUE,
-      enabled INTEGER NOT NULL DEFAULT 1
+      enabled INTEGER NOT NULL DEFAULT 1,
+      claim_digest TEXT
     )
   `);
   db.run(`
@@ -238,7 +256,18 @@ function createAuthoritySchema(db: Database): void {
       confirmation_code TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL,
-      claimed_at INTEGER
+      claimed_at INTEGER,
+      claimed_device TEXT
+    )
+  `);
+  db.run(`
+    CREATE TABLE tree_reservations (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      kind TEXT NOT NULL,
+      canonical_path TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL,
+      error TEXT
     )
   `);
   db.run(`
@@ -253,6 +282,16 @@ function createAuthoritySchema(db: Database): void {
     )
   `);
   db.run(`
+    CREATE TABLE observation_events (
+      cursor TEXT PRIMARY KEY,
+      tree_id TEXT NOT NULL REFERENCES trees(id),
+      kind TEXT NOT NULL,
+      change_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.run("CREATE INDEX observation_events_tree_order ON observation_events(tree_id, created_at, cursor)");
+  db.run(`
     CREATE TABLE meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -260,18 +299,50 @@ function createAuthoritySchema(db: Database): void {
   `);
 }
 
+function migrateAuthoritySchema(db: Database): void {
+  const columns = (table: string) => new Set((db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(({ name }) => name));
+  if (!columns("trees").has("policy")) db.run("ALTER TABLE trees ADD COLUMN policy TEXT NOT NULL DEFAULT 'ordinary'");
+  if (!columns("trees").has("status")) db.run("ALTER TABLE trees ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+  if (!columns("trees").has("account_id")) db.run("ALTER TABLE trees ADD COLUMN account_id TEXT");
+  if (!columns("accounts").has("config_tree")) db.run("ALTER TABLE accounts ADD COLUMN config_tree TEXT");
+  if (!columns("accounts").has("claim_digest")) db.run("ALTER TABLE accounts ADD COLUMN claim_digest TEXT");
+  if (!columns("pairings").has("claimed_device")) db.run("ALTER TABLE pairings ADD COLUMN claimed_device TEXT");
+  db.run(`CREATE TABLE IF NOT EXISTS tree_reservations (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    kind TEXT NOT NULL,
+    canonical_path TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL,
+    error TEXT
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS observation_events (
+    cursor TEXT PRIMARY KEY,
+    tree_id TEXT NOT NULL REFERENCES trees(id),
+    kind TEXT NOT NULL,
+    change_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`);
+  db.run("CREATE INDEX IF NOT EXISTS observation_events_tree_order ON observation_events(tree_id, created_at, cursor)");
+}
+
 function assertCurrentAuthoritySchema(db: Database): void {
   const issues: string[] = [];
   for (const [table, expected] of Object.entries(AUTHORITY_SCHEMA)) {
     const actual = (db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(({ name }) => name);
-    if (actual.join("\0") !== expected.join("\0")) issues.push(`${table} columns`);
+    // ALTER TABLE appends columns, so a migrated SQLite table can have the
+    // exact current schema in a different physical order than a newly created
+    // table. Queries name every column; reject missing or extra columns, not
+    // harmless storage order.
+    if (actual.length !== expected.length || expected.some((name) => !actual.includes(name))) {
+      issues.push(`${table} columns`);
+    }
   }
   for (const obsolete of ["legacy_trees", "update_replays"]) {
     if (db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(obsolete)) {
       issues.push(`obsolete ${obsolete} table`);
     }
   }
-  for (const index of ["accepted_updates_tree_order", "accepted_updates_request"]) {
+  for (const index of ["accepted_updates_tree_order", "accepted_updates_request", "observation_events_tree_order"]) {
     if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(index)) {
       issues.push(`missing ${index} index`);
     }
@@ -322,10 +393,18 @@ export class ReservedBoundaryConflictError extends Error {
   }
 }
 
+export class TreeIDConflictError extends Error {
+  constructor(readonly tree: string) {
+    super(`TreeID is already active with different content: ${tree}`);
+    this.name = "TreeIDConflictError";
+  }
+}
+
 export class WireAuthority implements AsyncDisposable {
   private db: Database;
   private acceptedStore: AcceptedUpdateStore;
   private listeners = new Map<string, Set<(tree: AuthorityTree, update: AcceptedUpdate, requestDigest?: ObjectHash) => void>>();
+  private observationListeners = new Map<string, Set<(event: { cursor: string; tree: string; kind: string; change: unknown }) => void>>();
   private updateLocks = new Map<string, Promise<void>>();
 
   private constructor(readonly dataRoot: string, db: Database) {
@@ -339,7 +418,10 @@ export class WireAuthority implements AsyncDisposable {
     const databaseExists = await stat(databasePath).then(() => true).catch(() => false);
     const db = new Database(databasePath, { create: true });
     try {
-      if (databaseExists) assertCurrentAuthoritySchema(db);
+      if (databaseExists) {
+        db.transaction(() => migrateAuthoritySchema(db))();
+        assertCurrentAuthoritySchema(db);
+      }
       else db.transaction(() => createAuthoritySchema(db))();
     } catch (error) {
       db.close();
@@ -408,19 +490,25 @@ export class WireAuthority implements AsyncDisposable {
       id: string;
       ref: string;
       updated_at: number;
-      path: string;
+      path: string | null;
       parent_tree: string | null;
-      kind: BoundaryKind;
+      kind: BoundaryKind | null;
       public_access: PublicAccess | null;
+      policy: AuthorityTree["policy"];
+      status: AuthorityTree["status"];
+      account_id: string | null;
     };
     return {
       id: row.id,
       canonicalPath: row.path,
       parentTree: row.parent_tree,
-      kind: row.kind,
+      kind: row.kind ?? "account-configuration",
       ref: row.ref,
       publicAccess: row.public_access ?? "none",
       updatedAt: row.updated_at,
+      policy: row.policy,
+      status: row.status,
+      accountID: row.account_id,
     };
   }
 
@@ -429,7 +517,7 @@ export class WireAuthority implements AsyncDisposable {
       SELECT t.*, b.path, b.parent_tree, b.kind,
         COALESCE((SELECT access FROM access
           WHERE tree_id = t.id AND subject_kind = 'everyone' AND subject = 'everyone'), 'none') AS public_access
-      FROM trees t JOIN boundaries b ON b.tree_id = t.id
+      FROM trees t LEFT JOIN boundaries b ON b.tree_id = t.id
       ${where}
     `;
     return this.treeRow(value === undefined ? this.db.query(sql).get() : this.db.query(sql).get(value));
@@ -440,8 +528,8 @@ export class WireAuthority implements AsyncDisposable {
       SELECT t.*, b.path, b.parent_tree, b.kind,
         COALESCE((SELECT access FROM access
           WHERE tree_id = t.id AND subject_kind = 'everyone' AND subject = 'everyone'), 'none') AS public_access
-      FROM trees t JOIN boundaries b ON b.tree_id = t.id
-      ORDER BY b.path
+      FROM trees t LEFT JOIN boundaries b ON b.tree_id = t.id
+      ORDER BY b.path IS NULL, b.path
     `).all().map((row) => this.treeRow(row)!);
   }
 
@@ -451,6 +539,18 @@ export class WireAuthority implements AsyncDisposable {
 
   currentUpdate(treeID: string): AcceptedUpdate | null {
     return this.acceptedStore.current(treeID);
+  }
+
+  observedThrough(treeID?: string): string {
+    const update = (treeID
+      ? this.db.query("SELECT id AS cursor, accepted_at AS changed_at, rowid AS ordinal FROM accepted_updates WHERE tree_id = ? ORDER BY accepted_at DESC, rowid DESC LIMIT 1").get(treeID)
+      : this.db.query("SELECT id AS cursor, accepted_at AS changed_at, rowid AS ordinal FROM accepted_updates ORDER BY accepted_at DESC, rowid DESC LIMIT 1").get()) as { cursor: string; changed_at: number; ordinal: number } | null;
+    const event = (treeID
+      ? this.db.query("SELECT cursor, created_at AS changed_at, rowid AS ordinal FROM observation_events WHERE tree_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(treeID)
+      : this.db.query("SELECT cursor, created_at AS changed_at, rowid AS ordinal FROM observation_events ORDER BY created_at DESC, rowid DESC LIMIT 1").get()) as { cursor: string; changed_at: number; ordinal: number } | null;
+    if (!event) return update?.cursor ?? "0";
+    if (!update || event.changed_at >= update.changed_at) return event.cursor;
+    return update.cursor;
   }
 
   update(id: string): AcceptedUpdate | null {
@@ -481,22 +581,22 @@ export class WireAuthority implements AsyncDisposable {
   resolve(path: string): { tree: AuthorityTree; path: string } | null {
     const canonical = normalizeBoundaryPath(path);
     const candidates = this.list()
-      .filter((tree) => sameOrDescendant(canonical, tree.canonicalPath))
-      .sort((a, b) => b.canonicalPath.length - a.canonicalPath.length);
+      .filter((tree) => tree.canonicalPath !== null && sameOrDescendant(canonical, tree.canonicalPath))
+      .sort((a, b) => b.canonicalPath!.length - a.canonicalPath!.length);
     const tree = candidates[0];
     if (!tree) return null;
     const remainder = canonical === tree.canonicalPath
       ? "/"
-      : canonical.slice(tree.canonicalPath === "/" ? 0 : tree.canonicalPath.length);
+      : canonical.slice(tree.canonicalPath === "/" ? 0 : tree.canonicalPath!.length);
     return { tree, path: remainder || "/" };
   }
 
   account(id: string): AuthorityAccount | null {
     const row = this.db.query("SELECT * FROM accounts WHERE id = ?").get(id) as
-      | { id: string; handle: string; profile_tree: string | null; enabled: number }
+      | { id: string; handle: string; profile_tree: string | null; config_tree: string | null; enabled: number }
       | null;
     return row
-      ? { id: row.id, handle: row.handle, profileTree: row.profile_tree, enabled: row.enabled === 1 }
+      ? { id: row.id, handle: row.handle, profileTree: row.profile_tree, configTree: row.config_tree, enabled: row.enabled === 1 }
       : null;
   }
 
@@ -557,9 +657,23 @@ export class WireAuthority implements AsyncDisposable {
     return { id, secret, confirmationCode, expiresAt };
   }
 
-  claimPairing(id: string, secret: string, label: string): { token: string; device: AuthorityDevice; confirmationCode: string } {
+  async claimPairing(input: {
+    id: string;
+    secret: string;
+    deviceID: string;
+    credentialDigest: string;
+    label: string;
+    placements: Record<string, { authority: string; path?: string }>;
+  }): Promise<{ device: AuthorityDevice; confirmationCode: string }> {
+    const { id, secret, label } = input;
     const safeLabel = label.trim();
     if (!safeLabel || safeLabel.length > 100) throw new Error("Device label is required and must be at most 100 characters");
+    if (!isGeneratedArborID(input.deviceID, "dv")) throw new Error("Pairing requires a client-generated 128-bit DeviceID");
+    if (!/^sha256:[a-f0-9]{64}$/.test(input.credentialDigest)) throw new Error("Device credential digest is invalid");
+    if (this.db.query("SELECT 1 FROM devices WHERE id = ?").get(input.deviceID)) {
+      throw new Error(`Retired DeviceID cannot be reused: ${input.deviceID}`);
+    }
+    const tokenDigest = input.credentialDigest.slice("sha256:".length);
     const pairing = this.db.query(`
       SELECT p.*, a.enabled AS account_enabled
       FROM pairings p JOIN accounts a ON a.id = p.account_id
@@ -570,32 +684,66 @@ export class WireAuthority implements AsyncDisposable {
       confirmation_code: string;
       expires_at: number;
       claimed_at: number | null;
+      claimed_device: string | null;
       account_enabled: number;
     } | null;
     const presentedDigest = Buffer.from(sha256(secret));
     const expectedDigest = pairing ? Buffer.from(pairing.secret_digest) : Buffer.alloc(presentedDigest.length);
     const secretMatches = presentedDigest.length === expectedDigest.length && timingSafeEqual(presentedDigest, expectedDigest);
+    if (pairing?.claimed_at && pairing.claimed_device === input.deviceID) {
+      const replay = this.db.query("SELECT token_digest, label FROM devices WHERE id = ? AND account_id = ?").get(input.deviceID, pairing.account_id) as { token_digest: string; label: string } | null;
+      if (replay?.token_digest === tokenDigest && replay.label === safeLabel && secretMatches) {
+        return { device: this.deviceRow(this.db.query("SELECT * FROM devices WHERE id = ?").get(input.deviceID))!, confirmationCode: pairing.confirmation_code };
+      }
+    }
     if (!pairing || pairing.account_enabled !== 1 || pairing.claimed_at || pairing.expires_at <= Date.now() || !secretMatches) {
       throw new Error("Pairing is invalid, expired, or already used");
     }
-    const token = `arb_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
-    const deviceID = opaqueID("dv");
+    const account = this.account(pairing.account_id)!;
+    const current = await this.accountConfigGraph(account);
+    if (current.devices[input.deviceID]) throw new Error("DeviceID is already active");
+    const next = {
+      account: current.account,
+      trees: current.trees,
+      devices: {
+        ...current.devices,
+        [input.deviceID]: { version: 1 as const, id: input.deviceID, label: safeLabel, placements: input.placements },
+      },
+    };
+    const nextSnapshot = snapshotAccountConfig(next);
+    readAccountConfigGraph(nextSnapshot, account.configTree!);
+    await this.storeObjects([...nextSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
+    const configTree = this.get(account.configTree!)!;
     const now = Date.now();
-    this.db.transaction(() => {
-      const claimed = this.db.run("UPDATE pairings SET claimed_at = ? WHERE id = ? AND claimed_at IS NULL AND expires_at > ?", [
+    const accepted = this.acceptedStore.commit(generateArborID("up"), {
+      tree: configTree.id,
+      root: nextSnapshot.root,
+      previousRoot: configTree.ref,
+      expectedRoot: configTree.ref,
+      kind: "accepted",
+      acceptedAt: now,
+      subject: `pairing:${id}`,
+      baseRoot: configTree.ref,
+      candidateRoot: nextSnapshot.root,
+      remoteRoot: configTree.ref,
+    }, () => {
+      const claimed = this.db.run("UPDATE pairings SET claimed_at = ?, claimed_device = ? WHERE id = ? AND claimed_at IS NULL AND expires_at > ?", [
         now,
+        input.deviceID,
         id,
         now,
       ]);
       if (claimed.changes !== 1) throw new Error("Pairing is invalid, expired, or already used");
       this.db.run(
         "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, ?, ?, ?)",
-        [deviceID, pairing.account_id, safeLabel, sha256(token), now],
+        [input.deviceID, pairing.account_id, safeLabel, tokenDigest, now],
       );
-    })();
+    });
+    if (!accepted) throw new RefConflictError(this.get(configTree.id)?.ref ?? null);
+    const updated = this.get(configTree.id)!;
+    for (const listener of this.listeners.get(configTree.id) ?? []) listener(updated, accepted);
     return {
-      token,
-      device: this.deviceRow(this.db.query("SELECT * FROM devices WHERE id = ?").get(deviceID))!,
+      device: this.deviceRow(this.db.query("SELECT * FROM devices WHERE id = ?").get(input.deviceID))!,
       confirmationCode: pairing.confirmation_code,
     };
   }
@@ -673,6 +821,166 @@ export class WireAuthority implements AsyncDisposable {
       ["community-profile", "person-profile", "group-profile"].includes(tree.kind)
       && this.canWrite(account, tree.id)
     );
+  }
+
+  async ensureAccountConfigTrees(origin: string): Promise<void> {
+    const accounts = this.db.query("SELECT id FROM accounts WHERE config_tree IS NULL ORDER BY id").all() as Array<{ id: string }>;
+    for (const { id } of accounts) {
+      const account = this.account(id)!;
+      if (!account.profileTree) continue;
+      const devices = Object.fromEntries(this.devices(account)
+        .filter((device) => device.revokedAt === null)
+        .map((device) => [device.id, { version: 1 as const, id: device.id, label: device.label, placements: {} }]));
+      const active = Object.keys(devices);
+      if (!active.length) throw new Error(`Account ${id} has no active device to administer its configuration`);
+      const declarations = Object.fromEntries(this.list()
+        .filter((tree) => tree.canonicalPath && tree.policy === "ordinary" && this.canAdminister(account, tree.id))
+        .map((tree) => [tree.id, {
+          kind: tree.kind as Exclude<TreeKind, "account-configuration">,
+          canonicalPath: tree.canonicalPath!,
+          access: this.accessEntries(tree.id).map((entry): AccessRule => ({
+            subject: entry.subjectKind === "everyone"
+              ? { kind: "everyone" }
+              : entry.subjectKind === "profile"
+                ? { kind: "profile", tree: entry.subject }
+                : { kind: "link", digest: entry.subject as `sha256:${string}` },
+            access: entry.access,
+          })),
+        }]));
+      if (!declarations[account.profileTree]) {
+        const profile = this.get(account.profileTree)!;
+        declarations[profile.id] = {
+          kind: "person-profile",
+          canonicalPath: profile.canonicalPath!,
+          access: this.accessEntries(profile.id).map((entry): AccessRule => ({
+            subject: entry.subjectKind === "everyone" ? { kind: "everyone" }
+              : entry.subjectKind === "profile" ? { kind: "profile", tree: entry.subject }
+                : { kind: "link", digest: entry.subject as `sha256:${string}` },
+            access: entry.access,
+          })),
+        };
+      }
+      const graph = {
+        account: { version: 1 as const, community: new URL(origin).origin, profile: { tree: account.profileTree, handle: account.handle }, admins: active },
+        trees: { version: 1 as const, trees: declarations },
+        devices,
+      };
+      const snapshot = snapshotAccountConfig(graph);
+      const configID = generateArborID("tr");
+      await this.validateGraph(snapshot.root, snapshot.objects);
+      await this.storeObjects([...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
+      const now = Date.now();
+      this.db.transaction(() => {
+        this.db.run(
+          "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v1', 'active', ?)",
+          [configID, snapshot.root, now, account.id],
+        );
+        this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [configID, snapshot.root, now]);
+        this.insertAcceptedUpdate({ tree: configID, root: snapshot.root, previousRoot: null, kind: "initial", acceptedAt: now });
+        this.db.run("UPDATE accounts SET config_tree = ? WHERE id = ? AND config_tree IS NULL", [configID, account.id]);
+      })();
+    }
+  }
+
+  private applyAccountConfigDerived(accountID: string, current: AccountConfigGraph, next: AccountConfigGraph): void {
+    const now = Date.now();
+    for (const id of Object.keys(current.devices)) {
+      if (!next.devices[id]) this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ? AND account_id = ?", [now, id, accountID]);
+    }
+    for (const id of Object.keys(next.devices)) {
+      const row = this.db.query("SELECT revoked_at FROM devices WHERE id = ? AND account_id = ?").get(id, accountID) as { revoked_at: number | null } | null;
+      if (!row) throw new Error(`Device ${id} has no credential binding`);
+      if (row.revoked_at !== null) throw new Error(`Retired DeviceID cannot be reactivated: ${id}`);
+    }
+    for (const [id, before] of Object.entries(current.trees.trees)) {
+      if (!next.trees.trees[id]) {
+        const reservation = this.db.query("SELECT status FROM tree_reservations WHERE id = ? AND account_id = ?").get(id, accountID) as { status: string } | null;
+        if (reservation?.status === "awaiting-initialization") this.db.run("DELETE FROM tree_reservations WHERE id = ?", [id]);
+        else throw new Error(`Active remote tree declarations cannot be removed: ${id}`);
+      }
+      if (next.trees.trees[id] && before.kind !== next.trees.trees[id]!.kind) throw new Error(`Tree kind is immutable after activation: ${id}`);
+    }
+    for (const [id, declaration] of Object.entries(next.trees.trees)) {
+      const active = this.get(id);
+      if (!active) {
+        this.db.run(`INSERT INTO tree_reservations (id, account_id, kind, canonical_path, status, error)
+          VALUES (?, ?, ?, ?, 'awaiting-initialization', NULL)
+          ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, canonical_path = excluded.canonical_path`,
+        [id, accountID, declaration.kind, declaration.canonicalPath]);
+        continue;
+      }
+      if (active.policy !== "ordinary") throw new Error(`Configuration may not declare governed tree ${id}`);
+      const boundary = this.boundary(declaration.canonicalPath);
+      if (boundary && boundary.id !== id) throw new Error(`Canonical boundary is occupied: ${declaration.canonicalPath}`);
+      const parent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
+      this.db.run("UPDATE boundaries SET path = ?, parent_tree = ?, kind = ? WHERE tree_id = ?", [
+        declaration.canonicalPath, parent?.id ?? null, declaration.kind, id,
+      ]);
+      this.db.run("DELETE FROM access WHERE tree_id = ?", [id]);
+      for (const rule of declaration.access) {
+        const subject = rule.subject.kind === "everyone" ? "everyone" : rule.subject.kind === "profile" ? rule.subject.tree : rule.subject.digest;
+        this.setAccessInternal(id, rule.subject.kind, subject, rule.access);
+      }
+    }
+  }
+
+  private async accountConfigGraph(account: AuthorityAccount): Promise<AccountConfigGraph> {
+    if (!account.configTree) throw new Error("Account configuration tree is missing");
+    const tree = this.get(account.configTree);
+    if (!tree) throw new Error("Account configuration tree is missing");
+    return readAccountConfigGraph(await this.completeSnapshot(tree.ref), tree.id);
+  }
+
+  async activateTree(
+    authentication: AuthorityAuthentication,
+    treeID: string,
+    snapshot: TreeSnapshot,
+  ): Promise<AuthorityTree> {
+    if (!isGeneratedArborID(treeID, "tr")) throw new Error("New tree activation requires a 128-bit client-generated TreeID");
+    const existing = this.get(treeID);
+    if (existing) {
+      if (existing.ref === snapshot.root) return existing;
+      throw new TreeIDConflictError(treeID);
+    }
+    const reservation = this.db.query("SELECT * FROM tree_reservations WHERE id = ?").get(treeID) as {
+      account_id: string; kind: Exclude<TreeKind, "account-configuration">; canonical_path: string; status: string;
+    } | null;
+    if (!reservation || reservation.account_id !== authentication.account.id || reservation.status !== "awaiting-initialization") {
+      throw new Error(`TreeID is not reserved for activation: ${treeID}`);
+    }
+    if (!authentication.device) throw new Error("An administrator device is required for activation");
+    const config = await this.accountConfigGraph(authentication.account);
+    if (!config.account.admins.includes(authentication.device)) throw new Error("Only an administrator device may initialize a tree");
+    if (!config.devices[authentication.device]?.placements[treeID]) throw new Error("The initializing administrator must place the tree");
+    const declaration = config.trees.trees[treeID];
+    if (!declaration) throw new Error("Tree declaration disappeared before activation");
+    if (declaration.kind === "person-profile") await this.validateProfileSnapshot(snapshot, "person");
+    if (declaration.kind === "group-profile" || declaration.kind === "community-profile") await this.validateProfileSnapshot(snapshot, "group");
+    const parent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
+    if (!parent) throw new Error("Canonical parent is unavailable");
+    let statusEvent: { cursor: string; tree: string; kind: string; change: unknown } | undefined;
+    const activated = await this.insertTree(
+      declaration.canonicalPath,
+      declaration.kind,
+      snapshot,
+      "none",
+      parent.id,
+      (id) => {
+        for (const rule of declaration.access) {
+          const subject = rule.subject.kind === "everyone" ? "everyone" : rule.subject.kind === "profile" ? rule.subject.tree : rule.subject.digest;
+          this.setAccessInternal(id, rule.subject.kind, subject, rule.access);
+        }
+        this.db.run("DELETE FROM tree_reservations WHERE id = ? AND account_id = ?", [id, authentication.account.id]);
+        if (authentication.account.configTree) {
+          statusEvent = this.recordObservation(authentication.account.configTree, "tree.activation", { tree: treeID, status: "active" });
+        }
+      },
+      authentication.subject,
+      treeID,
+      authentication.account.id,
+    );
+    if (statusEvent) this.notifyObservation(statusEvent);
+    return activated;
   }
 
   accessEntries(tree: string): AuthorityAccessEntry[] {
@@ -765,6 +1073,8 @@ export class WireAuthority implements AsyncDisposable {
   canRead(account: AuthorityAccount | null, treeID: string, linkDigest?: string): boolean {
     const tree = this.get(treeID);
     if (!tree) return false;
+    if (tree.policy === "account-config-v1") return account?.id === tree.accountID;
+    if (account && tree.accountID === account.id) return true;
     if (tree.publicAccess === "read" || tree.publicAccess === "write") return true;
     if (linkDigest && this.linkAccess(linkDigest, treeID) !== "none") return true;
     return account ? this.effectiveAccess(account, treeID) !== "none" : false;
@@ -773,6 +1083,8 @@ export class WireAuthority implements AsyncDisposable {
   canWrite(account: AuthorityAccount | null, treeID: string, linkDigest?: string): boolean {
     const tree = this.get(treeID);
     if (!tree) return false;
+    if (tree.policy === "account-config-v1") return account?.id === tree.accountID;
+    if (account && tree.accountID === account.id) return true;
     if (linkDigest && this.linkAccess(linkDigest, treeID) === "write") return true;
     if (!account) return tree.publicAccess === "write";
     return this.effectiveAccess(account, treeID) === "write" || tree.publicAccess === "write";
@@ -788,6 +1100,8 @@ export class WireAuthority implements AsyncDisposable {
   canAdminister(account: AuthorityAccount, treeID: string): boolean {
     const tree = this.get(treeID);
     if (!tree || !account.profileTree) return false;
+    if (tree.policy === "account-config-v1") return tree.accountID === account.id;
+    if (tree.accountID === account.id) return true;
     if (tree.kind === "person-profile" && tree.id === account.profileTree) return true;
     return this.directAccess(account.profileTree, treeID) === "write";
   }
@@ -827,7 +1141,7 @@ export class WireAuthority implements AsyncDisposable {
   ): Promise<AuthorityTree> {
     const path = normalizeBoundaryPath(canonicalPath);
     if (this.boundary(path)) throw new Error(`Canonical boundary already exists: ${path}`);
-    if (this.list().some((boundary) => boundary.canonicalPath.startsWith(`${path}/`))) {
+    if (this.list().some((boundary) => boundary.canonicalPath?.startsWith(`${path}/`))) {
       throw new Error(`Canonical boundary would shadow an existing tree: ${path}`);
     }
     const parent = this.resolve(dirnameURL(path))?.tree;
@@ -857,6 +1171,7 @@ export class WireAuthority implements AsyncDisposable {
       if (
         !ancestor
         || !["person-profile", "group-profile"].includes(ancestor.kind)
+        || !ancestor.canonicalPath
         || !sameOrDescendant(path, ancestor.canonicalPath)
       ) {
         throw new Error("Shared subtree must be mounted beneath an administered profile");
@@ -873,6 +1188,8 @@ export class WireAuthority implements AsyncDisposable {
         for (const rule of profileAccess) this.setAccessInternal(treeID, "profile", rule.profile, rule.access);
       },
       credentialSubject,
+      undefined,
+      account.id,
     );
   }
 
@@ -917,6 +1234,115 @@ export class WireAuthority implements AsyncDisposable {
       throw error;
     }
     return { account: this.account(accountID)!, token, tree };
+  }
+
+  async claimWithConfiguration(input: {
+    handle: string;
+    origin: string;
+    profileTree: string;
+    configurationTree: string;
+    deviceID: string;
+    deviceLabel: string;
+    credentialDigest: string;
+    profileSnapshot: TreeSnapshot;
+    configurationSnapshot: TreeSnapshot;
+  }): Promise<{ account: AuthorityAccount; tree: AuthorityTree; configuration: AuthorityTree }> {
+    const { handle } = input;
+    const claimDigest = sha256(canonicalJSONString({
+      handle,
+      profileTree: input.profileTree,
+      configurationTree: input.configurationTree,
+      deviceID: input.deviceID,
+      deviceLabel: input.deviceLabel,
+      credentialDigest: input.credentialDigest,
+      profileRoot: input.profileSnapshot.root,
+      configurationRoot: input.configurationSnapshot.root,
+    }));
+    if (!HANDLE.test(handle)) throw new Error(`Invalid profile handle: ${handle}`);
+    if (!isGeneratedArborID(input.profileTree, "tr") || !isGeneratedArborID(input.configurationTree, "tr")) {
+      throw new Error("Claim requires client-generated 128-bit profile and configuration TreeIDs");
+    }
+    if (!isGeneratedArborID(input.deviceID, "dv")) throw new Error("Claim requires a client-generated 128-bit DeviceID");
+    if (!/^sha256:[a-f0-9]{64}$/.test(input.credentialDigest)) throw new Error("Device credential digest is invalid");
+    const tokenDigest = input.credentialDigest.slice("sha256:".length);
+    const prior = this.accountByHandle(handle);
+    if (prior) {
+      const row = this.db.query("SELECT claim_digest FROM accounts WHERE id = ?").get(prior.id) as { claim_digest: string | null };
+      if (row.claim_digest === claimDigest) {
+        return { account: prior, tree: this.get(input.profileTree)!, configuration: this.get(input.configurationTree)! };
+      }
+      throw new AlreadyClaimedError(handle);
+    }
+    if (this.boundary(`/~${handle}`)) throw new AlreadyClaimedError(handle);
+    if (!this.communityMemberHandles().has(handle)) throw new Error(`Profile is not reserved by the community: ~${handle}`);
+    await this.validateProfileSnapshot(input.profileSnapshot, "person");
+    await this.validateGraph(input.configurationSnapshot.root, input.configurationSnapshot.objects);
+    const config = readAccountConfigGraph(input.configurationSnapshot, input.configurationTree);
+    if (config.account.community !== new URL(input.origin).origin) throw new Error("account.yaml community does not match the claim authority");
+    if (config.account.profile.tree !== input.profileTree || config.account.profile.handle !== handle) throw new Error("account.yaml profile does not match the claim");
+    if (Object.keys(config.devices).length !== 1 || !config.devices[input.deviceID] || config.devices[input.deviceID]!.label !== input.deviceLabel) {
+      throw new Error("Initial configuration must contain exactly the claiming device and matching label");
+    }
+    if (config.account.admins.length !== 1 || config.account.admins[0] !== input.deviceID) {
+      throw new Error("The claiming device must be the first administrator");
+    }
+    await this.storeObjects([...input.configurationSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
+    const accountID = generateArborID("ac");
+    const parent = this.community();
+    const tree = await this.insertTree(
+      `/~${handle}`,
+      "person-profile",
+      input.profileSnapshot,
+      "none",
+      parent.id,
+      (profileID) => {
+        const now = Date.now();
+        this.db.run(
+          "INSERT INTO accounts (id, handle, profile_tree, config_tree, token_digest, claim_digest, enabled) VALUES (?, ?, ?, ?, ?, ?, 1)",
+          [accountID, handle, profileID, input.configurationTree, tokenDigest, claimDigest],
+        );
+        this.db.run(
+          "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, ?, ?, ?)",
+          [input.deviceID, accountID, input.deviceLabel, tokenDigest, now],
+        );
+        this.db.run(
+          "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v1', 'active', ?)",
+          [input.configurationTree, input.configurationSnapshot.root, now, accountID],
+        );
+        this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [
+          input.configurationTree, input.configurationSnapshot.root, now,
+        ]);
+        this.insertAcceptedUpdate({
+          tree: input.configurationTree,
+          root: input.configurationSnapshot.root,
+          previousRoot: null,
+          kind: "initial",
+          acceptedAt: now,
+          subject: `device:${input.deviceID}`,
+        });
+        const declaration = config.trees.trees[profileID]!;
+        for (const rule of declaration.access) {
+          const subject = rule.subject.kind === "everyone" ? "everyone" : rule.subject.kind === "profile" ? rule.subject.tree : rule.subject.digest;
+          this.setAccessInternal(profileID, rule.subject.kind, subject, rule.access);
+        }
+        for (const [id, pending] of Object.entries(config.trees.trees)) {
+          if (id === profileID) continue;
+          this.db.run(
+            "INSERT INTO tree_reservations (id, account_id, kind, canonical_path, status) VALUES (?, ?, ?, ?, 'awaiting-initialization')",
+            [id, accountID, pending.kind, pending.canonicalPath],
+          );
+        }
+        const firstWriter = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'").get() as { value: string } | null;
+        if (firstWriter?.value === handle) {
+          this.setAccessInternal(parent.id, "profile", profileID, "write");
+          this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
+        }
+      },
+      `device:${input.deviceID}`,
+      input.profileTree,
+      accountID,
+    );
+    return { account: this.account(accountID)!, tree, configuration: this.get(input.configurationTree)! };
   }
 
   private insertAcceptedUpdate(input: AcceptedUpdateInput): AcceptedUpdate {
@@ -964,6 +1390,9 @@ export class WireAuthority implements AsyncDisposable {
     const tree = this.get(treeID);
     if (!tree) throw new Error(`Unknown tree: ${treeID}`);
     if (!this.canWrite(account, treeID, linkDigest)) throw new Error("Write access is not allowed");
+    if (tree.policy === "account-config-v1") {
+      return this.submitAccountConfigUpdateLocked(tree, request, account, credentialSubject);
+    }
     const subject = credentialSubject ?? (account ? `account:${account.id}` : linkDigest ? `link:${linkDigest}` : "public");
     const requestDigest = updateRequestDigest(treeID, request);
     const replay = this.acceptedRequest(treeID, subject, requestDigest);
@@ -996,7 +1425,7 @@ export class WireAuthority implements AsyncDisposable {
         (hash) => this.loadObject(hash, proposed),
       );
       if (reconciled.outcome === "current") {
-        return { status: 200, result: { outcome: "current", current: remoteUpdate, requestDigest } };
+        return { status: 200, result: { outcome: "current", current: remoteUpdate, requestDigest, observedThrough: remoteUpdate.id } };
       }
 
       const nextRoot = reconciled.root;
@@ -1012,11 +1441,15 @@ export class WireAuthority implements AsyncDisposable {
               error: "conflict",
               message: "The candidate could not be merged safely",
               retryable: false,
-              current: remoteUpdate,
-              base: request.base.root,
-              candidate: request.candidate,
-              draft: { root: draft.root, objects: [...draft.objects].map(([hash, bytes]) => ({ hash, bytes })) },
-              conflicts: reconciled.conflicts,
+              tree: treeID,
+              details: {
+                kind: "authority-update",
+                current: remoteUpdate,
+                base: request.base.root,
+                candidate: request.candidate,
+                draft: { root: draft.root, objects: [...draft.objects].map(([hash, bytes]) => ({ hash, bytes })) },
+                conflicts: reconciled.conflicts,
+              },
             },
           };
           return response;
@@ -1048,10 +1481,130 @@ export class WireAuthority implements AsyncDisposable {
       const updatedTree = this.get(treeID)!;
       for (const listener of this.listeners.get(treeID) ?? []) listener(updatedTree, accepted, requestDigest);
       return kind === "merged"
-        ? { status: 201, result: { outcome: "merged", update: accepted, merge: merge!, requestDigest } }
-        : { status: 201, result: { outcome: "accepted", update: accepted, requestDigest } };
+        ? { status: 201, result: { outcome: "merged", update: accepted, merge: merge!, requestDigest, observedThrough: accepted.id } }
+        : { status: 201, result: { outcome: "accepted", update: accepted, requestDigest, observedThrough: accepted.id } };
     }
     throw new UpdateProtocolError("authority-busy", "Authority update changed repeatedly during merge");
+  }
+
+  private async submitAccountConfigUpdateLocked(
+    tree: AuthorityTree,
+    request: UpdateRequest,
+    account: AuthorityAccount | null,
+    credentialSubject?: string,
+  ): Promise<StoredUpdateResponse> {
+    if (!account || tree.accountID !== account.id || credentialSubject?.startsWith("device:") !== true) {
+      throw new Error("An active account device is required for configuration updates");
+    }
+    const deviceID = credentialSubject.slice("device:".length);
+    const subject = credentialSubject;
+    const requestDigest = updateRequestDigest(tree.id, request);
+    const replay = this.acceptedRequest(tree.id, subject, requestDigest);
+    if (replay) return replay;
+    const baseUpdate = this.update(request.base.update);
+    if (!baseUpdate || baseUpdate.tree !== tree.id || baseUpdate.root !== request.base.root) {
+      throw new UpdateProtocolError("base-not-retained", "Base update is not retained for this account configuration");
+    }
+    const proposed = new Map(request.objects.map(({ hash, bytes }) => [hash, bytes]));
+    const reconstructed = await this.reconstructFilePatches(request.base.root, request.filePatches ?? [], proposed);
+    await this.validateGraph(request.candidate, proposed);
+    const candidateSnapshot = await this.completeSnapshot(request.candidate, proposed);
+    const baseSnapshot = await this.completeSnapshot(request.base.root);
+    const currentUpdate = this.currentUpdate(tree.id);
+    if (!currentUpdate) throw new Error("Account configuration has no accepted update");
+    const currentSnapshot = await this.completeSnapshot(currentUpdate.root);
+    const baseGraph = readAccountConfigGraph(baseSnapshot, tree.id);
+    const candidateGraph = readAccountConfigGraph(candidateSnapshot, tree.id);
+    const currentGraph = readAccountConfigGraph(currentSnapshot, tree.id);
+    authorizeAccountConfigTransition(currentGraph, candidateGraph, deviceID, baseGraph);
+
+    let nextSnapshot = candidateSnapshot;
+    let nextGraph = candidateGraph;
+    let kind: AcceptedUpdate["kind"] = "accepted";
+    let merge: MergeSummary | undefined;
+    if (currentUpdate.root !== request.base.root) {
+      const merged = mergeAccountConfigGraphs(baseGraph, candidateGraph, currentGraph);
+      nextSnapshot = snapshotAccountConfig(merged.graph);
+      nextGraph = readAccountConfigGraph(nextSnapshot, tree.id);
+      if (merged.conflicts.length) {
+        return {
+          status: 409,
+          result: {
+            error: "conflict",
+            message: "The account configuration contains incompatible same-field edits",
+            retryable: false,
+            tree: tree.id,
+            details: {
+              kind: "account-configuration",
+              current: currentUpdate,
+              base: request.base.root,
+              candidate: request.candidate,
+              draft: { root: nextSnapshot.root, objects: [...nextSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })) },
+              conflicts: merged.conflicts.map((path) => ({ path, reason: "account-configuration" as const })),
+            },
+          },
+        };
+      }
+      kind = "merged";
+      merge = { version: "account-config-v1", mergedFields: 1 };
+    }
+    authorizeAccountConfigTransition(currentGraph, nextGraph, deviceID, currentGraph);
+    if (nextSnapshot.root === currentUpdate.root) {
+      return { status: 200, result: { outcome: "current", current: currentUpdate, requestDigest, observedThrough: currentUpdate.id } };
+    }
+    const boundaryRewrites = await this.prepareAccountBoundaryRewrites(currentGraph, nextGraph);
+    await this.storeObjects(request.objects);
+    await this.storeObjects(reconstructed);
+    await this.storeObjects([...nextSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
+    for (const rewrite of boundaryRewrites) {
+      await this.cacheMembers(rewrite.nextRoot, rewrite.generated);
+      await this.storeObjects([...rewrite.generated].map(([hash, bytes]) => ({ hash, bytes })));
+    }
+    const now = Date.now();
+    const boundaryUpdates: AcceptedUpdate[] = [];
+    const accepted = this.acceptedStore.commit(generateArborID("up"), {
+      tree: tree.id,
+      root: nextSnapshot.root,
+      previousRoot: currentUpdate.root,
+      expectedRoot: currentUpdate.root,
+      kind,
+      acceptedAt: now,
+      subject,
+      baseRoot: request.base.root,
+      candidateRoot: request.candidate,
+      remoteRoot: currentUpdate.root,
+      ...(merge ? { merge } : {}),
+      requestDigest,
+    }, () => {
+      this.applyAccountConfigDerived(account.id, currentGraph, nextGraph);
+      for (const rewrite of boundaryRewrites) {
+        const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
+          rewrite.nextRoot, now, rewrite.parent.id, rewrite.parent.ref,
+        ]);
+        if (result.changes !== 1) throw new RefConflictError(this.get(rewrite.parent.id)?.ref ?? null);
+        this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)", [
+          rewrite.parent.id, rewrite.nextRoot, rewrite.parent.ref, now,
+        ]);
+        boundaryUpdates.push(this.insertAcceptedUpdate({
+          tree: rewrite.parent.id,
+          root: rewrite.nextRoot,
+          previousRoot: rewrite.parent.ref,
+          kind: "accepted",
+          acceptedAt: now,
+          subject,
+        }));
+      }
+    });
+    if (!accepted) throw new RefConflictError(this.get(tree.id)?.ref ?? null);
+    const updated = this.get(tree.id)!;
+    for (const listener of this.listeners.get(tree.id) ?? []) listener(updated, accepted, requestDigest);
+    for (const update of boundaryUpdates) {
+      const parent = this.get(update.tree)!;
+      for (const listener of this.listeners.get(update.tree) ?? []) listener(parent, update);
+    }
+    return kind === "merged"
+      ? { status: 201, result: { outcome: "merged", update: accepted, merge: merge!, requestDigest, observedThrough: accepted.id } }
+      : { status: 201, result: { outcome: "accepted", update: accepted, requestDigest, observedThrough: accepted.id } };
   }
 
   subscribe(id: string, listener: (tree: AuthorityTree, update: AcceptedUpdate, requestDigest?: ObjectHash) => void): () => void {
@@ -1059,6 +1612,44 @@ export class WireAuthority implements AsyncDisposable {
     listeners.add(listener);
     this.listeners.set(id, listeners);
     return () => listeners.delete(listener);
+  }
+
+  observationEvents(tree: string): Array<{ cursor: string; tree: string; kind: string; change: unknown; createdAt: number }> {
+    return (this.db.query("SELECT * FROM observation_events WHERE tree_id = ? ORDER BY created_at, rowid").all(tree) as Array<{
+      cursor: string; tree_id: string; kind: string; change_json: string; created_at: number;
+    }>).map((row) => ({
+      cursor: row.cursor,
+      tree: row.tree_id,
+      kind: row.kind,
+      change: JSON.parse(row.change_json),
+      createdAt: row.created_at,
+    }));
+  }
+
+  subscribeObservations(tree: string, listener: (event: { cursor: string; tree: string; kind: string; change: unknown }) => void): () => void {
+    const listeners = this.observationListeners.get(tree) ?? new Set();
+    listeners.add(listener);
+    this.observationListeners.set(tree, listeners);
+    return () => listeners.delete(listener);
+  }
+
+  private recordObservation(tree: string, kind: string, change: unknown) {
+    const cursor = generateArborID("up");
+    const event = { cursor, tree, kind, change };
+    this.db.run("INSERT INTO observation_events (cursor, tree_id, kind, change_json, created_at) VALUES (?, ?, ?, ?, ?)", [
+      cursor, tree, kind, JSON.stringify(change), Date.now(),
+    ]);
+    return event;
+  }
+
+  private notifyObservation(event: { cursor: string; tree: string; kind: string; change: unknown }): void {
+    for (const listener of this.observationListeners.get(event.tree) ?? []) listener(event);
+  }
+
+  private emitObservation(tree: string, kind: string, change: unknown): string {
+    const event = this.recordObservation(tree, kind, change);
+    this.notifyObservation(event);
+    return event.cursor;
   }
 
   async object(hash: ObjectHash): Promise<Uint8Array> {
@@ -1110,11 +1701,9 @@ export class WireAuthority implements AsyncDisposable {
     }
   }
 
-  async isReadableObject(hash: ObjectHash, account: AuthorityAccount | null, linkDigest?: string): Promise<boolean> {
-    for (const tree of this.list()) {
-      if (this.canRead(account, tree.id, linkDigest) && await this.graphContains(tree.ref, hash)) return true;
-    }
-    return false;
+  async isReadableObject(treeID: string, hash: ObjectHash, account: AuthorityAccount | null, linkDigest?: string): Promise<boolean> {
+    const tree = this.get(treeID);
+    return Boolean(tree && this.canRead(account, treeID, linkDigest) && await this.graphContains(tree.ref, hash));
   }
 
   private async insertTree(
@@ -1125,11 +1714,14 @@ export class WireAuthority implements AsyncDisposable {
     parentTree: string | null,
     withinTransaction?: (treeID: string) => void,
     credentialSubject?: string,
+    requestedTreeID?: string,
+    accountID?: string,
   ): Promise<AuthorityTree> {
     const path = normalizeBoundaryPath(canonicalPath);
     await this.validateGraph(snapshot.root, snapshot.objects);
     await this.storeObjects([...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
-    const id = opaqueID("tr");
+    const id = requestedTreeID ?? generateArborID("tr");
+    if (this.db.query("SELECT 1 FROM trees WHERE id = ?").get(id)) throw new Error(`TreeID already exists: ${id}`);
     const attachment = parentTree ? await this.prepareBoundaryAttachment(parentTree, path, id) : null;
     if (attachment) {
       await this.cacheMembers(attachment.nextRoot, attachment.generated);
@@ -1137,7 +1729,7 @@ export class WireAuthority implements AsyncDisposable {
     }
     const now = Date.now();
     this.db.transaction(() => {
-      this.db.run("INSERT INTO trees (id, ref, updated_at) VALUES (?, ?, ?)", [id, snapshot.root, now]);
+      this.db.run("INSERT INTO trees (id, ref, updated_at, account_id) VALUES (?, ?, ?, ?)", [id, snapshot.root, now, accountID ?? null]);
       this.db.run(
         "INSERT INTO boundaries (path, tree_id, parent_tree, kind) VALUES (?, ?, ?, ?)",
         [path, id, parentTree, kind],
@@ -1192,7 +1784,7 @@ export class WireAuthority implements AsyncDisposable {
     childTreeID: string,
   ): Promise<{ parent: AuthorityTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }> {
     const parent = this.get(parentTreeID);
-    if (!parent) throw new Error(`Unknown parent tree: ${parentTreeID}`);
+    if (!parent?.canonicalPath) throw new Error(`Unknown or noncanonical parent tree: ${parentTreeID}`);
     const parentSegments = pathSegments(parent.canonicalPath);
     const childSegments = pathSegments(childPath);
     const relativeSegments = childSegments.slice(parentSegments.length);
@@ -1238,6 +1830,98 @@ export class WireAuthority implements AsyncDisposable {
     return { parent, nextRoot, generated };
   }
 
+  private async prepareBoundaryRewrite(
+    parentTreeID: string,
+    removals: Array<{ path: string; tree: string }>,
+    additions: Array<{ path: string; tree: string }>,
+  ): Promise<{ parent: AuthorityTree; nextRoot: ObjectHash; generated: Map<ObjectHash, Uint8Array> }> {
+    const parent = this.get(parentTreeID);
+    if (!parent?.canonicalPath) throw new Error(`Unknown or noncanonical parent tree: ${parentTreeID}`);
+    const prefix = pathSegments(parent.canonicalPath);
+    const generated = new Map<ObjectHash, Uint8Array>();
+    type Edit = { segments: string[]; tree: string; remove: boolean };
+    const edits: Edit[] = [
+      ...removals.map((item) => ({ segments: pathSegments(item.path).slice(prefix.length), tree: item.tree, remove: true })),
+      ...additions.map((item) => ({ segments: pathSegments(item.path).slice(prefix.length), tree: item.tree, remove: false })),
+    ];
+    if (edits.some((edit) => edit.segments.length === 0)) throw new Error("A boundary cannot replace its parent root");
+
+    const rewrite = async (hash: ObjectHash, pending: Edit[]): Promise<ObjectHash> => {
+      const object = decodeWireObject(await this.loadObject(hash, generated));
+      if (object.type !== "directory") throw new Error("Canonical boundary crosses a file");
+      const entries = [...object.entries];
+      const grouped = new Map<string, Edit[]>();
+      for (const edit of pending) {
+        const [name, ...rest] = edit.segments;
+        const values = grouped.get(name!) ?? [];
+        values.push({ ...edit, segments: rest });
+        grouped.set(name!, values);
+      }
+      for (const [name, group] of grouped) {
+        let index = entries.findIndex((entry) => entry.name === name);
+        const leaf = group.filter((edit) => edit.segments.length === 0);
+        const deeper = group.filter((edit) => edit.segments.length > 0);
+        for (const edit of leaf) {
+          if (edit.remove) {
+            if (index < 0 || entries[index]!.tree !== edit.tree) throw new Error(`Canonical boundary moved concurrently: ${edit.tree}`);
+            entries.splice(index, 1);
+            index = -1;
+          } else {
+            if (index >= 0 && entries[index]!.tree !== edit.tree) throw new Error(`Canonical boundary is occupied: ${name}`);
+            const next: WireDirectoryEntry = { name, tree: edit.tree };
+            if (index >= 0) entries[index] = next;
+            else { entries.push(next); index = entries.length - 1; }
+          }
+        }
+        if (deeper.length) {
+          if (index >= 0 && entries[index]!.tree) throw new Error(`Canonical boundary crosses another tree: ${name}`);
+          let childHash = index >= 0 ? entries[index]!.hash : undefined;
+          if (!childHash) {
+            const empty = encodeWireObject({ type: "directory", entries: [] });
+            childHash = hashObject(empty);
+            generated.set(childHash, empty);
+          }
+          const updated = await rewrite(childHash, deeper);
+          const next: WireDirectoryEntry = { name, hash: updated };
+          if (index >= 0) entries[index] = next;
+          else entries.push(next);
+        }
+      }
+      entries.sort((a, b) => compareWireNames(a.name, b.name));
+      const bytes = encodeWireObject({ type: "directory", entries } satisfies WireDirectory);
+      const nextHash = hashObject(bytes);
+      generated.set(nextHash, bytes);
+      return nextHash;
+    };
+    const nextRoot = await rewrite(parent.ref, edits);
+    return { parent, nextRoot, generated };
+  }
+
+  private async prepareAccountBoundaryRewrites(current: AccountConfigGraph, next: AccountConfigGraph) {
+    const grouped = new Map<string, { removals: Array<{ path: string; tree: string }>; additions: Array<{ path: string; tree: string }> }>();
+    const group = (parent: string) => {
+      const value = grouped.get(parent) ?? { removals: [], additions: [] };
+      grouped.set(parent, value);
+      return value;
+    };
+    for (const [id, declaration] of Object.entries(next.trees.trees)) {
+      const before = current.trees.trees[id];
+      const active = this.get(id);
+      if (!before || !active || before.canonicalPath === declaration.canonicalPath) continue;
+      if (!active.parentTree) throw new Error(`Canonical tree ${id} has no movable parent boundary`);
+      const nextParent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
+      if (!nextParent || nextParent.id === id) throw new Error(`Canonical parent is unavailable for ${declaration.canonicalPath}`);
+      group(active.parentTree).removals.push({ path: before.canonicalPath, tree: id });
+      group(nextParent.id).additions.push({ path: declaration.canonicalPath, tree: id });
+    }
+    const rewrites = [];
+    for (const [parent, edits] of grouped) {
+      const rewrite = await this.prepareBoundaryRewrite(parent, edits.removals, edits.additions);
+      if (rewrite.nextRoot !== rewrite.parent.ref) rewrites.push(rewrite);
+    }
+    return rewrites;
+  }
+
   private async validateReservedBoundaries(
     parent: AuthorityTree,
     root: ObjectHash,
@@ -1247,6 +1931,7 @@ export class WireAuthority implements AsyncDisposable {
       "SELECT path, tree_id FROM boundaries WHERE parent_tree = ? ORDER BY length(path)",
     ).all(parent.id) as Array<{ path: string; tree_id: string }>;
     for (const child of children) {
+      if (!parent.canonicalPath) throw new Error("A noncanonical tree cannot own canonical boundaries");
       const segments = pathSegments(child.path).slice(pathSegments(parent.canonicalPath).length);
       let hash = root;
       let valid = true;

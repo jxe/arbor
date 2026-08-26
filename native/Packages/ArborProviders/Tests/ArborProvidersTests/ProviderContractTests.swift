@@ -173,12 +173,13 @@ struct ProviderContractTests {
 
     @Test("Live arbord provider when the protocol harness supplies it")
     func arbord() async throws {
-        guard let raw = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"], let origin = URL(string: raw) else {
+        guard let raw = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"], let origin = URL(string: raw),
+              let treeValue = ProcessInfo.processInfo.environment["ARBOR_TEST_TREE"] else {
             return
         }
         let client = ArborClient(baseURL: origin)
-        let snapshot = try await client.node(.path("/"))
-        let tree = TreeID(rawValue: snapshot.tree ?? snapshot.ref.tree ?? "local")
+        let snapshot = try await client.node(.path("/", tree: treeValue))
+        let tree = TreeID(rawValue: snapshot.tree)
         try await verify(
             provider: ArbordWorkspaceProvider(client: client),
             root: WorkspaceReference(tree: tree, path: "/")
@@ -189,12 +190,13 @@ struct ProviderContractTests {
     func arbordExistingPath() async throws {
         guard let raw = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"],
               let origin = URL(string: raw),
+              let treeValue = ProcessInfo.processInfo.environment["ARBOR_TEST_TREE"],
               let path = ProcessInfo.processInfo.environment["ARBOR_TEST_EXISTING_PATH"] else {
             return
         }
         let client = ArborClient(baseURL: origin)
-        let snapshot = try await client.node(.path("/"))
-        let tree = TreeID(rawValue: snapshot.tree ?? snapshot.ref.tree ?? "local")
+        let snapshot = try await client.node(.path("/", tree: treeValue))
+        let tree = TreeID(rawValue: snapshot.tree)
         let node = try await ArbordWorkspaceProvider(client: client).resolve(
             WorkspaceReference(tree: tree, path: path)
         )
@@ -204,12 +206,13 @@ struct ProviderContractTests {
 
     @Test("Live arbord document sessions observe a later authoritative revision")
     func arbordDocumentUpdates() async throws {
-        guard let raw = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"], let origin = URL(string: raw) else {
+        guard let raw = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"], let origin = URL(string: raw),
+              let treeValue = ProcessInfo.processInfo.environment["ARBOR_TEST_TREE"] else {
             return
         }
         let client = ArborClient(baseURL: origin)
-        let rootSnapshot = try await client.node(.path("/"))
-        let tree = TreeID(rawValue: rootSnapshot.tree ?? rootSnapshot.ref.tree ?? "local")
+        let rootSnapshot = try await client.node(.path("/", tree: treeValue))
+        let tree = TreeID(rawValue: rootSnapshot.tree)
         let root = WorkspaceReference(tree: tree, path: "/")
         let provider = ArbordWorkspaceProvider(client: client)
         let suffix = UUID().uuidString.lowercased().prefix(8)

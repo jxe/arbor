@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseDocument } from "yaml";
-import { arborDataRoot, prepareArborDataRoot } from "./private-state.ts";
+import { arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
 export interface SafeConnectionRecord {
   name: string;
@@ -17,7 +17,7 @@ export interface SafeConnectionRecord {
 const SERVICE = "org.arbor.connections";
 
 export class ConnectionStore {
-  private directory = join(arborDataRoot(), "system", "connections");
+  private directory = join(arborPrivateRoot(), "system", "connections");
 
   private assertName(name: string): void {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)) throw new Error(`Invalid connection name: ${name}`);

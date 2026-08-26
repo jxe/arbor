@@ -11,89 +11,137 @@ public enum ArborWireValidationError: Error, Equatable, Sendable {
     case malformedSSE(String)
 }
 
+public struct AuthorityCanonicalDescriptor: Codable, Sendable, Equatable {
+    public var locator: String
+    public var path: String
+    public var endpoint: String
+    public var httpURL: String
+    public var parentTree: String?
+
+    public init(locator: String, path: String, endpoint: String, httpURL: String, parentTree: String? = nil) {
+        self.locator = locator
+        self.path = path
+        self.endpoint = endpoint
+        self.httpURL = httpURL
+        self.parentTree = parentTree
+    }
+}
+
 public struct AuthorityTreeDescriptor: Codable, Sendable, Equatable {
     public var id: String
-    public var canonicalPath: String
-    public var parentTree: String?
     public var kind: String
-    public var ref: String
-    public var publicAccess: String
     public var access: String
-    public var httpURL: String
-    public var arborURL: String
-    public var update: String?
-    public var path: String?
-    /** Same-credential correlation value; present only on watch frames. */
-    public var requestDigest: String?
+    public var canonical: AuthorityCanonicalDescriptor?
+    public var ref: String
+    public var update: String
+
+    public var canonicalPath: String? { canonical?.path }
+    public var parentTree: String? { canonical?.parentTree }
+    public var httpURL: String? { canonical?.httpURL }
+    public var arborURL: String? { canonical?.locator }
 
     public init(
         id: String,
-        canonicalPath: String,
-        parentTree: String? = nil,
         kind: String,
         ref: String,
-        publicAccess: String,
         access: String,
-        httpURL: String,
-        arborURL: String,
-        update: String? = nil,
-        path: String? = nil,
-        requestDigest: String? = nil
+        canonical: AuthorityCanonicalDescriptor?,
+        update: String
     ) {
         self.id = id
-        self.canonicalPath = canonicalPath
-        self.parentTree = parentTree
         self.kind = kind
-        self.ref = ref
-        self.publicAccess = publicAccess
         self.access = access
-        self.httpURL = httpURL
-        self.arborURL = arborURL
+        self.canonical = canonical
+        self.ref = ref
         self.update = update
-        self.path = path
-        self.requestDigest = requestDigest
     }
 
     public func validated() throws -> Self {
         guard !id.isEmpty else { throw ArborWireValidationError.invalidValue("Tree ID is empty") }
-        guard canonicalPath.hasPrefix("/") else { throw ArborWireValidationError.invalidValue("Canonical path is not absolute") }
         try validateObjectHash(ref)
-        guard ["community-profile", "person-profile", "group-profile", "shared-subtree"].contains(kind) else {
+        guard ["community-profile", "person-profile", "group-profile", "shared-subtree", "account-configuration"].contains(kind) else {
             throw ArborWireValidationError.invalidValue("Unknown tree kind")
         }
-        guard ["none", "read", "write"].contains(publicAccess), ["read", "write"].contains(access) else {
+        guard ["none", "read", "write"].contains(access) else {
             throw ArborWireValidationError.invalidValue("Unknown access level")
         }
-        guard URL(string: httpURL) != nil, URL(string: arborURL) != nil else {
-            throw ArborWireValidationError.invalidValue("Malformed descriptor URL")
+        if kind == "account-configuration" {
+            guard canonical == nil else { throw ArborWireValidationError.invalidValue("Account configuration must be noncanonical") }
+        } else {
+            guard let canonical, canonical.path.hasPrefix("/"), URL(string: canonical.httpURL) != nil,
+                  URL(string: canonical.locator) != nil, URL(string: canonical.endpoint) != nil else {
+                throw ArborWireValidationError.invalidValue("Malformed canonical descriptor")
+            }
         }
-        if let requestDigest { try validateObjectHash(requestDigest) }
         return self
     }
 }
 
+public struct AuthoritySnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
+    public var snapshot: Value
+    public var observedThrough: String
+
+    public init(snapshot: Value, observedThrough: String) {
+        self.snapshot = snapshot
+        self.observedThrough = observedThrough
+    }
+}
+
 public struct AuthorityAccountDescriptor: Codable, Sendable, Equatable {
+    public struct Device: Codable, Sendable, Equatable {
+        public var id: String
+        public var label: String
+    }
+
     public var id: String
     public var handle: String
     public var profileTree: String?
     public var profileURL: String?
     public var community: AuthorityTreeDescriptor
+    public var configuration: AuthorityTreeDescriptor
     public var writableProfiles: [AuthorityTreeDescriptor]
+    public var device: Device? = nil
+}
+
+public struct AuthorityAccountSnapshot: Codable, Sendable, Equatable {
+    public var account: AuthorityAccountDescriptor
+    public var observedThrough: String
+}
+
+public struct AuthorityResolvedNodeRef: Codable, Sendable, Equatable {
+    public var tree: String
+    public var path: String
+    public var pageID: String?
+}
+
+public struct AuthorityLocatorResolution: Codable, Sendable, Equatable {
+    public var ref: AuthorityResolvedNodeRef
+    public var enclosingTree: AuthorityTreeDescriptor
+    public var historical: Bool
+    public var observedThrough: String
 }
 
 public struct AuthorityMergeSummary: Codable, Sendable, Equatable {
     public var version: String
-    public var approximatePlacements: Int
+    public var approximatePlacements: Int?
+    public var mergedFields: Int?
 
-    public init(version: String, approximatePlacements: Int) {
+    public init(version: String, approximatePlacements: Int? = nil, mergedFields: Int? = nil) {
         self.version = version
         self.approximatePlacements = approximatePlacements
+        self.mergedFields = mergedFields
     }
 
     public func validated() throws -> Self {
-        guard version == "markdown-additive-v1", approximatePlacements >= 0 else {
-            throw ArborWireValidationError.invalidValue("Malformed merge summary")
-        }
+        if version == "markdown-additive-v1" {
+            guard let approximatePlacements, approximatePlacements >= 0 else {
+                throw ArborWireValidationError.invalidValue("Malformed merge summary")
+            }
+        } else if version == "account-config-v1" {
+            guard let mergedFields, mergedFields >= 0 else {
+                throw ArborWireValidationError.invalidValue("Malformed account configuration merge summary")
+            }
+        } else { throw ArborWireValidationError.invalidValue("Unknown merge summary") }
         return self
     }
 }
@@ -174,17 +222,20 @@ public struct AuthoritySnapshot: Codable, Sendable, Equatable {
 public struct AuthorityCurrentSnapshot: Codable, Sendable, Equatable {
     public var tree: AuthorityTreeDescriptor
     public var snapshot: AuthoritySnapshot
+    public var observedThrough: String
 
-    public init(tree: AuthorityTreeDescriptor, snapshot: AuthoritySnapshot) {
+    public init(tree: AuthorityTreeDescriptor, snapshot: AuthoritySnapshot, observedThrough: String) {
         self.tree = tree
         self.snapshot = snapshot
+        self.observedThrough = observedThrough
     }
 
     public func validated(expectedTree: String? = nil) throws -> Self {
         let tree = try tree.validated()
         _ = try WireObjectGraph.validate(snapshot)
         guard tree.ref == snapshot.root,
-              tree.update?.isEmpty == false,
+              !tree.update.isEmpty,
+              !observedThrough.isEmpty,
               expectedTree == nil || tree.id == expectedTree else {
             throw ArborWireValidationError.invalidValue("Current snapshot descriptor does not match its graph")
         }
@@ -370,21 +421,36 @@ public struct AuthorityConflictReason: Codable, Sendable, Equatable {
     public init(path: String, reason: String) { self.path = path; self.reason = reason }
 }
 
-public struct AuthorityUpdateConflict: Codable, Sendable, Equatable {
-    public var error: String
-    public var message: String
-    public var retryable: Bool
+public struct AuthorityConflictDetails: Codable, Sendable, Equatable {
+    public var kind: String
     public var current: AuthorityAcceptedUpdate
     public var base: String
     public var candidate: String
     public var draft: AuthoritySnapshot
     public var currentSnapshot: AuthoritySnapshot?
     public var conflicts: [AuthorityConflictReason]
+}
+
+public struct AuthorityUpdateConflict: Codable, Sendable, Equatable {
+    public var error: String
+    public var message: String
+    public var retryable: Bool
+    public var tree: String?
+    public var details: AuthorityConflictDetails
+
+    public var current: AuthorityAcceptedUpdate { details.current }
+    public var base: String { details.base }
+    public var candidate: String { details.candidate }
+    public var draft: AuthoritySnapshot { details.draft }
+    public var currentSnapshot: AuthoritySnapshot? { details.currentSnapshot }
+    public var conflicts: [AuthorityConflictReason] { details.conflicts }
 
     public init(
         error: String = "conflict",
         message: String,
         retryable: Bool = false,
+        tree: String? = nil,
+        kind: String = "authority-update",
         current: AuthorityAcceptedUpdate,
         base: String,
         candidate: String,
@@ -395,27 +461,34 @@ public struct AuthorityUpdateConflict: Codable, Sendable, Equatable {
         self.error = error
         self.message = message
         self.retryable = retryable
-        self.current = current
-        self.base = base
-        self.candidate = candidate
-        self.draft = draft
-        self.currentSnapshot = currentSnapshot
-        self.conflicts = conflicts
+        self.tree = tree
+        self.details = AuthorityConflictDetails(
+            kind: kind,
+            current: current,
+            base: base,
+            candidate: candidate,
+            draft: draft,
+            currentSnapshot: currentSnapshot,
+            conflicts: conflicts
+        )
     }
 
     public func validated() throws -> Self {
         guard error == "conflict", !retryable else { throw ArborWireValidationError.invalidValue("Malformed conflict envelope") }
-        _ = try current.validated()
-        try validateObjectHash(base)
-        try validateObjectHash(candidate)
-        _ = try WireObjectGraph.validate(draft)
-        if let currentSnapshot {
+        guard ["authority-update", "account-configuration"].contains(details.kind) else {
+            throw ArborWireValidationError.invalidValue("Unknown conflict detail kind")
+        }
+        _ = try details.current.validated()
+        try validateObjectHash(details.base)
+        try validateObjectHash(details.candidate)
+        _ = try WireObjectGraph.validate(details.draft)
+        if let currentSnapshot = details.currentSnapshot {
             _ = try WireObjectGraph.validate(currentSnapshot)
-            guard currentSnapshot.root == current.root else {
+            guard currentSnapshot.root == details.current.root else {
                 throw ArborWireValidationError.invalidValue("Conflict current snapshot root mismatch")
             }
         }
-        guard conflicts.allSatisfy({ $0.path.hasPrefix("/") && !$0.reason.isEmpty }) else {
+        guard details.conflicts.allSatisfy({ $0.path.hasPrefix("/") && !$0.reason.isEmpty }) else {
             throw ArborWireValidationError.invalidValue("Malformed conflict reason")
         }
         return self
@@ -432,13 +505,15 @@ public struct AuthorityUpdateResponse: Sendable, Equatable, Decodable {
     public var result: AuthorityUpdateResult
     public var requestDigest: String
     public var snapshot: AuthoritySnapshot?
+    public var observedThrough: String
 
-    private enum CodingKeys: String, CodingKey { case requestDigest, snapshot }
+    private enum CodingKeys: String, CodingKey { case requestDigest, snapshot, observedThrough }
 
-    public init(result: AuthorityUpdateResult, requestDigest: String, snapshot: AuthoritySnapshot?) {
+    public init(result: AuthorityUpdateResult, requestDigest: String, snapshot: AuthoritySnapshot?, observedThrough: String) {
         self.result = result
         self.requestDigest = requestDigest
         self.snapshot = snapshot
+        self.observedThrough = observedThrough
     }
 
     public init(from decoder: Decoder) throws {
@@ -446,6 +521,8 @@ public struct AuthorityUpdateResponse: Sendable, Equatable, Decodable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         requestDigest = try values.decode(String.self, forKey: .requestDigest)
         try validateObjectHash(requestDigest)
+        observedThrough = try values.decode(String.self, forKey: .observedThrough)
+        guard !observedThrough.isEmpty else { throw ArborWireValidationError.invalidValue("Missing observation boundary") }
         snapshot = try values.decodeIfPresent(AuthoritySnapshot.self, forKey: .snapshot)
         if let snapshot {
             _ = try WireObjectGraph.validate(snapshot)
@@ -511,17 +588,91 @@ public struct AuthorityPairingOffer: Codable, Sendable, Equatable {
 }
 
 public struct AuthorityPairingClaim: Codable, Sendable, Equatable {
-    public var deviceToken: String
     public var device: AuthorityDevice
     public var confirmationCode: String
 
     public func validated() throws -> Self {
-        guard !deviceToken.isEmpty, !confirmationCode.isEmpty else {
-            throw ArborWireValidationError.invalidValue("Missing paired device token or confirmation code")
+        guard !confirmationCode.isEmpty else {
+            throw ArborWireValidationError.invalidValue("Missing pairing confirmation code")
         }
         _ = try device.validated()
         return self
     }
+}
+
+public struct AuthorityPairingDevice: Codable, Sendable, Equatable {
+    public var id: String
+    public var label: String
+    public var credentialDigest: String
+
+    public init(id: String, label: String, credentialDigest: String) {
+        self.id = id
+        self.label = label
+        self.credentialDigest = credentialDigest
+    }
+}
+
+public struct AuthorityPlacement: Codable, Sendable, Equatable {
+    public var authority: String
+    public var path: String?
+
+    public init(authority: String, path: String? = nil) {
+        self.authority = authority
+        self.path = path
+    }
+}
+
+public struct AuthorityClaimRequest: Codable, Sendable, Equatable {
+    public var profileTree: String
+    public var configurationTree: String
+    public var device: AuthorityPairingDevice
+    public var profile: AuthoritySnapshot
+    public var configuration: AuthoritySnapshot
+}
+
+public struct AuthorityClaimResult: Codable, Sendable, Equatable {
+    public var account: AuthorityAccountDescriptor
+    public var tree: AuthorityTreeDescriptor
+    public var configuration: AuthorityTreeDescriptor
+}
+
+public enum AuthoritySafeAccessSubject: Codable, Sendable, Equatable {
+    case everyone
+    case profile(tree: String, locator: String?)
+    case link
+
+    private enum CodingKeys: String, CodingKey { case kind, tree, locator }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        switch try values.decode(String.self, forKey: .kind) {
+        case "everyone": self = .everyone
+        case "profile": self = .profile(
+            tree: try values.decode(String.self, forKey: .tree),
+            locator: try values.decodeIfPresent(String.self, forKey: .locator)
+        )
+        case "link": self = .link
+        default: throw ArborWireValidationError.invalidValue("Unknown access subject")
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .everyone: try values.encode("everyone", forKey: .kind)
+        case let .profile(tree, locator):
+            try values.encode("profile", forKey: .kind)
+            try values.encode(tree, forKey: .tree)
+            try values.encodeIfPresent(locator, forKey: .locator)
+        case .link: try values.encode("link", forKey: .kind)
+        }
+    }
+}
+
+public struct AuthorityAccessEntry: Codable, Sendable, Equatable {
+    public var id: String
+    public var subject: AuthoritySafeAccessSubject
+    public var access: String
 }
 
 public struct AuthorityUpdateConflictError: Error, Sendable, Equatable {

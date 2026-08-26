@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import type { NodeSnapshot } from "@arbor/core";
 import { sha256 } from "@arbor/core";
-import { arborDataRoot, prepareArborDataRoot } from "./private-state.ts";
+import { arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
 export interface VisitedTreeRecord {
   id: string;
@@ -16,7 +16,7 @@ export interface VisitedTreeRecord {
 
 /** A private, credential-free cache of explicitly browsed remote nodes. */
 export class VisitedTreeStore {
-  private directory = join(arborDataRoot(), "system", "visited");
+  private directory = join(arborPrivateRoot(), "system", "visited");
 
   private id(locator: string): string {
     return sha256(locator).slice(0, 24);
@@ -30,7 +30,7 @@ export class VisitedTreeStore {
       locator,
       tree: String(snapshot.tree ?? snapshot.enclosingTree?.id ?? ""),
       name: snapshot.enclosingTree?.name ?? snapshot.name,
-      canonical: snapshot.enclosingTree?.httpURL ?? snapshot.enclosingTree?.canonical,
+      canonical: snapshot.enclosingTree?.canonical?.httpURL ?? snapshot.enclosingTree?.canonical?.locator,
       visitedAt: new Date().toISOString(),
       snapshot,
     };

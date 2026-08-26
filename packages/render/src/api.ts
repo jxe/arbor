@@ -9,6 +9,7 @@ import {
   type StructuralWorkspaceOperation,
   type TreeRef,
 } from "@arbor/client";
+import { activeDevices, applyConfigurationAction, configurationAccessEntries, configurationStatus, revokeActiveDevice, type ConfigurationAction } from "./configuration.ts";
 
 export interface BrowserImportEntry {
   path: string;
@@ -48,10 +49,10 @@ export type BrowserEffect = MutationEffect;
  * lifetime — an in-flight save never follows a navigation into another
  * root. `scoped(undefined)` is the session-root scope (legacy behavior).
  */
-function makeApi(tree: TreeRef | undefined) {
+function makeApi(tree: TreeRef = "local") {
   const refOf = (value: string | NodeRef): NodeRef => {
-    const ref = typeof value === "string" ? { path: value } : value;
-    return ref.tree !== undefined || tree === undefined ? ref : { ...ref, tree };
+    if (typeof value === "string") return { tree, path: value };
+    return value;
   };
   const scopeOperation = (operation: StructuralWorkspaceOperation): StructuralWorkspaceOperation => {
     const scoped = { ...operation } as StructuralWorkspaceOperation & {
@@ -63,7 +64,7 @@ function makeApi(tree: TreeRef | undefined) {
     if (scoped.ref) scoped.ref = refOf(scoped.ref);
     if (scoped.refs) scoped.refs = scoped.refs.map(refOf);
     if (scoped.destination) scoped.destination = refOf(scoped.destination);
-    if ((scoped.op === "createMarkdown" || scoped.op === "createDirectory") && scoped.tree === undefined && tree !== undefined) {
+    if ((scoped.op === "createMarkdown" || scoped.op === "createDirectory") && scoped.tree === undefined) {
       scoped.tree = tree;
     }
     return scoped;
@@ -71,12 +72,16 @@ function makeApi(tree: TreeRef | undefined) {
   return {
     client,
     tree,
-    scoped: (nextTree: TreeRef | undefined) => makeApi(nextTree),
+    scoped: (nextTree: TreeRef | undefined) => makeApi(nextTree ?? "local"),
     node: (ref: string | NodeRef) => client.node(refOf(ref)),
     openNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openNodeView(refOf(ref), signal),
     collection: async (path: string, cursor?: string | null) => client.collection(refOf(path), cursor),
-    search: async (query: string, scope?: TreeRef) => (await client.search(query, null, scope ?? tree)).results,
-    system: (operation: import("@arbor/core").SystemOperation) => client.mutateSystem(operation),
+    search: async (query: string, scope?: TreeRef) => (await client.search(scope ?? tree, query)).results,
+    configure: (operation: ConfigurationAction) => applyConfigurationAction(client, operation),
+    configurationStatus: () => configurationStatus(client),
+    configurationAccess: (treeID: string) => configurationAccessEntries(client, treeID),
+    activeDevices: () => activeDevices(client),
+    revokeDevice: (id: string) => revokeActiveDevice(client, id),
     write: async (
       ref: string | NodeRef,
       body: {
@@ -116,4 +121,4 @@ function makeApi(tree: TreeRef | undefined) {
 export type ScopedApi = ReturnType<typeof makeApi>;
 
 /** The session-scope api; components inside another scope use `api.scoped(tree)`. */
-export const api: ScopedApi = makeApi(undefined);
+export const api: ScopedApi = makeApi("local");

@@ -1,17 +1,14 @@
 import type { ObjectHash } from "../objects.ts";
+import type { AccessLevel, ReadWriteAccess, TreeKind } from "@arbor/core";
 
-export type PublicAccess = "none" | "read" | "write";
-export type TreeAccess = "read" | "write";
-export type BoundaryKind =
-  | "community-profile"
-  | "person-profile"
-  | "group-profile"
-  | "shared-subtree";
+/** @deprecated Use AccessRule with an everyone subject. */
+export type PublicAccess = AccessLevel;
+export type TreeAccess = ReadWriteAccess;
+export type BoundaryKind = TreeKind;
 
-export interface MergeSummary {
-  version: "markdown-additive-v1";
-  approximatePlacements: number;
-}
+export type MergeSummary =
+  | { version: "markdown-additive-v1"; approximatePlacements: number }
+  | { version: "account-config-v1"; mergedFields: number };
 
 export interface UpdateConflict {
   path: string;
@@ -21,7 +18,8 @@ export interface UpdateConflict {
     | "page-id-move-conflict"
     | "binary-conflict"
     | "frontmatter-conflict"
-    | "invalid-markdown-fence";
+    | "invalid-markdown-fence"
+    | "account-configuration";
 }
 
 export interface AuthorityDevice {
@@ -76,9 +74,9 @@ export interface UpdateRequest {
 }
 
 export type UpdateResult =
-  | { outcome: "current"; current: AcceptedUpdate; requestDigest: ObjectHash; snapshot?: TreeSnapshotEnvelope }
-  | { outcome: "accepted"; update: AcceptedUpdate; requestDigest: ObjectHash; snapshot?: TreeSnapshotEnvelope }
-  | { outcome: "merged"; update: AcceptedUpdate; merge: MergeSummary; requestDigest: ObjectHash; snapshot?: TreeSnapshotEnvelope };
+  | { outcome: "current"; current: AcceptedUpdate; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshotEnvelope }
+  | { outcome: "accepted"; update: AcceptedUpdate; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshotEnvelope }
+  | { outcome: "merged"; update: AcceptedUpdate; merge: MergeSummary; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshotEnvelope };
 
 export interface TreeSnapshotEnvelope {
   root: ObjectHash;
@@ -89,11 +87,15 @@ export interface UpdateConflictResult {
   error: "conflict";
   message: string;
   retryable: false;
-  current: AcceptedUpdate;
-  base: ObjectHash;
-  candidate: ObjectHash;
-  draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> };
-  /** Present when the caller requested a complete accepted snapshot. */
-  currentSnapshot?: TreeSnapshotEnvelope;
-  conflicts: UpdateConflict[];
+  tree?: string;
+  details: {
+    kind: "authority-update" | "account-configuration";
+    current: AcceptedUpdate;
+    base: ObjectHash;
+    candidate: ObjectHash;
+    draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> };
+    /** Present when the caller requested a complete accepted snapshot. */
+    currentSnapshot?: TreeSnapshotEnvelope;
+    conflicts: UpdateConflict[];
+  };
 }

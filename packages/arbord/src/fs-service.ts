@@ -22,7 +22,7 @@ import {
   sha256,
 } from "@arbor/core";
 import { FsConflictError, type FsMutation, WorkspaceFS } from "@arbor/fs";
-import { CollectionStore, arborDataRoot } from "@arbor/stores";
+import { CollectionStore, arborPrivateRoot } from "@arbor/stores";
 import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import type { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
@@ -77,7 +77,7 @@ export class FilesystemService implements AsyncDisposable {
   private collections = new CollectionStore();
   private receipts = new Map<string, { requestHash: string; receipt: MutationReceipt }>();
   private engine = WorkspaceFS.open("/", {
-    stateDirectory: join(arborDataRoot(), "system", "untracked-fs"),
+    stateDirectory: join(arborPrivateRoot(), "system", "untracked-fs"),
     discovery: "none",
     identity: "path-only",
   });
@@ -147,6 +147,7 @@ export class FilesystemService implements AsyncDisposable {
         if (resolved.directoryPath && await this.collections.summary(resolved.directoryPath).catch(() => null)) kind = "collection";
       }
       children.push({
+        tree: LOCAL_TREE,
         name: entry.name,
         path: entry.path,
         kind,
@@ -157,6 +158,7 @@ export class FilesystemService implements AsyncDisposable {
     }
     for (const table of virtualTables) {
       children.push({
+        tree: LOCAL_TREE,
         name: table,
         path: `${path === "/" ? "" : path}/${table}`,
         kind: "collection",
@@ -348,7 +350,7 @@ export class FilesystemService implements AsyncDisposable {
       }
       return existing.receipt;
     }
-    const content = request.operations.filter((operation) => operation.op === "writeMarkdown");
+    const content = request.operations.filter((operation) => operation.op === "writeMarkdown" || operation.op === "writeText");
     if (content.length && (content.length !== 1 || request.operations.length !== 1)) {
       throw new ProtocolError("unsupported-operation", "A content mutation cannot be mixed with structural operations", 422);
     }
@@ -356,10 +358,12 @@ export class FilesystemService implements AsyncDisposable {
     const effects = await this.withErrors(async () => {
       if (content.length === 1) {
         const write = content[0]!;
-        const result = await (await this.engine).writeMarkdown(this.refPath(write.ref), {
-          baseRevision: write.baseContentRevision,
-          source: write.source,
-        });
+        const result = write.op === "writeText"
+          ? await (await this.engine).writeFile(this.refPath(write.ref), new TextEncoder().encode(write.source), write.baseContentRevision)
+          : await (await this.engine).writeMarkdown(this.refPath(write.ref), {
+              baseRevision: write.baseContentRevision,
+              source: write.source,
+            });
         return [{
           kind: "updated" as const,
           tree: LOCAL_TREE,
@@ -371,9 +375,9 @@ export class FilesystemService implements AsyncDisposable {
       const fsOperations = request.operations.map((item) => this.toFsOperation(item));
       return this.effectsFromChanges((await (await this.engine).mutate({ operations: fsOperations })).changes);
     }, operation);
-    let eventCursor = this.events.currentCursor();
+    let observedThrough = this.events.currentCursor();
     for (const effect of effects) {
-      eventCursor = this.events.emit({
+      observedThrough = this.events.emit({
         tree: LOCAL_TREE,
         kind: effect.kind,
         path: effect.path,
@@ -384,7 +388,7 @@ export class FilesystemService implements AsyncDisposable {
         mutationID: request.mutationID,
       }).cursor;
     }
-    const receipt: MutationReceipt = { mutationID: request.mutationID, eventCursor, effects };
+    const receipt: MutationReceipt = { mutationID: request.mutationID, observedThrough, effects };
     this.receipts.set(request.mutationID, { requestHash, receipt });
     return receipt;
   }

@@ -77,7 +77,7 @@ describe("Arbor private state", () => {
     const identity = await workspaceIdentity(root);
     expect(identity.stateID).toBe(legacyStateID);
     expect(identity.rootID).toStartWith("rt_");
-    const registry = JSON.parse(await readFile(join(state, "workspaces.json"), "utf8"));
+    const registry = JSON.parse(await readFile(join(state, ".state", "workspaces.json"), "utf8"));
     expect(registry[canonicalRoot]).toMatchObject({
       stateID: legacyStateID,
       rootID: identity.rootID,
@@ -92,6 +92,27 @@ describe("Arbor private state", () => {
       inode: expect.any(String),
     });
     expect((await stat((await workspaceState(root)).directory)).mode & 0o777).toBe(0o700);
+  });
+
+  test("moves every known legacy private artifact beneath the reserved mount", async () => {
+    const state = await temp("arbor-private-state-migration-");
+    process.env.ARBOR_DATA_HOME = state;
+    await mkdir(join(state, "system"));
+    await mkdir(join(state, "sync"));
+    await mkdir(join(state, "workspaces"));
+    await mkdir(join(state, "LinkPreviews"));
+    await mkdir(join(state, "Hunch Rehearsals"));
+    await writeFile(join(state, "workspaces.json"), "{}\n");
+    await writeFile(join(state, ".DS_Store"), "finder state");
+
+    await prepareArborDataRoot();
+
+    for (const name of [
+      "system", "sync", "workspaces", "workspaces.json", "LinkPreviews", "Hunch Rehearsals", ".DS_Store",
+    ]) {
+      await expect(stat(join(state, name))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await stat(join(state, ".state", name))).toBeTruthy();
+    }
   });
 
   test("preserves private identity when a directory moves on one filesystem", async () => {
@@ -109,7 +130,7 @@ describe("Arbor private state", () => {
 
     expect(moved.rootID).toBe(first.rootID);
     expect(moved.stateID).toBe(first.stateID);
-    const registry = JSON.parse(await readFile(join(state, "workspaces.json"), "utf8"));
+    const registry = JSON.parse(await readFile(join(state, ".state", "workspaces.json"), "utf8"));
     expect(registry[await realpath(outer).then((path) => join(path, "before"))]).toBeUndefined();
     expect(registry[canonicalAfter]).toMatchObject({ rootID: first.rootID, stateID: first.stateID });
   });
@@ -138,7 +159,7 @@ describe("Arbor private state", () => {
     })}\n`);
 
     await expect(workspaceIdentity(moved)).rejects.toBeInstanceOf(AmbiguousWorkspaceIdentityError);
-    const registry = JSON.parse(await readFile(join(state, "workspaces.json"), "utf8"));
+    const registry = JSON.parse(await readFile(join(state, ".state", "workspaces.json"), "utf8"));
     expect(registry[moved]).toBeUndefined();
   });
 
@@ -151,6 +172,6 @@ describe("Arbor private state", () => {
     await writeFile(join(state, "workspaces.json"), malformed);
 
     await expect(workspaceIdentity(root)).rejects.toBeInstanceOf(SyntaxError);
-    expect(await readFile(join(state, "workspaces.json"), "utf8")).toBe(malformed);
+    expect(await readFile(join(state, ".state", "workspaces.json"), "utf8")).toBe(malformed);
   });
 });

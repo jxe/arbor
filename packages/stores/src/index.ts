@@ -1,5 +1,6 @@
 export * from "./private-state.ts";
 export * from "./trees.ts";
+export * from "./account-config.ts";
 export * from "./connections.ts";
 export * from "./server-config.ts";
 export * from "./schema.ts";

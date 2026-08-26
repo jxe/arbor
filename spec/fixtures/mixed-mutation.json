@@ -3,10 +3,10 @@
   "operations": [
     {
       "op": "writeMarkdown",
-      "ref": { "pageID": "abc123", "pathHint": "/notes/today" },
+      "ref": { "tree": "tr_notes7f3q2ab7c", "pageID": "abc123", "pathHint": "/notes/today" },
       "baseContentRevision": "sha256:content",
       "source": "Not valid in this batch\n"
     },
-    { "op": "createDirectory", "path": "/archive" }
+    { "op": "createDirectory", "tree": "tr_notes7f3q2ab7c", "path": "/archive" }
   ]
 }

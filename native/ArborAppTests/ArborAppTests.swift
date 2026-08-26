@@ -37,13 +37,15 @@ struct ArborAppTests {
         let store = NativePlacementStore(url: root.appending(path: "placement.json"))
         let tree = AuthorityTreeDescriptor(
             id: "tr_native",
-            canonicalPath: "/~joe/todos",
             kind: "shared-subtree",
             ref: "sha256:\(String(repeating: "a", count: 64))",
-            publicAccess: "none",
             access: "write",
-            httpURL: "https://arbor.example/~joe/todos",
-            arborURL: "arbor://arbor.example/~joe/todos",
+            canonical: AuthorityCanonicalDescriptor(
+                locator: "arbor://arbor.example/~joe/todos",
+                path: "/~joe/todos",
+                endpoint: "https://arbor.example",
+                httpURL: "https://arbor.example/~joe/todos"
+            ),
             update: "up_native"
         )
         let record = NativePlacementRecord(

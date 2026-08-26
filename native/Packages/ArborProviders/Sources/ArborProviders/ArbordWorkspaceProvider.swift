@@ -26,10 +26,11 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
             let snapshot = try await client.node(reference.nodeRef)
             return try Self.workspaceNode(from: snapshot, fallbackTree: reference.tree, requestedLocation: location)
         case let .remote(locator, rootLocator):
-            let snapshot = try await client.remoteNode(locator: locator)
+            let resolved = try await client.resolve(locator)
+            let snapshot = try await client.node(.path(resolved.ref.path, tree: resolved.ref.tree))
             return try Self.workspaceNode(
                 from: snapshot,
-                fallbackTree: TreeID(rawValue: snapshot.tree ?? snapshot.ref.tree ?? "remote"),
+                fallbackTree: TreeID(rawValue: snapshot.tree),
                 requestedLocation: .remote(locator: locator, rootLocator: rootLocator)
             )
         }
@@ -54,7 +55,8 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
                 ))
             })
         case let .remote(locator, rootLocator):
-            let snapshot = try await client.remoteNode(locator: locator)
+            let resolved = try await client.resolve(locator)
+            let snapshot = try await client.node(.path(resolved.ref.path, tree: resolved.ref.tree))
             return try await resolveAll((snapshot.children ?? []).map { child in
                 .remote(locator: Self.appendingRemotePath(child.name, to: locator), rootLocator: rootLocator)
             })
@@ -65,11 +67,11 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
         var cursor: String?
         var result: [WorkspaceSearchResult] = []
         repeat {
-            let page = try await client.search(query, tree: tree.rawValue, cursor: cursor)
+            let page = try await client.search(tree: tree.rawValue, query: query, cursor: cursor)
             result.append(contentsOf: page.results.map { item in
                 WorkspaceSearchResult(
                     reference: WorkspaceReference(
-                        tree: TreeID(rawValue: item.tree ?? tree.rawValue),
+                        tree: TreeID(rawValue: item.tree),
                         path: item.path,
                         pageID: item.pageID.map(PageID.init(rawValue:))
                     ),
@@ -90,7 +92,7 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
             result.append(contentsOf: page.entries.map { entry in
                 WorkspaceSearchResult(
                     reference: WorkspaceReference(
-                        tree: TreeID(rawValue: entry.ref.tree ?? reference.tree.rawValue),
+                        tree: TreeID(rawValue: entry.ref.tree),
                         path: entry.ref.path,
                         pageID: entry.ref.pageID.map(PageID.init(rawValue:))
                     ),
@@ -156,7 +158,7 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
         let effect = receipt.effects.last(where: { $0.kind != "deleted" }) ?? receipt.effects.last
         let resolved = effect.map { value in
             WorkspaceReference(
-                tree: TreeID(rawValue: value.tree ?? fallback.tree.rawValue),
+                tree: TreeID(rawValue: value.tree),
                 path: value.path,
                 pageID: value.pageID.map(PageID.init(rawValue:)) ?? fallback.pageID
             )
@@ -178,7 +180,7 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
     }
 
     public func readFile(_ reference: WorkspaceReference) async throws -> Data {
-        try await client.file(reference.nodeRef)
+        try await client.file(reference.nodeRef).bytes
     }
 
     public func openDocument(_ reference: WorkspaceReference) async throws -> any WorkspaceDocumentSession {
@@ -232,7 +234,7 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
         fallbackTree: TreeID,
         requestedLocation: WorkspaceLocation? = nil
     ) throws -> WorkspaceNode {
-        let tree = TreeID(rawValue: snapshot.tree ?? snapshot.ref.tree ?? fallbackTree.rawValue)
+        let tree = TreeID(rawValue: snapshot.tree)
         let reference = WorkspaceReference(
             tree: tree,
             path: snapshot.path,
@@ -241,13 +243,13 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
         let treeRootURL = snapshot.enclosingTree?.osPath.map { URL(fileURLWithPath: $0) }
         let physicalURL = treeRootURL.map { root in
             snapshot.path == "/" ? root : root.appending(path: snapshot.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
-        } ?? ((snapshot.tree ?? snapshot.ref.tree) == "local" ? URL(fileURLWithPath: snapshot.path) : nil)
+        } ?? (snapshot.tree == "local" ? URL(fileURLWithPath: snapshot.path) : nil)
         let location: WorkspaceLocation = switch requestedLocation {
         case .some(.localPath): physicalURL.map { .local($0.path) } ?? .local(snapshot.path)
         case let .some(.remote(locator, rootLocator)):
             .remote(
                 locator: Self.canonicalRemoteLocator(snapshot: snapshot, fallback: locator),
-                rootLocator: snapshot.enclosingTree?.httpURL ?? snapshot.enclosingTree?.canonical ?? rootLocator
+                rootLocator: snapshot.enclosingTree?.canonical?.httpURL ?? rootLocator
             )
         default: .reference(reference)
         }
@@ -298,7 +300,7 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
             surface: surface,
             provenance: WorkspaceProvenance(
                 authority: snapshot.writable ? .local : .historical,
-                sourceDescription: snapshot.enclosingTree?.canonical ?? snapshot.enclosingTree?.name ?? "Local arbord",
+                sourceDescription: snapshot.enclosingTree?.canonical?.locator ?? snapshot.enclosingTree?.name ?? "Local arbord",
                 physicalURL: physicalURL,
                 treeRootURL: treeRootURL,
                 contentRevision: snapshot.contentRevision
@@ -345,7 +347,7 @@ public struct ArbordWorkspaceProvider: WorkspaceProvider, Sendable {
     }
 
     private static func canonicalRemoteLocator(snapshot: NodeSnapshot, fallback: String) -> String {
-        guard let root = snapshot.enclosingTree?.httpURL ?? snapshot.enclosingTree?.canonical,
+        guard let root = snapshot.enclosingTree?.canonical?.httpURL,
               let rootURL = URL(string: root) else { return fallback }
         guard snapshot.path != "/" else { return rootURL.absoluteString }
         return snapshot.path.split(separator: "/").reduce(rootURL) { partial, component in
@@ -456,13 +458,8 @@ public actor ArbordDocumentSession: WorkspaceDocumentSession {
                 sourceEdits: sourceEdits
             ))
             return try await snapshot()
-        } catch let error as ArbordServerError where error.value.code == "stale-content-revision" {
-            let current: WorkspaceDocumentSnapshot
-            if let serverSnapshot = error.value.current {
-                current = try Self.documentSnapshot(serverSnapshot, fallback: initialReference)
-            } else {
-                current = try await snapshot()
-            }
+        } catch let error as ArbordServerError where error.value.code == "conflict" && error.value.details?.workspaceRevision == true {
+            let current = try await snapshot()
             throw WorkspaceDocumentConflict(current: current, submittedSource: source)
         }
     }
@@ -512,11 +509,11 @@ public actor ArbordDocumentSession: WorkspaceDocumentSession {
         _ event: WorkspaceEvent,
         reference: WorkspaceReference
     ) -> Bool {
-        if let tree = event.tree, tree != reference.tree.rawValue { return false }
-        if let pageID = reference.pageID?.rawValue, let eventPageID = event.pageID {
+        if event.tree != reference.tree.rawValue { return false }
+        if let pageID = reference.pageID?.rawValue, let eventPageID = event.change.pageID {
             return pageID == eventPageID
         }
-        return event.path == reference.pathHint || event.previousPath == reference.pathHint
+        return event.change.path == reference.pathHint || event.change.previousPath == reference.pathHint
     }
 
     private func requireOpen() throws {
@@ -532,13 +529,20 @@ public actor ArbordDocumentSession: WorkspaceDocumentSession {
         }
         return WorkspaceDocumentSnapshot(
             reference: WorkspaceReference(
-                tree: TreeID(rawValue: node.tree ?? node.ref.tree ?? fallback.tree.rawValue),
+                tree: TreeID(rawValue: node.tree),
                 path: node.path,
                 pageID: node.ref.pageID.map(PageID.init(rawValue:))
             ),
             source: source,
             contentRevision: revision
         )
+    }
+}
+
+private extension JSONValue {
+    var workspaceRevision: Bool {
+        guard case let .object(fields) = self, fields["kind"] == .string("workspace-revision") else { return false }
+        return true
     }
 }
 

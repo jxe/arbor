@@ -12,10 +12,10 @@ https://community.example/~profile/path
 arbor://community.example/~profile/path
 arbor://tree/<TreeID>/path
 system:device
-system:trees
+system:diagnostics
 ```
 
-Canonical HTTP and `arbor://<authority>/...` names resolve through the community authority. `arbor://tree/<TreeID>/...` is the raw identity locator and remains valid when a public name changes. Local paths resolve through the local arbord and its placement registry. `system:` locators address the safe virtual control tree.
+Canonical HTTP and `arbor://<authority>/...` names resolve through the community authority. `arbor://tree/<TreeID>/...` is the raw identity locator and remains valid when a public name changes. Local paths resolve through arbord and the current device's account-configured placements. `system:` locators address the constrained safe virtual control scope.
 
 Canonical public names are replaceable human names, not tree identity. A resolver returns a concrete tree scope, decoded logical path, optional immutable root, access, and enough authority provenance to perform a permitted operation.
 
@@ -48,7 +48,7 @@ Authored `.md`, `.mdx`, `.tsx`, `/_index.md`, and legacy `tree:` spellings may b
 
 ## Resolution rules
 
-- A local path uses the longest canonical placement-path prefix from [`trees.yaml`](system.md#placement-registry-treesyaml). If none exists, it is `tree: "local"` and has no durable Arbor identity.
+- A local path uses the longest canonical filesystem placement-path prefix from the current device's [`placements`](system.md#configuration-yaml). If none exists, it is `tree: "local"` and has no durable Arbor identity. A pathless placement has no local-path prefix and is addressed by TreeID or canonical locator.
 - A nested placement enters the child tree. Parent discovery, watching, indexing, snapshots, pulls, and deletion exclude that mounted root.
 - A canonical authority path uses the longest registered canonical boundary prefix, subject to access. An inaccessible nested boundary is not resolved through its parent.
 - A raw TreeID locator resolves independently of its current public name, using a verified endpoint hint or already-known authority record.

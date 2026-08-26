@@ -187,7 +187,7 @@ public actor ArbordProcessSupervisor {
     ) async throws -> ArbordRuntime {
         let snapshot = try await client.node(.path(workspace.path, tree: "local"))
         let home = WorkspaceReference(
-            tree: TreeID(rawValue: snapshot.tree ?? snapshot.ref.tree ?? "local"),
+            tree: TreeID(rawValue: snapshot.tree),
             path: snapshot.path,
             pageID: snapshot.ref.pageID.map(PageID.init(rawValue:))
         )

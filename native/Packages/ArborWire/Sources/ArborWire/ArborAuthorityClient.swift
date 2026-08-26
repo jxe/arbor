@@ -50,22 +50,25 @@ public actor ArborAuthorityClient {
         self.retryDelay = retryDelay
     }
 
-    public func account() async throws -> AuthorityAccountDescriptor {
-        let value: AuthorityAccountDescriptor = try await get(path: "/.arbor/account")
-        _ = try value.community.validated()
-        for profile in value.writableProfiles { _ = try profile.validated() }
-        guard !value.id.isEmpty, !value.handle.isEmpty else { throw ArborWireValidationError.invalidValue("Malformed account") }
+    public func account() async throws -> AuthorityAccountSnapshot {
+        let value: AuthorityAccountSnapshot = try await get(path: "/.arbor/account")
+        _ = try value.account.community.validated()
+        _ = try value.account.configuration.validated()
+        for profile in value.account.writableProfiles { _ = try profile.validated() }
+        guard !value.account.id.isEmpty, !value.account.handle.isEmpty, !value.observedThrough.isEmpty else {
+            throw ArborWireValidationError.invalidValue("Malformed account snapshot")
+        }
         return value
     }
 
-    public func trees() async throws -> [AuthorityTreeDescriptor] {
-        let values: [AuthorityTreeDescriptor] = try await get(path: "/.arbor/trees")
-        return try values.map { try $0.validated() }
+    public func trees() async throws -> AuthoritySnapshotEnvelope<[AuthorityTreeDescriptor]> {
+        let value: AuthoritySnapshotEnvelope<[AuthorityTreeDescriptor]> = try await get(path: "/.arbor/trees")
+        return AuthoritySnapshotEnvelope(snapshot: try value.snapshot.map { try $0.validated() }, observedThrough: value.observedThrough)
     }
 
-    public func ref(tree: String) async throws -> AuthorityTreeDescriptor {
-        let value: AuthorityTreeDescriptor = try await get(path: "/.arbor/trees/\(component(tree))/ref")
-        return try value.validated()
+    public func ref(tree: String) async throws -> AuthoritySnapshotEnvelope<AuthorityTreeDescriptor> {
+        let value: AuthoritySnapshotEnvelope<AuthorityTreeDescriptor> = try await get(path: "/.arbor/trees/\(component(tree))/ref")
+        return AuthoritySnapshotEnvelope(snapshot: try value.snapshot.validated(), observedThrough: value.observedThrough)
     }
 
     public func currentSnapshot(tree: String) async throws -> AuthorityCurrentSnapshot {
@@ -75,36 +78,28 @@ public actor ArborAuthorityClient {
         return try value.validated(expectedTree: tree)
     }
 
-    public func resolve(path: String) async throws -> AuthorityTreeDescriptor {
+    public func resolve(path: String) async throws -> AuthorityLocatorResolution {
         let encoded = path == "/" ? "" : "/" + path.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
-        let value: AuthorityTreeDescriptor = try await get(path: "/.well-known/arbor\(encoded)")
-        return try value.validated()
+        let value: AuthorityLocatorResolution = try await get(path: "/.well-known/arbor\(encoded)")
+        _ = try value.enclosingTree.validated()
+        guard value.ref.tree == value.enclosingTree.id, !value.observedThrough.isEmpty else {
+            throw ArborWireValidationError.invalidValue("Malformed locator resolution")
+        }
+        return value
     }
 
-    public func createTree(
-        canonicalPath: String,
-        snapshot: AuthoritySnapshot,
-        kind: String = "shared-subtree",
-        publicAccess: String = "none"
-    ) async throws -> AuthorityTreeDescriptor {
+    public func activateTree(tree: String, snapshot: AuthoritySnapshot) async throws -> AuthoritySnapshotEnvelope<AuthorityTreeDescriptor> {
         _ = try WireObjectGraph.validate(snapshot)
-        let value: AuthorityTreeDescriptor = try await post(
-            path: "/.arbor/trees",
-            body: CreateTreeBody(
-                canonicalPath: canonicalPath,
-                root: snapshot.root,
-                objects: snapshot.objects,
-                kind: kind,
-                publicAccess: publicAccess,
-                profileAccess: []
-            )
+        let value: AuthoritySnapshotEnvelope<AuthorityTreeDescriptor> = try await put(
+            path: "/.arbor/trees/\(component(tree))",
+            body: snapshot
         )
-        return try value.validated()
+        return AuthoritySnapshotEnvelope(snapshot: try value.snapshot.validated(), observedThrough: value.observedThrough)
     }
 
-    public func object(hash: String) async throws -> Data {
+    public func object(tree: String, hash: String) async throws -> Data {
         try validateObjectHash(hash)
-        var request = try await authorizedRequest(path: "/.arbor/objects/\(component(hash))")
+        var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/objects/\(component(hash))")
         request.setValue("application/vnd.ipld.dag-cbor", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)
         let status = try statusCode(response)
@@ -115,13 +110,13 @@ public actor ArborAuthorityClient {
         return data
     }
 
-    public func snapshot(root: String) async throws -> AuthoritySnapshot {
+    public func snapshot(tree: String, root: String) async throws -> AuthoritySnapshot {
         try validateObjectHash(root)
         var pending = [root]
         var loaded: [String: AuthorityObject] = [:]
         while let hash = pending.popLast() {
             if loaded[hash] != nil { continue }
-            let bytes = try await object(hash: hash)
+            let bytes = try await object(tree: tree, hash: hash)
             let object = try WireObjectCodec.decode(bytes)
             loaded[hash] = AuthorityObject(hash: hash, bytes: bytes)
             if case let .directory(entries) = object { pending.append(contentsOf: entries.compactMap(\.hash)) }
@@ -198,25 +193,37 @@ public actor ArborAuthorityClient {
         return try value.validated()
     }
 
-    public func claimPairing(id: String, secret: String, label: String) async throws -> AuthorityPairingClaim {
-        let value: AuthorityPairingClaim = try await post(
+    public func claimPairing(
+        id: String,
+        secret: String,
+        device: AuthorityPairingDevice,
+        placements: [String: AuthorityPlacement] = [:]
+    ) async throws -> AuthorityPairingClaim {
+        try validateObjectHash(device.credentialDigest)
+        let value: AuthorityPairingClaim = try await put(
             path: "/.arbor/pairings/\(component(id))/claim",
-            body: PairingClaimBody(secret: secret, label: label),
+            body: PairingClaimBody(secret: secret, device: device, placements: placements),
             authorized: false
         )
         return try value.validated()
     }
 
-    public func devices() async throws -> [AuthorityDevice] {
-        let values: [AuthorityDevice] = try await get(path: "/.arbor/devices")
-        return try values.map { try $0.validated() }
+    public func claim(handle: String, request value: AuthorityClaimRequest) async throws -> AuthorityClaimResult {
+        try validateObjectHash(value.device.credentialDigest)
+        _ = try WireObjectGraph.validate(value.profile)
+        _ = try WireObjectGraph.validate(value.configuration)
+        let result: AuthorityClaimResult = try await put(
+            path: "/.arbor/claims/\(component(handle))",
+            body: value,
+            authorized: false
+        )
+        _ = try result.tree.validated()
+        _ = try result.configuration.validated()
+        return result
     }
 
-    public func revokeDevice(id: String) async throws -> AuthorityDevice {
-        var request = try await authorizedRequest(path: "/.arbor/devices/\(component(id))")
-        request.httpMethod = "DELETE"
-        let value: AuthorityDevice = try await perform(request)
-        return try value.validated()
+    public func access(tree: String) async throws -> AuthoritySnapshotEnvelope<[AuthorityAccessEntry]> {
+        try await get(path: "/.arbor/trees/\(component(tree))/access")
     }
 
     public func watch(tree: String, lastEventID: String? = nil) async throws -> AsyncThrowingStream<AuthorityWatchEvent, Error> {
@@ -241,13 +248,28 @@ public actor ArborAuthorityClient {
                     var parser = ArborSSEParser()
                     for try await byte in bytes {
                         for frame in try parser.append(Data([byte])) {
-                            guard frame.event == nil || frame.event == "ref" else { continue }
-                            guard let id = frame.id, !id.isEmpty else { throw ArborWireValidationError.malformedSSE("Ref event has no ID") }
-                            let descriptor = try JSONDecoder().decode(AuthorityTreeDescriptor.self, from: Data(frame.data.utf8)).validated()
+                            guard let id = frame.id, !id.isEmpty, let kind = frame.event, !kind.isEmpty else {
+                                throw ArborWireValidationError.malformedSSE("Observation event has no ID or kind")
+                            }
+                            if kind == "resync-required" {
+                                let event = try JSONDecoder().decode(AuthorityResyncObservation.self, from: Data(frame.data.utf8))
+                                guard event.cursor == id, event.kind == kind else {
+                                    throw ArborWireValidationError.malformedSSE("Resync frame fields disagree")
+                                }
+                                throw AuthorityHTTPError(status: 409, code: "resync-required", message: event.change.reason, retryable: true)
+                            }
+                            guard kind == "tree.ref" else { continue }
+                            let event = try JSONDecoder().decode(AuthorityTreeRefObservation.self, from: Data(frame.data.utf8))
+                            guard event.cursor == id, event.kind == kind, event.tree == tree else {
+                                throw ArborWireValidationError.malformedSSE("Observation frame fields disagree")
+                            }
+                            let descriptor = try event.change.descriptor.validated()
                             continuation.yield(AuthorityWatchEvent(
-                                id: id,
+                                cursor: event.cursor,
+                                treeID: event.tree,
+                                kind: event.kind,
                                 tree: descriptor,
-                                requestDigest: descriptor.requestDigest
+                                requestDigest: event.change.requestDigest
                             ))
                         }
                     }
@@ -270,6 +292,14 @@ public actor ArborAuthorityClient {
     private func post<T: Decodable, Body: Encodable>(path: String, body: Body, authorized: Bool = true) async throws -> T {
         var request = authorized ? try await authorizedRequest(path: path) : URLRequest(url: url(path))
         request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        return try await perform(request)
+    }
+
+    private func put<T: Decodable, Body: Encodable>(path: String, body: Body, authorized: Bool = true) async throws -> T {
+        var request = authorized ? try await authorizedRequest(path: path) : URLRequest(url: url(path))
+        request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(body)
         return try await perform(request)
@@ -336,14 +366,10 @@ public func updateRequestDigest(tree: String, base: AuthorityUpdateBase, candida
 }
 
 private struct EmptyBody: Encodable {}
-private struct PairingClaimBody: Encodable { var secret: String; var label: String }
-private struct CreateTreeBody: Encodable {
-    var canonicalPath: String
-    var root: String
-    var objects: [AuthorityObject]
-    var kind: String
-    var publicAccess: String
-    var profileAccess: [String]
+private struct PairingClaimBody: Encodable {
+    var secret: String
+    var device: AuthorityPairingDevice
+    var placements: [String: AuthorityPlacement]
 }
 private struct AuthorityErrorEnvelope: Decodable {
     var error: String

@@ -17,7 +17,7 @@ import type {
   NodeWriteRequest,
   RecoveryEntry,
   RecoveryPage,
-  TreeDescriptor,
+  LocalTreeDescriptor,
   TreeID,
   SearchResult,
   SearchPage,
@@ -68,7 +68,7 @@ export interface WorkspaceOptions {
   tracking?: "tracked" | "session";
   /** Untracked browsing starts shallow; tracked trees require complete discovery. */
   discovery?: "recursive" | "shallow";
-  treeDescriptor?: Partial<TreeDescriptor>;
+  treeDescriptor?: Partial<LocalTreeDescriptor>;
   /** Reader-local child placements which are not content owned by this tree. */
   excludedRoots?: readonly string[];
 }
@@ -89,11 +89,13 @@ export class ProtocolError extends Error {
     message: string,
     public status: number,
     public details: Partial<{
+      tree: string;
       path: string;
       current: NodeSnapshot;
       owners: string[];
       mutationID: string;
       retryable: boolean;
+      details: unknown;
     }> = {},
   ) {
     super(message);
@@ -115,7 +117,7 @@ export class Workspace implements AsyncDisposable {
   private idOwners = new Map<string, string>();
   private idOwnerSets = new Map<string, readonly string[]>();
   private displayName: string;
-  private treeDescriptor: Partial<TreeDescriptor>;
+  private treeDescriptor: Partial<LocalTreeDescriptor>;
   private discovery: "recursive" | "shallow";
   private excludedRoots: string[];
   /** Inverted unambiguous owner index: path -> pageID. */
@@ -165,18 +167,20 @@ export class Workspace implements AsyncDisposable {
     return workspace;
   }
 
-  descriptor(): TreeDescriptor {
+  descriptor(): LocalTreeDescriptor {
     return {
       id: this.tree,
       name: this.displayName,
       osPath: this.root,
-      placement: this.tree.startsWith("tr_") ? "shared" : "local",
-      ...(this.tree.startsWith("tr_") ? {} : { legacy: true }),
+      kind: "shared-subtree",
+      access: "write",
+      canonical: null,
+      placement: "placed",
       ...this.treeDescriptor,
     };
   }
 
-  updateTreeDescriptor(descriptor: Partial<TreeDescriptor>): void {
+  updateTreeDescriptor(descriptor: Partial<LocalTreeDescriptor>): void {
     this.treeDescriptor = { ...this.treeDescriptor, ...descriptor };
   }
 
@@ -327,7 +331,7 @@ export class Workspace implements AsyncDisposable {
       throw new ProtocolError("invalid-reference", "A mutation requires a non-empty mutation ID and operations array", 400);
     }
     const contentOperations = request.operations.filter((operation) =>
-      operation.op === "writeMarkdown" || operation.op === "restoreRecovery"
+      operation.op === "writeMarkdown" || operation.op === "writeText" || operation.op === "restoreRecovery"
     );
     if (contentOperations.length > 0 && (contentOperations.length !== 1 || request.operations.length !== 1)) {
       throw new ProtocolError(
@@ -422,6 +426,7 @@ export class Workspace implements AsyncDisposable {
   ): Promise<void> {
     const contentOnly = operations.every((operation) =>
       operation.op === "writeMarkdown"
+      || operation.op === "writeText"
       || operation.op === "restoreRecovery"
       || operation.op === "ensureDocumentIdentity"
     );
@@ -482,12 +487,14 @@ export class Workspace implements AsyncDisposable {
         const expectedEffects: MutationEffect[] = [
           ...(assetsDirectory.kind === "missing" ? [{
             kind: "created" as const,
+            tree: this.tree,
             path: "/Assets",
             contentRevision: EMPTY_REVISION,
             directoryRevision: EMPTY_REVISION,
           }] : []),
           {
             kind: existingAsset.kind === "missing" ? "created" : "updated",
+            tree: this.tree,
             path: assetPath,
             contentRevision: revisionOf(bytes),
           },
@@ -767,7 +774,7 @@ export class Workspace implements AsyncDisposable {
     onExpected?: (effects: MutationEffect[]) => void | Promise<void>,
   ): Promise<MutationEffect[]> {
     const isContentOp = (operation: WorkspaceOperation): operation is ContentWorkspaceOperation =>
-      operation.op === "writeMarkdown" || operation.op === "restoreRecovery"
+      operation.op === "writeMarkdown" || operation.op === "writeText" || operation.op === "restoreRecovery"
       || operation.op === "ensureDocumentIdentity";
     const contentOperations = operations.filter(isContentOp);
     const structuralOperations = operations.filter(
@@ -807,6 +814,7 @@ export class Workspace implements AsyncDisposable {
         // Identity already exists: no write, the receipt echoes current state.
         return {
           kind: "updated",
+          tree: this.tree,
           path: current.path,
           pageID: existingID,
           contentRevision: current.revision,
@@ -828,6 +836,7 @@ export class Workspace implements AsyncDisposable {
         onPrepared: onExpected
           ? async (result) => onExpected([{
             kind: "updated",
+            tree: this.tree,
             path: result.node.path,
             pageID: result.pageID,
             contentRevision: result.byteRevision,
@@ -837,6 +846,7 @@ export class Workspace implements AsyncDisposable {
         onMaterialized: onMaterialized
           ? async (result) => onMaterialized([{
             kind: "updated",
+            tree: this.tree,
             path: result.node.path,
             pageID: result.pageID,
             contentRevision: result.byteRevision,
@@ -846,6 +856,7 @@ export class Workspace implements AsyncDisposable {
       });
       return {
         kind: "updated",
+        tree: this.tree,
         path: saved.path,
         pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
         contentRevision: saved.revision,
@@ -853,7 +864,19 @@ export class Workspace implements AsyncDisposable {
       };
     }
     let saved: TreeNode;
-    if (operation.op === "writeMarkdown") {
+    if (operation.op === "writeText") {
+      const current = await this.fs.read(path);
+      if (current.node.kind !== "file") {
+        throw new ProtocolError("unsupported-operation", `${path} is not an ordinary UTF-8 file`, 422, { path });
+      }
+      const result = await this.fs.writeFile(path, new TextEncoder().encode(operation.source), operation.baseContentRevision);
+      return {
+        kind: "updated",
+        tree: this.tree,
+        path: result.node.path,
+        contentRevision: result.byteRevision,
+      };
+    } else if (operation.op === "writeMarkdown") {
       saved = await this.write(path, {
         baseRevision: operation.baseContentRevision,
         source: operation.source,
@@ -861,6 +884,7 @@ export class Workspace implements AsyncDisposable {
         onPrepared: onExpected
           ? async (result) => onExpected([{
             kind: "updated",
+            tree: this.tree,
             path: result.node.path,
             pageID: result.pageID,
             contentRevision: result.byteRevision,
@@ -870,6 +894,7 @@ export class Workspace implements AsyncDisposable {
         onMaterialized: onMaterialized
           ? async (result) => onMaterialized([{
             kind: "updated",
+            tree: this.tree,
             path: result.node.path,
             pageID: result.pageID,
             contentRevision: result.byteRevision,
@@ -886,6 +911,7 @@ export class Workspace implements AsyncDisposable {
         onPrepared: onExpected
           ? async (result) => onExpected([{
             kind: "updated",
+            tree: this.tree,
             path: result.node.path,
             pageID: result.pageID,
             contentRevision: result.byteRevision,
@@ -895,6 +921,7 @@ export class Workspace implements AsyncDisposable {
         onMaterialized: onMaterialized
           ? async (result) => onMaterialized([{
             kind: "updated",
+            tree: this.tree,
             path: result.node.path,
             pageID: result.pageID,
             contentRevision: result.byteRevision,
@@ -905,6 +932,7 @@ export class Workspace implements AsyncDisposable {
     }
     return {
       kind: "updated",
+      tree: this.tree,
       path: saved.path,
       pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
       contentRevision: saved.revision,
@@ -950,6 +978,7 @@ export class Workspace implements AsyncDisposable {
       try { snapshot = await this.node(change.path); } catch {}
       return {
         kind: change.kind,
+        tree: this.tree,
         path: change.path,
         previousPath: change.previousPath,
         pageID: change.pageID
@@ -1002,9 +1031,9 @@ export class Workspace implements AsyncDisposable {
     origin: "api" | "recovery",
   ): Promise<MutationReceipt> {
     const effects = rawEffects.map((effect) => ({ ...effect, tree: effect.tree ?? this.tree }));
-    let eventCursor = this.events.currentCursor();
+    let observedThrough = this.events.currentCursor();
     for (const effect of effects) {
-      eventCursor = this.events.emit({
+      observedThrough = this.events.emit({
         tree: this.tree,
         kind: effect.kind,
         path: effect.path,
@@ -1017,7 +1046,7 @@ export class Workspace implements AsyncDisposable {
       }).cursor;
     }
     await this.protocolFault("protocol:event-published");
-    const receipt: MutationReceipt = { mutationID, eventCursor, effects };
+    const receipt: MutationReceipt = { mutationID, observedThrough, effects };
     await this.mutations.complete(mutationID, requestHash, receipt);
     await this.protocolFault("protocol:receipt-completed");
     return receipt;
@@ -1249,6 +1278,7 @@ export class Workspace implements AsyncDisposable {
       }
       const pageID = entry.pageID ?? this.pathPageIDs.get(entry.path);
       children.push({
+        tree: this.tree,
         name: entry.name,
         path: entry.path,
         kind,
@@ -1259,7 +1289,7 @@ export class Workspace implements AsyncDisposable {
     }
     for (const table of virtualTables) {
       const path = `${treePath === "/" ? "" : treePath}/${table}`;
-      children.push({ name: table, path, kind: "collection", materialization: "available" });
+      children.push({ tree: this.tree, name: table, path, kind: "collection", materialization: "available" });
     }
     return { children: children.sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
   }

@@ -5,13 +5,13 @@ This specification does not prescribe a user interface. Arbor web and native Arb
 
 ## Persistence authority
 
-A local client treats arbord as the authority for resolution, authored persistence, placement changes, access changes, recovery, and observation. It does not write materialized shared-tree files behind arbord's back and then rely on filesystem observation to reconstruct authored intent. Direct external edits remain supported as external changes, not as a substitute for mutation receipts.
+A local client treats arbord as the authority for resolution, authored persistence, recovery, and observation. Steady-state placement, access, administrator, canonical-boundary, profile/community, and device-revocation actions are source-preserving guarded edits to the normative account YAML through arbord's ordinary `writeText` mutation; they are not special API mutations. It does not write materialized shared-tree files behind arbord's back and then rely on filesystem observation to reconstruct authored intent. Direct human edits to the account YAML and other files remain supported as external changes.
 
 The client may keep ephemeral presentation state and explicitly documented user preferences. It must not create an independent canonical content, placement, credential, or access database.
 
 ## Resolution and provenance
 
-The client accepts the locator forms in [locators.md](locators.md) and retains the resolved `tree`, decoded logical path, optional `PageID`, historical root, endpoint/canonical provenance, access, and writable state for as long as an action may refer to the result.
+The client accepts the locator forms in [locators.md](locators.md) and retains the resolved `tree`, decoded logical path, optional `PageID`, historical root, endpoint/canonical provenance, and access for as long as an action may refer to the result. It derives writability from effective access and historical state rather than trusting a duplicated resolution flag.
 
 Directory children, search results, backlinks, Trash/recovery rows, visited trees, and mounted boundaries retain explicit tree scope. The client never reconstructs a `NodeRef` from a visible path alone when a resolved reference is available. Historical roots are read-only.
 
@@ -60,7 +60,9 @@ Unknown error codes and descriptive response fields do not crash the client. Mis
 
 Account/device credentials and access-link secrets are supplied through the appropriate header or secret channel, never embedded in ordinary loopback or canonical request URLs. A raw access-link secret must not enter navigation history, visit records, authored content, logs, diagnostics, receipts, or client caches. UI display of a newly created secret is explicit and one-time where the authority cannot reproduce it.
 
-Revocation uses the stable access-entry ID where available. A client distinguishes effective access, public access, and explicit access entries rather than inferring authority from profile names or visible labels.
+Configuration uses access rules keyed by semantic subject. Safe authority listings use stable access-entry IDs but hide link digests; a configuration editor reads the user's own `trees.yaml` to transform a link rule. The client distinguishes effective access from explicit rules and represents public access only as the `everyone` rule.
+
+The client displays all active device files and their placements account-wide. It enables edits only for the current device file and, when authorized, `account.yaml` and `trees.yaml`; revoking another device is deletion of its file. Removing a placement never implies deleting its files or remote tree.
 
 ## Human-client baseline
 

@@ -12,64 +12,83 @@ export type PageID = string;
 export type ContentRevision = string;
 export type DirectoryRevision = string;
 export type EventCursor = string;
+export type Hash = `sha256:${string}`;
 
 /**
  * The tree dimension of a reference: which scope it resolves in.
  * Values are `"local"` (the degenerate filesystem scope; paths are
  * OS-absolute), `"system"` (the control scope), or a stable shared
- * `TreeID`. Omitted on a request, it means the launch session.
+ * `TreeID`. The scope is always explicit; there is no omitted-tree default.
  */
-export type TreeRef = string;
+export type TreeRef = "local" | "system" | TreeID;
 export type TreeID = string;
-export type PublicAccess = "none" | "read" | "write";
-/** Initial audience selected when promoting a tree. */
-export type PublicationMode = "private" | "public-read" | "public-write";
-export type ShareAudience =
-  | { kind: "private" }
-  | { kind: "everyone"; access: "read" | "write" }
-  | { kind: "profile"; locator: string; access: "read" | "write" }
-  | {
-      kind: "rules";
-      rules: Array<
-        | { subject: { kind: "everyone" }; access: "read" | "write" }
-        | { subject: { kind: "profile"; locator: string }; access: "read" | "write" }
-      >;
-    };
+export type AccessLevel = "none" | "read" | "write";
+export type ReadWriteAccess = Exclude<AccessLevel, "none">;
+export type TreeKind =
+  | "community-profile"
+  | "person-profile"
+  | "group-profile"
+  | "shared-subtree"
+  | "account-configuration";
+
+export type AccessSubject =
+  | { kind: "everyone" }
+  | { kind: "profile"; tree: TreeID }
+  | { kind: "link"; digest: Hash };
+
+export interface AccessRule {
+  subject: AccessSubject;
+  access: ReadWriteAccess;
+}
+
+export type SafeAccessSubject =
+  | { kind: "everyone" }
+  | { kind: "profile"; tree: TreeID; locator?: string }
+  | { kind: "link" };
+
+export interface AccessEntry {
+  id: string;
+  subject: SafeAccessSubject;
+  access: ReadWriteAccess;
+}
 
 export const LOCAL_TREE: TreeRef = "local";
 export const SYSTEM_TREE: TreeRef = "system";
 
 export type NodeRef =
-  | { tree?: TreeRef; path: LogicalPath }
-  | { tree?: TreeRef; pageID: PageID; pathHint?: LogicalPath };
+  | { tree: TreeRef; path: LogicalPath }
+  | { tree: TreeRef; pageID: PageID; pathHint?: LogicalPath };
 
 export interface ResolvedNodeRef {
-  /** Scope the reference resolved in. Present on all responses; absent only in legacy payloads, meaning the session root. */
-  tree?: TreeRef;
+  tree: TreeRef;
   path: LogicalPath;
   pageID?: PageID;
 }
 
 export interface TreeDescriptor {
   id: TreeID;
+  kind: TreeKind;
+  access: AccessLevel;
+  canonical: {
+    locator: string;
+    path: LogicalPath;
+    endpoint: string;
+    httpURL: string;
+    parentTree: TreeID | null;
+  } | null;
+}
+
+export interface LocalTreeDescriptor extends TreeDescriptor {
   name: string;
   osPath?: string;
-  canonical?: string;
-  canonicalPath?: string;
-  httpURL?: string;
-  endpoint?: string;
-  publicAccess?: PublicAccess;
-  access?: "read" | "write";
-  accessEntries?: Array<{
-    id: string;
-    kind: "everyone" | "profile" | "link";
-    access: "read" | "write";
-    locator?: string;
-  }>;
-  placement: "local" | "shared" | "remote";
+  placement: "placed" | "replica" | "remote";
   sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
-  legacy?: boolean;
   missing?: boolean;
+}
+
+export interface RemoteTreeDescriptor extends TreeDescriptor {
+  ref: Hash;
+  update: string;
 }
 
 export type ProtocolNodeKind = "markdown" | "directory" | "collection" | "database" | "file";
@@ -77,9 +96,9 @@ export type ProtocolNodeKind = "markdown" | "directory" | "collection" | "databa
 export interface NodeSnapshot {
   ref: ResolvedNodeRef;
   /** Scope the snapshot resolved in, after canonicalization into an owning root. */
-  tree?: TreeRef;
+  tree: TreeRef;
   /** The enclosing durable or migration tree, when applicable. */
-  enclosingTree?: TreeDescriptor;
+  enclosingTree?: LocalTreeDescriptor;
   /** Canonical-path convenience field used by hand-maintained clients. */
   path: LogicalPath;
   name: string;
@@ -157,6 +176,18 @@ export interface RecoveryPage {
   observedThrough: EventCursor;
 }
 
+export interface LocatorResolution {
+  ref: ResolvedNodeRef;
+  enclosingTree?: TreeDescriptor;
+  historical: boolean;
+  observedThrough: EventCursor;
+}
+
+export interface SnapshotEnvelope<T> {
+  snapshot: T;
+  observedThrough: EventCursor;
+}
+
 /** One simultaneous UTF-8 byte replacement against an exact source revision. */
 export interface SourceEdit {
   offset: number;
@@ -222,6 +253,12 @@ export function applySourceEdits(source: string, edits: readonly SourceEdit[]): 
 
 export type ContentWorkspaceOperation =
   | {
+    op: "writeText";
+    ref: NodeRef;
+    baseContentRevision: ContentRevision;
+    source: string;
+  }
+  | {
     op: "writeMarkdown";
     ref: NodeRef;
     baseContentRevision: ContentRevision;
@@ -242,8 +279,8 @@ export type ContentWorkspaceOperation =
   };
 
 export type StructuralWorkspaceOperation =
-  | { op: "createDirectory"; tree?: TreeRef; path: LogicalPath }
-  | { op: "createMarkdown"; tree?: TreeRef; path: LogicalPath; source?: string }
+  | { op: "createDirectory"; tree: TreeRef; path: LogicalPath }
+  | { op: "createMarkdown"; tree: TreeRef; path: LogicalPath; source?: string }
   | { op: "rename"; ref: NodeRef; name: string }
   | {
     op: "move";
@@ -254,28 +291,7 @@ export type StructuralWorkspaceOperation =
   | { op: "trash"; refs: NodeRef[] }
   | { op: "restore"; refs: NodeRef[] };
 
-export type SystemOperation =
-  | { op: "connectCommunity"; origin: string; accountToken: string }
-  | { op: "disconnectCommunity" }
-  | { op: "claimProfile"; origin: string; handle: string; path: string; displayName?: string }
-  | { op: "createGroupProfile"; handle: string; path: string; displayName?: string }
-  | { op: "promoteTree"; path: string; canonicalPath: string; audience: ShareAudience }
-  | { op: "placeTree"; tree: TreeID; path: string; endpoint?: string; canonical?: string }
-  | { op: "removeTreePlacement"; path: string; endpoint?: string; canonicalPath?: string }
-  | { op: "resolveTreeConflict"; tree: TreeID; choice: "local" | "draft" | "remote" }
-  | {
-      op: "setTreeAccess";
-      tree: TreeID;
-      subject:
-        | { kind: "all" }
-        | { kind: "everyone" }
-        | { kind: "profile"; locator: string }
-        | { kind: "link"; secret: string }
-        | { kind: "entry"; id: string };
-      access: "none" | "read" | "write";
-    };
-
-export type WorkspaceOperation = ContentWorkspaceOperation | StructuralWorkspaceOperation | SystemOperation;
+export type WorkspaceOperation = ContentWorkspaceOperation | StructuralWorkspaceOperation;
 
 export interface ContentMutationRequest {
   mutationID: string;
@@ -287,19 +303,14 @@ export interface StructuralMutationRequest {
   operations: [StructuralWorkspaceOperation, ...StructuralWorkspaceOperation[]];
 }
 
-export interface SystemMutationRequest {
-  mutationID: string;
-  operations: [SystemOperation];
-}
-
-export type MutationRequest = ContentMutationRequest | StructuralMutationRequest | SystemMutationRequest;
+export type MutationRequest = ContentMutationRequest | StructuralMutationRequest;
 
 export type MutationEffectKind = "created" | "updated" | "moved" | "deleted";
 
 export interface MutationEffect {
   kind: MutationEffectKind;
   /** Scope the effect landed in. Present from milestone 3 on. */
-  tree?: TreeRef;
+  tree: TreeRef;
   path: LogicalPath;
   previousPath?: LogicalPath;
   pageID?: PageID;
@@ -309,17 +320,13 @@ export interface MutationEffect {
 
 export interface MutationReceipt {
   mutationID: string;
-  eventCursor: EventCursor;
+  observedThrough: EventCursor;
   effects: MutationEffect[];
 }
 
 export type WorkspaceEventOrigin = "api" | "external" | "recovery" | "sync";
 
-export interface WorkspaceEvent {
-  cursor: EventCursor;
-  /** Scope the event belongs to; one process-wide stream orders all scopes. */
-  tree?: TreeRef;
-  kind: MutationEffectKind | "diagnostic";
+export interface WorkspaceChange {
   path: LogicalPath;
   previousPath?: LogicalPath;
   pageID?: PageID;
@@ -329,44 +336,51 @@ export interface WorkspaceEvent {
   mutationID?: string;
 }
 
-export type ArbordErrorCode =
-  | "invalid-reference"
-  | "reserved-boundary"
-  | "not-found"
-  | "credential-unavailable"
-  | "duplicate-page-id"
-  | "duplicate-body-representation"
-  | "stale-content-revision"
-  | "stale-directory-revision"
-  | "occupied-destination"
-  | "unsafe-path"
-  | "mutation-mismatch"
-  | "read-only"
+export type WorkspaceEvent = ObservationEvent<MutationEffectKind | "diagnostic", WorkspaceChange>;
+
+export type ArborErrorCode =
+  | "invalid-request"
+  | "unauthenticated"
   | "permission-denied"
-  | "not-materialized"
+  | "conflict"
+  | "not-found"
+  | "read-only"
   | "unsupported-operation"
   | "resync-required"
+  | "rate-limited"
+  | "quota-exceeded"
   | "internal-error"
+  | "already-claimed"
+  | "tree-id-conflict"
   | (string & {});
 
+export type ArbordErrorCode = ArborErrorCode;
+
 export interface ArbordErrorValue {
-  code: ArbordErrorCode;
+  error: ArborErrorCode;
   message: string;
   retryable: boolean;
+  tree?: TreeRef;
   path?: LogicalPath;
-  current?: NodeSnapshot;
-  owners?: LogicalPath[];
-  mutationID?: string;
+  details?: unknown;
 }
 
 export interface ArbordErrorEnvelope {
-  error: ArbordErrorCode;
+  error: ArborErrorCode;
   message: string;
   retryable: boolean;
+  tree?: TreeRef;
   path?: LogicalPath;
-  current?: NodeSnapshot;
-  owners?: LogicalPath[];
-  mutationID?: string;
+  details?: unknown;
+}
+
+export type ArborError<TDetails = unknown> = Omit<ArbordErrorEnvelope, "details"> & { details?: TDetails };
+
+export interface ObservationEvent<TKind extends string = string, TChange = unknown> {
+  cursor: EventCursor;
+  tree: TreeRef;
+  kind: TKind;
+  change: TChange;
 }
 
 export function canonicalJSONString(value: unknown): string {

@@ -438,6 +438,7 @@ export class WorkspaceFS implements AsyncDisposable {
     }
     const entries = (await this.list(node.path)).filter((entry) => options.includeDirectoryChild?.(entry) ?? true);
     const children: TreeChild[] = entries.map((entry) => ({
+      tree: "local",
       name: entry.name,
       path: entry.path,
       kind: entry.kind,
@@ -545,6 +546,7 @@ export class WorkspaceFS implements AsyncDisposable {
       let children: TreeChild[] = [];
       if (resolved.kind === "directory") {
         children = (await this.list(path)).filter((child) => includeDirectoryChild?.(child) ?? true).map((child) => ({
+          tree: "local",
           name: child.name,
           path: child.path,
           kind: child.kind,

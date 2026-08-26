@@ -1,397 +1,294 @@
 # Arbor wire protocol
-*Part of the [Arbor spec](../spec.md): an independently implementable community authority, object, synchronization, access, and public-projection protocol.*
+*Part of the [Arbor spec](../spec.md): community identity, governed account configuration, immutable trees, synchronization, access, and observation.*
 
-An Arbor wire host represents one community. It owns canonical namespace boundaries, profile/account identity, claims, whole-tree access entries, one mutable ref per `TreeID`, immutable objects, and watch streams. It need not implement a local workspace, UI, scripts, or private local-state layout.
+An Arbor authority represents one community. It owns accounts and profile
+claims, canonical tree boundaries, the private account-configuration trees,
+credential bindings, ACL enforcement, one mutable accepted ref per tree,
+immutable objects, and observation streams. It need not implement a local
+workspace or UI.
 
-All `/.arbor/*` request and response JSON is UTF-8 with `content-type: application/json`. Unless stated otherwise responses use `cache-control: no-store`. Clients ignore unknown descriptive response fields but reject missing required fields and malformed values.
+## 1. Shared public contract
 
-The first alpha has one wire contract. Arbor clients, arbord, and authorities advance together; descriptors do not advertise protocol capabilities and mixed-version deployments are unsupported. Complete-object update envelopes remain valid as an ordinary representation choice within that one contract, not as a downgrade path.
+The wire uses the `TreeID`, `TreeRef`, `TreeKind`, `TreeDescriptor`,
+`RemoteTreeDescriptor`, `AccessRule`, `AccessEntry`, `LocatorResolution`,
+`ArborError`, and `ObservationEvent` definitions in [REST v1](arbord-rest.md).
+Language bindings must be equivalent, and TypeScript and Swift consume the same
+language-neutral fixtures.
 
-## 1. Values and descriptors
+Authority resolution always supplies `enclosingTree`. Ordinary hosted trees
+have complete non-null canonical data. The authenticated account-configuration
+tree is returned only to its account and has `kind: "account-configuration"`
+and `canonical: null`.
 
-```ts
-type TreeID = string;                 // opaque, stable, non-empty
-type ProfileID = TreeID;
-type Hash = `sha256:${string}`;       // 64 lowercase hexadecimal SHA-256 digits
-type AccessLevel = "none" | "read" | "write";
+Every tree operation, result, event, effect, and relevant error names its tree.
+The authority does not accept `local` or `system`; those scopes exist only at
+arbord. Writability is derived from effective access and historical state.
 
-type TreeDescriptor = {
-  id: TreeID;
-  canonicalPath: string;             // decoded absolute authority path
-  parentTree?: TreeID;
-  kind: "community-profile" | "person-profile" | "group-profile" | "shared-subtree";
-  ref: Hash;
-  publicAccess: AccessLevel;
-  access: AccessLevel;               // effective access for this response
-  httpURL: string;
-  arborURL: string;
-};
+The shared error envelope and common codes are normative. Narrow authority-only
+codes include `already-claimed` and `tree-id-conflict`. Base/update mismatch,
+reserved boundaries, policy failures, and merge conflicts use `conflict` with
+discriminated `authority-update` or `account-configuration` details where
+applicable.
 
-type AccountDescriptor = {
-  id: string;
-  handle: string;
-  profileTree: ProfileID;
-  profileURL: string | null;
-  community: TreeDescriptor;
-  writableProfiles: TreeDescriptor[];
-};
+## 2. Authentication and secrets
 
-type AccessEntry = {
-  id: string;
-  kind: "everyone" | "profile" | "link";
-  access: "read" | "write";
-  locator?: string;                  // safe profile locator; absent for link
-};
-```
-
-Public names are replaceable. `TreeID` identifies an Arbor tree and raw locator `arbor://tree/<TreeID>/`. `ProfileID` is the profile tree's `TreeID`; display names and handles never become authority identities.
-
-## 2. Authentication and access links
-
-Account/device requests use:
-
-```http
-Authorization: Bearer <account-device-token>
-```
-
-An access-link request uses:
-
-```http
-X-Arbor-Access: <raw-link-secret>
-```
-
-A request may supply both; the host grants their maximum valid access. Tokens and raw link secrets never appear in URLs, redirects, response bodies, error messages, logs, refs, objects, access listings, or watch events. Only `sha256:<hex>` of the exact UTF-8 link secret is stored as a link subject.
-
-Access is whole-tree and independently evaluated at every nested boundary. Levels are `none`, `read`, and `write`. A profile entry names a stable person/group profile `TreeID`. Group-derived authority evaluates verified current authored membership; membership alone does not grant write to the group tree. Revocation prevents future wire reads/writes but cannot erase bytes already materialized by a reader.
-
-### Authority browser sessions
-
-A live application on an Arbor authority consumes the same account/profile identity; it does not create an application-specific user or authentication database. The authority may represent an authenticated browser with an opaque, Secure, HttpOnly, same-origin session cookie bound to one non-revoked account device and its current person-profile `TreeID`. The raw account/device token never enters application JavaScript, browser storage, an application URL, or authored content.
-
-Session establishment, renewal, identity switching, and recovery are authority/platform operations. However established, the authority derives executable-document user identity from the verified account's `profileTree`, not from a caller-supplied handle, route parameter, form field, or authority-local account ID. Revoking the bound device invalidates its browser sessions. Anonymous public requests have no user profile. Executable-document runtimes receive only the safe user descriptor defined by [applications](applications.md), while ordinary wire authorization continues to use the credential subject internally.
-
-### Device pairing
+Authenticated requests use:
 
 ```text
-POST   /.arbor/pairings
-POST   /.arbor/pairings/{pairingID}/claim
-GET    /.arbor/devices
-DELETE /.arbor/devices/{deviceID}
+Authorization: Bearer <device credential>
+Arbor-Access-Link: <access-link secret>
 ```
 
-Creating a pairing requires Bearer authentication and returns `{ id, secret, confirmationCode, expiresAt }` once with `cache-control: no-store`. Its QR/copy payload is versioned structured data `{ version: 1, origin, pairing: { id, secret } }`, not a navigation URL and never the existing device credential. Claim is unauthenticated but rate-limited; it accepts `{ secret, label }`, atomically consumes an unexpired pairing, and returns `{ deviceToken, device, confirmationCode }` once. The old and new devices independently display the same `confirmationCode` before trust is accepted.
+The authority stores only cryptographic digests and grants the maximum access
+of all valid presented subjects. Raw credentials and link secrets never appear
+in URLs, redirects, response bodies, errors, logs, refs, objects, YAML, access
+lists, or events. Link entries returned to administrators reveal neither secret
+nor digest.
 
-Listing and revoking devices require Bearer authentication. Safe device metadata is `{ id, account, label, createdAt, lastUsedAt, revokedAt }`; no list response contains credentials or pairing secrets. Pairing secrets are stored only as digests, compared in constant time, expire within ten minutes, and are single-use under concurrent claim. Revocation immediately denies future authority requests from that device without changing authored trees or already materialized local content.
+A `DeviceID` identifies one credential binding for one account. Deleting its
+file from the accepted account configuration atomically revokes the credential
+and permanently retires the ID. Credential validity is derived from the current
+accepted config root plus authority-held digest binding; caller claims do not
+authorize a transition.
 
-## 3. Errors and statuses
-
-Every non-success JSON response is:
-
-```ts
-type WireError = {
-  error: string;
-  message: string;
-  retryable: boolean;
-  tree?: TreeID;
-  path?: string;
-  handle?: string;
-  current?: Hash;
-};
-```
-
-`error` is the stable application-level discriminator. Clients switch on that string and may ignore additional top-level context fields they do not understand. The HTTP status remains the broad transport-level category.
-
-Stable codes are `invalid-request`, `unauthenticated`, `permission-denied`, `not-found`, `already-claimed`, `conflict`, `base-not-retained`, `authority-busy`, `reserved-boundary`, `unsupported-operation`, `rate-limited`, `quota-exceeded`, and `internal-error`.
-
-| Status | Codes/meaning |
-|---|---|
-| `200` | successful read or idempotent operation |
-| `201` | tree, claim, pairing, or paired device created |
-| `400` | `invalid-request` |
-| `401` | `unauthenticated` |
-| `403` | `permission-denied` |
-| `404` | `not-found` |
-| `409` | `already-claimed`, `conflict`, or `reserved-boundary` |
-| `410` | `base-not-retained` |
-| `413` | `quota-exceeded` for request/object size |
-| `422` | `unsupported-operation` |
-| `429` | `rate-limited` or quota rate |
-| `500` | undeclared `internal-error` |
-| `503` | retryable `authority-busy` or temporary `internal-error` |
-
-`conflict` includes the current accepted update, base/candidate identities, a complete portable draft snapshot, and structured conflict reasons. Clients preserve unknown future codes and do not treat malformed error bodies as authorization.
-
-Stable `conflicts[].reason` values for `updates-v1` are `path-kind-conflict`, `nested-boundary-conflict`, `page-id-move-conflict`, `binary-conflict`, `frontmatter-conflict`, and `invalid-markdown-fence`. Clients preserve unknown future reasons.
-
-## 4. Endpoints
-
-### Account and tree discovery
+## 3. Discovery and mutable snapshots
 
 ```text
-GET  /.arbor/account
-GET  /.arbor/trees
-POST /.arbor/trees
+GET /.arbor/health
+GET /.arbor/account
+GET /.arbor/trees
+GET /.arbor/trees/{TreeID}/ref
+GET /.arbor/trees/{TreeID}/snapshot
+GET /.arbor/trees/{TreeID}/access
+GET /.well-known/arbor[/{path}]
 ```
 
-`GET /.arbor/account` requires Bearer authentication and returns an `AccountDescriptor`. `GET /.arbor/trees` returns a `TreeDescriptor[]`, filtered to trees readable by the supplied authority.
-
-`POST /.arbor/trees` requires an account with write authority over the requested parent boundary:
+Authenticated account, tree-list, ref, access-list, and current-snapshot reads
+use explicit envelopes carrying `observedThrough`; bare arrays and descriptors
+are not mutable responses. A current snapshot is:
 
 ```ts
-type CreateTreeRequest = {
-  canonicalPath: string;
-  root: Hash;
-  objects: Array<{ hash: Hash; bytes: string }>;
-  kind?: "group-profile" | "shared-subtree";
-  publicAccess?: AccessLevel;
-  profileAccess?: Array<{ locator: string; access: "read" | "write" }>;
+type CurrentTreeSnapshot = {
+  tree: RemoteTreeDescriptor;
+  snapshot: TreeSnapshot;
+  observedThrough: EventCursor;
 };
 ```
 
-The host resolves the parent boundary from `canonicalPath` and the authenticated account, then verifies complete object reachability, path availability, profile schema when applicable, unique subjects, and parent authority. Creation, boundary reservation, administering-profile authority, root ref, and initial access commit atomically. It returns `201 TreeDescriptor`.
+For an ordinary tree, its accepted-update ID is its `observedThrough` cursor
+unless a later non-ref event advances that tree's observation stream.
+`tree.update` remains the content synchronization base. Account-configuration
+activation/status events may advance `observedThrough` without changing the
+accepted content update.
 
-### Claims
+Well-known and canonical-path resolution return `LocatorResolution`, using the
+longest readable registered boundary. Inaccessible nested boundaries cannot be
+read through a parent. The private account-configuration tree is absent from
+public discovery and canonical resolution.
+
+## 4. Client-generated identity and bootstrap
+
+New tree IDs are `tr_` plus 26 lowercase base32 characters encoding 128 random
+bits. New device IDs use the same encoding after `dv_`. Existing shorter IDs
+may remain valid during migration, but activation and pairing require the new
+form. Generating an ID neither reserves it nor contacts the authority.
+
+### Profile claim
 
 ```text
-POST /.arbor/claims/{handle}
+PUT /.arbor/claims/{handle}
 ```
 
-This route is anonymous only for an unresolved person locator reserved by current community-root content.
+The body names a generated profile `TreeID`, account-configuration `TreeID`,
+generated `DeviceID`, device label, device credential digest, initial profile
+snapshot, and complete initial configuration snapshot. The configuration
+snapshot contains `account.yaml`, `trees.yaml`, and that device's file and
+makes the device the first administrator.
 
-```ts
-type ClaimRequest = {
-  root: Hash;
-  objects: Array<{ hash: Hash; bytes: string }>;
-};
-type ClaimResult = {
-  accountToken: string;              // returned once
-  account: AccountDescriptor;
-  tree: TreeDescriptor;
-};
-```
+The authority validates both graphs and atomically creates the profile,
+account, public canonical profile boundary and ACL, private config tree,
+credential binding, accepted updates, and first administrator. Exact retry is
+idempotent. Any different attempt after success returns `already-claimed`. No
+response returns a raw device credential.
 
-The supplied reachable root must be a valid visible person-profile document. The authority atomically verifies the reservation, creates the public-read person profile at `/~<handle>`, creates its account/device credential, and returns `201 ClaimResult`. The first successful claim wins; later or concurrent claims return `already-claimed`. A response and all intermediaries use `cache-control: no-store`.
-
-### Refs, update submission, objects, and watch
+### Pairing
 
 ```text
-GET  /.arbor/trees/{TreeID}/ref
-GET  /.arbor/trees/{TreeID}/snapshot
+POST /.arbor/pairings
+PUT  /.arbor/pairings/{PairingID}/claim
+```
+
+An authenticated device creates a short-lived, single-use pairing secret. The
+claimant locally generates a new `DeviceID` and credential, stores the raw
+credential immediately, and sends only its digest together with the label,
+initial placements, and pairing secret. The authority atomically adds the new
+device file to the config tree and binds the digest. The new device is ordinary,
+not an administrator. Exact claim retry is idempotent; concurrent or expired
+reuse fails. No response returns the raw new credential.
+
+## 5. Account-configuration policy
+
+Each account owns one private, noncanonical tree whose closed internal policy
+is `account-config-v1`; all other trees use `ordinary`. There is no generic
+policy extension framework. The tree uses the ordinary object, snapshot,
+accepted-update, merge, replica, and watch machinery.
+
+The complete path and YAML contract is normative in [system.md](system.md).
+For every direct candidate and every automatic merge, the authority:
+
+1. authenticates the submitting device using the current accepted root;
+2. parses and validates the complete candidate graph and semantic diff;
+3. enforces allowed paths and per-device/administrator write rules;
+4. rejects `.state`, aliases, duplicate keys, unknown fields, ambiguous IDs,
+   and an implicit config-tree declaration or placement; and
+5. accepts the new root and applies credential revocation, administrators,
+   existing-tree ACLs, and canonical boundaries in one transaction.
+
+Ordinary devices may change only their own device file. Administrators may
+change `account.yaml` and `trees.yaml` or delete another device file, but may
+not edit another device's placements. Administrators remain a nonempty subset
+of active devices. Kind cannot change after activation. A removed active tree
+declaration is rejected; removing an uninitialized declaration cancels its
+reservation.
+
+Merge is semantic: device files, placements, administrators, tree declarations,
+and ACL subjects are independent keys. Disjoint edits merge. Delete versus
+unchanged yields delete. Administrator revocation defeats a concurrent edit by
+the revoked device. Incompatible same-field edits return `conflict` with exact
+typed `account-configuration` details and a private draft snapshot. Resolution
+is a later explicit candidate; the accepted YAML contains no markers or
+resolution/status field.
+
+## 6. Two-stage tree activation
+
+Adding an unknown client-generated `TreeID` to `trees.yaml` first accepts and
+reserves its identity, canonical path, immutable kind, and ACL. Private derived
+status becomes `awaiting-initialization`. At least one active administrator's
+placements must name it. Pending trees are unreadable, unresolved, and
+unattached.
+
+An eligible administrator snapshots its filesystem placement or pathless
+replica and calls:
+
+```text
+PUT /.arbor/trees/{TreeID}
+```
+
+The request contains the complete initial snapshot. The authority validates
+the graph and applicable profile schema, creates the first accepted update,
+applies the declared ACL and parent boundary, marks the tree active, and emits
+observation events atomically. First valid activation wins; an identical replay
+succeeds and incompatible content is `tree-id-conflict`. Removing the pending
+declaration cancels the reservation. Pending, activating, active, and error
+status remains derived private state and events, never YAML.
+
+## 7. Deterministic objects and tree-scoped authorization
+
+An immutable tree snapshot names a root directory object and all objects are
+canonical CBOR addressed by `sha256:<lowercase-hex>` of their exact bytes.
+Directories map normalized UTF-8 names to file, directory, or nested-tree
+entries. Files contain exact bytes and media metadata. Names reject NUL,
+slashes, backslashes, dot segments, non-NFC text, and reserved ambiguity.
+Directory entries are canonically ordered; decoders reject noncanonical
+encodings and hash mismatches.
+
+```text
+GET /.arbor/trees/{TreeID}/objects/{hash}
+```
+
+Possession of a hash is not authorization. The authority first verifies read
+access to the named tree, then checks reachability from that tree's retained
+authorized roots. It must not scan every readable root. Immutable object and
+byte responses need no independent observation cursor and use immutable cache
+headers and the hash as ETag.
+
+A nested tree entry is a boundary, not an object copy. Parent reachability stops
+there and the child's ref, objects, history, and ACL remain independent.
+
+## 8. Update submission and convergence
+
+```text
 POST /.arbor/trees/{TreeID}/updates
-GET  /.arbor/trees/{TreeID}/watch
-GET  /.arbor/objects/{sha256}
 ```
 
-`GET .../ref` returns a `TreeDescriptor`. Read access is required.
+An update names the exact retained `{ update, root }` base, candidate root,
+tree, and required canonical objects. The authority verifies graph completeness,
+hashes, schema, access, and boundaries. If base is current it accepts; for
+one-sided change it fast-forwards; for safely disjoint edits it performs the
+sole authoritative three-way merge. Unsafe overlap returns a complete
+client-owned typed conflict draft and does not advance accepted state or retain
+the rejected candidate as history.
 
-`GET .../snapshot` returns `{ tree, snapshot }`, where `tree` is one coherent
-current `TreeDescriptor` (including its accepted-update ID) and `snapshot` is
-the complete root plus every reachable immutable object for that descriptor.
-Read access is required. The authority captures the current accepted update
-once and may finish serving that retained graph if a newer update is accepted
-while the response is being encoded. There is no update selector: this is an
-atomic current-state read, not accepted-history or historical-object access.
-Clients use it for initial placement and for a clean replica invalidated by
-watch, instead of submitting an unchanged candidate merely to obtain a
-snapshot.
+Semantic request identity is the SHA-256 of RFC 8785 canonical JSON for
+`{ version: "updates-v1", tree, base, candidate }`, scoped to the authenticated
+credential. Transport object ordering and optional verified file-patch
+representations are excluded. Exact semantic replay returns the original
+accepted result without another update. Clients persist the base, candidate,
+required objects, and any received conflict before acknowledgement.
 
-`GET .../objects/{sha256}` returns exact canonical CBOR bytes with `content-type: application/vnd.ipld.dag-cbor`, `cache-control: public, immutable`, and an ETag equal to the quoted hash. The host verifies the request hash syntax. Possession of an object hash is not authorization: every subject, including a writer, can retrieve only objects reachable from a currently readable root. Accepted history remains private authority state and does not create a historical-object capability. Rejected candidates and client-owned conflict drafts never expand object authorization.
+Successful update responses return the descriptor, resulting snapshot when
+requested, semantic request digest, merge summary, and `observedThrough`.
+For ordinary ref changes the accepted update is the observation cursor.
 
-`POST .../updates` requires write access. It submits one candidate state for reconciliation against an exact accepted base:
+A verified UTF-8 file-patch transport extension may reconstruct a named
+candidate file from a retained reachable base file using sorted simultaneous
+byte replacements. The authority hash-verifies the reconstructed canonical
+file object and otherwise treats it exactly like supplied complete bytes. This
+is an optimization only; it does not alter semantic request identity, merge
+ownership, or the requirement that complete immutable content be provable.
 
-The optional `returnSnapshot` member is a transport hint, excluded from the semantic request digest. Every successful `current`, `accepted`, or `merged` response includes `requestDigest`, the authority-derived canonical `updates-v1` semantic request digest. With `true`, a successful/current response also includes `snapshot`, a complete root plus every reachable immutable object for the returned accepted update, and a conflict additionally includes `currentSnapshot`. With `"if-result-differs"`, the host omits `snapshot` only when the returned accepted root equals the submitted candidate; it includes the complete accepted snapshot when those roots differ and includes `currentSnapshot` on conflict. This lets a replica avoid downloading its own accepted graph while still validating and applying a remote-current, merged, or conflicted decision without an accepted-history endpoint or an object-by-object race. The ordinary object endpoint and responses without the hint remain valid.
-
-### Verified file-patch transport extension
-
-`file-patches-v1` is an update-envelope optimization in the first alpha wire contract. Alpha clients, arbord, and authorities advance together; they do not negotiate mixed protocol versions. A client may still send ordinary complete immutable objects whenever a patch is unavailable or unsuitable. This representation does not change `updates-v1` request identity, candidate-root semantics, accepted history, or merge ownership.
-
-Each patch envelope names an immutable base file object, the expected resulting file-object hash, and ordered UTF-8 byte replacements over the decoded file payload:
-
-```json
-{
-  "base": "sha256:<base-file-object>",
-  "result": "sha256:<result-file-object>",
-  "edits": [
-    { "offset": 1204, "length": 31, "bytes": "<canonical padded base64>" }
-  ]
-}
-```
-
-When negotiated, the ordinary update body may add:
-
-```ts
-type FilePatch = {
-  base: Hash;
-  result: Hash;
-  edits: Array<{ offset: number; length: number; bytes: string }>;
-};
-
-type FilePatchUpdateExtension = {
-  filePatches?: FilePatch[];
-};
-```
-
-Offsets and lengths are nonnegative JSON safe integers addressing bytes in the decoded `file.bytes`, not CBOR-envelope offsets, Unicode scalar positions, or logical Markdown blocks. Edits are sorted by ascending offset, non-overlapping, in bounds, and interpreted simultaneously against the unmodified base payload. Empty edit lists, duplicate result objects, noncanonical base64, arithmetic overflow, and envelopes larger than the host's ordinary update limits are rejected.
-
-The base object must be a file reachable from the request's retained `base.root`; possession of a hash or unrelated write access is insufficient. The authority loads and hash-verifies that base, applies the edits, canonically encodes the resulting file object, verifies its hash equals `result`, and then treats the reconstructed object exactly like a supplied immutable object during graph validation and storage. A request may still supply complete objects, and clients should use whichever representation is smaller. New files and unsuitable/large patches use complete objects.
-
-`filePatches` is excluded from the canonical semantic request digest for the same reason as `objects`: it is a transport representation of the already-named candidate. An ambiguous retry may switch between a valid patch envelope and a complete object without changing request identity, though a client that persists an exact serialized request may simply replay it byte-for-byte. Automatic Markdown reconciliation remains authority-owned and operates only after the exact candidate graph has been reconstructed and validated.
-
-```ts
-type UpdateRequest = {
-  base: { root: Hash; update: string };
-  candidate: Hash;
-  objects: Array<{ hash: Hash; bytes: string }>; // standard padded base64
-  filePatches?: FilePatch[];
-  returnSnapshot?: true | "if-result-differs";   // transport-only response hint
-};
-```
-
-The update named by `base.update` must belong to this tree and have `base.root`; this binds reconciliation to the exact accepted event the client observed even when a root later repeats. Each base64 string decodes to exact canonical CBOR bytes whose SHA-256 equals `hash`. The authority accepts already-known objects, validates the complete candidate graph, and compares it with the current accepted update:
-
-1. Candidate already equals current: return `200 { outcome: "current", current }` and create no update.
-2. Candidate equals base: return the current update for the client to apply and create no update.
-3. Current equals base: atomically accept the candidate and return `201 { outcome: "accepted", update }`.
-4. Both changed safely: merge once on the authority, atomically accept the merged root, and return `201 { outcome: "merged", update, merge }`.
-5. Unsafe overlap: return `409 conflict` with current/base/candidate, structured reasons, and a complete draft snapshot consisting of its root plus every reachable object required to persist it. The accepted ref does not advance, no accepted update is created, and the authority retains neither the rejected candidate nor the conflict response/draft.
-
-The authority derives request identity from semantic JSON rather than a caller-supplied key. It constructs `{ base, candidate, tree, version: "updates-v1" }`, canonicalizes that all-string I-JSON value using RFC 8785 JSON Canonicalization Scheme rules, and names the request `sha256:<lowercase hex SHA-256 of the canonical UTF-8 bytes>`. `objects` is deliberately excluded: it is a transport envelope, so ordering may change and objects already held by the authority may be omitted on retry. A client should normally walk the retained base and candidate graphs together, omit unchanged objects reachable from `base.root`, and supply only changed directory objects plus complete or patched changed file objects. Any supplied envelope is still hash-verified before use, and omitting an object not available from retained authority state makes the candidate incomplete rather than weakening validation.
-
-Identity is scoped to `(tree, authenticated credential subject, derived request digest)`. An accepted or merged row stores its digest in the same transaction as the new root; repeating that semantic request returns the original result without another accepted update. `current` and `conflict` perform no mutation and retain no replay record, so an ambiguous retry safely recomputes against the then-current accepted update. The client durably records the exact base, candidate, and required objects before transmission and persists a received conflict response before acknowledging it locally. An explicit resolution naturally has a different base or candidate and therefore a different digest.
-
-The authority retains every accepted update, accepted root, and object reachable from an accepted root indefinitely in `updates-v1`, so an offline client can continue naming its exact accepted base. This retained state is private merge and recovery evidence: it does not create accepted-history or historical-object endpoints.
-
-The authority rechecks the current update in the same transaction that accepts a result. It may recompute a bounded number of times after a concurrent acceptance. Exhaustion returns `503 authority-busy`; retrying the same semantic request remains safe. Supplying duplicate hashes with differing bytes is invalid.
-
-`GET .../watch` requires read access and returns `text/event-stream; charset=utf-8`. Frames are UTF-8 and blank-line separated:
+## 9. Access
 
 ```text
-id: <accepted-update-id>
-event: ref
-data: {...TreeDescriptor...}
-
+GET /.arbor/trees/{TreeID}/access
 ```
 
-Only `event: ref` is normative. `id` is the opaque accepted-update ID, so restoring a previously used root remains a distinct event. Multiple `data:` lines join with newline before JSON decoding; comments are keepalives. `data` is a `TreeDescriptor` and may additionally contain `requestDigest`. The host includes that digest only when the event is delivered to the exact authenticated bearer-credential subject that submitted the accepted request; it is absent for public, link-only, account-fallback, and different-credential readers. It is a correlation value, not an authorization capability or a second update identity.
+The response is a snapshot envelope of safe `AccessEntry`s. Steady-state ACL
+mutation occurs by editing the authenticated account's `trees.yaml`; there is
+no separate access-mutation endpoint. Rules use `everyone`, profile `TreeID`,
+or link digest and `read`/`write`. `none` removes a rule and is never stored.
+An access-link secret is generated and shown locally once; only its digest is
+submitted in configuration.
 
-`Last-Event-ID` names the last observed accepted update. When that update is retained, the host sends only later accepted updates; when it is current, the initial replay is empty. When it is not retained, the host may immediately send the current descriptor. The accepted-update ID returned by a successful update submission is also a valid watch cursor and is durably recorded with the accepted base. An already-open watch does not reconnect after a write: it correlates a live frame's `requestDigest` with the client's durable pending request. A matching frame may be ignored after the response has been applied or may trigger an idempotent replay of the exact request after an ambiguous/lost response. Watch remains an invalidation channel: after validating a genuinely remote descriptor, a clean client reads the coherent current snapshot; a client with local changes submits its ordinary candidate for authority reconciliation. Conflicts are client-owned and never appear on this accepted-state channel.
-
-### Executable query-result streaming
+## 10. Snapshot then observe
 
 ```text
-POST /.arbor/query-stream
-Content-Type: application/json
-Accept: text/event-stream
+GET /.arbor/trees/{TreeID}/watch?after={cursor}
+Last-Event-ID: {cursor}
 ```
 
-An authority that hosts executable documents exposes the same stateless live-query contract as local arbord. An authority without that runtime, or a tree for which executable hosting has not been activated, returns `422 unsupported-operation`. The body completely describes one coherent document version and its currently mounted query graph:
+Clients read a current snapshot and observe strictly after its
+`observedThrough`. `after` and `Last-Event-ID` are equivalent; differing values
+are `invalid-request`. The stream is UTF-8 SSE with blank-line frame separation,
+newline joining of multiple `data:` lines, and ignored comments/keepalives.
+Every frame satisfies `id === data.cursor` and `event === data.kind` and its
+JSON body is:
 
 ```ts
-type AuthorityQueryStreamRequest = {
-  document: {
-    tree: TreeID;
-    path: string;
-    version: Hash;
-  };
-  queries: Array<{
-    id: string;
-    handle: {
-      tree: TreeID;
-      module: string;
-      export: string;
-      version: Hash;
-    };
-    input: unknown;
-    knownOutputHash?: Hash;
-  }>;
+type ObservationEvent<TKind extends string, TChange> = {
+  cursor: EventCursor;
+  tree: TreeID;
+  kind: TKind;
+  change: TChange;
 };
 ```
 
-The authority authenticates each request from its browser session or ordinary wire credentials, resolves the safe `ArborUser` projection when one exists, and independently verifies source-tree access, the activated coherent document version, every handle/version's membership in the reviewed manifest, validated inputs, and the execution principal's backing grants. The query array is nonempty. Query IDs are nonempty, unique only within the request, and grant no authority. A `knownOutputHash` is only permission to omit retransmitting an identical value after current authorization and reevaluation; it is never evidence that the caller may read that value.
+Accepted ordinary refs use domain event kind `tree.ref`; account status and
+activation use their own kinds and may advance the stream without changing the
+accepted content update. A non-retained cursor yields one terminal
+`resync-required` event and closes. A client then reads a new snapshot and
+resumes after its cursor. Watch events are invalidations/changes, not substitute
+snapshots.
 
-The response is `text/event-stream; charset=utf-8` and uses the normative `result`, `ready`, and `reload` event shapes and lifecycle in [executable web documents](applications.md#server-rendering-and-live-query-streams). It carries no SSE `id`, `Last-Event-ID`, acknowledgement, or replay cursor. The authority establishes a new race-free snapshot-then-follow boundary for every request, sends complete authorized replacements whose canonical hashes changed, and closes all subscriptions when the response closes. Reconnection repeats the complete POST. A source-version or access-context change sends `reload` when possible and closes the response; a request already unauthorized fails with the ordinary `401` or `403` JSON error before streaming begins.
+## 11. Public projection and conformance
 
-This endpoint is derived-result delivery, not tree history. It never emits raw store changes, private rows outside a validated result, handle implementations, backing identities, credentials, or accepted-update history. `/.arbor/trees/{TreeID}/watch` remains the distinct accepted-ref invalidation channel. A profile-tree watch or database observer may cause the document runtime to reevaluate a query internally, but the browser receives only the resulting authorized query state.
+Readable canonical paths have safe HTTP and `arbor://` projections. HTML,
+Markdown, files, and redirects retain canonical tree/path provenance and never
+broaden access. Historical roots remain immutable and read-only. The authority
+does not publish or resolve the account-configuration tree.
 
-### Access
-
-```text
-GET  /.arbor/trees/{TreeID}/access
-POST /.arbor/trees/{TreeID}/access
-```
-
-Administration authority is required. `GET` returns an `AccessEntry[]`; link entries never include a raw secret or digest.
-
-```ts
-type SetAccessRequest = {
-  subject:
-    | { kind: "everyone" }
-    | { kind: "profile"; locator: string }
-    | { kind: "link"; digest: Hash }
-    | { kind: "entry"; id: string }
-    | { kind: "all" };
-  access: AccessLevel;
-};
-```
-
-`none` removes the matching entry. `{kind:"entry"}` revokes by stable entry ID. `{kind:"all"}` is valid only with `none` and removes every explicit audience entry. Setting an existing subject replaces its level without changing tree identity. The administering profile's implicit authority cannot be removed through this endpoint.
-
-### Well-known discovery
-
-```text
-GET /.well-known/arbor
-GET /.well-known/arbor/{canonical-path}
-```
-
-The bare route resolves the community root. A longer route percent-decodes the external path exactly once and performs longest canonical-boundary resolution. The response is a `TreeDescriptor` with an additional `path` containing the decoded absolute path inside that tree. Internal paths may contain literal percent characters.
-
-See [fixtures/wire-endpoints.json](fixtures/wire-endpoints.json) for language-neutral request/response vectors.
-
-## 5. Deterministic objects
-
-Objects are deterministic CBOR (RFC 8949 deterministic encoding profile) with no floats, tags, indefinite lengths, duplicate map keys, or non-text map keys.
-
-```ts
-type FileObject = {
-  type: "file";
-  bytes: Uint8Array;
-};
-
-type DirectoryObject = {
-  type: "directory";
-  entries: Array<
-    | { name: string; hash: Hash }
-    | { name: string; tree: TreeID }
-  >;
-};
-```
-
-Strings are UTF-8 and are not Unicode-normalized by the protocol. A filename is non-empty and is not `.`, `..`, `_index.md` as a projected duplicate, or a string containing `/`, `\`, NUL, or invalid Unicode scalar data. An entry has exactly one of `hash` or `tree`. Duplicate names are invalid.
-
-Directory `entries` are sorted by lexicographic comparison of their UTF-8 byte sequences, not locale, collation, case folding, or platform filesystem order. Map keys use deterministic CBOR key ordering: shorter encoded key first, then lexicographic encoded bytes.
-
-The object hash is `sha256:` followed by lowercase hexadecimal SHA-256 of the exact canonical CBOR byte sequence. JSON transport uses standard padded base64 of those exact bytes. Decoding and re-encoding must reproduce the same bytes; noncanonical encodings are rejected even if their data model is equivalent.
-
-A `tree` entry is a nested shared-tree boundary. Parent reachability stops at that entry; child objects, ref, history, and ACL are independent. A parent update must preserve a registered exact child boundary unless an authorized atomic boundary operation changes it; overwriting it as a file/directory returns `reserved-boundary`.
-
-Canonical byte and hash vectors are in [fixtures/wire-objects.json](fixtures/wire-objects.json).
-
-## 6. Namespace, identity, and convergence
-
-One host serves the public community root at `/`, person/group profile boundaries at `/~<handle>`, and longer exact child boundaries. Longest accessible boundary prefix selects the `TreeID`; the remainder is a path inside it. An inaccessible nested boundary is omitted rather than exposed through parent bytes.
-
-Promotion gives an existing subtree a new `TreeID` without changing stored Markdown `PageID`s. An external local folder may be projected at its canonical parent path without moving or copying its OS bytes. Reader-local nested placements never enter this graph.
-
-Each tree has one mutable ref, a linear sequence of accepted updates, and immutable reachable objects. A client durably records its last accepted update plus candidate state and submits updates idempotently. The trusted authority fast-forwards one-sided changes and owns the sole automatic three-way merge implementation. Unsafe overlap returns a client-owned draft and visible structured conflict without advancing accepted history. Neither side is overwritten merely because one clock is later. Successful convergence yields identical root hashes on all peers.
-
-## 7. Safe public HTTP projection
-
-The canonical HTTP URL projects the current accessible tree/path. Extensionless URLs are canonical for Markdown logical nodes. An `Accept` header including `text/markdown` returns the untouched stored Markdown bytes with an appropriate Markdown content type. Otherwise a host may return safe semantic HTML.
-
-The same extensionless projection addresses `.mdx` and `.tsx` logical bodies. A host advertising executable-document support renders a default component under the confinement, SSR, and disclosure rules in [applications](applications.md). A host without that capability reports the unsupported representation clearly; it never executes source accidentally or treats JSX as safe Markdown. Raw MDX/TSX source is returned only through an authorized source/tree read or an explicit supported source media type, not because public rendered output is accessible.
-
-Semantic HTML preserves headings, paragraphs, lists, code, images, toggles, footnotes, authored links, and accessible immediate-child navigation. `_index.md` is the directory body, not a child. Inaccessible nested boundaries and private children are omitted. Raw authored HTML, scripts, event handlers, and unsafe URL schemes are escaped or removed. Private content returns no bytes without valid account/profile/link authority.
-
-When publishing a directory document, the authority applies the same complete operational Markdown rule as arbord: the first eligible standalone link represents each immediate visible physical child, and ordinary links for unmatched visible children are appended in unsigned UTF-8 logical-path order. Markdown, semantic HTML, navigation extraction, and static export must derive from that one provider-owned source, not from a client projection. Collection records, including physical Markdown row files and virtual/query-backed rows, and nested authority boundaries do not become directory-index links. The collection exception is tracked for reconsideration in [`plan/hardening/technical-debt.md`](../plan/hardening/technical-debt.md).
-
-CSS fidelity, typography, exact layout, editor behavior, client refresh scheduling, polling intervals, and update scheduling are not wire requirements.
+Language-neutral fixtures cover descriptors, access, errors, resolution,
+objects, updates, snapshots, SSE framing/resume, bootstrap idempotency, pairing,
+configuration merge/governance, activation, and tree-scoped reachability.
+TypeScript `@arbor/wire`, Swift `ArborWire`, and Swift `ArborClient` consume the
+same valid and invalid cases.

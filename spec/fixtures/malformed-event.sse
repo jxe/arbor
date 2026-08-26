@@ -1,3 +1,3 @@
 id: not-a-cursor
-event: workspace
-data: {"kind":"updated","path":"/missing-cursor"}
+event: updated
+data: {"tree":"local","kind":"updated","change":{"path":"/missing-cursor","origin":"external"}}

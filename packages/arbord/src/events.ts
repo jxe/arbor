@@ -1,4 +1,4 @@
-import type { EventCursor, WorkspaceEvent } from "@arbor/core";
+import type { EventCursor, WorkspaceChange, WorkspaceEvent } from "@arbor/core";
 
 export class ResyncRequiredError extends Error {
   constructor(public cursor: string) {
@@ -31,8 +31,9 @@ export class EventBus {
     return cursorOf(this.epoch, this.sequence);
   }
 
-  emit(event: Omit<WorkspaceEvent, "cursor">): WorkspaceEvent {
-    const sequenced: WorkspaceEvent = { ...event, cursor: cursorOf(this.epoch, ++this.sequence) };
+  emit(event: { tree: WorkspaceEvent["tree"]; kind: WorkspaceEvent["kind"] } & WorkspaceChange): WorkspaceEvent {
+    const { tree, kind, ...change } = event;
+    const sequenced: WorkspaceEvent = { tree, kind, change, cursor: cursorOf(this.epoch, ++this.sequence) };
     this.replay.push(sequenced);
     if (this.replay.length > this.replayLimit) this.replay.splice(0, this.replay.length - this.replayLimit);
     for (const listener of this.listeners) listener(sequenced);
@@ -60,7 +61,7 @@ export class EventBus {
       start: (controller) => {
         const enqueue = (event: WorkspaceEvent) => {
           controller.enqueue(encoder.encode(
-            `id: ${event.cursor}\nevent: workspace\ndata: ${JSON.stringify(event)}\n\n`,
+            `id: ${event.cursor}\nevent: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`,
           ));
         };
         for (const event of this.replay) {

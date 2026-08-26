@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { serveArbor } from "@arbor/arbord";
 import { ArbordClient } from "@arbor/client";
 import { serveWireHost } from "@arbor/authority";
-import { WireClient } from "@arbor/wire";
+import { generateArborID, sha256 } from "@arbor/core";
+import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
+import { snapshotDirectory, WireClient } from "@arbor/wire";
+import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/authority/src/account-policy.ts";
 
 const token = "self-sync-owner";
 let sandbox: string;
@@ -18,6 +21,36 @@ let treeA: string;
 let treeB: string;
 let bootstrapB: string;
 let tree: string;
+let deviceA: string;
+let deviceB: string;
+const tokenB = "self-sync-peer-credential";
+
+async function installDataHome(
+  home: string,
+  device: string,
+  credential: string,
+  graph: ReturnType<typeof readAccountConfigGraph>,
+  account: Awaited<ReturnType<WireClient["account"]>>,
+): Promise<void> {
+  await mkdir(join(home, "devices"), { recursive: true });
+  for (const [path, source] of Object.entries(graph.sources)) {
+    await writeFile(join(home, path), source);
+  }
+  process.env.ARBOR_DATA_HOME = home;
+  await saveCurrentDeviceID(device);
+  const configuration = await new WireClient(host.url, credential).ref(account.account.configuration.id);
+  await new CommunityConfigStore().set(host.url, credential, {
+    id: account.account.id,
+    handle: account.account.handle,
+    profileTree: account.account.profileTree,
+    profileURL: account.account.profileURL,
+    communityTree: account.account.community.id,
+    communityURL: account.account.community.canonical!.locator,
+    configurationTree: account.account.configuration.id,
+    configurationRef: configuration.snapshot.ref,
+    configurationUpdate: configuration.snapshot.update,
+  });
+}
 
 async function launch(state: string, path: string) {
   process.env.ARBOR_DATA_HOME = state;
@@ -57,6 +90,52 @@ beforeAll(async () => {
     port: 0,
   });
   hostPort = host.server.port!;
+
+  const owner = new WireClient(host.url, token);
+  const initialAccount = await owner.account();
+  let configuration = await owner.currentSnapshot(initialAccount.account.configuration.id);
+  let graph = readAccountConfigGraph({
+    root: configuration.snapshot.root,
+    objects: new Map(configuration.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])),
+  }, initialAccount.account.configuration.id);
+  deviceA = graph.account.admins[0]!;
+  tree = generateArborID("tr");
+  const reserved = snapshotAccountConfig({
+    account: graph.account,
+    trees: { version: 1, trees: {
+      ...graph.trees.trees,
+      [tree]: { kind: "shared-subtree", canonicalPath: "/~owner/self-sync", access: [] },
+    } },
+    devices: {
+      ...graph.devices,
+      [deviceA]: { ...graph.devices[deviceA]!, placements: {
+        ...graph.devices[deviceA]!.placements,
+        [tree]: { authority: new URL(host.url).origin, path: treeA },
+      } },
+    },
+  });
+  await owner.submitUpdate(
+    configuration.tree.id,
+    { root: configuration.tree.ref, update: configuration.tree.update },
+    reserved,
+  );
+  await owner.activateTree(tree, await snapshotDirectory(treeA));
+
+  deviceB = generateArborID("dv");
+  const pairing = await owner.createPairing();
+  await owner.claimPairing(pairing.id, pairing.secret, {
+    id: deviceB,
+    label: "Self-sync peer",
+    credentialDigest: `sha256:${sha256(tokenB)}`,
+  }, { [tree]: { authority: new URL(host.url).origin, path: treeB } });
+  configuration = await owner.currentSnapshot(initialAccount.account.configuration.id);
+  graph = readAccountConfigGraph({
+    root: configuration.snapshot.root,
+    objects: new Map(configuration.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])),
+  }, initialAccount.account.configuration.id);
+  const account = await owner.account();
+  await installDataHome(stateA, deviceA, token, graph, account);
+  await installDataHome(stateB, deviceB, tokenB, graph, account);
 });
 
 afterAll(async () => {
@@ -67,30 +146,22 @@ afterAll(async () => {
   await cleanup.service.communityConfig.remove();
   cleanup.server.stop(true);
   await cleanup.service[Symbol.asyncDispose]();
+  process.env.ARBOR_DATA_HOME = stateB;
+  const peerCleanup = await serveArbor(bootstrapB, { port: 0 });
+  await peerCleanup.service.communityConfig.remove();
+  peerCleanup.server.stop(true);
+  await peerCleanup.service[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
 });
 
 describe("private self-sync", () => {
   test("places one TreeID in two isolated Arbor homes and pulls edits", async () => {
     const first = await launch(stateA, treeA);
-    await first.client.mutateSystem({ op: "connectCommunity", origin: host.url, accountToken: token });
-    expect((await first.client.communityDevices()).some((device) => device.revokedAt === null)).toBe(true);
-    const pairing = await first.client.createCommunityPairing();
-    const claimed = await new WireClient(host.url).claimPairing(pairing.id, pairing.secret, "self-sync test device");
-    expect(claimed.device.label).toBe("self-sync test device");
-    expect((await first.client.revokeCommunityDevice(claimed.device.id)).revokedAt).not.toBeNull();
-    const promoted = await first.client.mutateSystem({
-      op: "promoteTree",
-      path: treeA,
-      canonicalPath: "/~owner/self-sync",
-      audience: { kind: "private" },
-    });
-    tree = promoted.effects.find((effect) => effect.tree?.startsWith("tr_"))!.tree!;
+    expect((await first.client.trees()).snapshot.some((descriptor) => descriptor.id === tree)).toBe(true);
     await first.close();
 
     const second = await launch(stateB, bootstrapB);
-    await second.client.mutateSystem({ op: "connectCommunity", origin: host.url, accountToken: token });
-    await second.client.mutateSystem({ op: "placeTree", tree, path: treeB });
+    await waitFor(() => readFile(join(treeB, "note.md"), "utf8").then(() => true).catch(() => false));
     expect(await readFile(join(treeB, "note.md"), "utf8")).toBe(await readFile(join(treeA, "note.md"), "utf8"));
     await second.close();
 
@@ -103,7 +174,7 @@ describe("private self-sync", () => {
     const systemFetch = globalThis.fetch;
     globalThis.fetch = (async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes("/.arbor/trees/") && url.endsWith("/updates") && typeof init?.body === "string") {
+      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
         updateBodies.push(JSON.parse(init.body));
       }
       return systemFetch(input, init);
@@ -141,7 +212,7 @@ describe("private self-sync", () => {
     const fallbackFetch = globalThis.fetch;
     globalThis.fetch = (async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes("/.arbor/trees/") && url.endsWith("/updates") && typeof init?.body === "string") {
+      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
         fallbackBodies.push(JSON.parse(init.body));
       }
       return fallbackFetch(input, init);
@@ -165,8 +236,9 @@ describe("private self-sync", () => {
     }
     const fallbackBody = fallbackBodies.find((body) => Array.isArray(body.objects) && body.objects.length > 0)!;
     expect(fallbackBody.filePatches).toBeUndefined();
+    await fallback.running.service.synchronizeNow();
     await fallback.close();
-  });
+  }, 20_000);
 
   test("rebases a later local save on the just-accepted local generation", async () => {
     const author = await launch(stateA, treeA);
@@ -184,7 +256,7 @@ describe("private self-sync", () => {
     let blockNextUpdate = true;
     globalThis.fetch = (async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes("/.arbor/trees/") && url.endsWith("/updates") && typeof init?.body === "string") {
+      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
         updateBodies.push(JSON.parse(init.body));
         if (blockNextUpdate) {
           blockNextUpdate = false;
@@ -336,9 +408,8 @@ describe("private self-sync", () => {
 
     const conflicted = await launch(stateB, treeB);
     await waitFor(async () => {
-      const record = await conflicted.client.node({ tree: "system", path: `/trees/${tree}` });
-      return record.document?.frontmatter.sync === "conflict"
-        && Array.isArray(record.document.frontmatter.conflicts);
+      const descriptor = (await conflicted.client.trees()).snapshot.find((candidate) => candidate.id === tree);
+      return descriptor?.sync === "conflict";
     });
     expect(await readFile(join(treeB, "sample.bin"), "utf8")).toBe("binary-from-b");
     expect(host.authority.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
@@ -346,10 +417,10 @@ describe("private self-sync", () => {
 
     const restarted = await launch(stateB, treeB);
     await waitFor(async () => {
-      const record = await restarted.client.node({ tree: "system", path: `/trees/${tree}` });
-      return record.document?.frontmatter.conflictCandidate !== undefined;
+      const descriptor = (await restarted.client.trees()).snapshot.find((candidate) => candidate.id === tree);
+      return descriptor?.sync === "conflict";
     });
-    await restarted.client.mutateSystem({ op: "resolveTreeConflict", tree, choice: "local" });
+    await restarted.client.resolveConflict(tree, "local");
     await waitFor(async () => host.authority.acceptedUpdates(tree).length === historyBefore + 2);
     await restarted.close();
 

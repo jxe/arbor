@@ -5,9 +5,9 @@ describe("REST v1 event replay", () => {
   test("uses process epochs and expires only cursors outside the bounded window", () => {
     const events = new EventBus(2);
     const initial = events.currentCursor();
-    const first = events.emit({ kind: "created", path: "/one", origin: "api", mutationID: "one" });
-    events.emit({ kind: "created", path: "/two", origin: "api", mutationID: "two" });
-    events.emit({ kind: "created", path: "/three", origin: "api", mutationID: "three" });
+    const first = events.emit({ tree: "local", kind: "created", path: "/one", origin: "api", mutationID: "one" });
+    events.emit({ tree: "local", kind: "created", path: "/two", origin: "api", mutationID: "two" });
+    events.emit({ tree: "local", kind: "created", path: "/three", origin: "api", mutationID: "three" });
 
     expect(() => events.validate(first.cursor)).not.toThrow();
     expect(() => events.validate(initial)).toThrow(ResyncRequiredError);

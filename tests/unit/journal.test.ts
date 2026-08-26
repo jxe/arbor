@@ -60,17 +60,17 @@ describe("durable mutation journal", () => {
     const directory = await mkdtemp(join(tmpdir(), "arbor-mutations-")); directories.push(directory);
     const first = new MutationJournal(directory);
     await first.prepare("mutation-1", "request-hash", { operations: [] });
-    await first.markMaterialized("mutation-1", "request-hash", [{ kind: "created", path: "/page" }]);
+    await first.markMaterialized("mutation-1", "request-hash", [{ tree: "local", kind: "created", path: "/page" }]);
 
     const reopened = new MutationJournal(directory);
     expect(await reopened.get("mutation-1")).toMatchObject({
       state: "materialized",
-      effects: [{ kind: "created", path: "/page" }],
+      effects: [{ tree: "local", kind: "created", path: "/page" }],
     });
     const receipt = {
       mutationID: "mutation-1",
-      eventCursor: "epoch:1",
-      effects: [{ kind: "created" as const, path: "/page" }],
+      observedThrough: "epoch:1",
+      effects: [{ tree: "local", kind: "created" as const, path: "/page" }],
     };
     await reopened.complete("mutation-1", "request-hash", receipt);
     expect((await new MutationJournal(directory).get("mutation-1"))?.receipt).toEqual(receipt);

@@ -1,15 +1,17 @@
 {
-  "version": 4,
+  "version": 5,
   "tree": {
     "id": "tr_atlas",
-    "canonicalPath": "/~alice/atlas",
-    "parentTree": "tr_alice",
     "kind": "shared-subtree",
-    "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-    "publicAccess": "read",
     "access": "write",
-    "httpURL": "https://community.example/~alice/atlas",
-    "arborURL": "arbor://community.example/~alice/atlas",
+    "canonical": {
+      "locator": "arbor://community.example/~alice/atlas",
+      "path": "/~alice/atlas",
+      "endpoint": "https://community.example",
+      "httpURL": "https://community.example/~alice/atlas",
+      "parentTree": "tr_alice"
+    },
+    "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
     "update": "up_atlas1"
   },
   "cases": [
@@ -23,16 +25,21 @@
       "response": {
         "status": 200,
         "body": {
-          "id": "tr_atlas",
-          "canonicalPath": "/~alice/atlas",
-          "parentTree": "tr_alice",
-          "kind": "shared-subtree",
-          "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-          "publicAccess": "read",
-          "access": "write",
-          "httpURL": "https://community.example/~alice/atlas",
-          "arborURL": "arbor://community.example/~alice/atlas",
-          "update": "up_atlas1"
+          "snapshot": {
+            "id": "tr_atlas",
+            "kind": "shared-subtree",
+            "access": "write",
+            "canonical": {
+              "locator": "arbor://community.example/~alice/atlas",
+              "path": "/~alice/atlas",
+              "endpoint": "https://community.example",
+              "httpURL": "https://community.example/~alice/atlas",
+              "parentTree": "tr_alice"
+            },
+            "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+            "update": "up_atlas1"
+          },
+          "observedThrough": "up_atlas1"
         }
       }
     },
@@ -41,9 +48,7 @@
       "request": {
         "method": "POST",
         "path": "/.arbor/trees/tr_atlas/updates",
-        "headers": {
-          "Authorization": "Bearer <account-device-token>"
-        },
+        "headers": { "Authorization": "Bearer <account-device-token>" },
         "derivedRequestDigest": "sha256:a6e2c7c02cd1cf6e094b115a95fc4c454ed22c9ce9270fc2a3060fcd0a1f4ba5",
         "body": {
           "base": {
@@ -67,7 +72,8 @@
             "kind": "initial",
             "acceptedAt": 1787529600000,
             "subject": null
-          }
+          },
+          "observedThrough": "up_atlas1"
         }
       }
     },
@@ -81,16 +87,21 @@
       "response": {
         "status": 200,
         "body": {
-          "id": "tr_atlas",
-          "canonicalPath": "/~alice/atlas",
-          "parentTree": "tr_alice",
-          "kind": "shared-subtree",
-          "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-          "publicAccess": "read",
-          "access": "read",
-          "httpURL": "https://community.example/~alice/atlas",
-          "arborURL": "arbor://community.example/~alice/atlas",
-          "update": "up_atlas1"
+          "snapshot": {
+            "id": "tr_atlas",
+            "kind": "shared-subtree",
+            "access": "read",
+            "canonical": {
+              "locator": "arbor://community.example/~alice/atlas",
+              "path": "/~alice/atlas",
+              "endpoint": "https://community.example",
+              "httpURL": "https://community.example/~alice/atlas",
+              "parentTree": "tr_alice"
+            },
+            "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+            "update": "up_atlas1"
+          },
+          "observedThrough": "up_atlas1"
         }
       }
     },
@@ -104,7 +115,7 @@
       "response": {
         "status": 200,
         "contentType": "text/event-stream; charset=utf-8",
-        "frame": "id: up_atlas1\nevent: ref\ndata: {\"id\":\"tr_atlas\",\"canonicalPath\":\"/~alice/atlas\",\"parentTree\":\"tr_alice\",\"kind\":\"shared-subtree\",\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"publicAccess\":\"read\",\"access\":\"write\",\"httpURL\":\"https://community.example/~alice/atlas\",\"arborURL\":\"arbor://community.example/~alice/atlas\",\"update\":\"up_atlas1\"}\n\n"
+        "frame": "id: up_atlas1\nevent: tree.ref\ndata: {\"cursor\":\"up_atlas1\",\"tree\":\"tr_atlas\",\"kind\":\"tree.ref\",\"change\":{\"descriptor\":{\"id\":\"tr_atlas\",\"kind\":\"shared-subtree\",\"access\":\"write\",\"canonical\":{\"locator\":\"arbor://community.example/~alice/atlas\",\"path\":\"/~alice/atlas\",\"endpoint\":\"https://community.example\",\"httpURL\":\"https://community.example/~alice/atlas\",\"parentTree\":\"tr_alice\"},\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"update\":\"up_atlas1\"}}}\n\n"
       }
     }
   ]

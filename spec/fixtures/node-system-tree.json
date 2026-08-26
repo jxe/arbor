@@ -1,25 +1,21 @@
 {
-  "ref": { "tree": "system", "path": "/trees/tr_notes7f3q2ab7c" },
+  "ref": { "tree": "system", "path": "/credentials" },
   "tree": "system",
-  "path": "/trees/tr_notes7f3q2ab7c",
-  "name": "notes",
+  "path": "/credentials",
+  "name": "credentials",
   "kind": "markdown",
   "writable": false,
   "materialization": "available",
-  "contentRevision": "sha256:root-record",
+  "contentRevision": "sha256:credential-status",
   "bodyState": "stored",
   "document": {
-    "source": "---\nid: tr_notes7f3q2ab7c\nplacement: shared\npath: \"/Users/joe/notes\"\ncanonical: \"arbor://notes.example/~joe/notes\"\ncanonicalPath: \"/~joe/notes\"\npublicAccess: none\n---\n",
+    "source": "---\ncommunityAccount: connected\ncredentialAvailable: true\n---\n\n# Credentials\n\nSecrets are held by the operating system.\n",
     "frontmatter": {
-      "id": "tr_notes7f3q2ab7c",
-      "placement": "shared",
-      "path": "/Users/joe/notes",
-      "canonical": "arbor://notes.example/~joe/notes",
-      "canonicalPath": "/~joe/notes",
-      "publicAccess": "none"
+      "communityAccount": "connected",
+      "credentialAvailable": true
     },
-    "frontmatterSource": "---\nid: tr_notes7f3q2ab7c\nplacement: shared\npath: \"/Users/joe/notes\"\ncanonical: \"arbor://notes.example/~joe/notes\"\ncanonicalPath: \"/~joe/notes\"\npublicAccess: none\n---\n",
-    "bodySource": "",
+    "frontmatterSource": "---\ncommunityAccount: connected\ncredentialAvailable: true\n---\n",
+    "bodySource": "# Credentials\n\nSecrets are held by the operating system.\n",
     "blocks": []
   },
   "diagnostics": [],

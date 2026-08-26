@@ -9,15 +9,17 @@ import type {
   ContentWorkspaceOperation,
   DirectoryRevision,
   LogicalPath,
+  LocalTreeDescriptor,
+  LocatorResolution,
   MutationReceipt,
+  MutationEffect,
   MutationRequest,
   NodeRef,
   NodeSnapshot,
   PageID,
   RecoveryPage,
   SearchPage,
-  SystemMutationRequest,
-  SystemOperation,
+  SnapshotEnvelope,
   StructuralMutationRequest,
   StructuralWorkspaceOperation,
   TreeChild,
@@ -48,8 +50,6 @@ export type {
   RecoveryEntry,
   RecoveryPage,
   SearchPage,
-  SystemMutationRequest,
-  SystemOperation,
   TreeDescriptor,
   TreeID,
   StructuralMutationRequest,
@@ -69,13 +69,12 @@ export class ArbordError extends Error {
     super(value.message);
     this.name = "ArbordError";
     this.payload = {
-      error: value.code,
+      error: value.error,
       message: value.message,
       retryable: value.retryable,
       ...(value.path !== undefined ? { path: value.path } : {}),
-      ...(value.current !== undefined ? { current: value.current } : {}),
-      ...(value.owners !== undefined ? { owners: value.owners } : {}),
-      ...(value.mutationID !== undefined ? { mutationID: value.mutationID } : {}),
+      ...(value.tree !== undefined ? { tree: value.tree } : {}),
+      ...(value.details !== undefined ? { details: value.details } : {}),
     };
   }
 }
@@ -112,15 +111,6 @@ export interface ObservedNodeView {
   close(): void;
 }
 
-export interface CommunityDevice {
-  id: string;
-  account: string;
-  label: string;
-  createdAt: number;
-  lastUsedAt: number | null;
-  revokedAt: number | null;
-}
-
 export interface CommunityPairingOffer {
   id: string;
   secret: string;
@@ -130,7 +120,9 @@ export interface CommunityPairingOffer {
 
 /** A pageID-bearing reference to a listed child, preferring durable identity. */
 export function childRef(child: TreeChild): NodeRef {
-  return child.pageID ? { pageID: child.pageID, pathHint: child.path } : { path: child.path };
+  return child.pageID
+    ? { tree: child.tree, pageID: child.pageID, pathHint: child.path }
+    : { tree: child.tree, path: child.path };
 }
 
 class AsyncBuffer<T> implements AsyncIterable<T> {
@@ -223,20 +215,54 @@ export class ArbordClient {
     };
   }
 
-  prepareSystemMutation(
-    operation: SystemOperation,
-    mutationID = this.createMutationID(),
-  ): SystemMutationRequest {
-    return { mutationID, operations: [operation] };
-  }
-
   async node(ref: NodeRef): Promise<NodeSnapshot> {
     return this.hydrateNode(await this.nodeSnapshot(ref));
   }
 
-  /** Fetch one unplaced canonical node through arbord's read-only wire proxy. */
-  remoteNode(locator: string): Promise<NodeSnapshot> {
-    return this.request(`/v1/remote?url=${encodeURIComponent(locator)}`);
+  trees(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
+    return this.request("/v1/trees");
+  }
+
+  resolve(locator: string): Promise<LocatorResolution> {
+    return this.request(`/v1/resolve?locator=${encodeURIComponent(locator)}`);
+  }
+
+  async treeID(): Promise<string> {
+    return (await this.request<{ id: string }>("/v1/tree-ids", { method: "POST" })).id;
+  }
+
+  status(): Promise<{ service: string; version: string; protocolVersion: string; deviceID?: string }> {
+    return this.request("/v1/status");
+  }
+
+  async file(ref: NodeRef): Promise<{ bytes: Uint8Array; revision: string }> {
+    const response = await this.fetcher(`${this.baseURL}/v1/file?${refQuery(ref)}`);
+    if (!response.ok) await this.throwResponse(response);
+    const revision = response.headers.get("etag")?.replace(/^"|"$/g, "");
+    if (!revision) throw new TypeError("File response omitted its content revision");
+    return { bytes: new Uint8Array(await response.arrayBuffer()), revision };
+  }
+
+  writeText(ref: NodeRef, baseContentRevision: string, source: string, mutationID?: string): Promise<MutationReceipt> {
+    return this.mutateContent({ op: "writeText", ref, baseContentRevision, source }, mutationID);
+  }
+
+  claimProfile(input: { origin: string; handle: string; path: string; displayName?: string }): Promise<MutationReceipt> {
+    return this.request("/v1/bootstrap/claims", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+  }
+
+  createCommunityPairing(): Promise<CommunityPairingOffer> {
+    return this.request("/v1/bootstrap/pairings", { method: "POST" });
+  }
+
+  forgetLocalAccount(): Promise<{ forgotten: true }> {
+    return this.request("/v1/local/forget", { method: "POST" });
+  }
+
+  resolveConflict(tree: string, choice: "local" | "draft" | "remote"): Promise<MutationEffect[]> {
+    return this.request(`/v1/conflicts/${encodeURIComponent(tree)}/resolve`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ choice }),
+    });
   }
 
   async openNodeView(ref: NodeRef, signal?: AbortSignal): Promise<ObservedNodeView> {
@@ -288,9 +314,8 @@ export class ArbordClient {
     return result;
   }
 
-  search(query: string, cursor?: string | null, tree?: TreeRef): Promise<SearchPage> {
-    const scope = tree ? `&tree=${encodeURIComponent(tree)}` : "";
-    return this.request(`/v1/search?q=${encodeURIComponent(query)}${scope}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+  search(tree: TreeRef, query: string, cursor?: string | null): Promise<SearchPage> {
+    return this.request(`/v1/search?tree=${encodeURIComponent(tree)}&q=${encodeURIComponent(query)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
   }
 
   collection(ref: NodeRef, cursor?: string | null, table?: string): Promise<CollectionResultPage> {
@@ -338,25 +363,6 @@ export class ArbordClient {
     return this.mutate(this.prepareStructuralMutation(operations, mutationID));
   }
 
-  mutateSystem(operation: SystemOperation, mutationID?: string): Promise<MutationReceipt> {
-    return this.mutate(this.prepareSystemMutation(operation, mutationID));
-  }
-
-  communityDevices(): Promise<CommunityDevice[]> {
-    return this.request("/v1/community/devices");
-  }
-
-  createCommunityPairing(): Promise<CommunityPairingOffer> {
-    return this.request("/v1/community/pairings", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-    });
-  }
-
-  revokeCommunityDevice(id: string): Promise<CommunityDevice> {
-    return this.request(`/v1/community/devices/${encodeURIComponent(id)}`, { method: "DELETE" });
-  }
 
   /**
    * Ensure the referenced document carries a durable PageID, materializing a
@@ -473,7 +479,7 @@ export class ArbordClient {
         return;
       } catch (error) {
         if (signal.aborted) return;
-        if (error instanceof ArbordError && error.value.code === "resync-required") {
+        if (error instanceof ArbordError && error.value.error === "resync-required") {
           try {
             const snapshot = await this.node(ref);
             cursor = snapshot.observedThrough;
@@ -495,7 +501,7 @@ export class ArbordClient {
       throw new TypeError("A mutation requires a non-empty mutation ID and operations array");
     }
     const contentCount = request.operations.filter((operation) =>
-      operation.op === "writeMarkdown" || operation.op === "restoreRecovery"
+      operation.op === "writeMarkdown" || operation.op === "writeText" || operation.op === "restoreRecovery"
       || operation.op === "ensureDocumentIdentity"
     ).length;
     if (contentCount > 0 && (contentCount !== 1 || request.operations.length !== 1)) {
@@ -506,9 +512,27 @@ export class ArbordClient {
   private parseEvent(frame: string): WorkspaceEvent | null {
     const lines = frame.split("\n");
     if (lines.every((line) => !line || line.startsWith(":"))) return null;
+    const id = lines.find((line) => line.startsWith("id:"))?.slice(3).trimStart();
+    const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trimStart();
     const data = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
     if (!data) return null;
-    return JSON.parse(data) as WorkspaceEvent;
+    const decoded = JSON.parse(data) as { cursor?: unknown; tree?: unknown; kind?: unknown; change?: unknown };
+    if (!id || !eventName || id !== decoded.cursor || eventName !== decoded.kind || !decoded.change) {
+      throw new TypeError("Malformed Arbor observation event");
+    }
+    if (eventName === "resync-required") {
+      throw new ArbordError(409, {
+        error: "resync-required",
+        message: "The observation cursor is no longer retained",
+        retryable: true,
+        ...(typeof decoded.tree === "string" ? { tree: decoded.tree as TreeRef } : {}),
+      });
+    }
+    const event = decoded as WorkspaceEvent;
+    if (typeof event.change.path !== "string" || typeof event.change.origin !== "string") {
+      throw new TypeError("Malformed Arbor workspace change");
+    }
+    return event;
   }
 
   private rememberAuthored(mutationID: string): void {
@@ -557,13 +581,12 @@ export class ArbordClient {
       envelope = { error: "internal-error", message: response.statusText, retryable: false };
     }
     throw new ArbordError(response.status, {
-      code: envelope.error,
+      error: envelope.error,
       message: envelope.message,
       retryable: envelope.retryable,
+      ...(envelope.tree !== undefined ? { tree: envelope.tree } : {}),
       ...(envelope.path !== undefined ? { path: envelope.path } : {}),
-      ...(envelope.current !== undefined ? { current: envelope.current } : {}),
-      ...(envelope.owners !== undefined ? { owners: envelope.owners } : {}),
-      ...(envelope.mutationID !== undefined ? { mutationID: envelope.mutationID } : {}),
+      ...(envelope.details !== undefined ? { details: envelope.details } : {}),
     });
   }
 }

@@ -7,8 +7,6 @@ import { expect, test } from "@playwright/test";
 // serves the fixture workspace at this fixed session root.
 const ROOT = realpathSync(join(tmpdir(), "arbor-e2e-workspace"));
 const PROMOTABLE_ROOT = realpathSync(join(tmpdir(), "arbor-e2e-untracked", "arbor-e2e-promotable"));
-const ALICE_PROFILE = join(tmpdir(), "arbor-e2e-alice-profile");
-const COMMUNITY_PROFILE = join(realpathSync(tmpdir()), "arbor-e2e-community-profile");
 const E2E_PORT = Number(process.env.ARBOR_E2E_PORT ?? 4321);
 const HOST_ORIGIN = `http://127.0.0.1:${E2E_PORT + 1}`;
 const r = (path: string) => `/render${ROOT}${path}`;
@@ -27,41 +25,6 @@ test("renders an unplaced remote tree through read-only BlockNote without an ifr
   await expect(page.getByRole("heading", { name: "Editorial guide", level: 1 })).toBeVisible();
   await expect(page.getByText("A remote Markdown page.")).toBeVisible();
   expect(new URL(page.url()).searchParams.get("browse")).toBe(`${HOST_ORIGIN}/~editors/guide`);
-});
-
-test("places the writable community from the account sheet and adds a person without flattening members", async ({ page, request }) => {
-  await page.goto(r(""));
-  await page.getByRole("button", { name: "Community and profile" }).click();
-  const accountSheet = page.locator(".tree-control-modal");
-  const community = accountSheet.locator(".profile-namespace").filter({ hasText: "Community" });
-  await expect(community).toContainText("Choose a local folder…");
-
-  page.once("dialog", (dialog) => dialog.accept(COMMUNITY_PROFILE));
-  await community.click();
-  await expect(page).toHaveURL(new RegExp(`/render${COMMUNITY_PROFILE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
-  await expect(page.getByRole("heading", { name: "Arbor Community", level: 1 })).toBeVisible();
-
-  await page.locator(".properties summary").click();
-  const members = page.locator(".property-list-row").filter({ has: page.locator(".property-name", { hasText: "members" }) });
-  await expect(members.getByText("~owner", { exact: true })).toBeVisible();
-  await expect(members.getByText("~alice", { exact: true })).toBeVisible();
-  await members.getByRole("button", { name: "Add person" }).click();
-  await members.getByRole("textbox", { name: "Person handle or profile" }).fill("bob");
-  await members.getByRole("button", { name: "Add", exact: true }).click();
-  await expect(page.getByRole("status")).toHaveText("Saved");
-
-  const expected = `arbor://127.0.0.1:${E2E_PORT + 1}/~bob`;
-  const storedMembers = await page.evaluate(async (path) => {
-    const node = await fetch(`/v1/node?tree=local&path=${encodeURIComponent(path)}`).then((value) => value.json());
-    return node.document.frontmatter.members as unknown;
-  }, COMMUNITY_PROFILE);
-  expect(storedMembers).toEqual([
-    `arbor://127.0.0.1:${E2E_PORT + 1}/~owner`,
-    `arbor://127.0.0.1:${E2E_PORT + 1}/~alice`,
-    expected,
-  ]);
-  await expect.poll(async () => (await request.get(`${HOST_ORIGIN}/~bob`)).headers()["x-arbor-profile-state"] ?? null)
-    .toBe("reserved");
 });
 
 test("canonicalizes Markdown storage aliases", async ({ page }) => {
@@ -143,7 +106,7 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
   await page.getByText("the book", { exact: true }).click();
   await expect(page).toHaveURL(atUrl("/books/one"));
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
-  await expect(page.locator(".sidebar-path")).toHaveText(`${ROOT}/books`);
+  await expect(page.locator(".sidebar-path")).toHaveText("~/books");
   await expect(page.getByRole("button", { name: "· one" })).toBeVisible();
 
   const delayedRootResponse = page.waitForResponse((response) => {
@@ -152,7 +115,7 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
   });
   releaseRoot();
   await delayedRootResponse;
-  await expect(page.locator(".sidebar-path")).toHaveText(`${ROOT}/books`);
+  await expect(page.locator(".sidebar-path")).toHaveText("~/books");
   await expect(page.getByRole("button", { name: "· one" })).toBeVisible();
 });
 
@@ -189,7 +152,7 @@ test("adds a Markdown title above the first provider-completed child row", async
   await expect(page.getByRole("heading", { name: "Synthetic title", level: 1 })).toBeVisible();
   await expect(page.getByRole("status")).toHaveText("Saved");
   const titleFirstBody = async () => page.evaluate(async () => {
-    const response = await fetch("/v1/node?path=%2Ftitle-first");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Ftitle-first");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -233,7 +196,7 @@ test("adds a Markdown title above the first provider-completed child row", async
   await page.keyboard.type("Empty title");
   await expect(page.getByRole("status")).toHaveText("Saved");
   expect(await page.evaluate(async () => {
-    const response = await fetch("/v1/node?path=%2Fempty-title");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fempty-title");
     const node = await response.json();
     return node.document.bodySource as string;
   })).toMatch(/^# Empty title/);
@@ -283,7 +246,7 @@ test("reorders a child row by writing the complete directory Markdown", async ({
   await expect.poll(() => operations.filter((operation) => operation.op === "writeMarkdown").length).toBe(1);
   expect(operations.some((operation) => operation.op === "move")).toBe(false);
   const bodySource = async () => page.evaluate(async () => {
-    const response = await fetch("/v1/node?path=%2Fdrag-order");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fdrag-order");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -344,7 +307,7 @@ test("a prose edit persists the provider-completed directory source", async ({ p
   await expect(page.getByRole("status")).toHaveText("Saved");
 
   const bodySource = await page.evaluate(async () => {
-    const response = await fetch("/v1/node?path=%2Fgarden");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fgarden");
     const node = await response.json();
     return { body: node.document.bodySource as string, bodyState: node.bodyState as string };
   });
@@ -385,7 +348,7 @@ test("round-trips inline Markdown and uses Markdown-aware clipboard formats", as
     "After raw Markdown.",
   ].join("\n");
   const bodySource = async () => page.evaluate(async () => {
-    const response = await fetch("/v1/node?path=%2Finline-markdown");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Finline-markdown");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -550,7 +513,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
   await expect(page.getByRole("status")).toHaveText("Saved");
 
   const bodySource = await page.evaluate(async () => {
-    const response = await fetch("/v1/node?path=%2Fmath-notes");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fmath-notes");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -581,7 +544,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
   await expect(page.locator(".footnote-definition")).toHaveCount(1);
   await expect(page.getByRole("status")).toHaveText("Saved");
   const afterDelete = await page.evaluate(async () => {
-    const response = await fetch("/v1/node?path=%2Fmath-notes");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fmath-notes");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -609,7 +572,7 @@ test("tracks an open page through a page-ID rename without replacing the editor"
   await page.evaluate(() => { (window as any).__arborEditorBeforeRename = (window as any).ProseMirror; });
 
   const response = await page.evaluate(async () => {
-    const snapshot = await fetch("/v1/node?path=%2Fnotes").then((value) => value.json());
+    const snapshot = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fnotes").then((value) => value.json());
     return fetch("/v1/mutations", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -618,8 +581,8 @@ test("tracks an open page through a page-ID rename without replacing the editor"
         operations: [{
           op: "rename",
           ref: snapshot.ref.pageID
-            ? { pageID: snapshot.ref.pageID, pathHint: "/notes" }
-            : { path: "/notes" },
+            ? { tree: snapshot.tree, pageID: snapshot.ref.pageID, pathHint: "/notes" }
+            : { tree: snapshot.tree, path: "/notes" },
           name: "renamed-notes",
         }],
       }),
@@ -639,7 +602,7 @@ test("tracks an open page through a page-ID rename without replacing the editor"
   await page.keyboard.type(" after rename");
   await expect(page.getByRole("status")).toHaveText("Saved");
   const source = await page.evaluate(async () => {
-    const snapshot = await fetch("/v1/node?path=%2Frenamed-notes").then((value) => value.json());
+    const snapshot = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Frenamed-notes").then((value) => value.json());
     if (!snapshot.ref.pageID) throw new Error("rename did not mint a durable PageID");
     return snapshot.document.bodySource as string;
   });
@@ -686,31 +649,8 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   await shareSheet.getByLabel("Audience 2", { exact: true }).selectOption("profile");
   await shareSheet.getByLabel("Person or group 2").fill("~editors");
   await shareSheet.getByLabel("Audience 2 permission").selectOption("write");
-  let injectedCredentialFailure = false;
-  await page.route("**/v1/mutations", async (route) => {
-    const request = route.request();
-    const operation = request.postDataJSON()?.operations?.[0];
-    if (!injectedCredentialFailure && operation?.op === "promoteTree") {
-      injectedCredentialFailure = true;
-      await route.fulfill({
-        status: 409,
-        contentType: "application/json",
-        body: JSON.stringify({
-          error: "credential-unavailable",
-          message: "The credential for ~owner is unavailable. Run arbor connect to restore it.",
-          retryable: false,
-          path: "system:credentials",
-        }),
-      });
-      return;
-    }
-    await route.continue();
-  });
   await shareSheet.getByRole("button", { name: "Share", exact: true }).click();
-  await expect(shareSheet.getByRole("alert")).toContainText("Run arbor connect");
-  await expect(shareSheet).toBeVisible();
-  await shareSheet.getByRole("button", { name: "Share", exact: true }).click();
-  await expect(sharingControl).toHaveText(/Public read/);
+  await expect(sharingControl).toHaveText(/URL Garden · Writable/);
 
   // The same Share sheet manages canonical addresses, public/profile/link access, and revocation.
   await sharingControl.click();
@@ -724,46 +664,12 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   await page.getByRole("button", { name: "Arbor", exact: true }).click();
   const garden = page.locator(".home-root").filter({ hasText: PROMOTABLE_ROOT });
   await expect(garden.locator("strong")).toHaveText("URL Garden");
-  await expect(garden.locator(".scope-chip")).toHaveText("public read");
-
-  // The record is browsable read-only through the ordinary system tree.
-  await garden.getByRole("button", { name: "record" }).click();
-  await expect(page).toHaveURL(/\/render\/system:trees\//);
-  await expect(page.locator(".scope-chip")).toHaveText(/System/);
+  await expect(garden.locator(".scope-chip")).toHaveText("writable");
 
   // Remote browsing replaces local sharing controls with the remote state.
-  await page.getByRole("button", { name: "Community and profile" }).click();
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Disconnect" }).click();
   await page.goto(`${promotable("")}?browse=${encodeURIComponent(`${HOST_ORIGIN}/~alice`)}&claimable=true`);
   await expect(page.locator(".header-trailing .share-control")).toHaveCount(0);
   await expect(page.locator(".header-trailing .scope-chip")).toHaveText("Remote · Reserved");
   await expect(page.getByRole("heading", { name: "~alice" })).toBeVisible();
   await expect(page.getByText("This is an empty profile reserved by its community.")).toBeVisible();
-  await page.getByRole("button", { name: "Claim profile", exact: true }).click();
-  const claimSheet = page.locator(".tree-control-modal");
-  await expect(claimSheet.getByText("Activate an existing device credential")).toHaveCount(0);
-  await expect(claimSheet.getByRole("textbox", { name: "Reserved profile URL" })).toHaveCount(0);
-  await claimSheet.getByRole("textbox", { name: "Local profile folder" }).fill(ALICE_PROFILE);
-  await claimSheet.getByRole("button", { name: "Claim profile", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Community and profile" })).toHaveText("~a");
-  await expect(page.getByRole("button", { name: "Community and profile" })).toHaveAttribute("title", "Profile: ~alice");
-  const canonicalProfilePath = realpathSync(ALICE_PROFILE);
-  await expect(page).toHaveURL(new RegExp(`/render${canonicalProfilePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
-  await expect(page.locator(".remote-browser-frame")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /_index\.md/ })).toHaveCount(0);
-  const profileHeading = page.getByRole("heading", { name: "alice", level: 1 });
-  await expect(profileHeading).toBeVisible();
-  await profileHeading.click();
-  await page.keyboard.press("Home");
-  await page.keyboard.down("Shift");
-  await page.keyboard.press("End");
-  await page.keyboard.up("Shift");
-  await page.keyboard.type("Alice");
-  await expect(page.getByRole("status")).toHaveText("Saved");
-  expect(await page.evaluate(async (path) => {
-    const snapshot = await fetch(`/v1/node?tree=local&path=${encodeURIComponent(path)}`).then((value) => value.json());
-    return snapshot.document.bodySource as string;
-  }, ALICE_PROFILE)).toContain("# Alice");
-  await expect(page.locator(".header-trailing .share-control")).toBeEnabled();
 });

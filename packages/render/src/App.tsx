@@ -1,12 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Share } from "lucide-react";
-import type { PublicAccess, RecoveryEntry, SearchResult, ShareAudience, TreeChild, TreeDescriptor } from "@arbor/core";
-import type { CommunityDevice, CommunityPairingOffer, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
+import type { AccessEntry, RecoveryEntry, SearchResult, TreeChild, LocalTreeDescriptor } from "@arbor/core";
+import type { CommunityPairingOffer, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { api } from "./api.ts";
 import { CollectionView } from "./CollectionView.tsx";
 import { PageEditor } from "./PageEditor.tsx";
 import { ReadOnlyPage } from "./ReadOnlyPage.tsx";
+import type { ActiveDevice as CommunityDevice } from "./configuration.ts";
+
+type PublicAccess = "none" | "read" | "write";
+type TreeDescriptor = LocalTreeDescriptor & { accessEntries?: AccessEntry[] };
+type ShareAudience =
+  | { kind: "private" }
+  | { kind: "everyone"; access: "read" | "write" }
+  | { kind: "profile"; locator: string; access: "read" | "write" }
+  | { kind: "rules"; rules: Array<
+      | { subject: { kind: "everyone" }; access: "read" | "write" }
+      | { subject: { kind: "profile"; locator: string }; access: "read" | "write" }
+    > };
 
 const SIDEBAR_STORAGE_KEY = "arbor.sidebar.collapsed";
 const LAST_LOCATION_KEY = "arbor.lastLocation";
@@ -89,6 +101,10 @@ function isDirectoryNode(node: NodeSnapshot): boolean {
   return node.kind === "directory" || node.kind === "collection";
 }
 
+function everyoneAccess(tree: TreeDescriptor): PublicAccess {
+  return tree.accessEntries?.find((entry) => entry.subject.kind === "everyone")?.access ?? "none";
+}
+
 function storedSidebarCollapsed(): boolean {
   try {
     return localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
@@ -134,10 +150,11 @@ function scopeChip(node: NodeSnapshot): { label: string; className: string; icon
   if (node.tree === "local") return { label: "Share", className: "scope-chip untracked", iconOnly: true };
   if (node.tree === "system") return { label: "System · Read-only", className: "scope-chip system" };
   if (node.enclosingTree) {
+    const localOnly = node.enclosingTree.canonical === null;
     return {
-      label: node.enclosingTree.legacy ? "Share" : `${node.enclosingTree.name} · ${node.enclosingTree.publicAccess === "none" ? "Private" : `Public ${node.enclosingTree.publicAccess ?? "read"}`}`,
-      className: `scope-chip ${node.enclosingTree.legacy ? "session" : "tracked"}`,
-      iconOnly: node.enclosingTree.legacy,
+      label: localOnly ? "Share" : `${node.enclosingTree.name} · ${node.enclosingTree.access === "write" ? "Writable" : "Read-only"}`,
+      className: `scope-chip ${localOnly ? "session" : "tracked"}`,
+      iconOnly: localOnly,
     };
   }
   return null;
@@ -280,53 +297,23 @@ export function App() {
   const sidebarRequest = useRef(0);
   const refreshSystem = useCallback(async () => {
     try {
-      const [device, serverNode, treeDirectory, visitedDirectory] = await Promise.all([
-        api.node({ tree: "system", path: "/device" }),
-        api.node({ tree: "system", path: "/community" }),
-        api.node({ tree: "system", path: "/trees" }),
+      const [treeSnapshot, community, visitedDirectory] = await Promise.all([
+        api.client.trees(),
+        api.configurationStatus(),
         api.node({ tree: "system", path: "/visited" }),
       ]);
-      const deviceHome = device.document?.frontmatter.home;
-      setHome(typeof deviceHome === "string" ? deviceHome : null);
-      const community = serverNode.document?.frontmatter ?? {};
-      const configured = community.connected === true;
-      const credentialAvailable = community.credentialAvailable === true;
       const origin = community.origin;
       setServer({
-        configured,
-        credentialAvailable,
+        configured: community.configured,
+        credentialAvailable: community.credentialAvailable,
         ...(typeof origin === "string" ? { origin } : {}),
         ...(typeof community.handle === "string" ? { handle: community.handle } : {}),
         ...(typeof community.profileTree === "string" ? { profileTree: community.profileTree } : {}),
         ...(typeof community.profileURL === "string" ? { profileURL: community.profileURL } : {}),
         ...(typeof community.communityURL === "string" ? { communityURL: community.communityURL } : {}),
       });
-      const records = await Promise.all((treeDirectory.children ?? []).map((child) =>
-        api.node({ tree: "system", path: child.path })
-      ));
-      const nextTrees = records.flatMap((record): TreeDescriptor[] => {
-        const values = record.document?.frontmatter;
-        if (!values || typeof values.id !== "string" || typeof values.placement !== "string") return [];
-        return [{
-          id: values.id,
-          name: typeof values.name === "string" ? values.name : record.name,
-          placement: values.placement as TreeDescriptor["placement"],
-          ...(typeof values.path === "string" ? { osPath: values.path } : {}),
-          ...(typeof values.canonical === "string" ? { canonical: values.canonical } : {}),
-          ...(typeof values.http === "string" ? { httpURL: values.http } : {}),
-          ...(typeof values.endpoint === "string" ? { endpoint: values.endpoint } : {}),
-          ...(typeof values.canonicalPath === "string" ? { canonicalPath: values.canonicalPath } : {}),
-          ...(values.publicAccess === "none" || values.publicAccess === "read" || values.publicAccess === "write"
-            ? { publicAccess: values.publicAccess as PublicAccess }
-            : {}),
-          ...(values.access === "read" || values.access === "write" ? { access: values.access } : {}),
-          ...(Array.isArray(values.accessEntries)
-            ? { accessEntries: values.accessEntries as TreeDescriptor["accessEntries"] }
-            : {}),
-          ...(typeof values.sync === "string" ? { sync: values.sync as TreeDescriptor["sync"] } : {}),
-          ...(values.legacy === true ? { legacy: true } : {}),
-        }];
-      });
+      const nextTrees = treeSnapshot.snapshot;
+      setHome(nextTrees.find((tree) => tree.osPath)?.osPath ?? null);
       setTrees(nextTrees);
       const recoveryPages = await Promise.all(nextTrees.filter((tree) => tree.osPath && !tree.missing).map(async (tree) => {
         try { return (await api.scoped(tree.id).recovery("/", true)).map((entry) => ({ tree, entry })); }
@@ -348,13 +335,13 @@ export function App() {
           ...(typeof values.canonical === "string" ? { canonical: values.canonical } : {}),
         }];
       }));
-      setSystemCursor(treeDirectory.observedThrough);
+      setSystemCursor(treeSnapshot.observedThrough);
     } catch {}
   }, []);
   useEffect(() => { void refreshSystem(); }, [refreshSystem]);
   useEffect(() => {
     if (!profileOpen || !server.configured || !server.credentialAvailable) return;
-    void api.client.communityDevices()
+    void api.activeDevices()
       .then(setDevices)
       .catch((error) => setError(error instanceof Error ? error.message : String(error)));
   }, [profileOpen, server.configured, server.credentialAvailable]);
@@ -366,7 +353,7 @@ export function App() {
     const request = ++nodeRequest.current;
     setError(null);
     setRemoteNode(null);
-    api.client.remoteNode(remoteLocation.url).then(
+    api.client.resolve(remoteLocation.url).then((resolution) => api.client.node(resolution.ref)).then(
       (loaded) => {
         if (request !== nodeRequest.current) return;
         setRemoteNode(loaded);
@@ -580,7 +567,7 @@ export function App() {
           setResults(found.map((result) => ({ ...result, url: `${rootPath}${result.path}` })));
           return;
         }
-        const tracked = trees.filter((tree) => tree.placement === "shared" && tree.osPath && !tree.missing);
+        const tracked = trees.filter((tree) => tree.placement !== "remote" && tree.osPath && !tree.missing);
         const pages = await Promise.all(tracked.map(async (root) => {
           try {
             return { root, found: await api.search(query, root.id) };
@@ -618,7 +605,7 @@ export function App() {
       if (sidebarMenu.mode === "rename" && sidebarMenu.target) {
         const oldPath = sidebarMenu.target.path;
         const nextPath = childPath(oldPath.slice(0, oldPath.lastIndexOf("/")) || "/", name);
-        await sidebarApi.mutate({ operations: [{ op: "rename", ref: { path: oldPath }, name }] });
+        await sidebarApi.mutate({ operations: [{ op: "rename", ref: { tree: sidebar.tree, path: oldPath }, name }] });
         setSidebarMenu(null);
         const oldUrl = scopeUrl(sidebar, oldPath);
         if (path === oldUrl || path.startsWith(`${oldUrl}/`)) {
@@ -633,8 +620,8 @@ export function App() {
         : sidebar.path;
       const createdPath = childPath(destination, name);
       const operation = sidebarMenu.mode === "createDirectory"
-        ? { op: "createDirectory" as const, path: createdPath }
-        : { op: "createMarkdown" as const, path: createdPath };
+        ? { op: "createDirectory" as const, tree: sidebar.tree, path: createdPath }
+        : { op: "createMarkdown" as const, tree: sidebar.tree, path: createdPath };
       await sidebarApi.mutate({ operations: [operation] });
       setSidebarMenu(null);
       if (destination === sidebar.path) await refreshSidebar();
@@ -648,7 +635,7 @@ export function App() {
     if (!target || !sidebar || !confirm(`Move ${target.name} to Trash?`)) return;
     try {
       setError(null);
-      await sidebarApi.mutate({ operations: [{ op: "trash", refs: [{ path: target.path }] }] });
+      await sidebarApi.mutate({ operations: [{ op: "trash", refs: [{ tree: sidebar.tree, path: target.path }] }] });
       setSidebarMenu(null);
       const targetUrl = scopeUrl(sidebar, target.path);
       if (path === targetUrl || path.startsWith(`${targetUrl}/`)) navigate(parentUrl(targetUrl));
@@ -664,7 +651,7 @@ export function App() {
     const controlledTree = tree && current ? { ...tree, ...current } : tree;
     const profilePath = server.profileURL ? new URL(server.profileURL).pathname.replace(/\/$/, "") : "";
     const suggested = osPath.split("/").filter(Boolean).at(-1)?.toLowerCase().replace(/[^a-z0-9-]+/g, "-") ?? "shared";
-    setTreeSlug(controlledTree?.canonicalPath ?? proposedCanonicalPath ?? (profilePath ? `${profilePath}/${suggested}` : ""));
+    setTreeSlug(controlledTree?.canonical?.path ?? proposedCanonicalPath ?? (profilePath ? `${profilePath}/${suggested}` : ""));
     setSharePrivate(false);
     setShareRules([emptyAccessRule()]);
     setProfileLocator("");
@@ -673,6 +660,13 @@ export function App() {
     setLinkURL("");
     setLinkSecret("");
     setTreeControl({ path: osPath, tree: controlledTree });
+    if (controlledTree && controlledTree.canonical !== null) {
+      void api.configurationAccess(controlledTree.id).then((accessEntries) => {
+        setTreeControl((opened) => opened?.tree?.id === controlledTree.id
+          ? { ...opened, tree: { ...opened.tree, accessEntries } }
+          : opened);
+      }).catch((accessError) => setError(accessError instanceof Error ? accessError.message : String(accessError)));
+    }
   }, [server.profileURL, trees]);
 
   const normalizedShareRules = useMemo(() => shareRules.map((rule) => ({
@@ -706,7 +700,7 @@ export function App() {
         && selected.rules.some((rule) => rule.subject.kind === "everyone" && rule.access === "write")
         && !confirm("Anyone can create, edit, move, and trash content in this tree. Allow public write access?")
       ) return;
-      await api.system({
+      await api.configure({
         op: "promoteTree",
         path: treeControl.path,
         canonicalPath: treeSlug.trim().startsWith("/") ? treeSlug.trim() : `/${treeSlug.trim()}`,
@@ -724,14 +718,9 @@ export function App() {
 
   const reloadTreeAccess = useCallback(async (tree: TreeDescriptor) => {
     await refreshSystem();
-    const record = await api.node({ tree: "system", path: `/trees/${tree.id}` });
-    const values = record.document?.frontmatter ?? {};
-    const publicAccess = values.publicAccess === "read" || values.publicAccess === "write" ? values.publicAccess : "none";
-    const accessEntries = Array.isArray(values.accessEntries)
-      ? values.accessEntries as NonNullable<TreeDescriptor["accessEntries"]>
-      : [];
+    const accessEntries = await api.configurationAccess(tree.id);
     setTreeControl((current) => current?.tree?.id === tree.id
-      ? { ...current, tree: { ...current.tree, publicAccess, accessEntries } }
+      ? { ...current, tree: { ...current.tree, accessEntries } }
       : current);
   }, [refreshSystem]);
 
@@ -740,7 +729,7 @@ export function App() {
     try {
       setTreeBusy(true);
       setError(null);
-      await api.system({ op: "setTreeAccess", tree: tree.id, subject: { kind: "everyone" }, access });
+      await api.configure({ op: "setTreeAccess", tree: tree.id, subject: { kind: "everyone" }, access });
       await reloadTreeAccess(tree);
       return true;
     } catch (error) {
@@ -757,7 +746,7 @@ export function App() {
     try {
       setTreeBusy(true);
       setError(null);
-      await api.system({
+      await api.configure({
         op: "setTreeAccess",
         tree: tree.id,
         subject: { kind: "profile", locator },
@@ -775,18 +764,18 @@ export function App() {
   }, [reloadTreeAccess, server.communityURL, server.origin]);
 
   const createLink = useCallback(async (tree: TreeDescriptor, access: AccessPermission): Promise<boolean> => {
-    if (!tree.httpURL) return false;
+    if (!tree.canonical?.httpURL) return false;
     const secret = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
     try {
       setTreeBusy(true);
       setError(null);
-      await api.system({
+      await api.configure({
         op: "setTreeAccess",
         tree: tree.id,
         subject: { kind: "link", secret },
         access,
       });
-      const url = new URL(tree.httpURL);
+      const url = new URL(tree.canonical?.httpURL);
       url.hash = `arbor-access=${encodeURIComponent(secret)}`;
       setLinkURL(url.toString());
       setLinkSecret(secret);
@@ -805,7 +794,7 @@ export function App() {
     if (!linkSecret) return;
     try {
       setTreeBusy(true);
-      await api.system({
+      await api.configure({
         op: "setTreeAccess",
         tree: tree.id,
         subject: { kind: "link", secret: linkSecret },
@@ -825,7 +814,7 @@ export function App() {
     try {
       setTreeBusy(true);
       setError(null);
-      await api.system({
+      await api.configure({
         op: "setTreeAccess",
         tree: tree.id,
         subject: { kind: "entry", id },
@@ -862,8 +851,7 @@ export function App() {
     try {
       setTreeBusy(true);
       setError(null);
-      await api.system({
-        op: "claimProfile",
+      await api.client.claimProfile({
         origin: target.origin,
         handle: target.handle,
         path: profilePath,
@@ -882,7 +870,7 @@ export function App() {
   const disconnectCommunity = useCallback(async () => {
     if (!confirm("Disconnect this Arbor account on this device? Local files remain in place.")) return;
     try {
-      await api.system({ op: "disconnectCommunity" });
+      await api.client.forgetLocalAccount();
       setProfileOpen(false);
       await refreshSystem();
     } catch (error) {
@@ -907,8 +895,8 @@ export function App() {
     try {
       setDeviceBusy(true);
       setError(null);
-      const revoked = await api.client.revokeCommunityDevice(device.id);
-      setDevices((current) => current.map((item) => item.id === revoked.id ? revoked : item));
+      await api.revokeDevice(device.id);
+      setDevices((current) => current.filter((item) => item.id !== device.id));
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -921,12 +909,12 @@ export function App() {
     if (!destination) return;
     try {
       setError(null);
-      await api.system({
+      await api.configure({
         op: "placeTree",
         tree: tree.id,
         path: destination,
-        ...(tree.endpoint ? { endpoint: tree.endpoint } : {}),
-        ...(tree.canonical ? { canonical: tree.canonical } : {}),
+        ...(tree.canonical?.endpoint ? { endpoint: tree.canonical?.endpoint } : {}),
+        ...(tree.canonical ? { canonical: tree.canonical.locator } : {}),
       });
       await refreshSystem();
       navigate(destination);
@@ -961,18 +949,18 @@ export function App() {
   const visibleCrumbs = collapseCrumbs ? [crumbs[0]!, ...crumbs.slice(-3)] : crumbs;
   const chip = node ? scopeChip(node) : null;
   const canPromoteHere = Boolean(node && isDirectoryNode(node) && (
-    node.tree === "local" || node.enclosingTree?.legacy || (node.enclosingTree && node.path !== "/")
+    node.tree === "local" || node.enclosingTree?.canonical === null || (node.enclosingTree && node.path !== "/")
   ));
-  const currentTree = node?.enclosingTree && !node.enclosingTree.legacy && node.path === "/" ? node.enclosingTree : null;
-  const nestedCanonicalPath = node?.enclosingTree?.canonicalPath && node.path !== "/"
-    ? `${node.enclosingTree.canonicalPath.replace(/\/$/, "")}${node.path}`
+  const currentTree = node?.enclosingTree && node.enclosingTree.canonical !== null && node.path === "/" ? node.enclosingTree : null;
+  const nestedCanonicalPath = node?.enclosingTree?.canonical?.path && node.path !== "/"
+    ? `${node.enclosingTree.canonical?.path.replace(/\/$/, "")}${node.path}`
     : undefined;
   const sharingTarget = !remoteLocation && currentTree?.osPath
     ? { path: currentTree.osPath, tree: currentTree, proposedCanonicalPath: undefined }
     : !remoteLocation && canPromoteHere && node
       ? {
           path: nodeUrl(node),
-          tree: node.enclosingTree?.legacy ? node.enclosingTree : undefined,
+          tree: node.enclosingTree?.canonical === null ? node.enclosingTree : undefined,
           proposedCanonicalPath: nestedCanonicalPath,
         }
       : null;
@@ -992,7 +980,7 @@ export function App() {
     ? home ? `${home}${query.slice(1)}` : null
     : query.startsWith("system:") ? `/${query}` : query;
   const navigateRemote = useCallback((targetPath: string) => {
-    const boundary = remoteNode?.enclosingTree?.httpURL;
+    const boundary = remoteNode?.enclosingTree?.canonical?.httpURL;
     if (!boundary) return;
     const suffix = targetPath === "/"
       ? ""
@@ -1108,15 +1096,14 @@ export function App() {
               <strong>{tree.name}</strong>
               <small>{tree.osPath
                 ? home && tree.osPath.startsWith(home) ? `~${tree.osPath.slice(home.length)}` : tree.osPath
-                : tree.canonical ?? tree.id}</small>
+                : tree.canonical?.locator ?? tree.id}</small>
             </button>
-            <span className={`scope-chip ${tree.legacy ? "session" : "tracked"}`}>
-              {tree.missing ? "missing" : tree.legacy ? "not shared" : tree.osPath ? tree.publicAccess === "none" ? "private" : `public ${tree.publicAccess ?? "read"}` : "remote"}
+            <span className={`scope-chip ${tree.canonical === null ? "session" : "tracked"}`}>
+              {tree.missing ? "missing" : tree.canonical === null ? "not shared" : tree.osPath ? tree.access === "write" ? "writable" : "read-only" : "remote"}
             </span>
-            <button className="quiet" onClick={() => navigate(`/system:trees/${tree.id}`)}>record</button>
-            {tree.legacy && tree.osPath && <button className="quiet" disabled={!server.profileTree} onClick={() => openTreeControl(tree.osPath!, tree)}>Share</button>}
-            {!tree.legacy && !tree.osPath && <button className="quiet" onClick={() => void placeRemoteTree(tree)}>Add to workspace…</button>}
-            {!tree.legacy && tree.osPath && <button className="quiet" onClick={() => openTreeControl(tree.osPath!, tree)}>Share</button>}
+            {tree.canonical === null && tree.osPath && <button className="quiet" disabled={!server.profileTree} onClick={() => openTreeControl(tree.osPath!, tree)}>Share</button>}
+            {tree.canonical !== null && !tree.osPath && <button className="quiet" onClick={() => void placeRemoteTree(tree)}>Add to workspace…</button>}
+            {tree.canonical !== null && tree.osPath && <button className="quiet" onClick={() => openTreeControl(tree.osPath!, tree)}>Share</button>}
           </div>)}
         </div>
         {visits.length > 0 && <div className="home-visits">
@@ -1126,8 +1113,15 @@ export function App() {
             const remoteTree: TreeDescriptor = {
               id: visit.tree,
               name: visit.name,
-              canonical: visit.canonical,
-              endpoint: (() => { try { return new URL(visit.locator).origin; } catch { return undefined; } })(),
+              kind: "shared-subtree",
+              access: "read",
+              canonical: visit.canonical ? {
+                locator: visit.canonical,
+                path: new URL(visit.canonical).pathname,
+                endpoint: new URL(visit.locator).origin,
+                httpURL: visit.canonical,
+                parentTree: null,
+              } : null,
               placement: "remote",
             };
             return <div className="home-root" key={visit.id}>
@@ -1229,7 +1223,7 @@ export function App() {
       {queryIsPath && queryAsUrl && <button onClick={() => { navigate(queryAsUrl); setSearchOpen(false); setQuery(""); }}><strong>Go to</strong><small>{query}</small></button>}
       {searchDisabled && !queryIsPath && <div className="search-untracked">
         Search begins when this subtree has durable identity.
-        {canPromoteHere && node && <button className="quiet" disabled={!server.profileTree} onClick={() => { setSearchOpen(false); openTreeControl(nodeUrl(node), node.enclosingTree?.legacy ? node.enclosingTree : undefined, nestedCanonicalPath); }}>Share this subtree</button>}
+        {canPromoteHere && node && <button className="quiet" disabled={!server.profileTree} onClick={() => { setSearchOpen(false); openTreeControl(nodeUrl(node), node.enclosingTree?.canonical === null ? node.enclosingTree : undefined, nestedCanonicalPath); }}>Share this subtree</button>}
         <button className="quiet" onClick={() => setSearchScope("all")}>Search all trees</button>
       </div>}
       {results.map((result) => <button key={result.url} onClick={() => { navigate(result.url); setSearchOpen(false); }}><strong>{result.title}</strong><small>{home && result.url.startsWith(home) ? `~${result.url.slice(home.length)}` : result.url}</small><span dangerouslySetInnerHTML={{ __html: result.excerpt }} /></button>)}
@@ -1266,13 +1260,13 @@ export function App() {
             <button className="quiet" onClick={() => setPairing(null)}>Hide</button>
           </div>}
         </section>}
-        {trees.filter((tree) => tree.access === "write" && (tree.canonicalPath === "/" || tree.canonicalPath?.startsWith("/~"))).map((tree) =>
+        {trees.filter((tree) => tree.access === "write" && (tree.canonical?.path === "/" || tree.canonical?.path?.startsWith("/~"))).map((tree) =>
           <button className="profile-namespace" key={tree.id} onClick={() => {
             if (tree.osPath) navigate(tree.osPath);
             else void placeRemoteTree(tree);
             setProfileOpen(false);
           }}>
-            <strong>{tree.canonicalPath === "/" ? "Community" : tree.canonicalPath}</strong>
+            <strong>{tree.canonical?.path === "/" ? "Community" : tree.canonical?.path}</strong>
             <small>{tree.osPath ?? "Choose a local folder…"}</small>
           </button>
         )}
@@ -1290,17 +1284,17 @@ export function App() {
       </> : <p className="tree-control-intro">No profile is active on this device. Browse a reserved profile address to claim it.</p>}
     </section></div>}
     {treeControl && <div className="modal-backdrop" onMouseDown={() => !treeBusy && setTreeControl(null)}><section className="tree-control-modal" onMouseDown={(event) => event.stopPropagation()}>
-      {treeControl.tree && !treeControl.tree.legacy ? <>
+      {treeControl.tree && treeControl.tree.canonical !== null ? <>
         <div className="tree-control-heading">
           <div>
             <span className="eyebrow">Share</span>
-            <h2>{treeControl.tree.canonicalPath ?? treeControl.tree.name}</h2>
+            <h2>{treeControl.tree.canonical?.path ?? treeControl.tree.name}</h2>
           </div>
           <button className="modal-close" aria-label="Close" onClick={() => setTreeControl(null)}>×</button>
         </div>
         <div className="canonical-addresses">
-          {treeControl.tree.httpURL && <div><span>Web</span><a href={treeControl.tree.httpURL} target="_blank" rel="noreferrer">{treeControl.tree.httpURL}</a><button onClick={() => void navigator.clipboard.writeText(treeControl.tree!.httpURL!)}>Copy</button></div>}
-          {treeControl.tree.canonical && <div><span>Arbor</span><code>{treeControl.tree.canonical}</code><button onClick={() => void navigator.clipboard.writeText(treeControl.tree!.canonical!)}>Copy</button></div>}
+          {treeControl.tree.canonical?.httpURL && <div><span>Web</span><a href={treeControl.tree.canonical?.httpURL} target="_blank" rel="noreferrer">{treeControl.tree.canonical?.httpURL}</a><button onClick={() => void navigator.clipboard.writeText(treeControl.tree!.canonical?.httpURL!)}>Copy</button></div>}
+          {treeControl.tree.canonical && <div><span>Arbor</span><code>{treeControl.tree.canonical.locator}</code><button onClick={() => void navigator.clipboard.writeText(treeControl.tree!.canonical!.locator)}>Copy</button></div>}
           <div><span>Identity</span><code>arbor://tree/{treeControl.tree.id}</code><button onClick={() => void navigator.clipboard.writeText(`arbor://tree/${treeControl.tree!.id}`)}>Copy</button></div>
         </div>
         <div className="sync-status">
@@ -1317,32 +1311,32 @@ export function App() {
             <span className="access-permission">Can edit</span>
             <span className="access-lock" aria-label="Required access">●</span>
           </div>
-          {(treeControl.tree.publicAccess ?? "none") !== "none" && <div className="access-rule">
+          {everyoneAccess(treeControl.tree) !== "none" && <div className="access-rule">
             <span className="access-subject"><strong>Everyone</strong><small>Public access</small></span>
-            <select aria-label="Everyone permission" value={treeControl.tree.publicAccess} disabled={treeBusy} onChange={(event) => void setPublicAccess(treeControl.tree!, event.target.value as AccessPermission)}>
+            <select aria-label="Everyone permission" value={everyoneAccess(treeControl.tree)} disabled={treeBusy} onChange={(event) => void setPublicAccess(treeControl.tree!, event.target.value as AccessPermission)}>
               <option value="read">Can view</option>
               <option value="write">Can edit</option>
             </select>
             <button className="access-remove" aria-label="Remove everyone" disabled={treeBusy} onClick={() => void setPublicAccess(treeControl.tree!, "none")}>×</button>
           </div>}
           {treeControl.tree.accessEntries?.filter((entry) =>
-            entry.kind !== "everyone"
-            && !(entry.kind === "profile" && entry.access === "write" && entry.locator === server.profileURL)
+            entry.subject.kind !== "everyone"
+            && !(entry.subject.kind === "profile" && entry.access === "write" && entry.subject.locator === server.profileURL)
           ).map((entry) => <div className="access-rule" key={entry.id}>
-            <span className="access-subject"><strong>{entry.kind === "link" ? "Anyone with this private link" : profileLabel(entry.locator ?? "Unavailable profile")}</strong><small>{entry.kind === "link" ? "Secret link" : "Person or group"}</small></span>
-            {entry.kind === "profile" && entry.locator ? <select aria-label={`${profileLabel(entry.locator)} permission`} value={entry.access} disabled={treeBusy} onChange={(event) => void setProfileAccess(treeControl.tree!, entry.locator!, event.target.value as AccessPermission)}>
+            <span className="access-subject"><strong>{entry.subject.kind === "link" ? "Anyone with this private link" : profileLabel(entry.subject.kind === "profile" ? entry.subject.locator ?? "Unavailable profile" : "Everyone")}</strong><small>{entry.subject.kind === "link" ? "Secret link" : "Person or group"}</small></span>
+            {entry.subject.kind === "profile" && entry.subject.locator ? <select aria-label={`${profileLabel(entry.subject.locator)} permission`} value={entry.access} disabled={treeBusy} onChange={(event) => void setProfileAccess(treeControl.tree!, entry.subject.kind === "profile" ? entry.subject.locator! : "", event.target.value as AccessPermission)}>
               <option value="read">Can view</option>
               <option value="write">Can edit</option>
             </select> : <span className="access-permission">{entry.access === "write" ? "Can edit" : "Can view"}</span>}
-            <button className="access-remove" aria-label={`Remove ${entry.kind === "link" ? "private link" : profileLabel(entry.locator ?? "profile")}`} disabled={treeBusy} onClick={() => void revokeAccessEntry(treeControl.tree!, entry.id)}>×</button>
+            <button className="access-remove" aria-label={`Remove ${entry.subject.kind === "link" ? "private link" : profileLabel(entry.subject.kind === "profile" ? entry.subject.locator ?? "profile" : "everyone")}`} disabled={treeBusy} onClick={() => void revokeAccessEntry(treeControl.tree!, entry.id)}>×</button>
           </div>)}
           <div className="access-rule access-rule-draft">
             <div className="access-subject-editor">
               <select aria-label="New audience" value={accessDraftKind} disabled={treeBusy} onChange={(event) => setAccessDraftKind(event.target.value as ExistingAccessSubjectKind)}>
                 <option value="">Choose an audience…</option>
-                <option value="everyone" disabled={(treeControl.tree.publicAccess ?? "none") !== "none"}>Everyone</option>
+                <option value="everyone" disabled={everyoneAccess(treeControl.tree) !== "none"}>Everyone</option>
                 <option value="profile">A person or group</option>
-                <option value="link" disabled={!treeControl.tree.httpURL}>Anyone with a private link</option>
+                <option value="link" disabled={!treeControl.tree.canonical?.httpURL}>Anyone with a private link</option>
               </select>
               {accessDraftKind === "profile" && <input aria-label="Person or group" placeholder="~alice or ~editors" value={profileLocator} onChange={(event) => setProfileLocator(event.target.value)} />}
             </div>

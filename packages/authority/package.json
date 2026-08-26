@@ -6,6 +6,8 @@
   "dependencies": {
     "@arbor/core": "workspace:*",
     "@arbor/editor": "workspace:*",
-    "@arbor/wire": "workspace:*"
+    "@arbor/stores": "workspace:*",
+    "@arbor/wire": "workspace:*",
+    "yaml": "2.8.2"
   }
 }

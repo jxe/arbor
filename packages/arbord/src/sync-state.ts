@@ -1,6 +1,6 @@
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { arborDataRoot, prepareArborDataRoot } from "@arbor/stores";
+import { arborPrivateRoot, prepareArborDataRoot } from "@arbor/stores";
 import type { FilePatch, ObjectHash, TreeSnapshot, UpdateConflictResult } from "@arbor/wire";
 
 interface StoredObject {
@@ -26,7 +26,11 @@ export interface AcceptedTreeObjects {
   hashes: ObjectHash[];
 }
 
-export interface StoredTreeConflict extends Omit<UpdateConflictResult, "draft"> {
+export interface StoredTreeConflict extends Omit<UpdateConflictResult["details"], "draft" | "currentSnapshot"> {
+  error: "conflict";
+  message: string;
+  retryable: false;
+  tree?: string;
   draft: { root: ObjectHash; objects: StoredObject[] };
 }
 
@@ -41,7 +45,7 @@ function safeTreeID(tree: string): string {
 }
 
 function pathFor(tree: string): string {
-  return join(arborDataRoot(), "sync", `${safeTreeID(tree)}.json`);
+  return join(arborPrivateRoot(), "sync", `${safeTreeID(tree)}.json`);
 }
 
 async function load(tree: string): Promise<TreeSyncState> {
@@ -55,7 +59,7 @@ async function load(tree: string): Promise<TreeSyncState> {
 
 async function save(tree: string, state: TreeSyncState): Promise<void> {
   await prepareArborDataRoot();
-  const directory = join(arborDataRoot(), "sync");
+  const directory = join(arborPrivateRoot(), "sync");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const destination = pathFor(tree);
   if (!state.pending && !state.conflict && !state.accepted) {
@@ -170,10 +174,18 @@ export async function saveTreeConflict(tree: string, conflict: UpdateConflictRes
   await save(tree, {
     ...state,
     conflict: {
-      ...conflict,
+      error: conflict.error,
+      message: conflict.message,
+      retryable: conflict.retryable,
+      ...(conflict.tree ? { tree: conflict.tree } : {}),
+      kind: conflict.details.kind,
+      current: conflict.details.current,
+      base: conflict.details.base,
+      candidate: conflict.details.candidate,
+      conflicts: conflict.details.conflicts,
       draft: {
-        root: conflict.draft.root,
-        objects: conflict.draft.objects.map(({ hash, bytes }) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
+        root: conflict.details.draft.root,
+        objects: conflict.details.draft.objects.map(({ hash, bytes }) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
       },
     },
   });

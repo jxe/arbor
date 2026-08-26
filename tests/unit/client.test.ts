@@ -10,7 +10,8 @@ function jsonResponse(value: unknown): Response {
 
 function directorySnapshot(): NodeSnapshot {
   return {
-    ref: { path: "/dir" },
+    ref: { tree: "local", path: "/dir" },
+    tree: "local",
     path: "/dir",
     name: "dir",
     kind: "directory",
@@ -28,8 +29,8 @@ function directorySnapshot(): NodeSnapshot {
 describe("ArbordClient exact-source contract", () => {
   test("hydrates children without constructing a second projected document", async () => {
     const page: ChildrenPage = {
-      parent: { path: "/dir" },
-      items: [{ name: "child", path: "/dir/child", kind: "markdown", materialization: "available" }],
+      parent: { tree: "local", path: "/dir" },
+      items: [{ tree: "local", name: "child", path: "/dir/child", kind: "markdown", materialization: "available" }],
       nextCursor: null,
       observedThrough: CURSOR,
     };
@@ -38,7 +39,7 @@ describe("ArbordClient exact-source contract", () => {
         ? jsonResponse(page)
         : jsonResponse(directorySnapshot()),
     });
-    const node = await client.node({ path: "/dir" });
+    const node = await client.node({ tree: "local", path: "/dir" });
     expect(node.document?.source).toBe("[child](child)\n\n");
     expect(node.children).toEqual(page.items);
     expect("projection" in node).toBe(false);
@@ -51,12 +52,12 @@ describe("ArbordClient exact-source contract", () => {
       retryDelay: async () => {},
       fetch: async (_input, init) => {
         body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        return jsonResponse({ mutationID: "mutation-source", eventCursor: CURSOR, effects: [] });
+        return jsonResponse({ mutationID: "mutation-source", observedThrough: CURSOR, effects: [] });
       },
     });
     await client.mutateContent({
       op: "writeMarkdown",
-      ref: { path: "/page" },
+      ref: { tree: "local", path: "/page" },
       baseContentRevision: "sha256:before",
       source: "# Exact\r\n\r\nunknown <x>\r\n",
     });
@@ -67,7 +68,7 @@ describe("ArbordClient exact-source contract", () => {
   });
 
   test("childRef prefers durable identity", () => {
-    expect(childRef({ name: "a", path: "/a", kind: "markdown", materialization: "available", pageID: "opaque" }))
-      .toEqual({ pageID: "opaque", pathHint: "/a" });
+    expect(childRef({ tree: "tr_example", name: "a", path: "/a", kind: "markdown", materialization: "available", pageID: "opaque" }))
+      .toEqual({ tree: "tr_example", pageID: "opaque", pathHint: "/a" });
   });
 });

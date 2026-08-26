@@ -201,6 +201,10 @@ function cloudPlaceholderName(name: string): boolean {
   return name.startsWith(".") && name.endsWith(".icloud") && name.length > ".icloud".length + 1;
 }
 
+function privateTransactionName(name: string): boolean {
+  return name.includes(".arbor-write-") || name.includes(".arbor-txn-");
+}
+
 export async function snapshotDirectory(
   inputRoot: string,
   boundaries: ReadonlyMap<string, string> = new Map(),
@@ -233,6 +237,7 @@ export async function snapshotDirectory(
     const entries: WireDirectoryEntry[] = [];
     const seen = new Set<string>();
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => compareWireNames(a.name, b.name))) {
+      if (privateTransactionName(entry.name)) continue;
       if (cloudPlaceholderName(entry.name)) throw new UnavailableCloudContentError(join(directory, entry.name));
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory() && IGNORED_WORKSPACE_DIRECTORIES.has(entry.name)) continue;

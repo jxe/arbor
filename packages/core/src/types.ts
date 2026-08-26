@@ -46,6 +46,7 @@ export interface MarkdownDocument {
 }
 
 export interface TreeChild {
+  tree: string;
   name: string;
   path: string;
   kind: NodeKind;
@@ -97,8 +98,7 @@ export interface CollectionPage {
 }
 
 export interface SearchResult {
-  /** Shared-tree scope the result belongs to. */
-  tree?: string;
+  tree: string;
   path: string;
   title: string;
   excerpt: string;

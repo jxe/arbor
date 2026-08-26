@@ -147,7 +147,7 @@ export class WorkspaceIndex {
     const rows = this.database.query(
       "SELECT path, title, snippet(docs, 2, '<mark>', '</mark>', '…', 24) AS excerpt, bm25(docs) AS rank FROM docs WHERE docs MATCH ? ORDER BY rank LIMIT ? OFFSET ?",
     ).all(escaped, limit, offset) as Array<{ path: string; title: string; excerpt: string; rank: number }>;
-    return rows.map((row) => ({ path: row.path, title: row.title, excerpt: row.excerpt, score: -row.rank }));
+    return rows.map((row) => ({ tree: "local", path: row.path, title: row.title, excerpt: row.excerpt, score: -row.rank }));
   }
 
   backlinks(

@@ -1,6 +1,4 @@
 import type {
-  BoundaryKind,
-  PublicAccess,
   UpdateConflictResult,
   UpdateRequest,
   UpdateResult,
@@ -8,8 +6,16 @@ import type {
   AuthorityDevice,
   PairingOffer,
   TreeSnapshotEnvelope,
-  TreeAccess,
 } from "./updates/types.ts";
+import type {
+  AccessEntry,
+  ArborError,
+  EventCursor,
+  LocatorResolution,
+  RemoteTreeDescriptor,
+  SnapshotEnvelope,
+  TreeID,
+} from "@arbor/core";
 import {
   decodeWireObject,
   encodeWireObject,
@@ -24,24 +30,12 @@ import {
 } from "./updates/json.ts";
 import { updateRequestDigest } from "./updates/intent.ts";
 
-export interface RemoteTreeDescriptor {
-  id: string;
-  canonicalPath: string;
-  parentTree: string | null;
-  kind: BoundaryKind;
-  ref: ObjectHash;
-  publicAccess: PublicAccess;
-  access: TreeAccess;
-  httpURL: string;
-  arborURL: string;
-  update?: string;
-  /** Present only on same-credential watch frames for a correlated accepted request. */
-  requestDigest?: ObjectHash;
-}
+export type { RemoteTreeDescriptor } from "@arbor/core";
 
 export interface CurrentTreeSnapshot {
   tree: RemoteTreeDescriptor;
   snapshot: TreeSnapshotEnvelope;
+  observedThrough: EventCursor;
 }
 
 export class WireUpdateConflict extends Error {
@@ -57,27 +51,36 @@ export interface RemoteAccountDescriptor {
   profileTree: string | null;
   profileURL: string | null;
   community: RemoteTreeDescriptor;
+  configuration: RemoteTreeDescriptor;
   writableProfiles: RemoteTreeDescriptor[];
+  device?: { id: string; label: string };
+}
+
+export interface RemoteAccountSnapshot {
+  account: RemoteAccountDescriptor;
+  observedThrough: EventCursor;
 }
 
 export interface ClaimResult {
-  accountToken: string;
   account: RemoteAccountDescriptor;
   tree: RemoteTreeDescriptor;
+  configuration: RemoteTreeDescriptor;
+}
+
+export interface ClaimRequest {
+  profileTree: TreeID;
+  configurationTree: TreeID;
+  device: { id: string; label: string; credentialDigest: `sha256:${string}` };
+  profile: TreeSnapshot;
+  configuration: TreeSnapshot;
 }
 
 export interface PairingClaimResult {
-  deviceToken: string;
   device: AuthorityDevice;
   confirmationCode: string;
 }
 
-export interface RemoteAccessEntry {
-  id: string;
-  kind: "everyone" | "profile" | "link";
-  access: TreeAccess;
-  locator?: string;
-}
+export type RemoteAccessEntry = AccessEntry;
 
 export class WireTransportError extends TypeError {
   override readonly cause: unknown;
@@ -150,7 +153,9 @@ export class WireClient {
   private async checked(response: Response): Promise<Response> {
     if (response.ok) return response;
     const body = await response.text();
-    throw new Error(`${response.url}: ${body || `${response.status} ${response.statusText}`}`);
+    let envelope: ArborError | undefined;
+    try { envelope = JSON.parse(body) as ArborError; } catch {}
+    throw new Error(`${response.url}: ${envelope?.error ?? response.status} ${envelope?.message ?? (body || response.statusText)}`);
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
@@ -164,7 +169,7 @@ export class WireClient {
     }
   }
 
-  async account(): Promise<RemoteAccountDescriptor> {
+  async account(): Promise<RemoteAccountSnapshot> {
     const response = await this.checked(await this.request("/.arbor/account", { headers: this.headers() }));
     return response.json();
   }
@@ -178,66 +183,41 @@ export class WireClient {
     return response.json();
   }
 
-  async claimPairing(id: string, secret: string, label: string): Promise<PairingClaimResult> {
+  async claimPairing(
+    id: string,
+    secret: string,
+    device: { id: string; label: string; credentialDigest: `sha256:${string}` },
+    placements: Record<TreeID, { authority: string; path?: string }> = {},
+  ): Promise<PairingClaimResult> {
     const response = await this.checked(await this.request(`/.arbor/pairings/${encodeURIComponent(id)}/claim`, {
-      method: "POST",
+      method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ secret, label }),
+      body: JSON.stringify({ secret, device, placements }),
     }));
     return response.json();
   }
 
-  async devices(): Promise<AuthorityDevice[]> {
-    const response = await this.checked(await this.request("/.arbor/devices", { headers: this.headers() }));
-    return response.json();
-  }
-
-  async revokeDevice(id: string): Promise<AuthorityDevice> {
-    const response = await this.checked(await this.request(`/.arbor/devices/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      headers: this.headers(),
-    }));
-    return response.json();
-  }
-
-  async create(
-    canonicalPath: string,
-    snapshot: TreeSnapshot,
-    options: {
-      kind?: Exclude<BoundaryKind, "community-profile" | "person-profile">;
-      publicAccess?: PublicAccess;
-      profileAccess?: Array<{ locator: string; access: TreeAccess }>;
-    } = {},
-  ): Promise<RemoteTreeDescriptor> {
-    const response = await this.checked(await this.request("/.arbor/trees", {
-      method: "POST",
-      headers: this.headers(true),
+  async claim(handle: string, input: ClaimRequest): Promise<ClaimResult> {
+    const response = await this.checked(await this.request(`/.arbor/claims/${encodeURIComponent(handle)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        canonicalPath,
-        kind: options.kind ?? "shared-subtree",
-        publicAccess: options.publicAccess ?? "none",
-        profileAccess: options.profileAccess ?? [],
-        ...encodedSnapshot(snapshot),
+        profileTree: input.profileTree,
+        configurationTree: input.configurationTree,
+        device: input.device,
+        profile: encodedSnapshot(input.profile),
+        configuration: encodedSnapshot(input.configuration),
       }),
     }));
     return response.json();
   }
 
-  async claim(handle: string, snapshot: TreeSnapshot): Promise<ClaimResult> {
-    const response = await this.checked(await this.request(`/.arbor/claims/${encodeURIComponent(handle)}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(encodedSnapshot(snapshot)),
-    }));
-    return response.json();
-  }
-
-  async list(): Promise<RemoteTreeDescriptor[]> {
+  async list(): Promise<SnapshotEnvelope<RemoteTreeDescriptor[]>> {
     const response = await this.checked(await this.request("/.arbor/trees", { headers: this.headers() }));
     return response.json();
   }
 
-  async ref(tree: string): Promise<RemoteTreeDescriptor> {
+  async ref(tree: string): Promise<SnapshotEnvelope<RemoteTreeDescriptor>> {
     const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/ref`, {
       headers: this.headers(),
     }));
@@ -252,15 +232,25 @@ export class WireClient {
     const value = await response.json() as {
       tree: RemoteTreeDescriptor;
       snapshot: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
+      observedThrough: EventCursor;
     };
     const snapshot = decodedSnapshot(value.snapshot);
     if (value.tree.id !== tree || value.tree.ref !== snapshot.root || !value.tree.update) {
       throw new Error("Current snapshot descriptor does not match its graph");
     }
-    return { tree: value.tree, snapshot };
+    return { tree: value.tree, snapshot, observedThrough: value.observedThrough };
   }
 
-  async resolve(path: string): Promise<RemoteTreeDescriptor & { path: string }> {
+  async activateTree(tree: TreeID, snapshot: TreeSnapshot): Promise<SnapshotEnvelope<RemoteTreeDescriptor>> {
+    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}`, {
+      method: "PUT",
+      headers: this.headers(true),
+      body: JSON.stringify(encodedSnapshot(snapshot)),
+    }));
+    return response.json();
+  }
+
+  async resolve(path: string): Promise<LocatorResolution> {
     const canonical = path === "/" ? "" : `/${path.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
     const response = await this.checked(await this.request(`/.well-known/arbor${canonical}`, {
       headers: this.headers(),
@@ -287,18 +277,23 @@ export class WireClient {
       body: JSON.stringify(encodeUpdateRequestJSON(request)),
     });
     if (response.status === 409) {
-      type ConflictJSON = Omit<UpdateConflictResult, "draft" | "currentSnapshot"> & {
-        draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
-        currentSnapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
+      type ConflictJSON = Omit<UpdateConflictResult, "details"> & {
+        details: Omit<UpdateConflictResult["details"], "draft" | "currentSnapshot"> & {
+          draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
+          currentSnapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
+        };
       };
       const body = await response.json() as ConflictJSON | { error?: unknown; message?: unknown };
       if (body.error === "conflict") {
         const conflict = body as ConflictJSON;
-        const { draft, currentSnapshot, ...envelope } = conflict;
+        const { draft, currentSnapshot, ...details } = conflict.details;
         throw new WireUpdateConflict({
-          ...envelope,
-          draft: decodedSnapshot(draft),
-          ...(currentSnapshot ? { currentSnapshot: decodedSnapshot(currentSnapshot) } : {}),
+          ...conflict,
+          details: {
+            ...details,
+            draft: decodedSnapshot(draft),
+            ...(currentSnapshot ? { currentSnapshot: decodedSnapshot(currentSnapshot) } : {}),
+          },
         });
       }
       const rejection = body as { error?: unknown; message?: unknown };
@@ -318,7 +313,7 @@ export class WireClient {
     } as UpdateResult : result as UpdateResult;
   }
 
-  async access(tree: string): Promise<RemoteAccessEntry[]> {
+  async access(tree: string): Promise<SnapshotEnvelope<RemoteAccessEntry[]>> {
     const response = await this.checked(await this.request(
       `/.arbor/trees/${encodeURIComponent(tree)}/access`,
       { headers: this.headers() },
@@ -326,41 +321,8 @@ export class WireClient {
     return response.json();
   }
 
-  async revokeAccess(tree: string, id: string): Promise<RemoteTreeDescriptor> {
-    return this.setAccess(tree, { kind: "entry", id }, "none");
-  }
-
-  async clearAccess(tree: string): Promise<RemoteTreeDescriptor> {
-    return this.setAccess(tree, { kind: "all" }, "none");
-  }
-
-  async setAccess(
-    tree: string,
-    subject:
-      | { kind: "all" }
-      | { kind: "everyone" }
-      | { kind: "profile"; locator: string }
-      | { kind: "link"; digest: string }
-      | { kind: "entry"; id: string },
-    access: TreeAccess | "none",
-  ): Promise<RemoteTreeDescriptor> {
-    const response = await this.checked(await this.request(
-      `/.arbor/trees/${encodeURIComponent(tree)}/access`,
-      {
-        method: "POST",
-        headers: this.headers(true),
-        body: JSON.stringify({ subject, access }),
-      },
-    ));
-    return response.json();
-  }
-
-  async setPublicAccess(tree: string, access: PublicAccess): Promise<RemoteTreeDescriptor> {
-    return this.setAccess(tree, { kind: "everyone" }, access);
-  }
-
-  async object(hash: string): Promise<Uint8Array> {
-    const response = await this.checked(await this.request(`/.arbor/objects/${hash}`, {
+  async object(tree: TreeID, hash: string): Promise<Uint8Array> {
+    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/objects/${hash}`, {
       headers: this.headers(),
     }));
     return new Uint8Array(await response.arrayBuffer());

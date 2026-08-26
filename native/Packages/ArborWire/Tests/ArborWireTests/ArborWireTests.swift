@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import ArborWire
@@ -171,7 +172,7 @@ struct UpdateProtocolTests {
             candidate: root.hash
         )
         let response = Data("""
-        {"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"}}
+        {"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"},"observedThrough":"up_retry"}
         """.utf8)
         await WireURLProtocolStub.state.install { _, attempt in
             attempt == 1
@@ -199,7 +200,7 @@ struct UpdateProtocolTests {
 
 @Suite("Live temporary authority", .serialized)
 struct LiveAuthorityTests {
-    @Test("Create, update, conflict, watch, pair, revoke, and current-graph access")
+    @Test("Account snapshots, scoped objects, and locally credentialed pairing")
     func liveAuthority() async throws {
         guard let originValue = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_URL"],
               let origin = URL(string: originValue),
@@ -207,54 +208,41 @@ struct LiveAuthorityTests {
             return
         }
         let client = ArborAuthorityClient(origin: origin, credential: token, retryDelay: { _ in })
-        let initial = try snapshot(fileBytes: Data("base".utf8))
-        let tree = try await client.createTree(
-            canonicalPath: "/~owner/swift-\(UUID().uuidString.lowercased())",
-            snapshot: initial
-        )
-        #expect(tree.update != nil)
-        #expect(try await client.snapshot(root: tree.ref) == initial.sorted())
-
-        let stream = try await client.watch(tree: tree.id)
-        var iterator = stream.makeAsyncIterator()
-        let watched = try await iterator.next()
-        #expect(watched?.tree.id == tree.id)
-        #expect(watched?.id == tree.update)
-
-        let candidateA = try snapshot(fileBytes: Data("candidate-a".utf8))
-        let base = AuthorityUpdateBase(root: tree.ref, update: try #require(tree.update))
-        let accepted = try await client.submitUpdateResponse(
-            try await client.prepareUpdate(tree: tree.id, base: base, snapshot: candidateA, returnSnapshot: true)
-        )
-        guard case let .accepted(updateA) = accepted.result else { Issue.record("Expected accepted result"); return }
-        #expect(updateA.root == candidateA.root)
-        #expect(accepted.snapshot?.sorted() == candidateA.sorted())
-
-        let candidateB = try snapshot(fileBytes: Data("candidate-b".utf8))
-        do {
-            _ = try await client.submitUpdateResponse(
-                try await client.prepareUpdate(tree: tree.id, base: base, snapshot: candidateB, returnSnapshot: true)
-            )
-            Issue.record("Expected binary conflict")
-        } catch let error as AuthorityUpdateConflictError {
-            #expect(error.conflict.conflicts.contains { $0.reason == "binary-conflict" })
-            #expect(try WireObjectGraph.validate(error.conflict.draft).count >= 2)
-            #expect(error.conflict.currentSnapshot?.root == candidateA.root)
-        }
+        let account = try await client.account()
+        let configuration = account.account.configuration
+        #expect(configuration.kind == "account-configuration")
+        #expect(configuration.canonical == nil)
+        let ref = try await client.ref(tree: configuration.id)
+        #expect(ref.snapshot.ref == configuration.ref)
+        #expect(!ref.observedThrough.isEmpty)
+        let current = try await client.currentSnapshot(tree: configuration.id)
+        #expect(current.tree.id == configuration.id)
+        #expect(current.snapshot.root == configuration.ref)
+        #expect(try await client.snapshot(tree: configuration.id, root: configuration.ref) == current.snapshot.sorted())
 
         let offer = try await client.createPairing()
-        let claim = try await client.claimPairing(id: offer.id, secret: offer.secret, label: "Swift test device")
-        let paired = ArborAuthorityClient(origin: origin, credential: claim.deviceToken, retryDelay: { _ in })
-        #expect(try await paired.trees().contains { $0.id == tree.id })
-        _ = try await client.revokeDevice(id: claim.device.id)
-        await #expect(throws: AuthorityHTTPError.self) { _ = try await paired.account() }
+        let pairedToken = "swift-paired-device-token"
+        let digest = SHA256.hash(data: Data(pairedToken.utf8)).map { String(format: "%02x", $0) }.joined()
+        let deviceID = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+        let claim = try await client.claimPairing(
+            id: offer.id,
+            secret: offer.secret,
+            device: AuthorityPairingDevice(
+                id: deviceID,
+                label: "Swift test device",
+                credentialDigest: "sha256:\(digest)"
+            )
+        )
+        #expect(claim.device.id == deviceID)
+        let paired = ArborAuthorityClient(origin: origin, credential: pairedToken, retryDelay: { _ in })
+        #expect(try await paired.trees().snapshot.contains { $0.id == configuration.id })
 
-        let historyURL = origin.appending(path: ".arbor/trees/\(tree.id)/updates")
+        let historyURL = origin.appending(path: ".arbor/trees/\(configuration.id)/updates")
         var request = URLRequest(url: historyURL)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (_, response) = try await URLSession.shared.data(for: request)
         #expect((response as? HTTPURLResponse)?.statusCode == 405)
-        let historicalObject = origin.appending(path: ".arbor/objects/\(initial.root)")
+        let historicalObject = origin.appending(path: ".arbor/objects/\(configuration.ref)")
         let (_, historicalResponse) = try await URLSession.shared.data(for: URLRequest(url: historicalObject))
         #expect((historicalResponse as? HTTPURLResponse)?.statusCode == 404)
     }

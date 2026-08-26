@@ -1,4 +1,5 @@
 import ArborWire
+import CryptoKit
 import Foundation
 import Security
 
@@ -108,18 +109,52 @@ public actor NativeAccountService {
     public func claim(_ payload: PairingPayload, label: String) async throws -> AuthorityPairingClaim {
         let payload = try payload.validated()
         guard payload.origin == origin else { throw ArborWireValidationError.invalidValue("Pairing authority changed") }
+        let deviceID = try generatedDeviceID()
+        let credential = try randomSecret()
+        try await credentials.save(credential, origin: origin)
+        let digest = "sha256:" + SHA256.hash(data: Data(credential.utf8)).map { String(format: "%02x", $0) }.joined()
         let claim = try await ArborAuthorityClient(origin: origin).claimPairing(
             id: payload.pairing.id,
             secret: payload.pairing.secret,
-            label: label
+            device: AuthorityPairingDevice(id: deviceID, label: label, credentialDigest: digest)
         )
-        try await credentials.save(claim.deviceToken, origin: origin)
         return claim
     }
 
-    public func account() async throws -> AuthorityAccountDescriptor { try await client.account() }
-    public func trees() async throws -> [AuthorityTreeDescriptor] { try await client.trees() }
-    public func devices() async throws -> [AuthorityDevice] { try await client.devices() }
-    public func revoke(device id: String) async throws -> AuthorityDevice { try await client.revokeDevice(id: id) }
+    public func account() async throws -> AuthorityAccountSnapshot { try await client.account() }
+    public func trees() async throws -> AuthoritySnapshotEnvelope<[AuthorityTreeDescriptor]> { try await client.trees() }
     public func forget() async throws { try await credentials.forget(origin: origin) }
+
+    private func randomSecret() throws -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            throw ArborWireValidationError.invalidValue("Could not generate device credential")
+        }
+        return Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private func generatedDeviceID() throws -> String {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            throw ArborWireValidationError.invalidValue("Could not generate DeviceID")
+        }
+        let alphabet = Array("abcdefghijklmnopqrstuvwxyz234567")
+        var accumulator = 0
+        var bits = 0
+        var output = ""
+        for byte in bytes {
+            accumulator = (accumulator << 8) | Int(byte)
+            bits += 8
+            while bits >= 5 {
+                bits -= 5
+                output.append(alphabet[(accumulator >> bits) & 31])
+            }
+            accumulator &= bits == 0 ? 0 : (1 << bits) - 1
+        }
+        if bits > 0 { output.append(alphabet[(accumulator << (5 - bits)) & 31]) }
+        return "dv_" + output
+    }
 }

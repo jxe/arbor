@@ -35,74 +35,89 @@ public struct ArbordStatus: Codable, Sendable, Equatable {
     public var service: String
     public var version: String
     public var protocolVersion: String
+    public var deviceID: String?
 
-    public init(service: String, version: String, protocolVersion: String) {
+    public init(service: String, version: String, protocolVersion: String, deviceID: String? = nil) {
         self.service = service
         self.version = version
         self.protocolVersion = protocolVersion
+        self.deviceID = deviceID
     }
 }
 
 /// A local reference: a logical path or a durable page ID plus hint,
-/// optionally qualified by the `tree` scope it resolves in: "local",
-/// "system", or a stable shared TreeID.
+/// qualified by the required `tree` scope: "local", "system", or a TreeID.
 public struct NodeRef: Codable, Sendable, Equatable {
-    public var tree: String?
+    public var tree: String
     public var path: String?
     public var pageID: String?
     public var pathHint: String?
 
-    public init(tree: String? = nil, path: String? = nil, pageID: String? = nil, pathHint: String? = nil) {
+    public init(tree: String, path: String? = nil, pageID: String? = nil, pathHint: String? = nil) {
         self.tree = tree
         self.path = path
         self.pageID = pageID
         self.pathHint = pathHint
     }
 
-    public static func path(_ path: String, tree: String? = nil) -> NodeRef {
+    public static func path(_ path: String, tree: String) -> NodeRef {
         NodeRef(tree: tree, path: path)
     }
 
-    public static func pageID(_ pageID: String, pathHint: String? = nil, tree: String? = nil) -> NodeRef {
+    public static func pageID(_ pageID: String, pathHint: String? = nil, tree: String) -> NodeRef {
         NodeRef(tree: tree, pageID: pageID, pathHint: pathHint)
     }
 }
 
 public struct ResolvedNodeRef: Codable, Sendable, Equatable {
-    /// Scope the reference resolved in; absent only in legacy payloads (the session root).
-    public var tree: String?
+    public var tree: String
     public var path: String
     public var pageID: String?
 
-    public init(path: String, pageID: String? = nil, tree: String? = nil) {
+    public init(tree: String, path: String, pageID: String? = nil) {
         self.tree = tree
         self.path = path
         self.pageID = pageID
     }
 }
 
-public struct TreeDescriptor: Codable, Sendable, Equatable {
-    public var id: String
-    public var name: String
-    public var osPath: String?
-    public var canonical: String?
-    public var canonicalPath: String?
-    public var httpURL: String?
-    public var endpoint: String?
-    public var publicAccess: String?
-    public var access: String?
-    public var accessEntries: [TreeAccessEntry]?
-    public var placement: String
-    public var sync: String?
-    public var legacy: Bool?
-    public var missing: Bool?
+public struct CanonicalTreeDescriptor: Codable, Sendable, Equatable {
+    public var locator: String
+    public var path: String
+    public var endpoint: String
+    public var httpURL: String
+    public var parentTree: String?
 }
 
-public struct TreeAccessEntry: Codable, Sendable, Equatable {
+public struct SnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
+    public var snapshot: Value
+    public var observedThrough: String
+}
+
+public struct LocatorResolution: Codable, Sendable, Equatable {
+    public var ref: ResolvedNodeRef
+    public var enclosingTree: TreeDescriptor?
+    public var historical: Bool
+    public var observedThrough: String
+}
+
+public struct TreeDescriptor: Codable, Sendable, Equatable {
     public var id: String
     public var kind: String
     public var access: String
-    public var locator: String?
+    public var canonical: CanonicalTreeDescriptor?
+}
+
+public struct LocalTreeDescriptor: Codable, Sendable, Equatable {
+    public var id: String
+    public var kind: String
+    public var access: String
+    public var canonical: CanonicalTreeDescriptor?
+    public var name: String
+    public var osPath: String?
+    public var placement: String
+    public var sync: String?
+    public var missing: Bool?
 }
 
 public struct Diagnostic: Codable, Sendable, Equatable {
@@ -152,6 +167,7 @@ public struct MarkdownDocument: Codable, Sendable, Equatable {
 }
 
 public struct TreeChild: Codable, Sendable, Equatable {
+    public var tree: String
     public var name: String
     public var path: String
     public var kind: String
@@ -171,9 +187,9 @@ public struct CollectionSummary: Codable, Sendable, Equatable {
 public struct NodeSnapshot: Codable, Sendable, Equatable {
     public var ref: ResolvedNodeRef
     /// Scope the snapshot resolved in, after canonicalization.
-    public var tree: String?
+    public var tree: String
     /// The enclosing shared tree or legacy placement, when applicable.
-    public var enclosingTree: TreeDescriptor?
+    public var enclosingTree: LocalTreeDescriptor?
     public var path: String
     public var name: String
     public var kind: String
@@ -200,8 +216,7 @@ public struct ChildrenPage: Codable, Sendable, Equatable {
 }
 
 public struct SearchResult: Codable, Sendable, Equatable {
-    /// Scope the result belongs to.
-    public var tree: String?
+    public var tree: String
     public var path: String
     public var pageID: String?
     public var title: String
@@ -279,17 +294,6 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
     public var source: String?
     public var sourceEdits: [ProtocolSourceEdit]?
     public var hash: String?
-    public var origin: String?
-    public var accountToken: String?
-    public var handle: String?
-    public var displayName: String?
-    public var canonicalPath: String?
-    public var audience: JSONValue?
-    public var subject: JSONValue?
-    public var access: String?
-    public var endpoint: String?
-    public var canonical: String?
-    public var choice: String?
 
     public init(
         op: String,
@@ -302,18 +306,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         baseContentRevision: String? = nil,
         source: String? = nil,
         sourceEdits: [ProtocolSourceEdit]? = nil,
-        hash: String? = nil,
-        origin: String? = nil,
-        accountToken: String? = nil,
-        handle: String? = nil,
-        displayName: String? = nil,
-        canonicalPath: String? = nil,
-        audience: JSONValue? = nil,
-        subject: JSONValue? = nil,
-        access: String? = nil,
-        endpoint: String? = nil,
-        canonical: String? = nil,
-        choice: String? = nil
+        hash: String? = nil
     ) {
         self.op = op
         self.ref = ref
@@ -326,21 +319,10 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         self.source = source
         self.sourceEdits = sourceEdits
         self.hash = hash
-        self.origin = origin
-        self.accountToken = accountToken
-        self.handle = handle
-        self.displayName = displayName
-        self.canonicalPath = canonicalPath
-        self.audience = audience
-        self.subject = subject
-        self.access = access
-        self.endpoint = endpoint
-        self.canonical = canonical
-        self.choice = choice
     }
 
     public var isContentOperation: Bool {
-        op == "writeMarkdown" || op == "restoreRecovery" || op == "ensureDocumentIdentity"
+        op == "writeText" || op == "writeMarkdown" || op == "restoreRecovery" || op == "ensureDocumentIdentity"
     }
 }
 
@@ -371,7 +353,7 @@ public struct MutationRequest: Codable, Sendable, Equatable {
 public struct MutationEffect: Codable, Sendable, Equatable {
     public var kind: String
     /// Scope the effect landed in.
-    public var tree: String?
+    public var tree: String
     public var path: String
     public var previousPath: String?
     public var pageID: String?
@@ -381,15 +363,11 @@ public struct MutationEffect: Codable, Sendable, Equatable {
 
 public struct MutationReceipt: Codable, Sendable, Equatable {
     public var mutationID: String
-    public var eventCursor: String
+    public var observedThrough: String
     public var effects: [MutationEffect]
 }
 
-public struct WorkspaceEvent: Codable, Sendable, Equatable {
-    public var cursor: String
-    /// Scope the event belongs to; one process-wide stream orders all scopes.
-    public var tree: String?
-    public var kind: String
+public struct WorkspaceChange: Codable, Sendable, Equatable {
     public var path: String
     public var previousPath: String?
     public var pageID: String?
@@ -397,6 +375,14 @@ public struct WorkspaceEvent: Codable, Sendable, Equatable {
     public var directoryRevision: String?
     public var origin: String
     public var mutationID: String?
+}
+
+public struct WorkspaceEvent: Codable, Sendable, Equatable {
+    public var cursor: String
+    /// Scope the event belongs to; one process-wide stream orders all scopes.
+    public var tree: String
+    public var kind: String
+    public var change: WorkspaceChange
 }
 
 public enum ObservedNodeUpdate: Sendable, Equatable {
@@ -421,30 +407,27 @@ public struct ArbordErrorValue: Codable, Sendable, Equatable {
     public var code: String
     public var message: String
     public var retryable: Bool
+    public var tree: String?
     public var path: String?
-    public var current: NodeSnapshot?
-    public var owners: [String]?
-    public var mutationID: String?
+    public var details: JSONValue?
 }
 
 public struct ArbordErrorEnvelope: Codable, Sendable, Equatable {
     public var error: String
     public var message: String
     public var retryable: Bool
-    public var path: String?
-    public var current: NodeSnapshot?
-    public var owners: [String]?
-    public var mutationID: String?
+    public var tree: String? = nil
+    public var path: String? = nil
+    public var details: JSONValue? = nil
 
     public var value: ArbordErrorValue {
         ArbordErrorValue(
             code: error,
             message: message,
             retryable: retryable,
+            tree: tree,
             path: path,
-            current: current,
-            owners: owners,
-            mutationID: mutationID
+            details: details
         )
     }
 }

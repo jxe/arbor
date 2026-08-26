@@ -7,8 +7,9 @@ import type {
   MutationRequest,
   NodeRef,
 } from "@arbor/core";
-import { PathEscapeError } from "@arbor/core";
+import { PathEscapeError, generateArborID } from "@arbor/core";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
+import { currentDeviceID } from "@arbor/stores";
 import { ResyncRequiredError } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { ArborService } from "./service.ts";
@@ -70,14 +71,41 @@ function errorResponse(
   status: number,
   details: Partial<Omit<ArbordErrorEnvelope, "error" | "message">> = {},
 ): Response {
-  return json({ error: code, message, retryable: false, ...details } satisfies ArbordErrorEnvelope, status);
+  const normalized = (() => {
+    switch (code) {
+      case "invalid-reference":
+      case "unsafe-path":
+      case "duplicate-body-representation": return "invalid-request";
+      case "credential-unavailable": return "unauthenticated";
+      case "not-materialized": return "not-found";
+      case "reserved-boundary":
+      case "duplicate-page-id":
+      case "stale-content-revision":
+      case "stale-directory-revision":
+      case "occupied-destination":
+      case "mutation-mismatch": return "conflict";
+      default: return code;
+    }
+  })();
+  const { retryable = false, tree, path, details: typedDetails } = details;
+  const normalizedDetails = normalized === "conflict" && normalized !== code
+    ? { kind: "workspace-revision", reason: code, ...(typeof typedDetails === "object" && typedDetails !== null ? typedDetails : {}) }
+    : typedDetails;
+  return json({
+    error: normalized,
+    message,
+    retryable,
+    ...(tree ? { tree } : {}),
+    ...(path ? { path } : {}),
+    ...(normalizedDetails === undefined ? {} : { details: normalizedDetails }),
+  } satisfies ArbordErrorEnvelope, status);
 }
 
 function assertSameOrigin(request: Request, url: URL): void {
   if (request.method === "GET" || request.method === "HEAD") return;
   const origin = request.headers.get("origin");
   if (origin && origin !== url.origin) {
-    throw new ProtocolError("unsafe-path", "Cross-origin workspace mutations are not allowed", 400, { path: url.pathname });
+    throw new ProtocolError("invalid-request", "Cross-origin workspace mutations are not allowed", 400, { path: url.pathname });
   }
 }
 
@@ -88,10 +116,10 @@ function queryRef(url: URL): NodeRef {
     throw new ProtocolError("invalid-reference", "Supply exactly one of path or pageID", 400);
   }
   const tree = url.searchParams.get("tree");
-  const scope = tree !== null ? { tree } : {};
+  if (!tree) throw new ProtocolError("invalid-request", "An explicit tree scope is required", 400);
   return path !== null
-    ? { ...scope, path }
-    : { ...scope, pageID: pageID!, ...(url.searchParams.has("pathHint") ? { pathHint: url.searchParams.get("pathHint")! } : {}) };
+    ? { tree, path }
+    : { tree, pageID: pageID!, ...(url.searchParams.has("pathHint") ? { pathHint: url.searchParams.get("pathHint")! } : {}) };
 }
 
 function decodeMutation(value: unknown): MutationRequest {
@@ -111,7 +139,7 @@ function decodeMutation(value: unknown): MutationRequest {
     validateOperation(operation);
   }
   const contentCount = input.operations.filter((operation) =>
-    operation.op === "writeMarkdown" || operation.op === "restoreRecovery"
+    operation.op === "writeMarkdown" || operation.op === "writeText" || operation.op === "restoreRecovery"
     || operation.op === "ensureDocumentIdentity"
   ).length;
   if (contentCount > 0 && (contentCount !== 1 || input.operations.length !== 1)) {
@@ -121,54 +149,11 @@ function decodeMutation(value: unknown): MutationRequest {
       422,
     );
   }
-  const systemCount = input.operations.filter((operation) =>
-    operation.op === "connectCommunity" || operation.op === "claimProfile"
-    || operation.op === "disconnectCommunity" || operation.op === "createGroupProfile"
-    || operation.op === "promoteTree" || operation.op === "placeTree"
-    || operation.op === "setTreeAccess"
-  ).length;
-  if (systemCount > 0 && (systemCount !== 1 || input.operations.length !== 1)) {
-    throw new ProtocolError(
-      "unsupported-operation",
-      "A system mutation contains exactly one operation and cannot be mixed with workspace operations",
-      422,
-    );
-  }
   return input as MutationRequest;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function isLocalUserPath(value: unknown): value is string {
-  return typeof value === "string"
-    && (value.startsWith("/") || value === "~" || value.startsWith("~/"));
-}
-
-function isShareAudience(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  if (value.kind === "private") return true;
-  if (value.kind === "everyone") return ["read", "write"].includes(String(value.access));
-  if (value.kind === "profile") {
-    return typeof value.locator === "string" && ["read", "write"].includes(String(value.access));
-  }
-  if (value.kind !== "rules" || !Array.isArray(value.rules) || value.rules.length === 0) return false;
-  let everyone = 0;
-  const profiles = new Set<string>();
-  for (const rule of value.rules) {
-    if (!isRecord(rule) || !isRecord(rule.subject) || !["read", "write"].includes(String(rule.access))) return false;
-    if (rule.subject.kind === "everyone") {
-      everyone += 1;
-      if (everyone > 1) return false;
-    } else if (rule.subject.kind === "profile" && typeof rule.subject.locator === "string" && rule.subject.locator) {
-      if (profiles.has(rule.subject.locator)) return false;
-      profiles.add(rule.subject.locator);
-    } else {
-      return false;
-    }
-  }
-  return true;
 }
 
 function validateRef(value: unknown, field: string): asserts value is NodeRef {
@@ -182,7 +167,8 @@ function validateRef(value: unknown, field: string): asserts value is NodeRef {
     || (hasPath && (typeof value.path !== "string" || !value.path))
     || (hasPageID && (typeof value.pageID !== "string" || !value.pageID))
     || (value.pathHint !== undefined && typeof value.pathHint !== "string")
-    || (value.tree !== undefined && (typeof value.tree !== "string" || !value.tree))
+    || typeof value.tree !== "string"
+    || !value.tree
   ) {
     throw new ProtocolError("invalid-reference", `${field} must contain exactly one non-empty path or pageID`, 400);
   }
@@ -238,6 +224,12 @@ function validateOperation(value: unknown): void {
     throw new ProtocolError("invalid-reference", "Every operation requires an op discriminator", 400);
   }
   switch (value.op) {
+    case "writeText":
+      validateRef(value.ref, "writeText.ref");
+      if (typeof value.baseContentRevision !== "string" || typeof value.source !== "string") {
+        throw new ProtocolError("invalid-request", "writeText requires baseContentRevision and source", 400);
+      }
+      return;
     case "writeMarkdown":
       validateRef(value.ref, "writeMarkdown.ref");
       if (typeof value.baseContentRevision !== "string" || typeof value.source !== "string") {
@@ -249,13 +241,15 @@ function validateOperation(value: unknown): void {
       validateSourceEdits(value.sourceEdits);
       return;
     case "createDirectory":
-      if (typeof value.path !== "string" || !value.path) {
+      if (typeof value.tree !== "string" || !value.tree || typeof value.path !== "string" || !value.path) {
         throw new ProtocolError("invalid-reference", "createDirectory requires path", 400);
       }
       return;
     case "createMarkdown":
       if (
-        typeof value.path !== "string"
+        typeof value.tree !== "string"
+        || !value.tree
+        || typeof value.path !== "string"
         || !value.path
         || (value.source !== undefined && typeof value.source !== "string")
         || "blocks" in value
@@ -295,93 +289,6 @@ function validateOperation(value: unknown): void {
       validateRef(value.ref, "ensureDocumentIdentity.ref");
       if (typeof value.baseContentRevision !== "string") {
         throw new ProtocolError("invalid-reference", "ensureDocumentIdentity requires baseContentRevision", 400);
-      }
-      return;
-    case "connectCommunity":
-      if (typeof value.origin !== "string" || typeof value.accountToken !== "string" || !value.accountToken) {
-        throw new ProtocolError("invalid-reference", "connectCommunity requires origin and accountToken", 400);
-      }
-      try { new URL(value.origin); } catch {
-        throw new ProtocolError("invalid-reference", "connectCommunity origin must be a URL", 400);
-      }
-      return;
-    case "disconnectCommunity":
-      return;
-    case "claimProfile":
-      if (
-        typeof value.origin !== "string"
-        || typeof value.handle !== "string"
-        || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(value.handle)
-        || !isLocalUserPath(value.path)
-        || (value.displayName !== undefined && typeof value.displayName !== "string")
-      ) {
-        throw new ProtocolError("invalid-reference", "claimProfile requires origin, handle, and an absolute or home-relative path", 400);
-      }
-      try { new URL(value.origin); } catch {
-        throw new ProtocolError("invalid-reference", "claimProfile origin must be a URL", 400);
-      }
-      return;
-    case "createGroupProfile":
-      if (
-        typeof value.handle !== "string"
-        || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(value.handle)
-        || !isLocalUserPath(value.path)
-        || (value.displayName !== undefined && typeof value.displayName !== "string")
-      ) {
-        throw new ProtocolError("invalid-reference", "createGroupProfile requires a handle and an absolute or home-relative path", 400);
-      }
-      return;
-    case "promoteTree":
-      if (
-        !isLocalUserPath(value.path)
-        || typeof value.canonicalPath !== "string"
-        || !value.canonicalPath.startsWith("/")
-        || !isShareAudience(value.audience)
-      ) {
-        throw new ProtocolError("invalid-reference", "promoteTree requires path, canonicalPath, and an explicit audience", 400);
-      }
-      return;
-    case "placeTree":
-      if (
-        typeof value.tree !== "string"
-        || !value.tree.startsWith("tr_")
-        || !isLocalUserPath(value.path)
-        || (value.endpoint !== undefined && typeof value.endpoint !== "string")
-        || (value.canonical !== undefined && typeof value.canonical !== "string")
-      ) {
-        throw new ProtocolError("invalid-reference", "placeTree requires a TreeID and an absolute or home-relative path", 400);
-      }
-      return;
-    case "removeTreePlacement":
-      if (
-        typeof value.path !== "string"
-        || !value.path.startsWith("/")
-        || (value.endpoint === undefined) !== (value.canonicalPath === undefined)
-        || (value.endpoint !== undefined && typeof value.endpoint !== "string")
-        || (value.canonicalPath !== undefined
-          && (typeof value.canonicalPath !== "string" || !value.canonicalPath.startsWith("/")))
-      ) {
-        throw new ProtocolError("invalid-reference", "removeTreePlacement requires an absolute path and an optional canonical pair", 400);
-      }
-      return;
-    case "resolveTreeConflict":
-      if (typeof value.tree !== "string" || !value.tree || !["local", "draft", "remote"].includes(String(value.choice))) {
-        throw new ProtocolError("invalid-reference", "resolveTreeConflict requires a tree and local, draft, or remote choice", 400);
-      }
-      return;
-    case "setTreeAccess":
-      if (
-        typeof value.tree !== "string"
-        || !value.tree.startsWith("tr_")
-        || !isRecord(value.subject)
-        || !["all", "everyone", "profile", "link", "entry"].includes(String(value.subject.kind))
-        || (value.subject.kind === "all" && value.access !== "none")
-        || (value.subject.kind === "profile" && typeof value.subject.locator !== "string")
-        || (value.subject.kind === "link" && typeof value.subject.secret !== "string")
-        || (value.subject.kind === "entry" && (typeof value.subject.id !== "string" || value.access !== "none"))
-        || !["none", "read", "write"].includes(String(value.access))
-      ) {
-        throw new ProtocolError("invalid-reference", "setTreeAccess requires a TreeID, subject, and access", 400);
       }
       return;
     default:
@@ -482,7 +389,43 @@ function startArborServer(
         assertSameOrigin(request, url);
 
         if (request.method === "GET" && url.pathname === "/v1/status") {
-          return json({ service: "arbord", version: "0.1.0", protocolVersion: "v1" });
+          const deviceID = await currentDeviceID();
+          return json({ service: "arbord", version: "0.1.0", protocolVersion: "v1", ...(deviceID ? { deviceID } : {}) });
+        }
+        if (request.method === "POST" && url.pathname === "/v1/tree-ids") {
+          return json({ id: generateArborID("tr") }, 201);
+        }
+        if (request.method === "GET" && url.pathname === "/v1/trees") {
+          return json(await service.treeList());
+        }
+        if (request.method === "GET" && url.pathname === "/v1/resolve") {
+          const locator = url.searchParams.get("locator");
+          if (!locator) throw new ProtocolError("invalid-request", "resolve requires locator", 400);
+          return json(await service.resolveLocator(locator));
+        }
+        if (request.method === "POST" && url.pathname === "/v1/bootstrap/claims") {
+          const body = await request.json() as { origin?: unknown; handle?: unknown; path?: unknown; displayName?: unknown };
+          if (
+            typeof body.origin !== "string" || typeof body.handle !== "string" || typeof body.path !== "string"
+            || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(body.handle)
+            || (body.displayName !== undefined && typeof body.displayName !== "string")
+          ) throw new ProtocolError("invalid-request", "Claim bootstrap requires origin, handle, and path", 400);
+          return json(await service.claimProfileBootstrap(body.origin, body.handle, body.path, body.displayName as string | undefined), 201);
+        }
+        if (request.method === "POST" && url.pathname === "/v1/bootstrap/pairings") {
+          return json(await service.createPairingBootstrap(), 201);
+        }
+        if (request.method === "POST" && url.pathname === "/v1/local/forget") {
+          await service.forgetLocalAccount();
+          return json({ forgotten: true });
+        }
+        const conflictResolution = /^\/v1\/conflicts\/([^/]+)\/resolve$/.exec(url.pathname);
+        if (conflictResolution && request.method === "POST") {
+          const body = await request.json() as { choice?: unknown };
+          if (!["local", "draft", "remote"].includes(String(body.choice))) {
+            throw new ProtocolError("invalid-request", "Conflict resolution requires local, draft, or remote", 400);
+          }
+          return json(await service.resolveTreeConflict(decodeURIComponent(conflictResolution[1]!), body.choice as "local" | "draft" | "remote"));
         }
         if (request.method === "GET" && url.pathname === "/v1/node") {
           return json(await service.snapshot(queryRef(url)));
@@ -490,17 +433,14 @@ function startArborServer(
         if (request.method === "GET" && url.pathname === "/v1/file") {
           return fileResponse(request, await service.file(queryRef(url)), { noStore: true });
         }
-        if (request.method === "GET" && url.pathname === "/v1/remote") {
-          const locator = url.searchParams.get("url");
-          if (!locator) throw new ProtocolError("invalid-reference", "Remote URL is required", 400);
-          return json(await service.remoteSnapshot(locator));
-        }
         if (request.method === "GET" && url.pathname === "/v1/children") {
           return json(await service.children(queryRef(url), url.searchParams.get("cursor")));
         }
         if (request.method === "GET" && url.pathname === "/v1/search") {
+          const tree = url.searchParams.get("tree");
+          if (!tree) throw new ProtocolError("invalid-request", "search requires explicit tree scope", 400);
           return json(await service.searchPage(
-            url.searchParams.get("tree") ?? undefined,
+            tree,
             url.searchParams.get("q") ?? "",
             url.searchParams.get("cursor"),
           ));
@@ -522,23 +462,22 @@ function startArborServer(
           const query = url.searchParams.get("after");
           const header = request.headers.get("last-event-id");
           if (query && header && query !== header) {
-            throw new ProtocolError("invalid-reference", "after and Last-Event-ID disagree", 400);
+            throw new ProtocolError("invalid-request", "after and Last-Event-ID disagree", 400);
           }
           const after = query ?? header;
-          service.events.validate(after);
+          try {
+            service.events.validate(after);
+          } catch (error) {
+            if (!(error instanceof ResyncRequiredError)) throw error;
+            const cursor = service.events.currentCursor();
+            const event = { cursor, tree: "system", kind: "resync-required", change: { after } };
+            return new Response(`id: ${cursor}\nevent: resync-required\ndata: ${JSON.stringify(event)}\n\n`, {
+              headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" },
+            });
+          }
           return new Response(service.events.stream(after, request.signal), {
-            headers: { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" },
+            headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" },
           });
-        }
-        if (request.method === "GET" && url.pathname === "/v1/community/devices") {
-          return json(await service.communityDevices());
-        }
-        if (request.method === "POST" && url.pathname === "/v1/community/pairings") {
-          return json(await service.createCommunityPairing(), 201);
-        }
-        const communityDevice = /^\/v1\/community\/devices\/([^/]+)$/.exec(url.pathname);
-        if (request.method === "DELETE" && communityDevice) {
-          return json(await service.revokeCommunityDevice(decodeURIComponent(communityDevice[1]!)));
         }
         if (request.method === "POST" && url.pathname === "/v1/mutations") {
           return json(await service.executeMutation(decodeMutation(await request.json())));
@@ -595,24 +534,35 @@ function startArborServer(
         return new Response(await readFile(index), { headers: { "content-type": MIME[".html"] ?? "text/html" } });
       } catch (error) {
         if (error instanceof ProtocolError) {
-          return errorResponse(error.code, error.message, error.status, { retryable: error.details.retryable ?? false, ...error.details });
+          const { retryable = false, tree, path, ...typedDetails } = error.details;
+          return errorResponse(error.code, error.message, error.status, {
+            retryable,
+            tree,
+            path,
+            ...(Object.keys(typedDetails).length ? { details: typedDetails } : {}),
+          });
         }
         if (error instanceof ResyncRequiredError) {
           return errorResponse("resync-required", error.message, 409, { retryable: true });
         }
         if (error instanceof RevisionConflictError) {
-          const current = workspace ? await workspace.snapshot({ path: error.current.path }) : undefined;
-          return errorResponse("stale-content-revision", error.message, 409, { path: error.current.path, current });
+          const current = workspace ? await workspace.snapshot({ tree: workspace.tree, path: error.current.path }) : undefined;
+          return errorResponse("stale-content-revision", error.message, 409, {
+            tree: workspace?.tree,
+            path: error.current.path,
+            details: { kind: "workspace-revision", current },
+          });
         }
         if (error instanceof FsConflictError) {
           const mapped = fsErrorCode(error);
           const current = workspace && error.details.current
-            ? await workspace.snapshot({ path: error.details.current.node.path }).catch(() => undefined)
+            ? await workspace.snapshot({ tree: workspace.tree, path: error.details.current.node.path }).catch(() => undefined)
             : undefined;
           return errorResponse(mapped.code, error.message, mapped.status, {
             path: error.details.path,
             retryable: mapped.retryable ?? false,
-            current,
+            tree: workspace?.tree,
+            details: { kind: "workspace-revision", current },
           });
         }
         if (error instanceof PathEscapeError) return errorResponse("unsafe-path", error.message, 400);

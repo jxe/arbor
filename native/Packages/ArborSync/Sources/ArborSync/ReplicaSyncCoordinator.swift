@@ -73,7 +73,8 @@ public actor ReplicaSyncCoordinator {
             return try await synchronize(admission: nil)
         }
         let current = try await transport.currentSnapshot(tree: event.tree.id)
-        guard let update = current.tree.update else { throw ReplicaSyncError.replicaIsNotPlaced }
+        let update = current.tree.update
+        guard !update.isEmpty else { throw ReplicaSyncError.replicaIsNotPlaced }
         let latestHeads = try await replica.heads()
         if latestHeads.pendingRoot != nil || latestHeads.materializedRoot != heads.materializedRoot {
             return try await synchronize(admission: nil)
@@ -422,7 +423,8 @@ public enum ReplicaPlacementService {
         transport: any ReplicaAuthorityTransport
     ) async throws -> ArborReplica {
         let current = try await transport.currentSnapshot(tree: tree.id)
-        guard let update = current.tree.update else { throw ReplicaSyncError.replicaIsNotPlaced }
+        let update = current.tree.update
+        guard !update.isEmpty else { throw ReplicaSyncError.replicaIsNotPlaced }
         let replica = try await ArborReplica.open(at: replicaRoot, tree: TreeID(rawValue: tree.id))
         let replacement = try SnapshotBridge.replacement(
             snapshot: current.snapshot,

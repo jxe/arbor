@@ -1,192 +1,182 @@
 # Arbord REST v1
-*Part of the [Arbor spec](../spec.md): the language-neutral local client boundary.*
+*Part of the [Arbor spec](../spec.md): the loopback contract for explicit-scope resolution, reads, authored mutations, account bootstrap, and observation.*
 
-REST v1 is served by the local arbord over loopback. It is the persistence, resolution, mutation, and observation authority for local clients. A client does not need repository source or reference-client code to implement this contract.
+Arbord binds to loopback and rejects cross-origin browser requests. JSON is
+UTF-8. Request URLs never contain credentials or access-link secrets.
 
-All request and response bodies are UTF-8 JSON unless a route explicitly specifies SSE or multipart data. Unknown descriptive response fields are ignored. Missing required fields, unknown request fields, invalid unions, and ambiguous references are rejected.
+## 1. Shared values
 
-```text
-GET /v1/status
-```
+REST v1 uses the transport-neutral types also used by [the wire](wire.md):
 
 ```ts
-type ArbordStatus = {
-  service: "arbord";
-  version: string;
-  protocolVersion: "v1";
+type TreeID = string;
+type TreeRef = "local" | "system" | TreeID;
+type LogicalPath = string;
+type EventCursor = string;
+type Hash = `sha256:${string}`;
+type AccessLevel = "none" | "read" | "write";
+type ReadWriteAccess = "read" | "write";
+
+type TreeKind =
+  | "community-profile"
+  | "person-profile"
+  | "group-profile"
+  | "shared-subtree"
+  | "account-configuration";
+
+type TreeDescriptor = {
+  id: TreeID;
+  kind: TreeKind;
+  access: AccessLevel;
+  canonical: {
+    locator: string;
+    path: LogicalPath;
+    endpoint: string;
+    httpURL: string;
+    parentTree: TreeID | null;
+  } | null;
+};
+
+type LocalTreeDescriptor = TreeDescriptor & {
+  name: string;
+  placement: "placed" | "replica" | "remote";
+  osPath?: string;
+  sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
+  missing?: boolean;
+};
+
+type RemoteTreeDescriptor = TreeDescriptor & {
+  ref: Hash;
+  update: string;
 };
 ```
 
-The status route is the loopback readiness and compatibility probe. It does not open a workspace, mutate state, or expose workspace paths.
+Only actual Arbor `TreeID`s receive descriptors. `local` and `system` are
+explicit scopes, not pretend trees. Hosted ordinary trees have non-null
+canonical data; the private account-configuration tree has `canonical: null`.
 
-## 1. Common values and resolution
+Every `NodeRef`, structural or content operation, result, event, effect, and
+relevant error names its tree explicitly. Omitted-tree defaults are invalid.
 
 ```ts
-type TreeRef = "local" | "system" | string; // string is an opaque TreeID
-type LogicalPath = string;                   // decoded, absolute within tree
-type PageID = string;                        // opaque, non-empty
-type Hash = `sha256:${string}`;
-type EventCursor = string;                   // opaque outside event APIs
-type QueryCursor = string;                   // opaque outside one published query state
-
 type NodeRef =
-  | { tree?: TreeRef; path: LogicalPath }
-  | { tree?: TreeRef; pageID: PageID; pathHint?: LogicalPath };
+  | { tree: TreeRef; path: LogicalPath }
+  | { tree: TreeRef; pageID: string; pathHint?: LogicalPath };
 
 type ResolvedNodeRef = {
   tree: TreeRef;
   path: LogicalPath;
-  pageID?: PageID;
+  pageID?: string;
 };
-```
 
-Six-character lowercase `PageID`s are legacy values, not validation grammar. A `revision` selects immutable read-only history. An external URL is percent-decoded exactly once by the external parser; `LogicalPath` values in REST are already decoded and may contain literal percent characters.
-
-Every reference leaving arbord retains its resolved `tree`. A mounted or composed child never inherits a parent's scope by omission. If both `path` and `pageID` are supplied, the ID is authoritative within the explicit tree; arbord returns the current readable path. Ambiguous or duplicate identity fails rather than choosing a candidate.
-
-```text
-GET /v1/resolve?locator={ArborLocator}
-```
-
-```ts
-type Resolution = {
+type LocatorResolution = {
   ref: ResolvedNodeRef;
-  canonical?: string;
-  endpoint?: string;
-  writable: boolean;
+  enclosingTree?: TreeDescriptor;
   historical: boolean;
   observedThrough: EventCursor;
 };
 ```
 
-## 2. Trees and nodes
+Arbord includes `enclosingTree` for Arbor trees and omits it for `local` and
+`system`. Clients derive writability from effective access and historical state;
+resolution does not duplicate a `writable` flag.
 
-```text
-GET /v1/trees
-GET /v1/node?tree={tree}&path={path}[&pageID={id}][&revision={hash}]
-GET /v1/file?tree={tree}&path={path}
-GET /v1/children?tree={tree}&path={path}[&revision={hash}][&cursor={cursor}]
-GET /v1/search?tree={tree}&query={query}[&cursor={cursor}]
-GET /v1/backlinks?tree={tree}&path={path}[&pageID={id}][&cursor={cursor}]
-GET /v1/collection?tree={tree}&path={path}[&cursor={cursor}]
-GET /v1/recovery?tree={tree}[&path={path}][&cursor={cursor}]
-```
+## 2. Access and errors
+
+Configuration and mutation requests use rules; safe administrative responses
+use entries:
 
 ```ts
-type AccessLevel = "none" | "read" | "write";
+type AccessSubject =
+  | { kind: "everyone" }
+  | { kind: "profile"; tree: TreeID }
+  | { kind: "link"; digest: Hash };
+
+type AccessRule = { subject: AccessSubject; access: ReadWriteAccess };
+
+type SafeAccessSubject =
+  | { kind: "everyone" }
+  | { kind: "profile"; tree: TreeID; locator?: string }
+  | { kind: "link" };
 
 type AccessEntry = {
   id: string;
-  kind: "everyone" | "profile" | "link";
-  access: "read" | "write";
-  locator?: string;
-};
-
-type TreeDescriptor = {
-  id: string;
-  name: string;
-  osPath?: string;
-  canonical?: string;
-  canonicalPath?: string;
-  httpURL?: string;
-  endpoint?: string;
-  publicAccess?: AccessLevel;
-  access?: "read" | "write";
-  accessEntries?: AccessEntry[];
-  placement: "local" | "shared" | "remote";
-  sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
-  legacy?: boolean;
-  missing?: boolean;
-};
-
-type BodyState = "stored" | "implicit";
-
-type MarkdownDocument = {
-  source: string; // authoritative complete operational Markdown, including frontmatter
-  frontmatter: Record<string, unknown>; // provider-derived read view
-  frontmatterSource?: string;
-  bodySource: string;
-  blocks: ArborBlock[]; // provider-derived read view; never authored mutation input
-};
-
-type NodeSnapshot = {
-  ref: ResolvedNodeRef;
-  tree: TreeRef;
-  enclosingTree?: TreeDescriptor;
-  path: LogicalPath;
-  name: string;
-  kind: "markdown" | "directory" | "file" | "collection" | "database";
-  writable: boolean;
-  materialization: "available" | "placeholder";
-  bodyState: BodyState;
-  bodyOrigin?: "sibling" | "index";
-  contentRevision?: Hash;
-  directoryRevision?: Hash;
-  document?: MarkdownDocument;
-  collection?: CollectionSummary;
-  diagnostics: Diagnostic[];
-  observedThrough: EventCursor;
-};
-
-type TreeChild = {
-  ref: ResolvedNodeRef;
-  name: string;
-  path: LogicalPath;
-  kind: "markdown" | "directory" | "collection" | "database" | "file";
-  materialization: "available" | "placeholder";
-  pageID?: PageID;
-};
-
-type Page<T> = {
-  items: T[];
-  nextCursor?: string;
-  observedThrough: EventCursor;
+  subject: SafeAccessSubject;
+  access: ReadWriteAccess;
 };
 ```
 
-`canonicalPath` is the tree's current public boundary path, distinct from its full canonical locator. `accessEntries` carries safe entry metadata; link secrets never appear. `bodyOrigin` is optional diagnostic provenance and is meaningful only when a body is stored. `bodyState: "implicit"` means no body bytes exist yet, although `document.source` is still the complete operational directory Markdown. Reading it never materializes a file.
+`none` means removal and is not a stored rule. A link entry exposes neither raw
+secret nor digest.
 
-`GET /v1/file` returns the exact current bytes of an ordinary file and is the
-provider-neutral byte surface for native clients. Its body is not JSON. The
-response uses the file's media type when known, otherwise
-`application/octet-stream`, and carries the current object revision as an
-`ETag`. A directory, Markdown document, missing file, or historical reference
-does not fall through to a rendered representation: it returns the ordinary
-REST error for that reference. The route exposes current materialization only;
-REST v1 does not provide historical ordinary-file access.
+Every non-2xx JSON error uses:
 
-`MarkdownDocument`, `CollectionSummary`, and `Diagnostic` use the corresponding language-neutral shapes in the fixtures. Children, search hits, backlinks, collection rows, and recovery results carry explicit `ResolvedNodeRef` or equivalent explicit `tree` and path fields. Pagination cursors are opaque and scoped to their route and query. A cursor from another query is invalid.
+```ts
+type ArborError<TDetails = unknown> = {
+  error: string;
+  message: string;
+  retryable: boolean;
+  tree?: TreeRef;
+  path?: LogicalPath;
+  details?: TDetails;
+};
+```
 
-### Local community device management
+Shared codes are `invalid-request`, `unauthenticated`, `permission-denied`,
+`not-found`, `conflict`, `read-only`, `unsupported-operation`,
+`resync-required`, `rate-limited`, `quota-exceeded`, and `internal-error`.
+Conflict details are discriminated as `authority-update`,
+`workspace-revision`, or `account-configuration`; domain-specific fields live
+inside `details`, not alongside the envelope. Clients tolerate unknown codes
+and fields but never reinterpret malformed required data.
+
+## 3. Status, trees, and resolution
 
 ```text
-GET    /v1/community/devices
-POST   /v1/community/pairings
-DELETE /v1/community/devices/{deviceID}
+GET  /v1/status
+POST /v1/tree-ids
+GET  /v1/trees
+GET  /v1/resolve?locator={ArborLocator}
 ```
 
-These loopback, same-origin routes proxy the connected authority using arbord's operating-system-held credential. They expose the wire protocol's safe device metadata and one-time pairing offer to the local account UI; they never expose the current device credential. A missing or unavailable credential fails with the ordinary local community error. Claiming a pairing is a direct authority operation performed by the new device, not a local arbord route.
+Status returns the service and protocol versions plus the current `DeviceID`
+when connected. `POST /v1/tree-ids` returns an unreserved client-generated
+`{ id }`; it edits no file and reserves no authority state. New IDs are `tr_`
+plus 26 lowercase base32 characters encoding 128 random bits.
 
-Normative examples:
+`GET /v1/trees` returns `{ snapshot: LocalTreeDescriptor[], observedThrough }`.
+It includes placed trees, pathless replicas, known remote placements, and the
+implicit authenticated account-configuration tree. It never invents a
+descriptor for `local` or `system`.
 
-| Surface | Fixture |
-|---|---|
-| node | [node.json](fixtures/node.json) |
-| local node | [node-untracked.json](fixtures/node-untracked.json) |
-| system node | [node-system-tree.json](fixtures/node-system-tree.json) |
-| children | [children.json](fixtures/children.json) |
-| search | [search.json](fixtures/search.json) |
-| backlinks | [backlinks.json](fixtures/backlinks.json) |
-| collection | [collection.json](fixtures/collection.json) |
-| recovery | [recovery.json](fixtures/recovery.json) |
+Resolution returns `LocatorResolution`. A remote unplaced result is read
+transiently using its explicit tree and authority; it does not create a virtual
+tree, placement, or directory.
 
-## 3. Complete directory source
+## 4. Node reads
 
-For a physical directory, `document.source` already contains the stored/implicit body plus one ordinary appended link for each immediate child not represented by its first eligible standalone link. The deterministic rules are in [format.md](format.md#complete-directory-documents). Clients do not hydrate or project another document.
+```text
+GET /v1/node?tree={TreeRef}&path={path}[&pageID={id}][&revision={hash}]
+GET /v1/file?tree={TreeRef}&path={path}[&revision={hash}]
+GET /v1/children?tree={TreeRef}&path={path}[&revision={hash}][&cursor={cursor}]
+GET /v1/search?tree={TreeRef}&q={query}[&cursor={cursor}]
+GET /v1/backlinks?tree={TreeRef}&path={path}[&pageID={id}][&cursor={cursor}]
+GET /v1/collection?tree={TreeRef}&path={path}[&table={name}][&cursor={cursor}]
+GET /v1/recovery?tree={TreeRef}[&path={path}][&recursive=true][&cursor={cursor}]
+```
 
-For directory-backed nodes, `contentRevision` is an opaque hash over exact stored body bytes and canonical immediate-child descriptors. A successful write returns the exact accepted complete source and a new revision. `directoryRevision` may mirror this value for structural consumers, but it is not a separate index-ordering API.
+Every route requires `tree`, even where it is `local` or `system`. Logical
+paths are decoded exactly once. Revision reads are immutable and read-only.
+Mutable JSON reads include `observedThrough`; lists and bare arrays use explicit
+snapshot/page envelopes. `GET /v1/file` returns exact bytes and does not need an
+independent cursor because its guarding content revision is obtained from the
+node snapshot.
 
-## 4. Mutations
+Directory source and logical-node rules are defined in [format.md](format.md).
+Children, search, backlinks, collections, recovery entries, mounted boundaries,
+events, and effects all retain explicit tree scope.
+
+## 5. Authored mutations
 
 ```text
 POST /v1/mutations
@@ -194,229 +184,112 @@ POST /v1/assets
 POST /v1/imports
 ```
 
-```ts
-type MutationRequest = { mutationID: string; operations: WorkspaceOperation[] };
-```
+`/v1/mutations` accepts `{ mutationID, operations }`. `mutationID` is a stable
+client-generated idempotency identity for one exact serialized intent.
+Operations include ordinary content and structural actions: `writeText`,
+`writeMarkdown`, `create`, `move`, `copy`, `trash`, `restore`, and supported
+collection mutations. Each operation includes explicit tree-scoped references
+and the appropriate content or directory base revision.
 
-A request is exactly one of:
-
-- one content operation;
-- one non-empty structural batch in one resolved tree and durability domain; or
-- one singleton system operation.
-
-Content operations are:
+`writeText` is the exact guarded UTF-8 operation for ordinary files such as the
+configuration YAML:
 
 ```ts
-type ContentOperation =
-  | {
-      op: "writeMarkdown";
-      ref: NodeRef;
-      baseContentRevision: Hash;
-      source: string;
-      sourceEdits?: Array<{
-        offset: number;
-        length: number;
-        replacement: string;
-        expected?: string;
-      }>;
-    }
-  | { op: "restoreRecovery"; ref: NodeRef; hash: Hash; baseContentRevision?: Hash }
-  | { op: "ensureDocumentIdentity"; ref: NodeRef; baseContentRevision: Hash };
-```
-
-`sourceEdits`, when present, are optional provenance for a source-preserving editor admission. Offsets and lengths are nonnegative JSON safe integers addressing UTF-8 bytes in the exact source named by `baseContentRevision`. Edits are ordered, non-overlapping, in bounds, and interpreted simultaneously against that source. `expected`, when present, must equal the replaced UTF-8 text. Arbord applies the edits and requires the byte-exact result to equal `source`; otherwise it rejects the request before durable intent. A client may omit `sourceEdits`, and arbord may discard valid provenance when later provider behavior prevents it from proving the corresponding immutable base/result file objects.
-
-Structural operations are:
-
-```ts
-type StructuralOperation =
-  | { op: "createDirectory"; tree?: TreeRef; path: LogicalPath }
-  | { op: "createMarkdown"; tree?: TreeRef; path: LogicalPath; source?: string }
-  | { op: "rename"; ref: NodeRef; name: string }
-  | { op: "move"; refs: NodeRef[]; destination: NodeRef }
-  | { op: "copy"; refs: NodeRef[]; destination: NodeRef }
-  | { op: "trash"; refs: NodeRef[] }
-  | { op: "restore"; refs: NodeRef[] };
-```
-
-Reference arrays are non-empty. Structural operations use explicit scopes. Physical move names sources and a destination container; exact child-link placement is a subsequent `writeMarkdown` source mutation. Cross-tree transfer is explicit and cannot occur by placing two scopes in one batch.
-
-System operations include:
-
-```ts
-type SystemOperation =
-  | { op: "connectCommunity"; origin: string; accountToken: string }
-  | { op: "disconnectCommunity" }
-  | { op: "claimProfile"; origin: string; handle: string; path: string; displayName?: string }
-  | { op: "createGroupProfile"; handle: string; path: string; displayName?: string }
-  | { op: "promoteTree"; path: string; canonicalPath: string; audience: ShareAudience }
-  | { op: "placeTree"; tree: string; path: string; endpoint?: string; canonical?: string }
-  | { op: "removeTreePlacement"; path: string; endpoint?: string; canonicalPath?: string }
-  | { op: "setTreeAccess"; tree: string; subject: AccessSubject; access: AccessLevel };
-
-type ShareAudience =
-  | { kind: "private" }
-  | { kind: "everyone"; access: "read" | "write" }
-  | { kind: "profile"; locator: string; access: "read" | "write" }
-  | { kind: "rules"; rules: AccessRule[] };
-type AccessRule = {
-  subject: { kind: "everyone" } | { kind: "profile"; locator: string };
-  access: "read" | "write";
-};
-type AccessSubject =
-  | { kind: "everyone" }
-  | { kind: "profile"; locator: string }
-  | { kind: "link"; secret: string }
-  | { kind: "entry"; id: string }
-  | { kind: "all" };
-```
-
-`{kind:"entry", id}` with `access:"none"` revokes one access entry by stable entry ID. `{kind:"all"}` is valid only with `none` and removes every explicit audience entry. Profile locators resolve to stable profile `TreeID`s. Raw link secrets are generated by the client; only their digest crosses a durable mutation boundary.
-
-`promoteTree` creates the child identity, canonical boundary, administering authority, and complete initial access rules atomically. `placeTree` verifies the canonical name and raw TreeID before materialization. `removeTreePlacement` removes only the local relationship described in [system.md](system.md#placement-registry-treesyaml). Arbord hashes a supplied link `secret` before recording durable intent and excludes it from receipts, events, errors, diagnostics, and logs.
-
-The normative request is [mutation.json](fixtures/mutation.json); [operations.json](fixtures/operations.json) covers operation families. [mixed-mutation.json](fixtures/mixed-mutation.json) is rejected. An implementation validates the complete batch before recording durable intent.
-
-Multipart asset and import metadata use [asset-metadata.json](fixtures/asset-metadata.json) and [import-metadata.json](fixtures/import-metadata.json). Retrying a transfer reuses the same mutation ID, metadata, ordering, bytes, and digests.
-
-## 5. Durability, idempotency, and receipts
-
-A successful authored mutation acknowledgement means both its effects and receipt survive immediate arbord termination. Arbord records an unambiguous normalized request identity before materialization and a completed receipt before returning success.
-
-Retrying the same mutation ID with the same complete request returns the original receipt without applying intent twice. Reusing it with any different operation, precondition, metadata, or bytes returns `mutation-mismatch`. The contract must retain enough completed identity to distinguish a retry from new intent; exact journal layout and retention machinery are not normative.
-
-```ts
-type MutationReceipt = {
-  mutationID: string;
-  eventCursor: EventCursor;
-  effects: Array<{
-    kind: "created" | "updated" | "moved" | "deleted";
-    tree: TreeRef;
-    path: LogicalPath;
-    previousPath?: LogicalPath;
-    pageID?: PageID;
-    contentRevision?: Hash;
-    directoryRevision?: Hash;
-  }>;
+type WriteText = {
+  op: "writeText";
+  ref: { tree: TreeRef; path: LogicalPath };
+  baseContentRevision: string;
+  source: string;
 };
 ```
 
-One receipt covers the complete logical operation, including sibling body/directory effects. Effects are in logical publication order. See [receipt.json](fixtures/receipt.json).
+Arbord rejects `writeText` for non-UTF-8 content, protected private state,
+historical reads, and stale revisions. A successful edit of account YAML is an
+ordinary file edit locally; configuration governance is applied when the
+candidate account-tree update is synchronized.
 
-## 6. Errors
+Markdown writes submit the complete operational source and its exact
+`baseContentRevision`. Optional ordered nonoverlapping UTF-8 source edits may
+prove editor provenance, but the complete source remains authoritative.
+Structural operations guard the relevant directory revisions. Multipart assets
+and imports contain explicit destination `NodeRef`s and are idempotent under the
+same mutation identity rules.
 
-Every non-success JSON response uses:
+A successful receipt includes the mutation identity, committed tree-scoped
+result/effects, and `observedThrough`. Acknowledgement means the authored intent
+and eventual receipt are crash-recoverable. An exact replay returns the same
+receipt. Reusing an ID for different bytes is `conflict`; ambiguous transport
+failure permits only exact replay.
 
-```ts
-type ArbordError = {
-  error: string;
-  message: string;
-  retryable: boolean;
-  path?: LogicalPath;
-  tree?: TreeRef;
-  current?: NodeSnapshot;
-  owners?: LogicalPath[];
-  mutationID?: string;
-};
+Steady-state placement, ACL, canonical-boundary, profile/community,
+administrator, and device-revocation changes are not special arbord mutations.
+Human clients and the CLI perform source-preserving transformations of
+`account.yaml`, `trees.yaml`, or the authorized device file. REST v1 therefore
+has no `connectCommunity`, `disconnectCommunity`, `createGroupProfile`,
+`promoteTree`, `placeTree`, `removeTreePlacement`, `setTreeAccess`, local device
+list/revoke proxy, or `/v1/remote` route.
+
+## 6. Bootstrap and local recovery
+
+Narrow operations remain for states that cannot yet be represented by editing
+an authenticated configuration tree:
+
+```text
+POST /v1/bootstrap/claims
+POST /v1/bootstrap/pairings
+POST /v1/local/forget
+POST /v1/conflicts/{TreeID}/resolve
 ```
 
-`error` is the stable application-level discriminator. Clients switch on that string and may ignore additional top-level context fields they do not understand.
+Claim bootstrap generates the profile, configuration, and device identities
+and device credential locally, stores the raw credential immediately in the OS
+credential store, constructs the initial snapshots, and calls the authority
+claim endpoint. It is restart-idempotent and never rewrites user-authored YAML
+to insert IDs or normalize it. Pairing creates or claims the authority pairing
+while similarly keeping the raw new-device credential local. Local forget
+disconnects this data home without revoking the authority device or deleting
+user files. Typed conflict resolution names an exact stored private conflict
+identity and never adds a resolution field to YAML.
 
-Stable v1 codes are:
+## 7. Snapshot then observe
 
-`invalid-reference`, `not-found`, `credential-unavailable`, `duplicate-page-id`, `duplicate-body-representation`, `stale-content-revision`, `stale-directory-revision`, `occupied-destination`, `reserved-boundary`, `unsafe-path`, `mutation-mismatch`, `read-only`, `permission-denied`, `not-materialized`, `unsupported-operation`, `resync-required`, and `internal-error`.
+All mutable snapshots establish an observation boundary. Clients first read a
+snapshot and then observe strictly after its cursor:
 
-Clients preserve unknown future codes. Errors and diagnostics never expose raw credentials, access-link secrets, transaction paths, or private-state layout. [error.json](fixtures/error.json) deliberately uses an unknown code.
-
-| Status | Meaning |
-|---|---|
-| `200` | read or committed/idempotently replayed mutation succeeded |
-| `400` | malformed or unsafe request/reference/cursor |
-| `403` | permission denied |
-| `404` | node or entry absent |
-| `405` | route exists but method is not REST v1 |
-| `409` | revision, identity, placement, anchor, boundary, or mutation conflict |
-| `422` | well-formed but read-only or unsupported operation |
-| `500` | undeclared internal failure |
-
-## 7. Lossless observation
-
-Every read response includes `observedThrough`. A client following events strictly after that cursor cannot miss a later visible change.
+```ts
+type ObservationEvent<TKind extends string, TChange> = {
+  cursor: EventCursor;
+  tree: TreeRef;
+  kind: TKind;
+  change: TChange;
+};
+```
 
 ```text
 GET /v1/events?after={cursor}
 Last-Event-ID: {cursor}
 ```
 
-The query and header are equivalent; conflicting values are invalid. SSE frames are UTF-8, separated by a blank line. Multiple `data:` lines join with newline before JSON decoding. Comments and keepalives are ignored.
+`after` and `Last-Event-ID` are equivalent; supplying both with different
+values is `invalid-request`. The stream is UTF-8 SSE. Frames are separated by a
+blank line; multiple `data:` lines join with newline; comments and keepalives
+are ignored. Every semantic frame satisfies `id === data.cursor` and
+`event === data.kind`. Events invalidate or describe domain-specific local
+changes but do not replace a confirming snapshot.
 
-```ts
-type WorkspaceEvent = {
-  cursor: EventCursor;
-  tree: TreeRef;
-  kind: "created" | "updated" | "moved" | "deleted" | "diagnostic";
-  path: LogicalPath;
-  previousPath?: LogicalPath;
-  pageID?: PageID;
-  contentRevision?: Hash;
-  directoryRevision?: Hash;
-  origin: "api" | "external" | "recovery" | "sync";
-  mutationID?: string;
-};
-```
+If a cursor is no longer replayable, arbord sends one terminal
+`resync-required` event using the same envelope and closes. The client reads a
+fresh snapshot and resumes after its cursor. This guarantees no gap between the
+snapshot and following stream.
 
-Events are invalidations and observations, not replacement snapshots. An unavailable cursor returns `resync-required`; the client refetches visible state and resumes from the new snapshot cursor. Replay need not survive a daemon epoch, and its exact in-memory size is not normative. The complete framing vector is [events.sse](fixtures/events.sse).
+Local workspace events and authority accepted-update events deliberately keep
+different `kind` and `change` payloads. Sharing the observation framing does
+not claim the domain events are identical.
 
-## 8. Executable query-result streaming
+## 8. Conformance
 
-```text
-POST /v1/query-stream
-Content-Type: application/json
-Accept: text/event-stream
-```
-
-This is the local binding of the stateless live-query contract in [executable web documents](applications.md#server-rendering-and-live-query-streams). Its request body completely describes one coherent document version and its currently mounted query graph:
-
-```ts
-type ArbordQueryStreamRequest = {
-  document: {
-    tree: TreeRef;
-    path: LogicalPath;
-    version: Hash;
-  };
-  queries: Array<{
-    id: string;
-    handle: {
-      tree: TreeRef;
-      module: LogicalPath;
-      export: string;
-      version: Hash;
-    };
-    input: unknown;
-    knownOutputHash?: Hash;
-  }>;
-};
-```
-
-`document.tree` and every handle tree are required resolved scopes; the request cannot rely on an omitted default tree. The query array is nonempty. Query IDs are non-empty, unique within the request, and otherwise have no durable meaning. Arbord verifies the coherent compiled document version, membership of every handle/version in its reviewed manifest, each handle's input schema, the current local Arbor user context, and every resolved backing capability before returning a stream. A client cannot use this endpoint to invoke an arbitrary export or widen a document's execution authority.
-
-The response is `text/event-stream; charset=utf-8`. Frames use the same UTF-8, blank-line, multi-`data:`-line, comment, and keepalive rules as `/v1/events`, but they carry no SSE `id`, `Last-Event-ID`, or replay cursor. Normative event names are `result`, `ready`, and `reload`; the SSE `event` field supplies the shared shape's `type` discriminator and `data` supplies its remaining JSON members. Because the request has a JSON body, browser clients use a streaming fetch rather than the GET-only `EventSource` interface. For example:
-
-```text
-event: result
-data: {"id":"popular","observedThrough":"opaque","outputHash":"sha256:<hex>","value":[]}
-
-event: ready
-data: {"queries":[{"id":"popular","observedThrough":"opaque","outputHash":"sha256:<hex>"}]}
-
-```
-
-Arbord begins buffering committed changes, evaluates each query against a consistent snapshot, and reruns any query invalidated before its follow boundary. It sends a complete `result` before `ready` when the current value differs from the supplied `knownOutputHash`; otherwise `ready` revalidates the client's existing value without resending it. Later relevant changes send complete replacement results only when their canonical output hash changes. An error result is public and sanitized and has no value or output hash.
-
-Closing the HTTP response releases every subscription in the request. A reconnect repeats the complete POST and establishes fresh snapshot boundaries; arbord retains no named execution, acknowledgement state, or replay buffer for this API. A changed coherent source version or local access context produces `reload` when the stream is still writable and then closes it. Errors detected before streaming use the ordinary REST v1 JSON error response. `/v1/events` remains the distinct process-wide workspace invalidation stream and never carries query values.
-
-## 9. Conformance
-
-Language-neutral REST, locator, exact-source, and error fixtures live in [spec/fixtures](fixtures). TypeScript and Swift conformance suites consume the same files. Required-field rejection, obsolete block-write rejection, and unknown-field compatibility are tested at the live boundary.
-
-The portable contract is the schemas and behavior in this document, not a reference client's internal structure, retry count, concurrency model, HTTP library, or verification machinery. Generic client invariants are specified separately in [client.md](client.md).
+Implementations consume the language-neutral valid/invalid JSON, error,
+descriptor, resolution, and SSE fixtures under [`spec/fixtures`](fixtures).
+Conformance includes mandatory explicit tree scope, write guards, exact replay,
+snapshot/SSE gap freedom, multiline data, keepalives, conflicting-cursor
+rejection, and terminal resynchronization.

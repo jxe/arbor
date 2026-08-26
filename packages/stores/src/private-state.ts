@@ -48,6 +48,10 @@ export function arborDataRoot(): string {
   return process.env.ARBOR_DATA_HOME || join(homedir(), ".arbor");
 }
 
+export function arborPrivateRoot(): string {
+  return join(arborDataRoot(), ".state");
+}
+
 export function legacyArborDataRoot(): string {
   if (process.platform === "darwin") return join(homedir(), "Library", "Application Support", "Arbor");
   if (process.platform === "win32") {
@@ -91,11 +95,46 @@ export async function prepareArborDataRoot(): Promise<Diagnostic[]> {
   if (process.env.ARBOR_DATA_HOME) {
     await mkdir(target, { recursive: true, mode: 0o700 });
     await chmod(target, 0o700).catch(() => {});
+    await mkdir(arborPrivateRoot(), { recursive: true, mode: 0o700 });
+    await migratePrivateState(target);
     return [];
   }
 
   dataHomeDiagnostics = await relocateArborDataRoot(target, legacyArborDataRoot());
+  await mkdir(arborPrivateRoot(), { recursive: true, mode: 0o700 });
+  await migratePrivateState(target);
   return [...dataHomeDiagnostics];
+}
+
+const LEGACY_PRIVATE_ENTRIES = [
+  "system",
+  "sync",
+  "workspaces",
+  "workspaces.json",
+  "LinkPreviews",
+  "Hunch Rehearsals",
+  ".DS_Store",
+] as const;
+
+/** Restart-safe alpha migration of implementation-only state into the reserved mount. */
+async function migratePrivateState(dataHome: string): Promise<void> {
+  const state = join(dataHome, ".state");
+  await mkdir(state, { recursive: true, mode: 0o700 });
+  const moves: Array<{ source: string; destination: string }> = [];
+  for (const name of LEGACY_PRIVATE_ENTRIES) {
+    const source = join(dataHome, name);
+    const destination = join(state, name);
+    const [sourceKind, destinationKind] = await Promise.all([pathKind(source), pathKind(destination)]);
+    if (sourceKind === "missing") continue;
+    if (destinationKind !== "missing") {
+      throw new Error(`Private-state migration collision: both ${source} and ${destination} exist`);
+    }
+    moves.push({ source, destination });
+  }
+  // Every destination was checked before the first rename, so a collision can
+  // never produce a partially merged state tree. Completed moves are harmless
+  // when startup retries after interruption.
+  for (const move of moves) await rename(move.source, move.destination);
 }
 
 /** Testable relocation core; callers choose the concrete old and new homes. */
@@ -192,7 +231,7 @@ async function loadWorkspaceRegistry(): Promise<{
   changed: boolean;
 }> {
   await prepareArborDataRoot();
-  const path = join(arborDataRoot(), "workspaces.json");
+  const path = join(arborPrivateRoot(), "workspaces.json");
   let stored: StoredWorkspaceRegistry = {};
   try {
     stored = JSON.parse(await readFile(path, "utf8")) as StoredWorkspaceRegistry;
@@ -276,7 +315,7 @@ export async function privateRootID(path: string): Promise<string> {
 
 export async function workspaceState(root: string): Promise<WorkspaceState> {
   const identity = await workspaceIdentity(root);
-  const directory = join(arborDataRoot(), "workspaces", identity.stateID);
+  const directory = join(arborPrivateRoot(), "workspaces", identity.stateID);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700).catch(() => {});
   return { identity, directory };

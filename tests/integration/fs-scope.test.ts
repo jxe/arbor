@@ -12,6 +12,7 @@ let state: string;
 let base: string;
 let client: ArbordClient;
 let close: () => Promise<void>;
+let scope: string;
 
 beforeAll(async () => {
   outer = await realpath(await mkdtemp(join(tmpdir(), "arbor-fs-scope-")));
@@ -38,6 +39,7 @@ beforeAll(async () => {
   const running = await serveArbor(root, { port: 0 });
   base = running.url;
   client = new ArbordClient({ baseURL: base, retryDelay: async () => {} });
+  scope = running.workspace.tree;
   close = async () => {
     running.server.stop(true);
     await running.service[Symbol.asyncDispose]();
@@ -118,8 +120,8 @@ describe("the local filesystem scope", () => {
     expect(viaLocal.tree).not.toBe("local");
     expect(viaLocal.path).toBe("/inside");
     expect(viaLocal.enclosingTree).toMatchObject({
-      placement: "local",
-      legacy: true,
+      placement: "placed",
+      access: "write",
       osPath: root,
     });
   });
@@ -150,7 +152,7 @@ describe("the local filesystem scope", () => {
     expect(viaLink.tree).not.toBe("local");
     expect(viaLink.path).toBe("/inside");
     expect(viaLink.kind).toBe("markdown");
-    expect(viaLink.enclosingTree).toMatchObject({ placement: "local", legacy: true, osPath: root });
+    expect(viaLink.enclosingTree).toMatchObject({ placement: "placed", access: "write", osPath: root });
   });
 
   test("uses the shared authored-order engine without minting identity in untracked space", async () => {
@@ -227,7 +229,7 @@ describe("the local filesystem scope", () => {
         operations: [{
           op: "move",
           refs: [{ tree: "local", path: join(outer, "stray", "note") }],
-          destination: { path: "/" },
+          destination: { tree: scope, path: "/" },
         }],
       }),
     });

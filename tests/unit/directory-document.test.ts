@@ -5,6 +5,7 @@ import type { TreeChild } from "@arbor/core";
 import { completeDirectoryDocument } from "@arbor/editor";
 
 const child = (name: string, path: string, pageID?: string): TreeChild => ({
+  tree: "local",
   name,
   path,
   kind: "markdown",
