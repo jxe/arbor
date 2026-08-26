@@ -11,7 +11,6 @@ import {
   mutation,
   publicError,
   query,
-  rel,
 } from "arbor/data"
 import { z } from "zod"
 import {
@@ -36,6 +35,7 @@ import {
 
 const suppliesData = database("./data")
 const {
+  arbor_profiles,
   list_practices,
   list_reactions,
   list_tags,
@@ -44,79 +44,71 @@ const {
   practice_tags,
   practices,
 } = suppliesData.relations
+const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
-export const list = query(
-  suppliesData,
+export const list = query.maybe(
+  lists,
   z.object({ id: z.string().uuid() }),
-  rel`
-    l: lists(id: $id)
-    owner: arbor_profiles(id: l.owner_profile)
-    lc: list_contributors(list_id: l.id)
-    contributor: arbor_profiles(id: lc.profile)
-    lp: list_practices(list_id: l.id)
-    p: practices(id: lp.practice_id)
-    pa: practice_authors(practice_id: p.id)
-    author: arbor_profiles(id: pa.author_profile)
-    lr: list_reactions(list_id: l.id)
-    reactor: arbor_profiles(id: lr.profile)
-    lt: list_tags(list_id: l.id)
-    pt: practice_tags(list_id: l.id, practice_id: p.id, tag_id: lt.id)
-
-    where l.visibility == "public" or l.owner_profile == user.profile
-
-    return nullable one l {
-      id
-      name
-      about
-      visibility
-      kind
-      allowArborUserEdits: allow_arbor_user_edits
-      ownerProfile: owner_profile
-      owner: one owner { id name handle portrait }
-      contributors: many contributor key by id order by name, id {
-        id name handle portrait
-      }
-      items: many lp key by practice_id order by position, practice_id {
-        position
-        practice: one p {
-          id
-          name
-          about
-          authors: many author key by id order by name, id {
-            id name handle portrait
-          }
-        }
-        tags: many lt through pt key by id order by name, id {
-          id name color
-        }
-      }
-
-      reactions: many lr key by profile order by profile {
-        profile: one reactor { id name handle portrait }
-        emoji
-      }
-      tags: many lt key by id order by name, id { id name color }
-    }
-  `,
+  (list, { input, user }) => ({
+    where: [
+      list.id.eq(input.id),
+      list.visibility.eq("public").or(
+        list.owner_profile.eq(user.profile),
+      ),
+    ],
+    select: {
+      ...list.pick("id", "name", "about", "visibility", "kind"),
+      allowArborUserEdits: list.allow_arbor_user_edits,
+      ownerProfile: list.owner_profile,
+      owner: list.owner(profileCard),
+      contributors: list.contributors({
+        orderBy: person => person.name,
+        select: profileCard,
+      }),
+      items: list.items({
+        orderBy: item => item.position,
+        select: item => ({
+          position: item.position,
+          practice: item.practice(practice => ({
+            ...practice.pick("id", "name", "about"),
+            authors: practice.authors({
+              orderBy: author => author.name,
+              select: profileCard,
+            }),
+          })),
+          tags: item.tags({
+            orderBy: tag => tag.name,
+            select: tag => tag.pick("id", "name", "color"),
+          }),
+        }),
+      }),
+      reactions: list.reactions({
+        orderBy: reaction => reaction.profile,
+        select: reaction => ({
+          profile: reaction.person(profileCard),
+          emoji: reaction.emoji,
+        }),
+      }),
+      tags: list.tags({
+        orderBy: tag => tag.name,
+        select: tag => tag.pick("id", "name", "color"),
+      }),
+    },
+  }),
 )
 
-export const practiceChoices = query(
-  suppliesData,
-  z.object({}),
-  rel`
-    p: practices()
-    pa: practice_authors(practice_id: p.id)
-    author: arbor_profiles(id: pa.author_profile)
-
-    return many p key by id order by name, id {
-      id
-      name
-      about
-      authors: many author key by id order by name, id {
-        id name handle portrait
-      }
-    }
-  `,
+export const practiceChoices = query.many(
+  practices,
+  practice => ({
+    orderBy: practice.name,
+    select: {
+      ...practice.pick("id", "name", "about"),
+      authors: practice.authors({
+        orderBy: author => author.name,
+        select: profileCard,
+      }),
+    },
+  }),
 )
 
 export const renameList = mutation(
@@ -458,7 +450,7 @@ function movedPracticeIDs(items, index: number, difference: number) {
 
 function ListEditor({ value }) {
   const user = useUser({ required: true })
-  const choices = useQuery(practiceChoices, {})
+  const choices = useQuery(practiceChoices)
   const [membershipState, membershipAction, membershipPending] = useMutationAction(setListPractice)
   const [reorderState, reorderAction, reorderPending] = useMutationAction(reorderList)
   const [sharingState, sharingAction, sharingPending] = useMutationAction(setListSharing)

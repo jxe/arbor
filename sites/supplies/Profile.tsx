@@ -1,44 +1,40 @@
 import { useQuery, useUser } from "arbor/react"
-import { database, query, rel } from "arbor/data"
+import { database, query } from "arbor/data"
 import { z } from "zod"
 import { ListGrid, PracticeGrid, Shell } from "./components/shared"
 
 const suppliesData = database("./data")
+const { arbor_profiles } = suppliesData.relations
+const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
-export const profile = query(
-  suppliesData,
+export const profile = query.maybe(
+  arbor_profiles,
   z.object({ profile: z.string().min(1) }),
-  rel`
-    person: arbor_profiles(id: $profile)
-    pa: practice_authors(author_profile: person.id)
-    p: practices(id: pa.practice_id)
-    l: lists(owner_profile: person.id, visibility: "public")
-    lp: list_practices(list_id: l.id)
-    lr: list_reactions(list_id: l.id)
-
-    return nullable one person {
-      id
-      name
-      handle
-      portrait
-      bio
-      practices: many p key by id order by name, id {
-        id name about
-      }
-      lists: many l key by id order by name, id {
-        id
-        name
-        about
-        visibility
-        kind
-        ownerProfile: owner_profile
-        owner: one person { id name handle portrait }
-        practiceCount: count(lp)
-        reactionCount: count(lr)
-        reactionProfiles: many lr key by profile order by profile { profile }
-      }
-    }
-  `,
+  (person, { input }) => ({
+    where: person.id.eq(input.profile),
+    select: {
+      ...person.pick("id", "name", "handle", "portrait", "bio"),
+      practices: person.practices({
+        orderBy: practice => practice.name,
+        select: practice => practice.pick("id", "name", "about"),
+      }),
+      lists: person.lists({
+        where: list => list.visibility.eq("public"),
+        orderBy: list => list.name,
+        select: list => ({
+          ...list.pick("id", "name", "about", "visibility", "kind"),
+          ownerProfile: list.owner_profile,
+          owner: list.owner(profileCard),
+          practiceCount: list.items.count,
+          reactionCount: list.reactions.count,
+          reactionProfiles: list.reactions({
+            orderBy: reaction => reaction.profile,
+            select: reaction => ({ profile: reaction.profile }),
+          }),
+        }),
+      }),
+    },
+  }),
 )
 
 export default function Profile({ search }: { search: URLSearchParams }) {

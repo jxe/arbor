@@ -71,7 +71,7 @@ Completion gate: Alice mounts two different Arbor trees at locally meaningful pa
 
 Outcome: the checked-in Supplies tree is the first complete executable Arbor site—SQLite-backed, live, editable, Arbor-user-aware, locally browsable, native-presented, authority-hosted, and finally populated from the real service.
 
-1. Build the SQLite query engine against every checked-in Supplies `rel` block, including schema/result type inference and profile-tree joins. Keep query returns factual; calculate editability and other presentation state in React with `useUser()`.
+1. Build the SQLite query engine against every checked-in Supplies callable query plan, including schema/result type inference, named relationship metadata, and profile-tree joins. Support `query.many`/`one`/`maybe`, `pick`, callable relations, typed predicates and counts, omitted no-input schemas, inferred stable keys, and automatic deterministic tie-breakers. Keep query returns factual; calculate editability and other presentation state in React with `useUser()`.
 2. Add race-free query-result streaming from committed SQLite/profile changes with semantic sensitivity, snapshot-then-follow, output hashing, and one self-contained stateless SSE request for the mounted query graph.
 3. Add the mutation runner with Standard Schema inputs, injected Arbor users, a default transaction exposed as `tx`, in-transaction authorization, retry-stable IDs/time/receipts, ordered relation primitives, and post-commit change publication.
 4. Add MDX/TSX compilation and development typechecking, server/client extraction, Standard Schema-derived handle types, generated `RowOf`/`ResultOf` declarations, zero-import Tailwind, manifests, watch diagnostics, and `arbor check`.

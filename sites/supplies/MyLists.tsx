@@ -46,7 +46,7 @@ export const createList = mutation(
 
 export default function MyLists() {
   useUser({ required: true })
-  const lists = useQuery(myLists, {})
+  const lists = useQuery(myLists)
   const [state, action, pending] = useMutationAction(createList)
   const navigate = useNavigate()
 

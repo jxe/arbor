@@ -18,81 +18,81 @@ Portable collection queries and mutations have the same meaning across backings.
 
 ### Portable relational query language
 
-A mutable collection has a declared primary key. The key may be compound, but it must be stable, serializable, and independent of row position, SQLite `rowid`, or a database query plan. A read-only collection may expose synthetic positional keys, but scripts cannot use those keys for mutation or durable links. Results have explicit ordering with the primary key as a deterministic final tie-breaker. Live or mutable pagination uses a revision-bound keyset cursor rather than an unqualified offset.
+A mutable collection has a declared primary key. The key may be compound, but it must be stable, serializable, and independent of row position, SQLite `rowid`, or a database query plan. A read-only collection may expose synthetic positional keys, but scripts cannot use those keys for mutation or durable links. Results have explicit ordering with a proved stable key as a deterministic final tie-breaker. Live or mutable pagination uses a revision-bound keyset cursor rather than an unqualified offset.
 
-Portable database queries use a typed declarative relational language rather than imperative CRUD calls or runtime ORM objects. Its authoring model has two explicit layers:
-
-1. **Relational bindings** name schema-checked base or virtual relations and correlate them through parameters, fields, predicates, and relational operators.
-2. **Result shaping** selects a root cardinality and constructs the returned nested value, including observable ordering and stable keys for repeated values.
-
-The reference syntax embeds a schema-checked relational block in an ordinary `.tsx` query declaration:
+Portable database queries use ordinary TypeScript to construct a closed declarative plan rather than imperative CRUD calls, runtime ORM objects, or a second textual query language. `query.many`, `query.one`, and `query.maybe` declare root cardinality. They take a schema-derived relation handle, an optional Standard Schema input validator, and a plan callback. Omitting the validator means that the handle takes no input; callers use `useQuery(handle)` rather than supplying an empty object.
 
 ```tsx
 import { z } from "zod"
 
-export const list = query(
-  suppliesData,
+const { arbor_profiles, lists } = suppliesData.relations
+const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
+
+export const list = query.maybe(
+  lists,
   z.object({ id: z.string().uuid() }),
-  rel`
-    l: lists(id: $id)
-    m: list_practices(listId: l.id)
-    p: practices(id: m.practiceId)
-    a: practice_authors(practiceId: p.id)
+  (list, { input, user }) => ({
+    where: [
+      list.id.eq(input.id),
+      list.visibility.eq("public").or(
+        list.owner_profile.eq(user.profile),
+      ),
+    ],
 
-    return one l {
-      id
-      name
-      about
-      ownerProfile
+    select: {
+      ...list.pick("id", "name", "about"),
+      ownerProfile: list.owner_profile,
+      owner: list.owner(profileCard),
 
-      items: many m
-        key by practiceId
-        order by position, practiceId {
-          position
-          practice: one p {
-            id
-            name
-            about
-            authors: many a { authorProfile }
-          }
-        }
-    }
-  `,
+      items: list.items({
+        orderBy: item => item.position,
+        select: item => ({
+          position: item.position,
+          practice: item.practice(practice => ({
+            ...practice.pick("id", "name", "about"),
+            authors: practice.authors({
+              orderBy: author => author.name,
+              select: profileCard,
+            }),
+          })),
+        }),
+      }),
+    },
+  }),
 )
 ```
 
-This spelling is the initial reference design; conformance rests on the semantics below rather than JavaScript template-tag machinery. `$name` denotes a validated query input. A field reference such as `m.practiceId` is a typed relational value and a reference to it from another binding creates a correlation. A binding may name another portable relation or query, allowing reusable virtual relations and safe predicate pushdown.
+The row and relation values passed to plan callbacks are symbolic schema-checked expressions, not loaded records. A callback constructs one finite plan at compilation; it is never invoked once per database row. It may use the closed methods supplied by those expressions, ordinary object construction, and reusable plan fragments. It cannot branch on a symbolic value, await data, call an arbitrary function over rows, or acquire filesystem, network, process, clock, randomness, credential, or undeclared-tree access. Unsupported construction fails with a source-located diagnostic rather than falling back to in-memory execution.
 
-Bindings declare correlated relation sets; merely declaring a child binding does not filter away a parent with no matching children. Filtering by child presence uses explicit `exists` or `not exists`. Flattening joins use explicit inner, left, semi, or anti semantics. This rule lets an empty `many` result remain an empty array rather than accidentally changing the cardinality of its parent.
+`where` accepts one typed predicate or an array whose members are AND-combined. Field expressions provide the portable comparison, null, membership, string, and boolean operators; predicates compose through explicit methods such as `.and()`, `.or()`, and `.not()`. The callback context exposes validated symbolic `input` and trusted symbolic `user`. `user.profile` is nullable-safe for a query that also admits anonymous execution; dereferencing `user.required.profile` declares that the query requires an authenticated Arbor user and fails before data access when none exists.
 
-`return one` yields exactly one value, an explicitly nullable one value, or a declared not-found result; it never silently chooses an arbitrary row. `return many` yields a collection. Nested `one` and `many` clauses define result shape rather than relying entirely on schema relationships or automatic join shaping. Every observably ordered `many` has deterministic `order by` semantics. A live repeated result declares `key by` unless its value is replaced only as a whole; the key must be stable and unique within that result.
+`select` is a plain object whose keys are the public result keys. Assigning a field under a different key aliases it. `row.pick("id", "name")` produces an explicit reusable field projection and may be spread into the result. There is no implicit select-all shortcut: fields crossing the query disclosure boundary remain visible in source. The return shape projects database facts, nested relations, and specified aggregates; it is not a general-purpose presentation expression language.
 
-The relational plan may use typed field comparisons, boolean predicate composition, inner/left/semi/anti joins, `exists`/`not exists`, reusable virtual relations, grouping, specified aggregates, explicit null handling, deterministic ordering, and revision-bound keyset pagination. The `return` shape deliberately stays smaller: it projects fields (with optional aliases), nested relations, and specified aggregates. It is not a general-purpose expression language for presentation values. A component calculates facts such as whether the current Arbor user is an author or has reacted from the returned IDs; only predicates needed to prevent unauthorized row disclosure stay in the server plan.
-
-Compact correlated aggregates are valid without forcing an authored flat join:
+Schema relationships are callable symbolic relations. Calling one with a selection fragment or selection callback is the compact form; calling it with `{ where, orderBy, take, after, keyBy, select }` adds relational controls. A relationship carries its proved correlation and `one`, nullable-one, or `many` cardinality, so nested queries do not restate them. `.count` is a typed correlated aggregate. A bare field in `orderBy` means ascending; `.desc()` reverses it. Named relationship metadata is part of the portable schema fingerprint: drivers derive unambiguous candidates from declared keys, while product-named, through, ProfileID-backed, or otherwise non-obvious relationships require an explicit schema-adjacent declaration. Arbor never guesses a relationship from mutable names or a coincidental field spelling.
 
 ```tsx
-rel`
-  l: lists(visibility: "public")
-  m: list_practices(listId: l.id)
-  r: list_reactions(listId: l.id)
+export const popularLists = query.many(
+  lists,
+  list => ({
+    where: list.visibility.eq("public"),
+    orderBy: list.reactions.count.desc(),
+    take: 12,
 
-  where count(m) > 1
-
-  return many l
-    key by id
-    order by count(r) desc, id
-    first $first
-    after $after {
-      id
-      name
-      practiceCount: count(m)
-      reactionCount: count(r)
-    }
-`
+    select: {
+      ...list.pick("id", "name", "about"),
+      owner: list.owner(profileCard),
+      practiceCount: list.items.count,
+      reactionCount: list.reactions.count,
+    },
+  }),
+)
 ```
 
-The compiler normalizes bindings and result shaping into a backing-independent relational IR, validates all addressed paths and fields, infers `ResultOf` for the handle and `RowOf` for its relations, produces a SQLite plan, and derives a change-sensitivity plan for live execution. A later Postgres driver consumes the same IR when a real site needs it. The authoring block is never evaluated once per loaded database row, and arbitrary JavaScript inside it cannot trigger a hidden in-memory scan. A driver must preserve Arbor's specified null, comparison, collation, aggregate, and ordering semantics or reject the expression; it never silently substitutes backing-default behavior that changes a portable result. Unsupported operations fail before data access rather than loading an unbounded collection into script memory.
+`query.one` requires exactly one result and fails with a declared not-found/cardinality error otherwise. `query.maybe` yields zero or one value and rejects a plan that could silently choose among several rows. `query.many` yields an ordered collection. Every observably ordered repeated result has deterministic ordering. The compiler infers its stable key from the root primary key or relationship metadata and appends missing key fields as ascending final tie-breakers. If uniqueness cannot be proved, the author must supply `keyBy`; an unstable, nullable, or duplicate key is a compilation error.
+
+Merely selecting a child relationship does not filter away a parent with no matching children. Filtering by child presence uses explicit `.exists()` or `.notExists()`. Flattening joins use explicit inner, left, semi, or anti plan operations. The relational plan may use reusable virtual relations, grouping, specified aggregates, explicit null handling, deterministic ordering, and revision-bound keyset pagination.
+
+The compiler normalizes callable relations, predicates, selections, and aggregates into a backing-independent relational IR, validates all addressed paths and fields, infers `ResultOf` for the handle and `RowOf` for its relations, produces a SQLite plan, and derives a change-sensitivity plan for live execution. A later Postgres driver consumes the same IR when a real site needs it. A driver must preserve Arbor's specified null, comparison, collation, aggregate, and ordering semantics or reject the expression; it never silently substitutes backing-default behavior that changes a portable result. Unsupported operations fail before data access rather than loading an unbounded collection into script memory.
 
 A query that deliberately uses driver-specific SQL, functions, collation, full-text behavior, extensions, or cross-database facilities is backing-coupled and is identified as such in its compiled handle and consent statement. Raw SQL is not the portable intermediate representation and cannot interpolate an unchecked table name, path, predicate, or capability.
 
@@ -187,7 +187,7 @@ Collection access and executable-document result access are distinct. Publishing
 
 ## Schema and generated types
 
-Schema information is mapped to canonical tree-rooted collection paths so scripts remain portable across local placements. Relative script references resolve against the script's tree/path before use. Database schema and file-schema changes refresh generated authoring support. Arbor-aware compiler and language-service hosts may include private generated declarations without placing them in authored trees or exposing their machine-local paths to scripts. If a schema or connection is temporarily invalid, the last valid generated types remain available but are marked stale and accompanied by a diagnostic.
+Schema information and explicit relationship declarations are mapped to canonical tree-rooted collection paths so scripts remain portable across local placements. Relative script references resolve against the script's tree/path before use. Database schema, file schema, and relationship changes refresh generated fields, callable relations, cardinalities, and stable-key authoring support. Arbor-aware compiler and language-service hosts may include private generated declarations without placing them in authored trees or exposing their machine-local paths to scripts. If a schema or connection is temporarily invalid, the last valid generated types remain available but are marked stale and accompanied by a diagnostic.
 
 Generated declarations, caches, and introspection artifacts are reproducible private/reference output, not portable authored content. Their syntax, location, and generator implementation are not part of this specification.
 

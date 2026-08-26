@@ -1,34 +1,28 @@
 import { useState } from "react"
 import { skipQuery, useQuery } from "arbor/react"
-import { database, query, rel } from "arbor/data"
+import { database, query } from "arbor/data"
 import { z } from "zod"
 import { PracticeGrid, TextInput } from "./shared"
 
 const suppliesData = database("../data")
+const { arbor_profiles, practices } = suppliesData.relations
+const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
-export const practiceSearch = query(
-  suppliesData,
+export const practiceSearch = query.many(
+  practices,
   z.object({ search: z.string() }),
-  rel`
-    p: practices() where p.name contains $search
-    pa: practice_authors(practice_id: p.id)
-    author: arbor_profiles(id: pa.author_profile)
-
-    return many p
-      key by id
-      order by name, id
-      first 24 {
-        id
-        name
-        about
-        authors: many author key by id order by name, id {
-          id
-          name
-          handle
-          portrait
-        }
-      }
-  `,
+  (practice, { input }) => ({
+    where: practice.name.contains(input.search),
+    orderBy: practice.name,
+    take: 24,
+    select: {
+      ...practice.pick("id", "name", "about"),
+      authors: practice.authors({
+        orderBy: author => author.name,
+        select: profileCard,
+      }),
+    },
+  }),
 )
 
 export function PracticeSearch() {

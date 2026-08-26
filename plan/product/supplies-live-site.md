@@ -41,9 +41,11 @@ sites/supplies/
 
 Each module opens its own cheap relative `database()` handle and destructures only the relations it uses. The compiler canonicalizes those handles to the same nested data-tree identity; there is no `scripts/data.ts` registry. A query or mutation used once stays in its document or component.
 
-`arbor/data` derives relation rows and handle results from the schema and relational return shape. `RowOf<typeof relation>` and `ResultOf<typeof handle>` are available when a name is useful, while `useQuery` and `useMutationAction` infer values without handwritten `PersonValue`, `PracticeValue`, or `ListSummaryValue` copies.
+`arbor/data` derives symbolic row scopes, callable relationships, and handle results from the schema and query selection. Root handles use `query.many`, `query.one`, or `query.maybe`; `pick` keeps public projections explicit, while aliases are ordinary result-object keys. `RowOf<typeof relation>` and `ResultOf<typeof handle>` are available when a name is useful, while `useQuery` and `useMutationAction` infer values without handwritten `PersonValue`, `PracticeValue`, or `ListSummaryValue` copies. A query with no input omits the empty schema and is called as `useQuery(handle)`.
 
-Both `query` and `mutation` accept an ordinary Standard Schema input validator; the port uses Zod directly. Arbor does not maintain a parallel set of `uuid`, `string`, `boolean`, or object-schema constructors. Mutation handlers receive `tx` because the runner wraps every handler in one transaction by default.
+Relations are callable. A selection fragment or callback is the compact form; `{ where, orderBy, take, after, keyBy, select }` adds controls. The compiler derives unambiguous relationships from keys and consumes narrow schema-adjacent declarations for the product-named, through, and ProfileID-backed relationships used here (`owner`, `contributors`, `items`, `authors`, `lists`, `reactions`, `tags`, `practice`, and `person`). It never guesses these from mutable names. Repeated results infer stable keys from that metadata, and the compiler appends any missing stable-key ordering fields as deterministic ascending tie-breakers.
+
+Queries with input and all mutations accept an ordinary Standard Schema input validator; the port uses Zod directly. A no-input query omits the validator. Arbor does not maintain a parallel set of `uuid`, `string`, `boolean`, or object-schema constructors. Mutation handlers receive `tx` because the runner wraps every handler in one transaction by default.
 
 Queries return database facts: IDs, policy fields, related rows, counts, and reaction/profile memberships. Components combine those facts with `useUser()` to calculate presentation values such as `canEdit`, `isUser`, and `userReacted`. A server query still filters private rows before disclosure; authorization is not a presentation calculation.
 
@@ -63,6 +65,25 @@ The private data tree uses normalized collections with stable keys:
 | `list_tags` | `(list_id, id)` plus name and optional color |
 | `practice_tags` | `(list_id, practice_id, tag_id)` |
 | `list_contributors` | `(list_id, profile)` plus first/last contribution times |
+
+The callable query surface uses this reviewed relationship model:
+
+| Symbolic relationship | Cardinality and correlation |
+|---|---|
+| `lists.owner` | one `arbor_profiles` row where `lists.owner_profile = arbor_profiles.id` |
+| `lists.contributors` | many `arbor_profiles` rows through `list_contributors` |
+| `lists.items` | many `list_practices` rows by `list_id`, stably keyed by `practice_id` within the list |
+| `lists.reactions` | many `list_reactions` rows by `list_id`, stably keyed by `profile` within the list |
+| `lists.tags` | many `list_tags` rows by `list_id`, stably keyed by `id` within the list |
+| `practices.authors` | many `arbor_profiles` rows through `practice_authors` |
+| `practices.lists` | many `lists` rows through `list_practices` |
+| `arbor_profiles.practices` | many `practices` rows through `practice_authors` |
+| `arbor_profiles.lists` | many `lists` rows by `owner_profile` |
+| `list_practices.practice` | one `practices` row by `practice_id` |
+| `list_practices.tags` | many `list_tags` rows through `practice_tags`, constrained by both `list_id` and `practice_id` |
+| `list_reactions.person` | one `arbor_profiles` row where `list_reactions.profile = arbor_profiles.id` |
+
+Foreign keys prove the ordinary database portions of these paths. The schema-adjacent declaration supplies the public names, ProfileID joins, through paths, cardinality, and relationship-local stable keys that SQL introspection alone cannot prove.
 
 Person references are stable Arbor ProfileIDs. Names, handles, portraits, and bios come from live profile trees, not duplicated Supplies identity rows. Email addresses, login codes, credentials, and authority-local account IDs never enter the Supplies database.
 
@@ -84,12 +105,12 @@ Each phase below names concrete code to add and checks to run. The checked-in Su
 
 ### Phase 1 — query engine
 
-1. Add an `arbor/data` runtime package with `database`, schema-derived relation handles, `query`, `mutation`, `rel`, `RowOf`, and `ResultOf` public types; accept any Standard Schema-compatible input validator and use Zod in the reference tree.
+1. Add an `arbor/data` runtime package with `database`, schema-derived callable relation handles, `query.many`, `query.one`, `query.maybe`, `mutation`, `RowOf`, and `ResultOf` public types; accept any Standard Schema-compatible input validator and use Zod in the reference tree.
 2. Resolve `database("./data")` and `database("../data")` from the importing Arbor module, cross the nested-tree boundary through existing longest-prefix resolution, and canonicalize both spellings to one store identity.
-3. Introspect `sites/supplies/data/schema.sql` and `_store.sqlite3`; generate relation field/nullability/key metadata plus the `arbor_profiles` virtual relation backed by ProfileID trees.
-4. Parse the exact `rel` blocks in `PracticeSearch`, `PopularLists`, `Profile`, `Practice`, `List`, and `myLists` into a typed relational IR: named bindings, correlations, simple disclosure predicates, nested `one`/`many`, field aliases, counts, existence, stable keys, ordering, and bounds.
-5. Keep the return expression surface to projected fields, nested relations, and specified aggregates. Reject arbitrary computed presentation expressions with a source-located diagnostic. Keep simple server predicates capable of excluding private rows.
-6. Compile that IR to parameterized SQLite statements and deterministic result shaping. Reject unknown fields, nullable/cardinality mismatches, ambiguous `one`, unstable ordering, duplicate result keys, and unsupported operators before opening the store.
+3. Introspect `sites/supplies/data/schema.sql` and `_store.sqlite3`; generate relation field/nullability/key metadata plus the `arbor_profiles` virtual relation backed by ProfileID trees. Add the smallest portable schema-adjacent relationship declaration needed for Supplies' product-named, through, and ProfileID-backed relationships; include it in the schema fingerprint and generated authoring types.
+4. Lower the exact callable query definitions in `PracticeSearch`, `PopularLists`, `Profile`, `Practice`, `List`, and `myLists` into a typed relational IR: symbolic row scopes, predicates, callable relationships, correlations, nested cardinality, aliases, `pick`, counts, existence, stable keys, ordering, and bounds. The plan callback runs once during compilation and never once per loaded row.
+5. Keep `select` to projected fields, nested relations, and specified aggregates. Reject branching on symbolic values, arbitrary row functions, computed presentation expressions, implicit select-all, and unsupported plan operations with a source-located diagnostic. Keep simple server predicates capable of excluding private rows, and make `user.required.profile` fail before data access for anonymous callers.
+6. Compile that IR to parameterized SQLite statements and deterministic result shaping. Infer repeated-result keys from primary-key/relationship metadata and append them as missing ascending order tie-breakers. Reject unknown fields, nullable/cardinality mismatches, ambiguous `query.one`/`query.maybe`, unproved or unstable keys, duplicate result keys, and unsupported operators before opening the store.
 7. Resolve profile rows in batches, merge their exact tree/ref reads into query dependencies, and ensure a missing or inaccessible profile has explicit nullable/not-found behavior.
 8. Exercise each real query against a deterministic nonempty fixture containing public/private lists, authored/authorless practices, memberships, tags, reactions, contributors, and separate profile trees. Snapshot the typed shaped results and SQLite query plans.
 
@@ -110,7 +131,7 @@ Finish the phase with a headless two-client test in which related results change
 
 #### Deferred keyed result diffs
 
-Do not implement result diffs for the initial stream. If measured result sizes or stream volume justify them, add a connection-local optimization without changing the stateless reconnect contract. The first extension should apply only to a root `return many` result with stable `key by` semantics:
+Do not implement result diffs for the initial stream. If measured result sizes or stream volume justify them, add a connection-local optimization without changing the stateless reconnect contract. The first extension should apply only to a root `query.many` result with a proved stable key:
 
 ```ts
 type KeyedResultPatch = {
@@ -145,7 +166,7 @@ Finish the phase by replaying ambiguous mutation submissions and proving stable 
 
 1. Extend Arbor format recognition so `.mdx` and default-exporting `.tsx` have an extensionless executable surface while remaining readable/editable as exact source. Supporting `.tsx` and `.ts` modules stay import-only.
 2. Build the addressed document's explicit MDX/TSX/TS import graph and split it into a public React graph and server-only query/mutation graph. Reject ambient filesystem, network, process, credential, and undeclared-tree access.
-3. Read query and mutation input/output types from their Standard Schemas, then generate declarations for `database().relations`, `RowOf`, `ResultOf`, `useQuery`, and `useMutationAction`. Feed diagnostics back to the authored source span rather than a generated file.
+3. Read query and mutation input/output types from their Standard Schemas, then generate declarations for `database().relations`, symbolic fields and named callable relationships, `pick`, `query.many`/`one`/`maybe`, `RowOf`, `ResultOf`, `useQuery`, and `useMutationAction`. Feed diagnostics back to the authored source span rather than a generated file.
 4. Typecheck the complete public and server graphs in watch mode whenever a source, schema, imported profile shape, or compiler version changes. Add an `arbor check sites/supplies` command that exits nonzero on source, schema, capability, or portability errors.
 5. Compile MDX and TSX into one coherent document version keyed by source TreeID/ref, document path, import graph, schema fingerprint, and pinned compiler versions. Keep generated artifacts in a private reproducible cache, not the authored tree.
 6. Compile Tailwind from statically discoverable classes in the public graph without an import, config, stylesheet, or content glob. Preserve ordinary stylesheet imports only as an explicit optional feature.

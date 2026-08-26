@@ -15,29 +15,32 @@ The concrete bundler, package graph, intermediate representation, and output fil
 
 ## Handle input schemas
 
-`query` and `mutation` take a Standard Schema-compatible input schema as their second argument. Zod is supported directly and is the reference authoring choice, but Arbor does not wrap it in a separate validator vocabulary:
+`query.many`, `query.one`, `query.maybe`, and `mutation` accept a Standard Schema-compatible input schema. Zod is supported directly and is the reference authoring choice, but Arbor does not wrap it in a separate validator vocabulary. A query with no input omits the schema entirely:
 
 ```ts
 import { z } from "zod"
 
-export const list = query(
-  suppliesData,
+export const list = query.maybe(
+  suppliesData.relations.lists,
   z.object({ id: z.string().uuid() }),
-  rel`...`,
+  (list, { input }) => ({
+    where: list.id.eq(input.id),
+    select: list.pick("id", "name", "about"),
+  }),
 )
 ```
 
-The handle's call input is the schema input type; the query plan or mutation handler receives the validated, transformed output type. Validation happens before data access. The compiled handle retains the schema/version identity and public input contract needed for calls and diagnostics without putting privileged handler code in the client.
+The handle's call input is the schema input type; the query plan or mutation handler receives the validated, transformed output type. Validation happens before data access. The compiled handle retains the schema/version identity and public input contract needed for calls and diagnostics without putting privileged handler code in the client. A no-input query is called as `useQuery(handle)`, not with a ceremonial empty object.
 
 ## Queries
 
 A query is a deterministic function of `(resolved workspace snapshot, validated input, trusted user context)`. Its only data doors are the scoped Arbor tree API and compiled relational expressions over declared collections. It has no ambient filesystem, network, process, clock, randomness, credential, or undeclared-tree access.
 
-Database work is declared through the portable relational language in [stores](stores.md). Named relational bindings describe base and reusable virtual relations; a separate `return` shape declares cardinality, projection, nesting, ordering, and stable keys. The relational result may be followed by bounded deterministic composition with explicit tree/profile reads. The runtime does not infer a database security or performance boundary by observing arbitrary JavaScript property access, and it does not rescue an untranslatable expression with a hidden full-table scan. A backing-coupled query uses a separately declared escape hatch and carries that fact in its handle.
+Database work is declared through the callable symbolic relational language in [stores](stores.md). `query.many`, `query.one`, or `query.maybe` declares root cardinality; its callback returns predicates, ordering, bounds, and an explicit nested selection. Schema relationships are callable and may take a compact selection fragment or a configuration containing `where`, `orderBy`, `take`, `after`, `keyBy`, and `select`. The relational result may be followed by bounded deterministic composition with explicit tree/profile reads. The runtime does not infer a database security or performance boundary by observing arbitrary JavaScript property access, and it does not rescue an untranslatable expression with a hidden full-table scan. A backing-coupled query uses a separately declared escape hatch and carries that fact in its handle.
 
 The return shape selects database facts and relational aggregates, not arbitrary presentation expressions. A query may return the owner ID, author rows, reaction profile IDs, edit-policy fields, and counts; the component combines those facts with `useUser()` to calculate `canEdit`, `isUser`, or `userReacted`. Access control is different: predicates that prevent private rows from being disclosed remain in the server query or mutation and are never delegated to a component.
 
-The compiler makes the authored data self-typing. `database(path).relations` exposes schema-derived relation handles, `RowOf<typeof relation>` names a relation row when a component or helper needs it, and `ResultOf<typeof handle>` names a query or mutation result. `useQuery(handle, input)` and `useMutationAction(handle)` infer their values directly, so a site does not maintain parallel `PersonValue`, `PracticeValue`, or `ListSummaryValue` declarations. A named result type, when useful, is an alias such as `type PopularList = ResultOf<typeof popularLists>[number]`, not a second handwritten schema.
+The compiler makes the authored data self-typing. `database(path).relations` exposes schema-derived base and virtual relation handles; their symbolic row scopes expose the named callable relationships in the schema fingerprint. `RowOf<typeof relation>` names a relation row when a component or helper needs it, and `ResultOf<typeof handle>` names a query or mutation result. `useQuery(handle)`, `useQuery(handle, input)`, and `useMutationAction(handle)` infer their values directly, so a site does not maintain parallel `PersonValue`, `PracticeValue`, or `ListSummaryValue` declarations. A named result type, when useful, is an alias such as `type PopularList = ResultOf<typeof popularLists>[number]`, not a second handwritten schema.
 
 `database(path)` is a cheap declarative handle. Each document, component, or shared server module may open the same relative data boundary and destructure the relations it uses; the compiler canonicalizes those handles to one backing identity. A tree needs no central `scripts/data.ts` registry. Single-consumer handles stay beside their consumer, while `scripts/` is only for code with genuine cross-module use.
 
@@ -116,7 +119,7 @@ Components are ordinary React authoring in TSX or MDX in a confined UI realm. An
 
 A component receives an initial query result during server rendering and subscribes to the same handle, validated input, code version, and user context after hydration. `useQuery` suspends until that value exists and throws a query failure to the nearest React error boundary. A skipped query mounts no execution or subscription. The addressed document and its ordinary query string determine the mounted component tree; following an Arbor link changes the active query graph without invoking route loaders or action endpoints. Components may optimistically present a mutation, but the committed query stream is authoritative and reconciles the optimistic state. Client bundles contain public handle metadata and component code, never query/mutation implementation code, store credentials, declared server prefixes, or raw database access.
 
-The public component package is `arbor/react`; data and handle authoring come from `arbor/data`. The former provides `useQuery`, `skipQuery`, `useMutationAction`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`. The latter provides `database`, relation handles, `query`, `mutation`, `rel`, `RowOf`, and `ResultOf`; handle input validation comes from any Standard Schema implementation such as Zod. Package names are part of the authored portability surface and do not include an application abstraction.
+The public component package is `arbor/react`; data and handle authoring come from `arbor/data`. The former provides `useQuery`, `skipQuery`, `useMutationAction`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`. The latter provides `database`, schema-derived callable relation handles, `query`, `mutation`, `RowOf`, and `ResultOf`; handle input validation comes from any Standard Schema implementation such as Zod. Package names are part of the authored portability surface and do not include an application abstraction.
 
 Cross-tree script imports use absolute Arbor locators and resolve to immutable code identities for one build/execution. Imported handles retain their own declared access; resolving an import cannot silently widen it.
 

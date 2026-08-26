@@ -1,5 +1,5 @@
 import { Markdown, useMutationAction, useQuery, useUser } from "arbor/react"
-import { database, mutation, publicError, query, rel } from "arbor/data"
+import { database, mutation, publicError, query } from "arbor/data"
 import { z } from "zod"
 import { setListPractice } from "./scripts/mutations"
 import { myLists } from "./scripts/queries"
@@ -16,44 +16,39 @@ import {
 } from "./components/shared"
 
 const suppliesData = database("./data")
-const { practice_authors, practices } = suppliesData.relations
+const { arbor_profiles, practice_authors, practices } = suppliesData.relations
+const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
-export const practice = query(
-  suppliesData,
+export const practice = query.maybe(
+  practices,
   z.object({ id: z.string().uuid() }),
-  rel`
-    p: practices(id: $id)
-    pa: practice_authors(practice_id: p.id)
-    author: arbor_profiles(id: pa.author_profile)
-    lp: list_practices(practice_id: p.id)
-    l: lists(id: lp.list_id)
-    owner: arbor_profiles(id: l.owner_profile)
-    lr: list_reactions(list_id: l.id)
-    all_lp: list_practices(list_id: l.id)
-
-    where l.visibility == "public" or l.owner_profile == user.profile
-
-    return nullable one p {
-      id
-      name
-      about
-      authors: many author key by id order by name, id {
-        id name handle portrait
-      }
-      lists: many l key by id order by count(lr) desc, id {
-        id
-        name
-        about
-        visibility
-        kind
-        ownerProfile: owner_profile
-        owner: one owner { id name handle portrait }
-        practiceCount: count(all_lp)
-        reactionCount: count(lr)
-        reactionProfiles: many lr key by profile order by profile { profile }
-      }
-    }
-  `,
+  (practice, { input, user }) => ({
+    where: practice.id.eq(input.id),
+    select: {
+      ...practice.pick("id", "name", "about"),
+      authors: practice.authors({
+        orderBy: author => author.name,
+        select: profileCard,
+      }),
+      lists: practice.lists({
+        where: list => list.visibility.eq("public").or(
+          list.owner_profile.eq(user.profile),
+        ),
+        orderBy: list => list.reactions.count.desc(),
+        select: list => ({
+          ...list.pick("id", "name", "about", "visibility", "kind"),
+          ownerProfile: list.owner_profile,
+          owner: list.owner(profileCard),
+          practiceCount: list.items.count,
+          reactionCount: list.reactions.count,
+          reactionProfiles: list.reactions({
+            orderBy: reaction => reaction.profile,
+            select: reaction => ({ profile: reaction.profile }),
+          }),
+        }),
+      }),
+    },
+  }),
 )
 
 export const updatePractice = mutation(
@@ -132,7 +127,7 @@ function PracticeContent({ id, editing = false }: { id: string; editing?: boolea
 
 function AddToLists({ practiceID }: { practiceID: string }) {
   useUser({ required: true })
-  const lists = useQuery(myLists, {})
+  const lists = useQuery(myLists)
   const [state, action, pending] = useMutationAction(setListPractice)
   return (
     <Panel className="my-8">

@@ -32,6 +32,7 @@ The source intentionally imports proposed `arbor/react` and `arbor/data` APIs th
 - Zod input schemas for both queries and mutations through the Standard Schema contract;
 - mutation handlers receiving a default atomic `tx` instead of wrapping themselves in transactions;
 - query-inferred values instead of handwritten person/practice/list DTOs;
+- compact `query.many`/`query.maybe` plans with explicit `pick` projections and callable schema relationships;
 - database-fact query results with presentation state calculated in React;
 - shared `Panel`, `Button`, and form-control components instead of exported class strings;
 - partition-safe ordered relation mutations instead of calculating positions from row counts;
@@ -40,7 +41,7 @@ The source intentionally imports proposed `arbor/react` and `arbor/data` APIs th
 ## Known Arbor implementation gaps
 
 - executable MDX/TSX document and data authoring packages;
-- relational-block parser, type inference, and SQLite compilation; a Postgres runtime adapter is later and need-driven;
+- callable symbolic-query lowering, relationship metadata, type inference, and SQLite compilation; a Postgres runtime adapter is later and need-driven;
 - profile trees as a batchable virtual relation;
 - transaction row APIs and retry-stable mutation context;
 - SSR/hydration and active-query discovery from the addressed document component;
