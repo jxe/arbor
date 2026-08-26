@@ -2,6 +2,16 @@ import ArborWire
 import Foundation
 
 enum ArborSupportDirectories {
+#if os(macOS)
+    static let dataHome: URL = {
+        if let override = ProcessInfo.processInfo.environment["ARBOR_DATA_HOME"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".arbor", directoryHint: .isDirectory)
+    }()
+#endif
+
     static let root: URL = {
         let fileManager = FileManager.default
         let base = (try? fileManager.url(

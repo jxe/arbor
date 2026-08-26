@@ -724,12 +724,7 @@ private struct MacArbordAccountPanel: View {
     private var testTrees: [LocalArbordTreePresentation] {
         account?.trees.filter { ($0.canonicalPath ?? "").contains("/railway-smoke-") } ?? []
     }
-    private var activeDevices: [AuthorityDevice] {
-        account?.devices.filter { $0.revokedAt == nil } ?? []
-    }
-    private var revokedDevices: [AuthorityDevice] {
-        account?.devices.filter { $0.revokedAt != nil } ?? []
-    }
+    private var activeDevices: [LocalArbordDevicePresentation] { account?.devices ?? [] }
 
     var body: some View {
         NavigationStack {
@@ -782,22 +777,18 @@ private struct MacArbordAccountPanel: View {
                                 HStack {
                                     VStack(alignment: .leading) {
                                         Text(device.label)
-                                        Text("Active credential").font(.caption).foregroundStyle(.secondary)
+                                        Text([
+                                            device.isCurrent ? "This Mac" : nil,
+                                            device.isAdministrator ? "Administrator" : "Active device",
+                                        ].compactMap { $0 }.joined(separator: " · "))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
                                     }
                                     Spacer()
                                     Button("Revoke", role: .destructive) {
                                         Task { await revoke(device.id) }
                                     }
-                                }
-                            }
-                            if !revokedDevices.isEmpty {
-                                DisclosureGroup("Revoked devices (\(revokedDevices.count))") {
-                                    ForEach(revokedDevices, id: \.id) { device in
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(device.label)
-                                            Text("Revoked").font(.caption).foregroundStyle(.secondary)
-                                        }
-                                    }
+                                    .disabled(device.isAdministrator && activeDevices.filter(\.isAdministrator).count == 1)
                                 }
                             }
                         } header: {
@@ -1090,7 +1081,7 @@ struct ArborIOSLaunchView: View {
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(tree.canonicalPath)
+                                    Text(tree.canonicalPath ?? tree.id)
                                     Text(tree.access == "write" ? "Ready to sync" : "Read only")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -1138,7 +1129,9 @@ struct ArborIOSLaunchView: View {
         guard let service else { return }
         treeError = nil
         do {
-            trees = try await service.trees().sorted { $0.canonicalPath < $1.canonicalPath }
+            trees = try await service.trees().snapshot.sorted {
+                ($0.canonicalPath ?? $0.id) < ($1.canonicalPath ?? $1.id)
+            }
         } catch {
             treeError = String(describing: error)
         }
@@ -1179,7 +1172,6 @@ private struct IOSAccountPanel: View {
     let onDisconnect: @MainActor () -> Void
     @State private var placement: NativePlacementRecord?
     @State private var account: AuthorityAccountDescriptor?
-    @State private var devices: [AuthorityDevice] = []
     @State private var message: String?
     @State private var disconnectConfirmation = false
 
@@ -1192,18 +1184,8 @@ private struct IOSAccountPanel: View {
                             LabeledContent("Signed in as", value: "~\(account.handle)")
                         }
                         LabeledContent("Authority", value: placement.origin.host() ?? placement.origin.absoluteString)
-                        LabeledContent("Folder", value: placement.tree.canonicalPath)
+                        LabeledContent("Folder", value: placement.tree.canonicalPath ?? placement.tree.id)
                         LabeledContent("Access", value: placement.tree.access.capitalized)
-                    }
-                    Section("Devices") {
-                        ForEach(devices, id: \.id) { device in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(device.label)
-                                Text(device.revokedAt == nil ? "Active" : "Revoked")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
                     }
                     Section {
                         Button("Disconnect and Pair Again…", role: .destructive) {
@@ -1241,9 +1223,7 @@ private struct IOSAccountPanel: View {
             }
             self.placement = placement
             let service = NativeAccountService(origin: placement.origin)
-            async let loadedAccount = service.account()
-            async let loadedDevices = service.devices()
-            (account, devices) = try await (loadedAccount, loadedDevices)
+            account = try await service.account().account
             message = nil
         } catch { message = String(describing: error) }
     }

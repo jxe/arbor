@@ -28,15 +28,31 @@ struct LocalArbordVisitPresentation: Identifiable, Sendable, Equatable {
     let visitedAt: String?
 }
 
+struct LocalArbordDevicePresentation: Identifiable, Sendable, Equatable {
+    let id: String
+    let label: String
+    let isAdministrator: Bool
+    let isCurrent: Bool
+}
+
 struct LocalArbordOverview: Sendable, Equatable {
     let origin: String?
     let handle: String?
+    let configurationTree: String?
     let credentialAvailable: Bool
     let trees: [LocalArbordTreePresentation]
     let visits: [LocalArbordVisitPresentation]
-    let devices: [AuthorityDevice]
+    let devices: [LocalArbordDevicePresentation]
     let observedThrough: String
     let refreshedAt: Date
+}
+
+private struct LocalAccountConfigurationPresentation {
+    let origin: String?
+    let handle: String?
+    let administrators: Set<String>
+    let currentDevice: String?
+    let devices: [LocalArbordDevicePresentation]
 }
 
 struct LocalArbordPairingPresentation: Sendable, Equatable {
@@ -156,7 +172,7 @@ final class ArborWorkspaceState {
         await switchProvider(
             nextProvider,
             home: WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/"),
-            detail: "Offline replica · \(tree.canonicalPath)"
+            detail: "Offline replica · \(tree.canonicalPath ?? tree.id)"
         )
         syncCoordinator = coordinator
         syncPresentation = try await coordinator.presentation()
@@ -318,41 +334,124 @@ final class ArborWorkspaceState {
 
     private func loadLocalArbordOverview() async throws -> LocalArbordOverview {
         guard let client = arbordClient else { throw ArbordSupervisorError.serviceUnavailable }
-        async let communityRequest = client.node(.path("/community", tree: "system"))
-        async let treeDirectoryRequest = client.node(.path("/trees", tree: "system"))
+        async let credentialRequest = client.node(.path("/credentials", tree: "system"))
+        async let treeListRequest = client.trees()
         async let visitDirectoryRequest = client.node(.path("/visited", tree: "system"))
-        async let devicesRequest = loadLocalArbordDevices(client: client)
-        let (community, treeDirectory, visitDirectory, deviceResult) = try await (
-            communityRequest,
-            treeDirectoryRequest,
-            visitDirectoryRequest,
-            devicesRequest
+        let (credentials, treeList, visitDirectory) = try await (
+            credentialRequest,
+            treeListRequest,
+            visitDirectoryRequest
         )
-        let frontmatter = community.document?.frontmatter
-        let connected = frontmatter?.bool("connected") == true
-        let devices = connected ? try deviceResult.get() : []
-        async let treesRequest = loadLocalArbordTrees(client: client, children: treeDirectory.children ?? [])
+        let localConfiguration = try loadLocalAccountConfiguration()
+        let connected = credentials.document?.frontmatter.string("communityAccount") == "connected"
+        let configurationTree = treeList.snapshot.first { $0.kind == "account-configuration" }?.id
+        let trees = treeList.snapshot.map {
+            LocalArbordTreePresentation(
+                id: $0.id,
+                name: $0.name,
+                canonicalPath: $0.canonical?.path,
+                path: $0.osPath,
+                access: $0.access,
+                sync: $0.sync
+            )
+        }
         async let visitsRequest = loadLocalArbordVisits(client: client, children: visitDirectory.children ?? [])
-        let (trees, visits) = try await (treesRequest, visitsRequest)
+        let visits = try await visitsRequest
         return LocalArbordOverview(
-            origin: connected ? frontmatter?.string("origin") : nil,
-            handle: connected ? frontmatter?.string("handle") : nil,
-            credentialAvailable: connected && frontmatter?.bool("credentialAvailable") == true,
+            origin: connected ? localConfiguration.origin : nil,
+            handle: connected ? localConfiguration.handle : nil,
+            configurationTree: configurationTree,
+            credentialAvailable: connected && credentials.document?.frontmatter.bool("credentialAvailable") == true,
             trees: trees,
             visits: visits,
-            devices: devices,
+            devices: connected ? localConfiguration.devices : [],
             observedThrough: latestObservationCursor([
-                community.observedThrough,
-                treeDirectory.observedThrough,
+                credentials.observedThrough,
+                treeList.observedThrough,
                 visitDirectory.observedThrough,
             ]),
             refreshedAt: Date()
         )
     }
 
-    private func loadLocalArbordDevices(client: ArborClient) async -> Result<[AuthorityDevice], Error> {
-        do { return .success(try await client.communityDevices()) }
-        catch { return .failure(error) }
+    private func loadLocalAccountConfiguration() throws -> LocalAccountConfigurationPresentation {
+        let home = ArborSupportDirectories.dataHome
+        let accountSource = try String(contentsOf: home.appending(path: "account.yaml"), encoding: .utf8)
+        let administrators = Set(yamlSequence(named: "admins", in: accountSource))
+        let currentDeviceURL = home.appending(path: ".state/device.json")
+        let currentDeviceState = try? JSONDecoder().decode(
+            [String: String].self,
+            from: Data(contentsOf: currentDeviceURL)
+        )
+        let currentDevice = currentDeviceState?["id"]
+        let devicesURL = home.appending(path: "devices", directoryHint: .isDirectory)
+        let files = try FileManager.default.contentsOfDirectory(
+            at: devicesURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        let devices = try files.compactMap { url -> LocalArbordDevicePresentation? in
+            guard url.pathExtension == "yaml" else { return nil }
+            let id = url.deletingPathExtension().lastPathComponent
+            guard id.hasPrefix("dv_") else { return nil }
+            let source = try String(contentsOf: url, encoding: .utf8)
+            return LocalArbordDevicePresentation(
+                id: id,
+                label: yamlScalar(named: "label", in: source) ?? id,
+                isAdministrator: administrators.contains(id),
+                isCurrent: currentDevice == id
+            )
+        }.sorted { lhs, rhs in
+            if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
+            return lhs.label.localizedCaseInsensitiveCompare(rhs.label) == .orderedAscending
+        }
+        return LocalAccountConfigurationPresentation(
+            origin: yamlScalar(named: "community", in: accountSource),
+            handle: yamlScalar(named: "handle", in: accountSource),
+            administrators: administrators,
+            currentDevice: currentDevice,
+            devices: devices
+        )
+    }
+
+    private func yamlScalar(named name: String, in source: String) -> String? {
+        for rawLine in source.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("\(name):") else { continue }
+            return decodeYAMLScalar(String(line.dropFirst(name.count + 1)))
+        }
+        return nil
+    }
+
+    private func yamlSequence(named name: String, in source: String) -> [String] {
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard let start = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "\(name):" }) else {
+            return []
+        }
+        let indentation = lines[start].prefix { $0 == " " }.count
+        var values: [String] = []
+        for line in lines.dropFirst(start + 1) {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+            let lineIndentation = line.prefix { $0 == " " }.count
+            guard lineIndentation > indentation else { break }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("-") else { continue }
+            if let value = decodeYAMLScalar(String(trimmed.dropFirst())) { values.append(value) }
+        }
+        return values
+    }
+
+    private func decodeYAMLScalar(_ source: String) -> String? {
+        let value = source.trimmingCharacters(in: .whitespaces)
+        guard !value.isEmpty else { return nil }
+        if value.hasPrefix("\"") {
+            return try? JSONDecoder().decode(String.self, from: Data(value.utf8))
+        }
+        if value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 {
+            return String(value.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'")
+        }
+        if let comment = value.range(of: " #") { return String(value[..<comment.lowerBound]) }
+        return value
     }
 
     private func latestObservationCursor(_ cursors: [String]) -> String {
@@ -361,29 +460,6 @@ final class ArborWorkspaceState {
             let right = Int(rhs.split(separator: ":").last ?? "") ?? 0
             return left < right
         } ?? ""
-    }
-
-    private func loadLocalArbordTrees(client: ArborClient, children: [TreeChild]) async throws -> [LocalArbordTreePresentation] {
-        let values = try await withThrowingTaskGroup(of: (Int, LocalArbordTreePresentation?).self) { group in
-            for (index, child) in children.enumerated() {
-                group.addTask {
-                    let node = try await client.node(.path(child.path, tree: "system"))
-                    guard let fields = node.document?.frontmatter, let id = fields.string("id") else { return (index, nil) }
-                    return (index, LocalArbordTreePresentation(
-                        id: id,
-                        name: fields.string("name") ?? node.name,
-                        canonicalPath: fields.string("canonicalPath"),
-                        path: fields.string("path"),
-                        access: fields.string("access"),
-                        sync: fields.string("sync")
-                    ))
-                }
-            }
-            var loaded: [(Int, LocalArbordTreePresentation?)] = []
-            for try await value in group { loaded.append(value) }
-            return loaded
-        }
-        return values.sorted { $0.0 < $1.0 }.compactMap(\.1)
     }
 
     private func loadLocalArbordVisits(client: ArborClient, children: [TreeChild]) async throws -> [LocalArbordVisitPresentation] {
@@ -419,7 +495,7 @@ final class ArborWorkspaceState {
                 let observations = await client.observations(after: cursor)
                 for try await event in observations {
                     guard !Task.isCancelled else { return }
-                    guard event.tree == "system" else { continue }
+                    guard event.tree == "system" || event.tree == self?.localArbordOverview?.configurationTree else { continue }
                     try await Task.sleep(for: .milliseconds(150))
                     guard !Task.isCancelled else { return }
                     await self?.refreshLocalArbordOverview()
@@ -455,32 +531,48 @@ final class ArborWorkspaceState {
     }
 
     func revokeLocalArbordDevice(_ id: String) async throws {
-        guard let client = arbordClient else { throw ArbordSupervisorError.serviceUnavailable }
-        let revoked = try await client.revokeCommunityDevice(id)
-        if let overview = localArbordOverview {
-            localArbordOverview = LocalArbordOverview(
-                origin: overview.origin,
-                handle: overview.handle,
-                credentialAvailable: overview.credentialAvailable,
-                trees: overview.trees,
-                visits: overview.visits,
-                devices: overview.devices.map { $0.id == revoked.id ? revoked : $0 },
-                observedThrough: overview.observedThrough,
-                refreshedAt: overview.refreshedAt
-            )
+        let configuration = try loadLocalAccountConfiguration()
+        guard let target = configuration.devices.first(where: { $0.id == id }) else {
+            throw ArbordSupervisorError.incompatibleService("The device is no longer active")
         }
+        let currentIsAdministrator = configuration.currentDevice.map(configuration.administrators.contains) == true
+        guard target.isCurrent || currentIsAdministrator else {
+            throw ArbordSupervisorError.incompatibleService("Only an administrator can revoke another device")
+        }
+        if target.isAdministrator {
+            guard configuration.administrators.count > 1 else {
+                throw ArbordSupervisorError.incompatibleService("The last administrator cannot be revoked")
+            }
+            let accountURL = ArborSupportDirectories.dataHome.appending(path: "account.yaml")
+            let source = try String(contentsOf: accountURL, encoding: .utf8)
+            let lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            let filtered = lines.filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.hasPrefix("-") else { return true }
+                return decodeYAMLScalar(String(trimmed.dropFirst())) != id
+            }
+            guard filtered.count == lines.count - 1 else {
+                throw ArbordSupervisorError.incompatibleService("The administrator entry could not be edited safely")
+            }
+            try (filtered.joined(separator: "\n")).write(to: accountURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: accountURL.path)
+        }
+        let deviceURL = ArborSupportDirectories.dataHome.appending(path: "devices/\(id).yaml")
+        try FileManager.default.removeItem(at: deviceURL)
+        try await Task.sleep(for: .milliseconds(250))
         try await refreshLocalArbordDevices()
     }
 
     private func refreshLocalArbordDevices() async throws {
-        guard let client = arbordClient, let overview = localArbordOverview else { return }
+        guard let overview = localArbordOverview else { return }
         localArbordOverview = LocalArbordOverview(
             origin: overview.origin,
             handle: overview.handle,
+            configurationTree: overview.configurationTree,
             credentialAvailable: overview.credentialAvailable,
             trees: overview.trees,
             visits: overview.visits,
-            devices: try await client.communityDevices(),
+            devices: try loadLocalAccountConfiguration().devices,
             observedThrough: overview.observedThrough,
             refreshedAt: Date()
         )

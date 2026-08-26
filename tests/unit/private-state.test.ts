@@ -115,6 +115,32 @@ describe("Arbor private state", () => {
     }
   });
 
+  test("removes an empty legacy cache directory when migrated state already exists", async () => {
+    const state = await temp("arbor-private-state-empty-recreated-");
+    process.env.ARBOR_DATA_HOME = state;
+    await mkdir(join(state, ".state", "LinkPreviews"), { recursive: true });
+    await writeFile(join(state, ".state", "LinkPreviews", "cached.json"), "{}\n");
+    await mkdir(join(state, "LinkPreviews"));
+
+    await prepareArborDataRoot();
+
+    await expect(stat(join(state, "LinkPreviews"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(join(state, ".state", "LinkPreviews", "cached.json"), "utf8")).toBe("{}\n");
+  });
+
+  test("rejects a nonempty legacy cache collision without merging it", async () => {
+    const state = await temp("arbor-private-state-nonempty-collision-");
+    process.env.ARBOR_DATA_HOME = state;
+    await mkdir(join(state, ".state", "LinkPreviews"), { recursive: true });
+    await writeFile(join(state, ".state", "LinkPreviews", "migrated.json"), "{}\n");
+    await mkdir(join(state, "LinkPreviews"));
+    await writeFile(join(state, "LinkPreviews", "legacy.json"), "{}\n");
+
+    await expect(prepareArborDataRoot()).rejects.toThrow("Private-state migration collision");
+    expect(await readFile(join(state, "LinkPreviews", "legacy.json"), "utf8")).toBe("{}\n");
+    expect(await readFile(join(state, ".state", "LinkPreviews", "migrated.json"), "utf8")).toBe("{}\n");
+  });
+
   test("preserves private identity when a directory moves on one filesystem", async () => {
     const state = await temp("arbor-data-move-state-");
     const outer = await temp("arbor-data-move-root-");

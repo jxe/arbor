@@ -2,11 +2,13 @@ import {
   chmod,
   lstat,
   mkdir,
+  readdir,
   readFile,
   readlink,
   realpath,
   rename,
   rm,
+  rmdir,
   stat,
   symlink,
   writeFile,
@@ -121,12 +123,17 @@ async function migratePrivateState(dataHome: string): Promise<void> {
   const state = join(dataHome, ".state");
   await mkdir(state, { recursive: true, mode: 0o700 });
   const moves: Array<{ source: string; destination: string }> = [];
+  const emptyLegacyDirectories: string[] = [];
   for (const name of LEGACY_PRIVATE_ENTRIES) {
     const source = join(dataHome, name);
     const destination = join(state, name);
     const [sourceKind, destinationKind] = await Promise.all([pathKind(source), pathKind(destination)]);
     if (sourceKind === "missing") continue;
     if (destinationKind !== "missing") {
+      if (sourceKind === "directory" && (await readdir(source)).length === 0) {
+        emptyLegacyDirectories.push(source);
+        continue;
+      }
       throw new Error(`Private-state migration collision: both ${source} and ${destination} exist`);
     }
     moves.push({ source, destination });
@@ -135,6 +142,10 @@ async function migratePrivateState(dataHome: string): Promise<void> {
   // never produce a partially merged state tree. Completed moves are harmless
   // when startup retries after interruption.
   for (const move of moves) await rename(move.source, move.destination);
+  // Old app builds may harmlessly recreate an empty cache directory after the
+  // cache has moved. Removing only an empty duplicate keeps restart migration
+  // idempotent without merging or discarding private state.
+  for (const source of emptyLegacyDirectories) await rmdir(source);
 }
 
 /** Testable relocation core; callers choose the concrete old and new homes. */
