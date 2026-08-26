@@ -1,5 +1,5 @@
 # Arbor: a successor to the web
-*Spec overview, v0.8. Placeholder names—**workspace**, **arbord**, and **the wire**—remain provisional; the system, its independently versioned trees, and first-party clients use the Arbor name.*
+*Spec overview, v0.8. Placeholder names—**workspace** and **the wire**—remain provisional; the system, its independently versioned trees, and first-party clients use the Arbor name.*
 
 ## Specification stance
 
@@ -33,7 +33,7 @@ Ordinary unpromoted files are browsable as `tree: "local"`, without gaining a du
 | [stores](spec/stores.md) | Markdown, CSV, JSONL, SQLite, and Postgres collection behavior |
 | [executable documents](spec/executable-documents.md) | Portable MDX/TSX source, named queries and mutations, React components, identity, confinement, and consent |
 | [agents](spec/agents.md) | Agent files, tools, context, confinement, consent, effects, and transcripts |
-| [wire](spec/wire.md) | Community authority, identity, claims, access, deterministic objects, sync, watch, executable-document data and effects, and public HTTP projection |
+| [wire](spec/wire.md) | Arbor server identity, claims, access, deterministic objects, sync, watch, executable-document data and effects, and public HTTP projection |
 
 Language-neutral conformance vectors live in [`conformance`](conformance). The [reference implementation documentation](docs/reference-implementation.md), including the local API, CLI, and client design, is informative rather than normative.
 

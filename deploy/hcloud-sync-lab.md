@@ -3,7 +3,7 @@
 This plan exercises Arbor synchronization on real, disposable Linux machines without building a general deployment platform. The first lab has exactly four Hetzner Cloud VMs:
 
 ```text
-arbor-community    canonical authority and wire gateway
+arbor-community    canonical Canopy server and Wire gateway
 arbor-alice        client A
 arbor-bob          client B
 arbor-carol        client C
@@ -22,7 +22,7 @@ The lab should answer four questions with recorded evidence:
 3. **Convergence:** after connectivity returns and conflicts are explicitly resolved, do all non-pinned placements reach the same tree ref and bytes?
 4. **Identity:** does one `TreeID` remain the same when materialized at different paths and, later, on different filesystems?
 
-The lab tests `updates-v1`, not the removed whole-tree CAS protocol. Independent Markdown additions must be merged by the authority and accepted as one new update. Unsafe binary, frontmatter, path-kind, and nested-boundary overlap must return one complete draft to the submitting client without creating accepted history, candidate-object, or conflict resources. The client must retain that response and its local files across restart until an explicit new update resolves it. Accepted history is inspected only as private host state; the lab also proves that history and non-current objects are absent from the wire API.
+The lab tests `updates-v1`, not the removed whole-tree CAS protocol. Independent Markdown additions must be merged by Canopy and accepted as one new update. Unsafe binary, frontmatter, path-kind, and nested-boundary overlap must return one complete draft to the submitting client without creating accepted history, candidate-object, or conflict resources. The client must retain that response and its local files across restart until an explicit new update resolves it. Accepted history is inspected only as private host state; the lab also proves that history and non-current objects are absent from the wire API.
 
 ## Keep the infrastructure simple
 
@@ -30,14 +30,14 @@ Start with root disks only:
 
 | Machine | Arbor content path | Purpose |
 |---|---|---|
-| `arbor-community` | `/var/lib/arbor-community` | Authority SQLite database and immutable objects |
+| `arbor-community` | `/var/lib/arbor-canopy` | Canopy SQLite database and immutable objects |
 | `arbor-alice` | `/home/arbor/lab` | Ordinary home-directory placement |
 | `arbor-bob` | `/srv/arbor/lab` | Same trees at a different absolute path |
 | `arbor-carol` | `/mnt/arbor/lab` | Same trees under a mount-shaped path |
 
 These paths are enough to prove reader-local placement. They do not by themselves test different Linux devices or filesystem implementations. Add the loop-mounted filesystem variant near the end only after the baseline sync, outage, and conflict runs are understood.
 
-Do not add a Hetzner Volume merely to preserve this disposable lab. Add one later only for the separate replacement-host durability test where the community VM must be destroyed and recreated without losing authority state.
+Do not add a Hetzner Volume merely to preserve this disposable lab. Add one later only for the separate replacement-host durability test where the community VM must be destroyed and recreated without losing Canopy state.
 
 ## One-time setup
 
@@ -83,13 +83,13 @@ bun run lab:hcloud test
 bun run lab:hcloud test:authorization
 ```
 
-`smoke` creates one private tree on Alice, places it on Bob and Carol, and requires identical SHA-256 manifests plus a healthy authority. `test` includes that smoke gate and then runs the mandatory accepted-update suite: serial A/B/C propagation, three-client offline Markdown additions, canonical semantic-request replay, a durable binary conflict with no private accepted-history entry, arbord restart, explicit client resolution, `/push` and public-history absence, current-object-only authorization, and device pairing/revocation. It fails on byte-manifest disagreement or missing authored markers, not merely on a status label.
+`smoke` creates one private tree on Alice, places it on Bob and Carol, and requires identical SHA-256 manifests plus a healthy Canopy. `test` includes that smoke gate and then runs the mandatory accepted-update suite: serial A/B/C propagation, three-client offline Markdown additions, canonical semantic-request replay, a durable binary conflict with no private accepted-history entry, arborsync restart, explicit client resolution, `/push` and public-history absence, current-object-only authorization, and device pairing/revocation. It fails on byte-manifest disagreement or missing authored markers, not merely on a status label.
 
 `test:authorization` uses distinct claimed accounts on the same four hosts. Alice creates a private tree with Bob as a reader and Carol as a writer. Bob must read the exact current bytes but his submitted update must receive the existence-hiding denial, leave the ref and accepted-history count unchanged, and make none of his rejected candidate objects readable. Carol must read and accept one update that Alice and Bob can both retrieve byte-for-byte. The original authenticated community owner, who has no tree grant, must be unable to list the tree or read its known ref/current object; an anonymous canonical read must also return `404`. Short-lived account credentials travel only over SSH standard input and are not saved in runner state, command arguments, or evidence logs.
 
-The full `test` and `test:authorization` commands are pre-production gates. Run both from the exact committed candidate revision and collect their evidence before requesting approval to update Railway. Do not deploy the Railway authority first and use this lab as an after-check.
+The full `test` and `test:authorization` commands are pre-production gates. Run both from the exact committed candidate revision and collect their evidence before requesting approval to update Railway. Do not deploy the Railway Canopy server first and use this lab as an after-check.
 
-Local resume data lives in the ignored `.arbor-lab/<run-id>.json`. It contains exact server IDs, IP addresses, configuration, revision, and completed phases, but no Hetzner, Tailscale, or Arbor credentials. The disposable Arbor account token is generated and retained only in the authority's root-readable environment file; clients receive it over SSH on standard input while being configured.
+Local resume data lives in the ignored `.arbor-lab/<run-id>.json`. It contains exact server IDs, IP addresses, configuration, revision, and completed phases, but no Hetzner, Tailscale, or Arbor credentials. The disposable Arbor account token is generated and retained only in the Canopy's root-readable environment file; clients receive it over SSH on standard input while being configured.
 
 Useful lifecycle commands are:
 
@@ -100,7 +100,7 @@ bun run lab:hcloud collect
 bun run lab:hcloud down
 ```
 
-`reset` is the clean-rerun command. Before changing data it verifies all four recorded server IDs against their expected names plus the `purpose=arbor-sync-lab` and run-ID labels. It then stops Arbor, clears only `/var/lib/arbor-community`, the three client content paths in the table above, and `/home/arbor/.arbor` on the clients, and reconfigures the same machines. It preserves the VMs, Tailscale identities, generated Arbor credential, and deployed Git revision.
+`reset` is the clean-rerun command. Before changing data it verifies all four recorded server IDs against their expected names plus the `purpose=arbor-sync-lab` and run-ID labels. It then stops Arbor, clears only `/var/lib/arbor-canopy`, the three client content paths in the table above, and `/home/arbor/.arbor` on the clients, and reconfigures the same machines. It preserves the VMs, Tailscale identities, generated Arbor credential, and deployed Git revision.
 
 `down` makes a best-effort evidence collection first, requests Tailscale logout, verifies every recorded server's name and run labels, and deletes only the four recorded Hetzner server IDs. If a run must be selected explicitly, add `--run-id <id>`. The underlying manual commands remain documented below as the recovery and inspection path.
 
@@ -146,13 +146,13 @@ This intentionally leaves public SSH available while the lab is active. Tighteni
 
 ## Run the community and clients
 
-Use one generated, disposable initial device credential on all three clients for the synchronization matrix. The automated acceptance suite separately creates a short-lived paired device, proves it can read the test tree, revokes it, and proves the same credential is then denied. The runner keeps credentials in the authority's root-readable environment or in process memory and does not print them.
+Use one generated, disposable initial device credential on all three clients for the synchronization matrix. The automated acceptance suite separately creates a short-lived paired device, proves it can read the test tree, revokes it, and proves the same credential is then denied. The runner keeps credentials in the Canopy's root-readable environment or in process memory and does not print them.
 
 Run the community as one systemd service with the equivalent of:
 
 ```sh
 cd /opt/arbor
-bun run arbor serve /var/lib/arbor-community \
+bun run canopyd /var/lib/arbor-canopy \
   --community sync-lab \
   --url http://arbor-community:4318 \
   --hostname 0.0.0.0 \
@@ -165,9 +165,9 @@ On each client:
 
 1. Create its content path from the table above.
 2. Run `bun run arbor connect http://arbor-community:4318` and paste the same disposable credential.
-3. Install `libsecret-1-0`, `gnome-keyring`, and `dbus-x11`, unlock a disposable login keyring inside a D-Bus session, and run one persistent headless arbord process using `bun run arbor browse <content-path> --no-open` under systemd. The checked-in runner configures this Secret Service environment for `Bun.secrets` automatically.
+3. Install `libsecret-1-0`, `gnome-keyring`, and `dbus-x11`, unlock a disposable login keyring inside a D-Bus session, and run one persistent headless arborsync process using `bun run arborsync <content-path>` under systemd. The checked-in runner configures this Secret Service environment for `Bun.secrets` automatically.
 
-Stop the client service before adding a new placement with `arbor sync`, then start it again. This avoids two arbord processes mutating the same private state while the scenario is being prepared.
+Stop the client service before adding a new placement with `arbor sync`, then start it again. This avoids two arborsync processes mutating the same private state while the scenario is being prepared.
 
 ## Test discipline
 
@@ -182,11 +182,11 @@ s05 bob 002 2026-08-02T17:30:00Z
 For each scenario, record:
 
 - Arbor Git commit on all four machines;
-- scenario ID, `TreeID`, canonical URL, and starting authority ref;
+- scenario ID, `TreeID`, canonical URL, and starting Canopy ref;
 - each client's path, `findmnt` result, and `stat -c '%d:%i %n'` for the tree root;
 - exact file bytes or a sorted SHA-256 manifest before the fault, during it, and after recovery;
 - each client's visible sync state;
-- ending authority ref and the order in which clients reconnected;
+- ending Canopy ref and the order in which clients reconnected;
 - whether the result matched the expected outcome.
 
 Never call a test passed based only on the green **Up to date** label. The refs and file hashes must also agree.
@@ -195,7 +195,7 @@ Never call a test passed based only on the green **Up to date** label. The refs 
 
 Create `s01` on Alice, promote it beneath the owner profile, and place the same `TreeID` on Bob and Carol at their local paths. Wait until all three byte manifests match.
 
-The community authority is a mediator, not a fourth filesystem writer. “Server to client” is therefore covered by every peer receiving a ref already accepted by the authority, plus the fresh-placement case that materializes the authority's current ref without copying from another client.
+The community Canopy server is a mediator, not a fourth filesystem writer. “Server to client” is therefore covered by every peer receiving a ref already accepted by Canopy, plus the fresh-placement case that materializes Canopy's current ref without copying from another client.
 
 Then run these serially from a clean, converged ref:
 
@@ -204,9 +204,9 @@ Then run these serially from a clean, converged ref:
 | `s01-a-to-all` | Alice | Bob, Carol | Create a Markdown file and an ordinary binary file |
 | `s02-b-to-all` | Bob | Alice, Carol | Edit Markdown and rename the binary file |
 | `s03-c-to-all` | Carol | Alice, Bob | Add a directory, move the Markdown file into it, and edit it |
-| `s04-fresh-pull` | Authority via the winning client | A new placement | Remove and recreate one client's placement at a new empty path |
+| `s04-fresh-pull` | Canopy via the winning client | A new placement | Remove and recreate one client's placement at a new empty path |
 
-For every row, require exact convergence on all three clients before starting the next row. Also restart the authoring client's arbord after its change and verify that restart does not create a new `TreeID` or duplicate canonical boundary.
+For every row, require exact convergence on all three clients before starting the next row. Also restart the authoring client's arborsync after its change and verify that restart does not create a new `TreeID` or duplicate canonical boundary.
 
 Repeat the A/B/C ring once with changes made directly through the filesystem and once through Arbor web or REST mutations. This distinguishes filesystem observation from protocol mutation behavior.
 
@@ -226,7 +226,7 @@ sudo iptables -I OUTPUT \
   -j REJECT
 ```
 
-Confirm Arbor reports **Offline**, make a local edit, and verify no remote client receives it. Remove the exact rule with the corresponding `iptables -D` command and verify the edit eventually reaches the authority and both peers if no other writer advanced the tree.
+Confirm Arbor reports **Offline**, make a local edit, and verify no remote client receives it. Remove the exact rule with the corresponding `iptables -D` command and verify the edit eventually reaches Canopy and both peers if no other writer advanced the tree.
 
 If a rule is entered incorrectly, `hcloud server reboot arbor-<client>` is the recovery path; the injected `iptables` and `tc` rules are deliberately not persistent.
 
@@ -245,7 +245,7 @@ Verify that all clients become visibly offline while retaining readable local fi
 - no local changes during the outage, followed by `hcloud server poweron arbor-community`;
 - independent local changes on A, B, and C, followed by reconnecting clients one at a time in a recorded order.
 
-The first case must converge without conflict. In the second case, the first accepted update advances the authority. Later Markdown candidates must preserve all independent additions through the authority merge. Unsafe candidates must remain complete on their originating client, receive a complete draft, and leave no authority history entry until the client explicitly resolves them with a new update.
+The first case must converge without conflict. In the second case, the first accepted update advances Canopy. Later Markdown candidates must preserve all independent additions through the Canopy merge. Unsafe candidates must remain complete on their originating client, receive a complete draft, and leave no Canopy history entry until the client explicitly resolves them with a new update.
 
 Repeat the divergent case with reconnect orders `A → B → C`, `C → B → A`, and `B → A → C`. Use fresh trees for each order.
 
@@ -258,7 +258,7 @@ Test these separately because they have different failure surfaces:
 3. Run `hcloud server reboot arbor-community`.
 4. Reboot each client once with a clean tree and once with an unpushed local edit.
 
-After each case, the authority must expose either the complete old ref or the complete new ref, never a partially materialized snapshot. A client-local edit must remain present until it is pushed or explicitly resolved.
+After each case, Canopy must expose either the complete old ref or the complete new ref, never a partially materialized snapshot. A client-local edit must remain present until it is pushed or explicitly resolved.
 
 ### Latency, loss, and reordering
 
@@ -276,7 +276,7 @@ Each row begins from a shared, recorded base ref. Isolate the named clients, mak
 | Different Markdown blocks | Edit the introduction | Edit a later section | Automatic accepted merge contains both edits |
 | Different files | Edit `a.md` | Edit `b.md` | Automatic accepted merge contains both files |
 | Create/create Markdown | Create different `notes.md` content | Create different `notes.md` content | Loss-averse Markdown merge, or a structured conflict if protected structure is incompatible |
-| Frontmatter/frontmatter | Change one protected value | Change it differently | Client-owned `frontmatter-conflict`; complete draft; no authority history entry |
+| Frontmatter/frontmatter | Change one protected value | Change it differently | Client-owned `frontmatter-conflict`; complete draft; no Canopy history entry |
 | Edit/delete | Edit `notes.md` | Delete `notes.md` | Edited alternative stays in the complete client draft; explicit resolution required |
 | Rename/edit | Rename `notes.md` | Edit it at the old path | Structured path conflict; neither alternative disappears from client-owned state |
 | Nested boundary | Change a registered boundary | Change content beneath it independently | `nested-boundary-conflict`; parent update never absorbs the child tree |
@@ -288,14 +288,14 @@ Also exercise Arbor-specific boundaries:
 - edit a parent directory while another client promotes a nested subtree;
 - attempt to replace a registered nested boundary and require `reserved-boundary` rather than ordinary overwrite;
 - edit the parent and nested Arbor tree independently and confirm the two `TreeID` scopes do not contaminate one another;
-- revoke a client's write access while it is offline with local edits, then reconnect it and require that the authority reject its update while its local bytes remain readable;
+- revoke a client's write access while it is offline with local edits, then reconnect it and require that Canopy reject its update while its local bytes remain readable;
 - restart the community during repeated semantic update submissions, verifying that accepted history/ref advancement remains atomic and a canonical-digest replay creates no duplicate accepted update.
 
 Do not reinterpret a conflict as corruption. Record separately:
 
-- **expected conflict:** the authority retains no conflict record; the submitting client persists its complete local/draft/remote context and attention is visible;
+- **expected conflict:** Canopy retains no conflict record; the submitting client persists its complete local/draft/remote context and attention is visible;
 - **false conflict:** no concurrent remote advance occurred;
-- **data loss:** authored bytes disappear from both the authority and the originating client;
+- **data loss:** authored bytes disappear from both Canopy and the originating client;
 - **corruption:** a ref resolves to an incomplete graph or partial file;
 - **liveness failure:** a non-divergent tree never converges after the fault is removed.
 
@@ -311,8 +311,8 @@ Create sparse image files, format them, mount them with loop devices, and verify
 1. A/B/C serial synchronization.
 2. A same-filesystem path move.
 3. A cross-filesystem move into or out of the loop mount.
-4. Unmount/remount while arbord is stopped.
-5. Unmount while arbord is running, then restore it.
+4. Unmount/remount while arborsync is stopped.
+5. Unmount while arborsync is running, then restore it.
 
 The expected identity behavior must be stated before each move. Do not let a missing mount silently turn its mountpoint directory into a new empty placement, and do not accept a guessed identity when the stored device/inode evidence is ambiguous.
 
@@ -328,17 +328,17 @@ The first lab is complete when:
 - non-divergent offline edits eventually propagate;
 - every automatic Markdown case preserves all authored markers in one accepted root;
 - every unsafe conflict preserves the originating local bytes and complete returned draft across restart, adds no server history entry, and can be resolved only as a new accepted update;
-- successful semantic replay adds exactly one private accepted-history item, while repeating a conflict is recomputed and remains stateless on the authority;
+- successful semantic replay adds exactly one private accepted-history item, while repeating a conflict is recomputed and remains stateless on Canopy;
 - `/push` is absent and pairing, device attribution, and revocation behave correctly;
 - all three reconnect orders produce recorded, explainable results;
-- server process crashes and VM reboots retain authority identity and committed refs;
+- server process crashes and VM reboots retain Canopy identity and committed refs;
 - any false conflicts, data loss, corruption, or permanent liveness failures are captured as reproducible defects with their scenario evidence.
 
 Different filesystems are a second completion gate, not a prerequisite for declaring the baseline network/sync run complete. The baseline accepted-update gate must pass and its evidence must be collected before Plan 011 can mutate Railway.
 
 ## Tear down
 
-First collect the scenario log, systemd logs, final manifests, relevant `system:trees` state, and the community authority database if a failure needs local diagnosis. Then delete only the four explicitly named servers:
+First collect the scenario log, systemd logs, final manifests, relevant `system:trees` state, and the community Canopy server database if a failure needs local diagnosis. Then delete only the four explicitly named servers:
 
 ```sh
 for arbor_lab_node in community alice bob carol; do

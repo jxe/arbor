@@ -6,7 +6,7 @@
 > report — do not improvise. When done, update the status row for this plan
 > in `plan/hardening/README.md`.
 >
-> **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/core/src/logical-path.ts packages/core/src/logical-url.ts packages/arbord/src/server.ts packages/fs/src/workspace-fs.ts`
+> **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/core/src/logical-path.ts packages/core/src/logical-url.ts packages/arborsync/src/server.ts packages/fs/src/workspace-fs.ts`
 > Also run `git status --short` on those paths. If the excerpts under "Current
 > state" do not match the live code, treat it as a STOP condition.
 
@@ -49,9 +49,9 @@ Files involved:
 
 - `packages/core/src/logical-path.ts` — `normalizeTreePath` / `canonicalNodePath`; the decode to remove.
 - `packages/core/src/logical-url.ts` — resolves authored links; calls the above.
-- `packages/arbord/src/server.ts` — HTTP boundary; already decodes before calling in.
+- `packages/arborsync/src/server.ts` — HTTP boundary; already decodes before calling in.
 - `packages/fs/src/workspace-fs.ts` — directory listing; the 500 site.
-- `packages/arbord/src/fs-service.ts` — local-scope listing; the silent-drop site.
+- `packages/arborsync/src/fs-service.ts` — local-scope listing; the silent-drop site.
 
 `packages/core/src/logical-path.ts:1-19`:
 
@@ -93,13 +93,13 @@ the `paths.add(...)` above it is unprotected. Here `entry.name` comes from
 `readdir`: it is a real on-disk filename, never percent-encoded, so decoding it
 is unambiguously wrong.
 
-The HTTP boundary that already decodes, `packages/arbord/src/server.ts:509`:
+The HTTP boundary that already decodes, `packages/arborsync/src/server.ts:509`:
 
 ```ts
         let surface = await service.fileSurface(decodeURIComponent(logicalPath), raw).catch(() => null);
 ```
 
-and the referer-derived path just below it, `packages/arbord/src/server.ts:515-521`:
+and the referer-derived path just below it, `packages/arborsync/src/server.ts:515-521`:
 
 ```ts
           const referer = request.headers.get("referer");
@@ -143,13 +143,13 @@ Repo conventions:
 
 - `packages/core/src/logical-path.ts`
 - `packages/core/src/logical-url.ts` (only if it double-decodes — see step 2)
-- `packages/arbord/src/server.ts` (boundary decode + `URIError` handling)
+- `packages/arborsync/src/server.ts` (boundary decode + `URIError` handling)
 - `tests/unit/path.test.ts` (add cases)
 - `tests/integration/server.test.ts` (add a case)
 
 **Out of scope** (do NOT touch):
 
-- `packages/fs/src/workspace-fs.ts` and `packages/arbord/src/fs-service.ts` —
+- `packages/fs/src/workspace-fs.ts` and `packages/arborsync/src/fs-service.ts` —
   once `normalizeTreePath` stops decoding, their calls become correct as
   written. Do not "also fix" the try/catch asymmetry between them here; note
   it in your report instead.
@@ -218,7 +218,7 @@ is expected and is fixed in step 3.
 The security property from `tests/unit/path.test.ts:22` must still hold for
 requests arriving over HTTP.
 
-In `packages/arbord/src/server.ts`, the decode at `:509` and the two at
+In `packages/arborsync/src/server.ts`, the decode at `:509` and the two at
 `:518-520` are the boundary. Introduce a single helper in that file, e.g.:
 
 ```ts
@@ -230,13 +230,13 @@ It must:
 - `decodeURIComponent` the value.
 - Catch `URIError` and throw the existing `ProtocolError` with code
   `"unsafe-path"` and status **400** — match how `assertSameOrigin` at
-  `packages/arbord/src/server.ts:38-44` constructs a `ProtocolError`, so the
+  `packages/arborsync/src/server.ts:38-44` constructs a `ProtocolError`, so the
   error flows through the same envelope. A malformed encoding currently falls
   through to a generic 500; 400 is correct.
 - Feed the decoded result through `normalizeTreePath` so traversal is rejected
   once, at the boundary, on the decoded value. `normalizeTreePath` throws
   `PathEscapeError`; confirm the server already maps that to a 400 response
-  (`grep -n "PathEscapeError" packages/arbord/src/server.ts`) and if it does
+  (`grep -n "PathEscapeError" packages/arborsync/src/server.ts`) and if it does
   not, map it the same way as `ProtocolError` with `"unsafe-path"`.
 
 Replace all three `decodeURIComponent(...)` call sites at `:509` and `:518-520`
@@ -269,7 +269,7 @@ In `tests/unit/path.test.ts`, add:
 ### Step 5: Add an end-to-end test through the server
 
 In `tests/integration/server.test.ts`, add two cases. Read the file's existing
-setup first — it starts a real arbord and issues `fetch` calls; follow that
+setup first — it starts a real arborsync and issues `fetch` calls; follow that
 harness exactly rather than building a new one.
 
 1. **The user-visible fix**: create a fixture file whose name contains `%`
@@ -321,7 +321,7 @@ ALL must hold:
 - [ ] The step 5 traversal test returns 400 with `unsafe-path`, and fails when
       the boundary check is reverted
 - [ ] The step 1 script prints `/Q3 100%` and `/a%2Fb`
-- [ ] `packages/fs/src/workspace-fs.ts` and `packages/arbord/src/fs-service.ts`
+- [ ] `packages/fs/src/workspace-fs.ts` and `packages/arborsync/src/fs-service.ts`
       are unmodified
 - [ ] `git status --short` shows no modified files outside the In-scope list
 - [ ] `bun run test:protocol` passes, or its absence is reported explicitly
@@ -346,7 +346,7 @@ Stop and report back (do not improvise) if:
 ## Maintenance notes
 
 - The new contract is: **URLs are decoded exactly once, in
-  `packages/arbord/src/server.ts`, and everything downstream of that receives
+  `packages/arborsync/src/server.ts`, and everything downstream of that receives
   decoded logical paths.** Any future entry point that accepts a URL-shaped
   path (a new route, a new CLI argument, a new client) must decode at its own
   boundary and must run traversal rejection there.
@@ -360,6 +360,6 @@ Stop and report back (do not improvise) if:
   through the helper.
 - Deliberately deferred: the inconsistency where
   `packages/fs/src/workspace-fs.ts:405` lets a path error 500 while
-  `packages/arbord/src/fs-service.ts:287` silently swallows it. Once paths stop
+  `packages/arborsync/src/fs-service.ts:287` silently swallows it. Once paths stop
   throwing on `%`, this matters much less, but the two sites should eventually
   agree on a policy.

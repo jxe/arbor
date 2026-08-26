@@ -35,12 +35,12 @@ struct ArborAppTests {
             .appending(path: "ArborNativePlacement-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let store = NativePlacementStore(url: root.appending(path: "placement.json"))
-        let tree = AuthorityTreeDescriptor(
+        let tree = WireTreeDescriptor(
             id: "tr_native",
             kind: "shared-subtree",
             ref: "sha256:\(String(repeating: "a", count: 64))",
             access: "write",
-            canonical: AuthorityCanonicalDescriptor(
+            canonical: WireCanonicalDescriptor(
                 locator: "arbor://arbor.example/~joe/todos",
                 path: "/~joe/todos",
                 endpoint: "https://arbor.example",
@@ -221,7 +221,7 @@ struct ArborAppTests {
     }
 
 #if os(macOS)
-    @Test("The signed app can supervise its bundled arbord helper")
+    @Test("The signed app can supervise its bundled arborsync helper")
     func bundledHelperBoundary() async throws {
         guard ProcessInfo.processInfo.environment["ARBOR_TEST_BUNDLED_HELPER"] == "1" else { return }
         let root = FileManager.default.temporaryDirectory

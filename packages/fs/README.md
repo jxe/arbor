@@ -1,6 +1,6 @@
 # `@arbor/fs`
 
-`@arbor/fs` is Arbor's only server-side authority for workspace-content I/O. Arbord owns search, collections, generated types, and link healing, but it resolves and mutates materialized content through `WorkspaceFS`.
+`@arbor/fs` is Arbor's only server-side authority for workspace-content I/O. Arbor Sync owns search, collections, generated types, and link healing, but it resolves and mutates materialized content through `WorkspaceFS`.
 
 ## Logical-node invariants
 

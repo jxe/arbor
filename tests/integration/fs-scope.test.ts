@@ -2,15 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveArbor } from "@arbor/arbord";
-import { ArbordClient } from "@arbor/client";
+import { serveArborSync } from "@arbor/arborsync";
+import { ArborSyncRESTClient } from "@arbor/client";
 import type { MutationRequest, NodeSnapshot } from "@arbor/core";
 
 let outer: string;
 let root: string;
 let state: string;
 let base: string;
-let client: ArbordClient;
+let client: ArborSyncRESTClient;
 let close: () => Promise<void>;
 let scope: string;
 
@@ -36,9 +36,9 @@ beforeAll(async () => {
   await mkdir(join(outer, "implicit-edit"));
   await writeFile(join(outer, "implicit-edit", "child.md"), "Child\n");
   await symlink(join(root, "inside.md"), join(outer, "stray", "link-into-root.md"));
-  const running = await serveArbor(root, { port: 0 });
+  const running = await serveArborSync(root, { port: 0 });
   base = running.url;
-  client = new ArbordClient({ baseURL: base, retryDelay: async () => {} });
+  client = new ArborSyncRESTClient({ baseURL: base, retryDelay: async () => {} });
   scope = running.workspace.tree;
   close = async () => {
     running.server.stop(true);

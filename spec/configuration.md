@@ -1,5 +1,5 @@
 # Synchronized configuration
-*Part of the [Arbor spec](../spec.md): the governed account-configuration tree shared by devices and authorities.*
+*Part of the [Arbor spec](../spec.md): the governed account-configuration tree shared by devices and servers.*
 
 ## Configuration graph
 
@@ -13,7 +13,7 @@ Each account has one private `account-configuration` Arbor tree with this comple
     <DeviceID>.yaml
 ```
 
-The authority rejects every other graph path, including `.state`. The tree must not declare itself in `trees.yaml` or appear in a device's placements. It is private, noncanonical, and governed control content despite using ordinary immutable Arbor objects and synchronization. Local checkout, private-state, migration, and credential-storage choices are outside this specification.
+The server rejects every other graph path, including `.state`. The tree must not declare itself in `trees.yaml` or appear in a device's placements. It is private, noncanonical, and governed control content despite using ordinary immutable Arbor objects and synchronization. Local checkout, private-state, migration, and credential-storage choices are outside this specification.
 
 ## Configuration YAML
 
@@ -49,7 +49,7 @@ version: 1
 label: "Joe's Mac"
 placements:
   "tr_<26-lowercase-base32-characters>":
-    authority: "https://community.example"
+    server: "https://community.example"
     path: "/Users/joe/Documents/Arbor"
 ```
 
@@ -68,8 +68,11 @@ Each `devices/<DeviceID>.yaml` filename is both the file's device identity and
 membership in the active-device set. Device files cannot be renamed. A
 `placements` entry is keyed by `TreeID`. A `path` is a filesystem placement;
 an omitted path requests an implementation-managed durable writable replica. No
-entry creates a placement. Every active device may read all device files, so
-placements are visible account-wide; a device applies only its own file locally.
+entry creates a placement. `server` is the HTTP(S) origin that hosts the tree.
+Writers emit only `server`; version-1 readers may accept the legacy key
+`authority` during migration but reject an entry containing both. Every active
+device may read all device files, so placements are visible account-wide; a
+device applies only its own file locally.
 
 An ordinary device may edit or delete only its own file. An administrator may
 edit `account.yaml` and `trees.yaml`, and may delete another device file, but
@@ -104,17 +107,17 @@ inserted into accepted user-authored files.
 
 For storage, immutable objects, snapshots, accepted updates, merging, replicas,
 and observation, the account-configuration tree is an ordinary private Arbor
-tree. It additionally has the closed, code-defined authority policy
+tree. It additionally has the closed, code-defined server-side policy
 `account-config-v1`; this is not a generic policy or plugin mechanism.
 
-For every candidate and merged root, the authority parses and validates the
+For every candidate and merged root, the server parses and validates the
 complete graph and semantic diff, authenticates the submitting credential
 against the current accepted root, enforces the path and per-device/admin rules,
 and atomically applies credential revocation, administrator changes, existing
 tree ACL changes, and canonical-boundary changes with acceptance of the root.
 Caller assertions never replace authorization from the current accepted root.
 Derived credential bindings, retired IDs, status, and indexes live in the
-authority database while the accepted graph remains canonical.
+server database while the accepted graph remains canonical.
 
 Different device files merge independently. Placements merge by `TreeID`,
 administrators by `DeviceID`, trees by `TreeID`, and ACLs by semantic subject.

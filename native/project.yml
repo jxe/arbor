@@ -68,7 +68,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         ENABLE_PREVIEWS: YES
     preBuildScripts:
-      - name: Build arbord helper
+      - name: Build arborsync helper
         basedOnDependencyAnalysis: false
         script: |
           if [[ "$PLATFORM_NAME" != "macosx" ]]; then
@@ -76,17 +76,17 @@ targets:
           fi
           BUN_PATH="${BUN_EXECUTABLE:-$(command -v bun)}"
           if [[ -z "$BUN_PATH" || ! -x "$BUN_PATH" ]]; then
-            echo "error: Bun is required to build the bundled arbord helper"
+            echo "error: Bun is required to build the bundled arborsync helper"
             exit 1
           fi
-          HELPER_PATH="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/arbord"
-          HELPER_RESOURCES="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/arbord"
+          HELPER_PATH="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/arborsync"
+          HELPER_RESOURCES="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/arborsync"
           MODULES_PATH="$HELPER_RESOURCES/node_modules/@parcel"
           mkdir -p "$(dirname "$HELPER_PATH")" "$MODULES_PATH"
           /usr/bin/ditto "$BUN_PATH" "$HELPER_PATH"
           "$BUN_PATH" build --target=bun --external @parcel/watcher \
-            "$SRCROOT/../packages/cli/src/index.ts" \
-            --outfile "$HELPER_RESOURCES/arbord.js"
+            "$SRCROOT/../packages/arborsync/src/cli.ts" \
+            --outfile "$HELPER_RESOURCES/arborsync.js"
           WATCHER_JS_SOURCE="$(cd "$SRCROOT/../node_modules/@parcel/watcher" && pwd -P)"
           /usr/bin/ditto "$WATCHER_JS_SOURCE" "$MODULES_PATH/watcher"
           "$BUN_PATH" build --target=bun --format=cjs \
@@ -99,7 +99,7 @@ targets:
           case "$HELPER_ARCH" in
             arm64) WATCHER_PACKAGE="watcher-darwin-arm64" ;;
             x86_64) WATCHER_PACKAGE="watcher-darwin-x64" ;;
-            *) echo "error: Unsupported arbord helper architecture: $HELPER_ARCH"; exit 1 ;;
+            *) echo "error: Unsupported arborsync helper architecture: $HELPER_ARCH"; exit 1 ;;
           esac
           WATCHER_NATIVE_SOURCE="$(find "$SRCROOT/../node_modules/.bun" -type d -path "*/node_modules/@parcel/$WATCHER_PACKAGE" -print -quit)"
           if [[ -z "$WATCHER_NATIVE_SOURCE" ]]; then
@@ -111,7 +111,7 @@ targets:
           /usr/bin/codesign --force --sign "$SIGN_IDENTITY" \
             "$MODULES_PATH/$WATCHER_PACKAGE/watcher.node"
           /usr/bin/codesign --force --sign "$SIGN_IDENTITY" \
-            --entitlements "$SRCROOT/ArborApp/arbord.entitlements" \
+            --entitlements "$SRCROOT/ArborApp/arborsync.entitlements" \
             "$HELPER_PATH"
 
   ArborAppTests:

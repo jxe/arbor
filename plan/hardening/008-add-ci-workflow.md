@@ -30,7 +30,7 @@ kind.
 Two gates in particular are enforced only if a human remembers them, and both
 are the kind that regress silently. `bun run test:protocol` is the cross-language
 TypeScript↔Swift conformance harness: it checks shared JSON/SSE fixtures, starts
-a temporary live arbord, and runs the Swift tests against it. `bun run test:performance`
+a temporary live arborsync, and runs the Swift tests against it. `bun run test:performance`
 asserts hard indexer thresholds. Neither is reachable from the default
 `bun test`, which covers only `tests/unit` and `tests/integration`.
 
@@ -79,7 +79,7 @@ bun run test:performance
 swift test --package-path native/Packages/ArborClient
 ```
 
-Per `README.md:51`, `bun run test:protocol` starts a temporary live arbord and
+Per `README.md:51`, `bun run test:protocol` starts a temporary live arborsync and
 runs the Swift tests against it — so it needs a Swift toolchain, which means
 macOS. `swift test` run directly checks the standalone package and skips its
 live-server case when `ARBOR_TEST_URL` is absent.

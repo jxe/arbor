@@ -26,7 +26,7 @@ The workspace search index builds each result excerpt with SQLite FTS5's
 `snippet()` function, which splices `<mark>` tags into raw document text and
 escapes nothing. Arbor web then renders that string through
 `dangerouslySetInnerHTML`. Any indexed Markdown file whose body contains HTML
-therefore executes script inside the arbord origin as soon as a search matches
+therefore executes script inside the arborsync origin as soon as a search matches
 it — and that origin has unauthenticated read and write access to the user's
 filesystem through `/v1/node`, `/v1/file`, and `/v1/mutations`.
 
@@ -104,7 +104,7 @@ long-lived server.
 
 **Out of scope** (do NOT touch, even though they look related):
 
-- `packages/arbord/src/service.ts` — the `searchPage` method only forwards
+- `packages/arborsync/src/service.ts` — the `searchPage` method only forwards
   results; it needs no change and touching it widens the diff.
 - The FTS5 schema and the `rebuild`/`indexFile` methods — indexing behavior is
   the subject of a separate plan (`plan/hardening/006-*`). Changing the schema here will
@@ -267,5 +267,5 @@ Stop and report back (do not improvise) if:
   `packages/render/src/styles.css` still applies (the element is now created by
   React rather than parsed from a string, but the selector is unchanged).
 - Deliberately deferred: the broader question of whether synced community
-  content should be indexed at all, and whether arbord should send a
+  content should be indexed at all, and whether arborsync should send a
   `Content-Security-Policy`. Both are real, both are larger than this fix.

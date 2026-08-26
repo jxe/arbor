@@ -1,0 +1,16 @@
+{
+  "name": "@arbor/canopy",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "bin": {
+    "canopyd": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@arbor/core": "workspace:*",
+    "@arbor/editor": "workspace:*",
+    "@arbor/stores": "workspace:*",
+    "@arbor/wire": "workspace:*",
+    "yaml": "2.8.2"
+  }
+}

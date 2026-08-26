@@ -32,9 +32,12 @@
         "vite": "7.3.1",
       },
     },
-    "packages/arbord": {
-      "name": "@arbor/arbord",
+    "packages/arborsync": {
+      "name": "@arbor/arborsync",
       "version": "0.1.0",
+      "bin": {
+        "arborsync": "./src/cli.ts",
+      },
       "dependencies": {
         "@arbor/core": "workspace:*",
         "@arbor/editor": "workspace:*",
@@ -44,13 +47,18 @@
         "zod": "4.3.6",
       },
     },
-    "packages/authority": {
-      "name": "@arbor/authority",
+    "packages/canopy": {
+      "name": "@arbor/canopy",
       "version": "0.1.0",
+      "bin": {
+        "canopyd": "./src/cli.ts",
+      },
       "dependencies": {
         "@arbor/core": "workspace:*",
         "@arbor/editor": "workspace:*",
+        "@arbor/stores": "workspace:*",
         "@arbor/wire": "workspace:*",
+        "yaml": "2.8.2",
       },
     },
     "packages/cli": {
@@ -60,12 +68,12 @@
         "arbor": "./src/index.ts",
       },
       "dependencies": {
-        "@arbor/arbord": "workspace:*",
-        "@arbor/authority": "workspace:*",
+        "@arbor/arborsync": "workspace:*",
         "@arbor/client": "workspace:*",
         "@arbor/core": "workspace:*",
         "@arbor/stores": "workspace:*",
         "@arbor/wire": "workspace:*",
+        "yaml": "2.8.2",
       },
     },
     "packages/client": {
@@ -116,6 +124,7 @@
         "lucide-react": "^1.31.0",
         "react": "19.2.4",
         "react-dom": "19.2.4",
+        "yaml": "2.8.2",
       },
     },
     "packages/stores": {
@@ -136,15 +145,14 @@
       "version": "0.1.0",
       "dependencies": {
         "@arbor/core": "workspace:*",
-        "@arbor/editor": "workspace:*",
         "@arbor/fs": "workspace:*",
       },
     },
   },
   "packages": {
-    "@arbor/arbord": ["@arbor/arbord@workspace:packages/arbord"],
+    "@arbor/arborsync": ["@arbor/arborsync@workspace:packages/arborsync"],
 
-    "@arbor/authority": ["@arbor/authority@workspace:packages/authority"],
+    "@arbor/canopy": ["@arbor/canopy@workspace:packages/canopy"],
 
     "@arbor/cli": ["@arbor/cli@workspace:packages/cli"],
 

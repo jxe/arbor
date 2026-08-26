@@ -72,7 +72,7 @@ Commands:
   test:authorization
               Run distinct-user read, write, read-only, and no-access checks
   status      Show recorded phase and live server state
-  collect     Download journals, authority backup, and immutable objects
+  collect     Download journals, Canopy backup, and immutable objects
   reset       Clear and reconfigure the four recorded disposable lab servers
   down        Collect evidence, log out of Tailscale, and delete recorded server IDs
 
@@ -536,7 +536,7 @@ async function configure(state: LabState): Promise<void> {
       quiet: true,
     });
     if (health.exitCode === 0) break;
-    if (attempt === 29) throw new Error("Authority health did not become ready");
+    if (attempt === 29) throw new Error("Canopy health did not become ready");
     await Bun.sleep(1_000);
   }
   const token = await authorityToken(state);
@@ -555,10 +555,10 @@ function clientCommand(body: string): string {
 
 async function authorityToken(state: LabState): Promise<string> {
   const result = await ssh(state, "community", [
-    "sed", "-n", "s/^ARBOR_ACCOUNT_TOKEN=//p", "/etc/arbor-community.env",
+    "sed", "-n", "s/^ARBOR_ACCOUNT_TOKEN=//p", "/etc/arbor-canopy.env",
   ], { quiet: true });
   const token = result.stdout.trim();
-  if (!token) throw new Error("Authority account token is unavailable");
+  if (!token) throw new Error("Canopy account token is unavailable");
   return token;
 }
 
@@ -653,7 +653,7 @@ async function createScenario(state: LabState, scenario: string, binary = "commo
 
 async function authorityHistoryCount(state: LabState, tree: string): Promise<number> {
   const result = await sshBash(state, "community", [
-    `sqlite3 /var/lib/arbor-community/authority.sqlite3 "SELECT count(*) FROM accepted_updates WHERE tree_id = '${tree}';"`,
+    `sqlite3 /var/lib/arbor-canopy/canopy.sqlite3 "SELECT count(*) FROM accepted_updates WHERE tree_id = '${tree}';"`,
   ].join("\n"), { quiet: true });
   const count = Number(result.stdout.trim());
   if (!Number.isSafeInteger(count)) throw new Error(`Invalid update history count for ${tree}`);
@@ -709,7 +709,7 @@ async function smoke(state: LabState): Promise<void> {
       throw new Error(`Smoke synchronization did not converge for ${scenario}`);
     }
     const health = await ssh(state, "community", ["curl", "-fsS", "http://127.0.0.1:4318/.arbor/health"], { quiet: true });
-    if (!health.stdout.includes('"ok"')) throw new Error(`Authority health failed: ${health.stdout}`);
+    if (!health.stdout.includes('"ok"')) throw new Error(`Canopy health failed: ${health.stdout}`);
   } finally {
     for (const role of ["alice", "bob", "carol"] as const) {
       await ssh(state, role, ["systemctl", "start", "arbor-client.service"], { allowFailure: true, quiet: true });
@@ -756,7 +756,7 @@ async function acceptance(state: LabState): Promise<void> {
 
   const replayScenario = `accepted-replay-${suffix}`;
   const replay = await sshBash(state, "community", [
-    ". /etc/arbor-community.env",
+    ". /etc/arbor-canopy.env",
     "export ARBOR_LAB_TOKEN=$ARBOR_ACCOUNT_TOKEN",
     `export ARBOR_LAB_REPLAY=${replayScenario}`,
     "install -d -o arbor -g arbor -m 0700 /tmp/arbor-replay",
@@ -784,7 +784,7 @@ async function acceptance(state: LabState): Promise<void> {
     throw new Error("Semantic replay duplicated internal accepted history");
   }
   const privateSurface = await sshBash(state, "community", [
-    ". /etc/arbor-community.env",
+    ". /etc/arbor-canopy.env",
     `history_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/updates')`,
     `object_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/objects/${replayResult.historical}')`,
     "printf '%s %s' \"$history_status\" \"$object_status\"",
@@ -804,7 +804,7 @@ async function acceptance(state: LabState): Promise<void> {
   await ssh(state, "bob", ["systemctl", "start", "arbor-client.service"]);
   await waitUntil("Bob durable binary conflict", () => hasConflict(state, "bob", conflictTree));
   if (await authorityHistoryCount(state, conflictTree) !== before + 1) {
-    throw new Error("Rejected binary conflict appeared in authority history");
+    throw new Error("Rejected binary conflict appeared in Canopy history");
   }
   const localBinary = await ssh(state, "bob", ["cat", `${CLIENT_PATHS.bob}/${conflictScenario}/sample.bin`], { quiet: true });
   if (localBinary.stdout !== "binary-from-bob") throw new Error("Bob's conflicting bytes were not retained locally");
@@ -824,7 +824,7 @@ async function acceptance(state: LabState): Promise<void> {
   }
 
   await sshBash(state, "community", [
-    ". /etc/arbor-community.env",
+    ". /etc/arbor-canopy.env",
     "test \"$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" http://127.0.0.1:4318/.arbor/trees/ignored/push)\" = 404",
     "offer=$(curl -fsS -X POST -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" -H 'content-type: application/json' -d '{}' http://127.0.0.1:4318/.arbor/pairings)",
     "pairing_id=$(jq -r .id <<<\"$offer\")",
@@ -977,7 +977,7 @@ async function collect(state: LabState): Promise<string> {
   const destination = join(ROOT, "test-results", `hcloud-sync-lab-${state.runId}`);
   await mkdir(destination, { recursive: true });
   for (const role of ROLES) {
-    const service = role === "community" ? "arbor-community.service" : "arbor-client.service";
+    const service = role === "community" ? "arbor-canopy.service" : "arbor-client.service";
     const report = await sshBash(state, role, [
       "hostname",
       "printf 'revision: '; cat /opt/arbor-current/.arbor-revision",
@@ -993,10 +993,10 @@ async function collect(state: LabState): Promise<string> {
     await writeFile(join(destination, `${role}.log`), `${report.stdout}\n${report.stderr}`);
   }
   await sshBash(state, "community", [
-    "sqlite3 /var/lib/arbor-community/authority.sqlite3 \".backup '/tmp/arbor-authority.sqlite3'\"",
-    "tar -C /var/lib/arbor-community -czf /tmp/arbor-community-objects.tar.gz objects",
+    "sqlite3 /var/lib/arbor-canopy/canopy.sqlite3 \".backup '/tmp/arbor-canopy.sqlite3'\"",
+    "tar -C /var/lib/arbor-canopy -czf /tmp/arbor-community-objects.tar.gz objects",
   ].join("\n"));
-  await download(state, "community", "/tmp/arbor-authority.sqlite3", join(destination, "authority.sqlite3"));
+  await download(state, "community", "/tmp/arbor-canopy.sqlite3", join(destination, "canopy.sqlite3"));
   await download(state, "community", "/tmp/arbor-community-objects.tar.gz", join(destination, "objects.tar.gz"));
   state.steps.collected = new Date().toISOString();
   await saveState(state);
@@ -1023,8 +1023,8 @@ async function reset(state: LabState): Promise<void> {
     }
   }
 
-  await ssh(state, "community", ["systemctl", "stop", "arbor-community.service"], { allowFailure: true });
-  await sshBash(state, "community", "find /var/lib/arbor-community -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +");
+  await ssh(state, "community", ["systemctl", "stop", "arbor-canopy.service"], { allowFailure: true });
+  await sshBash(state, "community", "find /var/lib/arbor-canopy -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +");
   for (const role of ["alice", "bob", "carol"] as const) {
     await ssh(state, role, ["systemctl", "stop", "arbor-client.service"], { allowFailure: true });
     await sshBash(state, role, [

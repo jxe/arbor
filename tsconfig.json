@@ -19,9 +19,9 @@
       "@arbor/stores": ["packages/stores/src/index.ts"],
       "@arbor/editor": ["packages/editor/src/index.ts"],
       "@arbor/fs": ["packages/fs/src/index.ts"],
-      "@arbor/arbord": ["packages/arbord/src/index.ts"],
+      "@arbor/arborsync": ["packages/arborsync/src/index.ts"],
       "@arbor/client": ["packages/client/src/index.ts"],
-      "@arbor/authority": ["packages/authority/src/index.ts"],
+      "@arbor/canopy": ["packages/canopy/src/index.ts"],
       "@arbor/wire": ["packages/wire/src/index.ts"]
     }
   },

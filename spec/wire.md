@@ -1,7 +1,7 @@
-# Arbor wire protocol
-*Part of the [Arbor spec](../spec.md): community identity, governed configuration, immutable trees, synchronization, executable-document data, access, and observation.*
+# Arbor Wire API
+*Part of the [Arbor spec](../spec.md): the portable wire protocol for community identity, governed configuration, immutable trees, synchronization, executable-document data, access, and observation.*
 
-An Arbor authority represents one community. It owns accounts and profile
+An Arbor server represents one community. It owns accounts and profile
 claims, canonical tree boundaries, the private account-configuration trees,
 credential bindings, ACL enforcement, one mutable accepted ref per tree,
 immutable objects, and observation streams. It need not implement a local
@@ -84,17 +84,17 @@ type ObservationEvent<TKind extends string, TChange> = {
 };
 ```
 
-Authority resolution always supplies `enclosingTree`. Ordinary hosted trees
+Server resolution always supplies `enclosingTree`. Ordinary hosted trees
 have complete non-null canonical data. The authenticated account-configuration
 tree is returned only to its account and has `kind: "account-configuration"`
 and `canonical: null`.
 
 Every tree operation, result, event, effect, and relevant error names its `TreeID`. `local` and `system` are not wire values. Writability is derived from effective access and historical state.
 
-The shared error envelope and common codes are normative. Narrow authority-only
+The shared error envelope and common codes are normative. Narrow server-only
 codes include `already-claimed` and `tree-id-conflict`. Base/update mismatch,
 reserved boundaries, policy failures, and merge conflicts use `conflict` with
-discriminated `authority-update` or `account-configuration` details where
+discriminated `server-update` or `account-configuration` details where
 applicable.
 
 ## 2. Authentication and secrets
@@ -106,7 +106,7 @@ Authorization: Bearer <device credential>
 Arbor-Access-Link: <access-link secret>
 ```
 
-The authority stores only cryptographic digests and grants the maximum access
+The server stores only cryptographic digests and grants the maximum access
 of all valid presented subjects. Raw credentials and link secrets never appear
 in URLs, redirects, response bodies, errors, logs, refs, objects, YAML, access
 lists, or events. Link entries returned to administrators reveal neither secret
@@ -115,7 +115,7 @@ nor digest.
 A `DeviceID` identifies one credential binding for one account. Deleting its
 file from the accepted account configuration atomically revokes the credential
 and permanently retires the ID. Credential validity is derived from the current
-accepted config root plus authority-held digest binding; caller claims do not
+accepted config root plus server-held digest binding; caller claims do not
 authorize a transition.
 
 ## 3. Discovery and mutable snapshots
@@ -158,7 +158,7 @@ public discovery and canonical resolution.
 New tree IDs are `tr_` plus 26 lowercase base32 characters encoding 128 random
 bits. New device IDs use the same encoding after `dv_`. Existing shorter IDs
 may remain valid during migration, but activation and pairing require the new
-form. Generating an ID neither reserves it nor contacts the authority.
+form. Generating an ID neither reserves it nor contacts the server.
 
 ### Profile claim
 
@@ -172,7 +172,7 @@ snapshot, and complete initial configuration snapshot. The configuration
 snapshot contains `account.yaml`, `trees.yaml`, and that device's file and
 makes the device the first administrator.
 
-The authority validates both graphs and atomically creates the profile,
+The server validates both graphs and atomically creates the profile,
 account, public canonical profile boundary and ACL, private config tree,
 credential binding, accepted updates, and first administrator. Exact retry is
 idempotent. Any different attempt after success returns `already-claimed`. No
@@ -188,7 +188,7 @@ PUT  /.arbor/pairings/{PairingID}/claim
 An authenticated device creates a short-lived, single-use pairing secret. The
 claimant locally generates a new `DeviceID` and credential, stores the raw
 credential immediately, and sends only its digest together with the label,
-initial placements, and pairing secret. The authority atomically adds the new
+initial placements, and pairing secret. The server atomically adds the new
 device file to the config tree and binds the digest. The new device is ordinary,
 not an administrator. Exact claim retry is idempotent; concurrent or expired
 reuse fails. No response returns the raw new credential.
@@ -201,7 +201,7 @@ policy extension framework. The tree uses the ordinary object, snapshot,
 accepted-update, merge, replica, and watch machinery.
 
 The complete path and YAML contract is normative in [configuration](configuration.md).
-For every direct candidate and every automatic merge, the authority:
+For every direct candidate and every automatic merge, the server:
 
 1. authenticates the submitting device using the current accepted root;
 2. parses and validates the complete candidate graph and semantic diff;
@@ -241,7 +241,7 @@ replica and calls:
 PUT /.arbor/trees/{TreeID}
 ```
 
-The request contains the complete initial snapshot. The authority validates
+The request contains the complete initial snapshot. The server validates
 the graph and applicable profile schema, creates the first accepted update,
 applies the declared ACL and parent boundary, marks the tree active, and emits
 observation events atomically. First valid activation wins; an identical replay
@@ -263,7 +263,7 @@ encodings and hash mismatches.
 GET /.arbor/trees/{TreeID}/objects/{hash}
 ```
 
-Possession of a hash is not authorization. The authority first verifies read
+Possession of a hash is not authorization. The server first verifies read
 access to the named tree, then checks reachability from that tree's retained
 authorized roots. It must not scan every readable root. Immutable object and
 byte responses need no independent observation cursor and use immutable cache
@@ -279,7 +279,7 @@ POST /.arbor/trees/{TreeID}/updates
 ```
 
 An update names the exact retained `{ update, root }` base, candidate root,
-tree, and required canonical objects. The authority verifies graph completeness,
+tree, and required canonical objects. The server verifies graph completeness,
 hashes, schema, access, and boundaries. If base is current it accepts; for
 one-sided change it fast-forwards; for safely disjoint edits it performs the
 sole authoritative three-way merge. Unsafe overlap returns a complete
@@ -299,7 +299,7 @@ For ordinary ref changes the accepted update is the observation cursor.
 
 A verified UTF-8 file-patch transport extension may reconstruct a named
 candidate file from a retained reachable base file using sorted simultaneous
-byte replacements. The authority hash-verifies the reconstructed canonical
+byte replacements. The server hash-verifies the reconstructed canonical
 file object and otherwise treats it exactly like supplied complete bytes. This
 is an optimization only; it does not alter semantic request identity, merge
 ownership, or the requirement that complete immutable content be provable.
@@ -349,7 +349,7 @@ snapshots.
 
 ## 11. Executable-document data and effects
 
-An execution host may serve a reviewed [executable document](executable-documents.md) while its permitted data lives on the same or another Arbor authority. The wire carries only validated public query results and mutation calls; raw stores, credentials, private handler source, diagnostics containing private values, and unrelated rows do not cross the disclosure boundary.
+An execution host may serve a reviewed [executable document](executable-documents.md) while its permitted data lives on the same or another Arbor server. The wire carries only validated public query results and mutation calls; raw stores, credentials, private handler source, diagnostics containing private values, and unrelated rows do not cross the disclosure boundary.
 
 A live client makes one streaming HTTP request that completely describes the document and its currently mounted query graph. The response lifetime is the subscription lifetime. When the graph changes, the client opens a complete replacement request and may retain the old response only until the replacement becomes ready.
 
@@ -426,13 +426,13 @@ The stream has no durable execution ID, acknowledgement, replay cursor, or resum
 
 Mutation calls carry the reviewed handle identity and version, validated input, authenticated subject, and caller-stable mutation identity. Expected failures expose only stable safe public errors; other failures are sanitized. An exact ambiguous retry reuses the mutation identity. The durable receipt and corresponding query result may arrive in either order, and clients correlate them idempotently while treating the query result as authoritative.
 
-Executable-document execution does not grant historical-object access or broaden the readable tree graph. A tree mutation advances its ordinary accepted ref; a mutation against an external store may update query results without changing the source tree ref. Cross-authority query discovery, delegated authorization, and server-to-server execution routing remain unspecified; network reachability alone never grants authority.
+Executable-document execution does not grant historical-object access or broaden the readable tree graph. A tree mutation advances its ordinary accepted ref; a mutation against an external store may update query results without changing the source tree ref. Cross-server query discovery, delegated authorization, and server-to-server execution routing remain unspecified; network reachability alone never grants authority.
 
 ## 12. Public projection and conformance
 
 Readable canonical paths have safe HTTP and `arbor://` projections. HTML,
 Markdown, files, and redirects retain canonical tree/path provenance and never
-broaden access. Historical roots remain immutable and read-only. The authority
+broaden access. Historical roots remain immutable and read-only. The server
 does not publish or resolve the account-configuration tree.
 
 Language-neutral vectors under [`conformance`](../conformance) cover descriptors, access, errors, resolution,

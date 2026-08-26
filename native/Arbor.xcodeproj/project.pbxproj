@@ -47,7 +47,7 @@
 		7D4421060DE0D52EB928CB83 /* ArborAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborAppTests.swift; sourceTree = "<group>"; };
 		8278F4D043CD87121556B664 /* ArborDailyDriverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborDailyDriverViews.swift; sourceTree = "<group>"; };
 		8457F359DE90E5500C1B892D /* ArborApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborApp.swift; sourceTree = "<group>"; };
-		8FBCA70A1284DE00EED67079 /* arbord.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = arbord.entitlements; sourceTree = "<group>"; };
+		8FBCA70A1284DE00EED67079 /* arborsync.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = arborsync.entitlements; sourceTree = "<group>"; };
 		A8A30DDD76B80E16BBFDDCD4 /* Arbor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Arbor.entitlements; sourceTree = "<group>"; };
 		AD896C37BD5C09F278E58C52 /* ArborKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborKit; path = Packages/ArborKit; sourceTree = SOURCE_ROOT; };
 		AF413A530D273F3DD668F9FB /* ArborReplica */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborReplica; path = Packages/ArborReplica; sourceTree = SOURCE_ROOT; };
@@ -82,7 +82,7 @@
 				A8A30DDD76B80E16BBFDDCD4 /* Arbor.entitlements */,
 				8457F359DE90E5500C1B892D /* ArborApp.swift */,
 				24B7B875410B0C94CDD95EF0 /* ArborAppModel.swift */,
-				8FBCA70A1284DE00EED67079 /* arbord.entitlements */,
+				8FBCA70A1284DE00EED67079 /* arborsync.entitlements */,
 				8278F4D043CD87121556B664 /* ArborDailyDriverViews.swift */,
 				B7994449946DFB23BD2F4810 /* ArborRootView.swift */,
 				0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */,
@@ -141,7 +141,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 60E017BFD2410CAAABF338E8 /* Build configuration list for PBXNativeTarget "Arbor" */;
 			buildPhases = (
-				5E5E06E071555B3E2F0DEC7C /* Build arbord helper */,
+				5E5E06E071555B3E2F0DEC7C /* Build arborsync helper */,
 				C4195B3B1D0B70661C221418 /* Sources */,
 				FB702F201BCF85D4335215ED /* Resources */,
 				9D987E1E2A7D8A121B5B688E /* Frameworks */,
@@ -238,7 +238,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		5E5E06E071555B3E2F0DEC7C /* Build arbord helper */ = {
+		5E5E06E071555B3E2F0DEC7C /* Build arborsync helper */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -248,14 +248,14 @@
 			);
 			inputPaths = (
 			);
-			name = "Build arbord helper";
+			name = "Build arborsync helper";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [[ \"$PLATFORM_NAME\" != \"macosx\" ]]; then\n  exit 0\nfi\nBUN_PATH=\"${BUN_EXECUTABLE:-$(command -v bun)}\"\nif [[ -z \"$BUN_PATH\" || ! -x \"$BUN_PATH\" ]]; then\n  echo \"error: Bun is required to build the bundled arbord helper\"\n  exit 1\nfi\nHELPER_PATH=\"$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/arbord\"\nHELPER_RESOURCES=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/arbord\"\nMODULES_PATH=\"$HELPER_RESOURCES/node_modules/@parcel\"\nmkdir -p \"$(dirname \"$HELPER_PATH\")\" \"$MODULES_PATH\"\n/usr/bin/ditto \"$BUN_PATH\" \"$HELPER_PATH\"\n\"$BUN_PATH\" build --target=bun --external @parcel/watcher \\\n  \"$SRCROOT/../packages/cli/src/index.ts\" \\\n  --outfile \"$HELPER_RESOURCES/arbord.js\"\nWATCHER_JS_SOURCE=\"$(cd \"$SRCROOT/../node_modules/@parcel/watcher\" && pwd -P)\"\n/usr/bin/ditto \"$WATCHER_JS_SOURCE\" \"$MODULES_PATH/watcher\"\n\"$BUN_PATH\" build --target=bun --format=cjs \\\n  \"$WATCHER_JS_SOURCE/wrapper.js\" \\\n  --outfile \"$MODULES_PATH/watcher/wrapper.js\"\nHELPER_ARCH=\"$CURRENT_ARCH\"\nif [[ -z \"$HELPER_ARCH\" || \"$HELPER_ARCH\" == \"undefined_arch\" ]]; then\n  HELPER_ARCH=\"$(uname -m)\"\nfi\ncase \"$HELPER_ARCH\" in\n  arm64) WATCHER_PACKAGE=\"watcher-darwin-arm64\" ;;\n  x86_64) WATCHER_PACKAGE=\"watcher-darwin-x64\" ;;\n  *) echo \"error: Unsupported arbord helper architecture: $HELPER_ARCH\"; exit 1 ;;\nesac\nWATCHER_NATIVE_SOURCE=\"$(find \"$SRCROOT/../node_modules/.bun\" -type d -path \"*/node_modules/@parcel/$WATCHER_PACKAGE\" -print -quit)\"\nif [[ -z \"$WATCHER_NATIVE_SOURCE\" ]]; then\n  echo \"error: Missing @parcel/$WATCHER_PACKAGE; run bun install\"\n  exit 1\nfi\n/usr/bin/ditto \"$WATCHER_NATIVE_SOURCE\" \"$MODULES_PATH/$WATCHER_PACKAGE\"\nSIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n/usr/bin/codesign --force --sign \"$SIGN_IDENTITY\" \\\n  \"$MODULES_PATH/$WATCHER_PACKAGE/watcher.node\"\n/usr/bin/codesign --force --sign \"$SIGN_IDENTITY\" \\\n  --entitlements \"$SRCROOT/ArborApp/arbord.entitlements\" \\\n  \"$HELPER_PATH\"\n";
+			shellScript = "if [[ \"$PLATFORM_NAME\" != \"macosx\" ]]; then\n  exit 0\nfi\nBUN_PATH=\"${BUN_EXECUTABLE:-$(command -v bun)}\"\nif [[ -z \"$BUN_PATH\" || ! -x \"$BUN_PATH\" ]]; then\n  echo \"error: Bun is required to build the bundled arborsync helper\"\n  exit 1\nfi\nHELPER_PATH=\"$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/arborsync\"\nHELPER_RESOURCES=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/arborsync\"\nMODULES_PATH=\"$HELPER_RESOURCES/node_modules/@parcel\"\nmkdir -p \"$(dirname \"$HELPER_PATH\")\" \"$MODULES_PATH\"\n/usr/bin/ditto \"$BUN_PATH\" \"$HELPER_PATH\"\n\"$BUN_PATH\" build --target=bun --external @parcel/watcher \\\n  \"$SRCROOT/../packages/arborsync/src/cli.ts\" \\\n  --outfile \"$HELPER_RESOURCES/arborsync.js\"\nWATCHER_JS_SOURCE=\"$(cd \"$SRCROOT/../node_modules/@parcel/watcher\" && pwd -P)\"\n/usr/bin/ditto \"$WATCHER_JS_SOURCE\" \"$MODULES_PATH/watcher\"\n\"$BUN_PATH\" build --target=bun --format=cjs \\\n  \"$WATCHER_JS_SOURCE/wrapper.js\" \\\n  --outfile \"$MODULES_PATH/watcher/wrapper.js\"\nHELPER_ARCH=\"$CURRENT_ARCH\"\nif [[ -z \"$HELPER_ARCH\" || \"$HELPER_ARCH\" == \"undefined_arch\" ]]; then\n  HELPER_ARCH=\"$(uname -m)\"\nfi\ncase \"$HELPER_ARCH\" in\n  arm64) WATCHER_PACKAGE=\"watcher-darwin-arm64\" ;;\n  x86_64) WATCHER_PACKAGE=\"watcher-darwin-x64\" ;;\n  *) echo \"error: Unsupported arborsync helper architecture: $HELPER_ARCH\"; exit 1 ;;\nesac\nWATCHER_NATIVE_SOURCE=\"$(find \"$SRCROOT/../node_modules/.bun\" -type d -path \"*/node_modules/@parcel/$WATCHER_PACKAGE\" -print -quit)\"\nif [[ -z \"$WATCHER_NATIVE_SOURCE\" ]]; then\n  echo \"error: Missing @parcel/$WATCHER_PACKAGE; run bun install\"\n  exit 1\nfi\n/usr/bin/ditto \"$WATCHER_NATIVE_SOURCE\" \"$MODULES_PATH/$WATCHER_PACKAGE\"\nSIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n/usr/bin/codesign --force --sign \"$SIGN_IDENTITY\" \\\n  \"$MODULES_PATH/$WATCHER_PACKAGE/watcher.node\"\n/usr/bin/codesign --force --sign \"$SIGN_IDENTITY\" \\\n  --entitlements \"$SRCROOT/ArborApp/arborsync.entitlements\" \\\n  \"$HELPER_PATH\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

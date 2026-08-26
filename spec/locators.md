@@ -13,9 +13,9 @@ arbor://community.example/~profile/path
 arbor://tree/<TreeID>/path
 ```
 
-Relative and tree-rooted paths resolve within an already selected Arbor tree. Their portable meaning is never an operating-system path. Canonical HTTP and `arbor://<authority>/...` names resolve through the community authority. `arbor://tree/<TreeID>/...` is the raw identity locator and remains valid when a public name changes. Operating-system paths and `system:` content addresses are facilities of a local implementation, not portable Arbor locators; a separately specified capability field may use a `system:` reference without making it a content locator.
+Relative and tree-rooted paths resolve within an already selected Arbor tree. Their portable meaning is never an operating-system path. Canonical HTTP and `arbor://<authority>/...` names resolve through the community server; `authority` here is the URI authority component. `arbor://tree/<TreeID>/...` is the raw identity locator and remains valid when a public name changes. Operating-system paths and `system:` content addresses are facilities of a local implementation, not portable Arbor locators; a separately specified capability field may use a `system:` reference without making it a content locator.
 
-Canonical public names are replaceable human names, not tree identity. A resolver returns a concrete tree scope, decoded logical path, optional immutable root, access, and enough authority provenance to perform a permitted operation.
+Canonical public names are replaceable human names, not tree identity. A resolver returns a concrete tree scope, decoded logical path, optional immutable root, access, and enough server provenance to perform a permitted operation.
 
 ## Revisions and fragments
 
@@ -46,8 +46,8 @@ Authored `.md`, `.mdx`, `.tsx`, `/_index.md`, and legacy `tree:` spellings may b
 
 ## Resolution rules
 
-- A canonical authority path uses the longest registered canonical boundary prefix, subject to access. An inaccessible nested boundary is not resolved through its parent.
-- A raw TreeID locator resolves independently of its current public name, using a verified endpoint hint or already-known authority record.
+- A canonical server path uses the longest registered canonical boundary prefix, subject to access. An inaccessible nested boundary is not resolved through its parent.
+- A raw TreeID locator resolves independently of its current public name, using a verified endpoint hint or already-known server record.
 - A relative or tree-rooted reference retains the tree scope of its resolution context and cannot cross a nested tree boundary without an explicit canonical or raw locator.
 - Ambiguous identity is an error. A resolver never guesses among placements, endpoints, PageIDs, or boundary records.
 

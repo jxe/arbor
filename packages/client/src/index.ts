@@ -1,6 +1,6 @@
 import type {
-  ArbordErrorEnvelope,
-  ArbordErrorValue,
+  ArborSyncErrorEnvelope,
+  ArborSyncErrorValue,
   BacklinksPage,
   ChildrenPage,
   CollectionResultPage,
@@ -29,9 +29,9 @@ import type {
 
 export type {
   ArborBlock,
-  ArbordErrorCode,
-  ArbordErrorEnvelope,
-  ArbordErrorValue,
+  ArborSyncErrorCode,
+  ArborSyncErrorEnvelope,
+  ArborSyncErrorValue,
   BacklinkEntry,
   BacklinksPage,
   ChildrenPage,
@@ -60,14 +60,14 @@ export type {
   WorkspaceOperation,
 } from "@arbor/core";
 
-export class ArbordError extends Error {
-  readonly payload: ArbordErrorEnvelope;
+export class ArborSyncError extends Error {
+  readonly payload: ArborSyncErrorEnvelope;
   constructor(
     public status: number,
-    public value: ArbordErrorValue,
+    public value: ArborSyncErrorValue,
   ) {
     super(value.message);
-    this.name = "ArbordError";
+    this.name = "ArborSyncError";
     this.payload = {
       error: value.error,
       message: value.message,
@@ -79,10 +79,10 @@ export class ArbordError extends Error {
   }
 }
 
-export class ArbordTransportError extends Error {
-  constructor(message: string, public request: PreparedArbordRequest, options?: ErrorOptions) {
+export class ArborSyncTransportError extends Error {
+  constructor(message: string, public request: PreparedArborSyncRequest, options?: ErrorOptions) {
     super(message, options);
-    this.name = "ArbordTransportError";
+    this.name = "ArborSyncTransportError";
   }
 }
 
@@ -92,9 +92,9 @@ export interface PreparedTransferRequest {
   metadata: unknown;
 }
 
-export type PreparedArbordRequest = MutationRequest | PreparedTransferRequest;
+export type PreparedArborSyncRequest = MutationRequest | PreparedTransferRequest;
 
-export interface ArbordClientOptions {
+export interface ArborSyncRESTClientOptions {
   baseURL?: string;
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   mutationID?: () => string;
@@ -182,7 +182,7 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-export class ArbordClient {
+export class ArborSyncRESTClient {
   private baseURL: string;
   private fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   private createMutationID: () => string;
@@ -190,7 +190,7 @@ export class ArbordClient {
   private authoredMutationIDs: string[] = [];
   private authoredMutationSet = new Set<string>();
 
-  constructor(options: ArbordClientOptions = {}) {
+  constructor(options: ArborSyncRESTClientOptions = {}) {
     this.baseURL = options.baseURL?.replace(/\/$/, "") ?? "";
     this.fetcher = options.fetch ?? ((input, init) => fetch(input, init));
     this.createMutationID = options.mutationID ?? (() => crypto.randomUUID());
@@ -455,7 +455,7 @@ export class ArbordClient {
         }
       } catch (error) {
         if (signal?.aborted) return;
-        if (error instanceof ArbordError) throw error;
+        if (error instanceof ArborSyncError) throw error;
         reconnectAttempt += 1;
         await delay(Math.min(5_000, 250 * (2 ** Math.min(reconnectAttempt - 1, 5))));
       }
@@ -479,7 +479,7 @@ export class ArbordClient {
         return;
       } catch (error) {
         if (signal.aborted) return;
-        if (error instanceof ArbordError && error.value.error === "resync-required") {
+        if (error instanceof ArborSyncError && error.value.error === "resync-required") {
           try {
             const snapshot = await this.node(ref);
             cursor = snapshot.observedThrough;
@@ -521,7 +521,7 @@ export class ArbordClient {
       throw new TypeError("Malformed Arbor observation event");
     }
     if (eventName === "resync-required") {
-      throw new ArbordError(409, {
+      throw new ArborSyncError(409, {
         error: "resync-required",
         message: "The observation cursor is no longer retained",
         retryable: true,
@@ -545,7 +545,7 @@ export class ArbordClient {
   }
 
   private async retryMutation<T>(
-    prepared: PreparedArbordRequest,
+    prepared: PreparedArborSyncRequest,
     send: () => Promise<T>,
   ): Promise<T> {
     let lastError: unknown;
@@ -553,12 +553,12 @@ export class ArbordClient {
       try {
         return await send();
       } catch (error) {
-        if (error instanceof ArbordError && error.status !== 500) throw error;
+        if (error instanceof ArborSyncError && error.status !== 500) throw error;
         lastError = error;
         if (attempt < 2) await this.retryDelay(attempt + 1);
       }
     }
-    throw new ArbordTransportError("The mutation outcome is ambiguous after transport retries", prepared, {
+    throw new ArborSyncTransportError("The mutation outcome is ambiguous after transport retries", prepared, {
       cause: lastError,
     });
   }
@@ -575,12 +575,12 @@ export class ArbordClient {
   }
 
   private async throwResponse(response: Response): Promise<never> {
-    let envelope: ArbordErrorEnvelope;
-    try { envelope = await response.json() as ArbordErrorEnvelope; }
+    let envelope: ArborSyncErrorEnvelope;
+    try { envelope = await response.json() as ArborSyncErrorEnvelope; }
     catch {
       envelope = { error: "internal-error", message: response.statusText, retryable: false };
     }
-    throw new ArbordError(response.status, {
+    throw new ArborSyncError(response.status, {
       error: envelope.error,
       message: envelope.message,
       retryable: envelope.retryable,

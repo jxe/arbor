@@ -2,18 +2,18 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveArbor } from "@arbor/arbord";
-import { ArbordClient } from "@arbor/client";
-import { serveWireHost } from "@arbor/authority";
+import { serveArborSync } from "@arbor/arborsync";
+import { ArborSyncRESTClient } from "@arbor/client";
+import { serveCanopy } from "@arbor/canopy";
 import { generateArborID, sha256 } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
 import { snapshotDirectory, WireClient } from "@arbor/wire";
-import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/authority/src/account-policy.ts";
+import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 
 const token = "self-sync-owner";
 let sandbox: string;
 let hostState: string;
-let host: Awaited<ReturnType<typeof serveWireHost>>;
+let host: Awaited<ReturnType<typeof serveCanopy>>;
 let hostPort: number;
 let stateA: string;
 let stateB: string;
@@ -54,8 +54,8 @@ async function installDataHome(
 
 async function launch(state: string, path: string) {
   process.env.ARBOR_DATA_HOME = state;
-  const running = await serveArbor(path, { port: 0 });
-  const client = new ArbordClient({ baseURL: running.url, retryDelay: async () => {} });
+  const running = await serveArborSync(path, { port: 0 });
+  const client = new ArborSyncRESTClient({ baseURL: running.url, retryDelay: async () => {} });
   const close = async () => {
     running.server.stop(true);
     await running.service[Symbol.asyncDispose]();
@@ -82,7 +82,7 @@ beforeAll(async () => {
   bootstrapB = join(sandbox, "bootstrap-b");
   await Promise.all([hostState, stateA, stateB, treeA, bootstrapB].map((path) => mkdir(path, { recursive: true })));
   await writeFile(join(treeA, "note.md"), `# Common\n${"shared text\n".repeat(1_024)}`);
-  host = await serveWireHost({
+  host = await serveCanopy({
     dataRoot: hostState,
     accounts: [{ handle: "owner", token, communityWriter: true }],
     publicOrigin: "http://127.0.0.1:0",
@@ -110,7 +110,7 @@ beforeAll(async () => {
       ...graph.devices,
       [deviceA]: { ...graph.devices[deviceA]!, placements: {
         ...graph.devices[deviceA]!.placements,
-        [tree]: { authority: new URL(host.url).origin, path: treeA },
+        [tree]: { server: new URL(host.url).origin, path: treeA },
       } },
     },
   });
@@ -127,7 +127,7 @@ beforeAll(async () => {
     id: deviceB,
     label: "Self-sync peer",
     credentialDigest: `sha256:${sha256(tokenB)}`,
-  }, { [tree]: { authority: new URL(host.url).origin, path: treeB } });
+  }, { [tree]: { server: new URL(host.url).origin, path: treeB } });
   configuration = await owner.currentSnapshot(initialAccount.account.configuration.id);
   graph = readAccountConfigGraph({
     root: configuration.snapshot.root,
@@ -140,14 +140,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   host.server.stop(true);
-  await host.authority[Symbol.asyncDispose]();
+  await host.canopy[Symbol.asyncDispose]();
   process.env.ARBOR_DATA_HOME = stateA;
-  const cleanup = await serveArbor(treeA, { port: 0 });
+  const cleanup = await serveArborSync(treeA, { port: 0 });
   await cleanup.service.communityConfig.remove();
   cleanup.server.stop(true);
   await cleanup.service[Symbol.asyncDispose]();
   process.env.ARBOR_DATA_HOME = stateB;
-  const peerCleanup = await serveArbor(bootstrapB, { port: 0 });
+  const peerCleanup = await serveArborSync(bootstrapB, { port: 0 });
   await peerCleanup.service.communityConfig.remove();
   peerCleanup.server.stop(true);
   await peerCleanup.service[Symbol.asyncDispose]();
@@ -324,9 +324,9 @@ describe("private self-sync", () => {
   });
 
   test("preserves both sides when devices diverge offline", async () => {
-    const commonRef = host.authority.get(tree)!.ref;
+    const commonRef = host.canopy.get(tree)!.ref;
     host.server.stop(true);
-    await host.authority[Symbol.asyncDispose]();
+    await host.canopy[Symbol.asyncDispose]();
 
     const offline = await launch(stateA, treeA);
     const offlineNode = await offline.client.node({ tree, path: "/note" });
@@ -339,7 +339,7 @@ describe("private self-sync", () => {
         source: offlineSource,
         sourceEdits: [{ offset: 2, length: 15, replacement: "Locally durable", expected: "Complete-object" }],
       }),
-      Bun.sleep(1_000).then(() => { throw new Error("Local save waited for the unavailable authority"); }),
+      Bun.sleep(1_000).then(() => { throw new Error("Local save waited for the unavailable server"); }),
     ]);
     expect(savedOffline.effects[0]?.contentRevision).toBeDefined();
     expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(offlineSource);
@@ -348,7 +348,7 @@ describe("private self-sync", () => {
     await writeFile(join(treeA, "note.md"), "# Offline A\n");
     await writeFile(join(treeB, "note.md"), "# Offline B\n");
 
-    host = await serveWireHost({
+    host = await serveCanopy({
       dataRoot: hostState,
       accounts: [{ handle: "owner", token, communityWriter: true }],
       publicOrigin: `http://127.0.0.1:${hostPort}`,
@@ -357,7 +357,7 @@ describe("private self-sync", () => {
     });
 
     const first = await launch(stateA, treeA);
-    await waitFor(async () => host.authority.get(tree)?.ref !== commonRef);
+    await waitFor(async () => host.canopy.get(tree)?.ref !== commonRef);
     await first.close();
 
     const second = await launch(stateB, treeB);
@@ -379,8 +379,8 @@ describe("private self-sync", () => {
   test("keeps binary conflicts only on the client and resolves them as a new update", async () => {
     const preparing = await launch(stateA, treeA);
     await writeFile(join(treeA, "sample.bin"), "common-binary");
-    const beforeCommon = host.authority.currentUpdate(tree)!.id;
-    await waitFor(async () => host.authority.currentUpdate(tree)!.id !== beforeCommon);
+    const beforeCommon = host.canopy.currentUpdate(tree)!.id;
+    await waitFor(async () => host.canopy.currentUpdate(tree)!.id !== beforeCommon);
     await preparing.close();
 
     const receiving = await launch(stateB, treeB);
@@ -388,13 +388,13 @@ describe("private self-sync", () => {
       .then((value) => value === "common-binary")
       .catch(() => false));
     await receiving.close();
-    const historyBefore = host.authority.acceptedUpdates(tree).length;
+    const historyBefore = host.canopy.acceptedUpdates(tree).length;
 
     host.server.stop(true);
-    await host.authority[Symbol.asyncDispose]();
+    await host.canopy[Symbol.asyncDispose]();
     await writeFile(join(treeA, "sample.bin"), "binary-from-a");
     await writeFile(join(treeB, "sample.bin"), "binary-from-b");
-    host = await serveWireHost({
+    host = await serveCanopy({
       dataRoot: hostState,
       accounts: [{ handle: "owner", token, communityWriter: true }],
       publicOrigin: `http://127.0.0.1:${hostPort}`,
@@ -403,7 +403,7 @@ describe("private self-sync", () => {
     });
 
     const winner = await launch(stateA, treeA);
-    await waitFor(async () => host.authority.acceptedUpdates(tree).length === historyBefore + 1);
+    await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 1);
     await winner.close();
 
     const conflicted = await launch(stateB, treeB);
@@ -412,7 +412,7 @@ describe("private self-sync", () => {
       return descriptor?.sync === "conflict";
     });
     expect(await readFile(join(treeB, "sample.bin"), "utf8")).toBe("binary-from-b");
-    expect(host.authority.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
+    expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
     await conflicted.close();
 
     const restarted = await launch(stateB, treeB);
@@ -421,12 +421,12 @@ describe("private self-sync", () => {
       return descriptor?.sync === "conflict";
     });
     await restarted.client.resolveConflict(tree, "local");
-    await waitFor(async () => host.authority.acceptedUpdates(tree).length === historyBefore + 2);
+    await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2);
     await restarted.close();
 
     const follower = await launch(stateA, treeA);
     await waitFor(async () => (await readFile(join(treeA, "sample.bin"), "utf8")) === "binary-from-b");
-    expect(host.authority.acceptedUpdates(tree)).toHaveLength(historyBefore + 2);
+    expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 2);
     await follower.close();
   });
 });

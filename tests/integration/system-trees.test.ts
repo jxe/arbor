@@ -2,13 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveArbor } from "@arbor/arbord";
-import { ArbordClient } from "@arbor/client";
+import { serveArborSync } from "@arbor/arborsync";
+import { ArborSyncRESTClient } from "@arbor/client";
 
 let root: string;
 let state: string;
-let running: Awaited<ReturnType<typeof serveArbor>>;
-let client: ArbordClient;
+let running: Awaited<ReturnType<typeof serveArborSync>>;
+let client: ArborSyncRESTClient;
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "arbor-system-surface-"));
@@ -16,8 +16,8 @@ beforeAll(async () => {
   process.env.ARBOR_DATA_HOME = state;
   await mkdir(join(root, "notes"));
   await writeFile(join(root, "notes", "today.md"), "# Today\n");
-  running = await serveArbor(root, { port: 0 });
-  client = new ArbordClient({ baseURL: running.url, retryDelay: async () => {} });
+  running = await serveArborSync(root, { port: 0 });
+  client = new ArborSyncRESTClient({ baseURL: running.url, retryDelay: async () => {} });
 });
 
 afterAll(async () => {

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { Workspace, RevisionConflictError } from "@arbor/arbord";
+import { Workspace, RevisionConflictError } from "@arbor/arborsync";
 
 let root: string;
 let state: string;

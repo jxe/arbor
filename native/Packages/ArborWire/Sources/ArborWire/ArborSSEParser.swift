@@ -69,15 +69,15 @@ public struct ArborSSEParser: Sendable {
     }
 }
 
-public struct AuthorityWatchEvent: Equatable, Sendable {
+public struct WireWatchEvent: Equatable, Sendable {
     public var id: String
     public var cursor: String
     public var kind: String
     public var treeID: String
-    public var tree: AuthorityTreeDescriptor
+    public var tree: WireTreeDescriptor
     public var requestDigest: String?
 
-    public init(id: String, tree: AuthorityTreeDescriptor, requestDigest: String? = nil) {
+    public init(id: String, tree: WireTreeDescriptor, requestDigest: String? = nil) {
         self.id = id
         self.cursor = id
         self.kind = "tree.ref"
@@ -86,7 +86,7 @@ public struct AuthorityWatchEvent: Equatable, Sendable {
         self.requestDigest = requestDigest
     }
 
-    public init(cursor: String, treeID: String, kind: String, tree: AuthorityTreeDescriptor, requestDigest: String? = nil) {
+    public init(cursor: String, treeID: String, kind: String, tree: WireTreeDescriptor, requestDigest: String? = nil) {
         self.id = cursor
         self.cursor = cursor
         self.kind = kind
@@ -96,25 +96,25 @@ public struct AuthorityWatchEvent: Equatable, Sendable {
     }
 }
 
-public struct AuthorityTreeRefChange: Codable, Sendable, Equatable {
-    public var descriptor: AuthorityTreeDescriptor
+public struct WireTreeRefChange: Codable, Sendable, Equatable {
+    public var descriptor: WireTreeDescriptor
     public var requestDigest: String?
 }
 
-public struct AuthorityTreeRefObservation: Codable, Sendable, Equatable {
+public struct WireTreeRefObservation: Codable, Sendable, Equatable {
     public var cursor: String
     public var tree: String
     public var kind: String
-    public var change: AuthorityTreeRefChange
+    public var change: WireTreeRefChange
 }
 
-public struct AuthorityResyncChange: Codable, Sendable, Equatable {
+public struct WireResyncChange: Codable, Sendable, Equatable {
     public var reason: String
 }
 
-public struct AuthorityResyncObservation: Codable, Sendable, Equatable {
+public struct WireResyncObservation: Codable, Sendable, Equatable {
     public var cursor: String
     public var tree: String
     public var kind: String
-    public var change: AuthorityResyncChange
+    public var change: WireResyncChange
 }

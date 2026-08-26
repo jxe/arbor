@@ -1,6 +1,6 @@
 # External agent access through the Arbor CLI
 
-**Status:** Planned. This is an independent enabling plan, not the authority-hosted agent milestone. Read-only work can begin against the implemented arbord/client surface; compiled executable-document handle invocation follows the live-data document work.
+**Status:** Planned. This is an independent enabling plan, not the Canopy-hosted agent milestone. Read-only work can begin against the implemented arborsync/client surface; compiled executable-document handle invocation follows the live-data document work.
 
 ## Target result
 
@@ -8,7 +8,7 @@ An installed general-purpose agent such as Codex or Claude Code can work with a 
 
 The agent learns Arbor through a small reusable skill and addresses Arbor through a structured CLI. It may use its own browser, shell, skills, plugins, or connected services to gather outside information, then use `arbor` to read or change local, mounted, and remote Arbor data. Arbor supplies the data interface; the external agent supplies reasoning and orchestration.
 
-This plan is deliberately useful before authored Arbor agents exist. It does not implement `arbor run`, an authority chat surface, a model loop, an MCP server, or provider-specific data integrations.
+This plan is deliberately useful before authored Arbor agents exist. It does not implement `arbor run`, a Canopy chat surface, a model loop, an MCP server, or provider-specific data integrations.
 
 ## Product boundary
 
@@ -33,7 +33,7 @@ An external service does not need an Arbor-specific adapter when the chosen agen
 
 ## Agent-oriented CLI surface
 
-Add thin CLI commands over the existing `ArbordClient` operations. Commands resolve operands as Arbor locators and use arbord or the relevant authority rather than reading private Arbor state.
+Add thin CLI commands over the existing `ArborSyncRESTClient` operations. Commands resolve operands as Arbor locators and use arborsync or the relevant server rather than reading private Arbor state.
 
 The initial read surface is:
 
@@ -86,7 +86,7 @@ Human-readable output may remain concise, but every command needed by the skill 
 
 Create one source skill with thin packaging for Codex and Claude Code rather than maintaining divergent instructions. The skill teaches the agent to:
 
-1. verify that arbord is available with `arbor status --json`;
+1. verify that arborsync is available with `arbor status --json`;
 2. resolve a locator before assuming its tree, path, placement, or writability;
 3. use `children`, `search`, `backlinks`, and `collection` instead of recursively scanning guessed filesystem roots;
 4. retain provenance and revisions when summarizing or editing;
@@ -102,14 +102,14 @@ Keep the skill procedural and small. Command help and JSON schemas remain author
 
 ### Phase 1 — read and discovery commands
 
-1. Add a shared CLI request/output layer over `ArbordClient`.
+1. Add a shared CLI request/output layer over `ArborSyncRESTClient`.
 2. Implement `status`, `resolve`, `read`, `children`, `search`, `backlinks`, `collection`, and `recovery` with deterministic JSON.
 3. Exercise local paths, mounted nested trees, unplaced remote trees, historical locators, pagination, missing content, and inaccessible content.
 4. Document concise examples in CLI help without requiring a running model.
 
 ### Phase 2 — durable mutation commands
 
-1. Implement revision-aware write/create and structural mutation commands through ordinary arbord mutations.
+1. Implement revision-aware write/create and structural mutation commands through ordinary arborsync mutations.
 2. Accept an explicit mutation ID and return it on every result path.
 3. Test exact retry, stale-base conflict, partial transport failure, cross-tree rejection, nested-boundary behavior, and receipt serialization.
 4. Keep direct filesystem writes and private-state manipulation out of the CLI implementation.
@@ -136,7 +136,7 @@ After compiled handles land, the same agents can invoke a checked-in Supplies qu
 ## Deliberate absences
 
 - no model-provider API client or Arbor-owned conversation loop;
-- no authority-hosted chat UI;
+- no Canopy-hosted chat UI;
 - no authored-agent execution semantics or transcript format;
 - no MCP requirement before the CLI proves insufficient;
 - no generic external-service connector registry;

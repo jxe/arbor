@@ -5,7 +5,7 @@ Arbor does not add an application object, application identifier, entry componen
 
 ## Documents and navigation
 
-Executable documents use the same logical paths, tree boundaries, canonical authority URLs, relative links, moves, and access rules as other Arbor content. For a tree containing:
+Executable documents use the same logical paths, tree boundaries, canonical server URLs, relative links, moves, and access rules as other Arbor content. For a tree containing:
 
 ```text
 Home.mdx
@@ -58,7 +58,7 @@ import { PopularLists } from "./components/PopularLists"
 <PopularLists />
 ```
 
-There is no parallel metadata export or metadata read lifecycle. A component renders `<title>`, `<meta>`, `<link>`, and other React-supported head elements from the same query result it uses for visible content. The authority supplies the canonical Arbor URL independently, so an authored document need not rediscover it merely to emit the canonical link.
+There is no parallel metadata export or metadata read lifecycle. A component renders `<title>`, `<meta>`, `<link>`, and other React-supported head elements from the same query result it uses for visible content. The server supplies the canonical Arbor URL independently, so an authored document need not rediscover it merely to emit the canonical link.
 
 Executable documents have Tailwind available as a compiler capability without an import, stylesheet directive, configuration file, or content glob. Statically discoverable utility classes in the addressed document's public import graph are available, and the pinned Tailwind/compiler version is part of the coherent document version. Constructing class names from arbitrary string fragments is not portable; conditional complete class tokens are. An ordinary imported stylesheet remains available for exceptional CSS, but neither `@import "tailwindcss"` nor a CDN/runtime compiler is part of authored source.
 
@@ -84,7 +84,7 @@ The return shape selects database facts and relational aggregates rather than ar
 
 Live behavior is intrinsic to a query. A one-shot caller evaluates its current value once; a subscribing caller maintains that same value. The subscription is a stream of authorized complete query-result states, not raw driver changes. It establishes a race-free snapshot-then-follow boundary, never publishes a result already known to be stale, suppresses identical canonical output hashes, and may skip intermediate states for a slow client because it represents current state rather than an effect log.
 
-A query whose data is not materialized locally may be hosted by the relevant authority when that host advertises and enforces the same manifest, validation, access, determinism, and version contract. This specification does not define cross-authority query discovery, delegated authorization, or server-to-server routing.
+A query whose data is not materialized locally may be hosted by the relevant server when that host advertises and enforces the same manifest, validation, access, determinism, and version contract. This specification does not define cross-server query discovery, delegated authorization, or server-to-server routing.
 
 ## Mutations
 
@@ -104,7 +104,7 @@ The public component package is `arbor/react`; data and handle authoring come fr
 
 Cross-tree source imports use absolute Arbor locators and resolve to immutable code identities for one build or execution. Imported handles retain their own declared access; resolving an import cannot silently widen it.
 
-Before first execution in a context, a human-readable consent statement summarizes the resolved trees, read prefixes, write prefixes, hosted execution, and any backing-coupled or external capability. Enforcement must make this statement true. A host process's broader filesystem or credentials do not become executable-document capabilities. Named handles are callable from human clients and agent tools using the same identity, validation, and authority.
+Before first execution in a context, a human-readable consent statement summarizes the resolved trees, read prefixes, write prefixes, hosted execution, and any backing-coupled or external capability. Enforcement must make this statement true. A host process's broader filesystem or credentials do not become executable-document capabilities. Named handles are callable from human clients and agent tools using the same identity, validation, and authorization.
 
 ## Compilation and hosting
 
@@ -120,15 +120,15 @@ Compilation begins from the addressed executable document and follows its explic
 
 The document path is ordinary Arbor identity, not an application ID. Moving a path-identified executable document changes its readable URL just as moving another path-identified file does. Imported named handles are identified by tree, module path, and export name; code hashes identify their versions.
 
-An authority explicitly enables executable-document hosting for a tree and grants its tree execution principal the reviewed capabilities required by its compiled documents. Merely adding `.mdx` or `.tsx` source does not publish it, execute it, or grant it access. The host may compile eagerly or on demand, but a request uses one coherent version of the addressed document and all of its handles. An incompatible compilation fails without replacing the last usable version.
+An Arbor server explicitly enables executable-document hosting for a tree and grants its tree execution principal the reviewed capabilities required by its compiled documents. Merely adding `.mdx` or `.tsx` source does not publish it, execute it, or grant it access. The host may compile eagerly or on demand, but a request uses one coherent version of the addressed document and all of its handles. An incompatible compilation fails without replacing the last usable version.
 
 Framework filenames do not create mutation endpoints, action routes, loaders, or private-data boundaries. Generated transport endpoints are host protocol details and are never authored or navigable Arbor documents.
 
-## Host and authority boundaries
+## Host and server boundaries
 
-A live Arbor authority may run the executable-document runtime adjacent to its wire authority. The roles remain distinct:
+A live Arbor server may run the executable-document runtime adjacent to its Wire API. The roles remain distinct:
 
-- the wire authority owns tree identity, access, accepted updates, immutable objects, and current-tree watch;
+- the Arbor server owns tree identity, access, accepted updates, immutable objects, and current-tree watch;
 - store drivers own database transactions, snapshots, and committed change observation; and
 - the document runtime owns source compilation, query isolation, dependency tracking, server rendering, live query evaluation, and public result disclosure.
 
@@ -138,7 +138,7 @@ Executable-document subscriptions are not accepted-update history and do not add
 
 ## Arbor user identity and authorization
 
-Executable documents do not define their own password, login-code, or session model. The host resolves the existing Arbor account/device or authority browser session and injects an unforgeable user context into queries and mutations:
+Executable documents do not define their own password, login-code, or session model. The host resolves the existing Arbor account/device or server browser session and injects an unforgeable user context into queries and mutations:
 
 ```ts
 type ArborUser = null | {
@@ -147,11 +147,11 @@ type ArborUser = null | {
 }
 ```
 
-Authority-local account IDs, device IDs, credentials, and mutable handles are not document user identities. Handlers never accept a caller-supplied profile or account ID as proof of identity. Authored rows referring to a person store `ProfileID`; current display name, handle, portrait, and other public profile fields are resolved from that profile tree at query time. Profile reads are live dependencies, so a profile edit updates subscribed documents.
+Server-local account IDs, device IDs, credentials, and mutable handles are not document user identities. Handlers never accept a caller-supplied profile or account ID as proof of identity. Authored rows referring to a person store `ProfileID`; current display name, handle, portrait, and other public profile fields are resolved from that profile tree at query time. Profile reads are live dependencies, so a profile edit updates subscribed documents.
 
-A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the authority browser session is Arbor platform UI. The authority rechecks the session on render, each query-stream request, and mutation; revocation terminates existing streams and prevents an unauthorized value from being treated as current.
+A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the server browser session is Arbor platform UI. The server rechecks the session on render, each query-stream request, and mutation; revocation terminates existing streams and prevents an unauthorized value from being treated as current.
 
-`useUser()` returns the optional safe Arbor user projection. `useUser({ required: true })` declares that the mounted component cannot execute anonymously. It suspends before user-dependent queries mount and lets the authority present its own session UI; an authored tree never receives credentials or implements authentication. A query plan may dereference the nullable-safe symbolic `user.profile`, or use `user.required.profile` to declare that anonymous execution must fail before data access even when the handle is invoked outside React.
+`useUser()` returns the optional safe Arbor user projection. `useUser({ required: true })` declares that the mounted component cannot execute anonymously. It suspends before user-dependent queries mount and lets the server present its own session UI; an authored tree never receives credentials or implements authentication. A query plan may dereference the nullable-safe symbolic `user.profile`, or use `user.required.profile` to declare that anonymous execution must fail before data access even when the handle is invoked outside React.
 
 Anonymous, Arbor-user, and tree-principal executions are separate cache and subscription contexts. User-dependent queries record the identity and access decision as dependencies. Public executions may be shared only when their inputs, authorization, capabilities, and output are genuinely user-independent.
 
@@ -163,14 +163,14 @@ Live query requests, complete replacement results, authorization, reconnection, 
 
 Mutation handles are React Actions as well as typed imperative handles. `useMutationAction(handle)` returns `[state, action, pending]`. Its Action converts `FormData`, validates it through the handle's Standard Schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. Successful return commits the runner-owned transaction; throwing rolls it back. Ordinary forms retain React's reset behavior.
 
-Server exceptions, database diagnostics, private values, and stack traces never become Action state. Expected `MutationActionError` values have stable codes, safe messages, retryability, and optional field errors. The durable receipt and authoritative query result may arrive in either order and are correlated idempotently. Optimistic presentation never displaces the subscribed result as authority.
+Server exceptions, database diagnostics, private values, and stack traces never become Action state. Expected `MutationActionError` values have stable codes, safe messages, retryability, and optional field errors. The durable receipt and authoritative query result may arrive in either order and are correlated idempotently. Optimistic presentation never displaces the subscribed result as the source of truth.
 
 `useNavigate` performs an ordinary same-origin Arbor navigation when a destination depends on a mutation result. Anchors remain the default for known destinations; the hook adds no route registry or parallel history model.
 
 ## Portability and limits
 
-The same source document may be served by any compatible local runtime or authority that provides its declared stores and runtime features. A backing-independent handle cannot change meaning when `_store.sqlite3` is replaced by `_store.postgres`; schema compatibility and data migration are checked before the new handle version is used.
+The same source document may be served by any compatible local runtime or server that provides its declared stores and runtime features. A backing-independent handle cannot change meaning when `_store.sqlite3` is replaced by `_store.postgres`; schema compatibility and data migration are checked before the new handle version is used.
 
-For a query spanning transaction domains, the opaque `observedThrough` value represents the host's revision vector rather than inventing a global transaction. Cross-authority execution requires explicit composition and never acquires authority merely through network reachability.
+For a query spanning transaction domains, the opaque `observedThrough` value represents the host's revision vector rather than inventing a global transaction. Cross-server execution requires explicit composition and never acquires authority merely through network reachability.
 
 Static baking may replace explicitly static query reads with compiled results. A document depending on user identity, live data, mutations, or hosted-only capabilities remains an executable-host requirement and cannot silently become static.

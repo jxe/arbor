@@ -17,7 +17,7 @@ describe("@arbor/wire package boundary", () => {
     const root = join(import.meta.dir, "../../../packages/wire/src");
     for (const path of await sourceFiles(root)) {
       const source = await readFile(path, "utf8");
-      expect(source).not.toContain("@arbor/authority");
+      expect(source).not.toContain("@arbor/canopy");
       expect(source).not.toContain("bun:sqlite");
       expect(source).not.toContain("@arbor/editor");
     }

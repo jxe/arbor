@@ -1,6 +1,6 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile.host"
+dockerfilePath = "Dockerfile.canopy"
 
 [deploy]
 healthcheckPath = "/.arbor/health"

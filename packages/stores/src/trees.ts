@@ -92,11 +92,11 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
       placements.push({
         path,
         tree,
-        canonical: canonicalLocator(placement.authority, declaration.canonicalPath),
+        canonical: canonicalLocator(placement.server, declaration.canonicalPath),
         canonicalPath: declaration.canonicalPath,
         kind: declaration.kind,
         access: "write",
-        endpoint: placement.authority,
+        endpoint: placement.server,
         replica,
         ...sync,
       });
@@ -120,12 +120,12 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
   return { placements, diagnostics, revision: revisionOf(source), source, configuration };
 }
 
-/** Steady-state configuration is edited as ordinary YAML; arbord never writes it back. */
+/** Steady-state configuration is edited as ordinary YAML; arborsync never writes it back. */
 export async function saveSharedTreePlacement(_placement: SharedTreePlacement): Promise<never> {
   throw new Error("Tree placements are declared by editing the current device YAML file");
 }
 
-/** Steady-state configuration is edited as ordinary YAML; arbord never writes it back. */
+/** Steady-state configuration is edited as ordinary YAML; arborsync never writes it back. */
 export async function deleteTreePlacement(_path: string): Promise<never> {
   throw new Error("Tree placements are removed by editing the current device YAML file");
 }

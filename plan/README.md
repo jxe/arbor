@@ -6,7 +6,7 @@ and completed evidence do not compete in one flat queue.
 - [`product/`](product/roadmap.md) — forward platform/product direction,
   concrete product implementation plans, and the editor/browser backlog. Agent
   work is split between [external CLI access](product/external-agent-cli-access.md)
-  and [authority-hosted agents](product/authority-hosted-agents.md).
+  and [Canopy-hosted agents](product/Canopy-hosted-agents.md).
 - [`native/`](native/README.md) — canonical native Arbor architecture plus its
   active numbered implementation handoffs.
 - [`hardening/`](hardening/README.md) — known technical debt and the older

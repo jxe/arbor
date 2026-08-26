@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChildrenPage, NodeSnapshot } from "@arbor/client";
-import { ArbordClient, childRef } from "@arbor/client";
+import { ArborSyncRESTClient, childRef } from "@arbor/client";
 
 const CURSOR = "11111111-1111-1111-1111-111111111111:1";
 
@@ -26,7 +26,7 @@ function directorySnapshot(): NodeSnapshot {
   };
 }
 
-describe("ArbordClient exact-source contract", () => {
+describe("ArborSyncRESTClient exact-source contract", () => {
   test("hydrates children without constructing a second projected document", async () => {
     const page: ChildrenPage = {
       parent: { tree: "local", path: "/dir" },
@@ -34,7 +34,7 @@ describe("ArbordClient exact-source contract", () => {
       nextCursor: null,
       observedThrough: CURSOR,
     };
-    const client = new ArbordClient({
+    const client = new ArborSyncRESTClient({
       fetch: async (input) => String(input).includes("/v1/children")
         ? jsonResponse(page)
         : jsonResponse(directorySnapshot()),
@@ -47,7 +47,7 @@ describe("ArbordClient exact-source contract", () => {
 
   test("sends exact source and no parsed block payload", async () => {
     let body: Record<string, unknown> | undefined;
-    const client = new ArbordClient({
+    const client = new ArborSyncRESTClient({
       mutationID: () => "mutation-source",
       retryDelay: async () => {},
       fetch: async (_input, init) => {

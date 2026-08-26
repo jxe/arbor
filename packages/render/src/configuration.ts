@@ -1,6 +1,6 @@
 import type { AccessEntry } from "@arbor/core";
 import { sha256 } from "@arbor/core/hash";
-import { ArbordClient } from "@arbor/client";
+import { ArborSyncRESTClient } from "@arbor/client";
 import { parseDocument, type Document } from "yaml";
 
 type ShareAudience =
@@ -32,7 +32,7 @@ export interface ActiveDevice {
   revokedAt: null;
 }
 
-async function context(client: ArbordClient) {
+async function context(client: ArborSyncRESTClient) {
   const [trees, status] = await Promise.all([client.trees(), client.status()]);
   const configuration = trees.snapshot.find((tree) => tree.kind === "account-configuration");
   if (!configuration || !status.deviceID) throw new Error("This device has no active account configuration checkout");
@@ -45,7 +45,7 @@ async function context(client: ArbordClient) {
   return { tree: configuration.id, device: status.deviceID, community: account.community, account, configuration };
 }
 
-export async function configurationStatus(client: ArbordClient) {
+export async function configurationStatus(client: ArborSyncRESTClient) {
   const { account, community, configuration } = await context(client);
   return {
     configured: true,
@@ -63,7 +63,7 @@ export async function configurationStatus(client: ArbordClient) {
   };
 }
 
-async function edit(client: ArbordClient, tree: string, path: string, change: (document: Document) => void | Promise<void>) {
+async function edit(client: ArborSyncRESTClient, tree: string, path: string, change: (document: Document) => void | Promise<void>) {
   const ref = { tree, path } as const;
   const file = await client.file(ref);
   const source = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
@@ -73,12 +73,12 @@ async function edit(client: ArbordClient, tree: string, path: string, change: (d
   await client.writeText(ref, file.revision, document.toString({ lineWidth: 0 }));
 }
 
-async function waitForPlacement(client: ArbordClient, tree: string): Promise<void> {
+async function waitForPlacement(client: ArborSyncRESTClient, tree: string): Promise<void> {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     if ((await client.trees()).snapshot.some((descriptor) => descriptor.id === tree && descriptor.osPath)) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  throw new Error(`The placement for ${tree} was written but arbord has not applied it yet`);
+  throw new Error(`The placement for ${tree} was written but arborsync has not applied it yet`);
 }
 
 function rules(audience: ShareAudience): any[] {
@@ -88,7 +88,7 @@ function rules(audience: ShareAudience): any[] {
   return audience.rules.map((rule) => ({ subject: rule.subject, access: rule.access }));
 }
 
-async function normalizedRules(client: ArbordClient, input: any[]): Promise<any[]> {
+async function normalizedRules(client: ArborSyncRESTClient, input: any[]): Promise<any[]> {
   return Promise.all(input.map(async (rule) => rule.subject.kind === "profile"
     ? { subject: { kind: "profile", tree: (await client.resolve(rule.subject.locator)).ref.tree }, access: rule.access }
     : rule));
@@ -101,7 +101,7 @@ function subjectID(subject: any): string {
   throw new Error("Invalid access subject in trees.yaml");
 }
 
-export async function configurationAccessEntries(client: ArbordClient, treeID: string): Promise<AccessEntry[]> {
+export async function configurationAccessEntries(client: ArborSyncRESTClient, treeID: string): Promise<AccessEntry[]> {
   const { tree } = await context(client);
   const [file, descriptors] = await Promise.all([
     client.file({ tree, path: "/trees.yaml" }),
@@ -124,7 +124,7 @@ export async function configurationAccessEntries(client: ArbordClient, treeID: s
   }));
 }
 
-export async function applyConfigurationAction(client: ArbordClient, action: ConfigurationAction): Promise<void> {
+export async function applyConfigurationAction(client: ArborSyncRESTClient, action: ConfigurationAction): Promise<void> {
   const { tree: configTree, device, community } = await context(client);
   if (action.op === "promoteTree") {
     const id = await client.treeID();
@@ -133,16 +133,16 @@ export async function applyConfigurationAction(client: ArbordClient, action: Con
       document.setIn(["trees", id], { kind: "shared-subtree", canonicalPath: action.canonicalPath, access });
     });
     await edit(client, configTree, `/devices/${device}.yaml`, (document) => {
-      document.setIn(["placements", id], { authority: community, path: action.path });
+      document.setIn(["placements", id], { server: community, path: action.path });
     });
     await waitForPlacement(client, id);
     return;
   }
   if (action.op === "placeTree") {
-    const authority = action.endpoint ?? (action.canonical ? new URL(action.canonical.replace(/^arbor:/, "https:")).origin : undefined);
-    if (!authority) throw new Error("Placement requires an authority endpoint");
+    const server = action.endpoint ?? (action.canonical ? new URL(action.canonical.replace(/^arbor:/, "https:")).origin : undefined);
+    if (!server) throw new Error("Placement requires a server endpoint");
     await edit(client, configTree, `/devices/${device}.yaml`, (document) => {
-      document.setIn(["placements", action.tree], { authority: new URL(authority).origin, path: action.path });
+      document.setIn(["placements", action.tree], { server: new URL(server).origin, path: action.path });
     });
     return;
   }
@@ -186,7 +186,7 @@ export async function applyConfigurationAction(client: ArbordClient, action: Con
   });
 }
 
-export async function activeDevices(client: ArbordClient): Promise<ActiveDevice[]> {
+export async function activeDevices(client: ArborSyncRESTClient): Promise<ActiveDevice[]> {
   const { tree } = await context(client);
   const children = await client.allChildren({ tree, path: "/devices" });
   return Promise.all(children.filter((child) => child.name.startsWith("dv_")).map(async (child) => {
@@ -202,7 +202,7 @@ export async function activeDevices(client: ArbordClient): Promise<ActiveDevice[
   }));
 }
 
-export async function revokeActiveDevice(client: ArbordClient, id: string): Promise<void> {
+export async function revokeActiveDevice(client: ArborSyncRESTClient, id: string): Promise<void> {
   const { tree } = await context(client);
   await client.mutateStructural([{ op: "trash", refs: [{ tree, path: `/devices/${id}.yaml` }] }]);
 }

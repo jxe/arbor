@@ -2,12 +2,12 @@
 *Reference command surface for the current Arbor implementation.*
 
 Every content operand is an Arbor [locator](../spec/locators.md) or a local
-arbord address. The CLI resolves
-through arbord or an authority and never edits guessed private `.state` files.
+arborsync address. The CLI resolves
+through arborsync or a server and never edits guessed private `.state` files.
 
 ## Workspace, account, and synchronization
 
-- `arbor browse <locator>` opens a local, remote, live, historical, or safe
+- `arbor open <locator>` opens a local, remote, live, historical, or safe
   `system:` location in the configured client.
 - `arbor status [<locator>]` reports explicit resolved tree/path, historical
   state, placement, access, synchronization/activation, conflicts, diagnostics,
@@ -18,7 +18,7 @@ through arbord or an authority and never edits guessed private `.state` files.
 - `arbor sync [--access <subject>=<level> ...] [--clear-access] <local-path>
   <canonical-locator>` generates a `TreeID`, adds a `trees.yaml` declaration,
   and adds the current device's filesystem placement. Activation follows the
-  authority's two-stage protocol.
+  server's two-stage protocol.
 - `arbor sync <tree-locator> <local-path>` adds or changes the current device's
   placement for an existing tree. A pathless-placement option creates a durable
   private writable replica. Historical locators cannot be placed.
@@ -32,8 +32,8 @@ through arbord or an authority and never edits guessed private `.state` files.
   metadata while credentials remain in the OS credential store.
 
 All CLI-authored configuration edits are guarded exact UTF-8 writes through
-arbord's `writeText` operation. They preserve unrelated YAML comments and
-mapping order. The CLI obtains a fresh ID from `POST /v1/tree-ids`; arbord does
+arborsync's `writeText` operation. They preserve unrelated YAML comments and
+mapping order. The CLI obtains a fresh ID from `POST /v1/tree-ids`; arborsync does
 not insert IDs or normalize files. A raw access-link secret is generated
 locally, displayed once, and only its digest is added to an ACL.
 
@@ -46,14 +46,14 @@ private activation status reports the intermediate pending state.
 
 Device listing is enumeration of `devices/*.yaml`, including every device's
 account-visible placements. Ordinary devices may edit only their own file.
-Administrator revocation deletes the selected device file; the authority
+Administrator revocation deletes the selected device file; Canopy
 atomically revokes its credential when accepting the configuration update.
 
 ## Serving and authored programs
 
-- `arbor serve [data-directory] [--community <handle>] [--first-writer
+- `canopyd [data-directory] [--community <handle>] [--first-writer
   <handle>] [--url <origin>] [--hostname <host>] [--port <port>]` runs one
-  community authority. Startup performs restart-idempotent account-config
+  community server. Startup performs restart-idempotent account-config
   migration before retiring legacy state.
 - `arbor run <script-or-agent-locator>[#handle] [--input <json>]` invokes a
   validated, explicitly scoped script or agent.

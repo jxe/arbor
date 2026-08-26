@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseMarkdown } from "@arbor/editor";
-import { WriteJournal } from "@arbor/arbord";
+import { WriteJournal } from "@arbor/arborsync";
 import { MutationJournal } from "@arbor/fs";
 
 const directories: string[] = [];

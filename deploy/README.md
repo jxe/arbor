@@ -1,21 +1,21 @@
 # Remote trial deployment
 
-The quickest realistic trial is one Railway service with one persistent volume and one public domain. The hosted process is only the community authority and wire gateway. Profile claiming and editing happen in Arbor web running locally on your own machine.
+The quickest realistic trial is one Railway service with one persistent volume and one public domain. The hosted process is only the community Canopy server and wire gateway. Profile claiming and editing happen in Arbor web running locally on your own machine.
 
 For multi-machine synchronization, outage, and conflict testing rather than a single-user trial, use the deliberately small [hcloud sync lab](hcloud-sync-lab.md): one disposable community VM, three client VMs, Tailscale, and no infrastructure framework. Its checked-in `bun run lab:hcloud` runner supports preflight, resumable provisioning, evidence collection, and exact-ID teardown.
 
 ## Railway
 
-The repository already contains `Dockerfile.host` and `railway.toml`. Railway builds that image, checks `/.arbor/health`, supplies `PORT`, and restarts a failed process. Arbor refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral authority state.
+The repository already contains `Dockerfile.canopy` and `railway.toml`. Railway builds that image, checks `/.arbor/health`, supplies `PORT`, and restarts a failed process. Arbor refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral Canopy state.
 
 1. Push this Arbor branch to a GitHub repository that Railway can access.
 2. In Railway, create a project and add a service from that repository. The first attempted start may fail safely while the required domain and volume are absent.
-3. Attach a volume to the service at `/data`. Railway then supplies `RAILWAY_VOLUME_MOUNT_PATH`; Arbor stores its SQLite authority and immutable objects there.
+3. Attach a volume to the service at `/data`. Railway then supplies `RAILWAY_VOLUME_MOUNT_PATH`; Arbor stores its Canopy SQLite and immutable objects there.
 4. Under **Networking**, either generate a Railway domain or add your own domain. For a custom domain, add both the CNAME and TXT records Railway shows. Railway terminates TLS.
 5. Under **Settings → Deploy**, set the start command, choosing your own community and first-writer handles:
 
    ```sh
-   bun run arbor serve --community garden --first-writer joe
+   bun run canopyd --community garden --first-writer joe
    ```
 
    Arbor initially uses `garden` as the community profile's display name; its writer can edit that profile later. With a Railway-provided domain, Arbor derives the canonical URL from `RAILWAY_PUBLIC_DOMAIN`. For a custom domain, add one service variable containing the hostname (without a scheme):
@@ -25,7 +25,7 @@ The repository already contains `Dockerfile.host` and `railway.toml`. Railway bu
    ```
 
    Do not set an owner token or account JSON for the claim-first trial. If an unusual deployment really needs plain HTTP or a nonstandard public port, pass a complete `--url` in the start command instead of setting `ARBOR_DOMAIN`.
-6. Redeploy. Keep the service at one replica: this reference authority uses SQLite and one mounted volume.
+6. Redeploy. Keep the service at one replica: this reference Canopy server uses SQLite and one mounted volume.
 7. Verify the deployment:
 
    ```sh
@@ -35,7 +35,7 @@ The repository already contains `Dockerfile.host` and `railway.toml`. Railway bu
 
    The first response is `{"status":"ok"}`. The second is the unclaimed profile page and tells you to open Arbor locally.
 
-Railway volumes persist across deploys and restarts. Restart or redeploy the service after claiming and confirm that the profile URL still resolves. Configure volume backups before using the authority for anything non-disposable. Keep this SQLite reference authority at one replica.
+Railway volumes persist across deploys and restarts. Restart or redeploy the service after claiming and confirm that the profile URL still resolves. Configure volume backups before using the Canopy server for anything non-disposable. Keep this SQLite reference Canopy server at one replica.
 
 Railway references: [Docker/config-as-code](https://docs.railway.com/config-as-code/reference), [public domains and ports](https://docs.railway.com/public-networking), [custom-domain DNS](https://docs.railway.com/networking/domains/working-with-domains), and [persistent volumes](https://docs.railway.com/volumes).
 
@@ -46,7 +46,7 @@ From this checkout on your own Mac:
 ```sh
 bun install
 bun run build:web
-bun run arbor browse https://garden.example.com/~joe
+bun run arbor open https://garden.example.com/~joe
 ```
 
 In Arbor web:
@@ -55,7 +55,7 @@ In Arbor web:
 2. Choose a visible local folder such as `~/.arbor/profile`.
 3. Select **Claim profile** in the sheet.
 
-The local arbord creates or validates a `type: person` profile and generates the profile TreeID, account-configuration TreeID, DeviceID, and device credential locally. One bootstrap request atomically creates the profile, account, canonical boundary and ACL, private configuration tree, credential binding, and first administrator. The authority receives only the credential digest and never returns the raw credential. The resulting `account.yaml`, `trees.yaml`, and `devices/<DeviceID>.yaml` checkout is installed at `${ARBOR_DATA_HOME:-~/.arbor}`; implementation state lives beneath its excluded `.state` mount.
+The local arborsync creates or validates a `type: person` profile and generates the profile TreeID, account-configuration TreeID, DeviceID, and device credential locally. One bootstrap request atomically creates the profile, account, canonical boundary and ACL, private configuration tree, credential binding, and first administrator. Canopy receives only the credential digest and never returns the raw credential. The resulting `account.yaml`, `trees.yaml`, and `devices/<DeviceID>.yaml` checkout is installed at `${ARBOR_DATA_HOME:-~/.arbor}`; implementation state lives beneath its excluded `.state` mount.
 
 After claiming, create a small folder elsewhere on the Mac and use **Share** to publish it at `/~joe/test` with **Public read**. The UI obtains a fresh client-generated TreeID, source-preservingly adds its declaration and `everyone: read` rule to `trees.yaml`, adds the local path to the current device's `placements`, and initializes the reserved tree. Verify `https://garden.example.com/~joe/test` remotely. The source folder remains at its original OS path.
 
@@ -63,17 +63,17 @@ First-claim-wins is deliberately the current v1 policy. Claim the first-writer p
 
 ## Coordinated alpha upgrades
 
-Arbord, the authority, TypeScript and Swift clients, specifications, and fixtures share one alpha protocol version. Do not deploy a wire-contract or account-configuration change while an old arbord is still writing, and do not start a new arbord against an old authority.
+Arbor Sync, the Canopy server, TypeScript and Swift clients, specifications, and fixtures share one alpha protocol version. Do not deploy a wire-contract or account-configuration change while an old arborsync is still writing, and do not start a new arborsync against an old Canopy server.
 
-For an existing authority:
+For an existing Canopy server:
 
-1. Stop every known arbord writer and record the exact deployed revision, current tree identities and refs, ACLs, accepted-update boundaries, public-output hashes, SQLite integrity, and immutable-object integrity.
+1. Stop every known arborsync writer and record the exact deployed revision, current tree identities and refs, ACLs, accepted-update boundaries, public-output hashes, SQLite integrity, and immutable-object integrity.
 2. Create an application-consistent SQLite backup plus the complete immutable-object store. Retain an off-volume copy and prove it starts under the old image.
 3. Start the exact candidate revision against a separate restored copy. Require restart-idempotent schema/configuration migration and exact equivalence of identities, refs, history, boundaries, ACLs, public output, objects, accounts, and active devices.
 4. Rehearse each real local data home from a copy. Require preserved authored bytes and placement metadata, private-state relocation beneath `.state`, and a valid installed account-configuration checkout.
-5. Only after those rehearsals, deploy the exact tested commit. Verify the authority before reconnecting clients.
+5. Only after those rehearsals, deploy the exact tested commit. Verify the Canopy server before reconnecting clients.
 6. Run `arbor connect <community-origin>` in each real data home to install the configuration checkout and migrate legacy placements, then rebuild/restart packaged clients.
-7. Wait for every placement to become idle with local refs equal to authority refs, confirm that authored snapshots did not change, and run an isolated private synchronization/revocation smoke. Restore the complete backup and old image on any authority equivalence failure.
+7. Wait for every placement to become idle with local refs equal to server refs, confirm that authored snapshots did not change, and run an isolated private synchronization/revocation smoke. Restore the complete backup and old image on any Canopy equivalence failure.
 
 Never put raw credentials, credential digests, access-link secrets, or user content in a migration report or shell history.
 
@@ -103,7 +103,7 @@ cd deploy
 cp .env.example .env
 ```
 
-Edit `.env` so `ARBOR_DOMAIN` is the real hostname and `COMMUNITY_HANDLE` and `FIRST_WRITER_HANDLE` have the values you want. Compose passes the latter two to `arbor serve` as arguments. Start the service:
+Edit `.env` so `ARBOR_DOMAIN` is the real hostname and `COMMUNITY_HANDLE` and `FIRST_WRITER_HANDLE` have the values you want. Compose passes the latter two to `canopyd` as arguments. Start the service:
 
 ```sh
 docker compose up -d --build
@@ -119,4 +119,4 @@ git pull --ff-only
 docker compose up -d --build
 ```
 
-Do not run multiple Arbor replicas against the same SQLite authority volume.
+Do not run multiple Arbor replicas against the same Canopy SQLite volume.

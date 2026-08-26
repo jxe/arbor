@@ -34,9 +34,9 @@ Imagine there was a thing with this kind of structure on your disk:
   library/               # a public tree, mounted from a domain name
 ```
 
-Everything is ordinary files. And imagine a background process — call it arbord — that watches this tree and does two jobs.
+Everything is ordinary files. And imagine a background process — call it arborsync — that watches this tree and does two jobs.
 
-**It handles syncing and sharing.** Take `projects/atlas`, an ordinary folder. It starts as locally browsable files. But I can share it, and arbord gives it a stable `TreeID` and a canonical URL, uploads its first revision, and begins synchronization. The folder is still at `projects/atlas`, but it now has an identity and a canonical home:
+**It handles syncing and sharing.** Take `projects/atlas`, an ordinary folder. It starts as locally browsable files. But I can share it, and arborsync gives it a stable `TreeID` and a canonical URL, uploads its first revision, and begins synchronization. The folder is still at `projects/atlas`, but it now has an identity and a canonical home:
 
 ```text
 https://garden.example.org/~joe/atlas
@@ -71,11 +71,11 @@ That gets us to the level of plain filesystems, but we can do better. At this po
 
 Filesystems often get messy, whereas Notion, with the *same* hierarchical structure, doesn't so easily. Why? 
 
-* First, a directory in Notion isn't a bare listing; it's a document that *contains* its children, so you can group them under headings, fold the stale ones into a toggle, annotate the important ones. The folder explains itself and is malleable. Arbor does the same for local directories: arbord always presents complete Markdown, treating the first standalone link to each immediate child as its position and appending ordinary links for children the stored body does not mention. An optional `_index.md` lets you author and persist that arrangement; merely browsing a bodyless directory creates no file.
+* First, a directory in Notion isn't a bare listing; it's a document that *contains* its children, so you can group them under headings, fold the stale ones into a toggle, annotate the important ones. The folder explains itself and is malleable. Arbor does the same for local directories: arborsync always presents complete Markdown, treating the first standalone link to each immediate child as its position and appending ordinary links for children the stored body does not mention. An optional `_index.md` lets you author and persist that arrangement; merely browsing a bodyless directory creates no file.
 * Second, page properties mean a subtree of similar pages can become a database: past meeting agendas, say, each with a date and attendees; here that's frontmatter, hardened by an optional `schema.ts` to keep things orderly and allow queries.
 * Third, sharing works on subtrees, which nudges people to map subtrees onto human groups and teams and projects. That social mapping keeps hierarchies meaningful as they grow. The same dynamic will happen here.
 
-All this, and arbord still materializes the workspace as ordinary files on disk, for the pleasure of your agents and editors. `ls` is browsing. `cat` is reading. Writing a file is editing. `grep -r` is search. Nothing about your existing tools breaks.
+All this, and arborsync still materializes the workspace as ordinary files on disk, for the pleasure of your agents and editors. `ls` is browsing. `cat` is reading. Writing a file is editing. `grep -r` is search. Nothing about your existing tools breaks.
 
 ## A browser that is also an editor
 
@@ -105,7 +105,7 @@ export const schema = z.object({
 
 This is how Notion turns page properties into a database.
 
-**Second: a real database.** Submissions pile up faster than essays — a few hundred a month, each with review state, notes, and an author to reply to. When frontmatter files stop being fun, drop `_store.sqlite3` into `submissions/`. Arbord opens it, serves the folder's rows from it, introspects its tables to generate types, and watches changes. The folder keeps its path, its page, its schema, and every query pointed at it.
+**Second: a real database.** Submissions pile up faster than essays — a few hundred a month, each with review state, notes, and an author to reply to. When frontmatter files stop being fun, drop `_store.sqlite3` into `submissions/`. Arbor Sync opens it, serves the folder's rows from it, introspects its tables to generate types, and watches changes. The folder keeps its path, its page, its schema, and every query pointed at it.
 
 **Third: a connection to a database you already have.** An external database enters the tree as a small reference file:
 
@@ -150,15 +150,15 @@ export default function ReadingRoom() {
 
 Arbor does runtime validation from the TypeScript parameter types, so `{ tag: string }` is enforced at the execution boundary. It also collects the literal tree paths — `./essays`, `arbor://paxmachina.org/inbox` — as the query's read set and the mutation's write set so it can (a) re-run the query when any of those trees change, and (b) make sure permissions are respected and the user is informed what the code can do.
 
-Default placement of the queries follows the data. Queries on data you've synced run in your own arbord and are private, offline-capable, and free for the host. Trees you're merely visiting run their queries close to the data. (Authors can also force hosting, for queries that must control egress or touch secrets.) For hosted queries, each is a stable, versioned endpoint, identified by its code, so the host can patch a particular version in place while old consumers keep working, or can publish a new version alongside it. Nobody needs to design a REST API.
+Default placement of the queries follows the data. Queries on data you've synced run in your own arborsync and are private, offline-capable, and free for the host. Trees you're merely visiting run their queries close to the data. (Authors can also force hosting, for queries that must control egress or touch secrets.) For hosted queries, each is a stable, versioned endpoint, identified by its code, so the host can patch a particular version in place while old consumers keep working, or can publish a new version alongside it. Nobody needs to design a REST API.
 
-A paragraph containing a link to a `.tsx` script renders that script's component inline, as a live island backed by arbord: the `ReadingRoom` above just appears in the page, running against the reader's tree. 
+A paragraph containing a link to a `.tsx` script renders that script's component inline, as a live island backed by arborsync: the `ReadingRoom` above just appears in the page, running against the reader's tree.
 
 This offers similar benefits to a modern web app, but with different tradeoffs:
 
 - **Live components, not pages.** The web's unit of delivery is the page — a finished document. Any actual data is either baked invisibly into markup at render time, or trapped behind the site's private API. Here, data and live components are first class: a typed projection of data can sit inside any page, next to prose. Components are stateful and interactive from the start, and are live against the data they declare: every component is a standing subscription.
 - **Security through declaration, not isolation.** The browser's answer to hostile code is the origin sandbox. Browsers isolate code *by site*. That means your data has to live on their site, with their code, under their account system. Here, code arrives with no network and no filesystem. It states what it reads and writes and the runtime enforces that. "this component reads `essays` and appends to `submissions`" -- the write set could just as well name a tree you don't own — `tree("arbor://paxmachina.org/inbox")` — and the consent statement would say so.
-- **Isomorphic by construction.** With arbor, there's no server vs client. There's a tree that exists somewhere, and a component that runs against it. The same component can run in the host that owns the tree, or in a reader's arbord if they have it synced.
+- **Isomorphic by construction.** With arbor, there's no server vs client. There's a tree that exists somewhere, and a component that runs against it. The same component can run in the host that owns the tree, or in a reader's arborsync if they have it synced.
 
 ## Agents and tools live in the tree
 
@@ -240,12 +240,12 @@ The wire deals in two planes. **A ref** is one tiny live statement per tree: *Tr
 
 ```text
 GET  /.arbor/trees/{TreeID}/ref     # where is the tip?
-POST /.arbor/trees/{TreeID}/updates # submit against an accepted base; authority accepts or merges
+POST /.arbor/trees/{TreeID}/updates # submit against an accepted base; Canopy accepts or merges
 GET  /.arbor/trees/{TreeID}/watch   # tell me when it moves
 GET  /.arbor/objects/{hash}         # give me this immutable object
 ```
 
-When the tip moves, your arbord fetches the new root and walks only the hashes needed for the subtree it is reading. Access is checked once at the shared-tree boundary; an update names its accepted base and candidate root before the authority advances or merges the tip. If a subtree needs different access, it is a nested tree with its own tip. Merkle structure is why sync is cheap; recorded read sets are why the right queries re-run.
+When the tip moves, your arborsync fetches the new root and walks only the hashes needed for the subtree it is reading. Access is checked once at the shared-tree boundary; an update names its accepted base and candidate root before Canopy advances or merges the tip. If a subtree needs different access, it is a nested tree with its own tip. Merkle structure is why sync is cheap; recorded read sets are why the right queries re-run.
 
 This split unlocks the whole content-centric networking agenda, almost as a side effect:
 

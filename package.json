@@ -6,18 +6,22 @@
   "packageManager": "bun@1.3.14",
   "workspaces": ["packages/*"],
   "bin": {
-    "arbor": "./packages/cli/src/index.ts"
+    "arbor": "./packages/cli/src/index.ts",
+    "arborsync": "./packages/arborsync/src/cli.ts",
+    "canopyd": "./packages/canopy/src/cli.ts"
   },
   "scripts": {
-    "dev": "arbor browse",
-    "host": "arbor serve",
+    "arbor": "bun packages/cli/src/index.ts",
+    "arborsync": "bun packages/arborsync/src/cli.ts",
+    "canopyd": "bun packages/canopy/src/cli.ts",
+    "dev": "bun run arbor -- open",
     "build": "bun run build:web && bun build packages/cli/src/index.ts --target=bun --outdir=dist/cli",
     "build:web": "vite build --config packages/render/vite.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test --parallel=4 tests/unit tests/integration",
     "test:unit": "bun test tests/unit",
     "test:integration": "bun test tests/integration",
-    "test:sync-merge": "bun test tests/unit/wire/update-intent.test.ts tests/unit/authority/update-decision.test.ts tests/unit/authority/update-store.test.ts tests/unit/authority/update-merge.test.ts tests/integration/authority/update-host.test.ts tests/integration/self-sync.test.ts",
+    "test:sync-merge": "bun test tests/unit/wire/update-intent.test.ts tests/unit/canopy/update-decision.test.ts tests/unit/canopy/update-store.test.ts tests/unit/canopy/update-merge.test.ts tests/integration/canopy/update-host.test.ts tests/integration/self-sync.test.ts",
     "test:e2e": "playwright test",
     "test:protocol": "bun tests/protocol/conformance.ts",
     "test:performance": "bun tests/performance/indexer.bench.ts",

@@ -107,7 +107,7 @@ Repo conventions:
 - Journal tests live in `tests/unit/journal.test.ts` (`bun:test`, `mkdtemp`
   into `tmpdir()`, an `afterEach` that removes created directories). That is
   your structural exemplar.
-- `WriteJournal` is imported in tests from `@arbor/arbord` (see
+- `WriteJournal` is imported in tests from `@arbor/arborsync` (see
   `tests/unit/journal.test.ts:6`), not by relative path.
 
 ## Commands you will need
@@ -295,7 +295,7 @@ Stop and report back if:
 ## Maintenance notes
 
 - The serialization is **per page ID and in-process only**. It does not protect
-  against two arbord processes writing the same journal file. That is a
+  against two arborsync processes writing the same journal file. That is a
   deliberate boundary: Arbor assumes one daemon per data home.
 - If a future change adds a public `WriteJournal` method that writes records,
   it must go through `append` (and therefore through `exclusive`) rather than

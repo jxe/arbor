@@ -1,5 +1,5 @@
 import {
-  ArbordClient,
+  ArborSyncRESTClient,
   type BacklinkEntry,
   type MutationEffect,
   type MutationReceipt,
@@ -37,7 +37,7 @@ function result(receipt: MutationReceipt): BrowserMutationResult {
   };
 }
 
-const client = new ArbordClient();
+const client = new ArborSyncRESTClient();
 
 export type BrowserOperation = StructuralWorkspaceOperation;
 export type BrowserEffect = MutationEffect;

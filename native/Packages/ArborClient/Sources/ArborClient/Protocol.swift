@@ -31,7 +31,7 @@ public enum JSONValue: Codable, Sendable, Equatable {
     }
 }
 
-public struct ArbordStatus: Codable, Sendable, Equatable {
+public struct ArborSyncStatus: Codable, Sendable, Equatable {
     public var service: String
     public var version: String
     public var protocolVersion: String
@@ -403,7 +403,7 @@ public struct ObservedNodeView: Sendable {
     }
 }
 
-public struct ArbordErrorValue: Codable, Sendable, Equatable {
+public struct ArborSyncErrorValue: Codable, Sendable, Equatable {
     public var code: String
     public var message: String
     public var retryable: Bool
@@ -412,7 +412,7 @@ public struct ArbordErrorValue: Codable, Sendable, Equatable {
     public var details: JSONValue?
 }
 
-public struct ArbordErrorEnvelope: Codable, Sendable, Equatable {
+public struct ArborSyncErrorEnvelope: Codable, Sendable, Equatable {
     public var error: String
     public var message: String
     public var retryable: Bool
@@ -420,8 +420,8 @@ public struct ArbordErrorEnvelope: Codable, Sendable, Equatable {
     public var path: String? = nil
     public var details: JSONValue? = nil
 
-    public var value: ArbordErrorValue {
-        ArbordErrorValue(
+    public var value: ArborSyncErrorValue {
+        ArborSyncErrorValue(
             code: error,
             message: message,
             retryable: retryable,

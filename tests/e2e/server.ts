@@ -1,12 +1,12 @@
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveArbor } from "@arbor/arbord";
-import { serveWireHost } from "@arbor/authority";
+import { serveArborSync } from "@arbor/arborsync";
+import { serveCanopy } from "@arbor/canopy";
 import { snapshotDirectory, WireClient } from "@arbor/wire";
 import { generateArborID } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
-import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/authority/src/account-policy.ts";
+import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 import { build } from "vite";
 
 await build({ configFile: join(import.meta.dir, "../../packages/render/vite.config.ts"), logLevel: "error" });
@@ -41,7 +41,7 @@ await writeFile(join(root, "already-titled.md"), "# Existing title\n\nBody.\n");
 await writeFile(join(promotableRoot, "_index.md"), "# URL Garden\n");
 await writeFile(join(promotableRoot, "seed.md"), "Ready to sync.\n");
 const port = Number(process.env.ARBOR_E2E_PORT ?? 4321);
-const host = await serveWireHost({
+const host = await serveCanopy({
   dataRoot: hostState,
   accounts: [{ handle: "owner", token: "e2e-owner-token", communityWriter: true }],
   community: { handle: "community", name: "Arbor Community", firstWriter: { handle: "alice" } },
@@ -81,8 +81,8 @@ const configured = snapshotAccountConfig({
     ...graph.devices[device]!,
     placements: {
       ...graph.devices[device]!.placements,
-      [editorsTree]: { authority: new URL(host.url).origin, path: editorsProfile },
-      [fixtureTree]: { authority: new URL(host.url).origin, path: root },
+      [editorsTree]: { server: new URL(host.url).origin, path: editorsProfile },
+      [fixtureTree]: { server: new URL(host.url).origin, path: root },
     },
   } },
 });
@@ -113,7 +113,7 @@ await new CommunityConfigStore().set(host.url, "e2e-owner-token", {
   configurationRef: configurationRef.snapshot.ref,
   configurationUpdate: configurationRef.snapshot.update,
 });
-const running = await serveArbor(root, { port });
+const running = await serveArborSync(root, { port });
 console.log(running.url);
 
 async function shutdown() {
@@ -121,7 +121,7 @@ async function shutdown() {
   await running.service.communityConfig.remove();
   await running.service[Symbol.asyncDispose]();
   host.server.stop(true);
-  await host.authority[Symbol.asyncDispose]();
+  await host.canopy[Symbol.asyncDispose]();
   await rm(root, { recursive: true, force: true });
   await rm(untrackedRoot, { recursive: true, force: true });
   await rm(state, { recursive: true, force: true });

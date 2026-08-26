@@ -296,7 +296,7 @@ test("browses, searches, and edits toggle Markdown", async ({ page }) => {
 
 test("a prose edit persists the provider-completed directory source", async ({ page }) => {
   await page.goto(r("/garden"));
-  // The stored body lacks this link, so arbord appends it to operational source.
+  // The stored body lacks this link, so arborsync appends it to operational source.
   const row = page.locator('[data-managed-row="/garden/rose"]');
   await expect(row).toBeVisible();
 

@@ -8,11 +8,11 @@ This plan uses the real Supplies port as the implementation corpus for Arbor's s
 
 One unchanged `sites/supplies` tree runs over its private SQLite data tree:
 
-1. in local `arbor browse`;
-2. in local signed macOS Arbor through the same arbord runtime; and
-3. at its ordinary canonical HTTP locations after an authority explicitly activates the shared tree.
+1. in local `arbor open`;
+2. in local signed macOS Arbor through the same arborsync runtime; and
+3. at its ordinary canonical HTTP locations after an Canopy explicitly activates the shared tree.
 
-The authority supplies Arbor users, so Supplies has no login system or application `User` table. Queries stream new authorized result states after related database or profile changes. The browser never receives raw SQLite, store credentials, server handle implementations, or unrelated private rows.
+The Canopy supplies Arbor users, so Supplies has no login system or application `User` table. Queries stream new authorized result states after related database or profile changes. The browser never receives raw SQLite, store credentials, server handle implementations, or unrelated private rows.
 
 SQLite is the first and only runtime backing needed for this slice. After all three surfaces work, a repeatable importer moves the real Supplies Postgres corpus into SQLite. Add a Postgres runtime driver later only if measured production use supplies a reason.
 
@@ -85,7 +85,7 @@ The callable query surface uses this reviewed relationship model:
 
 Foreign keys prove the ordinary database portions of these paths. The schema-adjacent declaration supplies the public names, ProfileID joins, through paths, cardinality, and relationship-local stable keys that SQL introspection alone cannot prove.
 
-Person references are stable Arbor ProfileIDs. Names, handles, portraits, and bios come from live profile trees, not duplicated Supplies identity rows. Email addresses, login codes, credentials, and authority-local account IDs never enter the Supplies database.
+Person references are stable Arbor ProfileIDs. Names, handles, portraits, and bios come from live profile trees, not duplicated Supplies identity rows. Email addresses, login codes, credentials, and Canopy-local account IDs never enter the Supplies database.
 
 Before hosting, `data/` is promoted as a separate private nested tree. The Supplies source-tree execution principal gets reviewed access to it; a website visitor gets only rendered output and validated query results.
 
@@ -123,7 +123,7 @@ Finish the phase by invoking every Supplies query directly in a headless harness
 3. Implement snapshot-then-follow subscription startup: begin buffering after a store cursor, execute on a consistent snapshot, compare buffered changes with the new dependency set, rerun if needed, and publish the result with its `observedThrough` cursor.
 4. Implement a per-query state machine that unions old/new dependencies while rerunning, coalesces bursts, suppresses identical canonical output hashes, and never publishes a result already invalidated during execution.
 5. Publish complete replacement results and suppress identical canonical output hashes. Keep keyed result diffs out of the initial contract; reconsider them only from measured result sizes and stream volume.
-6. Add the shared stateless query-stream request to arbord REST and authority wire HTTP. One POST describes the document version and complete mounted query graph and returns SSE `result`, `ready`, and `reload` events. Closing the response releases the subscriptions; reconnecting repeats the request and establishes fresh snapshot-then-follow boundaries, with no execution ID, acknowledgement, replay cursor, or resync resource.
+6. Add the shared stateless query-stream request to the Local Arbor REST API and Arbor Wire API. One POST describes the document version and complete mounted query graph and returns SSE `result`, `ready`, and `reload` events. Closing the response releases the subscriptions; reconnecting repeats the request and establishes fresh snapshot-then-follow boundaries, with no execution ID, acknowledgement, replay cursor, or resync resource.
 7. Detect external SQLite revision/WAL changes conservatively and invalidate the entire store when exact rows are unavailable. Re-run from a new snapshot rather than inferring row changes from undocumented WAL internals.
 8. Test two simultaneous subscriptions, a related update, an unrelated precise update, a possibly-entering insert, top-N reorder, profile edit, mutation-during-rerun race, external commit, disconnect/fresh reconnect, mounted-query-graph replacement, and listener restart.
 
@@ -175,29 +175,29 @@ Finish the phase by replaying ambiguous mutation submissions and proving stable 
 
 Finish the phase when `arbor check sites/supplies` typechecks the unchanged tree, editor diagnostics identify authored lines, and inspecting bundles confirms that relation/result types are inferred and server implementations are absent.
 
-### Phase 5 — components in `arbor browse` and authority HTTP
+### Phase 5 — components in `arbor open` and Canopy HTTP
 
 1. Add an executable-document surface to shared REST, TypeScript client, Swift client, and ArborKit node models: source kind, coherent version, runnable/diagnostic state, and execution URL. Keep source access available separately.
-2. Have arbord render an addressed executable node using the same tree/path/access resolution as ordinary browse. Pass `URLSearchParams`, run mounted queries, server-render React, embed authorized initial results/cursors, and hydrate without duplicate reads.
+2. Have arborsync render an addressed executable node using the same tree/path/access resolution as ordinary browse. Pass `URLSearchParams`, run mounted queries, server-render React, embed authorized initial results/cursors, and hydrate without duplicate reads.
 3. Implement `arbor/react` exactly as used by Supplies: `useQuery`, `skipQuery`, `useMutationAction`, `useUser`, `useNavigate`, `Markdown`, React head hoisting, and accessible default Suspense/error/reconnecting/revalidating boundaries.
 4. Wire React Actions to the mutation runner, correlate receipts with query-stream updates, and preserve JavaScript-free form submission. Keep anchors as normal HTTP links and make `useNavigate` change the ordinary Arbor location.
 5. Show the running document in local Arbor web with Arbor chrome, location, provenance, and an explicit source view/edit control. Preserve query strings, back/forward, reload, open-in-new-tab, and copied extensionless URLs.
-6. Add explicit per-tree executable hosting to the authority. Activation records a reviewed tree/ref, manifest, private data-tree grants, resource ceilings, and last-known-good version; sharing source alone does not execute it.
-7. Resolve authority browser sessions to `ArborUser`, serve enabled documents at their ordinary canonical HTTP paths, run the same SQLite/query/stream/mutation stack, and invalidate affected subscriptions on user switch or revocation.
-8. Add browser tests against local and authority hosts with two contexts: SSR/hydration, public/private disclosure, required-user session UI, every Action, live related/unrelated changes, profile edits, fresh reconnect, source rollout, revocation, and absence of SQLite/server code in responses.
+6. Add explicit per-tree executable hosting to the Canopy. Activation records a reviewed tree/ref, manifest, private data-tree grants, resource ceilings, and last-known-good version; sharing source alone does not execute it.
+7. Resolve Canopy browser sessions to `ArborUser`, serve enabled documents at their ordinary canonical HTTP paths, run the same SQLite/query/stream/mutation stack, and invalidate affected subscriptions on user switch or revocation.
+8. Add browser tests against local and Canopy hosts with two contexts: SSR/hydration, public/private disclosure, required-user session UI, every Action, live related/unrelated changes, profile edits, fresh reconnect, source rollout, revocation, and absence of SQLite/server code in responses.
 
-Finish the phase when `bun run arbor browse sites/supplies` opens the seeded working site and the unchanged shared tree works at its authority URL with two live clients.
+Finish the phase when `bun run arbor open sites/supplies` opens the seeded working site and the unchanged shared tree works at its Canopy URL with two live clients.
 
 ### Phase 6 — components in Arbor native
 
 1. Decode the executable-document REST fixtures in `ArborClient`, add `WorkspaceSurface.executableDocument`, and preserve precise source-only and runtime-unavailable states.
-2. In signed macOS Arbor, open the local arbord execution URL in a constrained `WKWebView` while the native tab retains its `WorkspaceLocation`, TreeID, provenance, and normal document controls.
-3. Route same-tree links through the native tab model, apply normal external-link policy outside the tree, and keep raw source/view/edit reachable without giving the web content arbord credentials or ambient loopback access.
+2. In signed macOS Arbor, open the local arborsync execution URL in a constrained `WKWebView` while the native tab retains its `WorkspaceLocation`, TreeID, provenance, and normal document controls.
+3. Route same-tree links through the native tab model, apply normal external-link policy outside the tree, and keep raw source/view/edit reachable without giving the web content arborsync credentials or ambient loopback access.
 4. Forward user/session changes, runtime diagnostics, reconnect state, and source-version reloads through the shared protocol instead of inventing native-only behavior.
 5. Add Swift provider/client tests for executable surface decoding, source fallback, navigation, revocation, and diagnostics. Add a macOS UI pass for Home, list navigation, an Action, a concurrent browser update, back/forward, reload, source view, and relaunch.
-6. After authority HTTP works, let iOS display the authority-hosted executable surface under the same constrained rules. Record a fully offline iOS React/query/SQLite runtime as separate work rather than claiming it from the macOS loopback implementation.
+6. After Canopy HTTP works, let iOS display the Canopy-hosted executable surface under the same constrained rules. Record a fully offline iOS React/query/SQLite runtime as separate work rather than claiming it from the macOS loopback implementation.
 
-Finish the phase when the signed macOS app runs the local Supplies tree, observes browser mutations live, and returns to exact source without losing native tab identity; verify authority-hosted presentation on iOS separately if included.
+Finish the phase when the signed macOS app runs the local Supplies tree, observes browser mutations live, and returns to exact source without losing native tab identity; verify Canopy-hosted presentation on iOS separately if included.
 
 ### Phase 7 — anything else: fixtures, real data, cutover, and hardening
 
@@ -207,10 +207,10 @@ Finish the phase when the signed macOS app runs the local Supplies tree, observe
 4. Map legacy people to stable Arbor ProfileIDs through reviewed evidence; never infer identity solely from display name, email, or mutable handle. Block cutover on unresolved identities or record an explicit reviewed resolution.
 5. Convert spaces, authorship, list order, reactions, tags, contributors, and edit policies to the normalized schema. Preserve a durable legacy-ID/redirect map and decide whether legacy URL-accessible `unlisted` becomes a third visibility before importing it.
 6. Validate logical row counts, visibility, order, authors, reactions, tags, attribution, text, and representative old URLs. Run the importer twice from the same snapshot and require identical logical output.
-7. Install through a recoverable private-tree database swap, stage the real site side-by-side on an authority, run visual/behavioral checks, freeze old writes for a final delta, and retain backups plus a tested rollback before changing the public domain.
-8. Measure query reruns, stream volume, SQLite contention, compilation latency, SSR latency, and authority resource use. Add the [deferred keyed result diff](#deferred-keyed-result-diffs), incremental maintenance, a Postgres runtime driver, or production scaling only in response to those measurements.
+7. Install through a recoverable private-tree database swap, stage the real site side-by-side on an Canopy, run visual/behavioral checks, freeze old writes for a final delta, and retain backups plus a tested rollback before changing the public domain.
+8. Measure query reruns, stream volume, SQLite contention, compilation latency, SSR latency, and Canopy resource use. Add the [deferred keyed result diff](#deferred-keyed-result-diffs), incremental maintenance, a Postgres runtime driver, or production scaling only in response to those measurements.
 
-Finish the phase when the real Meaning Supplies corpus runs on the authority with reviewed identities, stable redirects, matching content/access/order, recoverable backups, and an exercised rollback path.
+Finish the phase when the real Meaning Supplies corpus runs on the Canopy with reviewed identities, stable redirects, matching content/access/order, recoverable backups, and an exercised rollback path.
 
 ## Milestone completion
 

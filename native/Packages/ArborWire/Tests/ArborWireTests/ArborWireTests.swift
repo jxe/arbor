@@ -56,7 +56,7 @@ struct WireObjectTests {
     func graphValidation() throws {
         let file = try WireObjectCodec.object(.file(Data("hello".utf8)))
         let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
-        let valid = AuthoritySnapshot(root: root.hash, objects: [root, file])
+        let valid = WireSnapshot(root: root.hash, objects: [root, file])
         #expect(try WireObjectGraph.validate(valid).count == 2)
         #expect(throws: ArborWireValidationError.self) {
             _ = try WireObjectGraph.validate(.init(root: root.hash, objects: [root]))
@@ -76,7 +76,7 @@ struct UpdateProtocolTests {
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let identity = try #require(fixture["identity"] as? [String: Any])
         let base = try #require(identity["base"] as? [String: Any])
-        let value = AuthorityUpdateBase(root: base["root"] as! String, update: base["update"] as! String)
+        let value = WireUpdateBase(root: base["root"] as! String, update: base["update"] as! String)
         let candidate = identity["candidate"] as! String
         let tree = identity["tree"] as! String
         #expect(canonicalUpdateIntent(tree: tree, base: value, candidate: candidate) == identity["canonicalJSON"] as? String)
@@ -89,12 +89,12 @@ struct UpdateProtocolTests {
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let valid = try #require(fixture["valid"] as? [String: Any])
         let validData = try JSONSerialization.data(withJSONObject: valid)
-        let patch = try JSONDecoder().decode(AuthorityFilePatch.self, from: validData)
+        let patch = try JSONDecoder().decode(WireFilePatch.self, from: validData)
         #expect(patch.edits.map(\.offset) == [1, 4])
         #expect(patch.edits.map(\.bytes) == [Data("x".utf8), Data("y".utf8)])
 
-        let base = AuthorityUpdateBase(root: "sha256:" + String(repeating: "0", count: 64), update: "up_base")
-        let request = AuthorityUpdateRequest(
+        let base = WireUpdateBase(root: "sha256:" + String(repeating: "0", count: 64), update: "up_base")
+        let request = WireUpdateRequest(
             base: base,
             candidate: "sha256:" + String(repeating: "1", count: 64),
             objects: [],
@@ -117,7 +117,7 @@ struct UpdateProtocolTests {
             ]
             let bodyData = try JSONSerialization.data(withJSONObject: body)
             #expect(throws: (any Error).self) {
-                _ = try JSONDecoder().decode(AuthorityUpdateRequest.self, from: bodyData)
+                _ = try JSONDecoder().decode(WireUpdateRequest.self, from: bodyData)
             }
         }
     }
@@ -130,7 +130,7 @@ struct UpdateProtocolTests {
         let submit = try #require(cases.first { $0["name"] as? String == "submit-current-update" })
         let response = try #require(submit["response"] as? [String: Any])
         let body = try JSONSerialization.data(withJSONObject: try #require(response["body"] as? [String: Any]))
-        let result = try JSONDecoder().decode(AuthorityUpdateResult.self, from: body)
+        let result = try JSONDecoder().decode(WireUpdateResult.self, from: body)
         guard case let .current(update) = result else { Issue.record("Expected current result"); return }
         #expect(update.id == "up_atlas1")
     }
@@ -164,11 +164,11 @@ struct UpdateProtocolTests {
     func exactRetry() async throws {
         let file = try WireObjectCodec.object(.file(Data("retry".utf8)))
         let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
-        let snapshot = AuthoritySnapshot(root: root.hash, objects: [file, root])
+        let snapshot = WireSnapshot(root: root.hash, objects: [file, root])
         let baseHash = "sha256:" + String(repeating: "0", count: 64)
         let requestDigest = updateRequestDigest(
             tree: "tr_retry",
-            base: AuthorityUpdateBase(root: baseHash, update: "up_base"),
+            base: WireUpdateBase(root: baseHash, update: "up_base"),
             candidate: root.hash
         )
         let response = Data("""
@@ -176,11 +176,11 @@ struct UpdateProtocolTests {
         """.utf8)
         await WireURLProtocolStub.state.install { _, attempt in
             attempt == 1
-                ? (500, Data(#"{"error":"authority-busy","message":"retry","retryable":true}"#.utf8))
+                ? (500, Data(#"{"error":"server-busy","message":"retry","retryable":true}"#.utf8))
                 : (201, response)
         }
-        let client = ArborAuthorityClient(
-            origin: URL(string: "https://authority.test")!,
+        let client = ArborWireClient(
+            origin: URL(string: "https://canopy.test")!,
             credential: "device-token",
             session: wireStubSession(),
             retryDelay: { _ in }
@@ -198,16 +198,16 @@ struct UpdateProtocolTests {
     }
 }
 
-@Suite("Live temporary authority", .serialized)
-struct LiveAuthorityTests {
+@Suite("Live temporary server", .serialized)
+struct LiveWireTests {
     @Test("Account snapshots, scoped objects, and locally credentialed pairing")
-    func liveAuthority() async throws {
+    func liveWire() async throws {
         guard let originValue = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_URL"],
               let origin = URL(string: originValue),
               let token = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TOKEN"] else {
             return
         }
-        let client = ArborAuthorityClient(origin: origin, credential: token, retryDelay: { _ in })
+        let client = ArborWireClient(origin: origin, credential: token, retryDelay: { _ in })
         let account = try await client.account()
         let configuration = account.account.configuration
         #expect(configuration.kind == "account-configuration")
@@ -227,14 +227,14 @@ struct LiveAuthorityTests {
         let claim = try await client.claimPairing(
             id: offer.id,
             secret: offer.secret,
-            device: AuthorityPairingDevice(
+            device: WirePairingDevice(
                 id: deviceID,
                 label: "Swift test device",
                 credentialDigest: "sha256:\(digest)"
             )
         )
         #expect(claim.device.id == deviceID)
-        let paired = ArborAuthorityClient(origin: origin, credential: pairedToken, retryDelay: { _ in })
+        let paired = ArborWireClient(origin: origin, credential: pairedToken, retryDelay: { _ in })
         #expect(try await paired.trees().snapshot.contains { $0.id == configuration.id })
 
         let historyURL = origin.appending(path: ".arbor/trees/\(configuration.id)/updates")
@@ -247,16 +247,16 @@ struct LiveAuthorityTests {
         #expect((historicalResponse as? HTTPURLResponse)?.statusCode == 404)
     }
 
-    private func snapshot(fileBytes: Data) throws -> AuthoritySnapshot {
+    private func snapshot(fileBytes: Data) throws -> WireSnapshot {
         let file = try WireObjectCodec.object(.file(fileBytes))
         let root = try WireObjectCodec.object(.directory([.init(name: "blob.bin", hash: file.hash)]))
-        return AuthoritySnapshot(root: root.hash, objects: [file, root]).sorted()
+        return WireSnapshot(root: root.hash, objects: [file, root]).sorted()
     }
 }
 
-private extension AuthoritySnapshot {
-    func sorted() -> AuthoritySnapshot {
-        AuthoritySnapshot(root: root, objects: objects.sorted { $0.hash < $1.hash })
+private extension WireSnapshot {
+    func sorted() -> WireSnapshot {
+        WireSnapshot(root: root, objects: objects.sorted { $0.hash < $1.hash })
     }
 }
 

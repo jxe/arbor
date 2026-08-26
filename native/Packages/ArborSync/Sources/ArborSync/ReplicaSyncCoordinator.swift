@@ -5,7 +5,7 @@ import Foundation
 
 public actor ReplicaSyncCoordinator {
     private let replica: ArborReplica
-    private let transport: any ReplicaAuthorityTransport
+    private let transport: any ReplicaWireTransport
     private let files: DurableSyncFiles
     private let faultInjector: any ReplicaSyncFaultInjector
     private var control: DurableSyncControl
@@ -15,7 +15,7 @@ public actor ReplicaSyncCoordinator {
 
     public init(
         replica: ArborReplica,
-        transport: any ReplicaAuthorityTransport,
+        transport: any ReplicaWireTransport,
         stateRoot: URL,
         faultInjector: any ReplicaSyncFaultInjector = NoReplicaSyncFaults()
     ) throws {
@@ -57,7 +57,7 @@ public actor ReplicaSyncCoordinator {
 
     /** Applies one accepted-state invalidation without turning a clean pull into a write. */
     @discardableResult
-    public func observe(_ event: AuthorityWatchEvent) async throws -> WorkspaceSyncPresentation {
+    public func observe(_ event: WireWatchEvent) async throws -> WorkspaceSyncPresentation {
         try requireOpen()
         let treeID = await replica.treeID().rawValue
         guard event.tree.id == treeID else { return try await presentation() }
@@ -66,7 +66,7 @@ public actor ReplicaSyncCoordinator {
         if let requestDigest = event.requestDigest,
            requestDigest == control.attempt?.digest {
             // The watch won the response race, or the response was lost. Replaying
-            // the exact durable request obtains the authority's stored response.
+            // the exact durable request obtains the server's stored response.
             return try await synchronize(admission: nil)
         }
         if control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
@@ -96,7 +96,7 @@ public actor ReplicaSyncCoordinator {
         }
         control.presentation = WorkspaceSyncPresentation(
             state: .current,
-            detail: "Applied the authority's current snapshot",
+            detail: "Applied the server's current snapshot",
             acceptedRoot: current.snapshot.root,
             localRoot: current.snapshot.root
         )
@@ -154,12 +154,12 @@ public actor ReplicaSyncCoordinator {
             )
             try files.write(control)
             try faultInjector.reached(.duringUpload)
-            let prepared = PreparedAuthorityUpdate(tree: attempt.tree, body: attempt.body, requestDigest: attempt.digest)
+            let prepared = PreparedWireUpdate(tree: attempt.tree, body: attempt.body, requestDigest: attempt.digest)
             let response = try await transport.submit(prepared)
             try faultInjector.reached(.afterServerAcceptance)
             try await apply(response, for: attempt)
             return try await presentation()
-        } catch let error as AuthorityUpdateConflictError {
+        } catch let error as WireUpdateConflictError {
             let validated = try error.conflict.validated()
             guard validated.currentSnapshot != nil else { throw ReplicaSyncError.conflictSnapshotMissing }
             control.conflict = DurableSyncConflict(response: validated, localRootAtConflict: attempt.candidate)
@@ -174,7 +174,7 @@ public actor ReplicaSyncCoordinator {
             )
             try files.write(control)
             return control.presentation
-        } catch let error as AuthorityHTTPError where error.status == 401 || error.status == 403 {
+        } catch let error as WireHTTPError where error.status == 401 || error.status == 403 {
             control.presentation.state = error.code == "device-revoked" ? .revoked : .authenticationFailure
             control.presentation.detail = error.message ?? error.code
             try files.write(control)
@@ -191,7 +191,7 @@ public actor ReplicaSyncCoordinator {
     public func resolveConflictKeepingLocal() throws {
         try requireOpen()
         guard let conflict = control.conflict else { throw ReplicaSyncError.noConflict }
-        control.nextBase = AuthorityUpdateBase(root: conflict.response.current.root, update: conflict.response.current.id)
+        control.nextBase = WireUpdateBase(root: conflict.response.current.root, update: conflict.response.current.id)
         control.conflict = nil
         control.presentation = WorkspaceSyncPresentation(
             state: .locallyPending,
@@ -208,33 +208,33 @@ public actor ReplicaSyncCoordinator {
 
     private func createAttempt(admission: ReplicaPatchAdmission? = nil) async throws -> DurableSyncAttempt {
         let heads = try await replica.heads()
-        let base: AuthorityUpdateBase
+        let base: WireUpdateBase
         if let nextBase = control.nextBase {
             base = nextBase
         } else {
             guard let root = heads.acceptedRoot, let update = heads.acceptedUpdate else {
                 throw ReplicaSyncError.replicaIsNotPlaced
             }
-            base = AuthorityUpdateBase(root: root, update: update)
+            base = WireUpdateBase(root: root, update: update)
         }
         let snapshot = try await replica.currentSnapshot()
-        let authoritySnapshot = AuthoritySnapshot(
+        let wireSnapshot = WireSnapshot(
             root: snapshot.root,
-            objects: snapshot.objects.map { AuthorityObject(hash: $0.hash, bytes: $0.bytes) }
+            objects: snapshot.objects.map { WireObjectEnvelope(hash: $0.hash, bytes: $0.bytes) }
         )
-        _ = try WireObjectGraph.validate(authoritySnapshot)
+        _ = try WireObjectGraph.validate(wireSnapshot)
         let retained = (try? await retainedObjectHashes(root: base.root)) ?? []
         let filePatch = try await immediateFilePatch(
             admission,
             heads: heads,
             base: base,
-            snapshot: authoritySnapshot,
+            snapshot: wireSnapshot,
             retained: retained
         )
-        let sparseObjects = authoritySnapshot.objects.filter {
+        let sparseObjects = wireSnapshot.objects.filter {
             !retained.contains($0.hash) && $0.hash != filePatch?.result
         }
-        let request = AuthorityUpdateRequest(
+        let request = WireUpdateRequest(
             base: base,
             candidate: snapshot.root,
             objects: sparseObjects,
@@ -267,10 +267,10 @@ public actor ReplicaSyncCoordinator {
     private func immediateFilePatch(
         _ admission: ReplicaPatchAdmission?,
         heads: ReplicaHeads,
-        base: AuthorityUpdateBase,
-        snapshot: AuthoritySnapshot,
+        base: WireUpdateBase,
+        snapshot: WireSnapshot,
         retained: Set<String>
-    ) async throws -> AuthorityFilePatch? {
+    ) async throws -> WireFilePatch? {
         guard let admission,
               admission.baseWasAccepted,
               admission.baseRoot == base.root,
@@ -294,11 +294,11 @@ public actor ReplicaSyncCoordinator {
         let reconstructed = try WireObjectCodec.encode(.file(Data(resultSource.utf8)))
         guard WireObjectCodec.hash(reconstructed) == admission.resultFile,
               reconstructed == resultEnvelope.bytes else { return nil }
-        let patch = try AuthorityFilePatch(
+        let patch = try WireFilePatch(
             base: admission.baseFile,
             result: admission.resultFile,
             edits: admission.patch.edits.map { edit in
-                AuthorityFilePatchEdit(
+                WireFilePatchEdit(
                     offset: edit.utf8Range.lowerBound,
                     length: edit.utf8Range.count,
                     bytes: Data(edit.replacement.utf8)
@@ -311,12 +311,12 @@ public actor ReplicaSyncCoordinator {
         return patch
     }
 
-    private func apply(_ response: AuthorityUpdateResponse, for attempt: DurableSyncAttempt) async throws {
+    private func apply(_ response: WireUpdateResponse, for attempt: DurableSyncAttempt) async throws {
         guard response.requestDigest == attempt.digest else {
             throw ReplicaSyncError.returnedRequestDigestMismatch
         }
-        let accepted: AuthorityAcceptedUpdate
-        let merge: AuthorityMergeSummary?
+        let accepted: WireAcceptedUpdate
+        let merge: WireMergeSummary?
         switch response.result {
         case let .current(update): accepted = update; merge = nil
         case let .accepted(update): accepted = update; merge = nil
@@ -343,7 +343,7 @@ public actor ReplicaSyncCoordinator {
                 return
             }
             // New local work was acknowledged after this request was frozen. Keep
-            // the prior accepted base so the next request performs the authority's
+            // the prior accepted base so the next request performs the server's
             // three-way reconciliation against both this response and the tail.
             control.attempt = nil
             control.presentation = WorkspaceSyncPresentation(
@@ -398,11 +398,11 @@ public actor ReplicaSyncCoordinator {
         return visited
     }
 
-    private func setAppliedPresentation(accepted: AuthorityAcceptedUpdate, merge: AuthorityMergeSummary?) {
+    private func setAppliedPresentation(accepted: WireAcceptedUpdate, merge: WireMergeSummary?) {
         let approximations = merge?.approximatePlacements ?? 0
         control.presentation = WorkspaceSyncPresentation(
             state: approximations > 0 ? .approximatePlacement : merge == nil ? .current : .autoMerged,
-            detail: merge == nil ? "Current at accepted authority root" : "Authority combined local and remote additions",
+            detail: merge == nil ? "Current at accepted server root" : "Server combined local and remote additions",
             acceptedRoot: accepted.root,
             localRoot: accepted.root,
             localAdditions: accepted.candidateRoot != accepted.baseRoot,
@@ -418,9 +418,9 @@ public actor ReplicaSyncCoordinator {
 
 public enum ReplicaPlacementService {
     public static func place(
-        tree: AuthorityTreeDescriptor,
+        tree: WireTreeDescriptor,
         at replicaRoot: URL,
-        transport: any ReplicaAuthorityTransport
+        transport: any ReplicaWireTransport
     ) async throws -> ArborReplica {
         let current = try await transport.currentSnapshot(tree: tree.id)
         let update = current.tree.update

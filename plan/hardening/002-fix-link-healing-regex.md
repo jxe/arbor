@@ -6,9 +6,9 @@
 > report — do not improvise. When done, update the status row for this plan
 > in `plan/hardening/README.md`.
 >
-> **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/arbord/src/workspace.ts`
+> **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/arborsync/src/workspace.ts`
 > The working tree was already dirty when this plan was written; also run
-> `git status --short packages/arbord/src/workspace.ts`. If the excerpt under
+> `git status --short packages/arborsync/src/workspace.ts`. If the excerpt under
 > "Current state" does not match the live code, treat it as a STOP condition.
 
 ## Status
@@ -22,7 +22,7 @@
 
 ## Why this matters
 
-When a page moves, arbord rewrites links that point at it so they keep
+When a page moves, arborsync rewrites links that point at it so they keep
 resolving — this is what makes durable page IDs worth having. The regex that
 finds those links contains `[^)\\s]+` inside a **regex literal**. In a regex
 literal, `\\` is an escaped backslash, so the character class excludes `)`,
@@ -40,10 +40,10 @@ fix plus a test that would have caught it.
 
 File involved:
 
-- `packages/arbord/src/workspace.ts` — the arbord workspace session;
+- `packages/arborsync/src/workspace.ts` — the arborsync workspace session;
   `scheduleLinkHealing` rewrites links after a move.
 
-`packages/arbord/src/workspace.ts:1218-1226`:
+`packages/arborsync/src/workspace.ts:1218-1226`:
 
 ```ts
   private scheduleLinkHealing(treePath: string, revision: string, document: NonNullable<TreeNode["document"]>): void {
@@ -65,7 +65,7 @@ closing paren nor whitespace".
 For contrast, two other sites in the repo use `\\s` **correctly**, because they
 build a regex from a string where the extra backslash is required:
 
-- `packages/wire/src/authority.ts:908`
+- `packages/canopy/src/canopy.ts:908`
 - `packages/stores/src/server-config.ts:73`
 
 Do not change those. Only the regex *literal* in `workspace.ts` is wrong.
@@ -96,12 +96,12 @@ Repo conventions:
 
 **In scope**:
 
-- `packages/arbord/src/workspace.ts` (the single regex literal)
+- `packages/arborsync/src/workspace.ts` (the single regex literal)
 - `tests/integration/workspace.test.ts` (add a test)
 
 **Out of scope** (do NOT touch):
 
-- `packages/wire/src/authority.ts:908` and
+- `packages/canopy/src/canopy.ts:908` and
   `packages/stores/src/server-config.ts:73` — their `\\s` is correct because
   they pass a string to `new RegExp(...)`.
 - The rest of `scheduleLinkHealing`'s logic — the relative-path computation,
@@ -135,10 +135,10 @@ describes — STOP and report.
 
 ### Step 2: Fix the character class
 
-In `packages/arbord/src/workspace.ts:1221`, change `[^)\\s]+` to `[^)\s]+`.
+In `packages/arborsync/src/workspace.ts:1221`, change `[^)\\s]+` to `[^)\s]+`.
 Change nothing else on that line.
 
-**Verify**: `grep -n 'replace(/\\]\\(' packages/arbord/src/workspace.ts` shows
+**Verify**: `grep -n 'replace(/\\]\\(' packages/arborsync/src/workspace.ts` shows
 the line now containing `[^)\s]+` and not `[^)\\s]+`.
 
 **Verify**: `bun run typecheck` → exit 0.
@@ -195,7 +195,7 @@ ALL must hold:
 
 - [ ] `bun run typecheck` exits 0
 - [ ] `bun test` exits 0
-- [ ] `grep -c '\[^)\\\\s\]' packages/arbord/src/workspace.ts` returns 0
+- [ ] `grep -c '\[^)\\\\s\]' packages/arborsync/src/workspace.ts` returns 0
 - [ ] The new test fails when the fix is reverted (verified in step 3)
 - [ ] `git status --short` shows no modified files outside the In-scope list
 - [ ] `plan/hardening/README.md` status row for 002 updated
@@ -206,10 +206,10 @@ Stop and report back if:
 
 - The step 1 check shows both regexes behaving identically.
 - `scheduleLinkHealing` is no longer present at
-  `packages/arbord/src/workspace.ts:1218` or its body differs materially from
+  `packages/arborsync/src/workspace.ts:1218` or its body differs materially from
   the excerpt above.
 - The new test passes even with the bug restored (step 3's final check).
-- Healing turns out to require a running arbord server that the integration
+- Healing turns out to require a running arborsync server that the integration
   test harness cannot start — in that case report what you found rather than
   building new test infrastructure.
 
@@ -217,7 +217,7 @@ Stop and report back if:
 
 - Any future regex *literal* in this codebase that needs a whitespace class
   should use `\s`, not `\\s`. The two `\\s` sites in
-  `packages/wire/src/authority.ts` and `packages/stores/src/server-config.ts`
+  `packages/canopy/src/canopy.ts` and `packages/stores/src/server-config.ts`
   are correct only because they go through `new RegExp(string)`.
 - A reviewer should confirm the diff is exactly one character plus tests.
 - Deliberately deferred: link healing currently only rewrites links in blocks

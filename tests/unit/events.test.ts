@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { EventBus, ResyncRequiredError } from "../../packages/arbord/src/events.ts";
+import { EventBus, ResyncRequiredError } from "../../packages/arborsync/src/events.ts";
 
 describe("REST v1 event replay", () => {
   test("uses process epochs and expires only cursors outside the bounded window", () => {

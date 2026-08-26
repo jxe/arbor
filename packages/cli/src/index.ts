@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
-import { ArborService, serveArbor, serveArborControl } from "@arbor/arbord";
-import { ArbordClient } from "@arbor/client";
+import { ArborSyncDaemon, serveArborSync, serveArborSyncControl } from "@arbor/arborsync";
+import { ArborSyncRESTClient } from "@arbor/client";
 import {
   ConnectionStore,
   CommunityConfigStore,
@@ -14,7 +14,6 @@ import {
   saveCurrentDeviceID,
   savePlacementSyncMetadata,
 } from "@arbor/stores";
-import { serveWireHost, type CommunityBootstrapAccount } from "@arbor/authority";
 import { decodeWireObject, WireClient } from "@arbor/wire";
 import { parseDocument, type Document } from "yaml";
 
@@ -29,13 +28,12 @@ type ShareAudience =
 
 function usage(): never {
   console.error(`Usage:
-  arbor browse <locator> [--port <number>] [--no-open]
+  arbor open <locator> [--port <number>]
   arbor connect <community-url>
   arbor sync [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
   arbor sync <canonical-url> <local-path>
   arbor unsync <local-path> [<canonical-url>]
   arbor unsync <canonical-url> <local-path>
-  arbor serve [data-directory] [--url <canonical-url>] [--port <number>] [--community <handle>] [--first-writer <handle>]
   arbor connection set <name> [--dsn-stdin]
   arbor connection test <name>
   arbor connection remove <name>`);
@@ -50,6 +48,24 @@ async function readSecret(promptText: string): Promise<string> {
 async function openBrowser(url: string): Promise<void> {
   const command = process.platform === "darwin" ? ["open", url] : process.platform === "win32" ? ["cmd", "/c", "start", url] : ["xdg-open", url];
   try { Bun.spawn(command, { stdout: "ignore", stderr: "ignore" }); } catch {}
+}
+
+export async function attachedArborSyncURL(target: OpenTarget, port: number): Promise<URL | null> {
+  const origin = `http://127.0.0.1:${port}`;
+  try {
+    const status = await fetch(`${origin}/v1/status`);
+    if (!status.ok || (await status.json() as { service?: string }).service !== "arborsync") return null;
+    if (target.path) {
+      const query = new URLSearchParams({ tree: "local", path: target.path });
+      if (!(await fetch(`${origin}/v1/node?${query}`)).ok) return null;
+      return new URL(`${origin}/render${target.path}`);
+    }
+    const browserURL = new URL(`${origin}/render`);
+    if (target.remoteURL) browserURL.searchParams.set("browse", target.remoteURL);
+    return browserURL;
+  } catch {
+    return null;
+  }
 }
 
 interface CanonicalTarget {
@@ -77,13 +93,13 @@ function canonicalTarget(input: string): CanonicalTarget {
   };
 }
 
-export interface BrowseTarget {
+export interface OpenTarget {
   path?: string;
   remoteURL?: string;
   profile?: { origin: string; handle: string; path: string };
 }
 
-export function browseTarget(input: string, cwd = process.cwd()): BrowseTarget {
+export function openTarget(input: string, cwd = process.cwd()): OpenTarget {
   if (!/^(?:https?|arbor):\/\//.test(input)) return { path: resolve(cwd, input) };
   const target = canonicalTarget(input);
   const source = new URL(input);
@@ -97,7 +113,7 @@ export function browseTarget(input: string, cwd = process.cwd()): BrowseTarget {
   };
 }
 
-export async function isReservedProfile(target: BrowseTarget): Promise<boolean> {
+export async function isReservedProfile(target: OpenTarget): Promise<boolean> {
   if (!target.profile || !target.remoteURL) return false;
   try {
     const response = await fetch(target.remoteURL, { headers: { accept: "text/html" } });
@@ -109,7 +125,7 @@ export async function isReservedProfile(target: BrowseTarget): Promise<boolean> 
   }
 }
 
-export async function placedRemotePath(target: BrowseTarget, service: ArborService): Promise<string | null> {
+export async function placedRemotePath(target: OpenTarget, service: ArborSyncDaemon): Promise<string | null> {
   if (!target.remoteURL) return null;
   try {
     const canonical = canonicalTarget(target.remoteURL);
@@ -210,13 +226,13 @@ function initialAudience(operations: CliAudienceOperation[], target: CanonicalTa
   };
 }
 
-async function withArbord<T>(
+async function withArborSync<T>(
   path: string,
-  run: (client: ArbordClient, service: ArborService) => Promise<T>,
+  run: (client: ArborSyncRESTClient, service: ArborSyncDaemon) => Promise<T>,
 ): Promise<T> {
-  const running = await serveArbor(path, { port: 0 });
+  const running = await serveArborSync(path, { port: 0 });
   try {
-    return await run(new ArbordClient({ baseURL: running.url }), running.service);
+    return await run(new ArborSyncRESTClient({ baseURL: running.url }), running.service);
   } finally {
     running.server.stop(true);
     await running.service[Symbol.asyncDispose]();
@@ -224,7 +240,7 @@ async function withArbord<T>(
 }
 
 async function editConfigurationYAML(
-  client: ArbordClient,
+  client: ArborSyncRESTClient,
   path: string,
   change: (document: Document) => void | Promise<void>,
 ): Promise<void> {
@@ -262,13 +278,13 @@ async function connectCommand(args: string[]): Promise<void> {
   const target = canonicalTarget(args[0]!);
   const token = process.env.ARBOR_ACCOUNT_TOKEN ?? await readSecret(`Account/device credential for ${target.endpoint}: `);
   if (!token) throw new Error("No account credential supplied");
-  const service = await ArborService.openControl();
+  const service = await ArborSyncDaemon.openControl();
   try {
     const store = new CommunityConfigStore();
     await store.storeProvisionalCredential(token);
     const wire = new WireClient(target.endpoint, token);
     const { account } = await wire.account();
-    if (!account.device) throw new Error("The authority did not identify the authenticated device");
+    if (!account.device) throw new Error("The server did not identify the authenticated device");
     const configuration = await wire.currentSnapshot(account.configuration.id);
     await installConfigurationCheckout(configuration, account.device.id);
     await store.set(target.endpoint, token, {
@@ -378,11 +394,11 @@ async function installConfigurationCheckout(
       const tree = placement.tree;
       const endpoint = placement.endpoint;
       if (typeof tree !== "string" || typeof endpoint !== "string" || !declarations[tree]) {
-        throw new Error(`Legacy shared placement is not represented by the migrated authority configuration: ${path}`);
+        throw new Error(`Legacy shared placement is not represented by the migrated server configuration: ${path}`);
       }
       if (seen.has(tree)) throw new Error(`Legacy trees.yaml places ${tree} more than once`);
       seen.add(tree);
-      deviceDocument.setIn(["placements", tree], { authority: new URL(endpoint).origin, path });
+      deviceDocument.setIn(["placements", tree], { server: new URL(endpoint).origin, path });
       legacyMetadata.push({
         tree,
         ...(typeof placement.ref === "string" ? { ref: placement.ref } : {}),
@@ -451,7 +467,7 @@ async function promoteLocal(
   const path = await realpath(resolve(first));
   if (!(await stat(path)).isDirectory()) throw new Error(`Not a directory: ${path}`);
   const target = canonicalTarget(second);
-  await withArbord(path, async (client, service) => {
+  await withArborSync(path, async (client, service) => {
     // Configuration is synchronized content too. Merge it before deriving a
     // file edit so this device cannot add a placement to a stale trees.yaml.
     await service.synchronizeNow();
@@ -471,13 +487,13 @@ async function promoteLocal(
       const indexSource = await readFile(join(path, "_index.md"), "utf8").catch(() => "");
       const kind = /^type:\s*group\s*$/m.test(indexSource) ? "group-profile" : "shared-subtree";
       const configured = await service.communityConfig.get();
-      if (!configured) throw new Error("The authority credential is unavailable");
+      if (!configured) throw new Error("The server credential is unavailable");
       const rules = await accessRulesFor(new WireClient(target.endpoint, configured.accountToken), initialAudience(audience, target));
       await editConfigurationYAML(client, "/trees.yaml", (document) => {
         document.setIn(["trees", tree!], { kind, canonicalPath: target.canonicalPath, access: rules });
       });
       await editConfigurationYAML(client, config.devicePath, (document) => {
-        document.setIn(["placements", tree!], { authority: target.endpoint, path });
+        document.setIn(["placements", tree!], { server: target.endpoint, path });
       });
     }
     if (tree && !isNew) {
@@ -521,18 +537,18 @@ async function syncCommand(args: string[]): Promise<void> {
   const destination = await realpath(requestedDestination).catch(async () =>
     join(await realpath(dirname(requestedDestination)), basename(requestedDestination))
   );
-  await withArbord(dirname(destination), async (client, service) => {
+  await withArborSync(dirname(destination), async (client, service) => {
     const configured = await service.communityConfig.get();
     const accountToken = configured?.record.origin === target.endpoint ? configured.accountToken : undefined;
     const remote = await new WireClient(target.endpoint, accountToken).resolve(target.canonicalPath);
     const descriptor = remote.enclosingTree;
-    if (!descriptor?.canonical) throw new Error("Authority resolution omitted its canonical tree");
+    if (!descriptor?.canonical) throw new Error("Server resolution omitted its canonical tree");
     await service.synchronizeNow();
     const config = await configurationContext();
     const existing = config.snapshot.currentDevice!.placements[descriptor.id];
     if (!existing) {
       await editConfigurationYAML(client, config.devicePath, (document) => document.setIn(
-        ["placements", descriptor.id], { authority: target.endpoint, path: destination },
+        ["placements", descriptor.id], { server: target.endpoint, path: destination },
       ));
     }
     await service.synchronizeNow();
@@ -548,7 +564,7 @@ async function unsyncCommand(args: string[]): Promise<void> {
   const requestedPath = resolve(localInput);
   const path = await realpath(requestedPath).catch(() => requestedPath);
   const target = urls[0] ? canonicalTarget(urls[0]) : undefined;
-  await withArbord(await stat(path).then((value) => value.isDirectory()).catch(() => false) ? path : dirname(path), async (client, service) => {
+  await withArborSync(await stat(path).then((value) => value.isDirectory()).catch(() => false) ? path : dirname(path), async (client, service) => {
     await service.synchronizeNow();
     const config = await configurationContext();
     const existing = Object.entries(config.snapshot.currentDevice!.placements).find(([, placement]) => placement.path === path);
@@ -564,143 +580,29 @@ async function unsyncCommand(args: string[]): Promise<void> {
   });
 }
 
-function commandOption(args: string[], name: string): string | undefined {
-  const index = args.indexOf(name);
-  if (index < 0) return undefined;
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`);
-  return value;
-}
-
-function commandPositionals(args: string[], options: string[]): string[] {
-  const values = new Set(options);
-  return args.filter((arg, index) =>
-    !arg.startsWith("--") && (index === 0 || !values.has(args[index - 1]!))
-  );
-}
-
-function defaultHandle(input: string | undefined, fallback: string): string {
-  const normalized = (input ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 63);
-  return /^[a-z0-9](?:[a-z0-9-]{0,62})$/.test(normalized) ? normalized : fallback;
-}
-
-async function serveCommand(args: string[]): Promise<void> {
-  const valuedOptions = ["--url", "--port", "--hostname", "--community", "--first-writer"];
-  const positional = commandPositionals(args, valuedOptions);
-  if (positional.length > 1) usage();
-  const unknown = args.filter((arg) =>
-    arg.startsWith("--") && !valuedOptions.includes(arg)
-  );
-  if (unknown.length) throw new Error(`Unknown serve option: ${unknown[0]}`);
-
-  const requestedPort = Number(commandOption(args, "--port") ?? process.env.PORT ?? 4318);
-  if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65_535) {
-    throw new Error("Serve port must be an integer from 0 through 65535");
-  }
-  const onRailway = Boolean(process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_ENVIRONMENT_ID);
-  const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
-  const arborDomain = process.env.ARBOR_DOMAIN;
-  const configuredPublicOrigin = commandOption(args, "--url")
-    ?? (arborDomain ? `https://${arborDomain}` : undefined);
-  if (onRailway && !configuredPublicOrigin && !railwayDomain) {
-    throw new Error("Railway needs a public domain before first start. Generate one, set ARBOR_DOMAIN, or pass --url, then redeploy.");
-  }
-  if (onRailway && !process.env.RAILWAY_VOLUME_MOUNT_PATH) {
-    throw new Error("Railway needs a persistent volume attached before start; mount it at /data.");
-  }
-  const publicOrigin = configuredPublicOrigin
-    ?? (railwayDomain
-      ? (/^https?:\/\//.test(railwayDomain) ? railwayDomain : `https://${railwayDomain}`)
-      : undefined)
-    ?? `http://127.0.0.1:${requestedPort}`;
-  const dataRoot = resolve(
-    positional[0]
-      ?? process.env.ARBOR_HOST_DATA
-      ?? process.env.RAILWAY_VOLUME_MOUNT_PATH
-      ?? ".arbor-community",
-  );
-  await mkdir(dataRoot, { recursive: true, mode: 0o700 });
-  const existingAuthority = await stat(join(dataRoot, "authority.sqlite3"))
-    .then(() => true)
-    .catch(() => false);
-  const configuredAccounts = process.env.ARBOR_ACCOUNTS_JSON
-    ? JSON.parse(process.env.ARBOR_ACCOUNTS_JSON) as CommunityBootstrapAccount[]
-    : null;
-  const accountToken = process.env.ARBOR_ACCOUNT_TOKEN ?? process.env.ARBOR_OWNER_TOKEN;
-  const accounts = configuredAccounts ?? (accountToken
-    ? [{
-        handle: process.env.ARBOR_ACCOUNT_HANDLE ?? "owner",
-        token: accountToken,
-        name: process.env.ARBOR_ACCOUNT_NAME ?? "Owner",
-        communityWriter: true,
-      }]
-    : []);
-  const requestedCommunityHandle = commandOption(args, "--community");
-  const requestedFirstWriterHandle = commandOption(args, "--first-writer");
-  if (!existingAuthority && !accounts.length && !process.stdin.isTTY) {
-    if (!requestedCommunityHandle) throw new Error("A new unattended community requires --community <handle>");
-    if (!requestedFirstWriterHandle) throw new Error("A new unattended community requires --first-writer <handle>");
-  }
-  const communityHandle = defaultHandle(
-    requestedCommunityHandle ?? basename(resolve(dataRoot)),
-    "community",
-  );
-  const firstWriterHandle = !existingAuthority && !accounts.length
-    ? defaultHandle(
-        requestedFirstWriterHandle ?? process.env.USER,
-        "owner",
-      )
-    : undefined;
-  if (firstWriterHandle && new URL(publicOrigin).port === "0") {
-    throw new Error("A new claim-first community needs a stable nonzero --port or explicit --url");
-  }
-  const running = await serveWireHost({
-    dataRoot,
-    publicOrigin,
-    community: {
-      handle: communityHandle,
-      name: communityHandle,
-      ...(firstWriterHandle ? { firstWriter: { handle: firstWriterHandle } } : {}),
-    },
-    accounts,
-    port: requestedPort,
-    hostname: commandOption(args, "--hostname") ?? "0.0.0.0",
-  });
-  const resetAccount = process.env.ARBOR_RESET_ACCOUNT?.trim();
-  if (resetAccount) {
-    if (!accountToken) throw new Error("ARBOR_RESET_ACCOUNT requires ARBOR_ACCOUNT_TOKEN");
-    running.authority.resetAccountToken(resetAccount, accountToken);
-    console.log(`Reset the device credential for ~${resetAccount}; remove ARBOR_RESET_ACCOUNT after recovery.`);
-  }
-  console.log(`${existingAuthority ? "Serving" : "Created"} ${running.authority.communityHandle()} at ${running.url}`);
-  console.log(`Data: ${dataRoot}`);
-  if (firstWriterHandle) {
-    console.log(`First writer profile: ${running.url}/~${firstWriterHandle}`);
-    console.log("Open Arbor locally and claim this address from the profile control.");
-  }
-  const shutdown = async () => {
-    running.server.stop(true);
-    await running.authority[Symbol.asyncDispose]();
-    process.exit(0);
-  };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-}
-
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
-  if (command === "browse") {
-    const input = args.find((arg) => !arg.startsWith("-")) ?? ".";
-    const target = browseTarget(input);
+  if (command === "open") {
     const portIndex = args.indexOf("--port");
-    const port = portIndex >= 0 ? Number(args[portIndex + 1]) : 4317;
+    const portValue = portIndex >= 0 ? args[portIndex + 1] : undefined;
+    if (portIndex >= 0 && (!portValue || portValue.startsWith("--"))) throw new Error("--port requires a number");
+    const port = Number(portValue ?? 4317);
+    if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("Arbor Sync port must be an integer from 0 through 65535");
+    const positionals = args.filter((arg, index) => !arg.startsWith("--") && index !== portIndex + 1);
+    const unknown = args.filter((arg) => arg.startsWith("--") && arg !== "--port");
+    if (unknown.length || positionals.length > 1) usage();
+    const input = positionals[0] ?? ".";
+    const target = openTarget(input);
+    const attached = await attachedArborSyncURL(target, port);
+    if (attached) {
+      if (target.remoteURL && await isReservedProfile(target)) attached.searchParams.set("claimable", "true");
+      console.log(`Attached to Arbor Sync at ${attached.origin}`);
+      await openBrowser(attached.toString());
+      return;
+    }
     const running = target.remoteURL
-      ? await serveArborControl({ port })
-      : await serveArbor(target.path!, { port });
+      ? await serveArborSyncControl({ port })
+      : await serveArborSync(target.path!, { port });
     const { service, server, url } = running;
     let start = "";
     if (running.mode === "workspace") {
@@ -709,9 +611,9 @@ async function main(): Promise<void> {
       const scope = descriptor.canonical
         ? `shared tree "${descriptor.name}"`
         : "ordinary local files";
-      console.log(`Arbor is browsing ${start} (${scope})`);
+      console.log(`Arbor Sync is serving ${start} (${scope})`);
     } else {
-      console.log(`Arbor is browsing ${target.remoteURL}`);
+      console.log(`Arbor Sync is opening ${target.remoteURL}`);
     }
     console.log(url);
     const claimable = target.remoteURL ? await isReservedProfile(target) : false;
@@ -721,7 +623,7 @@ async function main(): Promise<void> {
       if (!placedPath) browserURL.searchParams.set("browse", target.remoteURL);
       if (claimable) browserURL.searchParams.set("claimable", "true");
     }
-    if (!args.includes("--no-open")) await openBrowser(browserURL.toString());
+    await openBrowser(browserURL.toString());
     const shutdown = async () => {
       server.stop(true);
       await service[Symbol.asyncDispose]();
@@ -742,10 +644,6 @@ async function main(): Promise<void> {
   if (command === "unsync") {
     await unsyncCommand(args);
     process.exit(0);
-  }
-  if (command === "serve") {
-    await serveCommand(args);
-    return;
   }
   if (command === "connection") {
     const [action, name] = args;

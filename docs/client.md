@@ -6,7 +6,7 @@ This document records the intended Arbor web/native product design so those choi
 
 ## Browser and Home
 
-Arbor clients use one locator-driven browser for ordinary local files, placed trees, remote visits, explicit arbord historical-root locators, and safe `system:` records. Home groups:
+Arbor clients use one locator-driven browser for ordinary local files, placed trees, remote visits, explicit arborsync historical-root locators, and safe `system:` records. Home groups:
 
 - current local location and recent places;
 - placed and nested Arbor trees;
@@ -14,19 +14,19 @@ Arbor clients use one locator-driven browser for ordinary local files, placed tr
 - durable remote visits, with stale/offline state;
 - merged search, backlinks, Trash, recovery, and diagnostics with visible provenance.
 
-The launch path is a starting location, not a navigation boundary. Local untracked browsing stays shallow and demand-driven. Remote unplaced trees render as read-only Arbor content, not embedded public HTML. Pages opened through an arbord historical-root locator show a persistent read-only revision state. This does not imply an authority accepted-history browser: the authority exposes neither its accepted-update log nor non-current objects.
+The launch path is a starting location, not a navigation boundary. Local untracked browsing stays shallow and demand-driven. Remote unplaced trees render as read-only Arbor content, not embedded public HTML. Pages opened through an arborsync historical-root locator show a persistent read-only revision state. This does not imply a Canopy accepted-history browser: Canopy exposes neither its accepted-update log nor non-current objects.
 
 Navigation retains back/forward history, breadcrumbs, mounted-boundary provenance, and familiar sidebar/drawer behavior. Web may use a responsive overlay drawer; native follows platform navigation conventions.
 
-On macOS, an absolute filesystem location remains the tab, history, breadcrumb, Parent, and sidebar address even when arbord resolves it into an enclosing tree and returns a stable `TreeID`/`PageID`; document sessions and mutations use the resolved identity. A remote canonical locator likewise remains the navigation address. iOS uses tree-scoped locations because its private replica is confined to placements. Home is the enclosing placed-tree root for a local filesystem address, `/` for a tree-scoped address, and the canonical tree root for a remote visit. Parent follows the preserved location and may cross a tree boundary into ordinary filesystem space.
+On macOS, an absolute filesystem location remains the tab, history, breadcrumb, Parent, and sidebar address even when arborsync resolves it into an enclosing tree and returns a stable `TreeID`/`PageID`; document sessions and mutations use the resolved identity. A remote canonical locator likewise remains the navigation address. iOS uses tree-scoped locations because its private replica is confined to placements. Home is the enclosing placed-tree root for a local filesystem address, `/` for a tree-scoped address, and the canonical tree root for a remote visit. Parent follows the preserved location and may cross a tree boundary into ordinary filesystem space.
 
-The local client treats arbord as the authority for resolution, authored persistence, recovery, and observation. It does not write materialized shared-tree files behind arbord and rely on filesystem observation to recover authored intent, and it does not create an independent canonical content, placement, credential, or access database.
+The local client treats arborsync as the authority for resolution, authored persistence, recovery, and observation. It does not write materialized shared-tree files behind arborsync and rely on filesystem observation to recover authored intent, and it does not create an independent canonical content, placement, credential, or access database.
 
 ## Editing
 
-Arbor clients present the complete operational Markdown returned by arbord. The first standalone link to an immediate physical child represents that child; arbord appends ordinary Markdown links for unmatched children without materializing on read. Reordering those rows edits source, so Source view and the block editor always describe the same document.
+Arbor clients present the complete operational Markdown returned by arborsync. The first standalone link to an immediate physical child represents that child; arborsync appends ordinary Markdown links for unmatched children without materializing on read. Reordering those rows edits source, so Source view and the block editor always describe the same document.
 
-Web currently uses BlockNote as the interactive layer. This is a reference choice: Markdown remains canonical, unsupported syntax has a raw/source path, and untouched source is preserved. Properties, body edits, and structural operations show pending, saving, saved, conflict, read-only, and diagnostic states without claiming persistence before arbord returns a durable receipt.
+Web currently uses BlockNote as the interactive layer. This is a reference choice: Markdown remains canonical, unsupported syntax has a raw/source path, and untouched source is preserved. Properties, body edits, and structural operations show pending, saving, saved, conflict, read-only, and diagnostic states without claiming persistence before arborsync returns a durable receipt.
 
 The leading emoji grapheme of the first H1 is Arbor's document icon. Setting or clearing it edits that H1; setting an icon on a document without an H1 prepends a heading using the display name. `Assets` is Arbor's conventional destination for imported binary assets. These are client conventions rather than portable authored-format requirements.
 
@@ -34,7 +34,7 @@ The leading emoji grapheme of the first H1 is Arbor's document icon. Setting or 
 
 The persistent profile control shows the active safe community/profile identity, connected or credential-unavailable state, and every writable community, person-profile, and group-profile namespace. Selecting an unplaced namespace asks where it should live locally; selecting an existing placement opens it. The control never displays or copies stored credentials.
 
-An unresolved person-profile URL renders as an empty reserved profile with a **Claim** action. Claim asks where the profile should live locally, previews the canonical address and local path, explains that the first valid claim wins, and creates/places the profile only after authority success. Conflict and unavailable-credential states remain recoverable and explicit.
+An unresolved person-profile URL renders as an empty reserved profile with a **Claim** action. Claim asks where the profile should live locally, previews the canonical address and local path, explains that the first valid claim wins, and creates/places the profile only after server success. Conflict and unavailable-credential states remain recoverable and explicit.
 
 Community and group profiles remain authored trees rather than a separate account/group database. Their `members` property is a real locator list: Arbor clients show one person per row and provide **Add person** on the community or **Add member** on a group without flattening the YAML array. A community accepts a local handle such as `~alice` and stores its complete same-community profile locator, explains that this reserves a first-claim-wins address, rejects duplicates, and confirms removal because removing a community member disables that account.
 
@@ -55,13 +55,13 @@ Arbor clients must not place raw secrets in loopback URLs, browser history, visi
 
 ## Synchronization, conflicts, and devices
 
-A placed tree exposes understandable idle, syncing, offline, conflict, and error states without exposing authority internals. Arbord durably owns the pending accepted base, candidate root, and required immutable objects. A retry submits the same semantic intent; clients do not invent or display an authority mutation/idempotency key. Current, accepted, and merged results become visible only after arbord has rehashed, validated, and durably materialized the returned graph.
+A placed tree exposes understandable idle, syncing, offline, conflict, and error states without exposing Canopy internals. Arbor Sync durably owns the pending accepted base, candidate root, and required immutable objects. A retry submits the same semantic intent; clients do not invent or display a server mutation/idempotency key. Current, accepted, and merged results become visible only after arborsync has rehashed, validated, and durably materialized the returned graph.
 
 An unsafe merge remains client state. The client shows the affected paths and reasons, preserves the local files and complete returned draft across restart, permits further local edits, and offers explicit inspect/edit/choose-and-resubmit actions. Resolution is a new ordinary update against the returned current accepted update. There is no server conflict record, accepted-history page, historical-object fetch, or authored conflict-copy file.
 
 A clean replica reacts to a ref watch event by reading one coherent current
 snapshot. It submits an update only when it has a local candidate to reconcile.
-Successful submissions verify the authority's round-tripped semantic request
+Successful submissions verify the server's round-tripped semantic request
 digest and advance the durable watch cursor to their accepted update ID. An
 already-open watch can carry the same digest back only to the exact submitting
 device credential, allowing the client to correlate its own accepted write or

@@ -22,8 +22,8 @@
 
 ## Why this matters
 
-In `arbor serve` mode the wire host is a **public origin on the internet** —
-`deploy/`, `railway.toml`, and `Dockerfile.host` exist precisely to put it
+In `canopyd` mode the wire host is a **public origin on the internet** —
+`deploy/`, `railway.toml`, and `Dockerfile.canopy` exist precisely to put it
 there. Two weaknesses follow from that.
 
 **Stored file bytes are served with no declared content type.** Markdown gets an
@@ -66,7 +66,7 @@ it with `grep -n "^function html" packages/wire/src/host.ts`.
 The untyped file response, `packages/wire/src/host.ts:355-367`:
 
 ```ts
-          const objectValue = decodeWireObject(await authority.object(hash));
+          const objectValue = decodeWireObject(await canopy.object(hash));
           if (objectValue.type === "file") {
             const name = parts.at(-1) ?? tree.canonicalPath.split("/").at(-1) ?? "Arbor";
             const body = new TextDecoder().decode(objectValue.bytes);
@@ -111,10 +111,10 @@ Repo conventions:
   sprinkling headers at call sites.
 - Errors are plain `Error` with short sentences; typed errors
   (`RefConflictError`, `AlreadyClaimedError`, `ReservedBoundaryConflictError`)
-  are defined in `packages/wire/src/authority.ts` and mapped by `instanceof` in
+  are defined in `packages/canopy/src/canopy.ts` and mapped by `instanceof` in
   the catch block at `packages/wire/src/host.ts:376-380`.
 - Wire host tests: `tests/integration/wire-host.test.ts` (106 lines) and
-  `tests/integration/community-hosting.test.ts`. Both start a real authority
+  `tests/integration/community-hosting.test.ts`. Both start a real Canopy server
   and issue `fetch` calls. Use `wire-host.test.ts` as the structural exemplar.
 
 ## Commands you will need
@@ -136,9 +136,9 @@ Repo conventions:
 
 **Out of scope** (do NOT touch):
 
-- `packages/wire/src/authority.ts` — the access model and its error types.
+- `packages/canopy/src/canopy.ts` — the access model and its error types.
 - `packages/wire/src/cbor.ts` — decoder hardening is `plan/hardening/003-*`.
-- `packages/arbord/src/server.ts` — the local browse daemon is a different
+- `packages/arborsync/src/server.ts` — the local browse daemon is a different
   surface with different threat assumptions.
 - `deploy/Caddyfile` — changing proxy configuration for existing deployments is
   an operational decision, not a code change. Document what is needed instead.
@@ -183,9 +183,9 @@ in scope at `:357`):
 - A small map of known-safe types — images (`.png`, `.jpg`, `.jpeg`, `.gif`,
   `.webp`, `.svg` — **exclude `.svg`**, it is an active content type in
   browsers), plain text (`.txt`), `application/json` for `.json`, and so on.
-  There is already a MIME map in `packages/arbord/src/server.ts` (`grep -n "MIME"`);
+  There is already a MIME map in `packages/arborsync/src/server.ts` (`grep -n "MIME"`);
   read it for reference but do **not** import across the package boundary —
-  copy the entries you need, since `@arbor/wire` should not depend on `@arbor/arbord`.
+  copy the entries you need, since `@arbor/wire` should not depend on `@arbor/arborsync`.
 - Everything not on the allowlist gets
   `content-type: application/octet-stream` **and**
   `content-disposition: attachment`. Together with `nosniff` from step 1, that
@@ -227,7 +227,7 @@ proxy's bucket) or set too high (clients can spoof).
 ### Step 4: Test the response headers and the limiter key
 
 Add tests to `tests/integration/wire-host.test.ts`, following its existing
-harness (start a real authority, `fetch` against it).
+harness (start a real Canopy server, `fetch` against it).
 
 1. **Content type**: push a tree containing a file with an unrecognized
    extension whose bytes are HTML-shaped, fetch it through the public route,
@@ -299,7 +299,7 @@ Stop and report back (do not improvise) if:
 - Adding `content-disposition: attachment` breaks an existing test that expects
   inline rendering of a non-Markdown file — that would mean inline serving is
   intentional for some type, and the allowlist needs widening deliberately.
-- Any change appears to require touching `packages/wire/src/authority.ts`.
+- Any change appears to require touching `packages/canopy/src/canopy.ts`.
 
 ## Maintenance notes
 
@@ -314,7 +314,7 @@ Stop and report back (do not improvise) if:
   *first* element of `x-forwarded-for`, under any configuration.
 - Deliberately deferred, and worth their own plans: per-tree byte quotas on
   push (the count-based limit does not bound disk); the object-readability
-  check at `packages/wire/src/authority.ts:745` scanning every tree's graph on
+  check at `packages/canopy/src/canopy.ts:745` scanning every tree's graph on
   an unauthenticated route; and HTTP status codes derived by regex-matching
   English error text at `packages/wire/src/host.ts:382`, which silently
   reclassifies an authorization denial as a 400 whenever an error message is

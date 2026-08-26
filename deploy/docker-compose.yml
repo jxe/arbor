@@ -2,14 +2,13 @@ services:
   arbor:
     build:
       context: ..
-      dockerfile: Dockerfile.host
+      dockerfile: Dockerfile.canopy
     restart: unless-stopped
     env_file: .env
     command:
       - bun
       - run
-      - arbor
-      - serve
+      - canopyd
       - --community
       - ${COMMUNITY_HANDLE}
       - --first-writer

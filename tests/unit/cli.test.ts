@@ -1,22 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { browseTarget } from "../../packages/cli/src/index.ts";
-import { resolveUserPath } from "@arbor/arbord";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { attachedArborSyncURL, openTarget } from "../../packages/cli/src/index.ts";
+import { resolveUserPath, serveArborSync } from "@arbor/arborsync";
 import { communityCredentialName } from "@arbor/stores";
 
-describe("arbor browse operands", () => {
+describe("arbor open operands", () => {
   test("resolves local filesystem paths", () => {
-    expect(browseTarget("notes", "/Users/alice")).toEqual({ path: "/Users/alice/notes" });
+    expect(openTarget("notes", "/Users/alice")).toEqual({ path: "/Users/alice/notes" });
   });
 
   test("recognizes a profile URL while preserving it as a remote location", () => {
-    expect(browseTarget("https://garden.example/~alice/", "/Users/alice")).toEqual({
+    expect(openTarget("https://garden.example/~alice/", "/Users/alice")).toEqual({
       remoteURL: "https://garden.example/~alice/",
       profile: { origin: "https://garden.example", handle: "alice", path: "/~alice" },
     });
   });
 
   test("passes other Arbor locations to the remote browser", () => {
-    expect(browseTarget("arbor://garden.example/~alice/notes", "/Users/alice")).toEqual({
+    expect(openTarget("arbor://garden.example/~alice/notes", "/Users/alice")).toEqual({
       remoteURL: "https://garden.example/~alice/notes",
     });
   });
@@ -30,5 +33,19 @@ describe("arbor browse operands", () => {
       .not.toBe(communityCredentialName("/tmp/arbor-e2e-state"));
     expect(communityCredentialName("/Users/alice/.arbor"))
       .toBe(communityCredentialName("/Users/alice/.arbor"));
+  });
+
+  test("attaches to an existing Arbor Sync workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-open-attach-"));
+    const running = await serveArborSync(root, { port: 0 });
+    try {
+      const port = Number(new URL(running.url).port);
+      expect((await attachedArborSyncURL({ path: root }, port))?.toString())
+        .toBe(`${running.url}/render${root}`);
+    } finally {
+      running.server.stop(true);
+      await running.service[Symbol.asyncDispose]();
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

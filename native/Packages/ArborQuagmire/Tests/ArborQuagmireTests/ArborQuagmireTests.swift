@@ -474,14 +474,14 @@ struct ArborQuagmireTests {
               let rawReference = ProcessInfo.processInfo.environment["ARBOR_TEST_RAW_REFERENCE"] else {
             return
         }
-        let client = ArborClient(baseURL: origin)
-        let root = try await client.node(.path("/"))
+        let client = ArborSyncRESTClient(baseURL: origin)
+        let root = try await client.node(.path("/", tree: "local"))
         let reference = WorkspaceReference(
-            tree: TreeID(rawValue: root.tree ?? root.ref.tree ?? "local"),
+            tree: TreeID(rawValue: root.tree),
             path: root.path,
             pageID: root.ref.pageID.map(PageID.init(rawValue:))
         )
-        let provider = ArbordWorkspaceProvider(client: client)
+        let provider = ArborSyncWorkspaceProvider(client: client)
         let session = try await provider.openDocument(reference)
         let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
         let host = ArborEditorHost(
@@ -508,14 +508,14 @@ struct ArborQuagmireTests {
               let origin = URL(string: rawOrigin) else {
             return
         }
-        let client = ArborClient(baseURL: origin)
-        let root = try await client.node(.path("/"))
+        let client = ArborSyncRESTClient(baseURL: origin)
+        let root = try await client.node(.path("/", tree: "local"))
         let reference = WorkspaceReference(
-            tree: TreeID(rawValue: root.tree ?? root.ref.tree ?? "local"),
+            tree: TreeID(rawValue: root.tree),
             path: root.path,
             pageID: root.ref.pageID.map(PageID.init(rawValue:))
         )
-        let provider = ArbordWorkspaceProvider(client: client)
+        let provider = ArborSyncWorkspaceProvider(client: client)
         let session = try await provider.openDocument(reference)
         let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
         let host = ArborEditorHost(

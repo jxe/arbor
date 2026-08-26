@@ -10,7 +10,7 @@ import Observation
 import QuagmireExtras
 
 #if os(macOS)
-struct LocalArbordTreePresentation: Identifiable, Sendable, Equatable {
+struct LocalArborSyncTreePresentation: Identifiable, Sendable, Equatable {
     let id: String
     let name: String
     let canonicalPath: String?
@@ -19,7 +19,7 @@ struct LocalArbordTreePresentation: Identifiable, Sendable, Equatable {
     let sync: String?
 }
 
-struct LocalArbordVisitPresentation: Identifiable, Sendable, Equatable {
+struct LocalArborSyncVisitPresentation: Identifiable, Sendable, Equatable {
     let id: String
     let tree: String
     let name: String
@@ -28,21 +28,21 @@ struct LocalArbordVisitPresentation: Identifiable, Sendable, Equatable {
     let visitedAt: String?
 }
 
-struct LocalArbordDevicePresentation: Identifiable, Sendable, Equatable {
+struct LocalArborSyncDevicePresentation: Identifiable, Sendable, Equatable {
     let id: String
     let label: String
     let isAdministrator: Bool
     let isCurrent: Bool
 }
 
-struct LocalArbordOverview: Sendable, Equatable {
+struct LocalArborSyncOverview: Sendable, Equatable {
     let origin: String?
     let handle: String?
     let configurationTree: String?
     let credentialAvailable: Bool
-    let trees: [LocalArbordTreePresentation]
-    let visits: [LocalArbordVisitPresentation]
-    let devices: [LocalArbordDevicePresentation]
+    let trees: [LocalArborSyncTreePresentation]
+    let visits: [LocalArborSyncVisitPresentation]
+    let devices: [LocalArborSyncDevicePresentation]
     let observedThrough: String
     let refreshedAt: Date
 }
@@ -52,10 +52,10 @@ private struct LocalAccountConfigurationPresentation {
     let handle: String?
     let administrators: Set<String>
     let currentDevice: String?
-    let devices: [LocalArbordDevicePresentation]
+    let devices: [LocalArborSyncDevicePresentation]
 }
 
-struct LocalArbordPairingPresentation: Sendable, Equatable {
+struct LocalArborSyncPairingPresentation: Sendable, Equatable {
     let payload: String
     let confirmationCode: String
 }
@@ -73,24 +73,24 @@ final class ArborWorkspaceState {
     private(set) var providerDetail = "No workspace open"
     private(set) var syncPresentation = WorkspaceSyncPresentation(
         state: .offline,
-        detail: "Open a local workspace to start arbord"
+        detail: "Open a local workspace to start arborsync"
     )
     private(set) var syncConflict: ReplicaConflictPresentation?
     let linkPreviewService: LinkPreviewService
     var errorMessage: String?
 
     private var syncCoordinator: ReplicaSyncCoordinator?
-    private var authorityWatchTask: Task<Void, Never>?
+    private var serverWatchTask: Task<Void, Never>?
 #if os(macOS)
-    private var supervisor: ArbordProcessSupervisor?
-    private var arbordClient: ArborClient?
+    private var supervisor: ArborSyncProcessSupervisor?
+    private var arborsyncClient: ArborSyncRESTClient?
     private let bookmarks = SecurityScopedWorkspaceBookmarkStore()
     private var attemptedWorkspaceRestore = false
     private var overviewRefreshTask: Task<Void, Never>?
     private var overviewWatchTask: Task<Void, Never>?
-    private(set) var localArbordOverview: LocalArbordOverview?
-    private(set) var localArbordOverviewIsRefreshing = false
-    private(set) var localArbordOverviewError: String?
+    private(set) var localArborSyncOverview: LocalArborSyncOverview?
+    private(set) var localArborSyncOverviewIsRefreshing = false
+    private(set) var localArborSyncOverviewError: String?
 #endif
 #if os(iOS)
     private let nativePlacementStore = NativePlacementStore()
@@ -122,20 +122,20 @@ final class ArborWorkspaceState {
             self.providerDetail = "In-memory test fixture"
             self.syncPresentation = WorkspaceSyncPresentation(
                 state: .offline,
-                detail: "Local test fixture; no authority configured"
+                detail: "Local test fixture; no server configured"
             )
         }
     }
 
-    func place(tree: AuthorityTreeDescriptor, from origin: URL, remember: Bool = true) async throws {
+    func place(tree: WireTreeDescriptor, from origin: URL, remember: Bool = true) async throws {
         _ = try tree.validated()
-        authorityWatchTask?.cancel()
-        authorityWatchTask = nil
+        serverWatchTask?.cancel()
+        serverWatchTask = nil
         let credentialProvider = StoredDeviceCredentialProvider(
             origin: origin,
             store: KeychainDeviceCredentialStore()
         )
-        let client = ArborAuthorityClient(origin: origin, credentialProvider: credentialProvider)
+        let client = ArborWireClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ArborWireReplicaTransport(client: client)
         let root = ArborSupportDirectories.root
         let key = tree.id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? UUID().uuidString
@@ -153,12 +153,12 @@ final class ArborWorkspaceState {
         )
 #if os(macOS)
         if let supervisor { await supervisor.stop(); self.supervisor = nil }
-        arbordClient = nil
+        arborsyncClient = nil
         overviewRefreshTask?.cancel()
         overviewRefreshTask = nil
         overviewWatchTask?.cancel()
         overviewWatchTask = nil
-        localArbordOverview = nil
+        localArborSyncOverview = nil
 #endif
         let nextProvider = ReplicaWorkspaceProvider(replica: replica) { [weak self] admission in
             await coordinator.syncImmediately(admission)
@@ -177,7 +177,7 @@ final class ArborWorkspaceState {
         syncCoordinator = coordinator
         syncPresentation = try await coordinator.presentation()
         syncConflict = try await coordinator.conflict()
-        startAuthorityWatch(client: client, tree: tree, coordinator: coordinator)
+        startServerWatch(client: client, tree: tree, coordinator: coordinator)
     }
 
 #if os(iOS)
@@ -200,8 +200,8 @@ final class ArborWorkspaceState {
         guard let placement = try await nativePlacementStore.load() else { return }
         try await NativeAccountService(origin: placement.origin).forget()
         try await nativePlacementStore.clear()
-        authorityWatchTask?.cancel()
-        authorityWatchTask = nil
+        serverWatchTask?.cancel()
+        serverWatchTask = nil
         if let syncCoordinator { await syncCoordinator.close() }
         syncCoordinator = nil
         syncConflict = nil
@@ -213,23 +213,23 @@ final class ArborWorkspaceState {
     func openLocalWorkspace(_ url: URL, remember: Bool = true) async throws {
         try await editorWorkspace.flushAll()
         await editorWorkspace.closeAll()
-        authorityWatchTask?.cancel()
-        authorityWatchTask = nil
+        serverWatchTask?.cancel()
+        serverWatchTask = nil
         if let supervisor { await supervisor.stop() }
         overviewRefreshTask?.cancel()
         overviewRefreshTask = nil
         overviewWatchTask?.cancel()
         overviewWatchTask = nil
         let usesTestHelper = ProcessInfo.processInfo.environment["ARBOR_TEST_BUNDLED_HELPER"] == "1"
-        let launchPolicy: ArbordLaunchPolicy = .automatic
+        let launchPolicy: ArborSyncLaunchPolicy = .automatic
         // A signed test helper has an isolated data home and must never impersonate the
-        // user's arbord on its well-known port if the test host exits unexpectedly.
+        // user's arborsync on its well-known port if the test host exits unexpectedly.
         let preferredPort = usesTestHelper ? 45_190 : 4_317
-        let nextSupervisor = ArbordProcessSupervisor(launchPolicy: launchPolicy)
+        let nextSupervisor = ArborSyncProcessSupervisor(launchPolicy: launchPolicy)
         do {
             let runtime = try await nextSupervisor.start(workspace: url, preferredPort: preferredPort)
             supervisor = nextSupervisor
-            arbordClient = ArborClient(baseURL: runtime.origin)
+            arborsyncClient = ArborSyncRESTClient(baseURL: runtime.origin)
             syncCoordinator = nil
             syncConflict = nil
             if remember { try await bookmarks.save(url) }
@@ -237,18 +237,18 @@ final class ArborWorkspaceState {
                 runtime.provider,
                 home: runtime.home,
                 launchLocation: runtime.launchLocation,
-                detail: runtime.attachedToExistingProcess ? "User arbord · ~/.arbor" : "Supervised arbord · ~/.arbor"
+                detail: runtime.attachedToExistingProcess ? "User arborsync · ~/.arbor" : "Supervised arborsync · ~/.arbor"
             )
             syncPresentation = WorkspaceSyncPresentation(
                 state: .current,
-                detail: "All macOS writes are owned by arbord"
+                detail: "All macOS writes are owned by arborsync"
             )
-            prefetchLocalArbordOverview()
+            prefetchLocalArborSyncOverview()
         } catch {
             await nextSupervisor.stop()
             supervisor = nil
-            arbordClient = nil
-            localArbordOverview = nil
+            arborsyncClient = nil
+            localArborSyncOverview = nil
             throw error
         }
     }
@@ -270,7 +270,7 @@ final class ArborWorkspaceState {
         }
     }
 
-    func restartArbord() async {
+    func restartArborSync() async {
         guard let supervisor else {
             attemptedWorkspaceRestore = false
             errorMessage = nil
@@ -281,59 +281,59 @@ final class ArborWorkspaceState {
             try await editorWorkspace.flushAll()
             await editorWorkspace.closeAll()
             let runtime = try await supervisor.restart()
-            arbordClient = ArborClient(baseURL: runtime.origin)
+            arborsyncClient = ArborSyncRESTClient(baseURL: runtime.origin)
             await switchProvider(
                 runtime.provider,
                 home: runtime.home,
                 launchLocation: runtime.launchLocation,
-                detail: runtime.attachedToExistingProcess ? "User arbord · ~/.arbor" : "Supervised arbord · ~/.arbor"
+                detail: runtime.attachedToExistingProcess ? "User arborsync · ~/.arbor" : "Supervised arborsync · ~/.arbor"
             )
-            syncPresentation = WorkspaceSyncPresentation(state: .current, detail: "Reconnected to arbord")
-            prefetchLocalArbordOverview()
+            syncPresentation = WorkspaceSyncPresentation(state: .current, detail: "Reconnected to arborsync")
+            prefetchLocalArborSyncOverview()
         } catch {
             errorMessage = error.localizedDescription
             syncPresentation = WorkspaceSyncPresentation(state: .offline, detail: error.localizedDescription)
         }
     }
 
-    func arbordLogs() async -> String {
-        await supervisor?.logs() ?? "No arbord process is connected."
+    func arborsyncLogs() async -> String {
+        await supervisor?.logs() ?? "No arborsync process is connected."
     }
 
-    func refreshLocalArbordOverview() async {
+    func refreshLocalArborSyncOverview() async {
         if let overviewRefreshTask {
             await overviewRefreshTask.value
             return
         }
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            self.localArbordOverviewIsRefreshing = true
+            self.localArborSyncOverviewIsRefreshing = true
             defer {
-                self.localArbordOverviewIsRefreshing = false
+                self.localArborSyncOverviewIsRefreshing = false
                 self.overviewRefreshTask = nil
             }
             do {
-                let overview = try await self.loadLocalArbordOverview()
+                let overview = try await self.loadLocalArborSyncOverview()
                 guard !Task.isCancelled else { return }
-                self.localArbordOverview = overview
-                self.localArbordOverviewError = nil
+                self.localArborSyncOverview = overview
+                self.localArborSyncOverviewError = nil
                 self.startLocalOverviewWatch(after: overview.observedThrough)
             } catch is CancellationError {
                 return
             } catch {
-                self.localArbordOverviewError = error.localizedDescription
+                self.localArborSyncOverviewError = error.localizedDescription
             }
         }
         overviewRefreshTask = task
         await task.value
     }
 
-    private func prefetchLocalArbordOverview() {
-        Task { await refreshLocalArbordOverview() }
+    private func prefetchLocalArborSyncOverview() {
+        Task { await refreshLocalArborSyncOverview() }
     }
 
-    private func loadLocalArbordOverview() async throws -> LocalArbordOverview {
-        guard let client = arbordClient else { throw ArbordSupervisorError.serviceUnavailable }
+    private func loadLocalArborSyncOverview() async throws -> LocalArborSyncOverview {
+        guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
         async let credentialRequest = client.node(.path("/credentials", tree: "system"))
         async let treeListRequest = client.trees()
         async let visitDirectoryRequest = client.node(.path("/visited", tree: "system"))
@@ -346,7 +346,7 @@ final class ArborWorkspaceState {
         let connected = credentials.document?.frontmatter.string("communityAccount") == "connected"
         let configurationTree = treeList.snapshot.first { $0.kind == "account-configuration" }?.id
         let trees = treeList.snapshot.map {
-            LocalArbordTreePresentation(
+            LocalArborSyncTreePresentation(
                 id: $0.id,
                 name: $0.name,
                 canonicalPath: $0.canonical?.path,
@@ -355,9 +355,9 @@ final class ArborWorkspaceState {
                 sync: $0.sync
             )
         }
-        async let visitsRequest = loadLocalArbordVisits(client: client, children: visitDirectory.children ?? [])
+        async let visitsRequest = loadLocalArborSyncVisits(client: client, children: visitDirectory.children ?? [])
         let visits = try await visitsRequest
-        return LocalArbordOverview(
+        return LocalArborSyncOverview(
             origin: connected ? localConfiguration.origin : nil,
             handle: connected ? localConfiguration.handle : nil,
             configurationTree: configurationTree,
@@ -390,12 +390,12 @@ final class ArborWorkspaceState {
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         )
-        let devices = try files.compactMap { url -> LocalArbordDevicePresentation? in
+        let devices = try files.compactMap { url -> LocalArborSyncDevicePresentation? in
             guard url.pathExtension == "yaml" else { return nil }
             let id = url.deletingPathExtension().lastPathComponent
             guard id.hasPrefix("dv_") else { return nil }
             let source = try String(contentsOf: url, encoding: .utf8)
-            return LocalArbordDevicePresentation(
+            return LocalArborSyncDevicePresentation(
                 id: id,
                 label: yamlScalar(named: "label", in: source) ?? id,
                 isAdministrator: administrators.contains(id),
@@ -462,8 +462,8 @@ final class ArborWorkspaceState {
         } ?? ""
     }
 
-    private func loadLocalArbordVisits(client: ArborClient, children: [TreeChild]) async throws -> [LocalArbordVisitPresentation] {
-        let values = try await withThrowingTaskGroup(of: (Int, LocalArbordVisitPresentation?).self) { group in
+    private func loadLocalArborSyncVisits(client: ArborSyncRESTClient, children: [TreeChild]) async throws -> [LocalArborSyncVisitPresentation] {
+        let values = try await withThrowingTaskGroup(of: (Int, LocalArborSyncVisitPresentation?).self) { group in
             for (index, child) in children.enumerated() {
                 group.addTask {
                     let node = try await client.node(.path(child.path, tree: "system"))
@@ -471,7 +471,7 @@ final class ArborWorkspaceState {
                           let id = fields.string("id"),
                           let tree = fields.string("tree"),
                           let locator = fields.string("locator") else { return (index, nil) }
-                    return (index, LocalArbordVisitPresentation(
+                    return (index, LocalArborSyncVisitPresentation(
                         id: id,
                         tree: tree,
                         name: node.name,
@@ -481,7 +481,7 @@ final class ArborWorkspaceState {
                     ))
                 }
             }
-            var loaded: [(Int, LocalArbordVisitPresentation?)] = []
+            var loaded: [(Int, LocalArborSyncVisitPresentation?)] = []
             for try await value in group { loaded.append(value) }
             return loaded
         }
@@ -489,33 +489,33 @@ final class ArborWorkspaceState {
     }
 
     private func startLocalOverviewWatch(after cursor: String) {
-        guard overviewWatchTask == nil, let client = arbordClient else { return }
+        guard overviewWatchTask == nil, let client = arborsyncClient else { return }
         overviewWatchTask = Task { @MainActor [weak self] in
             do {
                 let observations = await client.observations(after: cursor)
                 for try await event in observations {
                     guard !Task.isCancelled else { return }
-                    guard event.tree == "system" || event.tree == self?.localArbordOverview?.configurationTree else { continue }
+                    guard event.tree == "system" || event.tree == self?.localArborSyncOverview?.configurationTree else { continue }
                     try await Task.sleep(for: .milliseconds(150))
                     guard !Task.isCancelled else { return }
-                    await self?.refreshLocalArbordOverview()
+                    await self?.refreshLocalArborSyncOverview()
                 }
             } catch is CancellationError {
                 return
             } catch {
-                self?.localArbordOverviewError = error.localizedDescription
+                self?.localArborSyncOverviewError = error.localizedDescription
             }
             self?.overviewWatchTask = nil
         }
     }
 
-    func createLocalArbordPairing() async throws -> LocalArbordPairingPresentation {
-        guard let client = arbordClient else { throw ArbordSupervisorError.serviceUnavailable }
-        if localArbordOverview == nil { await refreshLocalArbordOverview() }
-        guard let overview = localArbordOverview,
+    func createLocalArborSyncPairing() async throws -> LocalArborSyncPairingPresentation {
+        guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
+        if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
+        guard let overview = localArborSyncOverview,
               let rawOrigin = overview.origin,
               let origin = URL(string: rawOrigin) else {
-            throw ArbordSupervisorError.incompatibleService("The community origin is invalid")
+            throw ArborSyncSupervisorError.incompatibleService("The community origin is invalid")
         }
         let rawOffer = try await client.createCommunityPairing()
         let offer = try rawOffer.validated()
@@ -524,24 +524,24 @@ final class ArborWorkspaceState {
             pairing: .init(id: offer.id, secret: offer.secret)
         )
         let data = try JSONEncoder().encode(payload)
-        return LocalArbordPairingPresentation(
+        return LocalArborSyncPairingPresentation(
             payload: String(decoding: data, as: UTF8.self),
             confirmationCode: offer.confirmationCode
         )
     }
 
-    func revokeLocalArbordDevice(_ id: String) async throws {
+    func revokeLocalArborSyncDevice(_ id: String) async throws {
         let configuration = try loadLocalAccountConfiguration()
         guard let target = configuration.devices.first(where: { $0.id == id }) else {
-            throw ArbordSupervisorError.incompatibleService("The device is no longer active")
+            throw ArborSyncSupervisorError.incompatibleService("The device is no longer active")
         }
         let currentIsAdministrator = configuration.currentDevice.map(configuration.administrators.contains) == true
         guard target.isCurrent || currentIsAdministrator else {
-            throw ArbordSupervisorError.incompatibleService("Only an administrator can revoke another device")
+            throw ArborSyncSupervisorError.incompatibleService("Only an administrator can revoke another device")
         }
         if target.isAdministrator {
             guard configuration.administrators.count > 1 else {
-                throw ArbordSupervisorError.incompatibleService("The last administrator cannot be revoked")
+                throw ArborSyncSupervisorError.incompatibleService("The last administrator cannot be revoked")
             }
             let accountURL = ArborSupportDirectories.dataHome.appending(path: "account.yaml")
             let source = try String(contentsOf: accountURL, encoding: .utf8)
@@ -552,7 +552,7 @@ final class ArborWorkspaceState {
                 return decodeYAMLScalar(String(trimmed.dropFirst())) != id
             }
             guard filtered.count == lines.count - 1 else {
-                throw ArbordSupervisorError.incompatibleService("The administrator entry could not be edited safely")
+                throw ArborSyncSupervisorError.incompatibleService("The administrator entry could not be edited safely")
             }
             try (filtered.joined(separator: "\n")).write(to: accountURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: accountURL.path)
@@ -560,12 +560,12 @@ final class ArborWorkspaceState {
         let deviceURL = ArborSupportDirectories.dataHome.appending(path: "devices/\(id).yaml")
         try FileManager.default.removeItem(at: deviceURL)
         try await Task.sleep(for: .milliseconds(250))
-        try await refreshLocalArbordDevices()
+        try await refreshLocalArborSyncDevices()
     }
 
-    private func refreshLocalArbordDevices() async throws {
-        guard let overview = localArbordOverview else { return }
-        localArbordOverview = LocalArbordOverview(
+    private func refreshLocalArborSyncDevices() async throws {
+        guard let overview = localArborSyncOverview else { return }
+        localArborSyncOverview = LocalArborSyncOverview(
             origin: overview.origin,
             handle: overview.handle,
             configurationTree: overview.configurationTree,
@@ -629,15 +629,15 @@ final class ArborWorkspaceState {
     func shutdown() async {
         await flush()
         await editorWorkspace.closeAll()
-        authorityWatchTask?.cancel()
-        authorityWatchTask = nil
+        serverWatchTask?.cancel()
+        serverWatchTask = nil
 #if os(macOS)
         overviewRefreshTask?.cancel()
         overviewWatchTask?.cancel()
         overviewRefreshTask = nil
         overviewWatchTask = nil
         if let supervisor { await supervisor.stop() }
-        arbordClient = nil
+        arborsyncClient = nil
 #endif
     }
 
@@ -658,12 +658,12 @@ final class ArborWorkspaceState {
         errorMessage = nil
     }
 
-    private func startAuthorityWatch(
-        client: ArborAuthorityClient,
-        tree: AuthorityTreeDescriptor,
+    private func startServerWatch(
+        client: ArborWireClient,
+        tree: WireTreeDescriptor,
         coordinator: ReplicaSyncCoordinator
     ) {
-        authorityWatchTask = Task { [weak self] in
+        serverWatchTask = Task { [weak self] in
             var lastEventID = try? await coordinator.watchCursor()
             var reconnectAttempt = 0
             while !Task.isCancelled {
@@ -1080,7 +1080,7 @@ final class ArborAppModel {
         switch currentLocation {
         case .localPath:
 #if os(macOS)
-            guard workspace.localArbordOverview?.trees.contains(where: {
+            guard workspace.localArborSyncOverview?.trees.contains(where: {
                 $0.id == node.reference.tree.rawValue && $0.path != nil
             }) == true else { return nil }
 #endif

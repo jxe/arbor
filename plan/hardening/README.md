@@ -75,7 +75,7 @@ any of these.
   re-entrant deadlock, which is why it is not a mechanical plan. Effort M,
   risk MED.
 - **Background sync is not serialized against local mutations.**
-  `packages/arbord/src/service.ts:71` runs `syncAll` on a bare 2-second
+  `packages/arborsync/src/service.ts:71` runs `syncAll` on a bare 2-second
   `setInterval`, guarded only by an in-process boolean. `materializeTree`
   deletes and overwrites files bypassing `WorkspaceFS.mutate`'s locks, and
   `snapshotDirectory` can hash a tree mid-transaction and publish a torn
@@ -85,11 +85,11 @@ any of these.
 
 **Security (verified, scoped larger than one plan):**
 
-- **`Bun.build` runs over workspace `schema.ts` in the arbord process.**
+- **`Bun.build` runs over workspace `schema.ts` in the arborsync process.**
   `packages/stores/src/schema.ts:48` bundles untrusted workspace source guarded
   only by a regex denylist (`:25`), before the QuickJS sandbox is involved. It
   is reachable from ordinary browsing — `collections.summary()` is called for
-  every directory node and child (`packages/arbord/src/fs-service.ts:258,302`),
+  every directory node and child (`packages/arborsync/src/fs-service.ts:258,302`),
   and a directory containing `schema.ts` can arrive via community sync. The
   QuickJS limits downstream are well-configured but sit after the exposure. The
   fix is a design decision about the compilation model (parser-level transform
@@ -97,7 +97,7 @@ any of these.
   is why it is a spike, not a plan. Effort M, confidence MED on the specific
   vector.
 - **Browse daemon lacks DNS-rebinding protection.**
-  `packages/arbord/src/server.ts:433` binds loopback with no auth, and
+  `packages/arborsync/src/server.ts:433` binds loopback with no auth, and
   `assertSameOrigin` (`:38-44`) allows any non-GET request that simply omits
   `Origin`. There is no `Host` check. A page resolving an attacker hostname to
   127.0.0.1 becomes same-origin with a daemon that reads any file the user can
@@ -105,12 +105,12 @@ any of these.
   `Host` allowlist and the "absent Origin means allow" default are not. Effort S.
 - **Wire host derives HTTP status from English error text.**
   `packages/wire/src/host.ts:382` uses `/authentication|not allowed/i` to choose
-  403 versus 400, over prose thrown from `authority.ts`. Rewording an error
+  403 versus 400, over prose thrown from `canopy.ts`. Rewording an error
   silently reclassifies an authorization denial. Typed error classes already
   exist in the same file for 409s — extend that pattern. Effort S. (Noted as
   deferred inside plan 007.)
 - **`isReadableObject` scans every tree per request.**
-  `packages/wire/src/authority.ts:745` walks every readable tree's full object
+  `packages/canopy/src/canopy.ts:745` walks every readable tree's full object
   graph, re-hashing objects, on the unauthenticated
   `GET /.arbor/objects/:hash` route. Cost asymmetry DoS on a single-replica
   host. Needs a reachability index — effort M, risk MED from index staleness.
@@ -125,13 +125,13 @@ any of these.
   parsed against non-local input — `_store.postgres` files and Markdown
   frontmatter, both of which can arrive via sync. Bump to ≥2.8.3. The three
   high-severity `vite` advisories are dev-server only and do not reach
-  production, since arbord serves the prebuilt bundle. Effort S.
+  production, since arborsync serves the prebuilt bundle. Effort S.
 
 **Testing (high value, low risk):**
 
-- **`WireAuthority` has no dedicated test file.** 1047 lines composing public
+- **`CanopyDaemon` has no dedicated test file.** 1047 lines composing public
   access, link-digest access, direct grants, and transitive group membership
-  (`authority.ts:555-607`), with three positive-path assertions total across the
+  (`canopy.ts:555-607`), with three positive-path assertions total across the
   suite. Nothing tests that a revoked grant denies, that a read link cannot
   write, that a non-administrator's `setAccess` is rejected, or that removing
   someone from a group removes transitive access. A regression here widens
@@ -183,7 +183,7 @@ any of these.
   listed as remaining work. `plan/product/roadmap.md:6` declares itself the single source of
   implementation status, so this gap is invisible from either document. Effort S.
 - **Static assets are re-read per request** with no ETag or `cache-control`
-  (`packages/arbord/src/server.ts:497-500`), and the render bundle is a single
+  (`packages/arborsync/src/server.ts:497-500`), and the render bundle is a single
   1.5 MB chunk with KaTeX loaded eagerly. The content path already implements
   ETag/304/Range correctly, so the omission is only on the static path.
   Effort S for headers, M for code-splitting.
@@ -229,11 +229,11 @@ So nobody re-audits them:
 - **Everything in `plan/hardening/technical-debt.md` and `plan/product/editor-todo.md`** — read first and
   treated as settled. Spot-checked and confirmed the docs have **not** drifted
   from the code: the `PageEditor`-scoped undo stack, the `/Trash` path
-  convention for inverse derivation, and the handwritten arbord validators all
+  convention for inverse derivation, and the handwritten arborsync validators all
   match their descriptions.
 - **Browse daemon serving the whole filesystem without auth** — documented as
-  intentional at `packages/arbord/src/fs-service.ts:96-102`, and it does not
-  carry into serve mode (`arbor serve` starts only `serveWireHost`, never
+  intentional at `packages/arborsync/src/fs-service.ts:96-102`, and it does not
+  carry into serve mode (`canopyd` starts only `serveWireHost`, never
   `serveArbor`). The DNS-rebinding gap above is a separate, narrower point.
 - **First-claim-wins profile claiming on an unauthenticated endpoint** —
   documented intent in `deploy/README.md`; only the missing throttle mattered,
@@ -252,7 +252,7 @@ So nobody re-audits them:
   automatically, but the current behavior is safe. Not now; a unit test for it
   (listed above) is the better next step.
 - **Account token digests are unsalted single-round SHA-256**
-  (`packages/wire/src/authority.ts:345,675`) — academic for claim-minted tokens,
+  (`packages/canopy/src/canopy.ts:345,675`) — academic for claim-minted tokens,
   which are two concatenated UUIDs. It only bites for operator-supplied
   `ARBOR_ACCOUNT_TOKEN` values, and only given a separate disclosure of the
   database or `community.md`. Worth an entropy check on operator-supplied
@@ -260,7 +260,7 @@ So nobody re-audits them:
   credentials never enter content, journals, receipts, events, or logs **holds**
   on every path traced: raw tokens go to `Bun.secrets`, Postgres DSNs never
   reach the YAML record, and system-mutation journaling redacts both the account
-  token and the link secret (`packages/arbord/src/service.ts:615-626`).
+  token and the link secret (`packages/arborsync/src/service.ts:615-626`).
 - **KaTeX shipping 59 font files in three formats** (1.1 MB in `dist`) — costs
   disk and deploy bytes but almost no runtime, since browsers fetch one format
   per `@font-face`. Folded into the bundle-splitting item rather than standing

@@ -87,9 +87,9 @@ private struct ArborNavigationCommands: Commands {
             Button("Pair iPhone…") { commands?.showPairing() }
                 .disabled(commands == nil)
             Divider()
-            Button("Reconnect to arbord") { commands?.reconnectArbord() }
+            Button("Reconnect to arborsync") { commands?.reconnectArborSync() }
                 .disabled(commands == nil)
-            Button("arbord Logs…") { commands?.showArbordLogs() }
+            Button("arborsync Logs…") { commands?.showArborSyncLogs() }
                 .disabled(commands == nil)
         }
         CommandGroup(replacing: .undoRedo) {

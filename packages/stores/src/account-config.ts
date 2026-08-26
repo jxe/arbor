@@ -1,5 +1,5 @@
 import { watch, type FSWatcher } from "node:fs";
-import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
 import type { AccessRule, Diagnostic, TreeID, TreeKind } from "@arbor/core";
 import { isAlias, isMap, isScalar, isSeq, parseDocument, type Node } from "yaml";
@@ -24,7 +24,7 @@ export interface TreesConfiguration {
 }
 
 export interface DevicePlacement {
-  authority: string;
+  server: string;
   path?: string;
 }
 
@@ -199,16 +199,57 @@ export function parseDeviceConfiguration(source: string, idValue: string, path: 
   for (const [treeValue, candidate] of Object.entries(input)) {
     const tree = treeID(treeValue, `${path}.placements key`);
     const placement = record(candidate, `${path}.placements.${tree}`);
-    exactFields(placement, ["authority", "path"], `${path}.placements.${tree}`);
-    const authority = origin(placement.authority, `${path}.placements.${tree}.authority`);
+    exactFields(placement, ["server", "authority", "path"], `${path}.placements.${tree}`);
+    if (placement.server !== undefined && placement.authority !== undefined) {
+      throw new Error(`${path}.placements.${tree} cannot contain both server and legacy authority`);
+    }
+    const serverValue = placement.server ?? placement.authority;
+    if (serverValue === undefined) throw new Error(`${path}.placements.${tree}.server is required`);
+    const server = origin(serverValue, `${path}.placements.${tree}.server`);
     if (placement.path !== undefined && (
       typeof placement.path !== "string"
       || !isAbsolute(placement.path)
       || normalize(placement.path) !== placement.path
     )) throw new Error(`${path}.placements.${tree}.path must be canonical and absolute`);
-    placements[tree] = { authority, ...(placement.path === undefined ? {} : { path: placement.path }) };
+    placements[tree] = { server, ...(placement.path === undefined ? {} : { path: placement.path }) };
   }
   return { version: 1, id, label: value.label, placements };
+}
+
+/** Rewrite the version-1 placement key without changing comments, order, or scalar style. */
+export function migrateLegacyDeviceConfiguration(source: string): { source: string; changed: boolean } {
+  const document = parseDocument(source, { uniqueKeys: true, keepSourceTokens: true });
+  if (document.errors.length || containsAlias(document.contents as Node | null)) return { source, changed: false };
+  const placements = document.getIn(["placements"], true);
+  if (!isMap(placements)) return { source, changed: false };
+  let changed = false;
+  for (const entry of placements.items) {
+    if (!isMap(entry.value)) continue;
+    const legacy = entry.value.items.find((pair) => isScalar(pair.key) && pair.key.value === "authority");
+    const canonical = entry.value.items.find((pair) => isScalar(pair.key) && pair.key.value === "server");
+    if (!legacy || canonical || !isScalar(legacy.key)) continue;
+    legacy.key.value = "server";
+    changed = true;
+  }
+  return changed
+    ? { source: document.toString({ lineWidth: 0 }), changed: true }
+    : { source, changed: false };
+}
+
+async function migrateLegacyDeviceConfigurationFile(path: string): Promise<string> {
+  const source = await readFile(path, "utf8");
+  const migrated = migrateLegacyDeviceConfiguration(source);
+  if (!migrated.changed) return source;
+  const mode = (await stat(path)).mode;
+  const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, migrated.source, { mode });
+    await rename(temporary, path);
+    await chmod(path, mode).catch(() => {});
+  } finally {
+    await rm(temporary, { force: true }).catch(() => {});
+  }
+  return migrated.source;
 }
 
 export function currentDeviceStatePath(): string {
@@ -261,7 +302,7 @@ export async function loadAccountConfiguration(): Promise<AccountConfigurationSn
       diagnostics.push(issue("invalid-device-file", `Unsupported account configuration path: devices/${name}`, path));
       continue;
     }
-    try { devices[match[1]!] = parseDeviceConfiguration(await readFile(path, "utf8"), match[1]!, path); }
+    try { devices[match[1]!] = parseDeviceConfiguration(await migrateLegacyDeviceConfigurationFile(path), match[1]!, path); }
     catch (error) { diagnostics.push(issue("invalid-device-yaml", error instanceof Error ? error.message : String(error), path)); }
   }
   if (account) {

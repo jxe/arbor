@@ -35,9 +35,9 @@ enum ArborSupportDirectories {
 struct NativePlacementRecord: Codable, Equatable, Sendable {
     var version = 1
     var origin: URL
-    var tree: AuthorityTreeDescriptor
+    var tree: WireTreeDescriptor
 
-    init(origin: URL, tree: AuthorityTreeDescriptor) {
+    init(origin: URL, tree: WireTreeDescriptor) {
         self.origin = origin
         self.tree = tree
     }

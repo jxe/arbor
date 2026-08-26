@@ -5,7 +5,7 @@ import Foundation
 
 enum SnapshotBridge {
     static func replacement(
-        snapshot: AuthoritySnapshot,
+        snapshot: WireSnapshot,
         tree: TreeID,
         update: String,
         cursor: String? = nil
@@ -72,7 +72,7 @@ enum SnapshotBridge {
     }
 }
 
-extension AuthoritySnapshot {
+extension WireSnapshot {
     var replicaSnapshot: ReplicaSnapshot {
         ReplicaSnapshot(root: root, objects: objects.map { ReplicaStoredObject(hash: $0.hash, bytes: $0.bytes) })
     }

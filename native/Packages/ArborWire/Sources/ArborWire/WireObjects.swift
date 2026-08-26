@@ -82,9 +82,9 @@ public enum WireObjectCodec {
         "sha256:" + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
     }
 
-    public static func object(_ object: WireObject) throws -> AuthorityObject {
+    public static func object(_ object: WireObject) throws -> WireObjectEnvelope {
         let bytes = try encode(object)
-        return AuthorityObject(hash: hash(bytes), bytes: bytes)
+        return WireObjectEnvelope(hash: hash(bytes), bytes: bytes)
     }
 
     private static func validate(_ object: WireObject) throws {
@@ -114,7 +114,7 @@ public enum WireObjectCodec {
 
 public enum WireObjectGraph {
     @discardableResult
-    public static func validate(_ snapshot: AuthoritySnapshot) throws -> [String: WireObject] {
+    public static func validate(_ snapshot: WireSnapshot) throws -> [String: WireObject] {
         try validateObjectHash(snapshot.root)
         var bytesByHash: [String: Data] = [:]
         var objects: [String: WireObject] = [:]

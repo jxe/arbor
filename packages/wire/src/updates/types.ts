@@ -22,7 +22,7 @@ export interface UpdateConflict {
     | "account-configuration";
 }
 
-export interface AuthorityDevice {
+export interface ServerDevice {
   id: string;
   account: string;
   label: string;
@@ -89,7 +89,7 @@ export interface UpdateConflictResult {
   retryable: false;
   tree?: string;
   details: {
-    kind: "authority-update" | "account-configuration";
+    kind: "server-update" | "account-configuration";
     current: AcceptedUpdate;
     base: ObjectHash;
     candidate: ObjectHash;

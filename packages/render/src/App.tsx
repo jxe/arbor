@@ -46,7 +46,7 @@ interface VisitedTreeSummary {
 /**
  * The browser location is URL-space: "" is the home surface, an absolute
  * OS path browses the local filesystem (canonicalized into shared trees
- * by arbord), and "/system:…" addresses the read-only control scope.
+ * by arborsync), and "/system:…" addresses the read-only control scope.
  */
 function pathFromLocation(): string {
   const value = decodeURIComponent(location.pathname.replace(/^\/render/, ""));
@@ -386,7 +386,7 @@ export function App() {
     const request = ++nodeRequest.current;
     try {
       setError(null);
-      // A durable-ID reference wins over the (possibly stale) path; arbord
+      // A durable-ID reference wins over the (possibly stale) path; arborsync
       // resolves it and returns the current location, which is written back
       // through the history correction below.
       const target = pendingRef.current ?? urlToRef(next);
@@ -891,7 +891,7 @@ export function App() {
   }, []);
 
   const revokeDevice = useCallback(async (device: CommunityDevice) => {
-    if (!confirm(`Revoke ${device.label}? That device will immediately lose authority access.`)) return;
+    if (!confirm(`Revoke ${device.label}? That device will immediately lose server access.`)) return;
     try {
       setDeviceBusy(true);
       setError(null);

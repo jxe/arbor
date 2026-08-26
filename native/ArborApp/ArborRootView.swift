@@ -28,7 +28,7 @@ struct ArborRootView: View {
     @State private var searchText = ""
     @State private var workspaceImporterPresented = false
     @State private var trashConfirmationPresented = false
-    @State private var arbordLogs = ""
+    @State private var arborsyncLogs = ""
     @State private var voiceLaunchReady = false
 #if os(iOS)
     @State private var sidebarPresented = false
@@ -77,7 +77,7 @@ struct ArborRootView: View {
             if phase == .active {
                 forwardPendingVoiceRecording()
 #if os(macOS)
-                Task { await workspace.refreshLocalArbordOverview() }
+                Task { await workspace.refreshLocalArborSyncOverview() }
 #endif
             } else {
                 Task { await workspace.flush() }
@@ -101,7 +101,7 @@ struct ArborRootView: View {
         }
         .sheet(isPresented: $accountPresented) {
 #if os(macOS)
-            MacArbordAccountPanel(workspace: workspace, currentNode: model.node)
+            MacArborSyncAccountPanel(workspace: workspace, currentNode: model.node)
 #else
             IOSAccountPanel(workspace: workspace, onDisconnect: onDisconnect)
 #endif
@@ -241,7 +241,7 @@ struct ArborRootView: View {
 #if os(macOS)
     @ViewBuilder
     private var localTreesSections: some View {
-        let overview = workspace.localArbordOverview
+        let overview = workspace.localArborSyncOverview
         let visits = recentUnplacedVisits
         if let placed = overview?.trees.filter({ $0.path != nil }), !placed.isEmpty {
             Section("On This Mac") {
@@ -276,8 +276,8 @@ struct ArborRootView: View {
         }
     }
 
-    private var recentUnplacedVisits: [LocalArbordVisitPresentation] {
-        guard let overview = workspace.localArbordOverview else { return [] }
+    private var recentUnplacedVisits: [LocalArborSyncVisitPresentation] {
+        guard let overview = workspace.localArborSyncOverview else { return [] }
         let placedTreeIDs = Set(overview.trees.compactMap { $0.path == nil ? nil : $0.id })
         var seen = Set<String>()
         return overview.visits.filter { visit in
@@ -367,16 +367,16 @@ struct ArborRootView: View {
             restorePage: {
                 Task { await model.perform(.restore(reference: model.currentReference)) }
             },
-            reconnectArbord: {
+            reconnectArborSync: {
 #if os(macOS)
-                Task { await workspace.restartArbord() }
+                Task { await workspace.restartArborSync() }
 #endif
             },
-            showArbordLogs: {
+            showArborSyncLogs: {
 #if os(macOS)
                 Task {
-                    arbordLogs = await workspace.arbordLogs()
-                    presentedSheet = .arbordLogs
+                    arborsyncLogs = await workspace.arborsyncLogs()
+                    presentedSheet = .arborsyncLogs
                 }
 #endif
             },
@@ -448,7 +448,7 @@ struct ArborRootView: View {
                 Button("Account", systemImage: "person.crop.circle") {
                     accountPresented = true
 #if os(macOS)
-                    Task { await workspace.refreshLocalArbordOverview() }
+                    Task { await workspace.refreshLocalArborSyncOverview() }
 #endif
                 }
             }
@@ -505,10 +505,10 @@ struct ArborRootView: View {
                 presentedSheet = nil
                 Task { await model.navigate(to: reference) }
             }
-        case .arbordLogs:
+        case .arborsyncLogs:
             NavigationStack {
-                ScrollView { Text(arbordLogs).font(.body.monospaced()).textSelection(.enabled).padding() }
-                    .navigationTitle("arbord Logs")
+                ScrollView { Text(arborsyncLogs).font(.body.monospaced()).textSelection(.enabled).padding() }
+                    .navigationTitle("arborsync Logs")
             }
             .frame(minWidth: 560, minHeight: 420)
         case .syncConflict:
@@ -697,14 +697,14 @@ private struct ArborEditorUndoButtons: View {
 #endif
 
 #if os(macOS)
-private struct MacArbordAccountPanel: View {
+private struct MacArborSyncAccountPanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: ArborWorkspaceState
     let currentNode: WorkspaceNode?
-    @State private var pairing: LocalArbordPairingPresentation?
+    @State private var pairing: LocalArborSyncPairingPresentation?
     @State private var message: String?
 
-    private var account: LocalArbordOverview? { workspace.localArbordOverview }
+    private var account: LocalArborSyncOverview? { workspace.localArborSyncOverview }
     private var currentTreeID: String? {
         guard let currentNode, currentNode.reference.tree.rawValue != "local" else { return nil }
         if case .localPath = currentNode.location {
@@ -714,17 +714,17 @@ private struct MacArbordAccountPanel: View {
         }
         return currentNode.reference.tree.rawValue
     }
-    private var currentTree: LocalArbordTreePresentation? {
+    private var currentTree: LocalArborSyncTreePresentation? {
         guard let currentTreeID else { return nil }
         return account?.trees.first { $0.id == currentTreeID }
     }
-    private var ordinaryTrees: [LocalArbordTreePresentation] {
+    private var ordinaryTrees: [LocalArborSyncTreePresentation] {
         account?.trees.filter { !($0.canonicalPath ?? "").contains("/railway-smoke-") } ?? []
     }
-    private var testTrees: [LocalArbordTreePresentation] {
+    private var testTrees: [LocalArborSyncTreePresentation] {
         account?.trees.filter { ($0.canonicalPath ?? "").contains("/railway-smoke-") } ?? []
     }
-    private var activeDevices: [LocalArbordDevicePresentation] { account?.devices ?? [] }
+    private var activeDevices: [LocalArborSyncDevicePresentation] { account?.devices ?? [] }
 
     var body: some View {
         NavigationStack {
@@ -733,11 +733,11 @@ private struct MacArbordAccountPanel: View {
                     Section("Account") {
                         if let handle = account.handle, let origin = account.origin {
                             LabeledContent("Signed in as", value: "~\(handle)")
-                            LabeledContent("Authority", value: origin)
+                            LabeledContent("Server", value: origin)
                             LabeledContent("Mac credential", value: account.credentialAvailable ? "Connected" : "Missing")
                         } else {
                             LabeledContent("Community", value: "Not connected")
-                            Text("Connect this Mac with `arbor connect` to manage authority trees, devices, and iPhone pairing.")
+                            Text("Connect this Mac with `arbor connect` to manage server trees, devices, and iPhone pairing.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -766,7 +766,7 @@ private struct MacArbordAccountPanel: View {
                                 }
                             }
                         } header: {
-                            Text("Authority trees")
+                            Text("Server trees")
                         } footer: {
                             Text("These are roots the account can access, not folders in the current sidebar.")
                         }
@@ -794,7 +794,7 @@ private struct MacArbordAccountPanel: View {
                         } header: {
                             Text("Devices")
                         } footer: {
-                            Text("Each active device has its own authority credential. Revoking one does not delete any tree data.")
+                            Text("Each active device has its own server credential. Revoking one does not delete any tree data.")
                         }
                         Section("Pair iPhone") {
                             Button("Pair another iPhone…") { Task { await createPairing() } }
@@ -812,7 +812,7 @@ private struct MacArbordAccountPanel: View {
                         }
                     }
                 } else {
-                    if let error = workspace.localArbordOverviewError {
+                    if let error = workspace.localArborSyncOverviewError {
                         Section {
                             Text(error).foregroundStyle(.red)
                             Button("Try Again") { Task { await refresh() } }
@@ -821,7 +821,7 @@ private struct MacArbordAccountPanel: View {
                         Section { ProgressView("Loading account…") }
                     }
                 }
-                if account != nil, let error = workspace.localArbordOverviewError {
+                if account != nil, let error = workspace.localArborSyncOverviewError {
                     Section {
                         Label("Could not refresh: \(error)", systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
@@ -838,7 +838,7 @@ private struct MacArbordAccountPanel: View {
         .task { await refresh() }
     }
 
-    private func treeLabel(_ tree: LocalArbordTreePresentation, current: Bool) -> some View {
+    private func treeLabel(_ tree: LocalArborSyncTreePresentation, current: Bool) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(tree.canonicalPath ?? tree.name)
@@ -856,19 +856,19 @@ private struct MacArbordAccountPanel: View {
     }
 
     private func refresh() async {
-        if workspace.localArbordOverview == nil {
-            await workspace.restartArbord()
+        if workspace.localArborSyncOverview == nil {
+            await workspace.restartArborSync()
         }
-        await workspace.refreshLocalArbordOverview()
+        await workspace.refreshLocalArborSyncOverview()
     }
 
     private func createPairing() async {
-        do { pairing = try await workspace.createLocalArbordPairing(); message = nil }
+        do { pairing = try await workspace.createLocalArborSyncPairing(); message = nil }
         catch { message = error.localizedDescription }
     }
 
     private func revoke(_ id: String) async {
-        do { try await workspace.revokeLocalArbordDevice(id) }
+        do { try await workspace.revokeLocalArborSyncDevice(id) }
         catch { message = error.localizedDescription }
     }
 }
@@ -876,7 +876,7 @@ private struct MacArbordAccountPanel: View {
 private struct MacPairingPanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: ArborWorkspaceState
-    @State private var pairing: LocalArbordPairingPresentation?
+    @State private var pairing: LocalArborSyncPairingPresentation?
     @State private var message: String?
 
     var body: some View {
@@ -919,7 +919,7 @@ private struct MacPairingPanel: View {
 
     private func createPairing() async {
         do {
-            pairing = try await workspace.createLocalArbordPairing()
+            pairing = try await workspace.createLocalArborSyncPairing()
             message = nil
         } catch {
             pairing = nil
@@ -974,8 +974,8 @@ struct ArborIOSLaunchView: View {
     @State private var confirmationCode: String?
     @State private var origin: URL?
     @State private var service: NativeAccountService?
-    @State private var trees: [AuthorityTreeDescriptor] = []
-    @State private var syncingTree: AuthorityTreeDescriptor?
+    @State private var trees: [WireTreeDescriptor] = []
+    @State private var syncingTree: WireTreeDescriptor?
 
     var body: some View {
         Group {
@@ -1137,7 +1137,7 @@ struct ArborIOSLaunchView: View {
         }
     }
 
-    private func place(_ tree: AuthorityTreeDescriptor) async {
+    private func place(_ tree: WireTreeDescriptor) async {
         guard let origin else { return }
         syncingTree = tree
         treeError = nil
@@ -1171,7 +1171,7 @@ private struct IOSAccountPanel: View {
     let workspace: ArborWorkspaceState
     let onDisconnect: @MainActor () -> Void
     @State private var placement: NativePlacementRecord?
-    @State private var account: AuthorityAccountDescriptor?
+    @State private var account: WireAccountDescriptor?
     @State private var message: String?
     @State private var disconnectConfirmation = false
 
@@ -1183,7 +1183,7 @@ private struct IOSAccountPanel: View {
                         if let account {
                             LabeledContent("Signed in as", value: "~\(account.handle)")
                         }
-                        LabeledContent("Authority", value: placement.origin.host() ?? placement.origin.absoluteString)
+                        LabeledContent("Server", value: placement.origin.host() ?? placement.origin.absoluteString)
                         LabeledContent("Folder", value: placement.tree.canonicalPath ?? placement.tree.id)
                         LabeledContent("Access", value: placement.tree.access.capitalized)
                     }
@@ -1192,7 +1192,7 @@ private struct IOSAccountPanel: View {
                             disconnectConfirmation = true
                         }
                     } footer: {
-                        Text("This removes the credential and local placement from this iPhone. The authority tree and its data are not deleted.")
+                        Text("This removes the credential and local placement from this iPhone. The server tree and its data are not deleted.")
                     }
                 } else if message == nil {
                     Section { ProgressView("Loading account…") }
@@ -1212,7 +1212,7 @@ private struct IOSAccountPanel: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Your authority tree is not deleted.")
+            Text("Your server tree is not deleted.")
         }
     }
 

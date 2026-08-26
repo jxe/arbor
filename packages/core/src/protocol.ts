@@ -354,9 +354,9 @@ export type ArborErrorCode =
   | "tree-id-conflict"
   | (string & {});
 
-export type ArbordErrorCode = ArborErrorCode;
+export type ArborSyncErrorCode = ArborErrorCode;
 
-export interface ArbordErrorValue {
+export interface ArborSyncErrorValue {
   error: ArborErrorCode;
   message: string;
   retryable: boolean;
@@ -365,7 +365,7 @@ export interface ArbordErrorValue {
   details?: unknown;
 }
 
-export interface ArbordErrorEnvelope {
+export interface ArborSyncErrorEnvelope {
   error: ArborErrorCode;
   message: string;
   retryable: boolean;
@@ -374,7 +374,7 @@ export interface ArbordErrorEnvelope {
   details?: unknown;
 }
 
-export type ArborError<TDetails = unknown> = Omit<ArbordErrorEnvelope, "details"> & { details?: TDetails };
+export type ArborError<TDetails = unknown> = Omit<ArborSyncErrorEnvelope, "details"> & { details?: TDetails };
 
 export interface ObservationEvent<TKind extends string = string, TChange = unknown> {
   cursor: EventCursor;

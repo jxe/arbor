@@ -2,7 +2,7 @@ import { expect } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Workspace } from "@arbor/arbord";
+import { Workspace } from "@arbor/arborsync";
 import { WorkspaceIndex, workspaceStateDirectory } from "@arbor/stores";
 
 const root = await mkdtemp(join(tmpdir(), "arbor-performance-tree-"));

@@ -50,7 +50,7 @@ public struct WorkspaceReference: Hashable, Codable, Sendable {
 
 /// The address a browser tab follows. A location deliberately remains
 /// separate from the resolved `WorkspaceReference`: local filesystem
-/// navigation must retain its absolute path when arbord resolves a node into
+/// navigation must retain its absolute path when arborsync resolves a node into
 /// an enclosing Arbor tree, while document and mutation APIs use that stable
 /// resolved identity.
 public enum WorkspaceLocation: Hashable, Codable, Sendable {

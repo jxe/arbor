@@ -48,27 +48,27 @@ struct ProviderContractTests {
     }
 
     @Test("Attach-only supervisor never launches a helper")
-    func attachOnlySupervisorRequiresUserArbord() async throws {
+    func attachOnlySupervisorRequiresUserArborSync() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appending(path: "ArborAttachOnlyContract-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let supervisor = ArbordProcessSupervisor(launchPolicy: .attachOnly)
-        await #expect(throws: ArbordSupervisorError.self) {
+        let supervisor = ArborSyncProcessSupervisor(launchPolicy: .attachOnly)
+        await #expect(throws: ArborSyncSupervisorError.self) {
             _ = try await supervisor.start(workspace: rootURL, preferredPort: 0)
         }
     }
 
-    @Test("Supervisor starts, reconnects, and stops a real arbord helper")
-    func supervisedArbordLifecycle() async throws {
-        guard let executablePath = ProcessInfo.processInfo.environment["ARBOR_EXECUTABLE"] else { return }
+    @Test("Supervisor starts, reconnects, and stops a real arborsync helper")
+    func supervisedArborSyncLifecycle() async throws {
+        guard let executablePath = ProcessInfo.processInfo.environment["ARBOR_SYNC_EXECUTABLE"] else { return }
         let rootURL = FileManager.default.temporaryDirectory
             .appending(path: "ArborSupervisorContract-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let supervisor = ArbordProcessSupervisor()
+        let supervisor = ArborSyncProcessSupervisor()
         let first = try await supervisor.start(
             workspace: rootURL,
             executable: URL(fileURLWithPath: executablePath),
@@ -88,13 +88,13 @@ struct ProviderContractTests {
     }
 #endif
 
-    @Test("arbord display titles match replica heading semantics")
-    func arbordDisplayTitle() {
-        #expect(ArbordWorkspaceProvider.displayTitle(
+    @Test("arborsync display titles match replica heading semantics")
+    func arborsyncDisplayTitle() {
+        #expect(ArborSyncWorkspaceProvider.displayTitle(
             source: "---\nid: pg_title\n---\n\n# 🌲 Authored Page Title\n\nBody.\n",
             fallback: "authored-page-title"
         ) == "🌲 Authored Page Title")
-        #expect(ArbordWorkspaceProvider.displayTitle(
+        #expect(ArborSyncWorkspaceProvider.displayTitle(
             source: "Body without a title.\n",
             fallback: "filename"
         ) == "filename")
@@ -102,7 +102,7 @@ struct ProviderContractTests {
 
     @Test("Ordinary implicit directories are editable without managed identity")
     func ordinaryImplicitDirectorySurface() throws {
-        let node = try ArbordWorkspaceProvider.workspaceNode(
+        let node = try ArborSyncWorkspaceProvider.workspaceNode(
             from: directorySnapshot(tree: "local", bodyState: "implicit"),
             fallbackTree: "local",
             requestedLocation: .local("/tmp/ordinary")
@@ -117,12 +117,12 @@ struct ProviderContractTests {
         #expect(node.location == .local("/tmp/ordinary"))
         #expect(node.surface.supportsDocumentSession)
         #expect(node.isWritable)
-        #expect(!ArbordWorkspaceProvider.requiresDocumentIdentity(node))
+        #expect(!ArborSyncWorkspaceProvider.requiresDocumentIdentity(node))
     }
 
     @Test("Stored path documents edit without minting managed identity")
     func ordinaryStoredDirectoryDocument() throws {
-        let node = try ArbordWorkspaceProvider.workspaceNode(
+        let node = try ArborSyncWorkspaceProvider.workspaceNode(
             from: directorySnapshot(tree: "local", bodyState: "stored"),
             fallbackTree: "local",
             requestedLocation: .local("/tmp/ordinary")
@@ -134,12 +134,12 @@ struct ProviderContractTests {
         }
         #expect(stored)
         #expect(node.surface.supportsDocumentSession)
-        #expect(!ArbordWorkspaceProvider.requiresDocumentIdentity(node))
+        #expect(!ArborSyncWorkspaceProvider.requiresDocumentIdentity(node))
     }
 
     @Test("Managed implicit directory documents establish durable identity")
     func managedImplicitDirectoryDocument() throws {
-        let node = try ArbordWorkspaceProvider.workspaceNode(
+        let node = try ArborSyncWorkspaceProvider.workspaceNode(
             from: directorySnapshot(tree: "rt_managed", bodyState: "implicit"),
             fallbackTree: "rt_managed"
         )
@@ -149,7 +149,7 @@ struct ProviderContractTests {
             return
         }
         #expect(!stored)
-        #expect(ArbordWorkspaceProvider.requiresDocumentIdentity(node))
+        #expect(ArborSyncWorkspaceProvider.requiresDocumentIdentity(node))
     }
 
     @Test("In-memory provider")
@@ -171,50 +171,50 @@ struct ProviderContractTests {
         )
     }
 
-    @Test("Live arbord provider when the protocol harness supplies it")
-    func arbord() async throws {
+    @Test("Live arborsync provider when the protocol harness supplies it")
+    func arborsync() async throws {
         guard let raw = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"], let origin = URL(string: raw),
               let treeValue = ProcessInfo.processInfo.environment["ARBOR_TEST_TREE"] else {
             return
         }
-        let client = ArborClient(baseURL: origin)
+        let client = ArborSyncRESTClient(baseURL: origin)
         let snapshot = try await client.node(.path("/", tree: treeValue))
         let tree = TreeID(rawValue: snapshot.tree)
         try await verify(
-            provider: ArbordWorkspaceProvider(client: client),
+            provider: ArborSyncWorkspaceProvider(client: client),
             root: WorkspaceReference(tree: tree, path: "/")
         )
     }
 
-    @Test("Live arbord resolves an existing path when the protocol harness supplies it")
-    func arbordExistingPath() async throws {
+    @Test("Live arborsync resolves an existing path when the protocol harness supplies it")
+    func arborsyncExistingPath() async throws {
         guard let raw = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"],
               let origin = URL(string: raw),
               let treeValue = ProcessInfo.processInfo.environment["ARBOR_TEST_TREE"],
               let path = ProcessInfo.processInfo.environment["ARBOR_TEST_EXISTING_PATH"] else {
             return
         }
-        let client = ArborClient(baseURL: origin)
+        let client = ArborSyncRESTClient(baseURL: origin)
         let snapshot = try await client.node(.path("/", tree: treeValue))
         let tree = TreeID(rawValue: snapshot.tree)
-        let node = try await ArbordWorkspaceProvider(client: client).resolve(
+        let node = try await ArborSyncWorkspaceProvider(client: client).resolve(
             WorkspaceReference(tree: tree, path: path)
         )
         #expect(node.reference.pathHint == path)
         #expect(node.surface.supportsDocumentSession)
     }
 
-    @Test("Live arbord document sessions observe a later authoritative revision")
-    func arbordDocumentUpdates() async throws {
+    @Test("Live arborsync document sessions observe a later authoritative revision")
+    func arborsyncDocumentUpdates() async throws {
         guard let raw = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"], let origin = URL(string: raw),
               let treeValue = ProcessInfo.processInfo.environment["ARBOR_TEST_TREE"] else {
             return
         }
-        let client = ArborClient(baseURL: origin)
+        let client = ArborSyncRESTClient(baseURL: origin)
         let rootSnapshot = try await client.node(.path("/", tree: treeValue))
         let tree = TreeID(rawValue: rootSnapshot.tree)
         let root = WorkspaceReference(tree: tree, path: "/")
-        let provider = ArbordWorkspaceProvider(client: client)
+        let provider = ArborSyncWorkspaceProvider(client: client)
         let suffix = UUID().uuidString.lowercased().prefix(8)
         let node = try #require(try await provider.perform(.createMarkdown(
             parent: root,

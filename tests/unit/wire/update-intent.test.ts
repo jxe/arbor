@@ -87,7 +87,7 @@ describe("updates-v1 JSON identity", () => {
     }).returnSnapshot).toBe("if-result-differs");
   });
 
-  test("validates canonical file-patch envelopes before authority use", () => {
+  test("validates canonical file-patch envelopes before server use", () => {
     const { base, result } = patchFixtures.valid;
     const decoded = decodeFilePatches([patchFixtures.valid]);
     expect(decoded).toEqual([{

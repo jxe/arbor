@@ -1,11 +1,11 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveWorkspace } from "@arbor/arbord";
-import { serveWireHost } from "@arbor/authority";
+import { serveArborSync } from "@arbor/arborsync";
+import { serveCanopy } from "@arbor/canopy";
 import { generateArborID } from "@arbor/core";
 import { snapshotDirectory, WireClient } from "@arbor/wire";
-import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/authority/src/account-policy.ts";
+import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 
 async function run(command: string[], environment: Record<string, string> = {}): Promise<void> {
   const process = Bun.spawn(command, {
@@ -27,7 +27,7 @@ process.env.ARBOR_DATA_HOME = state;
 try {
   await writeFile(join(root, "page.md"), "Shared live-server fixture\n");
   await run(["bun", "test", "tests/unit/protocol.test.ts"]);
-  const running = await serveWorkspace(root, { port: 0 });
+  const running = await serveArborSync(root, { port: 0 });
   try {
     await run(
       ["swift", "test", "--package-path", "native/Packages/ArborClient"],
@@ -47,7 +47,7 @@ try {
     await running.workspace[Symbol.asyncDispose]();
   }
   const authorityToken = "swift-protocol-device-token";
-  const authority = await serveWireHost({
+  const canopy = await serveCanopy({
     dataRoot: authorityState,
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
@@ -59,7 +59,7 @@ try {
     const nativeTreeID = generateArborID("tr");
     try {
       await writeFile(join(nativeTreeRoot, "note.md"), "---\nid: pg_note\n---\n\n# Note\n\nBase\n");
-      const owner = new WireClient(authority.url, authorityToken);
+      const owner = new WireClient(canopy.url, authorityToken);
       const account = await owner.account();
       const current = await owner.currentSnapshot(account.account.configuration.id);
       const graph = readAccountConfigGraph({
@@ -77,7 +77,7 @@ try {
           ...graph.devices,
           [administrator]: { ...graph.devices[administrator]!, placements: {
             ...graph.devices[administrator]!.placements,
-            [nativeTreeID]: { authority: new URL(authority.url).origin, path: nativeTreeRoot },
+            [nativeTreeID]: { server: new URL(canopy.url).origin, path: nativeTreeRoot },
           } },
         },
       });
@@ -91,7 +91,7 @@ try {
         ["swift", "test", "--package-path", "native/Packages/ArborWire"],
         {
           ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../conformance"),
-          ARBOR_WIRE_TEST_URL: authority.url,
+          ARBOR_WIRE_TEST_URL: canopy.url,
           ARBOR_WIRE_TEST_TOKEN: authorityToken,
           ARBOR_WIRE_TEST_TREE: nativeTreeID,
         },
@@ -100,7 +100,7 @@ try {
         ["swift", "test", "--package-path", "native/Packages/ArborSync"],
         {
           ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../conformance"),
-          ARBOR_WIRE_TEST_URL: authority.url,
+          ARBOR_WIRE_TEST_URL: canopy.url,
           ARBOR_WIRE_TEST_TOKEN: authorityToken,
           ARBOR_WIRE_TEST_TREE: nativeTreeID,
         },
@@ -109,8 +109,8 @@ try {
       await rm(nativeTreeRoot, { recursive: true, force: true });
     }
   } finally {
-    authority.server.stop(true);
-    await authority.authority[Symbol.asyncDispose]();
+    canopy.server.stop(true);
+    await canopy.canopy[Symbol.asyncDispose]();
   }
 } finally {
   if (previousDataHome === undefined) delete process.env.ARBOR_DATA_HOME;

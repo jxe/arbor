@@ -6,7 +6,7 @@
 > report — do not improvise. When done, update the status row for this plan
 > in `plan/hardening/README.md`.
 >
-> **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/stores/src/indexer.ts packages/arbord/src/workspace.ts`
+> **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/stores/src/indexer.ts packages/arborsync/src/workspace.ts`
 > Also run `git status --short` on those paths. If the excerpts under "Current
 > state" do not match the live code, treat it as a STOP condition.
 
@@ -23,14 +23,14 @@
 
 ## Why this matters
 
-When a file is moved or deleted, arbord calls `this.index.rebuild()` with **no
+When a file is moved or deleted, arborsync calls `this.index.rebuild()` with **no
 discovery argument**. With no argument, `rebuild` runs `discoverWorkspace(root)`
 — a full recursive walk that reads and Markdown-parses every `.md` in the tree —
 and then issues an FTS5 `'rebuild'` command that reindexes the entire corpus.
 
 A rename in the sidebar is a routine editor action. The repo's own benchmark
 sizes the target workspace at 50,000 files with a 5-second startup budget, and
-arbord can be pointed at a home directory. Paying that cost again on every
+arborsync can be pointed at a home directory. Paying that cost again on every
 single move or delete is the difference between an editor that feels instant
 and one that stalls.
 
@@ -42,10 +42,10 @@ insert pairs. This plan routes move and delete through them.
 
 Files involved:
 
-- `packages/arbord/src/workspace.ts` — dispatches watcher events to the index.
+- `packages/arborsync/src/workspace.ts` — dispatches watcher events to the index.
 - `packages/stores/src/indexer.ts` — `WorkspaceIndex`; rebuild and incremental paths.
 
-The dispatch, `packages/arbord/src/workspace.ts:1185-1192`:
+The dispatch, `packages/arborsync/src/workspace.ts:1185-1192`:
 
 ```ts
         this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
@@ -147,7 +147,7 @@ anything — run it before and after and record both numbers.
 **In scope**:
 
 - `packages/stores/src/indexer.ts`
-- `packages/arbord/src/workspace.ts` (the single dispatch line at `:1191`)
+- `packages/arborsync/src/workspace.ts` (the single dispatch line at `:1191`)
 - `tests/unit/indexer.test.ts` (create, or extend if `plan/hardening/001-*` created it)
 - `tests/performance/indexer.bench.ts` (add a move/delete measurement — optional, see step 5)
 
@@ -159,7 +159,7 @@ anything — run it before and after and record both numbers.
   plans are in flight, land 001 first to avoid a conflict in the same file.
 - `discoverWorkspace` in `packages/fs/src/discovery.ts` — making the walk
   concurrent is separate work.
-- The `batch` branch at `packages/arbord/src/workspace.ts:1186` — it correctly
+- The `batch` branch at `packages/arborsync/src/workspace.ts:1186` — it correctly
   passes `discovery` already.
 - Error surfacing. Every index call is `.catch(() => {})` today; keep it.
 
@@ -232,8 +232,8 @@ You will likely need to widen `deleteIndexedPath` from `private` to `private`
 ### Step 4: Route the move/delete event through it
 
 First, determine what the watcher event actually carries. Inspect the event
-type around `packages/arbord/src/workspace.ts:1191` and its declaration
-(`grep -n "moved" packages/arbord/src/workspace.ts` and find the event
+type around `packages/arborsync/src/workspace.ts:1191` and its declaration
+(`grep -n "moved" packages/arborsync/src/workspace.ts` and find the event
 interface). You need to know whether a `moved` event supplies **both** the old
 and the new path.
 
@@ -254,7 +254,7 @@ The line becomes something like:
 
 **Verify**: `bun run typecheck` → exit 0.
 
-**Verify**: `grep -n "index.rebuild()" packages/arbord/src/workspace.ts` returns
+**Verify**: `grep -n "index.rebuild()" packages/arborsync/src/workspace.ts` returns
 no matches (the bare, discovery-less call is gone; the `rebuild(discovery)` call
 in the batch branch remains).
 
@@ -327,7 +327,7 @@ ALL must hold:
 - [ ] `bun test` exits 0, including the new indexer tests
 - [ ] `bun run test:performance` exits 0 with thresholds met, and the numbers
       are reported alongside the step 1 baseline
-- [ ] `grep -n "index.rebuild()" packages/arbord/src/workspace.ts` returns no
+- [ ] `grep -n "index.rebuild()" packages/arborsync/src/workspace.ts` returns no
       matches
 - [ ] `grep -n "VALUES('rebuild')" packages/stores/src/indexer.ts` appears only
       inside the full `rebuild` method, not in the new move/delete path

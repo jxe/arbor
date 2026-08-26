@@ -2,20 +2,20 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveArborControl, serveWorkspace } from "@arbor/arbord";
-import { ArbordClient, type MutationRequest, type WorkspaceEvent } from "@arbor/client";
+import { serveArborSyncControl, serveArborSync } from "@arbor/arborsync";
+import { ArborSyncRESTClient, type MutationRequest, type WorkspaceEvent } from "@arbor/client";
 import { canonicalJSONString, sha256 } from "@arbor/core";
-import type { Workspace } from "@arbor/arbord";
+import type { Workspace } from "@arbor/arborsync";
 
 let root: string;
 let state: string;
 let base: string;
-let client: ArbordClient;
+let client: ArborSyncRESTClient;
 let close: () => Promise<void>;
 let activeWorkspace: Workspace;
 let scope: string;
 let durableWriteRequest: MutationRequest;
-let durableWriteReceipt: Awaited<ReturnType<ArbordClient["mutate"]>>;
+let durableWriteReceipt: Awaited<ReturnType<ArborSyncRESTClient["mutate"]>>;
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "arbor-server-"));
@@ -26,11 +26,11 @@ beforeAll(async () => {
   await writeFile(join(root, "source.md"), "---\nid: source\n---\nSee [Target](/target#target).\n");
   await writeFile(join(root, "duplicate-a.md"), "---\nid: duplicate-id\n---\nA\n");
   await writeFile(join(root, "duplicate-b.md"), "---\nid: duplicate-id\n---\nB\n");
-  const running = await serveWorkspace(root, { port: 0 });
+  const running = await serveArborSync(root, { port: 0 });
   activeWorkspace = running.workspace;
   scope = activeWorkspace.tree;
   base = running.url;
-  client = new ArbordClient({ baseURL: base, retryDelay: async () => {} });
+  client = new ArborSyncRESTClient({ baseURL: base, retryDelay: async () => {} });
   close = async () => {
     running.server.stop(true);
     await running.workspace[Symbol.asyncDispose]();
@@ -43,11 +43,11 @@ afterAll(async () => {
   await rm(state, { recursive: true, force: true });
 });
 
-describe("arbord REST v1", () => {
+describe("arborsync REST v1", () => {
   test("serves remote/account surfaces without a local browsing session", async () => {
-    const running = await serveArborControl({ port: 0 });
+    const running = await serveArborSyncControl({ port: 0 });
     try {
-      const controlClient = new ArbordClient({ baseURL: running.url });
+      const controlClient = new ArborSyncRESTClient({ baseURL: running.url });
       expect((await controlClient.node({ tree: "system", path: "/diagnostics" })).tree).toBe("system");
       const response = await fetch(`${running.url}/v1/node?path=%2F`);
       expect(response.status).toBe(400);
@@ -124,7 +124,7 @@ describe("arbord REST v1", () => {
 
   test("rejects malformed and empty mutation batches at the protocol boundary", async () => {
     const fixture = JSON.parse(await readFile(
-      join(import.meta.dir, "../fixtures/arbord/malformed-mutation.json"),
+      join(import.meta.dir, "../fixtures/arborsync/malformed-mutation.json"),
       "utf8",
     ));
     for (const body of [
@@ -211,7 +211,7 @@ describe("arbord REST v1", () => {
       source,
     };
     const mixedFixture = JSON.parse(await readFile(
-      join(import.meta.dir, "../fixtures/arbord/mixed-mutation.json"),
+      join(import.meta.dir, "../fixtures/arborsync/mixed-mutation.json"),
       "utf8",
     ));
     mixedFixture.operations[0].ref = { tree: scope, pageID: before.ref.pageID!, pathHint: "/renamed" };
@@ -246,7 +246,7 @@ describe("arbord REST v1", () => {
 
   test("retries a lost mutation response with the same request", async () => {
     let dropped = false;
-    const lossy = new ArbordClient({
+    const lossy = new ArborSyncRESTClient({
       baseURL: base,
       retryDelay: async () => {},
       fetch: async (input, init) => {
@@ -288,7 +288,7 @@ describe("arbord REST v1", () => {
     let releaseChildren!: () => void;
     const childrenStarted = new Promise<void>((resolve) => { markChildrenStarted = resolve; });
     const childrenReleased = new Promise<void>((resolve) => { releaseChildren = resolve; });
-    const observing = new ArbordClient({
+    const observing = new ArborSyncRESTClient({
       baseURL: base,
       retryDelay: async () => {},
       fetch: async (input, init) => {
@@ -318,7 +318,7 @@ describe("arbord REST v1", () => {
 
   test("observed views turn resync-required into a refreshed snapshot", async () => {
     let rejectFirstObservation = true;
-    const observing = new ArbordClient({
+    const observing = new ArborSyncRESTClient({
       baseURL: base,
       retryDelay: async () => {},
       fetch: async (input, init) => {
@@ -358,7 +358,7 @@ describe("arbord REST v1", () => {
 
   test("retries an asset transfer with the same mutation identity", async () => {
     let dropped = false;
-    const lossy = new ArbordClient({
+    const lossy = new ArborSyncRESTClient({
       baseURL: base,
       retryDelay: async () => {},
       fetch: async (input, init) => {
@@ -512,7 +512,7 @@ describe("arbord REST v1", () => {
     expect(document.status).toBe(404);
   });
 
-  test("returns the durable original receipt after an arbord restart", async () => {
+  test("returns the durable original receipt after an arborsync restart", async () => {
     await client.mutateStructural([{ op: "createDirectory", tree: scope, path: "/recovered-effect" }], "materialization-setup");
     const recoveredRequest: MutationRequest = {
       mutationID: "materialized-before-crash",
@@ -546,11 +546,11 @@ describe("arbord REST v1", () => {
     }]);
 
     await close();
-    const restarted = await serveWorkspace(root, { port: 0 });
+    const restarted = await serveArborSync(root, { port: 0 });
     activeWorkspace = restarted.workspace;
     scope = activeWorkspace.tree;
     base = restarted.url;
-    client = new ArbordClient({ baseURL: base, retryDelay: async () => {} });
+    client = new ArborSyncRESTClient({ baseURL: base, retryDelay: async () => {} });
     close = async () => {
       restarted.server.stop(true);
       await restarted.workspace[Symbol.asyncDispose]();

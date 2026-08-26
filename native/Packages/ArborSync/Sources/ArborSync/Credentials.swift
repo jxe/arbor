@@ -56,7 +56,7 @@ public struct OSStatusError: Error, Equatable, Sendable {
     public init(_ status: OSStatus) { self.status = status }
 }
 
-public actor StoredDeviceCredentialProvider: AuthorityCredentialProvider {
+public actor StoredDeviceCredentialProvider: WireCredentialProvider {
     private let origin: URL
     private let store: any DeviceCredentialStore
 
@@ -95,34 +95,34 @@ public struct PairingPayload: Codable, Equatable, Sendable {
 public actor NativeAccountService {
     private let origin: URL
     private let credentials: any DeviceCredentialStore
-    private let client: ArborAuthorityClient
+    private let client: ArborWireClient
 
     public init(origin: URL, credentials: any DeviceCredentialStore = KeychainDeviceCredentialStore()) {
         self.origin = origin
         self.credentials = credentials
-        self.client = ArborAuthorityClient(
+        self.client = ArborWireClient(
             origin: origin,
             credentialProvider: StoredDeviceCredentialProvider(origin: origin, store: credentials)
         )
     }
 
-    public func claim(_ payload: PairingPayload, label: String) async throws -> AuthorityPairingClaim {
+    public func claim(_ payload: PairingPayload, label: String) async throws -> WirePairingClaim {
         let payload = try payload.validated()
-        guard payload.origin == origin else { throw ArborWireValidationError.invalidValue("Pairing authority changed") }
+        guard payload.origin == origin else { throw ArborWireValidationError.invalidValue("Pairing server changed") }
         let deviceID = try generatedDeviceID()
         let credential = try randomSecret()
         try await credentials.save(credential, origin: origin)
         let digest = "sha256:" + SHA256.hash(data: Data(credential.utf8)).map { String(format: "%02x", $0) }.joined()
-        let claim = try await ArborAuthorityClient(origin: origin).claimPairing(
+        let claim = try await ArborWireClient(origin: origin).claimPairing(
             id: payload.pairing.id,
             secret: payload.pairing.secret,
-            device: AuthorityPairingDevice(id: deviceID, label: label, credentialDigest: digest)
+            device: WirePairingDevice(id: deviceID, label: label, credentialDigest: digest)
         )
         return claim
     }
 
-    public func account() async throws -> AuthorityAccountSnapshot { try await client.account() }
-    public func trees() async throws -> AuthoritySnapshotEnvelope<[AuthorityTreeDescriptor]> { try await client.trees() }
+    public func account() async throws -> WireAccountSnapshot { try await client.account() }
+    public func trees() async throws -> WireSnapshotEnvelope<[WireTreeDescriptor]> { try await client.trees() }
     public func forget() async throws { try await credentials.forget(origin: origin) }
 
     private func randomSecret() throws -> String {

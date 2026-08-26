@@ -25,7 +25,7 @@
 
 `decodeCBOR` is the first code to touch bytes that arrive from a remote peer:
 the wire host runs it on every pushed object, and the wire client runs it on
-every object fetched from an authority. It currently has three gaps.
+every object fetched from a server. It currently has three gaps.
 
 1. Map entries are assigned onto a plain `{}`, so a `__proto__` key replaces
    the decoded object's prototype with attacker-supplied data instead of
@@ -138,7 +138,7 @@ Repo conventions:
 - `packages/wire/src/objects.ts` — `decodeWireObject`'s validation is the
   subject of separate work; hardening the decoder is sufficient here and
   keeps the diff reviewable.
-- `packages/wire/src/authority.ts` — `validateGraph`'s checks stay as they are.
+- `packages/canopy/src/canopy.ts` — `validateGraph`'s checks stay as they are.
 - The **encoder** functions in `cbor.ts`. Changing encoding changes every
   object hash in existence. This plan is decode-side only.
 - `packages/wire/src/host.ts` — rate limiting and response headers are

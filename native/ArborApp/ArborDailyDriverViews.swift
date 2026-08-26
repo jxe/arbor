@@ -11,7 +11,7 @@ enum ArborPresentedSheet: String, Identifiable {
     case source
     case history
     case backlinks
-    case arbordLogs
+    case arborsyncLogs
     case syncConflict
     case syncStatus
 
@@ -36,8 +36,8 @@ struct ArborWindowCommands {
     var showPairing: () -> Void
     var movePageToTrash: () -> Void
     var restorePage: () -> Void
-    var reconnectArbord: () -> Void
-    var showArbordLogs: () -> Void
+    var reconnectArborSync: () -> Void
+    var showArborSyncLogs: () -> Void
     var canGoBack: Bool
     var canGoForward: Bool
     var canGoParent: Bool
@@ -794,7 +794,7 @@ struct ArborHistoryView: View {
             }
             .navigationTitle("Recover")
             .safeAreaInset(edge: .bottom) {
-                Text("Recovery creates a new local change. It does not rewind shared authority history.")
+                Text("Recovery creates a new local change. It does not rewind shared server history.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -859,7 +859,7 @@ struct ArborSyncConflictView: View {
                     LabeledContent("Base", value: conflict.base)
                     LabeledContent("Local", value: conflict.local)
                     LabeledContent("Remote", value: conflict.remote)
-                    LabeledContent("Authority draft", value: conflict.draft)
+                    LabeledContent("Server draft", value: conflict.draft)
                 }
                 Section("Unsafe overlaps") {
                     ForEach(Array(conflict.reasons.enumerated()), id: \.offset) { _, reason in
@@ -870,7 +870,7 @@ struct ArborSyncConflictView: View {
                     }
                 }
                 Section {
-                    Text("Arbor has kept both the local candidate and the authority's remote/draft evidence. Continuing keeps the local tree as a new intent based on the current remote root.")
+                    Text("Arbor has kept both the local candidate and the server's remote/draft evidence. Continuing keeps the local tree as a new intent based on the current remote root.")
                         .foregroundStyle(.secondary)
                     Button("Keep Local and Retry", action: keepLocal)
                         .buttonStyle(.borderedProminent)

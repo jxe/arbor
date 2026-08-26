@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Workspace, serveWorkspace } from "@arbor/arbord";
-import { ArbordClient } from "@arbor/client";
+import { Workspace, serveArborSync } from "@arbor/arborsync";
+import { ArborSyncRESTClient } from "@arbor/client";
 import type { MutationRequest } from "@arbor/core";
 
 const temporary: string[] = [];
@@ -60,7 +60,7 @@ describe("REST v1 protocol fault recovery", () => {
     const { root, state } = await directories();
     process.env.ARBOR_DATA_HOME = state;
     let injected = false;
-    const running = await serveWorkspace(root, {
+    const running = await serveArborSync(root, {
       port: 0,
       faultInjector: (point) => {
         if (!injected && point === "protocol:response-delivery") {
@@ -70,7 +70,7 @@ describe("REST v1 protocol fault recovery", () => {
       },
     });
     try {
-      const client = new ArbordClient({ baseURL: running.url, retryDelay: async () => {} });
+      const client = new ArborSyncRESTClient({ baseURL: running.url, retryDelay: async () => {} });
       const receipt = await client.mutateStructural(
         [{ op: "createDirectory", tree: running.workspace.tree, path: "/after-response-loss" }],
         "response-delivery",

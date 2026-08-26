@@ -3,7 +3,7 @@ import type {
   UpdateRequest,
   UpdateResult,
   FilePatch,
-  AuthorityDevice,
+  ServerDevice,
   PairingOffer,
   TreeSnapshotEnvelope,
 } from "./updates/types.ts";
@@ -40,7 +40,7 @@ export interface CurrentTreeSnapshot {
 
 export class WireUpdateConflict extends Error {
   constructor(readonly result: UpdateConflictResult) {
-    super("Authority could not safely accept the candidate update");
+    super("Server could not safely accept the candidate update");
     this.name = "WireUpdateConflict";
   }
 }
@@ -76,7 +76,7 @@ export interface ClaimRequest {
 }
 
 export interface PairingClaimResult {
-  device: AuthorityDevice;
+  device: ServerDevice;
   confirmationCode: string;
 }
 
@@ -165,7 +165,7 @@ export class WireClient {
         signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
       });
     } catch (error) {
-      throw new WireTransportError(`Could not reach Arbor authority at ${this.origin}`, error);
+      throw new WireTransportError(`Could not reach Arbor server at ${this.origin}`, error);
     }
   }
 
@@ -187,7 +187,7 @@ export class WireClient {
     id: string,
     secret: string,
     device: { id: string; label: string; credentialDigest: `sha256:${string}` },
-    placements: Record<TreeID, { authority: string; path?: string }> = {},
+    placements: Record<TreeID, { server: string; path?: string }> = {},
   ): Promise<PairingClaimResult> {
     const response = await this.checked(await this.request(`/.arbor/pairings/${encodeURIComponent(id)}/claim`, {
       method: "PUT",
@@ -305,7 +305,7 @@ export class WireClient {
       [key: string]: unknown;
     };
     if (result.requestDigest !== updateRequestDigest(tree, request)) {
-      throw new Error("Authority response request digest mismatch");
+      throw new Error("Server response request digest mismatch");
     }
     return result.snapshot ? {
       ...result,

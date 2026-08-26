@@ -3,9 +3,9 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ServerConfigStore } from "@arbor/stores";
-import { serveWireHost } from "@arbor/authority";
+import { serveCanopy } from "@arbor/canopy";
 import { decodeWireObject, WireClient } from "@arbor/wire";
-import { ArborService } from "@arbor/arbord";
+import { ArborSyncDaemon } from "@arbor/arborsync";
 import { generateArborID, sha256 } from "@arbor/core";
 
 let sandbox: string;
@@ -13,7 +13,7 @@ let source: string;
 let destination: string;
 let stateA: string;
 let stateB: string;
-let host: Awaited<ReturnType<typeof serveWireHost>>;
+let host: Awaited<ReturnType<typeof serveCanopy>>;
 const stateBToken = "cli-sync-peer";
 
 async function arborOutput(args: string[], state: string): Promise<{ stdout: string; stderr: string }> {
@@ -55,6 +55,18 @@ async function arborFailure(args: string[], env: Record<string, string>): Promis
   return stderr;
 }
 
+async function canopyFailure(args: string[], env: Record<string, string>): Promise<string> {
+  const process = Bun.spawn(["bun", "packages/canopy/src/cli.ts", ...args], {
+    cwd: join(import.meta.dir, "../.."),
+    env: { ...Bun.env, ...env },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exit, stderr] = await Promise.all([process.exited, new Response(process.stderr).text()]);
+  expect(exit).not.toBe(0);
+  return stderr;
+}
+
 beforeAll(async () => {
   sandbox = await mkdtemp(join(tmpdir(), "arbor-cli-sync-"));
   source = join(sandbox, "source");
@@ -63,7 +75,7 @@ beforeAll(async () => {
   stateB = join(sandbox, "state-b");
   await Promise.all([source, stateA, stateB].map((path) => mkdir(path, { recursive: true })));
   await writeFile(join(source, "note.md"), "# CLI sync\n");
-  host = await serveWireHost({
+  host = await serveCanopy({
     dataRoot: join(sandbox, "host"),
     accounts: [{ handle: "owner", token: "cli-sync-owner", communityWriter: true }],
     publicOrigin: "http://127.0.0.1:0",
@@ -85,13 +97,13 @@ afterAll(async () => {
     await new ServerConfigStore().remove();
   }
   host.server.stop(true);
-  await host.authority[Symbol.asyncDispose]();
+  await host.canopy[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
 });
 
 describe("primary CLI sync forms", () => {
-  test("refuses an ephemeral or unnamed Railway authority", async () => {
-    const noDomain = await arborFailure(["serve"], {
+  test("refuses an ephemeral or unnamed Railway Canopy", async () => {
+    const noDomain = await canopyFailure([], {
       RAILWAY_PROJECT_ID: "test-project",
       RAILWAY_PUBLIC_DOMAIN: "",
       RAILWAY_VOLUME_MOUNT_PATH: "",
@@ -99,7 +111,7 @@ describe("primary CLI sync forms", () => {
     });
     expect(noDomain).toContain("needs a public domain");
 
-    const noVolume = await arborFailure(["serve"], {
+    const noVolume = await canopyFailure([], {
       RAILWAY_PROJECT_ID: "test-project",
       RAILWAY_PUBLIC_DOMAIN: "garden.up.railway.app",
       RAILWAY_VOLUME_MOUNT_PATH: "",
@@ -108,7 +120,7 @@ describe("primary CLI sync forms", () => {
     expect(noVolume).toContain("needs a persistent volume");
   });
 
-  test("requires explicit bootstrap handles for a fresh unattended authority", async () => {
+  test("requires explicit bootstrap handles for a fresh unattended Canopy", async () => {
     const bootstrapEnv = {
       RAILWAY_PROJECT_ID: "",
       RAILWAY_ENVIRONMENT_ID: "",
@@ -117,14 +129,14 @@ describe("primary CLI sync forms", () => {
       ARBOR_OWNER_TOKEN: "",
       ARBOR_ACCOUNTS_JSON: "",
     };
-    const missingCommunity = await arborFailure(
-      ["serve", join(sandbox, "unattended-no-community")],
+    const missingCommunity = await canopyFailure(
+      [join(sandbox, "unattended-no-community")],
       bootstrapEnv,
     );
     expect(missingCommunity).toContain("requires --community <handle>");
 
-    const missingFirstWriter = await arborFailure(
-      ["serve", join(sandbox, "unattended-no-writer"), "--community", "garden"],
+    const missingFirstWriter = await canopyFailure(
+      [join(sandbox, "unattended-no-writer"), "--community", "garden"],
       bootstrapEnv,
     );
     expect(missingFirstWriter).toContain("requires --first-writer <handle>");
@@ -135,25 +147,25 @@ describe("primary CLI sync forms", () => {
     expect(await arbor(["connect", host.url], stateA)).toContain("Connected as ~owner");
     expect(await arbor(["sync", "--access", "public=read", source, canonical], stateA)).toContain("/~owner/notes");
     expect(await arbor(["sync", source, canonical], stateA)).toContain("/~owner/notes");
-    const shared = host.authority.boundary("/~owner/notes")!;
+    const shared = host.canopy.boundary("/~owner/notes")!;
     expect(shared.publicAccess).toBe("read");
 
     await arbor(["sync", "--access=public=write", source, canonical], stateA);
-    expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("write");
+    expect(host.canopy.boundary("/~owner/notes")!.publicAccess).toBe("write");
     await arbor(["sync", "--access", "public=write, public=read", source, canonical], stateA);
-    expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("read");
+    expect(host.canopy.boundary("/~owner/notes")!.publicAccess).toBe("read");
 
     await arbor(["sync", "--access", "~owner=write", source, canonical], stateA);
-    expect(host.authority.accessEntries(shared.id).some((entry) => entry.subjectKind === "profile")).toBe(true);
+    expect(host.canopy.accessEntries(shared.id).some((entry) => entry.subjectKind === "profile")).toBe(true);
     await arbor(["sync", "--clear-access", "--access", "public=read", source, canonical], stateA);
-    expect(host.authority.accessEntries(shared.id).map((entry) => entry.subjectKind)).toEqual(["everyone"]);
+    expect(host.canopy.accessEntries(shared.id).map((entry) => entry.subjectKind)).toEqual(["everyone"]);
 
     await arbor(["sync", "--access", "public=none", source, canonical], stateA);
-    expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("none");
+    expect(host.canopy.boundary("/~owner/notes")!.publicAccess).toBe("none");
     await arbor(["sync", "--access", "public=read", source, canonical], stateA);
-    expect(host.authority.boundary("/~owner/notes")!.publicAccess).toBe("read");
+    expect(host.canopy.boundary("/~owner/notes")!.publicAccess).toBe("read");
 
-    const root = decodeWireObject(await host.authority.object(shared.ref));
+    const root = decodeWireObject(await host.canopy.object(shared.ref));
     expect(root.type).toBe("directory");
     if (root.type === "directory") {
       for (const entry of root.entries) {
@@ -169,7 +181,7 @@ describe("primary CLI sync forms", () => {
       { ARBOR_DATA_HOME: stateA, ARBOR_ACCOUNT_TOKEN: "cli-sync-owner" },
     );
     expect(error).toContain("Expected subject=read|write|none");
-    expect(host.authority.boundary("/~owner/invalid-access")).toBeNull();
+    expect(host.canopy.boundary("/~owner/invalid-access")).toBeNull();
   });
 
   test("connect does not browse or index the current directory", async () => {
@@ -214,12 +226,12 @@ describe("primary CLI sync forms", () => {
     const created = await arborOutput(["sync", privateSource, canonical], stateA);
     expect(created.stderr).toContain("no audience options supplied");
     expect(created.stderr).toContain("private access");
-    expect(host.authority.boundary("/~owner/private-notes")!.publicAccess).toBe("none");
+    expect(host.canopy.boundary("/~owner/private-notes")!.publicAccess).toBe("none");
 
     await arbor(["sync", "--access", "public=read", privateSource, canonical], stateA);
     const repeated = await arborOutput(["sync", privateSource, canonical], stateA);
     expect(repeated.stderr).toBe("");
-    expect(host.authority.boundary("/~owner/private-notes")!.publicAccess).toBe("read");
+    expect(host.canopy.boundary("/~owner/private-notes")!.publicAccess).toBe("read");
   });
 
   test("creates a group profile by syncing an ordinary group folder", async () => {
@@ -238,7 +250,7 @@ describe("primary CLI sync forms", () => {
     const canonical = `${host.url}/~editors`;
 
     expect(await arbor(["sync", "--access", "public=read", groupSource, canonical], stateA)).toContain("/~editors");
-    expect(host.authority.boundary("/~editors")).toMatchObject({
+    expect(host.canopy.boundary("/~editors")).toMatchObject({
       kind: "group-profile",
       publicAccess: "read",
     });
@@ -248,10 +260,10 @@ describe("primary CLI sync forms", () => {
     await writeFile(join(sharedSource, "brief.md"), "# Brief\n");
     const sharedCanonical = `${host.url}/~owner/group-brief`;
     await arbor(["sync", "--access", "public=read,~editors=write", sharedSource, sharedCanonical], stateA);
-    const shared = host.authority.boundary("/~owner/group-brief")!;
+    const shared = host.canopy.boundary("/~owner/group-brief")!;
     expect(shared.publicAccess).toBe("read");
-    expect(host.authority.accessEntries(shared.id)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ subjectKind: "profile", subject: host.authority.boundary("/~editors")!.id, access: "write" }),
+    expect(host.canopy.accessEntries(shared.id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ subjectKind: "profile", subject: host.canopy.boundary("/~editors")!.id, access: "write" }),
     ]));
   });
 
@@ -263,19 +275,19 @@ describe("primary CLI sync forms", () => {
     expect(await readFile(join(destination, "note.md"), "utf8")).toBe("# CLI sync\n");
 
     process.env.ARBOR_DATA_HOME = stateB;
-    const tree = host.authority.boundary("/~owner/notes")!.id;
-    const service = await ArborService.open(destination);
+    const tree = host.canopy.boundary("/~owner/notes")!.id;
+    const service = await ArborSyncDaemon.open(destination);
     try {
       expect((await service.snapshot({ tree, path: "/note" })).writable).toBe(true);
       await service.executeMutation({
         mutationID: "anonymous-public-write",
         operations: [{ op: "createMarkdown", tree, path: "/public-note" }],
       });
-      let publishedRoot = decodeWireObject(await host.authority.object(host.authority.get(tree)!.ref));
+      let publishedRoot = decodeWireObject(await host.canopy.object(host.canopy.get(tree)!.ref));
       for (let attempt = 0; attempt < 30; attempt += 1) {
         if (publishedRoot.type === "directory" && publishedRoot.entries.some((entry) => entry.name === "public-note.md")) break;
         await Bun.sleep(100);
-        publishedRoot = decodeWireObject(await host.authority.object(host.authority.get(tree)!.ref));
+        publishedRoot = decodeWireObject(await host.canopy.object(host.canopy.get(tree)!.ref));
       }
       expect(publishedRoot.type === "directory" && publishedRoot.entries.some((entry) => entry.name === "public-note.md")).toBe(true);
     } finally {
@@ -292,7 +304,7 @@ describe("primary CLI sync forms", () => {
     expect(await arbor(["unsync", canonical, destination], stateB)).toContain("↮");
     expect(await readFile(join(destination, "note.md"), "utf8")).toBe("# CLI sync\n");
     expect(await readFile(join(stateB, "trees.yaml"), "utf8")).not.toContain(destination);
-    expect(host.authority.boundary("/~owner/notes")?.id).toBe(tree);
+    expect(host.canopy.boundary("/~owner/notes")?.id).toBe(tree);
   });
 
   test("places a private canonical tree with the connected account", async () => {
