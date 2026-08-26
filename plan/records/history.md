@@ -145,7 +145,7 @@ This supersedes the client-projection architecture recorded in the historical Mi
 Primary ownership:
 
 - [`spec/format.md`](../../spec/format.md)
-- [`spec/arbord-rest.md`](../../spec/arbord-rest.md)
+- [`docs/arbord-api.md`](../../docs/arbord-api.md)
 - [`packages/editor/src/directory-document.ts`](../../packages/editor/src/directory-document.ts)
 - [`packages/fs/src/workspace-fs.ts`](../../packages/fs/src/workspace-fs.ts)
 - [`packages/arbord`](../../packages/arbord)
@@ -222,15 +222,14 @@ Delivered:
 - browser profile, Claim, and additive Share surfaces plus `browse`, `sync`, `unsync`, `serve`, and credential-recovery CLI plumbing;
 - shallow untracked browsing, sessionless remote visits, writable reopening of local placements, read-only BlockNote remote rendering, and server-rendered public Markdown without iframes.
 
-Normative ownership:
+Contract and reference documentation:
 
 - [`spec/wire.md`](../../spec/wire.md)
 - [`spec/locators.md`](../../spec/locators.md)
-- [`spec/client.md`](../../spec/client.md)
-- [`docs/arbor-client.md`](../../docs/arbor-client.md)
-- [`spec/cli.md`](../../spec/cli.md)
-- [`spec/system.md`](../../spec/system.md)
-- [`spec/arbord-rest.md`](../../spec/arbord-rest.md)
+- [`docs/client.md`](../../docs/client.md)
+- [`docs/cli.md`](../../docs/cli.md)
+- [`spec/configuration.md`](../../spec/configuration.md)
+- [`docs/arbord-api.md`](../../docs/arbord-api.md)
 
 The delivered slice intentionally does not claim end-user device pairing, claim recovery/dispute resolution, multiple active local identities, nested or cross-community groups, boundary moves/aliases, or production hosting administration. Those follow-ups have their own position in the forward roadmap rather than keeping the foundation permanently partial.
 
@@ -306,12 +305,12 @@ Outcome:
 
 Implemented in:
 
-- [`spec/arbord-rest.md`](../../spec/arbord-rest.md)
+- [`docs/arbord-api.md`](../../docs/arbord-api.md)
 - [`packages/core/src/protocol.ts`](../../packages/core/src/protocol.ts)
 - [`packages/arbord`](../../packages/arbord)
 - [`packages/client`](../../packages/client)
 - [`native/Packages/ArborClient`](../../native/Packages/ArborClient)
-- [`spec/fixtures`](../../spec/fixtures)
+- [`conformance`](../../conformance)
 
 Intentional limits:
 

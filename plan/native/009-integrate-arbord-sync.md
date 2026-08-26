@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Convert arbord and CLI synchronization to authority-owned accepted updates. Do not add a second merge implementation, deploy, write Swift, or auto-resolve a structured server conflict. Preserve local durability and every client-owned candidate.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- packages/arbord packages/wire packages/core packages/stores packages/cli tests spec/fixtures package.json`
+> **Drift check**: `git diff --stat dc34126..HEAD -- packages/arbord packages/wire packages/core packages/stores packages/cli tests conformance package.json`
 
 ## Status
 

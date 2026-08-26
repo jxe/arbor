@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Separate device authorization from profile identity. Never expose or log a raw account, device, access-link, or pairing secret. Work only against local/test authorities; Plan 011 owns production rollout.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- packages/authority/src packages/wire/src packages/render packages/core spec/wire.md spec/system.md tests`
+> **Drift check**: `git diff --stat dc34126..HEAD -- packages/authority/src packages/wire/src packages/render packages/core spec/wire.md spec/configuration.md tests`
 
 ## Status
 

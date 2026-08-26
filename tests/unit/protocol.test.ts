@@ -13,9 +13,13 @@ import type {
 } from "@arbor/core";
 import { canonicalJSONString } from "@arbor/core";
 
-const fixtures = join(import.meta.dir, "../../spec/fixtures");
+const fixtures = join(import.meta.dir, "../fixtures/arbord");
+const conformance = join(import.meta.dir, "../../conformance");
+const authorityFixtures = join(import.meta.dir, "../fixtures/authority");
 const json = async <T>(name: string): Promise<T> =>
   JSON.parse(await readFile(join(fixtures, name), "utf8")) as T;
+const conformanceJSON = async <T>(name: string): Promise<T> =>
+  JSON.parse(await readFile(join(conformance, name), "utf8")) as T;
 
 describe("REST v1 protocol fixtures", () => {
   test("decode the shared node, mutation, receipt, and unknown error values", async () => {
@@ -100,16 +104,17 @@ describe("REST v1 protocol fixtures", () => {
     expect(data.cursor).toBeUndefined();
   });
 
-  test("publishes registry and wire endpoint conformance vectors", async () => {
-    const registry = await json<{ valid: Array<{ name: string }>; invalid: Array<{ name: string }>; behavior: Array<{ name: string }> }>("trees-yaml.json");
-    const endpoints = await json<{ cases: Array<{ name: string; response: { status: number } }> }>("wire-endpoints.json");
-    const merges = await json<{
+  test("publishes configuration and wire conformance vectors separately from reference merge cases", async () => {
+    const registry = await conformanceJSON<{ valid: Array<{ name: string }>; invalid: Array<{ name: string }>; behavior: Array<{ name: string }> }>("configuration-yaml.json");
+    const endpoints = await conformanceJSON<{ cases: Array<{ name: string; response: { status: number } }> }>("wire-endpoints.json");
+    const wireErrors = await conformanceJSON<ArbordErrorEnvelope[]>("errors.json");
+    const merges = JSON.parse(await readFile(join(authorityFixtures, "wire-merge.json"), "utf8")) as {
       version: number;
       markdownCases: Array<{ name: string }>;
       pageMoveCases: Array<{ name: string }>;
       structuralCases: Array<{ name: string }>;
-    }>("wire-merge.json");
-    const intents = await json<{ version: number; replayCases: Array<{ name: string }> }>("wire-update-intent.json");
+    };
+    const intents = await conformanceJSON<{ version: number; replayCases: Array<{ name: string }> }>("wire-update-intent.json");
     expect([...registry.valid, ...registry.invalid, ...registry.behavior].map((item) => item.name)).toEqual(expect.arrayContaining([
       "filesystem-placement",
       "pathless-replica-and-link-rule",
@@ -125,6 +130,7 @@ describe("REST v1 protocol fixtures", () => {
       "watch-ref",
     ]);
     expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 200, 200, 200]);
+    expect(wireErrors.every((item) => item.tree !== "local" && item.tree !== "system")).toBe(true);
     expect(merges.version).toBe(2);
     expect(merges.markdownCases.length).toBeGreaterThanOrEqual(10);
     expect(merges.pageMoveCases.map((item) => item.name)).toContain("divergent-page-id-renames-conflict");

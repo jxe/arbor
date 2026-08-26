@@ -1,5 +1,5 @@
 # Arbor wire protocol
-*Part of the [Arbor spec](../spec.md): community identity, governed account configuration, immutable trees, synchronization, access, and observation.*
+*Part of the [Arbor spec](../spec.md): community identity, governed configuration, immutable trees, synchronization, executable-document data, access, and observation.*
 
 An Arbor authority represents one community. It owns accounts and profile
 claims, canonical tree boundaries, the private account-configuration trees,
@@ -9,20 +9,87 @@ workspace or UI.
 
 ## 1. Shared public contract
 
-The wire uses the `TreeID`, `TreeRef`, `TreeKind`, `TreeDescriptor`,
-`RemoteTreeDescriptor`, `AccessRule`, `AccessEntry`, `LocatorResolution`,
-`ArborError`, and `ObservationEvent` definitions in [REST v1](arbord-rest.md).
-Language bindings must be equivalent, and TypeScript and Swift consume the same
-language-neutral fixtures.
+The wire owns these transport-neutral values. Language bindings must be equivalent and consume the language-neutral vectors under [`conformance`](../conformance).
+
+```ts
+type TreeID = string;
+type LogicalPath = string;
+type EventCursor = string;
+type Hash = `sha256:${string}`;
+type AccessLevel = "none" | "read" | "write";
+type ReadWriteAccess = "read" | "write";
+
+type TreeKind =
+  | "community-profile"
+  | "person-profile"
+  | "group-profile"
+  | "shared-subtree"
+  | "account-configuration";
+
+type TreeDescriptor = {
+  id: TreeID;
+  kind: TreeKind;
+  access: AccessLevel;
+  canonical: {
+    locator: string;
+    path: LogicalPath;
+    endpoint: string;
+    httpURL: string;
+    parentTree: TreeID | null;
+  } | null;
+};
+
+type RemoteTreeDescriptor = TreeDescriptor & {
+  ref: Hash;
+  update: string;
+};
+
+type AccessSubject =
+  | { kind: "everyone" }
+  | { kind: "profile"; tree: TreeID }
+  | { kind: "link"; digest: Hash };
+
+type AccessRule = { subject: AccessSubject; access: ReadWriteAccess };
+
+type AccessEntry = {
+  id: string;
+  subject:
+    | { kind: "everyone" }
+    | { kind: "profile"; tree: TreeID; locator?: string }
+    | { kind: "link" };
+  access: ReadWriteAccess;
+};
+
+type LocatorResolution = {
+  ref: { tree: TreeID; path: LogicalPath; pageID?: string };
+  enclosingTree: TreeDescriptor;
+  historical: boolean;
+  observedThrough: EventCursor;
+};
+
+type ArborError<TDetails = unknown> = {
+  error: string;
+  message: string;
+  retryable: boolean;
+  tree?: TreeID;
+  path?: LogicalPath;
+  details?: TDetails;
+};
+
+type ObservationEvent<TKind extends string, TChange> = {
+  cursor: EventCursor;
+  tree: TreeID;
+  kind: TKind;
+  change: TChange;
+};
+```
 
 Authority resolution always supplies `enclosingTree`. Ordinary hosted trees
 have complete non-null canonical data. The authenticated account-configuration
 tree is returned only to its account and has `kind: "account-configuration"`
 and `canonical: null`.
 
-Every tree operation, result, event, effect, and relevant error names its tree.
-The authority does not accept `local` or `system`; those scopes exist only at
-arbord. Writability is derived from effective access and historical state.
+Every tree operation, result, event, effect, and relevant error names its `TreeID`. `local` and `system` are not wire values. Writability is derived from effective access and historical state.
 
 The shared error envelope and common codes are normative. Narrow authority-only
 codes include `already-claimed` and `tree-id-conflict`. Base/update mismatch,
@@ -133,7 +200,7 @@ is `account-config-v1`; all other trees use `ordinary`. There is no generic
 policy extension framework. The tree uses the ordinary object, snapshot,
 accepted-update, merge, replica, and watch machinery.
 
-The complete path and YAML contract is normative in [system.md](system.md).
+The complete path and YAML contract is normative in [configuration](configuration.md).
 For every direct candidate and every automatic merge, the authority:
 
 1. authenticates the submitting device using the current accepted root;
@@ -280,15 +347,94 @@ accepted content update. A non-retained cursor yields one terminal
 resumes after its cursor. Watch events are invalidations/changes, not substitute
 snapshots.
 
-## 11. Public projection and conformance
+## 11. Executable-document data and effects
+
+An execution host may serve a reviewed [executable document](executable-documents.md) while its permitted data lives on the same or another Arbor authority. The wire carries only validated public query results and mutation calls; raw stores, credentials, private handler source, diagnostics containing private values, and unrelated rows do not cross the disclosure boundary.
+
+A live client makes one streaming HTTP request that completely describes the document and its currently mounted query graph. The response lifetime is the subscription lifetime. When the graph changes, the client opens a complete replacement request and may retain the old response only until the replacement becomes ready.
+
+```ts
+type QueryCursor = string;
+
+type QueryHandleRef = {
+  tree: TreeID;
+  module: LogicalPath;
+  export: string;
+  version: Hash;
+};
+
+type QueryStreamRequest = {
+  document: {
+    tree: TreeID;
+    path: LogicalPath;
+    version: Hash;
+  };
+  queries: Array<{
+    id: string;
+    handle: QueryHandleRef;
+    input: unknown;
+    knownOutputHash?: Hash;
+  }>;
+};
+```
+
+The query array is nonempty and its IDs are nonempty and unique within the request. The host verifies the coherent document version, reviewed handle membership, input schema, authenticated user context, effective access, and current backing identities. A `knownOutputHash` suppresses bytes only; it is not authorization or evidence of current state. Output hashes are SHA-256 of RFC 8785 canonical JSON for the complete public result.
+
+The UTF-8 SSE response has these semantic event values:
+
+```ts
+type PublicQueryError = {
+  code: string;
+  message: string;
+  retryable: boolean;
+};
+
+type QueryStreamEvent =
+  | {
+      type: "result";
+      id: string;
+      observedThrough: QueryCursor;
+      outputHash: Hash;
+      value: unknown;
+      error?: never;
+    }
+  | {
+      type: "result";
+      id: string;
+      observedThrough: QueryCursor;
+      error: PublicQueryError;
+      outputHash?: never;
+      value?: never;
+    }
+  | {
+      type: "ready";
+      queries: Array<{
+        id: string;
+        observedThrough: QueryCursor;
+        outputHash?: Hash;
+      }>;
+    }
+  | {
+      type: "reload";
+      reason: "source-changed" | "access-changed";
+    };
+```
+
+The SSE `event` field supplies `type`; JSON `data` supplies the remaining members. Results are complete replacements. `ready` is sent only after every query has established a race-free snapshot-then-follow boundary. Before it, changed hashes produce complete `result` values; an unchanged retained value may be confirmed by its hash in `ready`. Identical output hashes produce no payload.
+
+The stream has no durable execution ID, acknowledgement, replay cursor, or resumable server-side subscription. Reconnection repeats and reauthorizes the complete request. Source or access changes send `reload` when possible and close the stream. Listener loss, backing uncertainty, process restart, or irrecoverable backpressure closes the response rather than publishing a result known to be stale. Hosts may coalesce intermediate replacement states but raw driver changes never enter the stream.
+
+Mutation calls carry the reviewed handle identity and version, validated input, authenticated subject, and caller-stable mutation identity. Expected failures expose only stable safe public errors; other failures are sanitized. An exact ambiguous retry reuses the mutation identity. The durable receipt and corresponding query result may arrive in either order, and clients correlate them idempotently while treating the query result as authoritative.
+
+Executable-document execution does not grant historical-object access or broaden the readable tree graph. A tree mutation advances its ordinary accepted ref; a mutation against an external store may update query results without changing the source tree ref. Cross-authority query discovery, delegated authorization, and server-to-server execution routing remain unspecified; network reachability alone never grants authority.
+
+## 12. Public projection and conformance
 
 Readable canonical paths have safe HTTP and `arbor://` projections. HTML,
 Markdown, files, and redirects retain canonical tree/path provenance and never
 broaden access. Historical roots remain immutable and read-only. The authority
 does not publish or resolve the account-configuration tree.
 
-Language-neutral fixtures cover descriptors, access, errors, resolution,
+Language-neutral vectors under [`conformance`](../conformance) cover descriptors, access, errors, resolution,
 objects, updates, snapshots, SSE framing/resume, bootstrap idempotency, pairing,
 configuration merge/governance, activation, and tree-scoped reachability.
-TypeScript `@arbor/wire`, Swift `ArborWire`, and Swift `ArborClient` consume the
-same valid and invalid cases.

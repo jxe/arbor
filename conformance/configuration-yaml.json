@@ -1,11 +1,5 @@
 {
   "version": 2,
-  "dataHome": {
-    "account": "account.yaml",
-    "trees": "trees.yaml",
-    "devices": "devices",
-    "privateState": ".state"
-  },
   "valid": [
     {
       "name": "filesystem-placement",

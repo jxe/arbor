@@ -250,7 +250,7 @@ Stop and report back (do not improvise) if:
 - `SearchResult` turns out to be consumed by the Swift client under `native/`
   (check with `grep -rn "excerpt" native/`). Changing a cross-language protocol
   shape requires updating the Swift client and the fixtures under
-  `spec/fixtures/`, which is outside this plan's scope — report and
+  `conformance/`, which is outside this plan's scope — report and
   stop, since a smaller fix (escape to an HTML string server-side) may be
   preferable in that case.
 - Typecheck after step 2 reports errors in files outside the In-scope list.

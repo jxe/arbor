@@ -17,8 +17,8 @@
 > # Substitute exact completion commits recorded by Plans 001-002.
 > git diff --stat <PLAN002_ARBOR_SHA>..HEAD -- \
 >   native packages/core/src packages/editor/src packages/client/src \
->   spec/format.md spec/client.md spec/arbord-rest.md spec/fixtures tests \
->   plan/native/README.md docs/arbor-client.md
+>   spec/format.md docs/client.md docs/arbord-api.md conformance tests \
+>   plan/native/README.md docs/client.md
 > git -C /Users/joe/src/hunch diff --stat <PLAN001_HUNCH_SHA>..HEAD -- \
 >   project.yml Hunch.xcodeproj App/Sources App/Tests
 > ```
@@ -199,7 +199,7 @@ Run Xcode commands sequentially.
   focused tests.
 - Focused `ArborClient` consumption fixes only when it fails to expose the
   implemented exact-source contract already present on the wire.
-- `plan/native/README.md`, `docs/arbor-client.md`, and debt/history updates describing
+- `plan/native/README.md`, `docs/client.md`, and debt/history updates describing
   behavior actually verified here.
 
 **Out of scope**:

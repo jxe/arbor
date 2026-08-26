@@ -465,7 +465,7 @@ private func fixtureDirectory() -> URL {
     if let configured = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"] { return URL(filePath: configured) }
     var current = URL(filePath: #filePath).deletingLastPathComponent()
     while current.path != "/" {
-        let candidate = current.appending(path: "spec/fixtures", directoryHint: .isDirectory)
+        let candidate = current.appending(path: "conformance", directoryHint: .isDirectory)
         if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
         current.deleteLastPathComponent()
     }

@@ -78,6 +78,7 @@ describe("governed account-configuration authority", () => {
   test("reserves a client-generated tree through YAML, then activates it idempotently", async () => {
     const { current, graph } = await currentConfig();
     const treeID = generateArborID("tr");
+    const linkSecret = "shared-tree-link-secret";
     const administrator = graph.account.admins[0]!;
     const treePath = join(dataRoot, "new-shared-tree");
     const next = {
@@ -89,7 +90,10 @@ describe("governed account-configuration authority", () => {
           [treeID]: {
             kind: "shared-subtree" as const,
             canonicalPath: "/~owner/new-shared-tree",
-            access: [{ subject: { kind: "everyone" as const }, access: "read" as const }],
+            access: [{
+              subject: { kind: "link" as const, digest: `sha256:${sha256(linkSecret)}` as const },
+              access: "read" as const,
+            }],
           },
         },
       },
@@ -121,9 +125,21 @@ describe("governed account-configuration authority", () => {
     expect(await client.activateTree(treeID, initial)).toEqual(activated);
     expect((await client.access(treeID)).snapshot).toContainEqual({
       id: expect.any(String),
-      subject: { kind: "everyone" },
+      subject: { kind: "link" },
       access: "read",
     });
+    const refURL = `${running.url}/.arbor/trees/${treeID}/ref`;
+    expect((await fetch(refURL)).status).toBe(404);
+    expect((await fetch(refURL, { headers: { "X-Arbor-Access": linkSecret } })).status).toBe(404);
+    const linkResponse = await fetch(refURL, { headers: { "Arbor-Access-Link": linkSecret } });
+    expect(linkResponse.status).toBe(200);
+    expect(await linkResponse.json()).toMatchObject({ snapshot: { id: treeID, access: "read" } });
+    const bootstrap = await fetch(`${running.url}/~owner/new-shared-tree`, {
+      headers: { accept: "text/html" },
+    });
+    const bootstrapSource = await bootstrap.text();
+    expect(bootstrapSource).toContain('"Arbor-Access-Link": secret');
+    expect(bootstrapSource).not.toContain("X-Arbor-Access");
     const changedPath = join(dataRoot, "incompatible-tree");
     await mkdir(changedPath);
     await writeFile(join(changedPath, "note.md"), "Different\n");

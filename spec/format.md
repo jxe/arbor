@@ -3,7 +3,7 @@
 
 ## Logical nodes
 
-A logical node may have both a body and children. One of `x.md`, `x.mdx`, or `x.tsx` supplies the body for logical path `/x`; sibling directory `x/` supplies its children. `.md` supplies non-executable Markdown, while `.mdx` and a default-exporting `.tsx` may supply an executable component body as specified by [executable web documents](applications.md). When no sibling body exists, `x/_index.md` is the Markdown directory-body fallback. URLs, links, API paths, search results, and visible names use extensionless logical paths.
+A logical node may have both a body and children. One of `x.md`, `x.mdx`, or `x.tsx` supplies the body for logical path `/x`; sibling directory `x/` supplies its children. `.md` supplies non-executable Markdown, while `.mdx` and a default-exporting `.tsx` may supply an executable component body as specified by [executable documents](executable-documents.md). When no sibling body exists, `x/_index.md` is the Markdown directory-body fallback. URLs, links, API paths, and visible names use extensionless logical paths.
 
 One body file and `x/` therefore coexist as one logical node. Creating a child does not move or rename the body. Merely reading a bodyless directory does not create `_index.md`. The first authored Markdown body/property edit, authored child ordering, or operation requiring durable Markdown document identity may materialize it.
 
@@ -11,7 +11,7 @@ More than one sibling body representation—such as `x.md` with `x.mdx`—is amb
 
 ## Markdown documents and identity
 
-Markdown frontmatter contains authored properties; the remainder is the authored body. A materialized Markdown document may carry an opaque durable `id`, called `PageID` by REST v1. A `PageID` remains stable across rename and move. Six-character lowercase IDs are a legacy convention, not the grammar: conforming implementations accept opaque non-empty IDs supported by the protocol.
+Markdown frontmatter contains authored properties; the remainder is the authored body. A materialized Markdown document may carry an opaque durable `id`, its `PageID`. A `PageID` remains stable across rename and move. Six-character lowercase IDs are a legacy convention, not the grammar: conforming implementations accept opaque non-empty IDs supported by the protocol.
 
 ```md
 ---
@@ -34,11 +34,9 @@ Every physical directory without an executable sibling body has one operational 
 
 Reading an implicit or incomplete body does not materialize it. The first authored write persists the exact source accepted by the provider, including required missing-child links. For a directory, `contentRevision` covers the exact stored body bytes plus canonical descriptors of immediate physical children (durable ID when present, path, and kind), so child add/remove/rename/identity/kind changes invalidate a concurrent write while enumeration reorder does not.
 
-Link ordering, nesting, labels, and deletion are ordinary source edits. Physical create, move, rename, copy, Trash, and restore are explicit structural operations. Deleting a link never trashes its target. Directory-backed collections may expose their physical directory document as an About/index facet; collection records—whether physical Markdown row files or virtual/query-backed rows—plus tables, database records, mounted boundaries, and query results do not become child links. This collection exception is explicitly under reconsideration in [`plan/hardening/technical-debt.md`](../plan/hardening/technical-debt.md).
+Link ordering, nesting, labels, and deletion are ordinary source edits. Physical create, move, rename, copy, delete, and restore are explicit structural operations. Deleting a link never deletes its target. Directory-backed collections may expose their physical directory document as an About/index facet; collection records—whether physical Markdown row files or virtual/query-backed rows—plus tables, database records, mounted boundaries, and query results do not become child links.
 
 Links use [Arbor locators](locators.md). Relative and tree-rooted logical paths are valid within a resolved tree; cross-tree links use canonical or raw TreeID locators. A Markdown link may carry a `PageID` fragment. When a path and valid ID disagree, the ID identifies the document and the readable path may be healed through an ordinary authored mutation. Ordinary non-Markdown files remain path-identified.
-
-The leading emoji grapheme of the first H1 is the portable document icon. Setting or clearing it is an exact-source edit to that H1. When setting an icon on a document with no H1, prepend an H1 using the node display name; for an implicit directory, that one accepted write materializes both the heading and the complete required child-link set.
 
 ## Profiles and groups
 
@@ -61,8 +59,8 @@ The profile tree's `TreeID`, not its mutable title or root `PageID`, is the stab
 
 - `schema.ts` declares a file-backed collection row schema as specified by [stores](stores.md).
 - `_store.csv`, `_store.jsonl`, `_store.sqlite3`, and `_store.postgres` select collection backing behavior specified by [stores](stores.md).
-- `.ts` and `.tsx` files may define Arbor scripts and components as specified by [scripts](scripts.md).
-- `.mdx` files may define explicit executable component documents as specified by [scripts](scripts.md) and [executable web documents](applications.md).
+- `.ts` and `.tsx` files may define Arbor handles, components, and executable documents as specified by [executable documents](executable-documents.md).
+- `.mdx` files may define explicit executable component documents as specified by [executable documents](executable-documents.md).
 - Markdown files may define agents as specified by [agents](agents.md).
 
 These recognizers do not make generated declarations, compiled bundles, database credentials, or execution transcripts part of this format unless they are themselves deliberately authored ordinary tree content.
@@ -71,9 +69,6 @@ These recognizers do not make generated declarations, compiled bundles, database
 
 - `_index.md` is the fallback body for its directory and is never exposed as a child.
 - `_store.*` names select the enclosing collection's backing and are not ordinary row children.
-- `Trash` is a recovery namespace owned by the enclosing local durability domain; it is not synchronized as an ordinary user directory unless explicitly authored outside that role.
-- `Assets` is the conventional destination for imported binary assets and remains ordinary content.
-- `.arbor` is reserved so legacy or implementation-maintained material cannot be mistaken for portable authored content. When it is the selected Arbor data home, [system.md](system.md) explicitly defines its account-configuration tree and excludes its nested `.state` mount from that tree. An ordinary authored tree must not infer those control semantics merely from a coincidental directory name.
-- `.state` is forbidden in an account-configuration graph and is always the reserved local private-state mount at the root of an Arbor data home.
+- `.state` is forbidden in an account-configuration graph as specified by [configuration](configuration.md).
 
 The account YAML is human-editable special control content, not portable authored format. Credentials, access-link secrets, private indexes, journals, recovery databases, and private device credential records are never portable authored format.

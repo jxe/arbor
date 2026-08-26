@@ -5,21 +5,21 @@
 
 This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [plan/product/roadmap.md](plan/product/roadmap.md) and [plan/records/history.md](plan/records/history.md) own implementation status, sequencing, and evidence; [plan/hardening/technical-debt.md](plan/hardening/technical-debt.md) records known conformance failures.
 
-Requirements apply to the component they name. An implementation need not provide every Arbor component, but a component it does claim to provide must satisfy that component's specification. For example, a wire-only host need not implement a local workspace or human client, and a conforming human client may use a wholly different UI from Arbor web or native Arbor.
+The specification contains only behavior that must remain portable across independently implemented Arbor components. The [reference documentation](docs/reference-implementation.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Arbor requirements.
 
-The normative surface includes authored formats, locators, the complete Arbor data-home and synchronized account-configuration tree, local server and client behavior, stores, scripts, agents, the CLI, wire hosting and synchronization, and safe public HTTP projection. Language/runtime choices, UI controls, package topology, retry counts, private `.state` layout, and test machinery are reference choices unless a topic specification explicitly makes their observable behavior portable.
+The normative surface includes authored formats, locators, synchronized configuration, stores, executable documents and named handles, agents, wire hosting and synchronization, cross-server data and effects, and safe public HTTP projection. Local client/daemon transport, UI controls, CLI commands, runtime algorithms, package topology, private-state layout, and test machinery are reference choices.
 
 ## Thesis
 
-Arbor gives each person one navigable workspace. Any folder may be backed by ordinary files, an Arbor tree, a database, or a safe connection to an existing store. Different people may place the same Arbor tree wherever it makes sense to them. Scripts and agents read and change the resulting workspace through the same permissioned contracts as human clients.
+Arbor gives each person one navigable workspace. Any folder may be backed by ordinary files, an Arbor tree, a database, or a safe connection to an existing store. Different people may place the same Arbor tree wherever it makes sense to them. Executable documents and agents read and change the resulting workspace through the same permissioned contracts as human clients.
 
-**One workspace to navigate and edit; independent Arbor trees where synchronization, history, or permissions require a boundary; and ordinary authored files for turning that workspace into applications and agents.**
+**One workspace to navigate and edit; independent Arbor trees where synchronization, history, or permissions require a boundary; and ordinary authored files for turning that workspace into executable documents and agents.**
 
 Three concepts organize the system:
 
-1. A **workspace** is the resolved tree a person, script, or agent can address. It may contain ordinary local paths, stores, and mounted Arbor trees.
+1. A **workspace** is the resolved tree a person, executable document, or agent can address. It may contain ordinary local paths, stores, and mounted Arbor trees.
 2. An **Arbor tree** is an independent `TreeID`, history, synchronization stream, and whole-tree permission boundary.
-3. A **script** or **agent** is an authored file whose declared and effective namespace bounds its reads, writes, tools, and effects.
+3. An **executable document** or **agent** is authored content whose declared and effective namespace bounds its reads, writes, tools, and effects.
 
 Ordinary unpromoted files are browsable as `tree: "local"`, without gaining a durable Arbor identity. Promotion creates an Arbor tree in place: its local path need not move, its canonical public name is replaceable, and `arbor://tree/<TreeID>/` remains the raw identity locator. Sharing changes its audience and access; it does not establish its storage or synchronization identity. Nested Arbor trees are separate graphs and access boundaries, resolved by longest prefix.
 
@@ -28,27 +28,21 @@ Ordinary unpromoted files are browsable as `tree: "local"`, without gaining a du
 | File | Public contract |
 |---|---|
 | [format](spec/format.md) | Portable authored formats, logical nodes, complete directory documents, profile documents, and reserved names |
-| [locators](spec/locators.md) | Local, canonical, raw-identity, revision, fragment, and `system:` locators |
-| [system](spec/system.md) | Complete Arbor data-home layout, governed account YAML, placements, private `.state`, visits, and nested mounts |
-| [arbord REST](spec/arbord-rest.md) | REST v1 schemas, resolution, reads, mutations, receipts, errors, events, and conformance rules |
-| [client](spec/client.md) | Client resolution, exact-source preservation, provenance, retry/resync, secrets, and persistence authority |
+| [locators](spec/locators.md) | Tree-relative, canonical, raw-identity, revision, and fragment locators |
+| [configuration](spec/configuration.md) | Governed account YAML, devices, placements, ACLs, and semantic merge |
 | [stores](spec/stores.md) | Markdown, CSV, JSONL, SQLite, and Postgres collection behavior |
-| [scripts](spec/scripts.md) | Script authoring, compilation boundaries, queries, mutations, components, confinement, and consent |
-| [applications](spec/applications.md) | Authority-hosted executable MDX/TSX documents, ordinary Arbor navigation, Arbor user identity, server rendering, and live query delivery |
+| [executable documents](spec/executable-documents.md) | Portable MDX/TSX source, named queries and mutations, React components, identity, confinement, and consent |
 | [agents](spec/agents.md) | Agent files, tools, context, confinement, consent, effects, and transcripts |
-| [wire](spec/wire.md) | Community authority, identity, claims, access, deterministic objects, sync, watch, and public HTTP projection |
-| [CLI](spec/cli.md) | Portable command surface for browsing, synchronization, serving, scripts, and deployment |
+| [wire](spec/wire.md) | Community authority, identity, claims, access, deterministic objects, sync, watch, executable-document data and effects, and public HTTP projection |
 
-Language-neutral conformance vectors live in [spec/fixtures](spec/fixtures). [Arbor's client interaction design](docs/arbor-client.md) and the [reference implementation architecture](docs/reference-implementation.md) are informative, not normative.
+Language-neutral conformance vectors live in [`conformance`](conformance). The [reference implementation documentation](docs/reference-implementation.md), including the local API, CLI, and client design, is informative rather than normative.
 
 ## Component roles
 
-- A **local arbord** resolves the local filesystem and placements, owns durable authored mutations, watches the synchronized account-configuration checkout, exposes loopback REST v1, manages local credentials without exposing them as content, and synchronizes placed Arbor trees.
-- An **arbord client** consumes REST v1 and treats arbord as the persistence authority. It may be a human UI, CLI, script host, agent host, backup tool, or another program.
 - A **wire host** represents one community and owns profile/account identity, governed private account-configuration trees, canonical boundary records, mutable refs, immutable objects, claims, access enforcement, and watch streams. It does not need local filesystem materialization.
 - A **wire client** resolves community names, transfers deterministic objects, performs compare-and-swap synchronization, and applies access without disclosing credentials or link secrets.
 - A **store driver** supplies the backing-appropriate reads, transactions, observation, schema, and consistent snapshot needed by the common collection contract.
-- A **script or agent runtime** supplies the explicitly scoped execution environment described by its authored file. It has no ambient authority beyond that environment.
-- An **executable-document runtime** renders a reviewed MDX/TSX node at its ordinary Arbor location, injects authenticated Arbor user context, executes its server handles, and streams validated live-query results without exposing the backing data authority.
+- An **executable-document runtime** renders a reviewed MDX/TSX node at its ordinary Arbor location, injects authenticated Arbor user context, executes its named handles, and streams validated live-query results without exposing the backing data authority.
+- An **agent runtime** supplies the explicitly scoped execution environment described by its authored file. It has no ambient authority beyond that environment.
 
-The wire carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, or UI. The complete standardized local layout and control-file contracts are defined in [system.md](spec/system.md).
+The wire carries tree identity and revisions, including each account's private configuration tree; it does not dictate private indexes, journals, caches, local client/daemon transport, or UI. The synchronized control-file contract is defined in [configuration](spec/configuration.md).

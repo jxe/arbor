@@ -141,7 +141,7 @@ function accountFor(request: Request, authority: WireAuthority): AuthorityAccoun
 }
 
 function linkDigest(request: Request): string | undefined {
-  const secret = request.headers.get("x-arbor-access") ?? undefined;
+  const secret = request.headers.get("arbor-access-link") ?? undefined;
   return secret ? `sha256:${sha256(secret)}` : undefined;
 }
 
@@ -149,7 +149,7 @@ function linkBootstrap(): Response {
   return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Arbor access</title><body><p>Opening shared Arbor tree…</p><script>
 const secret = location.hash.startsWith("#arbor-access=") ? decodeURIComponent(location.hash.slice(14)) : "";
 if (!secret) document.body.textContent = "This Arbor tree requires access.";
-else fetch(location.pathname + location.search, { headers: { "x-arbor-access": secret } })
+else fetch(location.pathname + location.search, { headers: { "Arbor-Access-Link": secret } })
   .then(async response => {
     if (!response.ok) throw new Error("This access link is invalid or revoked.");
     document.open(); document.write(await response.text()); document.close();

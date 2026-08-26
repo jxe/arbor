@@ -27,11 +27,11 @@ interface IntentFixtures {
 }
 
 const fixtures = JSON.parse(await readFile(
-  join(import.meta.dir, "../../../spec/fixtures/wire-update-intent.json"),
+  join(import.meta.dir, "../../../conformance/wire-update-intent.json"),
   "utf8",
 )) as IntentFixtures;
 const patchFixtures = JSON.parse(await readFile(
-  join(import.meta.dir, "../../../spec/fixtures/wire-file-patches.json"),
+  join(import.meta.dir, "../../../conformance/wire-file-patches.json"),
   "utf8",
 )) as {
   valid: { base: ObjectHash; result: ObjectHash; edits: Array<{ offset: number; length: number; bytes: string }> };

@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Integrate completed providers/editor into ordinary note workflows. Preserve identical document semantics across macOS arbord and iOS replica. Do not port voice/polish/final Hunch parity or convert real data.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- native packages/client packages/arbord spec/client.md docs plan/native tests`
+> **Drift check**: `git diff --stat dc34126..HEAD -- native packages/client packages/arbord docs/client.md docs plan/native tests`
 
 ## Status
 

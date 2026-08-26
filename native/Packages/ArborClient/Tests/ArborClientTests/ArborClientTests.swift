@@ -3,13 +3,27 @@ import XCTest
 @testable import ArborClient
 
 final class ArborClientTests: XCTestCase {
-    private var fixtures: URL {
+    private var referenceFixtures: URL {
+        if let path = ProcessInfo.processInfo.environment["ARBOR_REFERENCE_FIXTURES"] {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        return URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appending(path: "../../../../../tests/fixtures")
+            .standardizedFileURL
+    }
+
+    private var fixtures: URL { referenceFixtures.appending(path: "arbord", directoryHint: .isDirectory) }
+    private var clientFixtures: URL { referenceFixtures.appending(path: "client", directoryHint: .isDirectory) }
+    private var authorityFixtures: URL { referenceFixtures.appending(path: "authority", directoryHint: .isDirectory) }
+
+    private var conformanceFixtures: URL {
         if let path = ProcessInfo.processInfo.environment["ARBOR_PROTOCOL_FIXTURES"] {
             return URL(fileURLWithPath: path, isDirectory: true)
         }
         return URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
-            .appending(path: "../../../../../spec/fixtures")
+            .appending(path: "../../../../../conformance")
             .standardizedFileURL
     }
 
@@ -32,9 +46,9 @@ final class ArborClientTests: XCTestCase {
         let unknownNode = try decode(NodeSnapshot.self, "node-unknown-field.json")
         let untracked = try decode(NodeSnapshot.self, "node-untracked.json")
         let systemTree = try decode(NodeSnapshot.self, "node-system-tree.json")
-        let mergeFixtureData = try Data(contentsOf: fixtures.appending(path: "wire-merge.json"))
+        let mergeFixtureData = try Data(contentsOf: authorityFixtures.appending(path: "wire-merge.json"))
         let mergeFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: mergeFixtureData) as? [String: Any])
-        let intentFixtureData = try Data(contentsOf: fixtures.appending(path: "wire-update-intent.json"))
+        let intentFixtureData = try Data(contentsOf: conformanceFixtures.appending(path: "wire-update-intent.json"))
         let intentFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: intentFixtureData) as? [String: Any])
 
         XCTAssertEqual(node.ref, ResolvedNodeRef(tree: "tr_notes7f3q2ab7c", path: "/notes/today", pageID: "abc123"))
@@ -115,10 +129,40 @@ final class ArborClientTests: XCTestCase {
         var expected: Expected?
     }
 
+    private struct PortableURLFixture: Decodable {
+        var base: String
+        var href: String
+        var expectedPath: String?
+        var pageID: String?
+        var fragment: String?
+    }
+
+    func testPortableTreeRelativeURLConformance() throws {
+        let cases = try JSONDecoder().decode(
+            [PortableURLFixture].self,
+            from: Data(contentsOf: conformanceFixtures.appending(path: "url-resolution.json"))
+        )
+        for fixture in cases {
+            let label = "\(fixture.base) + \(fixture.href)"
+            let resolved = resolveLogicalURL(base: fixture.base, href: fixture.href)
+            guard let expectedPath = fixture.expectedPath else {
+                XCTAssertNil(resolved, label)
+                continue
+            }
+            guard case let .local(path, pageID, fragment) = resolved else {
+                XCTFail("Expected tree-relative result for \(label)")
+                continue
+            }
+            XCTAssertEqual(path, expectedPath, label)
+            XCTAssertEqual(pageID, fixture.pageID, label)
+            XCTAssertEqual(fragment, fixture.fragment, label)
+        }
+    }
+
     func testSharedURLResolutionFixturesResolveIdentically() throws {
         let cases = try JSONDecoder().decode(
             [URLFixture].self,
-            from: Data(contentsOf: fixtures.appending(path: "url-resolution.json"))
+            from: Data(contentsOf: clientFixtures.appending(path: "url-resolution.json"))
         )
         XCTAssertGreaterThan(cases.count, 20)
         for fixture in cases {

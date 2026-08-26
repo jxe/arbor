@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Prove local data safety and complete provider behavior with networking disabled. Do not import ArborWire, contact an authority, add Quagmire, or expose the replica as an editable Files folder.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- native/Packages/ArborKit native/Packages/ArborReplica spec/format.md spec/client.md spec/system.md spec/fixtures packages/fs packages/arbord tests`
+> **Drift check**: `git diff --stat dc34126..HEAD -- native/Packages/ArborKit native/Packages/ArborReplica spec/format.md docs/client.md spec/configuration.md conformance packages/fs packages/arbord tests`
 
 ## Status
 

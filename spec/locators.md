@@ -1,21 +1,19 @@
 # Arbor locators
-*Part of the [Arbor spec](../spec.md): one locator language for local, shared, historical, and system content.*
+*Part of the [Arbor spec](../spec.md): portable references to shared, historical, and tree-relative content.*
 
 ## Forms
 
-An Arbor locator is one of:
+Portable Arbor content uses these locator forms:
 
 ```text
-/absolute/local/path
-./relative/local/path
+./relative/tree/path
+/tree-rooted/path
 https://community.example/~profile/path
 arbor://community.example/~profile/path
 arbor://tree/<TreeID>/path
-system:device
-system:diagnostics
 ```
 
-Canonical HTTP and `arbor://<authority>/...` names resolve through the community authority. `arbor://tree/<TreeID>/...` is the raw identity locator and remains valid when a public name changes. Local paths resolve through arbord and the current device's account-configured placements. `system:` locators address the constrained safe virtual control scope.
+Relative and tree-rooted paths resolve within an already selected Arbor tree. Their portable meaning is never an operating-system path. Canonical HTTP and `arbor://<authority>/...` names resolve through the community authority. `arbor://tree/<TreeID>/...` is the raw identity locator and remains valid when a public name changes. Operating-system paths and `system:` content addresses are facilities of a local implementation, not portable Arbor locators; a separately specified capability field may use a `system:` reference without making it a content locator.
 
 Canonical public names are replaceable human names, not tree identity. A resolver returns a concrete tree scope, decoded logical path, optional immutable root, access, and enough authority provenance to perform a permitted operation.
 
@@ -28,7 +26,7 @@ arbor://tree/<TreeID>@sha256:<root>/notes
 arbor://community.example/~alice/atlas@sha256:<root>/notes
 ```
 
-A revision locator is read-only. It may be browsed transiently but never creates a pinned persistent placement. Mutations against it fail as read-only.
+A revision locator is read-only. Mutations against it fail as read-only.
 
 A fragment identifies content within the resolved node. Markdown `PageID` fragments are opaque:
 
@@ -42,17 +40,15 @@ Clients must not validate fragments as six-character lowercase IDs. Other fragme
 
 An external URL parser percent-decodes each path component exactly once at the parsing boundary. Every internal logical path is already decoded and may contain a literal `%`, including text resembling another escape. Resolvers, routers, clients, and stores must not decode it again.
 
-`.` and `..` are resolved only while parsing a local path or URL. A resolved logical path is absolute within its tree, contains no empty interior component, and cannot escape its tree root. Backslash and NUL are invalid logical-path characters. URL serialization percent-encodes decoded components once.
+`.` and `..` are resolved only while parsing a relative reference or URL. A resolved logical path is absolute within its tree, contains no empty interior component, and cannot escape its tree root. Backslash and NUL are invalid logical-path characters. URL serialization percent-encodes decoded components once.
 
 Authored `.md`, `.mdx`, `.tsx`, `/_index.md`, and legacy `tree:` spellings may be accepted as input aliases, but emitted links and canonical locations use extensionless logical paths and the locator forms above.
 
 ## Resolution rules
 
-- A local path uses the longest canonical filesystem placement-path prefix from the current device's [`placements`](system.md#configuration-yaml). If none exists, it is `tree: "local"` and has no durable Arbor identity. A pathless placement has no local-path prefix and is addressed by TreeID or canonical locator.
-- A nested placement enters the child tree. Parent discovery, watching, indexing, snapshots, pulls, and deletion exclude that mounted root.
 - A canonical authority path uses the longest registered canonical boundary prefix, subject to access. An inaccessible nested boundary is not resolved through its parent.
 - A raw TreeID locator resolves independently of its current public name, using a verified endpoint hint or already-known authority record.
-- When the same live Arbor tree has a local placement, a local client may resolve a canonical or raw locator to that placement. The identity and decoded logical path remain unchanged.
+- A relative or tree-rooted reference retains the tree scope of its resolution context and cannot cross a nested tree boundary without an explicit canonical or raw locator.
 - Ambiguous identity is an error. A resolver never guesses among placements, endpoints, PageIDs, or boundary records.
 
 Locator resolution is separate from rendering. A successful result always retains explicit tree scope so mounted/composed child actions, search results, backlinks, and historical reads cannot silently fall back to a parent's tree.

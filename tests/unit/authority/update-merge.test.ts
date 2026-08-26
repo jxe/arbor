@@ -153,10 +153,10 @@ function expectNoAddedLineOmitted(base: string, candidate: string, remote: strin
 }
 
 const fixtures = JSON.parse(
-  await readFile(join(import.meta.dir, "../../../spec/fixtures/wire-merge.json"), "utf8"),
+  await readFile(join(import.meta.dir, "../../fixtures/authority/wire-merge.json"), "utf8"),
 ) as MergeFixtures;
 
-describe("language-neutral authority merge fixtures", () => {
+describe("reference authority merge fixtures", () => {
   for (const fixture of fixtures.markdownCases) {
     test(fixture.name, async () => {
       const objects = new Map<string, Uint8Array>();

@@ -2,6 +2,14 @@
 
 This document records replaceable architecture and operating choices in the current reference implementation. It is informative. The normative contracts live in [spec.md](../spec.md).
 
+## Reference documentation
+
+- [Local system](local-system.md) — data home, private state, watchers, visits, recovery, credentials, and migration.
+- [Arbord API](arbord-api.md) — the reference loopback REST v1 client/daemon boundary.
+- [CLI](cli.md) — the current `arbor` command surface.
+- [Client](client.md) — Arbor web and native interaction, navigation, and editing behavior.
+- [Executable runtime](executable-runtime.md) — compiler, generated types, store observation, workers, and hosting mechanics.
+
 ## Repository and runtimes
 
 The reference implementation is a Bun/TypeScript workspace. Major packages separate core logical/protocol types, provider-owned filesystem documents and mutation, local arbord HTTP service, stores and private state, shared wire objects/protocol/client code, server-only authority behavior, CLI, server rendering, and the Arbor web React application. `@arbor/wire` has no server or database dependency; the single-process `@arbor/authority` package depends on it and owns hosting, accepted-update storage, access, claims, and merging.
@@ -10,11 +18,7 @@ The Apple reference client is a Foundation-only Swift 6 package under `native/Pa
 
 Arbor web uses React and BlockNote. Markdown remains canonical: arbord returns complete operational directory source, BlockNote edits a server-derived block view, and the browser serializes exact/block-granular source for every content write. Child-link reorder is a source write; physical moves remain structural.
 
-## Sandboxes and generated files
-
-The current schema/script direction uses isolated JavaScript workers, with QuickJS/Wasm available for deterministic evaluation. Only declared libraries such as `zod` are bundled into a schema realm. Time, stack, and memory limits and the absence of filesystem/network/process authority enforce the public store/script contracts.
-
-Generated TypeScript declarations live with the per-workspace private state, including a tree registry at `workspaces/<stateID>/types/tree.gen.d.ts`; arbord never needs to create a generated directory inside the browsed tree. Arbor-owned TypeScript compiler and language-service hosts include that declaration as an extra root file, so scripts do not name its machine-local path or require an authored `tsconfig` change. Bundles, code hashes, validators, manifests, caches, and generated database declarations are reproducible output. Their names and locations may change without changing authored formats.
+Compiler isolation, generated declarations, store observation, and hosting mechanics are documented in [the executable runtime](executable-runtime.md).
 
 ## Durability and observation
 
@@ -24,7 +28,7 @@ Current private paths include `workspaces.json`, per-workspace directories under
 
 The exact journal records, replay-window size, retry count, temporary filenames, watcher classifications, recovery database schema, and credential reference layout are tuning/implementation choices. They must still satisfy durable acknowledgement, idempotent retry, lossless resync, secrecy, and last-valid control-file behavior.
 
-[`trees.yaml`](../spec/system.md#placement-registry-treesyaml) and `${ARBOR_DATA_HOME:-~/.arbor}` are exceptions: their public placement/data-home contract is normative. Other files in the data home are private. Credentials use the platform credential store where available and must never be copied into `trees.yaml`.
+The synchronized [`trees.yaml`](../spec/configuration.md#configuration-yaml) contract is normative. `${ARBOR_DATA_HOME:-~/.arbor}`, private paths, and platform credential storage are reference choices documented in [the local system](local-system.md).
 
 ## Wire encoding, reconciliation, and hosting
 
@@ -58,4 +62,4 @@ bun run build
 git diff --check
 ```
 
-These commands and current test counts are implementation evidence, not requirements imposed on independent Arbor implementations. Language-neutral vectors under [`spec/fixtures`](../spec/fixtures) are the portable part.
+These commands and current test counts are implementation evidence, not requirements imposed on independent Arbor implementations. Language-neutral vectors under [`conformance`](../conformance) are the portable part; reference API and algorithm fixtures live under [`tests/fixtures`](../tests/fixtures).

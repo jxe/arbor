@@ -5,7 +5,7 @@
 
 The local daily driver and the reference community-hosting foundation are implemented. Arbor can browse and edit the local filesystem, promote ordinary folders into canonical Arbor trees, host person and group profiles, claim reserved profiles, synchronize placements, and apply whole-tree access through the browser and CLI.
 
-Workspace composition is now implemented. The roadmap now begins with one vertical live-data document milestone, using the Supplies port to design and prove data, scripts, components, Arbor users, and authority-hosted streaming together rather than committing the data API in isolation.
+Workspace composition is now implemented. The roadmap now begins with one vertical live-data document milestone, using the Supplies port to design and prove data, named handles, components, Arbor users, and authority-hosted streaming together rather than committing the data API in isolation.
 
 | Status | Milestone | Outcome |
 |---|---|---|
@@ -41,14 +41,11 @@ The implemented foundation is summarized here only to establish what later miles
 
 The durable product contracts live in the topic specifications rather than this roadmap:
 
-- [wire and community authority](../../spec/wire.md) owns canonical boundaries, promotion, profiles, claims, access, objects, refs, and HTTP projection;
-- [locators](../../spec/locators.md) owns canonical names, raw TreeID fallback, immutable revision selection, and resolution;
-- [client](../../spec/client.md) owns UI-independent resolution, exact-source preservation, provenance, retry/resync, and secret handling;
-- [Arbor client reference design](../../docs/arbor-client.md) owns profile controls, Claim, Share, labels, Home, and interaction design;
-- [CLI](../../spec/cli.md) owns command forms and deployment arguments;
-- [`system:` and placements](../../spec/system.md) owns the data home, `trees.yaml`, safe account state, credentials, visits, nested placements, and local durability;
-- [arbord REST](../../spec/arbord-rest.md) owns the local client and mutation boundary.
-- [stores](../../spec/stores.md), [scripts](../../spec/scripts.md), [applications](../../spec/applications.md), and [agents](../../spec/agents.md) own their respective authored/runtime contracts.
+- [format](../../spec/format.md) and [locators](../../spec/locators.md) own exact source, logical nodes, tree-relative references, canonical names, raw TreeID fallback, and immutable revision selection;
+- [configuration](../../spec/configuration.md) owns synchronized account, tree, device, placement, ACL, and governance data;
+- [wire and community authority](../../spec/wire.md) owns canonical boundaries, promotion, profiles, claims, access, objects, refs, retry/resync, secret transport, cross-server executable-document data and effects, and HTTP projection;
+- [stores](../../spec/stores.md), [executable documents](../../spec/executable-documents.md), and [agents](../../spec/agents.md) own their respective authored contracts;
+- the [reference documentation](../../docs/reference-implementation.md) owns the local arbord API, CLI, data home, client interaction design, runtime algorithms, and platform behavior.
 
 ---
 
@@ -113,7 +110,7 @@ Completion gate: one Arbor site publishes statically with working links/assets, 
 
 ## Milestone 5 — account lifecycle and hosting administration
 
-**Status: Later. These follow-ups do not block the forward workspace, script, data, or application milestones.**
+**Status: Later. These follow-ups do not block the forward workspace, data, or executable-document milestones.**
 
 Outcome: communities can recover identities and operate persistent hosts without relying on development escape hatches or manually transferred raw credentials.
 
@@ -175,6 +172,7 @@ These are unresolved design questions, not hidden implementation status:
 5. **Compiler correctness.** Handle extraction, validator generation, realm separation, and access inference are security boundaries and need independent verification.
 6. **Schema evolution.** Mounted consumers may remain on older shapes while an Arbor tree or external database changes schema.
 7. **Consent precision.** Prefix declarations are enforcement-true but may be broader than actual reads/writes; computed paths must remain visibly broad rather than producing false reassurance.
+8. **Cross-authority executable data.** Define query discovery, delegated authorization, and server-to-server execution routing so an allowed executable document hosted by one authority can use data hosted by another without treating network reachability as authority.
 
 ## Planning reference
 

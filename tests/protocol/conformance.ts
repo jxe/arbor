@@ -32,7 +32,8 @@ try {
     await run(
       ["swift", "test", "--package-path", "native/Packages/ArborClient"],
       {
-        ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../spec/fixtures"),
+        ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../conformance"),
+        ARBOR_REFERENCE_FIXTURES: join(import.meta.dir, "../fixtures"),
         ARBOR_TEST_URL: running.url,
         ARBOR_TEST_TREE: running.workspace.tree,
       },
@@ -89,7 +90,7 @@ try {
       await run(
         ["swift", "test", "--package-path", "native/Packages/ArborWire"],
         {
-          ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../spec/fixtures"),
+          ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../conformance"),
           ARBOR_WIRE_TEST_URL: authority.url,
           ARBOR_WIRE_TEST_TOKEN: authorityToken,
           ARBOR_WIRE_TEST_TREE: nativeTreeID,
@@ -98,7 +99,7 @@ try {
       await run(
         ["swift", "test", "--package-path", "native/Packages/ArborSync"],
         {
-          ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../spec/fixtures"),
+          ARBOR_PROTOCOL_FIXTURES: join(import.meta.dir, "../../conformance"),
           ARBOR_WIRE_TEST_URL: authority.url,
           ARBOR_WIRE_TEST_TOKEN: authorityToken,
           ARBOR_WIRE_TEST_TREE: nativeTreeID,

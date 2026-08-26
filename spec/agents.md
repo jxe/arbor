@@ -9,7 +9,7 @@ An agent file is versioned, linked, shared, and access-controlled like other aut
 
 ## Tools and context
 
-Every runtime may expose Arbor's built-in read, navigate, search, backlinks, collection-query, and mutation operations. An agent may additionally name compiled [script](scripts.md) query/mutation handles. Each tool has a typed input/output boundary and retains tree/path provenance in its results.
+Every runtime may expose Arbor's built-in read, navigate, search, backlinks, collection-query, and mutation operations. An agent may additionally name compiled [executable-document](executable-documents.md) query and mutation handles. Each tool has a typed input/output boundary and retains tree/path provenance in its results.
 
 Context is assembled from explicit tree roots, locator selections, or deterministic query handles. It is not ambient retrieval over every host-readable file. Context results record their source locator and revision or observation cursor so a transcript can explain what the agent saw.
 
@@ -24,13 +24,13 @@ Before execution, the runtime resolves an effective namespace from:
 
 The intersection is the complete authority. The agent and its tools cannot address a path, tree, credential, network target, or host capability outside it. A tool cannot widen the namespace of the agent that called it. Access changes during a run take effect before subsequent operations.
 
-The isolation technology, worker language, and process topology are reference choices. The absence of ambient filesystem, network, process, secret, clock, and randomness authority—unless a separately specified tool grants it—is normative.
+This specification does not prescribe isolation technology, worker language, or process topology. The absence of ambient filesystem, network, process, secret, clock, and randomness authority—unless a separately specified tool grants it—is normative.
 
 ## Consent and effects
 
 Before an effectful run, the client presents a concrete consent statement listing effective readable trees/prefixes, writable trees/prefixes, tools, hosted execution, transcript destination, and any explicitly granted non-tree effect. Broad or computed declarations remain visibly broad.
 
-All workspace effects pass through ordinary arbord/store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct filesystem edit and label it an Arbor mutation. Ambiguous mutation retries reuse the original mutation identity.
+All workspace effects pass through ordinary wire or store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct host-filesystem edit and label it an Arbor mutation. Ambiguous mutation retries reuse the original mutation identity.
 
 ## Transcripts
 

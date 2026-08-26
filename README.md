@@ -3,7 +3,7 @@ id: jrigzm
 ---
 # Arbor
 
-A successor to the web built around three concepts: **a workspace**, the tree a person or agent sees and works in; **an Arbor tree**, a folder with independent identity, history, synchronization, and permissions; and **a script**, a `.tsx` file that reads, renders, or changes the workspace through components and typed operations.
+A successor to the web built around three concepts: **a workspace**, the tree a person or agent sees and works in; **an Arbor tree**, a folder with independent identity, history, synchronization, and permissions; and **an executable document**, authored MDX/TSX that reads, renders, or changes the workspace through components and typed operations.
 
 ## Current implementation
 
@@ -45,7 +45,7 @@ bun run host -- ./garden --community garden --first-writer joe
 
 Arbor creates the `garden` community, reserves `/~joe`, and prints that complete profile address. Its initial display name is the handle and Joe can edit the community profile later. Run `arbor browse <that-address>`: Arbor web shows the empty reserved profile, and its Claim action asks where the profile should live locally. The claim atomically creates the profile tree, the private account-configuration tree, a locally generated device identity and credential binding, and the first administrator. Running the same command again restarts the existing authority without another bootstrap. `--url` sets an explicit public origin for unusual HTTP or nonstandard-port deployments; standard HTTPS hosting uses `ARBOR_DOMAIN`. `--hostname` and `--port` separately control the listener, while Railway's generated public domain and port are detected automatically. Environment-based account bootstrap remains available only for coordinated alpha migration. See [Remote trial deployment](deploy/README.md) for Railway and VPS instructions.
 
-Arbor keeps its local account-configuration checkout in `${ARBOR_DATA_HOME:-~/.arbor}`. [`account.yaml`](spec/system.md) owns community/profile identity and administrators, `trees.yaml` owns TreeID-keyed kind/canonical/ACL declarations, and `devices/<DeviceID>.yaml` owns that device's TreeID-keyed `placements`. The directory is itself one private synchronized Arbor tree. `.state` is its excluded nested private mount for refs, indexes, journals, caches, visits, recovery, credential references, diagnostics, and migration backups; raw credentials remain in the operating-system credential store. One data home is one isolated checkout and credential namespace. Direct valid YAML edits apply through arbord's ordinary file watcher, while invalid candidates leave the last valid configuration active and produce diagnostics.
+The portable [`account.yaml`, `trees.yaml`, and device-file contract](spec/configuration.md) is one private synchronized Arbor tree. The current implementation checks it out at `${ARBOR_DATA_HOME:-~/.arbor}`, using an excluded `.state` mount for private daemon data and the operating-system credential store for raw credentials; those local choices are documented in [the local-system reference](docs/local-system.md). Direct valid YAML edits apply through arbord's file watcher, while invalid candidates leave the last valid configuration active and produce diagnostics.
 
 Markdown uses CommonMark/GFM plus the readable Clamshell toggle extension (`▸ Title` with two-space-indented children). CSV and JSONL use the fixed `_store.csv` and `_store.jsonl` names. Configure Postgres references without a plaintext DSN using `arbor connection set <name>`.
 
@@ -77,7 +77,7 @@ bun run test:performance
 swift test --package-path native/Packages/ArborClient
 ```
 
-`bun run test:protocol` is the cross-language conformance gate: it checks the shared JSON/SSE fixtures, starts a temporary live arbord, and runs the Swift tests against it. Running `swift test` directly checks the standalone package and fixture decoding; its live-server case is skipped when `ARBOR_TEST_URL` is absent.
+`bun run test:protocol` runs both layers: portable JSON/SSE vectors from [`conformance`](conformance), and reference REST fixtures from [`tests/fixtures`](tests/fixtures), followed by disposable live arbord and authority checks against the Swift clients. Running `swift test` directly checks standalone decoding; live-server cases skip when their test URLs are absent.
 
 For hands-on testing without modifying the checked-in fixture, copy it to a scratch tree and start Arbor:
 
@@ -111,9 +111,9 @@ A workspace may contain local folders, SQLite databases, connected stores, and A
 Working documents:
 
 - **[intro.md](intro.md)** — narrative introduction and pitch: from the agent-playground problems (sharing/syncing, human interface, containment) to a universal dynamic material that supersedes the web.
-- **[spec.md](spec.md)** — aspirational spec overview, v0.8, split into public contracts for format, locators, `trees.yaml`/`system:`, arbord REST and clients, stores, scripts, agents, the wire, and the CLI.
+- **[spec.md](spec.md)** — aspirational spec overview, v0.8, split into portable contracts for authored format, locators, synchronized configuration, stores, executable documents, agents, and the cross-server wire.
 - **[plan/](plan/README.md)** — planning organized by product direction, native work, hardening, and implemented records.
-- **[docs/arbor-client.md](docs/arbor-client.md)** — non-normative Arbor client interaction design.
+- **[docs/client.md](docs/client.md)** — non-normative Arbor client interaction design.
 - **[docs/reference-implementation.md](docs/reference-implementation.md)** — replaceable Bun/TypeScript/Swift architecture, private-state mechanics, and verification details.
 - **[plan/product/roadmap.md](plan/product/roadmap.md)** — the forward roadmap, now led by the checked-in Supplies live-site vertical slice.
 - **[plan/product/supplies-live-site.md](plan/product/supplies-live-site.md)** — concrete local web, native, authority, live-streaming, and real-data migration gates for `sites/supplies`.

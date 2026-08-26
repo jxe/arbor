@@ -12,7 +12,7 @@
 >
 > ```sh
 > git diff --stat 84fc705..HEAD -- \
->   spec/format.md spec/client.md spec/system.md spec/fixtures \
+>   spec/format.md docs/client.md spec/configuration.md conformance \
 >   packages/fs packages/arbord native package.json plan/native/README.md
 > git -C /Users/joe/src/hunch diff --stat 4c35f37..HEAD -- \
 >   App/Sources/Clamshell App/Tests/HunchUnitTests
@@ -180,7 +180,7 @@ Run Xcode gates sequentially.
 ## Git workflow
 
 - Branch: `codex/arbor-icloud-v1`.
-- Commit spec/fixtures before either implementation.
+- Commit conformance before either implementation.
 - Commit pure Swift and TypeScript engines separately, then provider/app wiring.
 - Do not enable a real dual-writer folder until the shared gate passes in both
   languages.

@@ -9,7 +9,8 @@ interface UrlCase {
   expected: ResolvedLink;
 }
 
-const fixtures = join(import.meta.dir, "../../spec/fixtures");
+const fixtures = join(import.meta.dir, "../fixtures/client");
+const conformance = join(import.meta.dir, "../../conformance");
 
 describe("logical URL resolution", () => {
   test("resolves every shared fixture case identically", async () => {
@@ -17,6 +18,28 @@ describe("logical URL resolution", () => {
     expect(cases.length).toBeGreaterThan(20);
     for (const { base, href, expected } of cases) {
       expect(resolveLogicalURL(base, href), `${base} + ${JSON.stringify(href)}`).toEqual(expected);
+    }
+  });
+
+  test("matches portable tree-relative conformance vectors", async () => {
+    const cases = JSON.parse(await readFile(join(conformance, "url-resolution.json"), "utf8")) as Array<{
+      base: string;
+      href: string;
+      expectedPath: string | null;
+      pageID?: string;
+      fragment?: string;
+    }>;
+    for (const item of cases) {
+      const resolved = resolveLogicalURL(item.base, item.href);
+      if (item.expectedPath === null) {
+        expect(resolved, `${item.base} + ${JSON.stringify(item.href)}`).toBeNull();
+      } else {
+        expect(resolved, `${item.base} + ${JSON.stringify(item.href)}`).toEqual({
+          kind: "local",
+          path: item.expectedPath,
+          ...(item.pageID ? { pageID: item.pageID, fragment: item.fragment } : {}),
+        });
+      }
     }
   });
 

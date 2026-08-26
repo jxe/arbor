@@ -16,7 +16,7 @@ import {
 
 describe("canonical tree objects", () => {
   test("matches the language-neutral canonical object vectors", async () => {
-    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/fixtures/wire-objects.json"), "utf8")) as {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../conformance/wire-objects.json"), "utf8")) as {
       objects: Array<{
         model: { type: "file"; bytesBase64: string } | { type: "directory"; entries: Array<{ name: string; hash?: string; tree?: string }> };
         canonicalCborBase64: string;
@@ -34,7 +34,7 @@ describe("canonical tree objects", () => {
   });
 
   test("keeps strict invalid object bytes as language-neutral vectors", async () => {
-    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/fixtures/wire-objects.json"), "utf8")) as {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../conformance/wire-objects.json"), "utf8")) as {
       invalid: Array<{ name: string; canonicalCborBase64: string }>;
     };
     expect(fixture.invalid.map((item) => item.name)).toEqual([
@@ -49,7 +49,7 @@ describe("canonical tree objects", () => {
   });
 
   test("can traverse retained pre-foundation directory order only when explicitly requested", async () => {
-    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/fixtures/wire-objects.json"), "utf8")) as {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../conformance/wire-objects.json"), "utf8")) as {
       invalid: Array<{ name: string; canonicalCborBase64: string }>;
     };
     const vector = fixture.invalid.find(({ name }) => name === "unsorted-directory")!;

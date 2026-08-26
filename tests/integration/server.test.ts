@@ -124,7 +124,7 @@ describe("arbord REST v1", () => {
 
   test("rejects malformed and empty mutation batches at the protocol boundary", async () => {
     const fixture = JSON.parse(await readFile(
-      join(import.meta.dir, "../../spec/fixtures/malformed-mutation.json"),
+      join(import.meta.dir, "../fixtures/arbord/malformed-mutation.json"),
       "utf8",
     ));
     for (const body of [
@@ -211,7 +211,7 @@ describe("arbord REST v1", () => {
       source,
     };
     const mixedFixture = JSON.parse(await readFile(
-      join(import.meta.dir, "../../spec/fixtures/mixed-mutation.json"),
+      join(import.meta.dir, "../fixtures/arbord/mixed-mutation.json"),
       "utf8",
     ));
     mixedFixture.operations[0].ref = { tree: scope, pageID: before.ref.pageID!, pathHint: "/renamed" };

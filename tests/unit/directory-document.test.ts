@@ -15,7 +15,7 @@ const child = (name: string, path: string, pageID?: string): TreeChild => ({
 
 describe("complete directory Markdown", () => {
   test("matches the language-neutral completion fixtures", async () => {
-    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../spec/fixtures/directory-documents.json"), "utf8")) as {
+    const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../conformance/directory-documents.json"), "utf8")) as {
       cases: Array<{
         directory: string;
         source: string;

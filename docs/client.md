@@ -1,6 +1,6 @@
-# Arbor client reference interaction design
+# Arbor client reference design
 
-Arbor web and native Arbor are the reference human clients, not normative UIs. The portable client requirements are in [spec/client.md](../spec/client.md). Another conforming human client may use wholly different controls, labels, layout, editor, and platform conventions.
+Arbor web and native Arbor are the reference human clients, not normative UIs. Portable content, locator, and wire requirements live in the [Arbor specification](../spec.md). Another implementation may use different controls, layout, editor, platform conventions, and local daemon boundary.
 
 This document records the intended Arbor web/native product design so those choices do not leak into protocol contracts.
 
@@ -18,11 +18,17 @@ The launch path is a starting location, not a navigation boundary. Local untrack
 
 Navigation retains back/forward history, breadcrumbs, mounted-boundary provenance, and familiar sidebar/drawer behavior. Web may use a responsive overlay drawer; native follows platform navigation conventions.
 
+On macOS, an absolute filesystem location remains the tab, history, breadcrumb, Parent, and sidebar address even when arbord resolves it into an enclosing tree and returns a stable `TreeID`/`PageID`; document sessions and mutations use the resolved identity. A remote canonical locator likewise remains the navigation address. iOS uses tree-scoped locations because its private replica is confined to placements. Home is the enclosing placed-tree root for a local filesystem address, `/` for a tree-scoped address, and the canonical tree root for a remote visit. Parent follows the preserved location and may cross a tree boundary into ordinary filesystem space.
+
+The local client treats arbord as the authority for resolution, authored persistence, recovery, and observation. It does not write materialized shared-tree files behind arbord and rely on filesystem observation to recover authored intent, and it does not create an independent canonical content, placement, credential, or access database.
+
 ## Editing
 
 Arbor clients present the complete operational Markdown returned by arbord. The first standalone link to an immediate physical child represents that child; arbord appends ordinary Markdown links for unmatched children without materializing on read. Reordering those rows edits source, so Source view and the block editor always describe the same document.
 
 Web currently uses BlockNote as the interactive layer. This is a reference choice: Markdown remains canonical, unsupported syntax has a raw/source path, and untouched source is preserved. Properties, body edits, and structural operations show pending, saving, saved, conflict, read-only, and diagnostic states without claiming persistence before arbord returns a durable receipt.
+
+The leading emoji grapheme of the first H1 is Arbor's document icon. Setting or clearing it edits that H1; setting an icon on a document without an H1 prepends a heading using the display name. `Assets` is Arbor's conventional destination for imported binary assets. These are client conventions rather than portable authored-format requirements.
 
 ## Profile control and Claim
 

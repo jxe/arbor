@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Freeze the root-based accepted-update and merge contract before touching authority state or client networking. This is a specification-and-fixture milestone: do not implement the authority, deploy, add Swift, or introduce revision/DAG wire objects.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- spec/wire.md spec/client.md spec/system.md spec/fixtures packages/wire/src packages/authority/src packages/arbord/src/service.ts tests package.json`; then `git -C /Users/joe/src/hunch diff --stat a1e8379..HEAD -- App/Sources/Clamshell/PatchEngine.swift App/Tests/HunchUnitTests/ConflictMergerTests.swift`
+> **Drift check**: `git diff --stat dc34126..HEAD -- spec/wire.md docs/client.md spec/configuration.md conformance packages/wire/src packages/authority/src packages/arbord/src/service.ts tests package.json`; then `git -C /Users/joe/src/hunch diff --stat a1e8379..HEAD -- App/Sources/Clamshell/PatchEngine.swift App/Tests/HunchUnitTests/ConflictMergerTests.swift`
 
 ## Status
 
@@ -14,7 +14,7 @@
 - **Planned at**: Arbor `dc34126`, 2026-08-23
 - **Implementation status**: COMPLETE — the accepted-update contract is reflected in the spec and current TypeScript/Swift implementations, and the shared executable merge corpus covers additive Markdown, duplicate/replacement behavior, anchor fallback, frontmatter, fences, raw HTML, CRLF/mixed endings, PageID moves, binaries, nested boundaries, path-kind collisions, and exact replay semantics.
 - **Verified at**: current working tree, 2026-08-24 (`bun run test:protocol`, `bun run test:sync-merge`, `bun run test`, `bun run typecheck`, `bun run build`, `git diff --check`)
-- **Completion evidence**: `spec/fixtures/wire-update-intent.json` freezes canonical JSON/digest behavior across protocol clients, while `spec/fixtures/wire-merge.json` is exercised by the authority merger; both are validated by TypeScript and decoded by the Foundation-only Swift fixture tests.
+- **Completion evidence**: `conformance/wire-update-intent.json` freezes canonical JSON/digest behavior across protocol clients, while `tests/fixtures/authority/wire-merge.json` is exercised by the reference authority merger; both are validated by TypeScript and decoded by the Foundation-only Swift fixture tests.
 
 ## Why this matters
 
@@ -104,7 +104,7 @@ Every wire subject, including a writer, can resolve only currently readable grap
 
 ## Steps
 
-1. Update `spec/wire.md`, `spec/client.md`, and `spec/system.md` so refs remain directory roots and accepted updates own automatic convergence, linear history, exact retry, client-owned draft conflicts, and authorization.
+1. Update `spec/wire.md`, `docs/client.md`, and `spec/configuration.md` so refs remain directory roots and accepted updates own automatic convergence, linear history, exact retry, client-owned draft conflicts, and authorization.
 2. Specify `POST .../updates`, request/result fields, opaque accepted-update identifiers, canonical-JSON request identity, discovery negotiation, stable errors/statuses, accepted-row replay, CAS recheck behavior, and watch semantics. Restore-to-an-old-root must emit a new accepted update/watch event.
 3. Add JSON fixtures for current, accepted, merged, `409` conflict/draft, derived identity/replay, current-ref race, malformed/missing object, and absence of accepted-history/historical-object routes.
 4. Add exact-source three-way merge fixtures before implementation. Cover additions on both sides; same-slot additions; nearest surviving anchors; missing-anchor outward walk; no-anchor fallback; exact duplicate additions; repeated identical lines; one-side deletion plus other-side addition/edit; different paragraph replacements; headings/nested lists; distinct/same frontmatter keys; code fences; raw HTML; CRLF/mixed endings; PageID moves; binaries; nested boundaries; and retry idempotence.

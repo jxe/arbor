@@ -2,7 +2,7 @@
 
 **Status:** The authored reference tree is checked in at [`sites/supplies`](../../sites/supplies). Arbor can browse its source today, but cannot yet execute its MDX/TSX documents.
 
-This plan uses the real Supplies port as the implementation corpus for Arbor's data, scripts, and executable-document work. The existing app at `/Users/joe/src/supplies` stays live and unchanged until the Arbor version has been built, populated, staged, and cut over.
+This plan uses the real Supplies port as the implementation corpus for Arbor's stores, named handles, and executable-document work. The existing app at `/Users/joe/src/supplies` stays live and unchanged until the Arbor version has been built, populated, staged, and cut over.
 
 ## Target result
 

@@ -12,7 +12,7 @@
 - **Depends on**: none
 - **Category**: docs/direction
 - **Planned at**: Arbor `dc34126`, 2026-08-23
-- **Final status**: DONE on 2026-08-23 — current product, specification, deployment, runtime, and planning language now uses Arbor; `docs/arbor-client.md` is the informative client-design document.
+- **Final status**: DONE on 2026-08-23 — current product, specification, deployment, runtime, and planning language now uses Arbor; `docs/client.md` is the informative client-design document.
 
 ## Why this matters
 
@@ -21,7 +21,7 @@ The repository still calls the human client TreeHopper and its active native han
 ## Current state
 
 - `README.md` calls the React browser TreeHopper and describes the native work as future TreeHopper/iCloud integration.
-- `spec.md`, `spec/client.md`, deployment docs, server messages, and tests use TreeHopper as a provisional reference-client name.
+- `spec.md`, `docs/client.md`, deployment docs, server messages, and tests use TreeHopper as a provisional reference-client name.
 - `plan/native/README.md` and `execution.md` now record the accepted Arbor synchronization direction; Plans 002–005 remain on disk as superseded evidence.
 - Quagmire repository commit `4049fd4` is tagged `0.1.0`; Hunch commit `a1e8379` consumes the remote exact version.
 

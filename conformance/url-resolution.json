@@ -1,0 +1,12 @@
+[
+  { "base": "/projects/atlas", "href": "notes", "expectedPath": "/projects/atlas/notes" },
+  { "base": "/projects/atlas", "href": "./notes", "expectedPath": "/projects/atlas/notes" },
+  { "base": "/projects/atlas", "href": "../roadmap", "expectedPath": "/projects/roadmap" },
+  { "base": "/projects/atlas", "href": "/people/alice", "expectedPath": "/people/alice" },
+  { "base": "/projects/atlas", "href": "notes.md", "expectedPath": "/projects/atlas/notes" },
+  { "base": "/projects/atlas", "href": "notes/_index.md", "expectedPath": "/projects/atlas/notes" },
+  { "base": "/projects/atlas", "href": "../roadmap#opaque-id", "expectedPath": "/projects/roadmap", "pageID": "opaque-id", "fragment": "opaque-id" },
+  { "base": "/projects/atlas", "href": "sp%20ace", "expectedPath": "/projects/atlas/sp ace" },
+  { "base": "/projects/atlas", "href": "../../..", "expectedPath": null },
+  { "base": "/projects/atlas", "href": "../../../escape", "expectedPath": null }
+]

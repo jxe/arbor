@@ -11,8 +11,8 @@
 >
 > ```sh
 > git diff --stat 05bcf35..HEAD -- \
->   README.md plan/native/README.md plan/hardening/technical-debt.md docs/arbor-client.md \
->   native spec/client.md spec/format.md spec/locators.md spec/arbord-rest.md \
+>   README.md plan/native/README.md plan/hardening/technical-debt.md docs/client.md \
+>   native docs/client.md spec/format.md spec/locators.md docs/arbord-api.md \
 >   package.json tests/protocol
 > ```
 >
@@ -56,7 +56,7 @@ second storage authority from becoming the new app's foundation.
   Markdown; writes use exact `source` plus `baseContentRevision`; logical URLs
   accept opaque non-empty PageID fragments. Treat these as verified inputs, not
   work for this plan.
-- `spec/client.md:6-30` says arbord is the macOS authority, clients retain full
+- `docs/client.md:6-30` says arbord is the macOS authority, clients retain full
   resolved tree/path/PageID provenance, untouched Markdown is byte-preserved,
   and snapshot observation must not have a gap.
 - Hunch's bundle IDs, target names, defaults, Application Support directories,

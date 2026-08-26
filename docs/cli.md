@@ -1,7 +1,8 @@
 # Arbor CLI
-*Part of the [Arbor spec](../spec.md): the portable command surface and its account-configuration transformations.*
+*Reference command surface for the current Arbor implementation.*
 
-Every content operand is an Arbor [locator](locators.md). The CLI resolves
+Every content operand is an Arbor [locator](../spec/locators.md) or a local
+arbord address. The CLI resolves
 through arbord or an authority and never edits guessed private `.state` files.
 
 ## Workspace, account, and synchronization
@@ -64,4 +65,4 @@ atomically revokes its credential when accepting the configuration update.
 Commands return nonzero on invalid configuration, unresolved locators,
 conflicts, rejected policy, incomplete durability, or partial deployment.
 Tutorial aliases, host-specific migration environment variables, credential
-recovery procedures, and deployment recipes are outside this portable surface.
+recovery procedures, and deployment recipes are outside this reference command surface.

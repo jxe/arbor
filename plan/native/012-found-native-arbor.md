@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Scaffold the product and UI-independent contracts over a deterministic fake provider. Do not add real persistence, networking, Quagmire, voice, or Hunch code. Generate the Xcode project from YAML and run macOS/iOS commands sequentially.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- native plan/native/README.md docs spec/client.md package.json`
+> **Drift check**: `git diff --stat dc34126..HEAD -- native plan/native/README.md docs docs/client.md package.json`
 
 ## Status
 

@@ -12,7 +12,7 @@
 >
 > ```sh
 > git diff --stat 84fc705..HEAD -- native plan/native/README.md plan/records/history.md \
->   README.md docs/arbor-client.md packages tests spec
+>   README.md docs/client.md packages tests spec
 > git -C /Users/joe/src/hunch diff --stat 4c35f37..HEAD -- \
 >   App/Sources App/Tests App/UITests project.yml README.md
 > ```
@@ -302,7 +302,7 @@ claimed gates actually pass.
 ### Step 8: Update canonical product documentation and release state
 
 Reconcile `plan/native/README.md`, `plan/records/history.md`, `README.md`,
-`docs/reference-implementation.md`, `docs/arbor-client.md`, and relevant specs.
+`docs/reference-implementation.md`, `docs/client.md`, and relevant specs.
 Mark behavior implemented only when its source and gate exist. Keep later
 scripts, collections, sharing, and agents visibly dependent on their core
 milestones.

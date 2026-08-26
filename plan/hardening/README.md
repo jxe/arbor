@@ -178,7 +178,7 @@ any of these.
   hoisting — so nothing prevents `@arbor/core` (the browser-safe package the
   Swift client mirrors) from acquiring a Node-only dependency. Effort S.
 - **`plan/product/roadmap.md:48` claims a `claim` CLI command that does not exist**, and its own
-  "Implemented control surface" block at `:151-157` correctly omits it. `spec/cli.md`
+  "Implemented control surface" block at `:151-157` correctly omits it. `docs/cli.md`
   also specifies `arbor unsync` and `arbor status`, neither implemented nor
   listed as remaining work. `plan/product/roadmap.md:6` declares itself the single source of
   implementation status, so this gap is invisible from either document. Effort S.
@@ -195,7 +195,7 @@ maintainer to weigh, not defects to fix.
 
 - **`arbor unsync` is one CLI branch from shipping.** `deleteTreePlacement` is
   implemented and unit-tested at `packages/stores/src/trees.ts:257` with **zero**
-  production callers, and `spec/cli.md:12` already specifies its exact semantics
+  production callers, and `docs/cli.md:12` already specifies its exact semantics
   ("remove one placement relationship without deleting files, remote identity,
   or history"). Today, undoing a `sync` means hand-editing `~/.arbor/trees.yaml`.
   Anyone trialing sharing — the current milestone's headline feature — hits this

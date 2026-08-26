@@ -1,6 +1,6 @@
 # External agent access through the Arbor CLI
 
-**Status:** Planned. This is an independent enabling plan, not the authority-hosted agent milestone. Read-only work can begin against the implemented arbord/client surface; compiled script-handle invocation follows the live-data document work.
+**Status:** Planned. This is an independent enabling plan, not the authority-hosted agent milestone. Read-only work can begin against the implemented arbord/client surface; compiled executable-document handle invocation follows the live-data document work.
 
 ## Target result
 

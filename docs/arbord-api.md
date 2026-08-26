@@ -1,12 +1,12 @@
 # Arbord REST v1
-*Part of the [Arbor spec](../spec.md): the loopback contract for explicit-scope resolution, reads, authored mutations, account bootstrap, and observation.*
+*Reference API for the current local daemon and its TypeScript and Swift clients. It is not part of the portable Arbor specification.*
 
 Arbord binds to loopback and rejects cross-origin browser requests. JSON is
 UTF-8. Request URLs never contain credentials or access-link secrets.
 
 ## 1. Shared values
 
-REST v1 uses the transport-neutral types also used by [the wire](wire.md):
+REST v1 extends values from [the Arbor wire protocol](../spec/wire.md) with its local `local` and `system` scopes:
 
 ```ts
 type TreeID = string;
@@ -172,7 +172,7 @@ snapshot/page envelopes. `GET /v1/file` returns exact bytes and does not need an
 independent cursor because its guarding content revision is obtained from the
 node snapshot.
 
-Directory source and logical-node rules are defined in [format.md](format.md).
+Directory source and logical-node rules are defined by the portable [authored format](../spec/format.md).
 Children, search, backlinks, collections, recovery entries, mounted boundaries,
 events, and effects all retain explicit tree scope.
 
@@ -286,10 +286,11 @@ Local workspace events and authority accepted-update events deliberately keep
 different `kind` and `change` payloads. Sharing the observation framing does
 not claim the domain events are identical.
 
-## 8. Conformance
+## 8. Reference fixtures
 
-Implementations consume the language-neutral valid/invalid JSON, error,
-descriptor, resolution, and SSE fixtures under [`spec/fixtures`](fixtures).
-Conformance includes mandatory explicit tree scope, write guards, exact replay,
-snapshot/SSE gap freedom, multiline data, keepalives, conflicting-cursor
-rejection, and terminal resynchronization.
+The TypeScript and Swift reference clients consume the REST JSON and SSE
+fixtures under [`tests/fixtures/arbord`](../tests/fixtures/arbord). Their shared
+tests cover explicit tree scope, write guards, exact replay, snapshot/SSE gap
+freedom, multiline data, keepalives, conflicting-cursor rejection, and terminal
+resynchronization. Another local implementation may expose the same underlying
+Arbor behavior through a different client/daemon boundary.

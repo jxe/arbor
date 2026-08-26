@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Add synchronization around the already-safe local replica. Swift submits exact root-based intent and consumes the authority's merge/draft results; it must not port the TypeScript merge engine. Preserve further local work while offline, pending, or conflicted. Do not add Quagmire or broad product features.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- native/Packages/ArborWire native/Packages/ArborReplica native/Packages/ArborKit packages/arbord spec/fixtures tests plan/native`
+> **Drift check**: `git diff --stat dc34126..HEAD -- native/Packages/ArborWire native/Packages/ArborReplica native/Packages/ArborKit packages/arbord conformance tests plan/native`
 
 ## Status
 
