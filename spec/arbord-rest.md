@@ -27,6 +27,7 @@ type LogicalPath = string;                   // decoded, absolute within tree
 type PageID = string;                        // opaque, non-empty
 type Hash = `sha256:${string}`;
 type EventCursor = string;                   // opaque outside event APIs
+type QueryCursor = string;                   // opaque outside one published query state
 
 type NodeRef =
   | { tree?: TreeRef; path: LogicalPath }
@@ -366,7 +367,55 @@ type WorkspaceEvent = {
 
 Events are invalidations and observations, not replacement snapshots. An unavailable cursor returns `resync-required`; the client refetches visible state and resumes from the new snapshot cursor. Replay need not survive a daemon epoch, and its exact in-memory size is not normative. The complete framing vector is [events.sse](fixtures/events.sse).
 
-## 8. Conformance
+## 8. Executable query-result streaming
+
+```text
+POST /v1/query-stream
+Content-Type: application/json
+Accept: text/event-stream
+```
+
+This is the local binding of the stateless live-query contract in [executable web documents](applications.md#server-rendering-and-live-query-streams). Its request body completely describes one coherent document version and its currently mounted query graph:
+
+```ts
+type ArbordQueryStreamRequest = {
+  document: {
+    tree: TreeRef;
+    path: LogicalPath;
+    version: Hash;
+  };
+  queries: Array<{
+    id: string;
+    handle: {
+      tree: TreeRef;
+      module: LogicalPath;
+      export: string;
+      version: Hash;
+    };
+    input: unknown;
+    knownOutputHash?: Hash;
+  }>;
+};
+```
+
+`document.tree` and every handle tree are required resolved scopes; the request cannot rely on an omitted default tree. The query array is nonempty. Query IDs are non-empty, unique within the request, and otherwise have no durable meaning. Arbord verifies the coherent compiled document version, membership of every handle/version in its reviewed manifest, each handle's input schema, the current local Arbor user context, and every resolved backing capability before returning a stream. A client cannot use this endpoint to invoke an arbitrary export or widen a document's execution authority.
+
+The response is `text/event-stream; charset=utf-8`. Frames use the same UTF-8, blank-line, multi-`data:`-line, comment, and keepalive rules as `/v1/events`, but they carry no SSE `id`, `Last-Event-ID`, or replay cursor. Normative event names are `result`, `ready`, and `reload`; the SSE `event` field supplies the shared shape's `type` discriminator and `data` supplies its remaining JSON members. Because the request has a JSON body, browser clients use a streaming fetch rather than the GET-only `EventSource` interface. For example:
+
+```text
+event: result
+data: {"id":"popular","observedThrough":"opaque","outputHash":"sha256:<hex>","value":[]}
+
+event: ready
+data: {"queries":[{"id":"popular","observedThrough":"opaque","outputHash":"sha256:<hex>"}]}
+
+```
+
+Arbord begins buffering committed changes, evaluates each query against a consistent snapshot, and reruns any query invalidated before its follow boundary. It sends a complete `result` before `ready` when the current value differs from the supplied `knownOutputHash`; otherwise `ready` revalidates the client's existing value without resending it. Later relevant changes send complete replacement results only when their canonical output hash changes. An error result is public and sanitized and has no value or output hash.
+
+Closing the HTTP response releases every subscription in the request. A reconnect repeats the complete POST and establishes fresh snapshot boundaries; arbord retains no named execution, acknowledgement state, or replay buffer for this API. A changed coherent source version or local access context produces `reload` when the stream is still writable and then closes it. Errors detected before streaming use the ordinary REST v1 JSON error response. `/v1/events` remains the distinct process-wide workspace invalidation stream and never carries query values.
+
+## 9. Conformance
 
 Language-neutral REST, locator, exact-source, and error fixtures live in [spec/fixtures](fixtures). TypeScript and Swift conformance suites consume the same files. Required-field rejection, obsolete block-write rejection, and unknown-field compatibility are tested at the live boundary.
 

@@ -45,7 +45,7 @@ The source intentionally imports proposed `arbor/react` and `arbor/data` APIs th
 - transaction row APIs and retry-stable mutation context;
 - SSR/hydration and active-query discovery from the addressed document component;
 - React Action adaptation, hoisted-head streaming, built-in Tailwind compilation, Markdown, and document boundaries;
-- committed store observation, semantic sensitivity, keyed result diffs, and resync;
+- committed store observation, semantic sensitivity, replacement-result streaming, and fresh reconnect;
 - authority browser sessions and tree execution-principal hosting.
 
 ## Product question discovered by the port

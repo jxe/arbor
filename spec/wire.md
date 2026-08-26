@@ -101,7 +101,7 @@ type WireError = {
 
 `error` is the stable application-level discriminator. Clients switch on that string and may ignore additional top-level context fields they do not understand. The HTTP status remains the broad transport-level category.
 
-Stable codes are `invalid-request`, `unauthenticated`, `permission-denied`, `not-found`, `already-claimed`, `conflict`, `base-not-retained`, `authority-busy`, `reserved-boundary`, `rate-limited`, `quota-exceeded`, and `internal-error`.
+Stable codes are `invalid-request`, `unauthenticated`, `permission-denied`, `not-found`, `already-claimed`, `conflict`, `base-not-retained`, `authority-busy`, `reserved-boundary`, `unsupported-operation`, `rate-limited`, `quota-exceeded`, and `internal-error`.
 
 | Status | Codes/meaning |
 |---|---|
@@ -114,6 +114,7 @@ Stable codes are `invalid-request`, `unauthenticated`, `permission-denied`, `not
 | `409` | `already-claimed`, `conflict`, or `reserved-boundary` |
 | `410` | `base-not-retained` |
 | `413` | `quota-exceeded` for request/object size |
+| `422` | `unsupported-operation` |
 | `429` | `rate-limited` or quota rate |
 | `500` | undeclared `internal-error` |
 | `503` | retryable `authority-busy` or temporary `internal-error` |
@@ -274,6 +275,43 @@ data: {...TreeDescriptor...}
 Only `event: ref` is normative. `id` is the opaque accepted-update ID, so restoring a previously used root remains a distinct event. Multiple `data:` lines join with newline before JSON decoding; comments are keepalives. `data` is a `TreeDescriptor` and may additionally contain `requestDigest`. The host includes that digest only when the event is delivered to the exact authenticated bearer-credential subject that submitted the accepted request; it is absent for public, link-only, account-fallback, and different-credential readers. It is a correlation value, not an authorization capability or a second update identity.
 
 `Last-Event-ID` names the last observed accepted update. When that update is retained, the host sends only later accepted updates; when it is current, the initial replay is empty. When it is not retained, the host may immediately send the current descriptor. The accepted-update ID returned by a successful update submission is also a valid watch cursor and is durably recorded with the accepted base. An already-open watch does not reconnect after a write: it correlates a live frame's `requestDigest` with the client's durable pending request. A matching frame may be ignored after the response has been applied or may trigger an idempotent replay of the exact request after an ambiguous/lost response. Watch remains an invalidation channel: after validating a genuinely remote descriptor, a clean client reads the coherent current snapshot; a client with local changes submits its ordinary candidate for authority reconciliation. Conflicts are client-owned and never appear on this accepted-state channel.
+
+### Executable query-result streaming
+
+```text
+POST /.arbor/query-stream
+Content-Type: application/json
+Accept: text/event-stream
+```
+
+An authority that hosts executable documents exposes the same stateless live-query contract as local arbord. An authority without that runtime, or a tree for which executable hosting has not been activated, returns `422 unsupported-operation`. The body completely describes one coherent document version and its currently mounted query graph:
+
+```ts
+type AuthorityQueryStreamRequest = {
+  document: {
+    tree: TreeID;
+    path: string;
+    version: Hash;
+  };
+  queries: Array<{
+    id: string;
+    handle: {
+      tree: TreeID;
+      module: string;
+      export: string;
+      version: Hash;
+    };
+    input: unknown;
+    knownOutputHash?: Hash;
+  }>;
+};
+```
+
+The authority authenticates each request from its browser session or ordinary wire credentials, resolves the safe `ArborUser` projection when one exists, and independently verifies source-tree access, the activated coherent document version, every handle/version's membership in the reviewed manifest, validated inputs, and the execution principal's backing grants. The query array is nonempty. Query IDs are nonempty, unique only within the request, and grant no authority. A `knownOutputHash` is only permission to omit retransmitting an identical value after current authorization and reevaluation; it is never evidence that the caller may read that value.
+
+The response is `text/event-stream; charset=utf-8` and uses the normative `result`, `ready`, and `reload` event shapes and lifecycle in [executable web documents](applications.md#server-rendering-and-live-query-streams). It carries no SSE `id`, `Last-Event-ID`, acknowledgement, or replay cursor. The authority establishes a new race-free snapshot-then-follow boundary for every request, sends complete authorized replacements whose canonical hashes changed, and closes all subscriptions when the response closes. Reconnection repeats the complete POST. A source-version or access-context change sends `reload` when possible and closes the response; a request already unauthorized fails with the ordinary `401` or `403` JSON error before streaming begins.
+
+This endpoint is derived-result delivery, not tree history. It never emits raw store changes, private rows outside a validated result, handle implementations, backing identities, credentials, or accepted-update history. `/.arbor/trees/{TreeID}/watch` remains the distinct accepted-ref invalidation channel. A profile-tree watch or database observer may cause the document runtime to reevaluate a query internally, but the browser receives only the resulting authorized query state.
 
 ### Access
 

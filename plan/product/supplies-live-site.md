@@ -101,12 +101,32 @@ Finish the phase by invoking every Supplies query directly in a headless harness
 2. Derive a sensitivity plan from each normalized query: exact rows/fields, predicates that a new row may enter, correlation keys, aggregates, ordering/window boundaries, schema identity, profile-tree refs, and user/access context.
 3. Implement snapshot-then-follow subscription startup: begin buffering after a store cursor, execute on a consistent snapshot, compare buffered changes with the new dependency set, rerun if needed, and publish the result with its `observedThrough` cursor.
 4. Implement a per-query state machine that unions old/new dependencies while rerunning, coalesces bursts, suppresses identical canonical output hashes, and never publishes a result already invalidated during execution.
-5. Start with complete replacement results. Add keyed insert/update/move/remove diffs only for shaped `many` values with stable `key by` and `order by`; keep replacement as the correctness fallback.
-6. Multiplex active subscriptions on one ordered SSE stream with subscription IDs, versions, output hashes, acknowledgements, bounded replay, backpressure that retains newest state, and explicit resync after cursor gaps or server restart.
+5. Publish complete replacement results and suppress identical canonical output hashes. Keep keyed result diffs out of the initial contract; reconsider them only from measured result sizes and stream volume.
+6. Add the shared stateless query-stream request to arbord REST and authority wire HTTP. One POST describes the document version and complete mounted query graph and returns SSE `result`, `ready`, and `reload` events. Closing the response releases the subscriptions; reconnecting repeats the request and establishes fresh snapshot-then-follow boundaries, with no execution ID, acknowledgement, replay cursor, or resync resource.
 7. Detect external SQLite revision/WAL changes conservatively and invalidate the entire store when exact rows are unavailable. Re-run from a new snapshot rather than inferring row changes from undocumented WAL internals.
-8. Test two simultaneous subscriptions, a related update, an unrelated precise update, a possibly-entering insert, top-N reorder, profile edit, mutation-during-rerun race, external commit, disconnect/replay, replay gap, and listener restart.
+8. Test two simultaneous subscriptions, a related update, an unrelated precise update, a possibly-entering insert, top-N reorder, profile edit, mutation-during-rerun race, external commit, disconnect/fresh reconnect, mounted-query-graph replacement, and listener restart.
 
-Finish the phase with a headless two-client test in which related results change without polling, unrelated precise writes produce no rerun, and every forced gap produces a fresh current snapshot.
+Finish the phase with a headless two-client test in which related results change without polling, unrelated precise writes produce no rerun, and every forced disconnect repeats the self-contained request and proves its retained values current from a fresh snapshot boundary.
+
+#### Deferred keyed result diffs
+
+Do not implement result diffs for the initial stream. If measured result sizes or stream volume justify them, add a connection-local optimization without changing the stateless reconnect contract. The first extension should apply only to a root `return many` result with stable `key by` semantics:
+
+```ts
+type KeyedResultPatch = {
+  baseOutputHash: Hash;
+  outputHash: Hash;
+  removed: string[];
+  upserted: Array<{ key: string; value: unknown }>;
+  order: string[];
+};
+```
+
+The server still reruns and shapes the complete query. While one response remains open, it may compare the last emitted value with the new value and send this patch only when it is materially smaller than a replacement. `removed` deletes absent rows, `upserted` supplies complete new or changed rows, and `order` supplies the complete final key order; this avoids separate position-sensitive insert and move operations.
+
+The client applies a patch only when its current canonical hash equals `baseOutputHash`. It rejects missing or duplicate keys, rebuilds the result in `order`, and requires the reconstructed canonical hash to equal `outputHash`. Any base mismatch, malformed patch, dropped intermediate state, or verification failure closes the stream and uses the ordinary fresh request, which returns `ready` for an unchanged value or a complete replacement. Reconnect never requires the server to retain or recover a prior value, and the protocol gains no acknowledgement, replay cursor, or execution resource.
+
+Root keyed results are the deliberately small first scope. Nested `many` values require stable addressing for each collection instance—especially beneath another keyed collection—and remain deferred until root-result measurements show that complexity is warranted. Incremental database maintenance is a separate optimization: transport diffs may be derived after an ordinary complete rerun.
 
 ### Phase 3 — mutation runner
 
@@ -138,12 +158,12 @@ Finish the phase when `arbor check sites/supplies` typechecks the unchanged tree
 
 1. Add an executable-document surface to shared REST, TypeScript client, Swift client, and ArborKit node models: source kind, coherent version, runnable/diagnostic state, and execution URL. Keep source access available separately.
 2. Have arbord render an addressed executable node using the same tree/path/access resolution as ordinary browse. Pass `URLSearchParams`, run mounted queries, server-render React, embed authorized initial results/cursors, and hydrate without duplicate reads.
-3. Implement `arbor/react` exactly as used by Supplies: `useQuery`, `skipQuery`, `useMutationAction`, `useUser`, `useNavigate`, `Markdown`, React head hoisting, and accessible default Suspense/error/reconnecting/resync boundaries.
+3. Implement `arbor/react` exactly as used by Supplies: `useQuery`, `skipQuery`, `useMutationAction`, `useUser`, `useNavigate`, `Markdown`, React head hoisting, and accessible default Suspense/error/reconnecting/revalidating boundaries.
 4. Wire React Actions to the mutation runner, correlate receipts with query-stream updates, and preserve JavaScript-free form submission. Keep anchors as normal HTTP links and make `useNavigate` change the ordinary Arbor location.
 5. Show the running document in local Arbor web with Arbor chrome, location, provenance, and an explicit source view/edit control. Preserve query strings, back/forward, reload, open-in-new-tab, and copied extensionless URLs.
 6. Add explicit per-tree executable hosting to the authority. Activation records a reviewed tree/ref, manifest, private data-tree grants, resource ceilings, and last-known-good version; sharing source alone does not execute it.
 7. Resolve authority browser sessions to `ArborUser`, serve enabled documents at their ordinary canonical HTTP paths, run the same SQLite/query/stream/mutation stack, and invalidate affected subscriptions on user switch or revocation.
-8. Add browser tests against local and authority hosts with two contexts: SSR/hydration, public/private disclosure, required-user session UI, every Action, live related/unrelated changes, profile edits, reconnect/resync, source rollout, revocation, and absence of SQLite/server code in responses.
+8. Add browser tests against local and authority hosts with two contexts: SSR/hydration, public/private disclosure, required-user session UI, every Action, live related/unrelated changes, profile edits, fresh reconnect, source rollout, revocation, and absence of SQLite/server code in responses.
 
 Finish the phase when `bun run arbor browse sites/supplies` opens the seeded working site and the unchanged shared tree works at its authority URL with two live clients.
 
@@ -167,7 +187,7 @@ Finish the phase when the signed macOS app runs the local Supplies tree, observe
 5. Convert spaces, authorship, list order, reactions, tags, contributors, and edit policies to the normalized schema. Preserve a durable legacy-ID/redirect map and decide whether legacy URL-accessible `unlisted` becomes a third visibility before importing it.
 6. Validate logical row counts, visibility, order, authors, reactions, tags, attribution, text, and representative old URLs. Run the importer twice from the same snapshot and require identical logical output.
 7. Install through a recoverable private-tree database swap, stage the real site side-by-side on an authority, run visual/behavioral checks, freeze old writes for a final delta, and retain backups plus a tested rollback before changing the public domain.
-8. Measure query reruns, stream volume, SQLite contention, compilation latency, SSR latency, and authority resource use. Add keyed diffs, incremental maintenance, a Postgres runtime driver, or production scaling only in response to those measurements.
+8. Measure query reruns, stream volume, SQLite contention, compilation latency, SSR latency, and authority resource use. Add the [deferred keyed result diff](#deferred-keyed-result-diffs), incremental maintenance, a Postgres runtime driver, or production scaling only in response to those measurements.
 
 Finish the phase when the real Meaning Supplies corpus runs on the authority with reviewed identities, stable redirects, matching content/access/order, recoverable backups, and an exercised rollback path.
 

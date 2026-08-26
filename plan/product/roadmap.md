@@ -69,14 +69,14 @@ Completion gate: Alice mounts two different Arbor trees at locally meaningful pa
 Outcome: the checked-in Supplies tree is the first complete executable Arbor site—SQLite-backed, live, editable, Arbor-user-aware, locally browsable, native-presented, authority-hosted, and finally populated from the real service.
 
 1. Build the SQLite query engine against every checked-in Supplies `rel` block, including schema/result type inference and profile-tree joins. Keep query returns factual; calculate editability and other presentation state in React with `useUser()`.
-2. Add race-free query-result streaming from committed SQLite/profile changes with semantic sensitivity, snapshot-then-follow, output hashing, multiplexed delivery, and explicit resync.
+2. Add race-free query-result streaming from committed SQLite/profile changes with semantic sensitivity, snapshot-then-follow, output hashing, and one self-contained stateless SSE request for the mounted query graph.
 3. Add the mutation runner with Standard Schema inputs, injected Arbor users, a default transaction exposed as `tx`, in-transaction authorization, retry-stable IDs/time/receipts, ordered relation primitives, and post-commit change publication.
 4. Add MDX/TSX compilation and development typechecking, server/client extraction, Standard Schema-derived handle types, generated `RowOf`/`ResultOf` declarations, zero-import Tailwind, manifests, watch diagnostics, and `arbor check`.
 5. Make the components run first in local `arbor browse` and then through the same SSR/hydration/Action/stream stack at ordinary authority HTTP paths after explicit tree activation.
 6. Present the same local runtime in signed macOS Arbor through a constrained native web surface while preserving native tab/location/provenance and source controls.
 7. Add the deterministic fixture, import the real Postgres corpus into SQLite with reviewed legacy-ID/ProfileID mapping, stage side by side, and cut over with redirects, backups, and rollback.
 
-SQLite is the one required backing for this milestone. The portable contract must leave room for Postgres, but implementing and operating two database compilers before Supplies works is no longer a gate. The first correctness strategy remains dependency-directed reruns, output hashing, and keyed result diffs; incremental maintenance follows only if measurement requires it.
+SQLite is the one required backing for this milestone. The portable contract must leave room for Postgres, but implementing and operating two database compilers before Supplies works is no longer a gate. The first correctness strategy remains dependency-directed reruns, output hashing, and complete replacement results; keyed transport diffs and incremental maintenance follow only if measurement requires them.
 
 Completion gate: the unchanged `sites/supplies` source runs in local Arbor web, signed macOS Arbor, and its canonical authority website; two clients update without refresh after related mutations and profile edits; unrelated precise changes avoid reruns; reconnects cannot leave stale results; raw private data stays private; every person-valued row uses a stable Arbor ProfileID; and the verified real-data migration can cut over with stable redirects and rollback. The concrete phase-by-phase implementation plan is [Supplies live-site implementation plan](supplies-live-site.md).
 
@@ -102,7 +102,7 @@ Outcome: the same tree and executable documents can be published statically wher
 
 - `arbor bake` emits a static ref/object directory for a dumb host when every selected document and query is statically valid.
 - Preserve portable per-document graphs for assets, static query results, live handlers, capabilities, and schema requirements.
-- Add another live adapter only after a concrete site needs it and it can implement the document graphs' identity, transaction, subscription, and resync semantics honestly.
+- Add another live adapter only after a concrete site needs it and it can implement the document graphs' identity, transaction, subscription, and fresh-reconnect semantics honestly.
 - Protect deployed handlers with the same Standard Schema input contracts, Arbor user identity, tree execution principal, and process limits as the reference authority host.
 - Emit `<link rel="arbor">` and `Arbor-Tree` crosslinks.
 

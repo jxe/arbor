@@ -90,7 +90,7 @@ A live Arbor authority may run the executable-document runtime adjacent to its w
 
 - the wire authority owns tree identity, access, accepted updates, immutable objects, and current-tree watch;
 - store drivers own database transactions, snapshots, and committed change observation; and
-- the document runtime owns source compilation, query isolation, dependency tracking, server rendering, subscription state, and public result disclosure.
+- the document runtime owns source compilation, query isolation, dependency tracking, server rendering, live query evaluation, and public result disclosure.
 
 The tree execution principal receives only reviewed tree prefixes, store connections, and operations. A public executable document may read a private backing tree, but only validated rendered output and query results are disclosed. Raw stores, credentials, server handle source, diagnostics containing private values, and unrelated rows never enter the browser bundle or public response.
 
@@ -109,30 +109,95 @@ type ArborUser = null | {
 
 Authority-local account IDs, device IDs, credentials, and mutable handles are not document user identities. Scripts never accept a caller-supplied profile or account ID as proof of identity. Authored rows referring to a person store `ProfileID`; current display name, handle, portrait, and other public profile fields are resolved from that profile tree at query time. Profile reads are live dependencies, so a profile edit updates subscribed documents.
 
-A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the authority browser session is Arbor platform UI. The authority rechecks the session on render, query subscription, reconnect, and mutation; revocation terminates or downgrades existing streams.
+A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the authority browser session is Arbor platform UI. The authority rechecks the session on render, each query-stream request, and mutation; revocation terminates existing streams and prevents an unauthorized value from being treated as current.
 
 `useUser()` returns the optional safe Arbor user projection. `useUser({ required: true })` declares that the mounted component cannot execute anonymously. It suspends before user-dependent queries mount and lets the authority present its own session UI; Supplies or another authored tree never receives credentials or implements authentication. A query plan that dereferences user fields may likewise declare `require user`, causing an anonymous call to fail before data access even when it is invoked outside React.
 
 Anonymous, Arbor-user, and tree-principal executions are separate cache and subscription contexts. User-dependent queries record the identity and access decision as dependencies. Public executions may be shared only when their inputs, authorization, capabilities, and output are genuinely user-independent.
 
-## Server rendering and live subscriptions
+## Server rendering and live query streams
 
-The host resolves the requested Arbor path, compiles or loads the executable document, passes its query string, evaluates query reads mounted by its component tree, renders it, and embeds only validated results plus public handle/version metadata. Hydration reuses that snapshot rather than issuing blind duplicate reads. `useQuery` follows React Suspense semantics for an initial value and throws query failures to an error boundary; it does not return an ambiguous loading/error union. Arbor wraps each addressed document in accessible default loading, error, reconnecting, and resynchronizing UI. Documents may add narrower React Suspense or error boundaries around independently useful regions.
+The host resolves the requested Arbor path, compiles or loads the executable document, passes its query string, evaluates query reads mounted by its component tree, renders it, and embeds only validated results plus public handle/version metadata and canonical output hashes. Hydration reuses those values rather than issuing blind duplicate reads. `useQuery` follows React Suspense semantics for an initial value and throws query failures to an error boundary; it does not return an ambiguous loading/error union. Arbor wraps each addressed document in accessible default loading, error, reconnecting, and revalidating UI. Documents may add narrower React Suspense or error boundaries around independently useful regions.
 
-During a transient stream interruption, the host may retain the last authorized value while visibly reconnecting. After a cursor gap it establishes a new snapshot boundary before marking the value current. When no safe value exists, when access is revoked, or when a query version becomes incompatible, the default boundary replaces rather than silently preserving stale content.
+Live delivery has no durable execution or subscription resource. The client makes one streaming request that completely describes the document and its currently mounted query graph. The lifetime of that HTTP response is the lifetime of those subscriptions: closing it releases them. When the mounted graph changes, the client opens a replacement request describing the new complete graph and may keep the old response only until the replacement reports that it is ready. Navigation naturally replaces the graph; browser history does not retain live authority for previously visited documents.
 
-One ordered server-to-client stream multiplexes the active query subscriptions for the rendered document. The reference transport may use SSE with ordinary HTTP subscription control; another transport is conforming when it preserves the same semantics. Each subscription is bound to:
+The common request shape is:
 
-- source tree, document path, and coherent code version;
-- query handle and canonical validated input;
-- authenticated user/access context; and
-- current resolved backing identities.
+```ts
+type QueryCursor = string; // opaque outside one published query state
 
-Navigating to another Arbor document mounts its component tree and releases queries no longer present. Independently mounted components in one MDX document maintain independent queries, allowing a search region and popular-list region to invalidate separately. The runtime may retain bounded inactive results as an ordinary cache, but browser history does not retain live authority for every previously visited document.
+type QueryHandleRef = {
+  tree: string;
+  module: string;
+  export: string;
+  version: Hash;
+};
 
-The initial result and its `observedThrough` cursor form a no-missed-change boundary. Messages strictly after that cursor either deliver every possibly relevant replacement or instruct the client to resynchronize. A bounded replay window is allowed. Process restart, expired cursor, listener loss, store changefeed gap, or unknown state reruns active queries and sends current replacements; the runtime never guesses that cached data is current.
+type QueryStreamRequest = {
+  document: {
+    tree: string;
+    path: string;
+    version: Hash;
+  };
+  queries: Array<{
+    id: string;
+    handle: QueryHandleRef;
+    input: unknown;
+    knownOutputHash?: Hash;
+  }>;
+};
+```
 
-Each result message includes subscription ID, ordered version, output hash, and either a complete replacement, a handle-declared structural diff, an error/diagnostic state, or a resync/reload instruction. The host coalesces bursts, shares identical authorized public executions, suppresses unchanged output hashes, and applies backpressure by retaining the newest state rather than an unbounded obsolete queue.
+The `queries` array is nonempty. Query IDs are nonempty, unique only within the request, and carry no authority. The host verifies that the document version is coherent, every handle and version belongs to its reviewed manifest, every input validates, and the current subject may execute the resulting graph. It binds each evaluation to the authenticated user/access context and current resolved backing identities. A `knownOutputHash` is only a payload-suppression hint derived from a value the client already holds; the host reauthorizes and reevaluates rather than trusting it as evidence of current state. An output hash is SHA-256 of the RFC 8785 canonical JSON serialization of the complete public result value.
+
+The response is an SSE stream with three event kinds:
+
+```ts
+type PublicQueryError = {
+  code: string;
+  message: string;
+  retryable: boolean;
+};
+
+type QueryResultEvent =
+  | {
+      type: "result";
+      id: string;
+      observedThrough: QueryCursor;
+      outputHash: Hash;
+      value: unknown;
+      error?: never;
+    }
+  | {
+      type: "result";
+      id: string;
+      observedThrough: QueryCursor;
+      error: PublicQueryError;
+      outputHash?: never;
+      value?: never;
+    };
+
+type QueryStreamEvent =
+  | QueryResultEvent
+  | {
+      type: "ready";
+      queries: Array<{
+        id: string;
+        observedThrough: QueryCursor;
+        outputHash?: Hash;
+      }>;
+    }
+  | {
+      type: "reload";
+      reason: "source-changed" | "access-changed";
+};
+```
+
+The SSE `event` field supplies the `type` discriminator and its JSON `data` supplies the remaining members. A `result` has exactly one of `value` or `error`; a value has `outputHash`, while an error is sanitized for the caller. Results are complete replacements. The initial `ready` event is sent only after every requested query has passed the race-free snapshot-then-follow sequence and the stream is following later commits. Before `ready`, the host sends a `result` for every query whose current hash differs from `knownOutputHash`, and may omit the value for an unchanged query because `ready` confirms its hash and new `observedThrough`. Changes after that boundary produce new complete `result` values. Identical canonical output hashes produce no payload.
+
+The stream has no execution ID, acknowledgement, subscription version, replay cursor, or resumable server state. On interruption the client visibly reconnects by repeating the complete request. The host reauthorizes it and establishes fresh snapshot-then-follow boundaries; a new `ready` or `result` makes the retained authorized value current again. Source-version or access-context changes send `reload` when possible and close the response. A request that is already unauthorized or incoherent fails with the host protocol's ordinary HTTP error before streaming begins. Listener loss, backing uncertainty, process restart, or backpressure that cannot retain the newest complete state closes the response rather than guessing or requiring a separate resynchronization API.
+
+The host may coalesce invalidations and queued replacements per query because the stream represents current state rather than an effect log. It may also share identical authorized evaluations internally. Raw driver changes never enter the stream. The initial portable contract has no structural diff form; a future diff extension must retain complete replacement as fallback and prove the client's exact base output hash before applying a patch.
 
 Mutation handles are React Actions as well as typed imperative handles. `useMutationAction(handle)` is a thin typed adapter over React's Action state model and returns `[state, action, pending]`. The action accepts `FormData`, constructs its shallow input object, validates and transforms it through the handle's Standard Schema, supplies a caller-stable mutation ID, serializes submissions for that action instance, and exposes a typed result, durable receipt, or sanitized public error in `state`. The mutation runner invokes the handler inside one default store transaction and supplies `tx`; successful return commits and any throw rolls back. Successful uncontrolled forms receive React's normal reset behavior. Complex gestures may use the same handle imperatively, but ordinary forms do not reimplement `preventDefault`, pending state, retry identity, transaction wrapping, or error plumbing.
 
@@ -146,6 +211,6 @@ The same source document may be served locally by arbord or by a live authority 
 
 A native Arbor client may present an executable document through the same local or authority runtime in a constrained platform web surface. It retains Arbor location, provenance, access, and source-view controls outside that surface; it does not translate the authored React tree into a separate native component implementation. Embedded content receives neither arbord credentials nor ambient access to other loopback services. A client without a compatible runtime keeps the source browsable and reports execution as unavailable.
 
-Queries spanning transaction domains receive a vector of observed revisions rather than a fictional global transaction. Cross-authority execution requires explicit composition and never acquires authority merely through network reachability.
+For a query spanning transaction domains, the opaque `observedThrough` value represents the host's revision vector rather than inventing a global transaction. Cross-authority execution requires explicit composition and never acquires authority merely through network reachability.
 
 Static baking may replace explicitly static query reads with compiled results. A document depending on user identity, live data, mutations, or hosted-only capabilities remains an executable-host requirement and cannot silently become static.
