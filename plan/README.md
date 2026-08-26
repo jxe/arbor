@@ -3,8 +3,10 @@
 Planning is grouped by kind of work so architecture, executor handoffs, debt,
 and completed evidence do not compete in one flat queue.
 
-- [`product/`](product/roadmap.md) — forward platform/product direction and the
-  editor/browser backlog.
+- [`product/`](product/roadmap.md) — forward platform/product direction,
+  concrete product implementation plans, and the editor/browser backlog. Agent
+  work is split between [external CLI access](product/external-agent-cli-access.md)
+  and [authority-hosted agents](product/authority-hosted-agents.md).
 - [`native/`](native/README.md) — canonical native Arbor architecture plus its
   active numbered implementation handoffs.
 - [`hardening/`](hardening/README.md) — known technical debt and the older

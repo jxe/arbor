@@ -11,15 +11,18 @@ Workspace composition is now implemented. The roadmap now begins with one vertic
 |---|---|---|
 | **Implemented** | 1. Workspace composition | Distinct trees mount in a reader-local layout; visits and merged surfaces preserve provenance. |
 | **Next** | 2. Live data documents | Portable relational data, colocated queries/mutations/components, Arbor users, efficient subscriptions, and one authority-hosted Supplies site. |
-| **Planned** | 3. Agents | File-defined agents using built-in Arbor operations and compiled script handles over restricted composed namespaces. |
+| **Planned** | 3. Authority-hosted agents | File-defined conversational interfaces over the same compiled query/mutation handles and Arbor users as live React documents. |
 | **Planned** | 4. Portable deployment | Static baking and additional live adapters over the location/handle manifest proven in Milestone 2. |
 | **Later** | 5. Account lifecycle and hosting administration | Pairing, identity switching/recovery UX, disputes, and production operational tooling. |
 
-Milestone numbers express product priority, not a claim that every implementation task is serial. Milestone 2 is now the checked-in [`sites/supplies`](../../sites/supplies) vertical slice: implement only what makes that unchanged tree run in local Arbor web, signed macOS Arbor, and its canonical authority website, then migrate the real Meaning Supplies corpus. The site, rather than a synthetic framework demo or a backing matrix, freezes the relational authoring surface, location model, collection contract, and observation behavior. Agents follow and can reuse both built-in tree operations and compiled query/mutation handles. Additional backing/deployment adapters follow only when a concrete second target needs them.
+Milestone numbers express product priority, not a claim that every implementation task is serial. Milestone 2 is now the checked-in [`sites/supplies`](../../sites/supplies) vertical slice: implement only what makes that unchanged tree run in local Arbor web, signed macOS Arbor, and its canonical authority website, then migrate the real Meaning Supplies corpus. The site, rather than a synthetic framework demo or a backing matrix, freezes the relational authoring surface, location model, collection contract, and observation behavior. Authority-hosted agents follow and reuse the same compiled query/mutation handles as a conversational alternative to the React documents. Additional backing/deployment adapters follow only when a concrete second target needs them.
+
+A separate [external-agent CLI access plan](external-agent-cli-access.md) lets installed agents such as Codex or Claude Code work with a person's Arbor workspace through a reusable skill and structured CLI. That work does not implement authored or authority-hosted Arbor agents and may proceed independently as the relevant CLI operations become available.
 
 ```text
 implemented local + community-hosting foundation + workspace composition
-   └── live data documents (Supplies) ── agents ── portable deployment
+   ├── external-agent CLI access
+   └── live data documents (Supplies) ── authority-hosted agents ── portable deployment
 
 account lifecycle, hosting administration, and hardening follow
 without blocking those forward product capabilities
@@ -80,19 +83,19 @@ SQLite is the one required backing for this milestone. The portable contract mus
 
 Completion gate: the unchanged `sites/supplies` source runs in local Arbor web, signed macOS Arbor, and its canonical authority website; two clients update without refresh after related mutations and profile edits; unrelated precise changes avoid reruns; reconnects cannot leave stale results; raw private data stays private; every person-valued row uses a stable Arbor ProfileID; and the verified real-data migration can cut over with stable redirects and rollback. The concrete phase-by-phase implementation plan is [Supplies live-site implementation plan](supplies-live-site.md).
 
-## Milestone 3 — agents
+## Milestone 3 — authority-hosted agents
 
-**Status: Planned. Depends on the implemented workspace composition and the built-in operations/compiled handles available after Milestone 2.**
+**Status: Planned. Depends on the compiled handles, Arbor users, and authority-hosted execution available after Milestone 2.**
 
-Outcome: a Markdown-defined agent runs against a legible, permission-bounded view of the same workspace humans browse.
+Outcome: a Markdown-defined agent at an ordinary Arbor location gives visitors a conversational interface to the same live application data exposed through React documents.
 
-- Define agents as Markdown prompt/config pages whose tools may include Arbor's built-in read, search, navigation, and mutation operations plus explicitly named compiled query/mutation handles.
-- Assemble restricted namespaces from visible shared-tree placements, remote access, and explicit process ceilings.
-- Run agents in an isolated process/runtime that can address only its assembled namespace.
-- Render the same agent in the CLI and Arbor clients with inspectable ordinary-tree transcripts and effects.
-- Present the effective read/write namespace and built-in operations as a concrete consent statement before execution.
+- Compile agent Markdown into a versioned manifest of its prompt, context query handles, mutation tools, transcript destination, model policy, and inferred data access.
+- Host the conversation on the authority that already owns the executable documents, private backing trees, handle runner, and authenticated Arbor-user context.
+- Present a generic agent conversation at the document's ordinary local and canonical HTTP location; authored applications do not ship a separate chat UI or model client.
+- Invoke only declared compiled handles with their existing validation, authorization, transactions, retry identities, public errors, and durable receipts.
+- Store readable versioned conversations and committed receipts as ordinary Arbor content while streaming visible answers and tool progress to the visitor.
 
-Completion gate: a file-defined agent can research and update two mounted trees with explicit consent, cannot address content outside its assembled namespace, and leaves a readable versioned transcript of its actions.
+Completion gate: at the canonical Supplies agent location, an authenticated visitor can find authorized practices and create a private list through conversation; the same committed data appears in the ordinary React documents, another visitor cannot see it, an interrupted post-commit turn cannot duplicate it, and the transcript retains the exact agent/handle versions and receipt. The concrete implementation plan is [Authority-hosted agent implementation plan](authority-hosted-agents.md).
 
 ## Milestone 4 — portable deployment
 
