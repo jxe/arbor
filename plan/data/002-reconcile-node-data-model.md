@@ -13,11 +13,34 @@
 - **Effort:** XL
 - **Risk:** HIGH — node identity, editing, paging, sync, rendering, and native
   protocol parity all change together.
-- **State:** PLANNED
+- **State:** IN PROGRESS
 - **Depends on:** accepted specification in `spec/01-data-model.md`,
   `spec/02-directory-format.md`, `spec/03-locators.md`, `spec/04-wire.md`, and
   `spec/06-stores.md`
 - **Blocks:** Data 001 and the Supplies compiler/runtime binding
+
+### Implementation checkpoints
+
+- **2026-08-27 — locator codec complete:** `conformance/url-resolution.json`
+  now drives independent TypeScript and Swift parsing for stable-key path
+  suffixes, the Markdown relative-link alias, raw application queries, ordinary
+  content fragments, immutable raw-TreeID revisions, literal encoded suffixes,
+  decode-once paths, invalid/duplicate keys, and bounded legacy-fragment
+  candidates. Both implementations emit the Markdown and network forms.
+  Directory link healing preserves the key and application query, and Canopy
+  rewrites the Markdown alias to the server-visible suffix. The owner index,
+  rather than the locator parser, remains responsible for proving that a legacy
+  bare fragment uniquely names an old PageID.
+- **Locator integration still open:** migrate protocol `NodeRef`, REST request
+  decoding, browser/native navigation, `ArborReplica`'s private Markdown-link
+  parser, search/backlink records, and Canopy boundary resolution/redirects to
+  the stable-key slot. Remove the temporary stable-key-to-PageID bridges only
+  with that coordinated node-model cutover. These items remain owned by Phases
+  3–6 below rather than being mistaken for completed codec work.
+- **Next checkpoint:** freeze the shared node-reference, identity-rule,
+  capability, snapshot/summary, children-page, and rollup-descriptor fixtures;
+  then replace the core TypeScript and Swift protocol shapes in one green
+  tranche.
 
 ## Target result
 
@@ -75,11 +98,11 @@ The live tree currently has several incompatible models:
 - wire `WireObject` knows only byte files and physical directories; `_store.*`
   files are opaque binary conflicts, and remote resolution cannot expose row
   nodes.
-- `packages/core/src/logical-url.ts` and Swift `LogicalURL.swift` currently
-  reinterpret every fragment as `PageID`; `buildCanonicalLink` emits that
-  fragment, while Canopy's public renderer forwards it unchanged and the HTTP
-  host can never receive it for stale-path resolution. The TypeScript/Swift
-  parsers also discard application query data while resolving the logical path.
+- Before the first checkpoint, `packages/core/src/logical-url.ts` and Swift
+  `LogicalURL.swift` reinterpreted every fragment as `PageID`, emitted that
+  fragment, and discarded application query data. The shared locator codec now
+  fixes that split; remaining PageID-shaped protocol references and consumer
+  owner indexes are migrated in the later phases below.
 - Native and `Workspace` maintain useful PageID owner indexes and link-healing
   machinery, but their reference union omits the readable path whenever identity
   is primary. Preserve the indexes/healing behavior behind the uniform

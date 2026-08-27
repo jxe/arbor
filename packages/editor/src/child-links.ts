@@ -1,6 +1,6 @@
 import type { ArborBlock } from "@arbor/core";
 import { canonicalNodePath, nodeDisplayName } from "@arbor/core/logical-path";
-import { relativeLogicalReference, resolveLogicalURL } from "@arbor/core/logical-url";
+import { relativeLogicalReference, resolveLogicalURL, rewriteLocalLinkPath } from "@arbor/core/logical-url";
 
 export interface ChildLinkMove {
   oldPath: string;
@@ -77,7 +77,8 @@ export function reorderChildLinks(
       content: existing.content === oldName ? newName : existing.content,
       props: {
         ...existing.props,
-        path: relativeLogicalReference(directory, newPath),
+        path: rewriteLocalLinkPath(directory, String(existing.props?.path ?? ""), newPath)
+          ?? relativeLogicalReference(directory, newPath),
       },
     } : {
       id: createBlockId(),

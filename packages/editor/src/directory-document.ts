@@ -1,6 +1,6 @@
 import type { MarkdownDocument, TreeChild } from "@arbor/core";
 import { canonicalNodePath } from "@arbor/core/logical-path";
-import { relativeLogicalReference, resolveLogicalURL } from "@arbor/core/logical-url";
+import { legacyPageIDCandidate, relativeLogicalReference, resolveLogicalURL } from "@arbor/core/logical-url";
 import { parseMarkdown } from "./markdown.ts";
 
 export interface CompleteDirectoryDocument {
@@ -57,7 +57,8 @@ export function completeDirectoryDocument(
       if (block.type === "standaloneLink") {
         const resolved = resolveLogicalURL(directory, String(block.props?.path ?? ""));
         if (resolved?.kind === "local") {
-          const child = (resolved.pageID && childByPageID.get(resolved.pageID)) ?? childByPath.get(resolved.path);
+          const pageID = legacyPageIDCandidate(resolved);
+          const child = (pageID && childByPageID.get(pageID)) ?? childByPath.get(resolved.path);
           if (child) matched.add(child);
         }
       }

@@ -14,7 +14,7 @@ import type {
   StructuralWorkspaceOperation,
 } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
-import { resolveLogicalURL } from "@arbor/core/logical-url";
+import { legacyPageIDCandidate, resolveLogicalURL } from "@arbor/core/logical-url";
 import { reorderChildLinks, resolveChildLinkPath, serializeMarkdown } from "@arbor/editor";
 import { api, type BrowserMutationResult } from "./api.ts";
 import {
@@ -305,8 +305,9 @@ function childDocumentRows(directory: string, blocks: readonly ArborBlock[], chi
     for (const block of items) {
       if (block.type === "standaloneLink") {
         const link = resolveLogicalURL(directory, String(block.props?.path ?? ""));
+        const pageID = link ? legacyPageIDCandidate(link) : null;
         const child = link?.kind === "local"
-          ? (link.pageID && childByPageID.get(link.pageID)) || childByPath.get(link.path)
+          ? (pageID && childByPageID.get(pageID)) || childByPath.get(link.path)
           : undefined;
         if (child && !matched.has(child)) {
           matched.add(child);
@@ -1193,9 +1194,10 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     if (link?.kind === "external") return;
     event.preventDefault();
     if (link?.kind === "local") {
-      navigate(link.pageID ? { tree: node.tree, pageID: link.pageID, pathHint: link.path } : link.path);
+      const pageID = legacyPageIDCandidate(link);
+      navigate(pageID ? { tree: node.tree, pageID, pathHint: link.path } : link.path);
     } else if (link?.kind === "fragment") {
-      navigate({ tree: node.tree, pageID: link.pageID });
+      navigate({ tree: node.tree, pageID: legacyPageIDCandidate(link)! });
     }
     // arbor://, system:, and local: destinations wait on mount/visit resolution.
   };

@@ -1,4 +1,4 @@
-import { resolveLogicalURL } from "@arbor/core/logical-url";
+import { buildNetworkLocator, resolveLogicalURL } from "@arbor/core/logical-url";
 import type { ArborBlock } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 
@@ -44,12 +44,10 @@ function linkHref(raw: string, context: RenderContext): string | null {
   const resolved = resolveLogicalURL(context.documentPath, raw);
   if (!resolved) return null;
   if (resolved.kind === "local") {
-    const fragment = resolved.fragment ? `#${encodeURIComponent(resolved.fragment)}` : "";
-    return `${publicTreePath(context.treeCanonicalPath, resolved.path)}${fragment}`;
+    return buildNetworkLocator(publicTreePath(context.treeCanonicalPath, resolved.path), resolved);
   }
   if (resolved.kind === "arbor" && "dns" in resolved.authority && resolved.authority.dns === context.host) {
-    const fragment = resolved.fragment ? `#${encodeURIComponent(resolved.fragment)}` : "";
-    return `${encodedPath(resolved.path)}${fragment}`;
+    return buildNetworkLocator(encodedPath(resolved.path), resolved);
   }
   if (resolved.kind === "external") {
     try {
@@ -59,7 +57,7 @@ function linkHref(raw: string, context: RenderContext): string | null {
       return null;
     }
   }
-  if (resolved.kind === "fragment") return `#${encodeURIComponent(resolved.pageID)}`;
+  if (resolved.kind === "fragment") return `#${resolved.contentFragment}`;
   return null;
 }
 

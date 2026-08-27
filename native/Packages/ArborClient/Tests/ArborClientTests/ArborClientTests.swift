@@ -14,7 +14,6 @@ final class ArborClientTests: XCTestCase {
     }
 
     private var fixtures: URL { referenceFixtures.appending(path: "arborsync", directoryHint: .isDirectory) }
-    private var clientFixtures: URL { referenceFixtures.appending(path: "client", directoryHint: .isDirectory) }
     private var canopyFixtures: URL { referenceFixtures.appending(path: "canopy", directoryHint: .isDirectory) }
 
     private var conformanceFixtures: URL {
@@ -118,8 +117,11 @@ final class ArborClientTests: XCTestCase {
         struct Expected: Decodable {
             var kind: String
             var path: String?
-            var pageID: String?
-            var fragment: String?
+            var stableKey: String?
+            var revision: String?
+            var applicationQuery: String?
+            var contentFragment: String?
+            var legacyStableKeyCandidate: String?
             var authority: Authority?
             var raw: String?
             var href: String?
@@ -127,42 +129,14 @@ final class ArborClientTests: XCTestCase {
         var base: String
         var href: String
         var expected: Expected?
-    }
-
-    private struct PortableURLFixture: Decodable {
-        var base: String
-        var href: String
-        var expectedPath: String?
-        var pageID: String?
-        var fragment: String?
-    }
-
-    func testPortableTreeRelativeURLConformance() throws {
-        let cases = try JSONDecoder().decode(
-            [PortableURLFixture].self,
-            from: Data(contentsOf: conformanceFixtures.appending(path: "url-resolution.json"))
-        )
-        for fixture in cases {
-            let label = "\(fixture.base) + \(fixture.href)"
-            let resolved = resolveLogicalURL(base: fixture.base, href: fixture.href)
-            guard let expectedPath = fixture.expectedPath else {
-                XCTAssertNil(resolved, label)
-                continue
-            }
-            guard case let .local(path, pageID, fragment) = resolved else {
-                XCTFail("Expected tree-relative result for \(label)")
-                continue
-            }
-            XCTAssertEqual(path, expectedPath, label)
-            XCTAssertEqual(pageID, fixture.pageID, label)
-            XCTAssertEqual(fragment, fixture.fragment, label)
-        }
+        var rewritePath: String?
+        var expectedRewritten: String?
     }
 
     func testSharedURLResolutionFixturesResolveIdentically() throws {
         let cases = try JSONDecoder().decode(
             [URLFixture].self,
-            from: Data(contentsOf: clientFixtures.appending(path: "url-resolution.json"))
+            from: Data(contentsOf: conformanceFixtures.appending(path: "url-resolution.json"))
         )
         XCTAssertGreaterThan(cases.count, 20)
         for fixture in cases {
@@ -173,16 +147,14 @@ final class ArborClientTests: XCTestCase {
                 continue
             }
             switch resolved {
-            case .local(let path, let pageID, let fragment):
+            case .local(let path, let locator):
                 XCTAssertEqual(expected.kind, "local", label)
                 XCTAssertEqual(path, expected.path, label)
-                XCTAssertEqual(pageID, expected.pageID, label)
-                XCTAssertEqual(fragment, expected.fragment, label)
-            case .arbor(let authority, let path, let pageID, let fragment):
+                assertLocator(locator, equals: expected, label: label)
+            case .arbor(let authority, let path, let locator):
                 XCTAssertEqual(expected.kind, "arbor", label)
                 XCTAssertEqual(path, expected.path, label)
-                XCTAssertEqual(pageID, expected.pageID, label)
-                XCTAssertEqual(fragment, expected.fragment, label)
+                assertLocator(locator, equals: expected, label: label)
                 switch authority {
                 case .dns(let dns): XCTAssertEqual(dns, expected.authority?.dns, label)
                 case .treeID(let treeID): XCTAssertEqual(treeID, expected.authority?.treeID, label)
@@ -196,13 +168,55 @@ final class ArborClientTests: XCTestCase {
             case .external(let href):
                 XCTAssertEqual(expected.kind, "external", label)
                 XCTAssertEqual(href, expected.href, label)
-            case .fragment(let pageID):
+            case .fragment(let contentFragment, let legacyStableKeyCandidate):
                 XCTAssertEqual(expected.kind, "fragment", label)
-                XCTAssertEqual(pageID, expected.pageID, label)
+                XCTAssertEqual(contentFragment, expected.contentFragment, label)
+                XCTAssertEqual(legacyStableKeyCandidate, expected.legacyStableKeyCandidate, label)
             case nil:
                 XCTFail("Expected \(expected.kind) for \(label), resolved nil")
             }
+            if let rewritePath = fixture.rewritePath {
+                XCTAssertEqual(
+                    rewriteLocalLinkPath(base: fixture.base, href: fixture.href, newPath: rewritePath),
+                    fixture.expectedRewritten,
+                    label
+                )
+            }
         }
+    }
+
+    private func assertLocator(_ locator: ResolvedLocatorState, equals expected: URLFixture.Expected, label: String) {
+        XCTAssertEqual(locator.stableKey, expected.stableKey, label)
+        XCTAssertEqual(locator.revision, expected.revision, label)
+        XCTAssertEqual(locator.applicationQuery, expected.applicationQuery, label)
+        XCTAssertEqual(locator.contentFragment, expected.contentFragment, label)
+        XCTAssertEqual(locator.legacyStableKeyCandidate, expected.legacyStableKeyCandidate, label)
+    }
+
+    func testStableKeyAndLocatorWritersMatchTypeScriptVectors() throws {
+        let stableKey = #"[["id","x7f3q2"]]"#
+        let encoded = try XCTUnwrap(encodeStableKey(stableKey))
+        XCTAssertEqual(encoded, "W1siaWQiLCJ4N2YzcTIiXV0")
+        XCTAssertEqual(decodeStableKey(encoded), stableKey)
+        XCTAssertNil(decodeStableKey(encoded + "="))
+        XCTAssertEqual(
+            buildCanonicalLink(
+                from: "/projects/atlas",
+                toPath: "/projects/roadmap",
+                stableKey: stableKey,
+                applicationQuery: "view=board&edit"
+            ),
+            "../roadmap?view=board&edit#arbor-key=\(encoded)"
+        )
+        XCTAssertEqual(
+            buildNetworkLocator(
+                rawPath: "../roadmap",
+                stableKey: stableKey,
+                applicationQuery: "view=board&edit",
+                contentFragment: "implementation"
+            ),
+            "../roadmap;arbor-key=\(encoded)?view=board&edit#implementation"
+        )
     }
 
     func testLiveServerWhenProvided() async throws {

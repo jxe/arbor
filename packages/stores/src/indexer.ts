@@ -3,7 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import type { SearchResult } from "@arbor/core";
-import { nodeDisplayName, nodePathFromPhysical, resolveLogicalURL, toTreePath } from "@arbor/core";
+import { legacyPageIDCandidate, nodeDisplayName, nodePathFromPhysical, resolveLogicalURL, toTreePath } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { discoverWorkspace, type WorkspaceDiscovery } from "@arbor/fs";
 const INDEXED_EXTENSIONS = new Set(["md", "csv", "jsonl", "json", "ts", "tsx", "txt"]);
@@ -42,12 +42,12 @@ function indexedLinks(sourcePath: string, body: string): IndexedLink[] {
     let targetTreeID: string | null = null;
     if (resolved?.kind === "local") {
       targetPath = resolved.path;
-      targetPageID = resolved.pageID ?? null;
+      targetPageID = legacyPageIDCandidate(resolved);
     } else if (resolved?.kind === "fragment") {
-      targetPageID = resolved.pageID;
+      targetPageID = legacyPageIDCandidate(resolved);
     } else if (resolved?.kind === "arbor" && "treeID" in resolved.authority) {
       targetPath = resolved.path;
-      targetPageID = resolved.pageID ?? null;
+      targetPageID = legacyPageIDCandidate(resolved);
       targetTreeID = resolved.authority.treeID;
     } else {
       continue;
