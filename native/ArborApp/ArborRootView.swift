@@ -523,6 +523,8 @@ struct ArborRootView: View {
                 provider: workspace.providerDetail,
                 sync: workspace.syncPresentation,
                 binding: model.binding,
+                arborsyncProcessKind: workspace.arborsyncProcessKind,
+                retrySave: { Task { await model.retryDocumentSave() } },
                 syncNow: { Task { await workspace.syncNow() } }
             )
         default:
@@ -615,9 +617,12 @@ struct ArborRootView: View {
                 secondaryLabel: "Not Now",
                 secondaryAction: { model.dismissTitleRenameProposal() }
             )
-        } else if model.binding?.lastError != nil {
+        } else if let diagnostic = ArborSaveDiagnostic.describe(
+            model.binding?.lastError,
+            processKind: workspace.arborsyncProcessKind
+        ) {
             ArborAttentionBanner(
-                message: "Arbor could not save the latest document edit.",
+                message: diagnostic.bannerMessage,
                 systemImage: "exclamationmark.circle",
                 tint: .red,
                 primaryLabel: "Retry",
@@ -625,6 +630,7 @@ struct ArborRootView: View {
                 secondaryLabel: "Details…",
                 secondaryAction: { presentedSheet = .syncStatus }
             )
+            .help(diagnostic.help)
         } else if let message = model.errorMessage {
             ArborAttentionBanner(
                 message: message,

@@ -570,6 +570,8 @@ struct ArborSyncStatusView: View {
     let provider: String
     let sync: WorkspaceSyncPresentation
     let binding: ArborDocumentBinding?
+    let arborsyncProcessKind: ArborSyncProcessKind?
+    let retrySave: () -> Void
     let syncNow: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -579,11 +581,18 @@ struct ArborSyncStatusView: View {
             Form {
                 Section("Current document") {
                     LabeledContent("Save status", value: saveStatus)
-                    if let error = binding?.lastError {
+                    if let diagnostic {
                         Text("The latest edit remains in this session but has not reached durable provider storage. Retry before closing or navigating away.")
                             .font(.caption)
                             .foregroundStyle(.red)
-                        Text(error.localizedDescription)
+                        LabeledContent("Cause", value: diagnostic.conditionLabel)
+                        Text(diagnostic.explanation)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(diagnostic.recovery)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(diagnostic.technicalDetail)
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
@@ -591,8 +600,13 @@ struct ArborSyncStatusView: View {
                 }
                 Section("Workspace") {
                     LabeledContent("Provider", value: provider)
-                    LabeledContent("Synchronization", value: sync.state.label)
-                    if let detail = sync.detail { Text(detail).foregroundStyle(.secondary) }
+                    LabeledContent("Synchronization", value: synchronizationLabel)
+                    if diagnostic?.synchronizationOverride != nil {
+                        Text("Last reported: \(sync.state.label). Arbor cannot verify that state while the provider connection is unavailable.")
+                            .foregroundStyle(.secondary)
+                    } else if let detail = sync.detail {
+                        Text(detail).foregroundStyle(.secondary)
+                    }
                     if sync.localAdditions { Label("Local changes are waiting to synchronize", systemImage: "arrow.up") }
                     if sync.remoteAdditions { Label("Remote changes are waiting to download", systemImage: "arrow.down") }
                     if sync.approximatePlacements > 0 {
@@ -601,8 +615,12 @@ struct ArborSyncStatusView: View {
                     }
                 }
                 Section {
-                    Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
-                        .disabled(sync.state == .offline)
+                    if diagnostic != nil {
+                        Button("Retry Save", systemImage: "arrow.clockwise", action: retrySave)
+                    } else {
+                        Button("Sync Now", systemImage: "arrow.triangle.2.circlepath", action: syncNow)
+                            .disabled(sync.state == .offline)
+                    }
                 } footer: {
                     Text("Arbor reports accepted state and pending work here; it does not imply that an interrupted save or unresolved conflict is safe.")
                 }
@@ -621,6 +639,14 @@ struct ArborSyncStatusView: View {
         if binding?.conflict != nil { return "Conflict needs a choice" }
         if binding?.lastError != nil { return "Latest edit not saved" }
         return "Saved locally"
+    }
+
+    private var diagnostic: ArborSaveDiagnostic? {
+        ArborSaveDiagnostic.describe(binding?.lastError, processKind: arborsyncProcessKind)
+    }
+
+    private var synchronizationLabel: String {
+        diagnostic?.synchronizationOverride ?? sync.state.label
     }
 }
 

@@ -76,6 +76,7 @@ final class ArborWorkspaceState {
         detail: "Open a local workspace to start arborsync"
     )
     private(set) var syncConflict: ReplicaConflictPresentation?
+    private(set) var arborsyncProcessKind: ArborSyncProcessKind?
     let linkPreviewService: LinkPreviewService
     var errorMessage: String?
 
@@ -230,6 +231,7 @@ final class ArborWorkspaceState {
             let runtime = try await nextSupervisor.start(workspace: url, preferredPort: preferredPort)
             supervisor = nextSupervisor
             arborsyncClient = ArborSyncRESTClient(baseURL: runtime.origin)
+            arborsyncProcessKind = runtime.attachedToExistingProcess ? .external : .supervised
             syncCoordinator = nil
             syncConflict = nil
             if remember { try await bookmarks.save(url) }
@@ -237,7 +239,9 @@ final class ArborWorkspaceState {
                 runtime.provider,
                 home: runtime.home,
                 launchLocation: runtime.launchLocation,
-                detail: runtime.attachedToExistingProcess ? "User arborsync · ~/.arbor" : "Supervised arborsync · ~/.arbor"
+                detail: runtime.attachedToExistingProcess
+                    ? "External Arbor Sync daemon · ~/.arbor"
+                    : "Arbor-managed Sync daemon · ~/.arbor"
             )
             syncPresentation = WorkspaceSyncPresentation(
                 state: .current,
@@ -248,6 +252,7 @@ final class ArborWorkspaceState {
             await nextSupervisor.stop()
             supervisor = nil
             arborsyncClient = nil
+            arborsyncProcessKind = nil
             localArborSyncOverview = nil
             throw error
         }
@@ -282,11 +287,14 @@ final class ArborWorkspaceState {
             await editorWorkspace.closeAll()
             let runtime = try await supervisor.restart()
             arborsyncClient = ArborSyncRESTClient(baseURL: runtime.origin)
+            arborsyncProcessKind = runtime.attachedToExistingProcess ? .external : .supervised
             await switchProvider(
                 runtime.provider,
                 home: runtime.home,
                 launchLocation: runtime.launchLocation,
-                detail: runtime.attachedToExistingProcess ? "User arborsync · ~/.arbor" : "Supervised arborsync · ~/.arbor"
+                detail: runtime.attachedToExistingProcess
+                    ? "External Arbor Sync daemon · ~/.arbor"
+                    : "Arbor-managed Sync daemon · ~/.arbor"
             )
             syncPresentation = WorkspaceSyncPresentation(state: .current, detail: "Reconnected to arborsync")
             prefetchLocalArborSyncOverview()
@@ -638,6 +646,7 @@ final class ArborWorkspaceState {
         overviewWatchTask = nil
         if let supervisor { await supervisor.stop() }
         arborsyncClient = nil
+        arborsyncProcessKind = nil
 #endif
     }
 

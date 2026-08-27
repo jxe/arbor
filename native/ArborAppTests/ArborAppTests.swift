@@ -8,6 +8,57 @@ import Testing
 
 @MainActor
 struct ArborAppTests {
+    @Test("Save diagnostics distinguish an external daemon that is no longer reachable")
+    func externalDaemonSaveDiagnostic() throws {
+        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+            URLError(.cannotConnectToHost),
+            processKind: .external
+        ))
+
+        #expect(diagnostic.kind == .daemonUnreachable)
+        #expect(diagnostic.conditionLabel == "External daemon unreachable")
+        #expect(diagnostic.bannerMessage.contains("external Arbor Sync daemon"))
+        #expect(diagnostic.explanation.contains("stopped or restarted on a different port"))
+        #expect(diagnostic.recovery.contains("same loopback address"))
+        #expect(diagnostic.synchronizationOverride == "Unavailable")
+    }
+
+    @Test("Save diagnostics distinguish a supervised daemon from an external one")
+    func supervisedDaemonSaveDiagnostic() throws {
+        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+            URLError(.networkConnectionLost),
+            processKind: .supervised
+        ))
+
+        #expect(diagnostic.kind == .daemonUnreachable)
+        #expect(diagnostic.conditionLabel == "Supervised daemon unreachable")
+        #expect(diagnostic.explanation.contains("helper launched by this app"))
+    }
+
+    @Test("Save diagnostics distinguish timeouts from refused connections")
+    func timedOutSaveDiagnostic() throws {
+        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+            URLError(.timedOut),
+            processKind: .external
+        ))
+
+        #expect(diagnostic.kind == .daemonTimedOut)
+        #expect(diagnostic.conditionLabel == "Local daemon timed out")
+        #expect(diagnostic.bannerMessage.contains("did not respond"))
+    }
+
+    @Test("Save diagnostics do not mislabel arbitrary provider failures as daemon outages")
+    func genericSaveDiagnostic() throws {
+        let diagnostic = try #require(ArborSaveDiagnostic.describe(
+            CocoaError(.fileWriteNoPermission),
+            processKind: .supervised
+        ))
+
+        #expect(diagnostic.kind == .providerFailure)
+        #expect(diagnostic.conditionLabel == "Provider save failed")
+        #expect(diagnostic.synchronizationOverride == nil)
+    }
+
     @Test("Extras state uses Arbor-owned support directories")
     func extrasSupportDirectories() {
         #expect(ArborSupportDirectories.root.lastPathComponent == "Arbor")

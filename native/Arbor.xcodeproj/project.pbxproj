@@ -17,6 +17,7 @@
 		5062566B174504F107111229 /* VoiceRecordingIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B060659FC85121ACFD5F6758 /* VoiceRecordingIntents.swift */; };
 		689B52D368DB30134530C123 /* ArborProviders in Frameworks */ = {isa = PBXBuildFile; productRef = 17EF6FF7B3B5C09E32F630D8 /* ArborProviders */; };
 		70A4EBBBD20A51A044D10D49 /* QuagmireExtras in Frameworks */ = {isa = PBXBuildFile; productRef = 58BDC1D3069C577A3C27996C /* QuagmireExtras */; };
+		8868FBA6BDB5410D6666283B /* ArborSaveDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EB05A227DAEF0E129AA6CA2 /* ArborSaveDiagnostics.swift */; };
 		8879915EF65A25600F6AABF6 /* ArborQuagmire in Frameworks */ = {isa = PBXBuildFile; productRef = 00048AC9019C9BC06814ED85 /* ArborQuagmire */; };
 		BCE1A74E18AC59895789A289 /* ArborSync in Frameworks */ = {isa = PBXBuildFile; productRef = 36CB136427AFA030550F9B5F /* ArborSync */; };
 		BD21C668E72EED6BE354C453 /* ArborStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */; };
@@ -39,15 +40,16 @@
 		0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborStyle.swift; sourceTree = "<group>"; };
 		0F299E4C90ABCF2B66C525FF /* ArborSupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSupportDirectories.swift; sourceTree = "<group>"; };
 		1E659894DB90798769861B59 /* ArborProviders */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborProviders; path = Packages/ArborProviders; sourceTree = SOURCE_ROOT; };
+		1EB05A227DAEF0E129AA6CA2 /* ArborSaveDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSaveDiagnostics.swift; sourceTree = "<group>"; };
 		24B7B875410B0C94CDD95EF0 /* ArborAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborAppModel.swift; sourceTree = "<group>"; };
 		288990A21FB0D222423967A4 /* ArborQuagmire */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborQuagmire; path = Packages/ArborQuagmire; sourceTree = SOURCE_ROOT; };
+		3A6BDD949D4954FB7E6A9F40 /* arborsync.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = arborsync.entitlements; sourceTree = "<group>"; };
 		3AC49A8DD32DA714FB06F11E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		3D2630E60EAEFC5EACBFFF9B /* ArborWire */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborWire; path = Packages/ArborWire; sourceTree = SOURCE_ROOT; };
 		45675C08297B01C04578CF4E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7D4421060DE0D52EB928CB83 /* ArborAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborAppTests.swift; sourceTree = "<group>"; };
 		8278F4D043CD87121556B664 /* ArborDailyDriverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborDailyDriverViews.swift; sourceTree = "<group>"; };
 		8457F359DE90E5500C1B892D /* ArborApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborApp.swift; sourceTree = "<group>"; };
-		8FBCA70A1284DE00EED67079 /* arborsync.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = arborsync.entitlements; sourceTree = "<group>"; };
 		A8A30DDD76B80E16BBFDDCD4 /* Arbor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Arbor.entitlements; sourceTree = "<group>"; };
 		AD896C37BD5C09F278E58C52 /* ArborKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborKit; path = Packages/ArborKit; sourceTree = SOURCE_ROOT; };
 		AF413A530D273F3DD668F9FB /* ArborReplica */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborReplica; path = Packages/ArborReplica; sourceTree = SOURCE_ROOT; };
@@ -82,11 +84,12 @@
 				A8A30DDD76B80E16BBFDDCD4 /* Arbor.entitlements */,
 				8457F359DE90E5500C1B892D /* ArborApp.swift */,
 				24B7B875410B0C94CDD95EF0 /* ArborAppModel.swift */,
-				8FBCA70A1284DE00EED67079 /* arborsync.entitlements */,
 				8278F4D043CD87121556B664 /* ArborDailyDriverViews.swift */,
 				B7994449946DFB23BD2F4810 /* ArborRootView.swift */,
+				1EB05A227DAEF0E129AA6CA2 /* ArborSaveDiagnostics.swift */,
 				0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */,
 				0F299E4C90ABCF2B66C525FF /* ArborSupportDirectories.swift */,
+				3A6BDD949D4954FB7E6A9F40 /* arborsync.entitlements */,
 				3AC49A8DD32DA714FB06F11E /* Assets.xcassets */,
 				45675C08297B01C04578CF4E /* Info.plist */,
 				B060659FC85121ACFD5F6758 /* VoiceRecordingIntents.swift */,
@@ -141,7 +144,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 60E017BFD2410CAAABF338E8 /* Build configuration list for PBXNativeTarget "Arbor" */;
 			buildPhases = (
-				5E5E06E071555B3E2F0DEC7C /* Build arborsync helper */,
+				3698C922B6A2D82FAC516C7D /* Build arborsync helper */,
 				C4195B3B1D0B70661C221418 /* Sources */,
 				FB702F201BCF85D4335215ED /* Resources */,
 				9D987E1E2A7D8A121B5B688E /* Frameworks */,
@@ -238,7 +241,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		5E5E06E071555B3E2F0DEC7C /* Build arborsync helper */ = {
+		3698C922B6A2D82FAC516C7D /* Build arborsync helper */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -276,6 +279,7 @@
 				F20EDB4AE065CFCC0A52D67C /* ArborAppModel.swift in Sources */,
 				321414EED0DBE45187CC1086 /* ArborDailyDriverViews.swift in Sources */,
 				49918DF0BE00F770672896EF /* ArborRootView.swift in Sources */,
+				8868FBA6BDB5410D6666283B /* ArborSaveDiagnostics.swift in Sources */,
 				BD21C668E72EED6BE354C453 /* ArborStyle.swift in Sources */,
 				458E81B568F6213E55FEC3AC /* ArborSupportDirectories.swift in Sources */,
 				5062566B174504F107111229 /* VoiceRecordingIntents.swift in Sources */,
