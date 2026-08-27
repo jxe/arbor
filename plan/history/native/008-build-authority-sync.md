@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Implement `updates-v1`, the sole automatic merge engine, private linear accepted-update history, and a deterministic one-way schema upgrade against temporary/local authorities. Conflict state belongs entirely to clients; derive request identity from canonical semantic JSON and attach successful replay evidence directly to accepted rows. Do not deploy or touch the live Railway volume. Plan 011 owns backup, isolated-copy rehearsal, deployment, and operational rollback.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- packages/authority/src packages/wire/src/updates packages/wire/src/client.ts packages/wire/src/objects.ts spec/wire.md conformance tests/integration/authority tests/unit/authority tools package.json`
+> **Drift check**: `git diff --stat dc34126..HEAD -- packages/authority/src packages/wire/src/updates packages/wire/src/client.ts packages/wire/src/objects.ts spec/04-wire.md conformance tests/integration/authority tests/unit/authority tools package.json`
 
 ## Status
 

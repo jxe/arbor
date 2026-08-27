@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Freeze the root-based accepted-update and merge contract before touching authority state or client networking. This is a specification-and-fixture milestone: do not implement the authority, deploy, add Swift, or introduce revision/DAG wire objects.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- spec/wire.md docs/client.md spec/configuration.md conformance packages/wire/src packages/authority/src packages/arbord/src/service.ts tests package.json`; then `git -C /Users/joe/src/hunch diff --stat a1e8379..HEAD -- App/Sources/Clamshell/PatchEngine.swift App/Tests/HunchUnitTests/ConflictMergerTests.swift`
+> **Drift check**: `git diff --stat dc34126..HEAD -- spec/04-wire.md docs/client.md spec/05-configuration.md conformance packages/wire/src packages/authority/src packages/arbord/src/service.ts tests package.json`; then `git -C /Users/joe/src/hunch diff --stat a1e8379..HEAD -- App/Sources/Clamshell/PatchEngine.swift App/Tests/HunchUnitTests/ConflictMergerTests.swift`
 
 ## Status
 
@@ -104,7 +104,7 @@ Every wire subject, including a writer, can resolve only currently readable grap
 
 ## Steps
 
-1. Update `spec/wire.md`, `docs/client.md`, and `spec/configuration.md` so refs remain directory roots and accepted updates own automatic convergence, linear history, exact retry, client-owned draft conflicts, and authorization.
+1. Update `spec/04-wire.md`, `docs/client.md`, and `spec/05-configuration.md` so refs remain directory roots and accepted updates own automatic convergence, linear history, exact retry, client-owned draft conflicts, and authorization.
 2. Specify `POST .../updates`, request/result fields, opaque accepted-update identifiers, canonical-JSON request identity, discovery negotiation, stable errors/statuses, accepted-row replay, CAS recheck behavior, and watch semantics. Restore-to-an-old-root must emit a new accepted update/watch event.
 3. Add JSON fixtures for current, accepted, merged, `409` conflict/draft, derived identity/replay, current-ref race, malformed/missing object, and absence of accepted-history/historical-object routes.
 4. Add exact-source three-way merge fixtures before implementation. Cover additions on both sides; same-slot additions; nearest surviving anchors; missing-anchor outward walk; no-anchor fallback; exact duplicate additions; repeated identical lines; one-side deletion plus other-side addition/edit; different paragraph replacements; headings/nested lists; distinct/same frontmatter keys; code fences; raw HTML; CRLF/mixed endings; PageID moves; binaries; nested boundaries; and retry idempotence.

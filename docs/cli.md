@@ -1,7 +1,7 @@
 # Arbor CLI
 *Reference command surface for the current Arbor implementation.*
 
-Every content operand is an Arbor [locator](../spec/locators.md) or a local
+Every content operand is an Arbor [locator](../spec/03-locators.md) or a local
 arborsync address. The CLI resolves
 through arborsync or a server and never edits guessed private `.state` files.
 

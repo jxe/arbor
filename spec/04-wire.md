@@ -7,21 +7,42 @@ credential bindings, ACL enforcement, one mutable accepted ref per tree,
 immutable objects, and observation streams. It need not implement a local
 workspace or UI.
 
+## Protocol relationship to the data model
+
+Wire transports observations and changes of the [Arbor data model](01-data-model.md).
+Its envelopes may include access, capabilities, materialization state,
+diagnostics, cursors, exact projection revisions, and transport hints that are
+not stored model properties.
+
+The operations have distinct relationships to the model:
+
+- `ref`, `snapshot`, and `objects` sample or transfer the exact synchronized projection
+  from which a model snapshot can be decoded;
+- `updates` proposes a complete candidate projection/model state;
+- `watch` monitors ordered accepted projection/model transitions with replay;
+- `queries` derives current typed values from any reviewed logical nodes; and
+- `mutate` executes reviewed transactional model intent.
+
+The synchronized root identifies exact Wire representation state. Equivalence
+of different directory/store/materialization projections is defined by the data
+model and their projection specs; Wire does not require one universal logical
+serialization or logical hash.
+
 ## 1. Core data API
 
 The core wire API has two data paths:
 
-1. **Durable tree state** is read as an immutable snapshot, changed by
-   submitting a candidate graph, and followed through an ordered watch stream.
-2. **Derived query state** is read and followed through one stateless streaming
-   request whose results are complete public replacements.
+1. **Exact tree projection state** is read as immutable objects and changed by
+   submitting a complete candidate graph.
+2. **Derived model state** is sampled and followed through stateless named
+   query streams.
 
-The first path is the storage and synchronization substrate. The second lets an
-executable document expose live, permissioned results without exposing its raw
-store. Identity, bootstrap, governed configuration, activation, and access
-management use these same primitives but are described after the core paths.
+Exact projection state is the synchronization/roundtrip substrate. Queries let
+executable documents sample live permissioned model values without exposing raw stores.
+Identity, bootstrap, governed configuration, activation, and access management
+use these same primitives but are described after the core paths.
 
-### 1.1 Read durable tree state
+### 1.1 Read exact projection state
 
 ```text
 GET /.arbor/trees/{TreeID}/ref
@@ -38,8 +59,8 @@ type CurrentTreeRef = {
 };
 ```
 
-The descriptor's `ref` is the current accepted root and its `update` is the
-accepted-update ID that produced that root. `observedThrough` is the cursor
+The descriptor's `ref` is the current exact Wire projection root and `update`
+is the accepted-update ID that produced it. `observedThrough` is the cursor
 after which a client can begin watching without a read/watch race.
 
 `GET .../snapshot` is the self-contained current-state read:
@@ -113,7 +134,9 @@ type UpdateRequest = {
 
 `base.root` and `base.update` bind reconciliation to one retained accepted
 event, including the case where the same root appears again later. `candidate`
-names the desired complete root. `objects` supplies canonical CBOR objects the
+names the desired complete exact Wire projection root. The authority decodes
+and validates the modeled state represented by that projection. `objects`
+supplies canonical CBOR objects the
 server does not already retain; a client normally walks base and candidate
 together and omits unchanged objects. The candidate must still be complete and
 provable from retained base objects, supplied objects, and valid `filePatches`.
@@ -164,7 +187,8 @@ type AcceptedUpdate = {
 
 type MergeSummary =
   | { version: "markdown-additive-v1"; approximatePlacements: number }
-  | { version: "account-config-v1"; mergedFields: number };
+  | { version: "account-config-v1"; mergedFields: number }
+  | { version: "rollup-rows-v1"; mergedRows: number };
 
 type UpdateResult =
   | {
@@ -213,6 +237,17 @@ replay returns the original result and creates no duplicate accepted update.
 Clients durably retain the base, candidate, required content, and any conflict
 draft until the result has been applied.
 
+When a candidate changes a recognized child rollup, the submitted root names
+the exact candidate representation. The authority decodes coherent base,
+current, and candidate representations under schema and resource bounds,
+recomputes logical row identities and the store codec's scoped model digest,
+merges disjoint changes by stable row identity, validates all keys, foreign
+keys, and constraints, and encodes the
+accepted representation. It never trusts a client-supplied model digest.
+Formatting-only changes may advance exact tree state without changing logical
+query dependencies. SQLite database bytes are never page-merged; an authority
+that cannot prove semantic SQLite reconciliation conflicts the whole rollup.
+
 ### 1.3 Patch push and watch roundtrip
 
 A small editor change normally completes this end-to-end path:
@@ -239,6 +274,16 @@ A small editor change normally completes this end-to-end path:
    arrive. Other clients use the event as an invalidation: a clean replica reads
    the coherent snapshot, while a replica with local changes submits its own
    candidate for reconciliation.
+
+For the submitting credential, the first gap-free `tree.ref` event whose
+`requestDigest` matches the frozen request is a causal acknowledgement boundary:
+the authority has durably accepted that semantic intent exactly once, and the
+client has observed every event through that cursor. The client may replay the
+exact request to recover its stored response, but it clears the durable attempt
+only after applying the accepted or merged graph and advancing its local base.
+Because `filePatches` are transport-only and an accepted result may be merged,
+the event acknowledges the candidate intent rather than promising that the
+submitted patch bytes appear unchanged in the accepted root.
 
 Local durability therefore precedes network acknowledgement, the server
 accepts complete graph states rather than imperative edit commands, and watch
@@ -291,15 +336,15 @@ deliberately omits `id`, sends the remaining members of its event after `type`,
 and establishes current derived state with `ready`. `Last-Event-ID`, retained
 history, and `resync-required` therefore remain watch-only concepts.
 
-### 1.5 Stream live query updates
+### 1.5 Evaluate and stream named queries
 
 ```text
-POST /.arbor/query-stream
+QUERY /.arbor/trees/{SourceTreeID}/queries
 Content-Type: application/json
 Accept: text/event-stream
 ```
 
-An execution host may serve a reviewed [executable document](executable-documents.md)
+An execution host may serve a reviewed [executable document](07-executable-documents.md)
 while its permitted data lives on the same or another Arbor server. The request
 completely describes the coherent document version and its currently mounted
 query graph. A server without an executable-document runtime, or without
@@ -315,7 +360,7 @@ type QueryHandleRef = {
   version: Hash;
 };
 
-type QueryStreamRequest = {
+type QueriesRequest = {
   document: {
     tree: TreeID;
     path: LogicalPath;
@@ -330,11 +375,16 @@ type QueryStreamRequest = {
 };
 ```
 
-The query array is nonempty and its IDs are nonempty and unique within this
-request. The host verifies the coherent document version, reviewed handle
-membership, input schema, authenticated user context, effective access, and
-current backing identities. A `knownOutputHash` permits omission of unchanged
-bytes only after fresh authorization and reevaluation; it is neither
+`document.tree` must equal the route `SourceTreeID`. The query array is nonempty
+and its IDs are nonempty and unique within this request. A handle from another
+tree is allowed only when it is an imported reviewed handle in this document's
+manifest. The host verifies the coherent document version, reviewed handle
+membership, input schema, authenticated user context, effective access, and all
+bound node roots, edge/schema fingerprints, and provider identities. The
+request and events are independent of whether those nodes are expanded files,
+rollups, SQLite, Postgres, mounted trees, or remote providers. A
+`knownOutputHash` permits omission of unchanged bytes only after fresh
+authorization and reevaluation; it is neither
 authorization nor evidence of current state. Output hashes are SHA-256 of RFC
 8785 canonical JSON for the complete public result.
 
@@ -347,7 +397,7 @@ type PublicQueryError = {
   retryable: boolean;
 };
 
-type QueryStreamEvent =
+type QueryEvent =
   | {
       type: "result";
       id: string;
@@ -385,21 +435,35 @@ established a race-free snapshot-then-follow boundary. Before `ready`, changed
 hashes produce complete `result` values and an unchanged retained value may be
 confirmed by its hash in `ready`. Identical output hashes produce no payload.
 
+`QUERY` has the safe and idempotent semantics defined by
+[RFC 10008](https://www.rfc-editor.org/rfc/rfc10008.html). Evaluating or
+subscribing to a query never performs a mutation. The response is
+user/access dependent and long-lived, so it carries `Cache-Control: no-store`;
+automatic retry still reauthorizes and reestablishes current state rather than
+reusing a cached body.
+
 The response lifetime is the subscription lifetime. There is no durable
 execution ID, acknowledgement, SSE replay cursor, or resumable server-side
-subscription. Reconnection repeats and reauthorizes the complete POST. When the
-mounted query graph changes, the client opens a complete replacement request
+subscription. Reconnection repeats and reauthorizes the complete `QUERY`. When
+the mounted query graph changes, the client opens a complete replacement request
 and retains the old response only until the replacement sends `ready`. Source
 or access changes send `reload` when possible and close. Listener loss, backing
 uncertainty, process restart, or irrecoverable backpressure closes rather than
 publishing a result known to be stale; hosts may coalesce intermediate complete
 states.
 
+### 1.6 Execute named mutations
+
 Mutation calls carry the reviewed handle identity and version, validated input,
 authenticated subject, and caller-stable mutation identity:
 
+```text
+POST /.arbor/trees/{SourceTreeID}/mutate
+Content-Type: application/json
+```
+
 ```ts
-type MutationCallRequest = {
+type MutateRequest = {
   document: {
     tree: TreeID;
     path: LogicalPath;
@@ -416,33 +480,62 @@ type MutationResultReceipt<Result = unknown> = {
   mutationID: string;
   requestDigest: Hash;
   observedThrough: EventCursor;
+  affected?: {
+    tree: TreeID;
+    update: string;
+    root: Hash;
+    cursor: EventCursor;
+  };
   result: Result;
 };
 ```
 
-The host validates the document/handle versions and input before opening the
-store. Mutation semantic identity is the SHA-256 of RFC 8785 canonical JSON for
-`{ version: "mutation-call-v1", handle, input }`. Durable lookup is scoped by
+`document.tree` must equal the route `SourceTreeID`. The host validates the
+document/handle versions and input before opening the transaction domain.
+Mutation semantic identity is the SHA-256 of RFC 8785 canonical JSON for
+`{ version: "mutate-v1", handle, input }`. Durable lookup is scoped by
 the source tree, authenticated subject, and `mutationID`. Reusing that identity
 with a different request digest is a conflict; an exact ambiguous retry returns
 the original receipt and creates no second effect. This is the same committed-
 intent pattern as an accepted tree update: transport representation is excluded
 from the semantic digest, the subject scopes replay, and the receipt identifies
-the committed observation boundary. The mutation payload and transaction domain
-remain distinct from `UpdateRequest`; SQLite rows are never represented as
-`filePatches` or exposed as tree-object transport.
+the committed observation boundary. When the transaction advances an Arbor-
+canonical data tree, `affected` identifies its accepted update, Wire root, and
+gap-free watch cursor. A shared external-store mutation may omit `affected`
+and uses `observedThrough` for the derived-query observation domain. The mutate
+payload remains distinct from `UpdateRequest`: it carries reviewed intent and
+authorization context, while updates carry complete candidate tree state.
 
-This version does not assign the mutation envelope a standalone HTTP path.
-Document React Actions and named-call adapters bind it to a host after compiler
-manifests exist; both must preserve this exact request/receipt identity.
+Document React Actions may use the document's ordinary canonical HTTP action
+surface, while a named Wire call uses the endpoint above. Both bind through the
+compiled manifest and preserve this exact request/receipt identity.
 The durable receipt and corresponding query result may arrive in either order;
 clients correlate them idempotently and treat the query result as authoritative.
 
+The four operations remain distinct even when their implementations share
+authentication, semantic digests, receipts, observation brokers, SSE framing,
+and tree-scoped authorization:
+
+- `POST .../updates` proposes a complete candidate tree state against an
+  accepted base and may merge or conflict;
+- `GET .../watch` replays accepted tree observations from a retained cursor;
+- `QUERY .../queries` safely derives a fresh user-dependent result over any
+  reviewed logical nodes and has no retained replay identity;
+- `POST .../mutate` executes one reviewed transactional procedure with
+  exactly-once retry semantics.
+
+Combining update and mutate payloads would obscure their different transaction
+and conflict domains. Combining watch and queries would either discard useful
+watch replay or invent durable query-subscription state. Endpoint
+consolidation therefore consists of shared conventions and implementation
+machinery, not one polymorphic mutation or stream endpoint.
+
 Query streaming is derived-result delivery, not tree history. A mutation of an
-Arbor tree advances its ordinary accepted ref and may therefore also cause a
-`tree.ref` watch event. A mutation of an external store can update query results
-without changing the document's source-tree ref. Neither execution nor network
-reachability grants historical-object access, broadens the readable tree graph,
+Arbor-canonical data tree advances that data tree's ordinary accepted ref and
+therefore also causes a `tree.ref` watch event; it does not change the
+executable document's source-tree ref. A mutation of a shared external store can
+update query results without an Arbor data-tree update. Neither execution nor
+network reachability grants historical-object access, broadens the readable tree graph,
 or exposes raw stores, credentials, private handler source, unrelated rows, or
 private diagnostics. Cross-server query discovery, delegated authorization,
 and server-to-server execution routing remain unspecified.
@@ -508,7 +601,7 @@ type AccessEntry = {
 };
 
 type LocatorResolution = {
-  ref: { tree: TreeID; path: LogicalPath; pageID?: string };
+  ref: { tree: TreeID; path: LogicalPath; stableKey: string | null };
   enclosingTree: TreeDescriptor;
   historical: boolean;
   observedThrough: EventCursor;
@@ -547,8 +640,28 @@ Every tree operation, result, event, effect, and relevant error names its `TreeI
 
 An immutable tree snapshot names a root directory object and all objects are
 canonical CBOR addressed by `sha256:<lowercase-hex>` of their exact bytes.
-Directories map normalized UTF-8 names to file, directory, or nested-tree
-entries. Files contain exact bytes and media metadata. Names reject NUL,
+Directories map normalized UTF-8 names to file, directory, nested-tree, or
+versioned rollup entries. Files contain exact bytes and media metadata. A
+rollup entry references its exact source object, schema fingerprint, provider
+scope, and authority-derived logical child/subtree root:
+
+```ts
+type RollupDescriptor = {
+  version: 1;
+  codec: "csv" | "json" | "jsonl" | "sqlite";
+  source: Hash;
+  schema: Hash;
+  scope: "children" | "subtree";
+  modelDigest: Hash;
+};
+```
+
+The descriptor lets remote resolution, paging, querying, search, and semantic
+merge address rolled-up children without converting them into Markdown files
+or making the reserved source file a visible row. A decoder recomputes schema
+and the codec/schema-scoped `modelDigest` from `source`; a mismatch is invalid.
+This is not a universal tree serialization or hash. Exact source bytes and
+model-state equivalence remain distinct. Names reject NUL,
 slashes, backslashes, dot segments, non-NFC text, and reserved ambiguity.
 Directory entries are canonically ordered; decoders reject noncanonical
 encodings and hash mismatches.
@@ -655,7 +768,7 @@ is `account-config-v1`; all other trees use `ordinary`. There is no generic
 policy extension framework. The tree uses the ordinary object, snapshot,
 accepted-update, merge, replica, and watch machinery.
 
-The complete path and YAML contract is normative in [configuration](configuration.md).
+The complete path and YAML contract is normative in [configuration](05-configuration.md).
 For every direct candidate and every automatic merge, the server:
 
 1. authenticates the submitting device using the current accepted root;

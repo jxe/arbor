@@ -2,7 +2,9 @@ import type { LogicalPath, PageID } from "./protocol.ts";
 import { canonicalNodePath, nodeDisplayName, PathEscapeError } from "./logical-path.ts";
 
 /**
- * One resolver for the Markdown link destination forms in spec/locators.md.
+ * The current reference resolver for legacy PageID-fragment links. Data 002
+ * owns its migration to the stable-key and query-preserving forms in
+ * spec/03-locators.md.
  *
  * Every Markdown document resolves relative destinations from its canonical
  * logical address as a directory-like base, regardless of whether the body is
@@ -140,9 +142,9 @@ export function relativeLogicalReference(fromInput: LogicalPath, toInput: Logica
 }
 
 /**
- * The canonical authored spelling of a link from one document to another:
- * the shortest relative path, carrying the target's durable `PageID` as a
- * fragment when known (spec/locators.md §3).
+ * The current reference spelling of a link from one document to another: the
+ * shortest relative path, carrying a legacy durable `PageID` fragment when
+ * known. Data 002 replaces this with the Markdown stable-key alias.
  */
 export function buildCanonicalLink(
   fromInput: LogicalPath,

@@ -1,5 +1,5 @@
 # Social networking on Arbor
-*A thought experiment: if Arbor were ubiquitous and the wire were lowered to a transport peer of TCP and UDP, what would remain of a protocol like atproto — and how would you build something like Bluesky? Companion to [spec/wire.md](../../spec/wire.md) and the prior-art notes in [spec.md](../../spec.md).*
+*A thought experiment: if Arbor were ubiquitous and the wire were lowered to a transport peer of TCP and UDP, what would remain of a protocol like atproto — and how would you build something like Bluesky? Companion to [spec/04-wire.md](../../spec/04-wire.md) and the prior-art notes in [spec.md](../../spec.md).*
 
 ## The relationship to atproto
 
@@ -19,7 +19,7 @@ Most of atproto's bespoke surface exists because it had to build its own substra
 
 **The relay/firehose becomes a tree someone maintains.** A relay is a service that watches many public trees and materializes what it sees into its *own* public tree — an append-heavy, database-backed collection of "everything new across the trees I follow." Consumers don't speak a firehose protocol; they mount the relay's tree and watch it like anything else. Lowered to the transport, this gets cheap in a way the firehose famously isn't: refs are the only live bytes, immutable objects dedupe and multicast below the application layer, and the cache cascade (LAN peers, mirrors) absorbs fan-out. The firehose's bandwidth problem — every consumer drinks everything — is exactly the shape content-addressed multicast solves.
 
-**The AppView becomes a Postgres-backed folder plus hosted queries.** An AppView is a big index with a hand-built API. Here it is a `_store.postgres`-backed tree maintained by a crawler, whose read surface is upstream-hosted queries — automatically versioned APIs with server-side read-set tracking pushing invalidations over watch ([executable documents](../../spec/executable-documents.md)). Nobody designs the timeline API; it is a byproduct of writing the timeline query. The timeline UI is an executable document in a tree that any compatible client renders with a computed consent sentence.
+**The AppView becomes a Postgres-backed folder plus hosted queries.** An AppView is a big index with a hand-built API. Here it is a tree with a Postgres `_store.yaml` descriptor, maintained by a crawler, whose read surface is upstream-hosted queries — automatically versioned APIs with server-side read-set tracking pushing invalidations over watch ([executable documents](../../spec/07-executable-documents.md)). Nobody designs the timeline API; it is a byproduct of writing the timeline query. The timeline UI is an executable document in a tree that any compatible client renders with a computed consent sentence.
 
 **Lexicons become `schema.ts` in a public tree.** Shared record shapes are schemas everyone mounts; typegen flows to every client automatically. (Schema evolution stays hard — Arbor open problem #6 wearing atproto's clothes.)
 

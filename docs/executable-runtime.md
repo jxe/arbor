@@ -1,6 +1,6 @@
 # Arbor executable runtime reference
 
-This document records replaceable compiler, store-driver, hosting, and live-evaluation choices in the current implementation. Portable authored source and observable behavior are specified by [executable documents](../spec/executable-documents.md), [stores](../spec/stores.md), and [the wire](../spec/wire.md).
+This document records replaceable compiler, store-driver, hosting, and live-evaluation choices in the current implementation. Portable authored source and observable behavior are specified by [executable documents](../spec/07-executable-documents.md), [stores](../spec/06-stores.md), and [the wire](../spec/04-wire.md).
 
 ## Compilation and isolation
 

@@ -34,7 +34,8 @@ The exact frontmatter schema should be frozen against the checked-in Supplies ag
 
 The compiled agent manifest contains:
 
-- agent TreeID, PageID/path, source revision, and code/version identity;
+- agent `(TreeID, path, stable key or null)`, source revision, and code/version
+  identity;
 - resolved context and tool handle identities and their input/output schemas;
 - required tree/store prefixes inherited from those handles;
 - whether anonymous use is valid or an Arbor user is required;

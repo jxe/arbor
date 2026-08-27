@@ -28,7 +28,7 @@ Current private paths include `workspaces.json`, per-workspace directories under
 
 The exact journal records, replay-window size, retry count, temporary filenames, watcher classifications, recovery database schema, and credential reference layout are tuning/implementation choices. They must still satisfy durable acknowledgement, idempotent retry, lossless resync, secrecy, and last-valid control-file behavior.
 
-The synchronized [`trees.yaml`](../spec/configuration.md#configuration-yaml) contract is normative. `${ARBOR_DATA_HOME:-~/.arbor}`, private paths, and platform credential storage are reference choices documented in [the local system](local-system.md).
+The synchronized [`trees.yaml`](../spec/05-configuration.md#configuration-yaml) contract is normative. `${ARBOR_DATA_HOME:-~/.arbor}`, private paths, and platform credential storage are reference choices documented in [the local system](local-system.md).
 
 ## Wire encoding, reconciliation, and hosting
 

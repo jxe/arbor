@@ -25,7 +25,7 @@ Links are ordinary authored links:
 <a href={`Practice?id=${encodeURIComponent(practice.id)}&edit`}>Edit</a>
 ```
 
-Relative resolution and extensionless canonicalization follow [format](format.md) and [locators](locators.md). A same-tree host may intercept an ordinary link for client navigation, but the link must remain correct as an ordinary HTTP navigation with JavaScript absent. Back, forward, reload, open-in-new-tab, and copying the URL use browser semantics rather than a parallel application history.
+Relative resolution and extensionless canonicalization follow [format](02-directory-format.md) and [locators](03-locators.md). A same-tree host may intercept an ordinary link for client navigation, but the link must remain correct as an ordinary HTTP navigation with JavaScript absent. Back, forward, reload, open-in-new-tab, and copying the URL use browser semantics rather than a parallel application history.
 
 The query string belongs to the addressed document and is passed as an ordinary `URLSearchParams` value named `search`:
 
@@ -37,9 +37,17 @@ export default function List({ search }: { search: URLSearchParams }) {
 }
 ```
 
+The optional path-attached `;arbor-key=...` identity suffix is consumed before
+document routing and never appears in `search`. It can therefore heal or
+redirect a renamed executable document without taking an application query
+parameter away from it. Healing preserves the complete query string unchanged.
+
 There is no reserved `view` parameter, inferred union, generated link constructor, codec, match component, or global list of allowed query keys. A document interprets the parameters it owns. Query and mutation handles still validate their inputs; removing typed navigation does not permit unvalidated values to cross an execution boundary. Unknown parameters may be ignored unless the document deliberately rejects or canonicalizes them.
 
-Fragments retain ordinary document-fragment and Arbor `PageID` behavior. A document may also use a fragment for explicitly client-local state, but server rendering, authorization, metadata, and initial live queries cannot depend on fragment data unavailable to the server.
+Fragments retain ordinary document-fragment behavior. A document may also use
+a fragment for explicitly client-local state, but node identity, server
+rendering, authorization, metadata, and initial live queries cannot depend on
+fragment data unavailable to the server.
 
 ## Authored component forms
 
@@ -63,6 +71,10 @@ There is no parallel metadata export or metadata read lifecycle. A component ren
 Executable documents have Tailwind available as a compiler capability without an import, stylesheet directive, configuration file, or content glob. Statically discoverable utility classes in the addressed document's public import graph are available, and the pinned Tailwind/compiler version is part of the coherent document version. Constructing class names from arbitrary string fragments is not portable; conditional complete class tokens are. An ordinary imported stylesheet remains available for exceptional CSS, but neither `@import "tailwindcss"` nor a CDN/runtime compiler is part of authored source.
 
 `Markdown` from `arbor/react` renders a Markdown source string with Arbor's ordinary link resolution, safe URL and asset policy, and source semantics. It is the standard way for a component to present stored Markdown; executable documents do not choose a separate third-party Markdown policy accidentally.
+For a relative Markdown destination carrying the reserved `#arbor-key=` alias,
+it emits the equivalent server-visible path suffix and preserves the authored
+application query. It does not forward the reserved identity alias as an HTML
+fragment.
 
 Structured editors that cannot preserve MDX or TSX source exactly must use a raw/code-capable mode. They never rewrite executable source as ordinary Markdown. General network, filesystem, process, credential, and host APIs are unavailable in the component realm.
 
@@ -74,17 +86,68 @@ A source tree is identified by its existing `TreeID`; Arbor adds no application-
 
 For each exported handle, compilation exposes stable function identity, input validation, code version, declared or inferred tree access, and public result metadata without disclosing privileged implementation code. Literal tree paths contribute precise prefixes; computed paths require explicit declarations. Compilation fails when code can address an undeclared path, closes over UI-only state, or imports ambient host authority.
 
-`query.many`, `query.one`, `query.maybe`, and `mutation` accept an optional Standard Schema-compatible input schema. Zod is supported directly, without an Arbor-specific validator vocabulary. The handle's call input is the schema input type; the query plan or mutation handler receives its validated, transformed output. Validation occurs before data access. A no-input query omits the schema and is called as `useQuery(handle)`.
+`query.value`, `query.many`, `query.one`, `query.maybe`, and `mutation` accept an optional Standard Schema-compatible input schema. Zod is supported directly, without an Arbor-specific validator vocabulary. The handle's call input is the schema input type; the query plan or mutation handler receives its validated, transformed output. Validation occurs before data access. A no-input query omits the schema and is called as `useQuery(handle)`.
 
 ## Queries
 
-A query is a deterministic function of `(resolved workspace snapshot, validated input, trusted user context)`. Its only data doors are the scoped Arbor tree API and the callable symbolic relational language in [stores](stores.md). `query.many`, `query.one`, or `query.maybe` declares root cardinality; its callback returns predicates, ordering, bounds, and an explicit nested selection. A backing-coupled query uses a separately declared escape hatch and carries that fact in its handle.
+A query is a deterministic function of `(resolved workspace snapshot,
+validated input, trusted user context)`. Its only data door is one finite,
+declarative selection graph over the scoped logical node model. It may select an
+exact node, immediate children, explicitly bounded descendants, properties,
+content, references extracted from those values, derived backlinks,
+mounted-tree nodes, and schema-declared relationships.
+Every result retains tree-scoped provenance internally even when the authored
+public projection omits it.
 
-The return shape selects database facts and relational aggregates rather than arbitrary presentation expressions. Predicates that prevent private rows from being disclosed remain in the server query or mutation and are never delegated to a component. `database(path).relations` exposes schema-derived relation handles, `RowOf<typeof relation>` names a relation row, and `ResultOf<typeof handle>` names a handle result. `useQuery` infers the result directly, so authored source does not maintain a second handwritten result schema.
+`query.one`, `query.maybe`, and `query.many` assert the cardinality of any typed
+node source; they do not imply a database relation. `query.value` composes a
+finite object from several independent selections. Their callbacks return
+predicates, ordering, bounds, explicit nested selections, and safe scalar
+values. Predicates that prevent private nodes or rows from being disclosed stay
+in the server plan and are never delegated to a component.
+
+The universal symbolic node surface includes ref, path/name, revision,
+capabilities, diagnostics, declared properties, compatible content projections,
+and derived reference edges. A schema-governed collection or database relation is
+the same node-set source with additional proved relational capabilities:
+relationships, joins, grouping, and aggregates. `database(path).relations`
+remains a schema-derived convenience over those node sets, not a parallel
+ontology. A provider may push a plan into SQL, indexes, tree traversal, or
+search, but cannot change its portable meaning. An unavailable capability or
+an unbounded traversal fails before data access rather than silently loading an
+entire tree into executable memory.
+
+Literal node/store locators are resolved by the development compiler. Declared
+property, content, child, and edge schemas generate TypeScript source types;
+homogeneous children receive one item type and heterogeneous children a declared
+discriminated union. Computed locators require an explicit schema and capability
+bound. The compiler never guesses from sampled data. The document manifest pins
+the contributing tree roots and schema fingerprints, and activation refuses a
+stale plan or keeps the last-known-good version. `NodeOf`, `RowOf`, and
+`ResultOf` expose inferred types, so authored source maintains no second result
+schema.
+
+The return shape selects node/store facts and specified aggregates rather than
+running arbitrary presentation code over loaded results. The callback constructs
+the plan once at compilation and is not called per node. A backing-coupled query
+uses a separately declared escape hatch and carries that fact in its handle and
+consent statement.
 
 Live behavior is intrinsic to a query. A one-shot caller evaluates its current value once; a subscribing caller maintains that same value. The subscription is a stream of authorized complete query-result states, not raw driver changes. It establishes a race-free snapshot-then-follow boundary, never publishes a result already known to be stale, suppresses identical canonical output hashes, and may skip intermediate states for a slow client because it represents current state rather than an effect log.
 
-A query whose data is not materialized locally may be hosted by the relevant server when that host advertises and enforces the same manifest, validation, access, determinism, and version contract. This specification does not define cross-server query discovery, delegated authorization, or server-to-server routing.
+A live dependency plan names the narrowest proved node revisions,
+child-membership generations, property/content fields, edges, schema
+fingerprints, mounted roots, profile/access facts, and provider revisions that
+can affect the result. Providers translate it into committed observation or
+conservative subtree/store invalidation. Observation precision is an
+optimization and cannot change the result.
+
+A query whose nodes are not materialized locally may be hosted by the relevant
+server when that host advertises and enforces the same manifest, validation,
+access, determinism, and version contract. A read-only placement projection may
+materialize a reviewed node query into SQLite and serve its last completely
+applied state offline. This specification does not define general cross-server
+query discovery, delegated authorization, or server-to-server routing.
 
 ## Mutations
 
@@ -100,7 +163,7 @@ External side effects and cross-domain workflows require a separately specified 
 
 Components are React authoring in TSX or MDX within a confined UI realm. Workspace data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. General network and host APIs are absent; UI-local timers, focus, and animation do not become data authority.
 
-The public component package is `arbor/react`; data and handle authoring come from `arbor/data`. The former provides `useQuery`, `skipQuery`, `useMutationAction`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`. The latter provides `database`, schema-derived callable relation handles, `query`, `mutation`, `publicError`, `RowOf`, and `ResultOf`. Package names are part of the authored portability surface.
+The public component package is `arbor/react`; data and handle authoring come from `arbor/data`. The former provides `useQuery`, `skipQuery`, `useMutationAction`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`. The latter provides logical node sources, `database`, schema-derived callable relation handles, `query`, `mutation`, `publicError`, `NodeOf`, `RowOf`, and `ResultOf`. Package names are part of the authored portability surface.
 
 Cross-tree source imports use absolute Arbor locators and resolve to immutable code identities for one build or execution. Imported handles retain their own declared access; resolving an import cannot silently widen it.
 
@@ -114,7 +177,7 @@ Compilation begins from the addressed executable document and follows its explic
 - public component and asset bundles;
 - server-only query and mutation handles with Standard Schema input contracts;
 - resolved read/write capabilities and backing-coupled features;
-- required collection/schema fingerprints;
+- required tree roots, node/edge schemas, store identities, and schema fingerprints;
 - static query results when explicitly baked; and
 - live-host requirements.
 
@@ -129,12 +192,12 @@ Framework filenames do not create mutation endpoints, action routes, loaders, or
 A live Arbor server may run the executable-document runtime adjacent to its Wire API. The roles remain distinct:
 
 - the Arbor server owns tree identity, access, accepted updates, immutable objects, and current-tree watch;
-- store drivers own database transactions, snapshots, and committed change observation; and
+- node/store providers own traversal, database transactions, snapshots, and committed change observation; and
 - the document runtime owns source compilation, query isolation, dependency tracking, server rendering, live query evaluation, and public result disclosure.
 
 The tree execution principal receives only reviewed tree prefixes, store connections, and operations. A public executable document may read a private backing tree, but only validated rendered output and query results are disclosed. Raw stores, credentials, server handle source, diagnostics containing private values, and unrelated rows never enter the browser bundle or public response.
 
-Executable-document subscriptions are not accepted-update history and do not add historical-object access. A SQLite mutation that advances an authored tree also produces the ordinary tree ref update. A Postgres-backed mutation may update live query results without changing the source tree ref.
+Executable-document subscriptions are not accepted-update history and do not add historical-object access. A mutation of an Arbor-canonical data tree produces an ordinary accepted data-tree update regardless of its SQLite or Postgres materialization. A mutation of a shared external Postgres store may update live query results without changing the executable source-tree ref.
 
 ## Arbor user identity and authorization
 
@@ -149,7 +212,7 @@ type ArborUser = null | {
 
 Server-local account IDs, device IDs, credentials, and mutable handles are not document user identities. Handlers never accept a caller-supplied profile or account ID as proof of identity. Authored rows referring to a person store `ProfileID`; current display name, handle, portrait, and other public profile fields are resolved from that profile tree at query time. Profile reads are live dependencies, so a profile edit updates subscribed documents.
 
-A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the server browser session is Arbor platform UI. The server rechecks the session on render, each query-stream request, and mutation; revocation terminates existing streams and prevents an unauthorized value from being treated as current.
+A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the server browser session is Arbor platform UI. The server rechecks the session on render, each `queries` request, and mutation; revocation terminates existing streams and prevents an unauthorized value from being treated as current.
 
 `useUser()` returns the optional safe Arbor user projection. `useUser({ required: true })` declares that the mounted component cannot execute anonymously. It suspends before user-dependent queries mount and lets the server present its own session UI; an authored tree never receives credentials or implements authentication. A query plan may dereference the nullable-safe symbolic `user.profile`, or use `user.required.profile` to declare that anonymous execution must fail before data access even when the handle is invoked outside React.
 
@@ -159,7 +222,7 @@ Anonymous, Arbor-user, and tree-principal executions are separate cache and subs
 
 The host resolves the requested Arbor path, loads one coherent executable-document version, passes its query string, evaluates mounted query reads, server-renders the component tree, and embeds only validated results plus public handle metadata. Hydration reuses those values. `useQuery` follows React Suspense semantics for its initial value and throws failures to the nearest error boundary.
 
-Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [wire protocol](wire.md#15-stream-live-query-updates).
+Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [wire protocol](04-wire.md#15-evaluate-and-stream-named-queries) and its separate named-mutation operation.
 
 Mutation handles are React Actions as well as typed imperative handles. `useMutationAction(handle)` returns `[state, action, pending]`. Its Action converts `FormData`, validates it through the handle's Standard Schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. Successful return commits the runner-owned transaction; throwing rolls it back. Ordinary forms retain React's reset behavior.
 
@@ -169,7 +232,12 @@ Server exceptions, database diagnostics, private values, and stack traces never 
 
 ## Portability and limits
 
-The same source document may be served by any compatible local runtime or server that provides its declared stores and runtime features. A backing-independent handle cannot change meaning when `_store.sqlite3` is replaced by `_store.postgres`; schema compatibility and data migration are checked before the new handle version is used.
+The same source document may be served by any compatible local runtime or
+server that provides its declared nodes, stores, and runtime features. A
+backing-independent handle cannot change meaning when expanded children,
+`_store.sqlite3`, `_store.yaml`, or a placement SQLite projection supplies its
+source; schema compatibility, store-scoped model digests, and data migration
+are checked before the new handle version is used.
 
 For a query spanning transaction domains, the opaque `observedThrough` value represents the host's revision vector rather than inventing a global transaction. Cross-server execution requires explicit composition and never acquires authority merely through network reachability.
 

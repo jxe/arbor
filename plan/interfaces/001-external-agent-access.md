@@ -17,7 +17,7 @@ The external agent is a client of Arbor, like a human UI or another program. It 
 Arbor owns:
 
 - locator resolution across local paths, placed trees, remote trees, and revisions;
-- exact source and structured collection access;
+- exact source and structured node/children access;
 - durable, retryable mutations and their receipts;
 - stable machine-readable output and errors; and
 - the reusable instructions that teach an agent how to use those operations.
@@ -44,7 +44,6 @@ arbor read <locator> [--source|--json]
 arbor children <locator> [--cursor <cursor>] --json
 arbor search <locator> --query <text> [--cursor <cursor>] --json
 arbor backlinks <locator> [--cursor <cursor>] --json
-arbor collection <locator> [--table <name>] [--cursor <cursor>] --json
 arbor recovery <locator> [--recursive] [--cursor <cursor>] --json
 ```
 
@@ -73,7 +72,9 @@ arbor call <script-locator#handle> --input <json> [--mutation-id <id>] --json
 
 Machine-readable mode is a product surface, not a rendering of human terminal prose.
 
-- Successful JSON identifies the resolved tree, logical path, PageID when present, selected revision, observation cursor where relevant, and command-specific result.
+- Successful JSON identifies the resolved tree, logical path, stable key when
+  present, selected revision, observation cursor where relevant, and
+  command-specific result.
 - Paginated commands return the next cursor explicitly and never silently truncate.
 - Mutations return the caller-supplied or generated mutation ID and the ordinary durable receipt.
 - A transport failure with an uncertain mutation outcome is distinct from a known rejection; the error tells the caller to retry with the same mutation ID.
@@ -88,7 +89,8 @@ Create one source skill with thin packaging for Codex and Claude Code rather tha
 
 1. verify that arborsync is available with `arbor status --json`;
 2. resolve a locator before assuming its tree, path, placement, or writability;
-3. use `children`, `search`, `backlinks`, and `collection` instead of recursively scanning guessed filesystem roots;
+3. use `children`, `search`, and `backlinks` instead of recursively scanning
+   guessed filesystem roots or assuming that rows have a separate endpoint;
 4. retain provenance and revisions when summarizing or editing;
 5. read exact source before making an exact-source change;
 6. pass the observed base revision and a stable mutation ID for writes;
@@ -103,7 +105,8 @@ Keep the skill procedural and small. Command help and JSON schemas remain author
 ### Phase 1 — read and discovery commands
 
 1. Add a shared CLI request/output layer over `ArborSyncRESTClient`.
-2. Implement `status`, `resolve`, `read`, `children`, `search`, `backlinks`, `collection`, and `recovery` with deterministic JSON.
+2. Implement `status`, `resolve`, `read`, `children`, `search`, `backlinks`, and
+   `recovery` with deterministic JSON.
 3. Exercise local paths, mounted nested trees, unplaced remote trees, historical locators, pagination, missing content, and inaccessible content.
 4. Document concise examples in CLI help without requiring a running model.
 

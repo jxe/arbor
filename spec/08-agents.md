@@ -5,11 +5,20 @@
 
 An agent is an ordinary Markdown document. Its body is the primary instruction/prompt; frontmatter declares configuration such as model policy, named tools, context roots or queries, and transcript destination. Model/provider-specific tuning may be present as optional namespaced metadata, but the portable agent remains readable without a proprietary database.
 
-An agent file is versioned, linked, shared, and access-controlled like other authored Markdown. Moving it preserves its `PageID`; execution uses the resolved tree/path and revision chosen by the caller.
+An agent file is versioned, linked, shared, and access-controlled like other
+authored Markdown. Moving it preserves the stable key derived from its `id`
+property; execution uses the resolved tree/path and revision chosen by the
+caller.
 
 ## Tools and context
 
-Every runtime may expose Arbor's built-in read, navigate, search, backlinks, collection-query, and mutation operations. An agent may additionally name compiled [executable-document](executable-documents.md) query and mutation handles. Each tool has a typed input/output boundary and retains tree/path provenance in its results.
+Every runtime may expose Arbor's built-in read, navigate, search, backlinks,
+node-query, and mutation operations. The node-query surface includes schema-
+governed collection and relational capabilities when the addressed source
+provides them. An agent may additionally name compiled
+[executable-document](07-executable-documents.md) query and mutation handles. Each
+tool has a typed input/output boundary and retains tree/path provenance in its
+results.
 
 Context is assembled from explicit tree roots, locator selections, or deterministic query handles. It is not ambient retrieval over every host-readable file. Context results record their source locator and revision or observation cursor so a transcript can explain what the agent saw.
 

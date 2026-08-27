@@ -51,6 +51,9 @@ placements:
   "tr_<26-lowercase-base32-characters>":
     server: "https://community.example"
     path: "/Users/joe/Documents/Arbor"
+    projection:
+      driver: sqlite
+      mode: read-only
 ```
 
 `account.yaml` owns the community/profile connection and the nonempty set of
@@ -68,11 +71,24 @@ Each `devices/<DeviceID>.yaml` filename is both the file's device identity and
 membership in the active-device set. Device files cannot be renamed. A
 `placements` entry is keyed by `TreeID`. A `path` is a filesystem placement;
 an omitted path requests an implementation-managed durable writable replica. No
-entry creates a placement. `server` is the HTTP(S) origin that hosts the tree.
+placement entry creates a tree. `server` is the HTTP(S) Canopy origin that hosts
+the tree.
 Writers emit only `server`; version-1 readers may accept the legacy key
 `authority` during migration but reject an entry containing both. Every active
 device may read all device files, so placements are visible account-wide; a
 device applies only its own file locally.
+
+An optional `projection` selects a placement-private physical representation
+without changing the placed tree. The portable values are `driver: sqlite`
+with `mode: read-only` or `mode: bidirectional`. A read-only projection follows
+coherent remote query state, may serve the last completely applied output hash
+and scoped model digest offline, and rejects local mutations and direct database
+writes. A bidirectional projection
+may additionally publish provisional named mutations and candidate state under
+the [store replication contract](06-stores.md#postgres-and-placement-projections).
+Projection files, paths, applied output hashes/model digests, queues, and
+readiness are private state;
+only the requested driver and mode belong to synchronized placement YAML.
 
 An ordinary device may edit or delete only its own file. An administrator may
 edit `account.yaml` and `trees.yaml`, and may delete another device file, but

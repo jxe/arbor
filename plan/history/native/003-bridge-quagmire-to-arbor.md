@@ -17,7 +17,7 @@
 > # Substitute exact completion commits recorded by Plans 001-002.
 > git diff --stat <PLAN002_ARBOR_SHA>..HEAD -- \
 >   native packages/core/src packages/editor/src packages/client/src \
->   spec/format.md docs/client.md docs/arbord-api.md conformance tests \
+>   spec/02-directory-format.md docs/client.md docs/arbord-api.md conformance tests \
 >   plan/native/README.md docs/client.md
 > git -C /Users/joe/src/hunch diff --stat <PLAN001_HUNCH_SHA>..HEAD -- \
 >   project.yml Hunch.xcodeproj App/Sources App/Tests

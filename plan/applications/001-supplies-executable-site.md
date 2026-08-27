@@ -3,8 +3,10 @@
 ## Status
 
 - **Priority**: P1
-- **Depends on**: completed query, streaming, and mutation runtimes recorded in
-  [`history/applications`](../history/applications/README.md)
+- **Depends on**: completed SQLite query, streaming, and mutation runtimes
+  recorded in [`history/applications`](../history/applications/README.md), plus
+  the provider-neutral node/query contract and core/provider phases in
+  [Data 002](../data/002-reconcile-node-data-model.md)
 - **Progress**: IN PROGRESS — compiler and development typechecking are next
 - **Reference corpus**: [`sites/supplies`](../../sites/supplies)
 
@@ -77,8 +79,10 @@ The following phases are historical outcomes rather than future instructions:
 2. [Race-free query-result streaming](../history/outcomes.md#supplies-query-result-streaming)
 3. [Transactional mutation runner](../history/outcomes.md#supplies-transactional-mutation-runner)
 
-Do not reopen these runtimes while implementing the remaining phases unless a
-new end-to-end test exposes a concrete contract defect.
+Preserve their proved transaction and snapshot-follow behavior. Data 002 must
+adapt the SQLite relation engine into the generic node-source query algebra and
+dependency model; do not retain its database-root-only public handle merely
+because that historical implementation passed.
 
 ## Remaining milestone 1 — compiler and development typechecking
 
@@ -88,9 +92,11 @@ new end-to-end test exposes a concrete contract defect.
 2. Build the addressed document's explicit MDX/TSX/TS graph and split public
    React code from server-only query/mutation code. Reject ambient filesystem,
    process, network, credential, and undeclared-tree access.
-3. Generate declarations for database relations, symbolic fields, reviewed
-   relationships, queries, mutations, `RowOf`, `ResultOf`, `useQuery`, and
-   `useMutationAction`. Report diagnostics at authored spans.
+3. Generate declarations for generic node sources, database relation
+   capabilities, symbolic fields, reviewed relationships, queries, mutations,
+   `NodeOf`, `RowOf`, `ResultOf`, `useQuery`, and `useMutationAction`. Resolve
+   literal paths and schema fingerprints at development time and report
+   diagnostics at authored spans.
 4. Typecheck public and server graphs in watch mode when source, schema,
    imported profile shapes, or compiler versions change. Add
    `arbor check sites/supplies` with a nonzero failure status.
@@ -100,7 +106,8 @@ new end-to-end test exposes a concrete contract defect.
 6. Compile statically discoverable Tailwind classes without requiring an
    authored import, stylesheet, config, or content glob.
 7. Emit a reviewed manifest of public bundles/assets, handles and schemas,
-   capabilities, sensitivity plans, backing requirements, and runtime features.
+   tree/node/store capabilities, sensitivity plans, backing requirements, and
+   runtime features.
    Never put server implementations or private paths in client output.
 8. Exercise every Supplies document plus negative fixtures for forbidden
    imports, undeclared paths, invalid query fields, dynamic Tailwind fragments,

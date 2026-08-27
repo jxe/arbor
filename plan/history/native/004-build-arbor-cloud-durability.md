@@ -12,7 +12,7 @@
 >
 > ```sh
 > git diff --stat 84fc705..HEAD -- \
->   spec/format.md docs/client.md spec/configuration.md conformance \
+>   spec/02-directory-format.md docs/client.md spec/05-configuration.md conformance \
 >   packages/fs packages/arbord native package.json plan/native/README.md
 > git -C /Users/joe/src/hunch diff --stat 4c35f37..HEAD -- \
 >   App/Sources/Clamshell App/Tests/HunchUnitTests
@@ -44,7 +44,7 @@ implement the same protocol.
 
 ## Current state and corrected invariants
 
-- `spec/format.md:65-73` reserves `.arbor` and excludes journals/recovery from
+- `spec/02-directory-format.md:65-73` reserves `.arbor` and excludes journals/recovery from
   portable authored content unless another specification explicitly opts in.
 - The `iCloud durability` section of `plan/native/README.md` already selects a new,
   versioned Arbor sidecar profile rather than exact Clamshell `.history`
@@ -166,7 +166,7 @@ Run Xcode gates sequentially.
 - TypeScript arbord/filesystem implementation of the same profile.
 - TreeHopper provider/session integration and sync/recovery presentation.
 - Local and real File Provider/iCloud qualification harnesses.
-- Corrections to `plan/native/README.md` and `spec/format.md` sidecar wording.
+- Corrections to `plan/native/README.md` and `spec/02-directory-format.md` sidecar wording.
 
 **Out of scope**:
 
@@ -192,7 +192,7 @@ Run Xcode gates sequentially.
 Write `spec/icloud.md` with the namespace, schema, canonical encoding, append and
 fsync/coordinated-write requirements, causal fold, materialization frontier,
 external-change classification, move/trash repair, retention/compaction, and
-exclusion rules. Update `spec/format.md` to make this the one explicit exception
+exclusion rules. Update `spec/02-directory-format.md` to make this the one explicit exception
 that allows `.arbor/icloud/v1` to travel through an iCloud/File Provider while
 remaining outside authored Arbor content and wire publication.
 
@@ -371,7 +371,7 @@ replace shared fixtures.
 
 ## Done criteria
 
-- [ ] `spec/icloud.md` and `spec/format.md` define a versioned private profile
+- [ ] `spec/icloud.md` and `spec/02-directory-format.md` define a versioned private profile
       and explicit exclusion from Arbor content/wire/publication.
 - [ ] One root command runs identical Swift/TypeScript conformance fixtures.
 - [ ] Each writer writes only its own append-only files.

@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Implement an independent Foundation-only wire client from shared fixtures. Do not copy TypeScript implementation details, add SwiftUI/Keychain UI, or build a local replica. Run live behavior only against a temporary local authority.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- native/Packages conformance spec/wire.md packages/wire tests/protocol package.json`
+> **Drift check**: `git diff --stat dc34126..HEAD -- native/Packages conformance spec/04-wire.md packages/wire tests/protocol package.json`
 
 ## Status
 

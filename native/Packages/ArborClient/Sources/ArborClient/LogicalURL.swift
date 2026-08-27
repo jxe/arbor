@@ -1,9 +1,9 @@
 import Foundation
 
-/// One resolver for the Markdown link destination forms in spec/locators.md,
-/// mirroring `@arbor/core` `logical-url.ts` exactly. Both implementations
-/// must produce structurally identical results for the shared
-/// `url-resolution.json` fixture table.
+/// The current reference resolver for legacy PageID-fragment links, mirroring
+/// `@arbor/core` `logical-url.ts` exactly. Data 002 owns migration to the
+/// stable-key and query-preserving forms in spec/03-locators.md. Both current
+/// implementations must agree on the shared `url-resolution.json` fixtures.
 public enum ResolvedLink: Sendable, Equatable {
     case local(path: String, pageID: String?, fragment: String?)
     case arbor(authority: ArborAuthority, path: String, pageID: String?, fragment: String?)
@@ -140,7 +140,8 @@ public func relativeLogicalReference(from fromInput: String, to toInput: String)
     return reference.isEmpty ? nodeDisplayName(toInput) : reference
 }
 
-/// The canonical authored spelling of a link from one document to another.
+/// The current legacy-PageID spelling of a link from one document to another.
+/// Data 002 replaces it with the Markdown stable-key alias.
 public func buildCanonicalLink(from fromInput: String, toPath: String, pageID: String? = nil) -> String {
     let reference = relativeLogicalReference(from: fromInput, to: toPath)
     if let pageID { return "\(reference)#\(pageID)" }

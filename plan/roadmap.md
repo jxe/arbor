@@ -37,10 +37,21 @@ repeat their executor instructions.
 
 Durable product contracts live in the topic specifications:
 
-- [format](../spec/format.md) and [locators](../spec/locators.md) own exact source, logical nodes, tree-relative references, canonical names, raw TreeID fallback, and immutable revision selection;
-- [configuration](../spec/configuration.md) owns synchronized account, tree, device, placement, ACL, and governance data;
-- [Wire and community hosting](../spec/wire.md) owns canonical boundaries, promotion, profiles, claims, access, objects, refs, retry/resync, secret transport, cross-server executable-document data and effects, and HTTP projection;
-- [stores](../spec/stores.md), [executable documents](../spec/executable-documents.md), and [agents](../spec/agents.md) own their respective authored contracts;
+- the [data model](../spec/01-data-model.md) owns the global TreeID space,
+  partial availability, trees, nodes, identities, properties, content, children,
+  derived references/relationships, the secondary canonical URL index,
+  structured-data interpretation, and equivalence;
+- [directory projection](../spec/02-directory-format.md) and
+  [locators](../spec/03-locators.md) own exact filesystem/Markdown source,
+  `_index.md`, frontmatter, child placement, tree-relative references,
+  canonical names, raw TreeID fallback, schema-stable keys, application-query
+  separation, content fragments, and immutable revision selection;
+- [Wire and community hosting](../spec/04-wire.md) owns remote model sampling,
+  exact projection objects, canonical boundaries, promotion, profiles, claims,
+  access, refs, updates, watch/retry/resync, query/mutate transport, secrets, and
+  HTTP projection;
+- [configuration](../spec/05-configuration.md) owns synchronized account, tree, device, placement, ACL, and governance data;
+- [stores](../spec/06-stores.md), [executable documents](../spec/07-executable-documents.md), and [agents](../spec/08-agents.md) own their respective authored contracts;
 - the [reference documentation](../docs/reference-implementation.md) owns the Local Arbor REST API, CLI, data home, client interaction design, runtime algorithms, and platform behavior.
 
 ## Milestone 2 — live data documents
@@ -54,7 +65,7 @@ Outcome: the checked-in Supplies tree is the first complete executable Arbor sit
 1. Build the SQLite query engine against every checked-in Supplies callable query plan, including schema/result type inference, named relationship metadata, and profile-tree joins. Support `query.many`/`one`/`maybe`, `pick`, callable relations, typed predicates and counts, omitted no-input schemas, inferred stable keys, and automatic deterministic tie-breakers. Keep query returns factual; calculate editability and other presentation state in React with `useUser()`.
 2. Add race-free query-result streaming from committed SQLite/profile changes with semantic sensitivity, snapshot-then-follow, output hashing, and one self-contained stateless SSE request for the mounted query graph.
 3. Add the mutation runner with Standard Schema inputs, injected Arbor users, a default transaction exposed as `tx`, in-transaction authorization, retry-stable IDs/time/receipts, ordered relation primitives, and post-commit change publication.
-4. Add MDX/TSX compilation and development typechecking, server/client extraction, Standard Schema-derived handle types, generated `RowOf`/`ResultOf` declarations, zero-import Tailwind, manifests, watch diagnostics, and `arbor check`.
+4. Add MDX/TSX compilation and development typechecking, server/client extraction, literal Arbor path/schema resolution, provider-neutral node-source handles, Standard Schema-derived handle types, generated `NodeOf`/`RowOf`/`ResultOf` declarations, zero-import Tailwind, manifests, watch diagnostics, and `arbor check`. Adapt the completed SQLite relation engine as one capability provider for the generic query algebra rather than freezing database relations as the public node model.
 5. Make the components run first in local `arbor open` and then through the same SSR/hydration/Action/stream stack at ordinary Canopy HTTP paths after explicit tree activation.
 6. Present the same local runtime in signed macOS Arbor through a constrained native web surface while preserving native tab/location/provenance and source controls.
 7. Add the deterministic fixture, import the real Postgres corpus into SQLite with reviewed legacy-ID/ProfileID mapping, stage side by side, and cut over with redirects, backups, and rollback.

@@ -10,7 +10,7 @@ credentials or access-link secrets.
 
 ## 1. Shared values
 
-REST v1 extends values from [the Arbor wire protocol](../spec/wire.md) with its local `local` and `system` scopes:
+REST v1 extends values from [the Arbor wire protocol](../spec/04-wire.md) with its local `local` and `system` scopes:
 
 ```ts
 type TreeID = string;
@@ -183,7 +183,9 @@ snapshot/page envelopes. `GET /v1/file` returns exact bytes and does not need an
 independent cursor because its guarding content revision is obtained from the
 node snapshot.
 
-Directory source and logical-node rules are defined by the portable [authored format](../spec/format.md).
+Logical-node rules come from the [data model](../spec/01-data-model.md); exact
+directory source, `_index.md`, frontmatter, and child-placement rules come from
+the portable [directory projection](../spec/02-directory-format.md).
 Children, search, backlinks, collections, recovery entries, mounted boundaries,
 events, and effects all retain explicit tree scope.
 

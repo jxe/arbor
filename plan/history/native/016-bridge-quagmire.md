@@ -2,7 +2,7 @@
 
 > **Executor instructions**: Build a thin private host adapter over ArborKit sessions and exact Quagmire `0.1.0`. Do not modify/tag Quagmire, create a second canonical document model, or port voice/product chrome.
 >
-> **Drift check**: `git diff --stat dc34126..HEAD -- native/Packages/ArborKit native/Packages/ArborReplica native/Packages/ArborQuagmire native/project.yml spec/format.md docs/client.md packages/editor tests /Users/joe/src/quagmire`
+> **Drift check**: `git diff --stat dc34126..HEAD -- native/Packages/ArborKit native/Packages/ArborReplica native/Packages/ArborQuagmire native/project.yml spec/02-directory-format.md docs/client.md packages/editor tests /Users/joe/src/quagmire`
 
 ## Status
 

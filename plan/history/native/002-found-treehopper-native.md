@@ -12,7 +12,7 @@
 > ```sh
 > git diff --stat 05bcf35..HEAD -- \
 >   README.md plan/native/README.md plan/hardening/technical-debt.md docs/client.md \
->   native docs/client.md spec/format.md spec/locators.md docs/arbord-api.md \
+>   native docs/client.md spec/02-directory-format.md spec/03-locators.md docs/arbord-api.md \
 >   package.json tests/protocol
 > ```
 >
