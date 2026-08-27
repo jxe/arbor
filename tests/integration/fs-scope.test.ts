@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { Database } from "bun:sqlite";
 import { serveArborSync } from "@arbor/arborsync";
 import { ArborSyncRESTClient } from "@arbor/client";
 import type { MutationRequest, NodeSnapshot } from "@arbor/core";
@@ -38,6 +39,10 @@ beforeAll(async () => {
   await mkdir(join(outer, "stray", "rolled"));
   await writeFile(join(outer, "stray", "rolled", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
   await writeFile(join(outer, "stray", "rolled", "_store.json"), '[{"id":"one","title":"One"}]\n');
+  await mkdir(join(outer, "stray", "database"));
+  const sqlite = new Database(join(outer, "stray", "database", "_store.sqlite3"));
+  sqlite.exec("create table items (id text primary key, title text not null); insert into items values ('one', 'One')");
+  sqlite.close();
   await mkdir(join(outer, "implicit-edit"));
   await writeFile(join(outer, "implicit-edit", "child.md"), "Child\n");
   await symlink(join(root, "inside.md"), join(outer, "stray", "link-into-root.md"));
@@ -129,6 +134,26 @@ describe("the local filesystem scope", () => {
       access: "write",
       osPath: root,
     });
+  });
+
+  test("browses untracked SQLite tables and stable rows through ordinary nodes", async () => {
+    const databasePath = join(outer, "stray", "database");
+    const container = await client.node({ tree: "local", path: databasePath, stableKey: null });
+    expect(container.capabilities.children?.representation).toMatchObject({ type: "rollup", codec: "sqlite", scope: "subtree" });
+    const tables = await client.children(container.ref);
+    const tableRef = tables.items.find((item) => item.ref.path === join(databasePath, "items"))?.ref;
+    expect(tableRef).toBeDefined();
+    const rows = await client.children(tableRef!);
+    expect(rows.items[0]).toMatchObject({
+      ref: { tree: "local", path: join(databasePath, "items", "one"), stableKey: canonicalStableKey([["id", "one"]]) },
+      properties: { id: "one", title: "One" },
+    });
+    const healed = await client.node({
+      tree: "local",
+      path: join(databasePath, "items", "stale"),
+      stableKey: canonicalStableKey([["id", "one"]]),
+    });
+    expect(healed.ref.path).toBe(join(databasePath, "items", "one"));
   });
 
   test("uses WorkspaceFS authored ordering through an absolute browser path", async () => {

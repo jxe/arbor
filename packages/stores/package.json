@@ -5,6 +5,7 @@
   "exports": "./src/index.ts",
   "dependencies": {
     "@arbor/core": "workspace:*",
+    "@arbor/data": "workspace:*",
     "@arbor/editor": "workspace:*",
     "@arbor/fs": "workspace:*",
     "csv-parse": "6.1.0",

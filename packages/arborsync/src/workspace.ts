@@ -230,7 +230,7 @@ export class Workspace implements AsyncDisposable {
     if (node.kind !== "directory" && node.kind !== "collection") {
       throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
     }
-    if (node.collection && !(node.collection.backing === "postgres" && node.collection.tables?.length)) {
+    if (node.collection && !node.collection.tables?.length) {
       const page = await this.collection(path, cursor ?? null, 100);
       return {
         parent: sampleTreeNode(node, { tree: this.tree, observedThrough }).ref,
@@ -546,7 +546,7 @@ export class Workspace implements AsyncDisposable {
     const read = await this.fs.read(inputPath, await this.directoryDocumentOptions(inputPath));
     const resolved = read.node;
     if (resolved.kind === "missing") {
-      const virtual = await this.postgresVirtualNode(resolved.path);
+      const virtual = await this.collectionVirtualNode(resolved.path);
       if (virtual) return virtual;
       throw new ProtocolError("not-found", `Node not found: ${resolved.path}`, 404, {
         path: resolved.path,
@@ -650,10 +650,18 @@ export class Workspace implements AsyncDisposable {
     if (path === "/") return null;
     const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
     const parent = await this.fs.resolve(parentPath);
-    if (!parent.directoryPath) return null;
-    const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
-    if (!summary || summary.backing === "markdown" || summary.backing === "postgres") return null;
-    return this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
+    if (parent.directoryPath) {
+      const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
+      if (!summary || summary.backing === "markdown" || summary.backing === "postgres" || summary.backing === "sqlite") return null;
+      return this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
+    }
+    const grandparentPath = parentPath.slice(0, parentPath.lastIndexOf("/")) || "/";
+    const table = parentPath.slice(parentPath.lastIndexOf("/") + 1);
+    const grandparent = await this.fs.resolve(grandparentPath);
+    if (!grandparent.directoryPath) return null;
+    const summary = await this.collections.summary(grandparent.directoryPath).catch(() => null);
+    if (summary?.backing !== "sqlite" || !summary.tables?.includes(table)) return null;
+    return this.collections.row(grandparent.directoryPath, parentPath, { path, stableKey: ref.stableKey }, table);
   }
 
   search(query: string, limit = 30): SearchResult[] { return this.index.search(query, limit); }
@@ -1322,7 +1330,7 @@ export class Workspace implements AsyncDisposable {
     return { children: children.sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
   }
 
-  private async postgresVirtualNode(treePath: string): Promise<TreeNode | null> {
+  private async collectionVirtualNode(treePath: string): Promise<TreeNode | null> {
     const slash = treePath.lastIndexOf("/");
     if (slash <= 0) return null;
     const parentPath = treePath.slice(0, slash) || "/";
@@ -1330,16 +1338,19 @@ export class Workspace implements AsyncDisposable {
     const parent = await this.fs.resolve(parentPath);
     if (!parent.directoryPath) return null;
     const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
-    if (summary?.backing !== "postgres" || !summary.tables?.includes(table)) return null;
+    if (!summary?.tables?.includes(table)) return null;
+    const tableSummary = await this.collections.tableSummary(parent.directoryPath, table);
+    if (!tableSummary) return null;
     return {
       path: treePath,
       name: table,
       kind: "collection",
-      revision: EMPTY_REVISION,
+      revision: tableSummary.revision ?? EMPTY_REVISION,
+      ...(tableSummary.revision ? { childrenRevision: tableSummary.revision } : {}),
       writable: false,
       materialization: "available",
-      collection: { ...summary, tables: undefined },
-      diagnostics: [],
+      collection: tableSummary,
+      diagnostics: tableSummary.diagnostics ?? [],
     };
   }
 

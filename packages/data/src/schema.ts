@@ -138,7 +138,7 @@ function sqliteType(declared: string): FieldType {
   return "unknown";
 }
 
-function inspectSQLite(database: Database): Record<string, RelationMetadata> {
+export function inspectSQLite(database: Database): Record<string, RelationMetadata> {
   const tables = database.query(
     "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not glob '__arbor_*' order by name",
   ).all() as Array<{ name: string }>;
@@ -188,6 +188,29 @@ function inspectSQLite(database: Database): Record<string, RelationMetadata> {
     result[name] = { name, source: "sqlite", fields, primaryKey, uniqueKeys, indexes: indexMetadata, foreignKeys };
   }
   return result;
+}
+
+/**
+ * Introspect a standalone SQLite database without requiring authored query
+ * relationship metadata. Generic node providers use this for ordinary SQLite
+ * files; executable-document databases normally use introspectStoreSchema so
+ * schema.sql and relationships.json are validated as well.
+ */
+export function introspectSQLiteDatabase(databasePath: string): StoreSchema {
+  const database = new Database(databasePath, { readonly: true, strict: true });
+  try {
+    const relations = inspectSQLite(database);
+    const definitions = sqliteDefinitions(database);
+    const fingerprintInput = { version: 1, relations, relationships: {}, definitions };
+    return {
+      version: 1,
+      relations,
+      relationships: {},
+      fingerprint: `sha256:${sha256(canonicalJSONString(fingerprintInput))}`,
+    };
+  } finally {
+    database.close();
+  }
 }
 
 function sameSQLiteShape(left: Record<string, RelationMetadata>, right: Record<string, RelationMetadata>): boolean {

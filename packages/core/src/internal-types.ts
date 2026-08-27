@@ -30,7 +30,7 @@ export interface TreeNode {
   diagnostics: Diagnostic[];
 }
 
-export type CollectionBacking = "csv" | "json" | "jsonl" | "markdown" | "postgres";
+export type CollectionBacking = "csv" | "json" | "jsonl" | "markdown" | "sqlite" | "postgres";
 
 export interface CollectionSummary {
   backing: CollectionBacking;
@@ -41,6 +41,7 @@ export interface CollectionSummary {
   modelDigest?: string;
   diagnostics?: Diagnostic[];
   editable: boolean;
+  rollupScope?: "children" | "subtree";
   total?: number;
   tables?: string[];
 }

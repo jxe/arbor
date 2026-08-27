@@ -117,11 +117,11 @@ function capabilities(node: TreeNode, writable: boolean): NodeCapabilities {
     const collection = node.collection;
     const representation = collection?.backing === "postgres"
       ? { type: "external" as const, driver: "postgres" }
-      : collection?.backing === "csv" || collection?.backing === "json" || collection?.backing === "jsonl"
+      : collection?.backing === "csv" || collection?.backing === "json" || collection?.backing === "jsonl" || collection?.backing === "sqlite"
         ? {
           type: "rollup" as const,
           codec: collection.backing,
-          scope: "children" as const,
+          scope: collection.rollupScope ?? "children" as const,
           modelDigest: (collection.modelDigest ?? digest({ columns: collection.columns, identityRule: collection.identityRule })) as Hash,
         }
         : { type: "expanded" as const };

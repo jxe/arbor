@@ -91,6 +91,8 @@ export class FilesystemService implements AsyncDisposable {
     const read = await fs.read(inputPath);
     const resolved = read.node;
     if (resolved.kind === "missing") {
+      const virtual = await this.collectionVirtualNode(resolved.path);
+      if (virtual) return virtual;
       throw new ProtocolError("not-found", `Node not found: ${resolved.path}`, 404, { path: resolved.path });
     }
     if (resolved.kind === "file" || resolved.materialization === "placeholder") {
@@ -173,6 +175,30 @@ export class FilesystemService implements AsyncDisposable {
     return { children: children.sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
   }
 
+  private async collectionVirtualNode(treePath: string): Promise<TreeNode | null> {
+    const slash = treePath.lastIndexOf("/");
+    if (slash <= 0) return null;
+    const parentPath = treePath.slice(0, slash) || "/";
+    const table = treePath.slice(slash + 1);
+    const parent = await (await this.engine).resolve(parentPath);
+    if (!parent.directoryPath) return null;
+    const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
+    if (!summary?.tables?.includes(table)) return null;
+    const tableSummary = await this.collections.tableSummary(parent.directoryPath, table);
+    if (!tableSummary) return null;
+    return {
+      path: treePath,
+      name: table,
+      kind: "collection",
+      revision: tableSummary.revision ?? revisionOf(""),
+      ...(tableSummary.revision ? { childrenRevision: tableSummary.revision } : {}),
+      writable: false,
+      materialization: "available",
+      collection: tableSummary,
+      diagnostics: tableSummary.diagnostics ?? [],
+    };
+  }
+
   private snapshotFromTree(node: TreeNode, observedThrough: string): NodeResponse {
     return sampleTreeNode(node, { tree: LOCAL_TREE, observedThrough });
   }
@@ -207,12 +233,26 @@ export class FilesystemService implements AsyncDisposable {
         const parent = await (await this.engine).resolve(parentPath);
         if (parent.directoryPath) {
           const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
-          if (summary && summary.backing !== "markdown" && summary.backing !== "postgres") {
+          if (summary && summary.backing !== "markdown" && summary.backing !== "postgres" && summary.backing !== "sqlite") {
             const collectionRow = await this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
             if (collectionRow) return {
               ...collectionRowSummary(collectionRow.row, collectionRow.page, parentPath, LOCAL_TREE),
               observedThrough,
             };
+          }
+        } else {
+          const grandparentPath = parentPath.slice(0, parentPath.lastIndexOf("/")) || "/";
+          const table = parentPath.slice(parentPath.lastIndexOf("/") + 1);
+          const grandparent = await (await this.engine).resolve(grandparentPath);
+          if (grandparent.directoryPath) {
+            const summary = await this.collections.summary(grandparent.directoryPath).catch(() => null);
+            if (summary?.backing === "sqlite" && summary.tables?.includes(table)) {
+              const collectionRow = await this.collections.row(grandparent.directoryPath, parentPath, { path, stableKey: ref.stableKey }, table);
+              if (collectionRow) return {
+                ...collectionRowSummary(collectionRow.row, collectionRow.page, parentPath, LOCAL_TREE),
+                observedThrough,
+              };
+            }
           }
         }
       }
@@ -230,7 +270,7 @@ export class FilesystemService implements AsyncDisposable {
       if (node.kind !== "directory" && node.kind !== "collection") {
         throw new ProtocolError("invalid-reference", `${node.path} does not have children`, 400, { path: node.path });
       }
-      if (node.collection && !(node.collection.backing === "postgres" && node.collection.tables?.length)) {
+      if (node.collection && !node.collection.tables?.length) {
         const fs = await this.engine;
         const resolved = await fs.resolve(node.path);
         let absolute = resolved.directoryPath;

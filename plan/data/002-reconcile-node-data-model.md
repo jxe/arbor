@@ -83,11 +83,21 @@
   ordinary node reads by path or stable key, including stale readable paths in
   managed and untracked scopes. The deliberate compatibility/retrofit layers
   and their deletion conditions are recorded in the hardening backlog.
-- **Next checkpoint:** bind the existing SQLite schema/query/mutation engine to
-  the same generic table/row provider, then route file-row writes through
-  generic node mutation semantics. Replace the internal collection-page and
-  adapter probes only once both use the shared provider snapshot contract;
-  defer Wire rollup synchronization until those local semantics are proved.
+- **2026-08-27 — SQLite node read path complete:** `_store.sqlite3` detection,
+  executable-store validation, and standalone SQLite introspection now share
+  the relational metadata in `@arbor/data`. A SQLite-backed directory samples
+  as a subtree rollup whose user tables are ordinary child nodes; each table
+  pages database-consistent row snapshots with primary-key stable identity,
+  deterministic row paths, revision-bound keyset cursors, normalized booleans,
+  and stale-path key resolution. Managed and untracked filesystem adapters use
+  the same database/table/row behavior. Generic capabilities remain read-only,
+  while the existing authored query and named mutation APIs are unchanged.
+- **Next checkpoint:** agree how generic row property edits relate to named
+  executable mutations, then route SQLite and file-row writes through the
+  chosen node mutation semantics. Extract the remaining internal
+  collection-page and parent/grandparent adapter probes into the shared
+  `ChildProvider` snapshot contract; defer Wire rollup synchronization until
+  those local mutation semantics are proved.
 
 ## Target result
 

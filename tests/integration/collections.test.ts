@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { Database } from "bun:sqlite";
 import { canonicalStableKey } from "@arbor/core";
 import { CollectionStore, detectCollection } from "@arbor/stores";
 
@@ -21,6 +22,15 @@ beforeAll(async () => {
   await mkdir(join(root, "markdown"));
   await writeFile(join(root, "markdown", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), status: z.enum(["draft", "done"]) });\n');
   await writeFile(join(root, "markdown", "one.md"), "---\nid: abc123\ntitle: One\nstatus: draft\n---\nBody\n");
+  await mkdir(join(root, "sqlite"));
+  const sqliteSchema = "create table items (id text primary key, title text not null, active boolean not null); create table memberships (list_id text not null, profile text not null, primary key (list_id, profile));";
+  await writeFile(join(root, "sqlite", "schema.sql"), `${sqliteSchema}\n`);
+  await writeFile(join(root, "sqlite", "relationships.json"), '{"version":1,"relationships":{}}\n');
+  const sqlite = new Database(join(root, "sqlite", "_store.sqlite3"));
+  sqlite.exec(sqliteSchema);
+  sqlite.query("insert into items values (?, ?, ?), (?, ?, ?)").run("b", "Second", 0, "a", "First", 1);
+  sqlite.query("insert into memberships values (?, ?)").run("list", "person");
+  sqlite.close();
 });
 
 afterAll(async () => rm(root, { recursive: true, force: true }));
@@ -31,6 +41,7 @@ describe("file-backed collections", () => {
     expect((await detectCollection(join(root, "json")))?.backing).toBe("json");
     expect((await detectCollection(join(root, "jsonl")))?.backing).toBe("jsonl");
     expect((await detectCollection(join(root, "markdown")))?.backing).toBe("markdown");
+    expect((await detectCollection(join(root, "sqlite")))?.backing).toBe("sqlite");
   });
 
   test("validates CSV rows in the schema sandbox", async () => {
@@ -94,5 +105,60 @@ describe("file-backed collections", () => {
     const page = await new CollectionStore().page(join(root, "markdown"), "/markdown", null, 20);
     expect(page.editable).toBe(true);
     expect(page.rows[0]?.values).toEqual({ id: "abc123", title: "One", status: "draft" });
+  });
+
+  test("projects SQLite tables and rows through the shared schema metadata", async () => {
+    const collections = new CollectionStore();
+    const directory = join(root, "sqlite");
+    const summary = await collections.summary(directory);
+    expect(summary).toMatchObject({
+      backing: "sqlite",
+      tables: ["items", "memberships"],
+      rollupScope: "subtree",
+      editable: false,
+    });
+    expect(summary?.schemaRevision).toMatch(/^sha256:/);
+
+    const table = await collections.tableSummary(directory, "items");
+    expect(table).toMatchObject({
+      backing: "sqlite",
+      columns: ["id", "title", "active"],
+      identityRule: { scope: "parent", properties: ["id"] },
+      rollupScope: "children",
+      total: 2,
+    });
+
+    const first = await collections.page(directory, "/sqlite/items", null, 1, "items");
+    expect(first.rows[0]).toMatchObject({
+      path: "a",
+      stableKey: canonicalStableKey([["id", "a"]]),
+      values: { id: "a", title: "First", active: true },
+    });
+    expect(first.nextCursor).not.toBeNull();
+    const second = await collections.page(directory, "/sqlite/items", first.nextCursor, 1, "items");
+    expect(second.rows[0]?.path).toBe("b");
+
+    const resolved = await collections.row(directory, "/sqlite/items", {
+      path: "/sqlite/items/stale-readable-path",
+      stableKey: canonicalStableKey([["id", "b"]]),
+    }, "items");
+    expect(resolved?.row).toMatchObject({ path: "b", values: { title: "Second", active: false } });
+
+    const database = new Database(join(directory, "_store.sqlite3"));
+    database.query("update items set title = ? where id = ?").run("Changed", "b");
+    database.close();
+    await expect(collections.page(directory, "/sqlite/items", first.nextCursor, 1, "items"))
+      .rejects.toThrow("another revision");
+  });
+
+  test("introspects standalone SQLite stores without executable-document companions", async () => {
+    const directory = join(root, "standalone-sqlite");
+    await mkdir(directory);
+    const database = new Database(join(directory, "_store.sqlite3"));
+    database.exec("create table notes (id text primary key, title text not null); insert into notes values ('one', 'One')");
+    database.close();
+    const collections = new CollectionStore();
+    expect(await collections.summary(directory)).toMatchObject({ backing: "sqlite", tables: ["notes"] });
+    expect((await collections.page(directory, "/standalone-sqlite/notes", null, 20, "notes")).rows[0]?.path).toBe("one");
   });
 });

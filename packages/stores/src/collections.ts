@@ -1,12 +1,14 @@
 import { createReadStream } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
+import { Database } from "bun:sqlite";
 import { parse } from "csv-parse";
 import { parseDocument } from "yaml";
 import type { Diagnostic } from "@arbor/core";
 import type { CollectionBacking, CollectionPage, CollectionRow, CollectionSummary } from "@arbor/core/internal";
 import { canonicalJSONString, revisionOf, rowPathSegment, stableKeyFromProperties } from "@arbor/core";
+import { introspectSQLiteDatabase, introspectStoreSchema, type FieldMetadata, type StoreSchema } from "@arbor/data";
 import { parseMarkdown } from "@arbor/editor";
 import { ConnectionStore, connectionName } from "./connections.ts";
 import { SchemaSandbox, type SchemaDescription } from "./schema.ts";
@@ -29,6 +31,22 @@ interface LoadedCollection {
   editable: boolean;
 }
 
+interface LoadedSQLiteTable {
+  columns: string[];
+  rows: CollectionRow[];
+  revision: string;
+  modelDigest: string;
+  diagnostics: Diagnostic[];
+  identityRule?: { scope: "parent"; properties: string[] };
+}
+
+interface LoadedSQLiteStore {
+  schema: StoreSchema;
+  tables: Record<string, LoadedSQLiteTable>;
+  revision: string;
+  modelDigest: string;
+}
+
 interface StoredCursor {
   version: 1;
   query: string;
@@ -39,6 +57,18 @@ interface StoredCursor {
 }
 
 export class CollectionCursorError extends Error {}
+
+function sqliteIdentifier(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function sqlitePropertyValue(field: FieldMetadata, value: unknown): unknown {
+  if (value === null) return null;
+  if (field.type === "boolean") return Boolean(value);
+  if (value instanceof Uint8Array) return { $bytes: Buffer.from(value).toString("base64") };
+  if (typeof value === "bigint") return value.toString();
+  return value;
+}
 
 function encodeCursor(value: StoredCursor): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -60,16 +90,16 @@ function decodeCursor(cursor: string | null, query: string, revision: string, mo
 export async function detectCollection(directory: string): Promise<CollectionDefinition | null> {
   const names = await readdir(directory);
   const schemaPath = names.includes("schema.ts") ? join(directory, "schema.ts") : undefined;
-  const stores = ["_store.csv", "_store.json", "_store.jsonl", "_store.postgres"].filter((name) => names.includes(name));
+  const stores = ["_store.csv", "_store.json", "_store.jsonl", "_store.sqlite3", "_store.postgres"].filter((name) => names.includes(name));
   const markdownPaths = schemaPath
     ? names.filter((name) => name.endsWith(".md") && name !== "_index.md").map((name) => join(directory, name))
     : [];
-  if (!schemaPath && !stores.includes("_store.postgres")) return null;
+  if (!schemaPath && stores.length === 0) return null;
   const diagnostics: Diagnostic[] = [];
   const shapes = stores.length + (markdownPaths.length ? 1 : 0);
   if (shapes > 1) diagnostics.push({
     code: "mixed-collection-backing",
-    message: "A collection must use exactly one of _store.csv, _store.json, _store.jsonl, _store.postgres, or Markdown records.",
+    message: "A collection must use exactly one of _store.csv, _store.json, _store.jsonl, _store.sqlite3, _store.postgres, or Markdown records.",
     path: directory,
     severity: "error",
   });
@@ -77,6 +107,7 @@ export async function detectCollection(directory: string): Promise<CollectionDef
   if (stores[0] === "_store.csv") return { backing: "csv", storePath: join(directory, stores[0]), schemaPath, diagnostics };
   if (stores[0] === "_store.json") return { backing: "json", storePath: join(directory, stores[0]), schemaPath, diagnostics };
   if (stores[0] === "_store.jsonl") return { backing: "jsonl", storePath: join(directory, stores[0]), schemaPath, diagnostics };
+  if (stores[0] === "_store.sqlite3") return { backing: "sqlite", storePath: join(directory, stores[0]), schemaPath, diagnostics };
   return { backing: "markdown", markdownPaths, schemaPath, diagnostics };
 }
 
@@ -109,6 +140,21 @@ export class CollectionStore {
         return { backing: "postgres", columns: [], editable: false, tables: rows.map((row: Record<string, unknown>) => String(row.table_name)) };
       } finally { await sql.close(); }
     }
+    if (definition.backing === "sqlite") {
+      const loaded = await this.loadSQLiteStore(definition);
+      return {
+        backing: "sqlite",
+        columns: [],
+        revision: loaded.revision,
+        schemaRevision: loaded.schema.fingerprint,
+        modelDigest: loaded.modelDigest,
+        diagnostics: definition.diagnostics,
+        editable: false,
+        rollupScope: "subtree",
+        total: Object.keys(loaded.tables).length,
+        tables: Object.keys(loaded.tables).sort(),
+      };
+    }
     const loaded = await this.loadFileCollection(definition);
     return {
       backing: definition.backing,
@@ -121,6 +167,33 @@ export class CollectionStore {
       total: loaded.rows.length,
       editable: loaded.editable,
     };
+  }
+
+  async tableSummary(directory: string, table: string): Promise<CollectionSummary | null> {
+    const definition = await detectCollection(directory);
+    if (!definition || definition.diagnostics.some((item) => item.severity === "error")) return null;
+    if (definition.backing === "sqlite") {
+      const loaded = await this.loadSQLiteStore(definition);
+      const relation = loaded.tables[table];
+      if (!relation) return null;
+      return {
+        backing: "sqlite",
+        columns: relation.columns,
+        ...(relation.identityRule ? { identityRule: relation.identityRule } : {}),
+        revision: relation.revision,
+        schemaRevision: loaded.schema.fingerprint,
+        modelDigest: relation.modelDigest,
+        diagnostics: relation.diagnostics,
+        editable: false,
+        rollupScope: "children",
+        total: relation.rows.length,
+      };
+    }
+    if (definition.backing === "postgres") {
+      const summary = await this.summary(directory);
+      return summary?.tables?.includes(table) ? { ...summary, tables: undefined } : null;
+    }
+    return null;
   }
 
   async postgresSchema(directory: string): Promise<Record<string, Record<string, string>>> {
@@ -148,7 +221,7 @@ export class CollectionStore {
     } finally { await sql.close(); }
   }
 
-  async page(directory: string, treePath: string, cursor: string | null = null, limit = 100, postgresTable?: string): Promise<CollectionPage> {
+  async page(directory: string, treePath: string, cursor: string | null = null, limit = 100, tableName?: string): Promise<CollectionPage> {
     const definition = await detectCollection(directory);
     if (!definition) throw new Error(`${treePath} is not a collection`);
     const safeLimit = Math.max(1, Math.min(limit, 500));
@@ -156,10 +229,10 @@ export class CollectionStore {
       return { path: treePath, backing: definition.backing, columns: [], rows: [], nextCursor: null, revision: revisionOf(JSON.stringify(definition.diagnostics)), schemaRevision: revisionOf("invalid-collection-schema"), diagnostics: definition.diagnostics, editable: false };
     }
     if (definition.backing === "postgres") {
-      const query = `postgres:${treePath}:${postgresTable ?? ""}`;
+      const query = `postgres:${treePath}:${tableName ?? ""}`;
       const decoded = decodeCursor(cursor, query, "external:postgres", "offset");
       const offset = decoded?.offset ?? 0;
-      const { rows, hasMore } = await this.postgresRows(definition, postgresTable, offset, safeLimit);
+      const { rows, hasMore } = await this.postgresRows(definition, tableName, offset, safeLimit);
       return {
         path: treePath,
         backing: definition.backing,
@@ -169,6 +242,39 @@ export class CollectionStore {
         revision: "external:postgres",
         schemaRevision: revisionOf(JSON.stringify([...new Set(rows.flatMap((row) => Object.keys(row.values)))])),
         diagnostics: definition.diagnostics,
+        editable: false,
+      };
+    }
+    if (definition.backing === "sqlite") {
+      if (!tableName) throw new Error("A SQLite table is required");
+      const loaded = await this.loadSQLiteStore(definition);
+      const table = loaded.tables[tableName];
+      if (!table) throw new Error(`Unknown SQLite table ${tableName}`);
+      const allKeyed = Boolean(table.identityRule) && table.rows.every((row) => row.stableKey !== null);
+      const mode = allKeyed ? "keyset" : "offset";
+      const query = `sqlite:${treePath}:${tableName}`;
+      const decoded = decodeCursor(cursor, query, table.revision, mode);
+      const ordered = allKeyed
+        ? [...table.rows].sort((left, right) => left.stableKey! < right.stableKey! ? -1 : left.stableKey! > right.stableKey! ? 1 : 0)
+        : table.rows;
+      const start = mode === "keyset" && decoded
+        ? ordered.findIndex((row) => row.stableKey! > decoded.after!)
+        : decoded?.offset ?? 0;
+      const safeStart = start < 0 ? ordered.length : start;
+      const rows = ordered.slice(safeStart, safeStart + safeLimit);
+      const hasMore = safeStart + rows.length < ordered.length;
+      return {
+        path: treePath,
+        backing: "sqlite",
+        columns: table.columns,
+        ...(table.identityRule ? { identityRule: table.identityRule } : {}),
+        rows,
+        nextCursor: !hasMore ? null : mode === "keyset"
+          ? encodeCursor({ version: 1, query, revision: table.revision, mode, after: rows.at(-1)!.stableKey! })
+          : encodeCursor({ version: 1, query, revision: table.revision, mode, offset: safeStart + rows.length }),
+        revision: table.revision,
+        schemaRevision: loaded.schema.fingerprint,
+        diagnostics: [...definition.diagnostics, ...table.diagnostics],
         editable: false,
       };
     }
@@ -209,9 +315,36 @@ export class CollectionStore {
     directory: string,
     treePath: string,
     ref: { path: string; stableKey: string | null },
+    tableName?: string,
   ): Promise<{ row: CollectionRow; page: CollectionPage } | null> {
     const definition = await detectCollection(directory);
     if (!definition || definition.backing === "postgres" || definition.diagnostics.some((item) => item.severity === "error")) return null;
+    if (definition.backing === "sqlite") {
+      if (!tableName) return null;
+      const loaded = await this.loadSQLiteStore(definition);
+      const table = loaded.tables[tableName];
+      if (!table) return null;
+      const segment = ref.path.slice(ref.path.lastIndexOf("/") + 1);
+      const row = ref.stableKey !== null
+        ? table.rows.find((candidate) => candidate.stableKey === ref.stableKey)
+        : table.rows.find((candidate) => candidate.path === segment);
+      if (!row) return null;
+      return {
+        row,
+        page: {
+          path: treePath,
+          backing: "sqlite",
+          columns: table.columns,
+          ...(table.identityRule ? { identityRule: table.identityRule } : {}),
+          rows: [row],
+          nextCursor: null,
+          revision: table.revision,
+          schemaRevision: loaded.schema.fingerprint,
+          diagnostics: [...definition.diagnostics, ...table.diagnostics],
+          editable: false,
+        },
+      };
+    }
     const loaded = await this.loadFileCollection(definition);
     const segment = ref.path.slice(ref.path.lastIndexOf("/") + 1);
     const row = ref.stableKey !== null
@@ -233,6 +366,82 @@ export class CollectionStore {
         editable: loaded.editable,
       },
     };
+  }
+
+  private async loadSQLiteStore(definition: CollectionDefinition): Promise<LoadedSQLiteStore> {
+    const directory = dirname(definition.storePath!);
+    let schema: StoreSchema;
+    try {
+      schema = await introspectStoreSchema({
+        databasePath: definition.storePath!,
+        schemaPath: join(directory, "schema.sql"),
+        relationshipsPath: join(directory, "relationships.json"),
+      });
+    } catch (error) {
+      if (!(error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT")) throw error;
+      schema = introspectSQLiteDatabase(definition.storePath!);
+    }
+    const database = new Database(definition.storePath!, { readonly: true, strict: true });
+    database.exec("begin");
+    try {
+      const tables: Record<string, LoadedSQLiteTable> = {};
+      for (const relation of Object.values(schema.relations).filter((candidate) => candidate.source === "sqlite")) {
+        const columns = Object.keys(relation.fields);
+        const rawRows = database.query(`select ${columns.map(sqliteIdentifier).join(", ")} from ${sqliteIdentifier(relation.name)}`).all() as Record<string, unknown>[];
+        const identityRule = relation.primaryKey.length
+          ? { scope: "parent" as const, properties: relation.primaryKey }
+          : undefined;
+        const diagnostics: Diagnostic[] = identityRule ? [] : [{
+          code: "missing-primary-key",
+          message: `SQLite table ${relation.name} has no declared primary key, so its rows do not have stable identity.`,
+          path: definition.storePath!,
+          severity: "warning",
+        }];
+        const rows = rawRows.map((raw, index) => {
+          const values = Object.fromEntries(columns.map((column) => [column, sqlitePropertyValue(relation.fields[column]!, raw[column])]));
+          const stableKey = identityRule ? stableKeyFromProperties(identityRule.properties, values) : null;
+          const rowDiagnostics = [...(identityRule && !stableKey ? [{
+            code: "invalid-row-key",
+            message: `SQLite row does not have a valid ${identityRule.properties.join(", ")} stable key.`,
+            path: definition.storePath!,
+            row: index,
+            severity: "error" as const,
+          }] : [])];
+          return {
+            key: stableKey ?? `row:${index}`,
+            path: stableKey ? rowPathSegment(stableKey) : `~row-${index + 1}`,
+            stableKey,
+            revision: revisionOf(canonicalJSONString({ schema: schema.fingerprint, relation: relation.name, values })),
+            values,
+            diagnostics: rowDiagnostics,
+          } satisfies CollectionRow;
+        });
+        const logicalRows = [...rows]
+          .sort((left, right) => (left.stableKey ?? left.path).localeCompare(right.stableKey ?? right.path))
+          .map((row) => ({ key: row.stableKey, properties: row.values }));
+        const modelDigest = revisionOf(canonicalJSONString(logicalRows));
+        const revision = revisionOf(canonicalJSONString({ schema: schema.fingerprint, relation: relation.name, rows: logicalRows }));
+        tables[relation.name] = {
+          columns,
+          rows,
+          revision,
+          modelDigest,
+          diagnostics,
+          ...(identityRule ? { identityRule } : {}),
+        };
+      }
+      const logicalStore = Object.fromEntries(Object.entries(tables).sort(([left], [right]) => left.localeCompare(right)).map(([name, table]) => [name, table.modelDigest]));
+      const modelDigest = revisionOf(canonicalJSONString(logicalStore));
+      return {
+        schema,
+        tables,
+        modelDigest,
+        revision: revisionOf(canonicalJSONString({ schema: schema.fingerprint, tables: logicalStore })),
+      };
+    } finally {
+      database.exec("rollback");
+      database.close();
+    }
   }
 
   private async loadFileCollection(definition: CollectionDefinition): Promise<LoadedCollection> {

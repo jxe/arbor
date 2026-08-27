@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { Database } from "bun:sqlite";
 import { Workspace, RevisionConflictError } from "@arbor/arborsync";
 import { canonicalStableKey } from "@arbor/core";
 
@@ -104,6 +105,37 @@ describe("workspace service", () => {
     expect(row.ref).toEqual({ tree: workspace.tree, path: "/rolled/b", stableKey: key });
     expect(row.properties).toEqual({ id: "b", title: "Second" });
     expect(row.capabilities.content).toBeUndefined();
+    expect(row.capabilities.properties?.writable).toBe(false);
+  });
+
+  test("resolves SQLite databases, tables, and rows as ordinary nodes", async () => {
+    const directory = join(root, "database");
+    await mkdir(directory);
+    const schema = "create table items (id text primary key, title text not null);";
+    await writeFile(join(directory, "schema.sql"), `${schema}\n`);
+    await writeFile(join(directory, "relationships.json"), '{"version":1,"relationships":{}}\n');
+    const database = new Database(join(directory, "_store.sqlite3"));
+    database.exec(schema);
+    database.query("insert into items values (?, ?), (?, ?)").run("b", "Second", "a", "First");
+    database.close();
+
+    const container = await workspace.snapshot({ tree: workspace.tree, path: "/database", stableKey: null });
+    expect(container.capabilities.children?.representation).toMatchObject({ type: "rollup", codec: "sqlite", scope: "subtree" });
+    const tables = await workspace.children(container.ref);
+    expect(tables.items).toContainEqual(expect.objectContaining({
+      ref: expect.objectContaining({ path: "/database/items", stableKey: null }),
+      capabilities: expect.objectContaining({ children: expect.objectContaining({ total: 2 }) }),
+    }));
+
+    const table = await workspace.snapshot({ tree: workspace.tree, path: "/database/items", stableKey: null });
+    expect(table.capabilities.children?.representation).toMatchObject({ type: "rollup", codec: "sqlite", scope: "children" });
+    const rows = await workspace.children(table.ref);
+    expect(rows.items.map((item) => item.ref.path)).toEqual(["/database/items/a", "/database/items/b"]);
+
+    const key = canonicalStableKey([["id", "b"]]);
+    const row = await workspace.snapshot({ tree: workspace.tree, path: "/database/items/stale", stableKey: key });
+    expect(row.ref).toEqual({ tree: workspace.tree, path: "/database/items/b", stableKey: key });
+    expect(row.properties).toEqual({ id: "b", title: "Second" });
     expect(row.capabilities.properties?.writable).toBe(false);
   });
 

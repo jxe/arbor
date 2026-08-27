@@ -44,14 +44,17 @@ These are implementation violations of the aspirational specification. They are 
    live behind `@arbor/core/internal`, but Arbor Sync still translates them into
    canonical snapshots and child pages. Remove these types when the shared
    `ChildProvider` directly describes, pages, resolves, prepares, and observes
-   expanded files, file rollups, SQLite, and external stores; no REST, browser,
+   expanded files, file rollups, SQLite, and external stores. The first SQLite
+   slice deliberately returns through this bridge so it can share the public
+   node contract without introducing a second wire shape; no REST, browser,
    native, or generated-type consumer may depend on the bridge at removal.
 3. **Unify row resolution below workspace scope dispatch.** Managed and
-   untracked adapters temporarily probe a file-backed collection parent before
-   their ordinary filesystem lookup. Replace both probes with provider-neutral
-   `ChildProvider.resolve` after SQLite and external drivers implement the same
-   contract. At that point stable-key lookup, stale-path repair, diagnostics,
-   access checks, and historical reads must have one implementation.
+   untracked adapters temporarily probe a file-backed collection parent, or a
+   SQLite table's physical grandparent, before their ordinary filesystem
+   lookup. Replace both probes with provider-neutral `ChildProvider.resolve`
+   after mutable SQLite and external drivers implement the same contract. At
+   that point stable-key lookup, stale-path repair, diagnostics, access checks,
+   and historical reads must have one implementation.
 4. **Replace remote physical-child caching with Wire rollup projection.** The
    unplaced-tree adapter currently keeps an in-memory `remoteChildren` map and
    retains collection-aware physical child filtering because Wire cannot yet
@@ -72,13 +75,45 @@ These are implementation violations of the aspirational specification. They are 
    claiming representation migration preserves paths automatically. Delete
    this exception only when the same fixture has identical refs as Markdown,
    CSV, JSON, JSONL, and SQLite and relative Markdown links remain ordinary.
-7. **Cache bounded parsed provider snapshots instead of reparsing rollups.**
+7. **Cache bounded provider snapshots instead of rebuilding complete views.**
    File-backed summary, paging, and stable-key resolution currently reparse and
-   revalidate the complete backing to establish duplicate-key safety. Replace
-   that retrofit with a size-bounded, exact-revision-keyed provider snapshot
-   shared by describe/page/resolve, with filesystem invalidation and no stale
-   schema reuse. Preserve full-key-set validation; do not optimize by checking
-   only the returned page.
+   revalidate the complete backing to establish duplicate-key safety. The first
+   SQLite node adapter likewise re-introspects and reads every user row for
+   describe, page, and resolve. Replace both retrofits with a size-bounded,
+   exact-revision-keyed provider snapshot shared by describe/page/resolve, with
+   filesystem/database invalidation and no stale schema reuse. Preserve
+   full-key-set validation; do not optimize by checking only the returned page.
+8. **Join SQLite schema validation, row sampling, and observation at one
+   snapshot boundary.** Generic SQLite browsing currently validates authored
+   `schema.sql` and `relationships.json` on one read connection, then samples
+   rows in a second read transaction. A concurrent schema commit can therefore
+   make that pair inconsistent even though each operation is individually
+   database-safe. Have `ChildProvider` obtain schema, rows, model digest, and
+   observation cursor through the shared SQLite broker/snapshot owner, retain
+   the last usable schema with an actionable diagnostic, and invalidate the
+   exact snapshot after external WAL commits.
+9. **Specify lossless SQLite property scalar projection.** The generic adapter
+   currently follows existing observer conventions by normalizing booleans and
+   representing BLOBs as a tagged base64 object; integers outside JavaScript's
+   safe range are conservatively surfaced as strings. Freeze language-neutral
+   value fixtures for blobs and 64-bit integers, then share one normalization
+   implementation across node properties, query results, mutation validation,
+   observation logs, TypeScript, and Swift.
+10. **Separate relational names from logical table-child segments.** The
+    provisional SQLite and Postgres bridges use a valid ordinary table name as
+    both provider identifier and logical child segment, and can collide with a
+    physical child of the database directory. The shared provider contract
+    must derive or declare a reversible safe segment, diagnose collisions, and
+    retain the authored relation name for query and mutation handles. Freeze
+    fixtures for spaces, slashes, Unicode, reserved `~row-` prefixes, and a
+    same-named physical child before removing the virtual-table bridge.
+11. **Expose exact SQLite representation state separately from its model
+    digest.** The generic child revision currently hashes a coherent logical
+    row snapshot and schema fingerprint, which is sufficient for stable paging
+    but does not identify formatting-equivalent SQLite page/WAL bytes. The Wire
+    rollup provider must carry an exact accepted source/object revision and a
+    separate scoped model digest so vacuuming, indexes, and representation-only
+    changes participate in synchronization without changing logical equality.
 
 ## Filesystem and structural editing
 
