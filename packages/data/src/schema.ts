@@ -10,6 +10,7 @@ export interface FieldMetadata {
   type: FieldType;
   nullable: boolean;
   declaredType: string;
+  hasDefault: boolean;
 }
 
 export interface ForeignKeyMetadata {
@@ -139,7 +140,7 @@ function sqliteType(declared: string): FieldType {
 
 function inspectSQLite(database: Database): Record<string, RelationMetadata> {
   const tables = database.query(
-    "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name",
+    "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not glob '__arbor_*' order by name",
   ).all() as Array<{ name: string }>;
   const result: Record<string, RelationMetadata> = {};
   for (const { name } of tables) {
@@ -148,12 +149,14 @@ function inspectSQLite(database: Database): Record<string, RelationMetadata> {
       type: string;
       notnull: number;
       pk: number;
+      dflt_value: string | null;
     }>;
     const fields = Object.fromEntries(columns.map((column) => [column.name, {
       name: column.name,
       type: sqliteType(column.type),
       nullable: column.notnull === 0 && column.pk === 0,
       declaredType: column.type,
+      hasDefault: column.dflt_value !== null,
     } satisfies FieldMetadata]));
     const primaryKey = columns.filter((column) => column.pk > 0).sort((left, right) => left.pk - right.pk).map((column) => column.name);
     const indexes = database.query(`pragma index_list(${identifier(name)})`).all() as Array<{ name: string; unique: number }>;
@@ -193,6 +196,7 @@ function sameSQLiteShape(left: Record<string, RelationMetadata>, right: Record<s
       type: metadata.type,
       nullable: metadata.nullable,
       declaredType: metadata.declaredType.toLowerCase(),
+      hasDefault: metadata.hasDefault,
     }])),
     primaryKey: relation.primaryKey,
     uniqueKeys: relation.uniqueKeys,
@@ -204,7 +208,7 @@ function sameSQLiteShape(left: Record<string, RelationMetadata>, right: Record<s
 
 function sqliteDefinitions(database: Database): Record<string, string> {
   const rows = database.query(
-    "select type, name, sql from sqlite_master where sql is not null and name not like 'sqlite_%' order by type, name",
+    "select type, name, sql from sqlite_master where sql is not null and name not like 'sqlite_%' and name not glob '__arbor_*' order by type, name",
   ).all() as Array<{ type: string; name: string; sql: string }>;
   return Object.fromEntries(rows.map((row) => [
     `${row.type}:${row.name}`,
@@ -293,6 +297,7 @@ export async function introspectStoreSchema(location: Pick<ResolvedDatabaseLocat
         type: metadata.type,
         nullable: metadata.nullable ?? false,
         declaredType: metadata.type,
+        hasDefault: false,
       }])),
       primaryKey: virtual.primaryKey,
       uniqueKeys: [virtual.primaryKey],

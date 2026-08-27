@@ -155,14 +155,17 @@ Root keyed results are the deliberately small first scope. Nested `many` values 
 
 ### Phase 3 — mutation runner
 
+**Status: Implemented and verified on 2026-08-27.** The versioned mutation runtime validates every checked-in Supplies handle, runs authorization and row operations inside one serialized SQLite transaction, normalizes ordered relations, and atomically commits durable subject-scoped retry receipts and post-commit observation cursors. Mutation calls now share canonical semantic-digest machinery and receipt vocabulary with accepted tree updates, while query streams and replayable tree watches share only their appropriate SSE framing layer. Compiler-generated registries and React/host adapters remain correctly owned by Phases 4 and 5.
+
 1. Add the mutation execution broker behind `arbor/data`: resolve a compiled handle/version, validate and transform input through its Standard Schema, inject `ArborUser | null`, and expose only reviewed relation/tree capabilities.
-2. Capture a caller-stable mutation ID, one logical `now`, and a deterministic generated-ID namespace before handler execution. Store a durable receipt keyed by handle/version/user/input so ambiguous retries return the same committed result.
+2. Capture a caller-stable mutation ID, one logical `now`, and a deterministic generated-ID namespace before handler execution. Store a durable receipt scoped by source tree, authenticated subject, and mutation ID, and bind it to the canonical handle/version/validated-input digest so ambiguous exact retries return the same committed result while changed intent conflicts.
 3. Begin one SQLite transaction before invoking every mutation handler, pass it as `tx`, commit on return, and roll back on throw. Implement the port's `one`, `many`, `insert`, `update`, `upsert`, `delete`, and `deleteWhere` operations on that `tx`; remove any authored transaction wrapper.
 4. Implement `tx.ordered(...).append`, `.replace`, and `.remove` with partition locking/serialization, key validation, and position normalization. Never derive append positions from row count.
 5. Run user and row-policy checks inside the write transaction. Pass `{ user }` to handlers; reject caller-supplied identity fields as proof of identity.
 6. Implement `publicError` sanitization and typed field validation. Convert unexpected errors to generic public failures while retaining private diagnostics server-side.
 7. Commit data, retry receipt, and one ordered store change atomically enough that a retry cannot duplicate effects and the streaming scheduler sees changes only after successful commit.
 8. Invoke every checked-in Supplies mutation in tests: list create/duplicate/rename/reorder/sharing/kind/tagging/reaction, practice create/edit, membership changes, and contributor recording. Add concurrent append/reorder and authorization race cases.
+9. Reuse the accepted-update committed-intent vocabulary: return a canonical `requestDigest` and durable `observedThrough` receipt scoped by source tree, authenticated subject, and caller mutation ID. Keep the SQLite receipt and Canopy accepted-update rows in their own atomic transaction domains, but maintain shared conformance vectors for digest stability, exact replay, identity conflict, response/observation reordering, and sanitized errors. Query streams and tree watches share the core SSE frame encoder and bounded-close behavior while retaining their intentionally different snapshot/replay contracts, as specified in `spec/wire.md`.
 
 Finish the phase by replaying ambiguous mutation submissions and proving stable IDs/times/results, one committed effect, no partial multi-row writes, and correct downstream query invalidation.
 

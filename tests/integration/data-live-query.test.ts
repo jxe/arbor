@@ -156,8 +156,8 @@ describe("live query state machine", () => {
 
     store.transaction((database) => database.query("update lists set name = ? where id = ?").run("Listening together", listeningList));
     const [left, right] = await Promise.all([next(first, "result"), next(second, "result")]);
-    expect((left as Extract<QueryStreamEvent, { type: "result" }>).value).toMatchObject([{ name: "Listening together" }]);
-    expect((right as Extract<QueryStreamEvent, { type: "result" }>).value).toEqual((left as Extract<QueryStreamEvent, { type: "result" }>).value);
+    expect((left as Extract<QueryStreamEvent, { value: unknown }>).value).toMatchObject([{ name: "Listening together" }]);
+    expect((right as Extract<QueryStreamEvent, { value: unknown }>).value).toEqual((left as Extract<QueryStreamEvent, { value: unknown }>).value);
     expect(executions).toBe(4);
     await first.cancel();
     await second.cancel();
@@ -169,11 +169,11 @@ describe("live query state machine", () => {
     store.transaction((database) => database.query(
       "insert into lists(id, owner_profile, name, about, visibility, kind, allow_arbor_user_edits, created_at, updated_at) values (?, ?, ?, '', 'public', 'standard', 0, ?, ?)",
     ).run("10000000-0000-4000-8000-000000000004", ada, "Newest", "2026-08-25T12:00:00.000Z", "2026-08-26T12:00:00.000Z"));
-    const inserted = await next(reader, "result") as Extract<QueryStreamEvent, { type: "result" }>;
+    const inserted = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
     expect(inserted.value).toMatchObject([{ name: "Newest" }]);
 
     store.transaction((database) => database.query("update lists set updated_at = ? where id = ?").run("2026-08-27T12:00:00.000Z", careList));
-    const reordered = await next(reader, "result") as Extract<QueryStreamEvent, { type: "result" }>;
+    const reordered = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
     expect(reordered.value).toMatchObject([{ id: careList }]);
     await reader.cancel();
   });
@@ -183,7 +183,7 @@ describe("live query state machine", () => {
     await ready(reader);
     profiles = profiles.map((profile) => profile.id === ada ? { ...profile, name: "Ada Updated" } : profile);
     for (const listener of profileListeners) listener({ profile: ada, tree: ada, ref: revisionOf("updated") });
-    const event = await next(reader, "result") as Extract<QueryStreamEvent, { type: "result" }>;
+    const event = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
     expect(event.value).toMatchObject({ owner: { name: "Ada Updated" } });
     await reader.cancel();
   });
@@ -210,7 +210,7 @@ describe("live query state machine", () => {
     await didEnter;
     store.transaction((database) => database.query("update lists set name = ? where id = ?").run("Current", listeningList));
     release();
-    const event = await next(reader, "result") as Extract<QueryStreamEvent, { type: "result" }>;
+    const event = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
     expect(event.value).toMatchObject([{ name: "Current" }]);
     await reader.cancel();
   });
@@ -222,7 +222,7 @@ describe("live query state machine", () => {
     external.query("update lists set name = ? where id = ?").run("External", listeningList);
     external.close();
     expect(store.checkExternalChanges()).toBe(true);
-    const event = await next(reader, "result") as Extract<QueryStreamEvent, { type: "result" }>;
+    const event = await next(reader, "result") as Extract<QueryStreamEvent, { value: unknown }>;
     expect(event.value).toMatchObject([{ name: "External" }]);
     await reader.cancel();
   });
@@ -230,7 +230,7 @@ describe("live query state machine", () => {
   test("fresh reconnect confirms a known hash and listener restart takes a new snapshot", async () => {
     const first = broker.stream(mount(), { signal: new AbortController().signal, user: null }).getReader();
     const initial = await ready(first);
-    const hash = (initial.first as Extract<QueryStreamEvent, { type: "result" }>).outputHash;
+    const hash = (initial.first as Extract<QueryStreamEvent, { value: unknown }>).outputHash;
     await first.cancel();
     const reconnect = broker.stream(mount(topPublicList, hash), { signal: new AbortController().signal, user: null }).getReader();
     const confirmation = await next(reconnect);
@@ -242,7 +242,7 @@ describe("live query state machine", () => {
     store.transaction((database) => database.query("update lists set name = ? where id = ?").run("After restart", listeningList));
     const restarted = broker.stream(mount(), { signal: new AbortController().signal, user: null }).getReader();
     const snapshot = await ready(restarted);
-    expect((snapshot.first as Extract<QueryStreamEvent, { type: "result" }>).value).toMatchObject([{ name: "After restart" }]);
+    expect((snapshot.first as Extract<QueryStreamEvent, { value: unknown }>).value).toMatchObject([{ name: "After restart" }]);
     await restarted.cancel();
   });
 
@@ -263,10 +263,26 @@ describe("live query state machine", () => {
       { id: "owner", handle: ownerRef },
     ] }, { signal: new AbortController().signal, user: null }).getReader();
     const results = [await next(replacement, "result"), await next(replacement, "result")];
-    expect(results.map((event) => (event as Extract<QueryStreamEvent, { type: "result" }>).id).sort()).toEqual(["owner", "top"]);
+    expect(results.map((event) => (event as Extract<QueryStreamEvent, { value: unknown }>).id).sort()).toEqual(["owner", "top"]);
     const boundary = await next(replacement, "ready") as Extract<QueryStreamEvent, { type: "ready" }>;
     expect(boundary.queries.map((query) => query.id)).toEqual(["top", "owner"]);
     await replacement.cancel();
+  });
+
+  test("uses the shared result event name for sanitized query failures", async () => {
+    const reader = broker.stream([{ id: "invalid", handle: topPublicList, input: { unexpected: true } }], {
+      signal: new AbortController().signal,
+      user: null,
+    }).getReader();
+    const failure = await next(reader, "result") as Extract<QueryStreamEvent, { error: unknown }>;
+    expect(failure).toMatchObject({
+      type: "result",
+      id: "invalid",
+      error: { code: "invalid-request", retryable: false },
+    });
+    expect("value" in failure).toBe(false);
+    await next(reader, "ready");
+    await reader.cancel();
   });
 });
 });

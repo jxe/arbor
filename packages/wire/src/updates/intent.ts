@@ -1,4 +1,4 @@
-import { canonicalJSONString, sha256 } from "@arbor/core";
+import { canonicalJSONString, semanticRequestDigest } from "@arbor/core";
 import type { UpdateRequest } from "./types.ts";
 
 /**
@@ -16,5 +16,10 @@ export function canonicalUpdateIntent(tree: string, request: Pick<UpdateRequest,
 }
 
 export function updateRequestDigest(tree: string, request: Pick<UpdateRequest, "base" | "candidate">): string {
-  return `sha256:${sha256(canonicalUpdateIntent(tree, request))}`;
+  return semanticRequestDigest({
+    base: request.base,
+    candidate: request.candidate,
+    tree,
+    version: "updates-v1",
+  });
 }

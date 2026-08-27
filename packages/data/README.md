@@ -1,6 +1,6 @@
 # Arbor data runtime
 
-`@arbor/data` is the reference implementation behind the authored `arbor/data` package surface. Its first delivered slice lowers and executes the checked-in Meaning Supplies queries against SQLite.
+`@arbor/data` is the reference implementation behind the authored `arbor/data` package surface. It lowers and executes the checked-in Meaning Supplies queries and mutations against SQLite.
 
 The authoring layer builds a closed relational plan by invoking each query callback once with symbolic relation, input, and Arbor-user values. The SQLite layer validates that plan against introspected schema metadata before executing parameterized projected reads. Named, through, and ProfileID-backed relationships come from the store-adjacent `relationships.json` declaration and participate in the schema fingerprint.
 
@@ -10,14 +10,18 @@ The authoring layer builds a closed relational plan by invoking each query callb
 
 `LiveQueryBroker` derives relation/field/predicate/correlation sensitivity from normalized query plans and combines it with exact rows and profile refs observed during execution. Streams attach their listener before the initial snapshot, rerun across old and new dependencies when a change races execution, coalesce bursts, hash canonical output, and publish complete replacements only. `RegisteredQueryRuntime` validates a versioned document and complete mounted handle graph before serving the stateless stream.
 
+`SQLiteMutationBroker` validates and transforms Standard Schema input before opening the store, resolves a reviewed versioned handle, and invokes it inside one runner-owned transaction with an injected Arbor user, logical time, deterministic ID namespace, and `SQLiteMutationTransaction`. The transaction exposes validated point and collection reads, inserts, updates, upserts, deletes, and serialized ordered append/replace/remove operations. Authorization reads and writes therefore share one snapshot, and temporary position rewrites coalesce to final post-commit row changes.
+
+Each mutation durably commits its data, store cursor, and subject-scoped retry receipt together. Exact ambiguous retries return the original result; reusing a mutation identity for different semantic intent conflicts. Receipts use the same canonical semantic-digest primitive and `observedThrough` vocabulary as accepted tree updates, while remaining in the SQLite transaction domain. `RegisteredMutationRuntime` is transport-neutral until the Phase 4 manifest and Phase 5 React/host adapters bind it.
+
 Current limits follow the Supplies implementation plan:
 
-- mutation transactions and durable receipts are Phase 3;
 - generated schema-specific authoring types, source-located diagnostics, and document compilation are Phase 4;
+- React Action and named-call transport adapters are Phase 5;
 - the reference driver is SQLite only.
 
 Run the focused acceptance suite with:
 
 ```sh
-bun test tests/unit/data-query.test.ts tests/integration/supplies-queries.test.ts tests/integration/data-live-query.test.ts tests/integration/query-stream-api.test.ts
+bun test tests/unit/data-query.test.ts tests/unit/events.test.ts tests/unit/wire/update-intent.test.ts tests/integration/supplies-queries.test.ts tests/integration/data-live-query.test.ts tests/integration/query-stream-api.test.ts tests/integration/supplies-mutations.test.ts
 ```

@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { sha256 } from "@arbor/core";
+import { encodeSSEFrame, sha256 } from "@arbor/core";
 import type { AccessEntry, AccessLevel, LocatorResolution, ObservationEvent, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime, RemoteTreeDescriptor } from "@arbor/core";
 import {
   AlreadyClaimedError,
@@ -38,7 +38,7 @@ function queryStreamResponse(
   const response = (events: ReadableStream<QueryStreamEvent>) => new Response(events.pipeThrough(new TransformStream({
     transform(event, controller) {
       const { type, ...data } = event;
-      controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+      controller.enqueue(encoder.encode(encodeSSEFrame({ event: type, data })));
     },
   })), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" } });
   const events = runtime.stream(input, { signal, user });
@@ -489,9 +489,9 @@ export async function serveCanopy(options: {
           }
           const lastEventID = queryCursor ?? headerCursor;
           const refFrame = (updated: CanopyTree, accepted: AcceptedUpdate, digest?: ObjectHash | null) =>
-            `id: ${accepted.id}\nevent: tree.ref\ndata: ${JSON.stringify(watchDescriptor(publicOrigin, updated, accepted, access, digest))}\n\n`;
+            encodeSSEFrame({ id: accepted.id, event: "tree.ref", data: watchDescriptor(publicOrigin, updated, accepted, access, digest) });
           const observationFrame = (event: { cursor: string; tree: string; kind: string; change: unknown }) =>
-            `id: ${event.cursor}\nevent: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`;
+            encodeSSEFrame({ id: event.cursor, event: event.kind, data: event });
           return new Response(new ReadableStream({
             start(controller) {
               const stopRefs = canopy.subscribe(tree.id, (updated, accepted, digest) => {
@@ -516,7 +516,7 @@ export async function serveCanopy(options: {
                   kind: "resync-required",
                   change: { reason: "The requested cursor is no longer retained" },
                 };
-                controller.enqueue(encoder.encode(`id: ${cursor}\nevent: resync-required\ndata: ${JSON.stringify(event)}\n\n`));
+                controller.enqueue(encoder.encode(encodeSSEFrame({ id: cursor, event: "resync-required", data: event })));
                 stopRefs();
                 stopObservations();
                 controller.close();

@@ -9,7 +9,7 @@ import type {
   QueryStreamRequest,
   QueryStreamRuntime,
 } from "@arbor/core";
-import { PathEscapeError, generateArborID } from "@arbor/core";
+import { PathEscapeError, encodeSSEFrame, generateArborID } from "@arbor/core";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
 import { currentDeviceID } from "@arbor/stores";
 import { ResyncRequiredError } from "./events.ts";
@@ -45,7 +45,7 @@ function queryStreamResponse(
   const response = (events: ReadableStream<import("@arbor/core").QueryStreamEvent>) => new Response(events.pipeThrough(new TransformStream({
     transform(event, controller) {
       const { type, ...data } = event;
-      controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+      controller.enqueue(encoder.encode(encodeSSEFrame({ event: type, data })));
     },
   })), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" } });
   const events = runtime.stream(input, { signal, user });
@@ -494,7 +494,7 @@ function startArborSyncServer(
             if (!(error instanceof ResyncRequiredError)) throw error;
             const cursor = service.events.currentCursor();
             const event = { cursor, tree: "system", kind: "resync-required", change: { after } };
-            return new Response(`id: ${cursor}\nevent: resync-required\ndata: ${JSON.stringify(event)}\n\n`, {
+            return new Response(encodeSSEFrame({ id: cursor, event: "resync-required", data: event }), {
               headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" },
             });
           }

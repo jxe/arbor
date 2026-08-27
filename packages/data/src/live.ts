@@ -160,7 +160,7 @@ function safeError(error: unknown) {
   const message = error instanceof Error && /input|required|not found|missing/i.test(error.message)
     ? error.message
     : "The query could not be evaluated";
-  return { error: "invalid-request", message, retryable: false } as const;
+  return { code: "invalid-request", message, retryable: false } as const;
 }
 
 /** Coordinates store/profile cursors and owns the race-free subscription state machines. */
@@ -217,7 +217,7 @@ export class LiveQueryBroker implements AsyncDisposable {
                 execution = await broker.engine.execute(state.mount.handle, { input: state.mount.input, user: context.user });
               } catch (error) {
                 state.cursor = broker.currentCursor();
-                emit({ type: "error", id: state.mount.id, observedThrough: state.cursor, error: safeError(error) });
+                emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, error: safeError(error) });
                 return;
               }
               const invalidated = state.pending.some((event) =>

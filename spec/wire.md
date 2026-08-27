@@ -282,6 +282,15 @@ not substitute snapshots. A non-retained cursor produces one terminal
 `resync-required` event and closes; the client reads a new snapshot and resumes
 after its cursor.
 
+Tree watch and query result streams use one SSE framing rule: `event` names the
+typed event and `data` is one canonical JSON value. Producers use the same
+escaping, cancellation, bounded-buffer, and terminal-close behavior. This is a
+transport reconciliation, not a cursor reconciliation. A tree watch additionally
+sets replayable `id` and carries the complete `ObservationEvent`; a query stream
+deliberately omits `id`, sends the remaining members of its event after `type`,
+and establishes current derived state with `ready`. `Last-Event-ID`, retained
+history, and `resync-required` therefore remain watch-only concepts.
+
 ### 1.5 Stream live query updates
 
 ```text
@@ -387,10 +396,47 @@ publishing a result known to be stale; hosts may coalesce intermediate complete
 states.
 
 Mutation calls carry the reviewed handle identity and version, validated input,
-authenticated subject, and caller-stable mutation identity. An exact ambiguous
-retry reuses that identity. Its durable receipt and the corresponding query
-result may arrive in either order; clients correlate them idempotently and
-treat the query result as authoritative.
+authenticated subject, and caller-stable mutation identity:
+
+```ts
+type MutationCallRequest = {
+  document: {
+    tree: TreeID;
+    path: LogicalPath;
+    version: Hash;
+  };
+  handle: MutationHandleRef;
+  mutationID: string;
+  input: unknown;
+};
+
+type MutationHandleRef = QueryHandleRef;
+
+type MutationResultReceipt<Result = unknown> = {
+  mutationID: string;
+  requestDigest: Hash;
+  observedThrough: EventCursor;
+  result: Result;
+};
+```
+
+The host validates the document/handle versions and input before opening the
+store. Mutation semantic identity is the SHA-256 of RFC 8785 canonical JSON for
+`{ version: "mutation-call-v1", handle, input }`. Durable lookup is scoped by
+the source tree, authenticated subject, and `mutationID`. Reusing that identity
+with a different request digest is a conflict; an exact ambiguous retry returns
+the original receipt and creates no second effect. This is the same committed-
+intent pattern as an accepted tree update: transport representation is excluded
+from the semantic digest, the subject scopes replay, and the receipt identifies
+the committed observation boundary. The mutation payload and transaction domain
+remain distinct from `UpdateRequest`; SQLite rows are never represented as
+`filePatches` or exposed as tree-object transport.
+
+This version does not assign the mutation envelope a standalone HTTP path.
+Document React Actions and named-call adapters bind it to a host after compiler
+manifests exist; both must preserve this exact request/receipt identity.
+The durable receipt and corresponding query result may arrive in either order;
+clients correlate them idempotently and treat the query result as authoritative.
 
 Query streaming is derived-result delivery, not tree history. A mutation of an
 Arbor tree advances its ordinary accepted ref and may therefore also cause a

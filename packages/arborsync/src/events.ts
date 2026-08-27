@@ -1,4 +1,4 @@
-import type { EventCursor, WorkspaceChange, WorkspaceEvent } from "@arbor/core";
+import { encodeSSEFrame, type EventCursor, type WorkspaceChange, type WorkspaceEvent } from "@arbor/core";
 
 export class ResyncRequiredError extends Error {
   constructor(public cursor: string) {
@@ -60,9 +60,7 @@ export class EventBus {
     return new ReadableStream({
       start: (controller) => {
         const enqueue = (event: WorkspaceEvent) => {
-          controller.enqueue(encoder.encode(
-            `id: ${event.cursor}\nevent: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`,
-          ));
+          controller.enqueue(encoder.encode(encodeSSEFrame({ id: event.cursor, event: event.kind, data: event })));
         };
         for (const event of this.replay) {
           const parsed = parseCursor(event.cursor)!;

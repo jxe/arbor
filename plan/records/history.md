@@ -3,6 +3,45 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
+## Supplies transactional mutation runner
+
+**Status: Live data documents Phase 3 implemented and verified on 2026-08-27.**
+
+The SQLite mutation broker resolves a reviewed handle and version, validates and transforms its Standard Schema input before data access, then invokes the handler inside one serialized runner-owned transaction. The injected context carries only the trusted `ArborUser | null`, one logical timestamp, a deterministic generated-ID namespace, and reviewed transaction capabilities. Point reads require a proved unique key; relation writes validate fields, nullability, types, defaults, and primary-key constraints. Authorization reads and all resulting writes therefore share the same transaction and roll back together.
+
+Ordered relation append, replacement, and removal validate their partition and stable key, serialize concurrent writers with `BEGIN IMMEDIATE`, never infer a position from row count, and normalize the final order. Connection-local observation triggers record the intermediate SQL, but the broker coalesces each primary key to its final before/after state and publishes only after commit. The durable store cursor is allocated atomically in SQLite across broker instances, and reserved `__arbor_*` runtime tables remain outside authored schema fingerprints and relation capabilities.
+
+Every committed call stores its data, subject-scoped retry receipt, canonical request digest, original result, logical time, and `observedThrough` cursor in the same SQLite transaction. Exact ambiguous retries return the original receipt with one effect; reuse of the caller mutation ID for different intent conflicts. Expected `publicError` values remain sanitized, unexpected failures expose only a generic public error while retaining a private diagnostic, and failed multi-row work leaves neither data nor a receipt.
+
+The accepted-update and mutation paths now share `semanticRequestDigest` and the durable committed-intent vocabulary without merging their transaction domains or representing SQLite rows as file patches. Tree watches and stateless query-result streams share one validated SSE frame encoder; watches retain `id`, retained history, `Last-Event-ID`, and resync semantics, while query streams omit replay identity and reestablish current derived state with `ready`. The Wire specification records both reconciliations and leaves the actual React Action/named-call transport binding to the compiled manifest phases.
+
+Primary ownership:
+
+- [`packages/data/src/mutation.ts`](../../packages/data/src/mutation.ts)
+- [`packages/data/src/observer.ts`](../../packages/data/src/observer.ts)
+- [`packages/core/src/protocol.ts`](../../packages/core/src/protocol.ts)
+- [`packages/core/src/sse.ts`](../../packages/core/src/sse.ts)
+- [`packages/wire/src/updates/intent.ts`](../../packages/wire/src/updates/intent.ts)
+- [`spec/wire.md`](../../spec/wire.md)
+- [`tests/integration/supplies-mutations.test.ts`](../../tests/integration/supplies-mutations.test.ts)
+
+Intentional limits:
+
+- the runtime registry is transport-neutral until Phase 4 compiler manifests and Phase 5 React/host adapters bind it;
+- mutation receipts and Canopy accepted-update receipts use separate atomic stores even though their semantic identity model is shared;
+- SQLite remains the only data driver required for the Supplies milestone;
+- external effects and cross-store transactions remain outside deterministic collection mutations.
+
+Verification recorded with this delivery:
+
+```text
+bun run typecheck       passed
+bun run build           passed
+bun run test            260 passed, 0 failed
+focused protocol/data   31 passed, 0 failed, 8 retained query snapshots
+git diff --check        passed
+```
+
 ## Supplies query-result streaming
 
 **Status: Live data documents Phase 2 implemented and verified on 2026-08-27.**

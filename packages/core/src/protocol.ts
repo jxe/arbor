@@ -6,6 +6,7 @@ import type {
   SearchResult,
   TreeChild,
 } from "./types.ts";
+import { sha256 } from "./hash.ts";
 
 export type LogicalPath = string;
 export type PageID = string;
@@ -20,6 +21,8 @@ export interface QueryHandleRef {
   export: string;
   version: string;
 }
+
+export type MutationHandleRef = QueryHandleRef;
 
 export interface QueryStreamDocumentRef {
   tree: TreeID;
@@ -41,7 +44,7 @@ export interface QueryStreamRequest {
 
 export type QueryStreamEvent =
   | { type: "result"; id: string; observedThrough: EventCursor; outputHash: Hash; value: unknown }
-  | { type: "error"; id: string; observedThrough: EventCursor; error: ArborSyncErrorValue }
+  | { type: "result"; id: string; observedThrough: EventCursor; error: { code: string; message: string; retryable: boolean } }
   | { type: "ready"; queries: Array<{ id: string; observedThrough: EventCursor; outputHash?: Hash }> }
   | { type: "reload"; reason: "source-changed" | "access-changed" };
 
@@ -51,6 +54,28 @@ export interface QueryStreamRuntime {
     request: QueryStreamRequest,
     context: { signal: AbortSignal; user: { profile: string } | null },
   ): ReadableStream<QueryStreamEvent> | Promise<ReadableStream<QueryStreamEvent>>;
+}
+
+export interface MutationCallRequest {
+  document: QueryStreamDocumentRef;
+  handle: MutationHandleRef;
+  mutationID: string;
+  input: unknown;
+}
+
+export interface MutationResultReceipt<Result = unknown> {
+  mutationID: string;
+  requestDigest: Hash;
+  observedThrough: EventCursor;
+  result: Result;
+}
+
+/** Transport-neutral callable boundary; React/HTTP adaptation is owned later. */
+export interface MutationCallRuntime {
+  call(
+    request: MutationCallRequest,
+    context: { user: { profile: string } | null },
+  ): Promise<MutationResultReceipt>;
 }
 
 /**
@@ -431,4 +456,12 @@ export function canonicalJSONString(value: unknown): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${canonicalJSONString(record[key])}`)
     .join(",")}}`;
+}
+
+/**
+ * Hashes the canonical, semantic identity of a retryable request. Transport
+ * details must be removed by the caller before constructing this value.
+ */
+export function semanticRequestDigest(identity: unknown): Hash {
+  return `sha256:${sha256(canonicalJSONString(identity))}`;
 }

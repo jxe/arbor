@@ -20,6 +20,12 @@ export type SQLiteStoreChange =
   | { cursor: string; precision: "store"; reason: "external" };
 
 type StoreListener = (change: SQLiteStoreChange) => void;
+type LoggedChange = { collection: string; operation: SQLiteChangeOperation; before_json: string | null; after_json: string | null };
+
+export interface SQLiteTransactionControl {
+  /** Reserve the one durable cursor associated with this logical transaction. */
+  reserveCursor(): string;
+}
 
 function identifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
@@ -77,6 +83,36 @@ function rowChange(
   };
 }
 
+function coalesceRowChanges(schema: StoreSchema, rows: LoggedChange[]): SQLiteRowChange[] {
+  const values = new Map<string, SQLiteRowChange>();
+  for (const row of rows) {
+    const next = rowChange(schema, row);
+    const key = `${next.collection}\0${JSON.stringify(next.primaryKey)}`;
+    const previous = values.get(key);
+    if (!previous) {
+      values.set(key, next);
+      continue;
+    }
+    const before = previous.before;
+    const after = next.after;
+    if (before === null && after === null) {
+      values.delete(key);
+      continue;
+    }
+    const operation: SQLiteChangeOperation = before === null ? "insert" : after === null ? "delete" : "update";
+    const fields = Object.keys(schema.relations[next.collection]!.fields);
+    const changedFields = operation === "update"
+      ? fields.filter((field) => !Object.is(before?.[field], after?.[field]))
+      : fields;
+    if (operation === "update" && changedFields.length === 0) {
+      values.delete(key);
+      continue;
+    }
+    values.set(key, { ...next, operation, before, after, changedFields });
+  }
+  return [...values.values()];
+}
+
 /**
  * Owns Arbor writes to one SQLite store. TEMP triggers make row observation
  * transactional: their log rows roll back with the write and are published
@@ -91,11 +127,17 @@ export class SQLiteStoreBroker implements AsyncDisposable {
   private externalVersion: number;
   private watcher?: FSWatcher;
   private watchTimer?: ReturnType<typeof setTimeout>;
+  private writeTail: Promise<void> = Promise.resolve();
+  private pendingAsyncWrites = 0;
+  private externalInvalidationPending = false;
 
   constructor(readonly databasePath: string, readonly schema: StoreSchema, options: { watchExternal?: boolean } = {}) {
     this.database = new Database(databasePath, { create: false, strict: true });
     this.probe = new Database(databasePath, { readonly: true, strict: true });
     this.database.exec("pragma foreign_keys = on");
+    this.database.exec("create table if not exists __arbor_runtime_state (key text primary key, value integer not null)");
+    this.database.query("insert or ignore into __arbor_runtime_state(key, value) values ('store_cursor', 0)").run();
+    this.database.exec("create table if not exists __arbor_mutation_receipts (scope text not null, subject text not null, mutation_id text not null, request_digest text not null, handle_json text not null, input_json text not null, mutation_now text not null, observed_through text not null, result_json text not null, primary key(scope, subject, mutation_id))");
     this.database.exec("create temp table __arbor_changes (sequence integer primary key autoincrement, collection text not null, operation text not null, before_json text, after_json text)");
     for (const relation of Object.values(schema.relations).filter((value) => value.source === "sqlite")) {
       const table = identifier(relation.name);
@@ -104,6 +146,7 @@ export class SQLiteStoreBroker implements AsyncDisposable {
       this.database.exec(`create temp trigger ${identifier(`${prefix}_update`)} after update on ${table} begin insert into __arbor_changes(collection, operation, before_json, after_json) values (${literal(relation.name)}, 'update', ${jsonObject("old", relation)}, ${jsonObject("new", relation)}); end`);
       this.database.exec(`create temp trigger ${identifier(`${prefix}_delete`)} after delete on ${table} begin insert into __arbor_changes(collection, operation, before_json, after_json) values (${literal(relation.name)}, 'delete', ${jsonObject("old", relation)}, null); end`);
     }
+    this.sequence = Number((this.database.query("select value from __arbor_runtime_state where key = 'store_cursor'").get() as { value: number }).value);
     this.schemaVersion = pragmaNumber(this.database, "schema_version");
     this.externalVersion = pragmaNumber(this.probe, "data_version");
     if (options.watchExternal !== false) {
@@ -127,48 +170,112 @@ export class SQLiteStoreBroker implements AsyncDisposable {
   }
 
   transaction<Result>(body: (database: Database) => Result): Result {
+    if (this.pendingAsyncWrites > 0) throw new Error("An asynchronous SQLite write is already queued");
     this.database.exec("delete from __arbor_changes");
     this.database.exec("begin immediate");
     let result: Result;
-    let rows: Array<{ collection: string; operation: SQLiteChangeOperation; before_json: string | null; after_json: string | null }>;
+    let rows: LoggedChange[];
+    let cursor: string | undefined;
+    let nextSchemaVersion: number;
     try {
       result = body(this.database);
       if (result && typeof (result as { then?: unknown }).then === "function") {
         throw new TypeError("SQLiteStoreBroker.transaction callbacks must be synchronous");
       }
       rows = this.database.query("select collection, operation, before_json, after_json from __arbor_changes order by sequence").all() as typeof rows;
+      nextSchemaVersion = pragmaNumber(this.database, "schema_version");
+      if (rows.length > 0 || nextSchemaVersion !== this.schemaVersion) cursor = this.reserveCursor();
       this.database.exec("commit");
     } catch (error) {
       try { this.database.exec("rollback"); } catch {}
       throw error;
     }
-    this.externalVersion = pragmaNumber(this.probe, "data_version");
-    const nextSchemaVersion = pragmaNumber(this.database, "schema_version");
-    if (nextSchemaVersion !== this.schemaVersion) {
-      this.schemaVersion = nextSchemaVersion;
-      this.publish({ cursor: this.nextCursor(), precision: "schema", schemaVersion: nextSchemaVersion });
-    } else if (rows.length > 0) {
-      this.publish({ cursor: this.nextCursor(), precision: "rows", changes: rows.map((row) => rowChange(this.schema, row)) });
-    }
+    this.afterCommit(rows, nextSchemaVersion!, cursor);
     return result;
+  }
+
+  async transactionAsync<Result>(
+    body: (database: Database, control: SQLiteTransactionControl) => Result | Promise<Result>,
+  ): Promise<{ result: Result; observedThrough: string }> {
+    this.pendingAsyncWrites += 1;
+    const previous = this.writeTail;
+    let release!: () => void;
+    this.writeTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    let reserved: string | undefined;
+    let began = false;
+    const control: SQLiteTransactionControl = {
+      reserveCursor: () => reserved ??= this.reserveCursor(),
+    };
+    try {
+      this.database.exec("delete from __arbor_changes");
+      this.database.exec("begin immediate");
+      began = true;
+      const result = await body(this.database, control);
+      const rows = this.database.query("select collection, operation, before_json, after_json from __arbor_changes order by sequence").all() as LoggedChange[];
+      const nextSchemaVersion = pragmaNumber(this.database, "schema_version");
+      if ((rows.length > 0 || nextSchemaVersion !== this.schemaVersion) && !reserved) reserved = this.reserveCursor();
+      this.database.exec("commit");
+      this.afterCommit(rows, nextSchemaVersion, reserved);
+      return { result, observedThrough: reserved ?? this.currentCursor() };
+    } catch (error) {
+      if (began) try { this.database.exec("rollback"); } catch {}
+      throw error;
+    } finally {
+      this.pendingAsyncWrites -= 1;
+      release();
+    }
   }
 
   /** Deterministic hook for tests and the fallback used by the WAL watcher. */
   checkExternalChanges(): boolean {
     const version = pragmaNumber(this.probe, "data_version");
     if (version === this.externalVersion) return false;
-    this.externalVersion = version;
-    this.publish({ cursor: this.nextCursor(), precision: "store", reason: "external" });
+    if (this.pendingAsyncWrites > 0) {
+      this.externalInvalidationPending = true;
+      void this.writeTail.then(() => this.checkExternalChanges());
+      return false;
+    }
+    this.database.exec("begin immediate");
+    let cursor: string;
+    try {
+      cursor = this.reserveCursor();
+      this.database.exec("commit");
+    } catch (error) {
+      try { this.database.exec("rollback"); } catch {}
+      throw error;
+    }
+    this.sequence = Number(cursor.slice("sqlite:".length));
+    this.externalInvalidationPending = false;
+    this.externalVersion = pragmaNumber(this.probe, "data_version");
+    this.publish({ cursor, precision: "store", reason: "external" });
     return true;
   }
 
-  private nextCursor(): string {
-    this.sequence += 1;
-    return this.currentCursor();
+  private reserveCursor(): string {
+    const row = this.database.query("update __arbor_runtime_state set value = value + 1 where key = 'store_cursor' returning value")
+      .get() as { value: number } | null;
+    if (!row) throw new Error("The SQLite store cursor is unavailable");
+    return `sqlite:${row.value}`;
+  }
+
+  private afterCommit(rows: LoggedChange[], nextSchemaVersion: number, cursor: string | undefined): void {
+    if (!this.externalInvalidationPending) this.externalVersion = pragmaNumber(this.probe, "data_version");
+    if (!cursor) return;
+    this.sequence = Number(cursor.slice("sqlite:".length));
+    if (nextSchemaVersion !== this.schemaVersion) {
+      this.schemaVersion = nextSchemaVersion;
+      this.publish({ cursor, precision: "schema", schemaVersion: nextSchemaVersion });
+    } else {
+      this.publish({ cursor, precision: "rows", changes: coalesceRowChanges(this.schema, rows) });
+    }
   }
 
   private publish(change: SQLiteStoreChange): void {
-    for (const listener of [...this.listeners]) listener(change);
+    for (const listener of [...this.listeners]) {
+      try { listener(change); }
+      catch (error) { console.error("Arbor SQLite change listener failed", error); }
+    }
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
