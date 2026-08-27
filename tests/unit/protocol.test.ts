@@ -128,8 +128,10 @@ describe("REST v1 protocol fixtures", () => {
       "submit-current-update",
       "link-read",
       "watch-ref",
+      "query-derived-model-state",
+      "mutate-reviewed-model-intent",
     ]);
-    expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 200, 200, 200]);
+    expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 200, 200, 200, 200, 200]);
     expect(wireErrors.every((item) => item.tree !== "local" && item.tree !== "system")).toBe(true);
     expect(merges.version).toBe(2);
     expect(merges.markdownCases.length).toBeGreaterThanOrEqual(10);

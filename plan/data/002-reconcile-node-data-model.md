@@ -37,10 +37,17 @@
   the stable-key slot. Remove the temporary stable-key-to-PageID bridges only
   with that coordinated node-model cutover. These items remain owned by Phases
   3–6 below rather than being mistaken for completed codec work.
-- **Next checkpoint:** freeze the shared node-reference, identity-rule,
-  capability, snapshot/summary, children-page, and rollup-descriptor fixtures;
-  then replace the core TypeScript and Swift protocol shapes in one green
-  tranche.
+- **2026-08-27 — node sampling contract complete:**
+  `conformance/node-model.json` freezes the three-part ref, identity rules,
+  capabilities, exact-source content, summaries, snapshots, children pages,
+  fail-closed forward compatibility, and all four Wire rollup descriptors.
+  Independent TypeScript and Swift decoders accept the shared positive vectors
+  and reject missing nullable keys, the old PageID union, duplicated location,
+  public kinds, and write authority inferred from omission. Wire endpoint
+  vectors now freeze tree-scoped `QUERY .../queries` and `POST .../mutate`.
+- **Next checkpoint:** replace the core TypeScript and Swift protocol shapes
+  from these fixtures in one green tranche, then migrate the first providers
+  without retaining collection paging as a compatibility ontology.
 
 ## Target result
 
@@ -131,6 +138,16 @@ type IdentityRule = {
   properties: string[];
 };
 
+type ChildRepresentationSummary =
+  | { type: "expanded" }
+  | {
+      type: "rollup";
+      codec: "csv" | "json" | "jsonl" | "sqlite";
+      scope: "children" | "subtree";
+      modelDigest: Hash;
+    }
+  | { type: "external"; driver: string };
+
 type NodeCapabilities = {
   properties?: {
     revision: string;
@@ -153,6 +170,14 @@ type NodeCapabilities = {
   executable?: {
     version: Hash;
     state: "runnable" | "diagnostic" | "inactive";
+  };
+};
+
+type NodeContent = {
+  source: string;
+  representation?: {
+    state: "stored" | "implicit";
+    origin?: "sibling" | "index";
   };
 };
 
@@ -451,9 +476,9 @@ snapshots/transactions and language-neutral vectors.
 - Freeze development-type fixtures for homogeneous children, discriminated
   unions, optional content, references, relational capability refinement, computed
   path declarations, and stale schema fingerprints.
-- Decide whether the coordinated breaking REST change increments the protocol
-  version or replaces pre-release v1 atomically. Do not support two ontologies
-  indefinitely.
+- Replace pre-release REST v1 atomically across the daemon, TypeScript client,
+  Swift client, fixtures, and docs. Do not add REST v2, a compatibility adapter,
+  or support two ontologies indefinitely.
 
 ### Phase 1 — core types and pure identity/codec helpers
 

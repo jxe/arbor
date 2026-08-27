@@ -1,0 +1,274 @@
+{
+  "version": "node-model-v1",
+  "identityRules": [
+    {
+      "name": "markdown-id",
+      "rule": { "scope": "tree", "properties": ["id"] },
+      "properties": { "id": "pg_practices", "title": "Practices" },
+      "stableKey": "[[\"id\",\"pg_practices\"]]"
+    },
+    {
+      "name": "compound-row-key",
+      "rule": { "scope": "parent", "properties": ["list_id", "practice_id"] },
+      "properties": { "list_id": "list_a", "practice_id": "practice_b", "position": 3 },
+      "stableKey": "[[\"list_id\",\"list_a\"],[\"practice_id\",\"practice_b\"]]"
+    }
+  ],
+  "snapshots": [
+    {
+      "name": "markdown-directory",
+      "value": {
+        "ref": {
+          "tree": "tr_supplies",
+          "path": "/practices",
+          "stableKey": "[[\"id\",\"pg_practices\"]]"
+        },
+        "name": "practices",
+        "revision": "node:r-practices-7",
+        "properties": { "id": "pg_practices", "title": "Practices", "featured": true },
+        "capabilities": {
+          "properties": {
+            "revision": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "schema": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "writable": true
+          },
+          "content": {
+            "revision": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "mediaType": "text/markdown",
+            "format": "markdown",
+            "writable": true
+          },
+          "children": {
+            "revision": "children:r-practices-4",
+            "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "representation": { "type": "expanded" },
+            "total": 2,
+            "writable": true
+          }
+        },
+        "content": {
+          "source": "---\nid: pg_practices\ntitle: Practices\nfeatured: true\n---\n\n# Practices\n\n<!-- arbor:children -->\n",
+          "representation": { "state": "stored", "origin": "sibling" }
+        },
+        "materialization": "available",
+        "diagnostics": [],
+        "observedThrough": "evt:tr_supplies:41"
+      }
+    },
+    {
+      "name": "postgres-container-at-this-placement",
+      "value": {
+        "ref": { "tree": "tr_supplies", "path": "/data", "stableKey": null },
+        "name": "data",
+        "revision": "node:r-data-12",
+        "properties": { "label": "Supplies data" },
+        "capabilities": {
+          "properties": { "revision": "store-schema:12", "writable": false },
+          "children": {
+            "revision": "store:commit-918",
+            "representation": { "type": "external", "driver": "postgres" },
+            "total": 7,
+            "writable": true
+          }
+        },
+        "materialization": "available",
+        "diagnostics": [],
+        "observedThrough": "store:commit-918"
+      }
+    },
+    {
+      "name": "placeholder-file",
+      "value": {
+        "ref": { "tree": "tr_supplies", "path": "/assets/portrait.png", "stableKey": null },
+        "name": "portrait.png",
+        "revision": "node:placeholder:9",
+        "properties": {},
+        "capabilities": {
+          "content": {
+            "revision": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "mediaType": "image/png",
+            "writable": false
+          }
+        },
+        "materialization": "placeholder",
+        "diagnostics": [
+          {
+            "code": "content-unavailable",
+            "message": "The file is not downloaded on this placement.",
+            "severity": "warning",
+            "path": "/assets/portrait.png"
+          }
+        ],
+        "observedThrough": "evt:tr_supplies:41"
+      }
+    }
+  ],
+  "childrenPages": [
+    {
+      "name": "rolled-up-practice-rows",
+      "value": {
+        "parent": { "tree": "tr_supplies", "path": "/practices", "stableKey": null },
+        "items": [
+          {
+            "ref": {
+              "tree": "tr_supplies",
+              "path": "/practices/walking",
+              "stableKey": "[[\"slug\",\"walking\"]]"
+            },
+            "name": "walking",
+            "revision": "row:3f62",
+            "properties": { "slug": "walking", "title": "Walking", "active": true },
+            "capabilities": {
+              "properties": {
+                "revision": "row:3f62",
+                "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "writable": true
+              }
+            },
+            "materialization": "available",
+            "diagnostics": []
+          },
+          {
+            "ref": {
+              "tree": "tr_supplies",
+              "path": "/practices/reading",
+              "stableKey": "[[\"slug\",\"reading\"]]"
+            },
+            "name": "reading",
+            "revision": "row:8841",
+            "properties": { "slug": "reading", "title": "Reading", "active": false },
+            "capabilities": {
+              "properties": {
+                "revision": "row:8841",
+                "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "writable": true
+              }
+            },
+            "materialization": "available",
+            "diagnostics": []
+          }
+        ],
+        "nextCursor": "children-v1:eyJyZXZpc2lvbiI6ImNoaWxkcmVuOnItcHJhY3RpY2VzLTQiLCJhZnRlciI6InJlYWRpbmcifQ",
+        "observedThrough": "evt:tr_supplies:41"
+      }
+    }
+  ],
+  "rollups": [
+    {
+      "version": 1,
+      "codec": "csv",
+      "source": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "scope": "children",
+      "modelDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    {
+      "version": 1,
+      "codec": "json",
+      "source": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "scope": "children",
+      "modelDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    {
+      "version": 1,
+      "codec": "jsonl",
+      "source": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "scope": "children",
+      "modelDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    {
+      "version": 1,
+      "codec": "sqlite",
+      "source": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "schema": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "scope": "subtree",
+      "modelDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+    }
+  ],
+  "forwardCompatibleSnapshot": {
+    "ref": { "tree": "tr_supplies", "path": "/future", "stableKey": null },
+    "name": "future",
+    "revision": "node:future:1",
+    "properties": {},
+    "capabilities": {
+      "properties": { "revision": "future:1", "writable": false },
+      "teleport": { "writable": true }
+    },
+    "materialization": "available",
+    "diagnostics": [],
+    "observedThrough": "evt:tr_supplies:41",
+    "futureTopLevelField": true
+  },
+  "invalidSnapshots": [
+    {
+      "name": "missing-nullable-stable-key",
+      "value": {
+        "ref": { "tree": "tr_supplies", "path": "/bad" },
+        "name": "bad",
+        "revision": "node:bad",
+        "properties": {},
+        "capabilities": {},
+        "materialization": "available",
+        "diagnostics": [],
+        "observedThrough": "evt:tr_supplies:41"
+      }
+    },
+    {
+      "name": "legacy-page-reference",
+      "value": {
+        "ref": { "tree": "tr_supplies", "pageID": "pg_bad", "pathHint": "/bad" },
+        "name": "bad",
+        "revision": "node:bad",
+        "properties": {},
+        "capabilities": {},
+        "materialization": "available",
+        "diagnostics": [],
+        "observedThrough": "evt:tr_supplies:41"
+      }
+    },
+    {
+      "name": "duplicated-location",
+      "value": {
+        "ref": { "tree": "tr_supplies", "path": "/bad", "stableKey": null },
+        "tree": "tr_supplies",
+        "path": "/bad",
+        "name": "bad",
+        "revision": "node:bad",
+        "properties": {},
+        "capabilities": {},
+        "materialization": "available",
+        "diagnostics": [],
+        "observedThrough": "evt:tr_supplies:41"
+      }
+    },
+    {
+      "name": "public-kind-taxonomy",
+      "value": {
+        "ref": { "tree": "tr_supplies", "path": "/bad", "stableKey": null },
+        "name": "bad",
+        "kind": "collection",
+        "revision": "node:bad",
+        "properties": {},
+        "capabilities": {},
+        "materialization": "available",
+        "diagnostics": [],
+        "observedThrough": "evt:tr_supplies:41"
+      }
+    },
+    {
+      "name": "implicit-write-grant",
+      "value": {
+        "ref": { "tree": "tr_supplies", "path": "/bad", "stableKey": null },
+        "name": "bad",
+        "revision": "node:bad",
+        "properties": {},
+        "capabilities": { "content": { "revision": "bad", "mediaType": "text/plain" } },
+        "materialization": "available",
+        "diagnostics": [],
+        "observedThrough": "evt:tr_supplies:41"
+      }
+    }
+  ]
+}

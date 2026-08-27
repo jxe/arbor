@@ -59,6 +59,31 @@ private func canonicalStableKeyJSON(_ value: String) -> Bool {
     return canonicalString == value
 }
 
+public func canonicalStableKey(_ pairs: [(String, JSONValue)]) throws -> String {
+    guard !pairs.isEmpty else { throw EncodingError.invalidValue(pairs, .init(codingPath: [], debugDescription: "stable key must be nonempty")) }
+    let encoder = JSONEncoder()
+    var encoded: [String] = []
+    for (property, value) in pairs {
+        guard !property.isEmpty else {
+            throw EncodingError.invalidValue(property, .init(codingPath: [], debugDescription: "stable-key property must be nonempty"))
+        }
+        switch value {
+        case .string, .bool, .number:
+            break
+        default:
+            throw EncodingError.invalidValue(value, .init(codingPath: [], debugDescription: "stable-key value must be a non-null scalar"))
+        }
+        let propertyJSON = String(decoding: try encoder.encode(property), as: UTF8.self)
+        let valueJSON = String(decoding: try encoder.encode(value), as: UTF8.self)
+        encoded.append("[\(propertyJSON),\(valueJSON)]")
+    }
+    let result = "[\(encoded.joined(separator: ","))]"
+    guard canonicalStableKeyJSON(result) else {
+        throw EncodingError.invalidValue(pairs, .init(codingPath: [], debugDescription: "stable key is not canonical JSON"))
+    }
+    return result
+}
+
 public func encodeStableKey(_ value: String) -> String? {
     guard canonicalStableKeyJSON(value) else { return nil }
     return Data(value.utf8).base64EncodedString()

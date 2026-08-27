@@ -556,6 +556,21 @@ type TreeID = string;
 type LogicalPath = string;
 type EventCursor = string;
 type Hash = `sha256:${string}`;
+type JSONValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JSONValue[]
+  | { [name: string]: JSONValue };
+type Diagnostic = {
+  code: string;
+  message: string;
+  severity: "info" | "warning" | "error";
+  path?: LogicalPath;
+  row?: number;
+  field?: string;
+};
 type AccessLevel = "none" | "read" | "write";
 type ReadWriteAccess = "read" | "write";
 
@@ -622,7 +637,95 @@ type ObservationEvent<TKind extends string, TChange> = {
   kind: TKind;
   change: TChange;
 };
+
+type NodeRef = {
+  tree: TreeID;
+  path: LogicalPath;
+  stableKey: string | null;
+};
+
+type IdentityRule = {
+  scope: "tree" | "parent";
+  properties: string[];
+};
+
+type ChildRepresentationSummary =
+  | { type: "expanded" }
+  | {
+      type: "rollup";
+      codec: "csv" | "json" | "jsonl" | "sqlite";
+      scope: "children" | "subtree";
+      modelDigest: Hash;
+    }
+  | { type: "external"; driver: string };
+
+type NodeCapabilities = {
+  properties?: { revision: string; schema?: Hash; writable: boolean };
+  content?: {
+    revision: string;
+    mediaType: string;
+    format?: "markdown" | "mdx" | "tsx" | "json";
+    writable: boolean;
+  };
+  children?: {
+    revision: string;
+    schema?: Hash;
+    representation?: ChildRepresentationSummary;
+    total?: number;
+    writable: boolean;
+  };
+  executable?: {
+    version: Hash;
+    state: "runnable" | "diagnostic" | "inactive";
+  };
+};
+
+type NodeContent = {
+  source: string;
+  representation?: {
+    state: "stored" | "implicit";
+    origin?: "sibling" | "index";
+  };
+};
+
+type NodeSummary = {
+  ref: NodeRef;
+  name: string;
+  revision: string;
+  properties: Record<string, JSONValue>;
+  capabilities: NodeCapabilities;
+  materialization: "available" | "placeholder";
+  diagnostics: Diagnostic[];
+};
+
+type NodeSnapshot = NodeSummary & {
+  content?: NodeContent;
+  observedThrough: EventCursor;
+};
+
+type ChildrenPage = {
+  parent: NodeRef;
+  items: NodeSummary[];
+  nextCursor: string | null;
+  observedThrough: EventCursor;
+};
 ```
+
+These are model-sampling values, not another stored graph. `ref` is the sole
+tree/path/identity carrier; snapshots and summaries do not repeat `tree`,
+`path`, `kind`, `pageID`, or collection-specific fields. Properties and
+content remain independent, and an omitted content payload does not negate a
+content capability—for example, clients normally fetch large file bytes
+separately. Capability names and states are fail-closed: an unknown capability
+or format may be retained or ignored for forward compatibility but never
+grants editing, execution, traversal, or file access.
+
+Clients may derive a parsed Markdown document from exact `NodeContent.source`;
+that derived representation is not a second authored value. Markdown
+properties and content use the same exact-source concurrency boundary even when
+both capabilities are advertised. A `ChildRepresentationSummary` describes the observed placement;
+it does not make backing or projection topology part of node identity. The
+exact synchronized rollup form remains the `RollupDescriptor` below.
 
 New tree IDs are `tr_` plus 26 lowercase base32 characters encoding 128 random
 bits. New device IDs use the same encoding after `dv_`. Existing shorter IDs

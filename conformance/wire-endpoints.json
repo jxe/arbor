@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "tree": {
     "id": "tr_atlas",
     "kind": "shared-subtree",
@@ -116,6 +116,80 @@
         "status": 200,
         "contentType": "text/event-stream; charset=utf-8",
         "frame": "id: up_atlas1\nevent: tree.ref\ndata: {\"cursor\":\"up_atlas1\",\"tree\":\"tr_atlas\",\"kind\":\"tree.ref\",\"change\":{\"descriptor\":{\"id\":\"tr_atlas\",\"kind\":\"shared-subtree\",\"access\":\"write\",\"canonical\":{\"locator\":\"arbor://community.example/~alice/atlas\",\"path\":\"/~alice/atlas\",\"endpoint\":\"https://community.example\",\"httpURL\":\"https://community.example/~alice/atlas\",\"parentTree\":\"tr_alice\"},\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"update\":\"up_atlas1\"}}}\n\n"
+      }
+    },
+    {
+      "name": "query-derived-model-state",
+      "request": {
+        "method": "QUERY",
+        "path": "/.arbor/trees/tr_atlas/queries",
+        "headers": {
+          "Authorization": "Bearer <account-device-token>",
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream"
+        },
+        "body": {
+          "document": {
+            "tree": "tr_atlas",
+            "path": "/Practice",
+            "version": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+          },
+          "queries": [
+            {
+              "id": "practice",
+              "handle": {
+                "tree": "tr_atlas",
+                "module": "/queries/practice",
+                "export": "practice",
+                "version": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+              },
+              "input": { "id": "p_123" }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "contentType": "text/event-stream; charset=utf-8",
+        "frames": [
+          "event: result\ndata: {\"id\":\"practice\",\"observedThrough\":\"query:41\",\"outputHash\":\"sha256:8888888888888888888888888888888888888888888888888888888888888888\",\"value\":{\"name\":\"Walking\"}}\n\n",
+          "event: ready\ndata: {\"queries\":[{\"id\":\"practice\",\"observedThrough\":\"query:41\",\"outputHash\":\"sha256:8888888888888888888888888888888888888888888888888888888888888888\"}]}\n\n"
+        ]
+      }
+    },
+    {
+      "name": "mutate-reviewed-model-intent",
+      "request": {
+        "method": "POST",
+        "path": "/.arbor/trees/tr_atlas/mutate",
+        "headers": {
+          "Authorization": "Bearer <account-device-token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "document": {
+            "tree": "tr_atlas",
+            "path": "/Practice",
+            "version": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+          },
+          "handle": {
+            "tree": "tr_atlas",
+            "module": "/mutations/practice",
+            "export": "renamePractice",
+            "version": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+          },
+          "mutationID": "mutation-client-41",
+          "input": { "id": "p_123", "name": "Long walk" }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "mutationID": "mutation-client-41",
+          "requestDigest": "sha256:1010101010101010101010101010101010101010101010101010101010101010",
+          "observedThrough": "query:42",
+          "result": { "id": "p_123", "name": "Long walk" }
+        }
       }
     }
   ]
