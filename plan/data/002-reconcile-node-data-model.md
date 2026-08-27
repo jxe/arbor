@@ -131,11 +131,23 @@
   exact content writes accept the same stable row reference. The remaining
   provider-probe and activation-manifest retrofits, plus portable query semantic
   equivalence not completed in this slice, are explicit hardening debt.
-- **Next checkpoint:** extract the remaining internal collection-page and
-  parent/grandparent adapter probes into the shared `ChildProvider` snapshot
-  contract. Then prepare exact-source file-rollup property writes before
-  enabling them; defer Wire rollup synchronization until those local mutation
-  semantics are proved.
+- **2026-08-27 — shared child-provider adapter cutover complete:** expanded
+  directories, schema-governed Markdown records, CSV/JSON/JSONL rollups, and
+  SQLite table/row subtrees now cross the managed and untracked adapter boundary
+  as `NodeSnapshot`, `NodeSummary`, and `ChildrenPage`. One `ChildProvider`
+  owns collection/table location, stable-key healing, diagnostics, access
+  ceilings, row capabilities, write targets, and Markdown property preparation.
+  `Workspace` and `FilesystemService` no longer contain separate collection-row,
+  SQLite-grandparent, or virtual-table probes; the internal `CollectionPage`
+  type and adapter translation helper are deleted. Provider conformance tests
+  freeze the same snapshot/children contract for expanded, Markdown, CSV, JSON,
+  JSONL, and SQLite children. Private physical `TreeNode`/`TreeChild` and store
+  loading records remain implementation details pending the broader filesystem
+  and observation phases.
+- **Next checkpoint:** prepare exact-source file-rollup property writes before
+  enabling them, while continuing the generated activation-manifest and
+  cross-provider query-equivalence work. Defer Wire rollup synchronization
+  until those local mutation semantics are proved.
 
 ## Target result
 

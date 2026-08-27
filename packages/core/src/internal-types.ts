@@ -54,16 +54,3 @@ export interface CollectionRow {
   values: Record<string, unknown>;
   diagnostics: Diagnostic[];
 }
-
-export interface CollectionPage {
-  path: string;
-  backing: CollectionBacking;
-  columns: string[];
-  identityRule?: IdentityRule;
-  revision: string;
-  schemaRevision: string;
-  rows: CollectionRow[];
-  nextCursor: string | null;
-  diagnostics: Diagnostic[];
-  editable: boolean;
-}

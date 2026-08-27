@@ -39,47 +39,36 @@ These are implementation violations of the aspirational specification. They are 
    carry generic stable keys and the legacy-fragment uniqueness reader has
    passed its retention window. Keep the owner index behavior behind the
    generic identity rule; do not remove rename healing itself.
-2. **Delete the provider-internal collection page ontology.** `TreeNode`,
-   `TreeChild`, `CollectionSummary`, `CollectionRow`, and `CollectionPage` now
-   live behind `@arbor/core/internal`, but Arbor Sync still translates them into
-   canonical snapshots and child pages. Remove these types when the shared
-   `ChildProvider` directly describes, pages, resolves, prepares, and observes
-   expanded files, file rollups, SQLite, and external stores. The first SQLite
-   slice deliberately returns through this bridge so it can share the public
-   node contract without introducing a second wire shape; no REST, browser,
-   native, or generated-type consumer may depend on the bridge at removal.
-3. **Unify row resolution below workspace scope dispatch.** Managed and
-   untracked adapters temporarily probe a file-backed collection parent, or a
-   SQLite table's physical grandparent, before their ordinary filesystem
-   lookup. Replace both probes with provider-neutral `ChildProvider.resolve`
-   after mutable SQLite and external drivers implement the same contract. At
-   that point stable-key lookup, stale-path repair, diagnostics, access checks,
-   historical reads, Markdown schema validation, identity enforcement, and
-   exact-source property writes must have one implementation. The current
-   Markdown-record retrofit deliberately duplicates the final adapter routing
-   in `Workspace` and `FilesystemService`; delete that duplication with the
-   parent/grandparent probes rather than adding a third copy.
-4. **Replace remote physical-child caching with Wire rollup projection.** The
+2. **Finish replacing private physical/store node records.** The shared
+   `ChildProvider` now emits canonical snapshots and child pages directly, and
+   `CollectionPage` plus the duplicated managed/untracked row probes are gone.
+   `TreeNode`/`TreeChild` remain the expanded-filesystem adapter's private read
+   model, while `CollectionSummary`/`CollectionRow` remain private loading
+   records inside the store provider. Remove those residual types as provider
+   `describe`, transaction preparation, and observation land; do not recreate
+   an adapter translation page or expose the records to REST, browser, native,
+   generated-type, or query consumers.
+3. **Replace remote physical-child caching with Wire rollup projection.** The
    unplaced-tree adapter currently keeps an in-memory `remoteChildren` map and
    retains collection-aware physical child filtering because Wire cannot yet
    resolve rollup rows. Delete both when rollup descriptors, remote row paging,
    bounded marker placement, and schema/model-digest validation are live on
    Canopy; remote results must then match placed and offline providers.
-5. **Remove Postgres virtual nodes and provisional offset cursors.** Postgres
+4. **Remove Postgres virtual nodes and provisional offset cursors.** Postgres
    tables still use virtual-node special cases and an opaque cursor bound to the
    placeholder revision `external:postgres`, not a proved transaction snapshot.
    Replace this path when `_store.yaml` is driver-dispatched through the shared
    provider, introspected primary keys produce stable row refs, and paging uses
    a real revision-bound keyset cursor. Do not expose mutable Postgres rows
    before those conditions hold.
-6. **Reconcile expanded Markdown row paths with key-derived rollup paths.**
+5. **Reconcile expanded Markdown row paths with key-derived rollup paths.**
    Existing Markdown records retain their authored filename as the readable
    path while CSV/JSON/JSONL rows derive it from the declared primary key. Add a
    reviewed migration/converter or a provider-neutral logical-path map before
    claiming representation migration preserves paths automatically. Delete
    this exception only when the same fixture has identical refs as Markdown,
    CSV, JSON, JSONL, and SQLite and relative Markdown links remain ordinary.
-7. **Cache bounded provider snapshots instead of rebuilding complete views.**
+6. **Cache bounded provider snapshots instead of rebuilding complete views.**
    File-backed summary, paging, and stable-key resolution currently reparse and
    revalidate the complete backing to establish duplicate-key safety. The first
    SQLite node adapter likewise re-introspects and reads every user row for
@@ -87,7 +76,7 @@ These are implementation violations of the aspirational specification. They are 
    exact-revision-keyed provider snapshot shared by describe/page/resolve, with
    filesystem/database invalidation and no stale schema reuse. Preserve
    full-key-set validation; do not optimize by checking only the returned page.
-8. **Join SQLite schema validation, row sampling, and observation at one
+7. **Join SQLite schema validation, row sampling, and observation at one
    snapshot boundary.** Generic SQLite browsing currently validates authored
    `schema.sql` and `relationships.json` on one read connection, then samples
    rows in a second read transaction. A concurrent schema commit can therefore
@@ -96,14 +85,14 @@ These are implementation violations of the aspirational specification. They are 
    observation cursor through the shared SQLite broker/snapshot owner, retain
    the last usable schema with an actionable diagnostic, and invalidate the
    exact snapshot after external WAL commits.
-9. **Specify lossless SQLite property scalar projection.** The generic adapter
+8. **Specify lossless SQLite property scalar projection.** The generic adapter
    currently follows existing observer conventions by normalizing booleans and
    representing BLOBs as a tagged base64 object; integers outside JavaScript's
    safe range are conservatively surfaced as strings. Freeze language-neutral
    value fixtures for blobs and 64-bit integers, then share one normalization
    implementation across node properties, query results, mutation validation,
    observation logs, TypeScript, and Swift.
-10. **Separate relational names from logical table-child segments.** The
+9. **Separate relational names from logical table-child segments.** The
     provisional SQLite and Postgres bridges use a valid ordinary table name as
     both provider identifier and logical child segment, and can collide with a
     physical child of the database directory. The shared provider contract
@@ -111,14 +100,14 @@ These are implementation violations of the aspirational specification. They are 
     retain the authored relation name for query and mutation handles. Freeze
     fixtures for spaces, slashes, Unicode, reserved `~row-` prefixes, and a
     same-named physical child before removing the virtual-table bridge.
-11. **Expose exact SQLite representation state separately from its model
+10. **Expose exact SQLite representation state separately from its model
     digest.** The generic child revision currently hashes a coherent logical
     row snapshot and schema fingerprint, which is sufficient for stable paging
     but does not identify formatting-equivalent SQLite page/WAL bytes. The Wire
     rollup provider must carry an exact accepted source/object revision and a
     separate scoped model digest so vacuuming, indexes, and representation-only
     changes participate in synchronization without changing logical equality.
-12. **Move portable query compilation out of the SQLite module.** The first
+11. **Move portable query compilation out of the SQLite module.** The first
     `NodeQueryEngine` intentionally reuses predicate/input errors and evaluation
     behavior from `sqlite.ts`, which leaves a provider-neutral runtime importing
     a relational executor. Extract one closed query-core package before adding
@@ -132,7 +121,7 @@ These are implementation violations of the aspirational specification. They are 
     fixtures for compound/numeric/Unicode keys and `one`/`maybe`, then make one
     activation and ordering rule authoritative before claiming full portable
     query equivalence.
-13. **Generate source schemas before ordinary-tree query activation.** The
+12. **Generate source schemas before ordinary-tree query activation.** The
     development compiler must bind every literal `arbor(path).children` handle
     to declared property types and a schema fingerprint, including an empty
     child set. The current ordinary-node engine validates returned JSON values
@@ -144,26 +133,26 @@ These are implementation violations of the aspirational specification. They are 
     assembly and sample-derived fallback typing once generated source
     declarations and activation-time fingerprint checks cover expanded and
     rolled-up sources, imported helper modules, and computed-locator bounds.
-14. **Replace the temporary whole-source query bound.** Portable ordinary-node
+13. **Replace the temporary whole-source query bound.** Portable ordinary-node
     queries currently page up to 10,000 children before filtering and picking.
     Add a manifest-declared finite source bound plus provider pushdown/cursors,
     and reject activation when neither can prove bounded execution. Do not turn
     this emergency ceiling into public query semantics.
-15. **Retire the SQLite direct-write receipt bridge deliberately.** Generic row
+14. **Retire the SQLite direct-write receipt bridge deliberately.** Generic row
     writes currently create `__arbor_property_receipts` inside the store so a
     crash after the row commit can replay the same mutation safely. The shared
     provider transaction protocol must define receipt retention/pruning,
     representation-sync behavior, and how copied or replicated stores scope
     caller mutation IDs. Remove the private table only after provider commit
     recovery offers the same crash guarantee.
-16. **Prepare exact-source writes before enabling file-rollup properties.** CSV,
+15. **Prepare exact-source writes before enabling file-rollup properties.** CSV,
     JSON, and JSONL rows correctly remain read-only in the first
     `writeProperties` slice. Enable them only after the provider can retain the
     sampled exact source, apply one row candidate without losing unrelated
     formatting/comments where the codec permits it, validate the complete
     logical collection, atomically replace the file, and recover/replay the
     mutation. Do not route them through a lossy parse-and-reserialize shortcut.
-17. **Give portable live queries a child-set dependency.** The first
+16. **Give portable live queries a child-set dependency.** The first
     `NodeQueryEngine` reports the revisions of every sampled child, which can
     detect edits to existing matches and nonmatches but cannot by itself detect
     insertion or removal from the source. Before routing ordinary-tree handles

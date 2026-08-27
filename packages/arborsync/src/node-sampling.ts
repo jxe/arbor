@@ -7,7 +7,7 @@ import type {
   NodeSummary,
   TreeRef,
 } from "@arbor/core";
-import type { CollectionPage, CollectionRow, TreeNode } from "@arbor/core/internal";
+import type { TreeNode } from "@arbor/core/internal";
 import { canonicalJSONString, isPageID, pageIDStableKey, sha256 } from "@arbor/core";
 
 function jsonValue(value: unknown): JSONValue | undefined {
@@ -34,47 +34,6 @@ function jsonValue(value: unknown): JSONValue | undefined {
 
 export function nodeProperties(node: TreeNode): Record<string, JSONValue> {
   return (jsonValue(node.document?.frontmatter ?? {}) ?? {}) as Record<string, JSONValue>;
-}
-
-export function collectionRowSummary(
-  row: CollectionRow,
-  page: CollectionPage,
-  parentPath: string,
-  tree: TreeRef,
-): NodeSummary {
-  const properties = (jsonValue(row.values) ?? {}) as Record<string, JSONValue>;
-  const segment = row.path;
-  const revision = row.revision ?? digest({ key: row.key, properties });
-  return {
-    ref: {
-      tree,
-      path: `${parentPath === "/" ? "" : parentPath}/${segment}`,
-      stableKey: row.stableKey,
-    },
-    name: typeof properties.title === "string" ? properties.title
-      : typeof properties.name === "string" ? properties.name
-      : typeof properties.slug === "string" ? properties.slug
-      : segment,
-    revision,
-    properties,
-    capabilities: {
-      properties: {
-        revision,
-        schema: page.schemaRevision as Hash,
-        writable: page.editable,
-      },
-      ...(page.backing === "markdown" ? {
-        content: {
-          revision,
-          mediaType: "text/markdown",
-          format: "markdown" as const,
-          writable: page.editable,
-        },
-      } : {}),
-    },
-    materialization: "available",
-    diagnostics: row.diagnostics,
-  };
 }
 
 function digest(value: unknown): Hash {

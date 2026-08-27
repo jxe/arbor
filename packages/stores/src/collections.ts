@@ -5,8 +5,8 @@ import { createInterface } from "node:readline";
 import { Database } from "bun:sqlite";
 import { parse } from "csv-parse";
 import { parseDocument } from "yaml";
-import type { Diagnostic, JSONValue } from "@arbor/core";
-import type { CollectionBacking, CollectionPage, CollectionRow, CollectionSummary } from "@arbor/core/internal";
+import type { ChildrenPage, Diagnostic, Hash, JSONValue, NodeRef, NodeSnapshot, NodeSummary, TreeRef } from "@arbor/core";
+import type { CollectionBacking, CollectionRow, CollectionSummary } from "@arbor/core/internal";
 import { canonicalJSONString, parseCanonicalStableKey, revisionOf, rowPathSegment, sha256, stableKeyFromProperties } from "@arbor/core";
 import { introspectSQLiteDatabase, introspectStoreSchema, type FieldMetadata, type StoreSchema } from "@arbor/data";
 import { parseMarkdown } from "@arbor/editor";
@@ -29,6 +29,39 @@ interface LoadedCollection {
   diagnostics: Diagnostic[];
   identityRule?: { properties: string[] };
   editable: boolean;
+}
+
+interface LoadedCollectionSlice {
+  path: string;
+  backing: CollectionBacking;
+  columns: string[];
+  identityRule?: { properties: string[] };
+  revision: string;
+  schemaRevision: string;
+  rows: CollectionRow[];
+  nextCursor: string | null;
+  diagnostics: Diagnostic[];
+  editable: boolean;
+}
+
+export interface ChildProviderContext {
+  tree: TreeRef;
+  observedThrough: string;
+  writable: boolean;
+  readPhysical?: (path: string) => Promise<NodeSnapshot>;
+}
+
+export interface CollectionWriteTarget {
+  directory: string;
+  parentPath: string;
+  backing: CollectionBacking;
+  table?: string;
+  path: string;
+  stableKey: string | null;
+  revision: string;
+  properties: Record<string, JSONValue>;
+  identityRule?: { properties: string[] };
+  writable: boolean;
 }
 
 interface LoadedSQLiteTable {
@@ -67,6 +100,74 @@ export class CollectionPropertyConflictError extends Error {
 
 export class CollectionMutationMismatchError extends Error {}
 export class CollectionPropertyWriteError extends Error {}
+
+function jsonValue(value: unknown): JSONValue | undefined {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (Array.isArray(value)) {
+    const result: JSONValue[] = [];
+    for (const item of value) {
+      const converted = jsonValue(item);
+      if (converted !== undefined) result.push(converted);
+    }
+    return result;
+  }
+  if (value && typeof value === "object") {
+    const result: Record<string, JSONValue> = {};
+    for (const [key, item] of Object.entries(value)) {
+      const converted = jsonValue(item);
+      if (converted !== undefined) result[key] = converted;
+    }
+    return result;
+  }
+  return undefined;
+}
+
+function digest(value: unknown): Hash {
+  return `sha256:${sha256(canonicalJSONString(value))}`;
+}
+
+function rowSummary(
+  row: CollectionRow,
+  page: LoadedCollectionSlice,
+  parentPath: string,
+  tree: TreeRef,
+  writable: boolean,
+): NodeSummary {
+  const properties = (jsonValue(row.values) ?? {}) as Record<string, JSONValue>;
+  const revision = row.revision ?? digest({ key: row.key, properties });
+  const editable = page.editable && (!page.identityRule || row.stableKey !== null) && writable;
+  return {
+    ref: {
+      tree,
+      path: `${parentPath === "/" ? "" : parentPath}/${row.path}`,
+      stableKey: row.stableKey,
+    },
+    name: typeof properties.title === "string" ? properties.title
+      : typeof properties.name === "string" ? properties.name
+      : typeof properties.slug === "string" ? properties.slug
+      : row.path,
+    revision,
+    properties,
+    capabilities: {
+      properties: {
+        revision,
+        schema: page.schemaRevision as Hash,
+        writable: editable,
+      },
+      ...(page.backing === "markdown" ? {
+        content: {
+          revision,
+          mediaType: "text/markdown",
+          format: "markdown" as const,
+          writable: editable,
+        },
+      } : {}),
+    },
+    materialization: "available",
+    diagnostics: row.diagnostics,
+  };
+}
 
 function sqliteIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
@@ -275,7 +376,127 @@ export class CollectionStore {
     } finally { await sql.close(); }
   }
 
-  async page(directory: string, treePath: string, cursor: string | null = null, limit = 100, tableName?: string): Promise<CollectionPage> {
+  async tableSnapshot(
+    directory: string,
+    treePath: string,
+    table: string,
+    context: ChildProviderContext,
+  ): Promise<NodeSnapshot | null> {
+    const summary = await this.tableSummary(directory, table);
+    if (!summary) return null;
+    const revision = summary.revision ?? `external:${summary.backing}:${table}`;
+    const schema = (summary.schemaRevision ?? digest({ columns: summary.columns, identityRule: summary.identityRule })) as Hash;
+    const representation = summary.backing === "postgres"
+      ? { type: "external" as const, driver: "postgres" }
+      : {
+        type: "rollup" as const,
+        codec: "sqlite" as const,
+        scope: "children" as const,
+        modelDigest: (summary.modelDigest ?? digest({ columns: summary.columns, identityRule: summary.identityRule })) as Hash,
+      };
+    return {
+      ref: { tree: context.tree, path: treePath, stableKey: null },
+      name: table,
+      revision,
+      properties: {},
+      capabilities: {
+        children: {
+          revision,
+          schema,
+          representation,
+          ...(summary.total === undefined ? {} : { total: summary.total }),
+          writable: summary.editable && context.writable,
+        },
+      },
+      materialization: "available",
+      diagnostics: summary.diagnostics ?? [],
+      observedThrough: context.observedThrough,
+    };
+  }
+
+  async tableItems(
+    directory: string,
+    parentPath: string,
+    context: ChildProviderContext,
+  ): Promise<NodeSummary[]> {
+    const summary = await this.summary(directory);
+    if (!summary?.tables) return [];
+    const snapshots = await Promise.all(summary.tables.map((table) => this.tableSnapshot(
+      directory,
+      `${parentPath === "/" ? "" : parentPath}/${table}`,
+      table,
+      context,
+    )));
+    return snapshots.filter((item): item is NodeSnapshot => item !== null).map(({
+      observedThrough: _observedThrough,
+      content: _content,
+      ...item
+    }) => item);
+  }
+
+  async children(
+    directory: string,
+    treePath: string,
+    parent: NodeRef,
+    context: ChildProviderContext,
+    cursor: string | null = null,
+    limit = 100,
+    table?: string,
+  ): Promise<ChildrenPage> {
+    const page = await this.loadRows(directory, treePath, cursor, limit, table);
+    return {
+      parent,
+      items: page.rows.map((row) => rowSummary(row, page, treePath, context.tree, context.writable)),
+      nextCursor: page.nextCursor,
+      observedThrough: context.observedThrough,
+    };
+  }
+
+  async resolveChild(
+    directory: string,
+    parentPath: string,
+    ref: { path: string; stableKey: string | null },
+    context: ChildProviderContext,
+    table?: string,
+  ): Promise<NodeSnapshot | null> {
+    const result = await this.resolveRow(directory, parentPath, ref, table);
+    if (!result) return null;
+    const summary = rowSummary(result.row, result.page, parentPath, context.tree, context.writable);
+    if (result.page.backing !== "markdown") return { ...summary, observedThrough: context.observedThrough };
+    if (!context.readPhysical) throw new Error("Markdown child resolution requires a physical node reader");
+    const physical = await context.readPhysical(summary.ref.path);
+    return {
+      ...physical,
+      ...summary,
+      content: physical.content,
+      diagnostics: [...physical.diagnostics, ...summary.diagnostics],
+      observedThrough: context.observedThrough,
+    };
+  }
+
+  async writeTarget(
+    directory: string,
+    parentPath: string,
+    ref: { path: string; stableKey: string | null },
+    table?: string,
+  ): Promise<CollectionWriteTarget | null> {
+    const result = await this.resolveRow(directory, parentPath, ref, table);
+    if (!result) return null;
+    return {
+      directory,
+      parentPath,
+      backing: result.page.backing,
+      ...(table ? { table } : {}),
+      path: `${parentPath === "/" ? "" : parentPath}/${result.row.path}`,
+      stableKey: result.row.stableKey,
+      revision: result.row.revision ?? digest({ key: result.row.key, properties: result.row.values }),
+      properties: (jsonValue(result.row.values) ?? {}) as Record<string, JSONValue>,
+      ...(result.page.identityRule ? { identityRule: result.page.identityRule } : {}),
+      writable: result.page.editable && (!result.page.identityRule || result.row.stableKey !== null),
+    };
+  }
+
+  private async loadRows(directory: string, treePath: string, cursor: string | null = null, limit = 100, tableName?: string): Promise<LoadedCollectionSlice> {
     const definition = await detectCollection(directory);
     if (!definition) throw new Error(`${treePath} is not a collection`);
     const safeLimit = Math.max(1, Math.min(limit, 500));
@@ -365,12 +586,12 @@ export class CollectionStore {
     };
   }
 
-  async row(
+  private async resolveRow(
     directory: string,
     treePath: string,
     ref: { path: string; stableKey: string | null },
     tableName?: string,
-  ): Promise<{ row: CollectionRow; page: CollectionPage } | null> {
+  ): Promise<{ row: CollectionRow; page: LoadedCollectionSlice } | null> {
     const definition = await detectCollection(directory);
     if (!definition || definition.backing === "postgres" || definition.diagnostics.some((item) => item.severity === "error")) return null;
     if (definition.backing === "sqlite") {
@@ -798,6 +1019,10 @@ export class CollectionStore {
       }));
       return { rows, hasMore: result.length > limit };
     } finally { await sql.close(); }
+  }
+
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.schemas[Symbol.asyncDispose]();
   }
 }
 

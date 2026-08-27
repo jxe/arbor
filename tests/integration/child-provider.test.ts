@@ -1,0 +1,98 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
+import { Workspace } from "@arbor/arborsync";
+import { canonicalStableKey } from "@arbor/core";
+
+let root: string;
+let state: string;
+let workspace: Workspace;
+
+const schema = 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n';
+
+beforeAll(async () => {
+  root = await mkdtemp(join(tmpdir(), "arbor-child-provider-"));
+  state = await mkdtemp(join(tmpdir(), "arbor-child-provider-state-"));
+  process.env.ARBOR_DATA_HOME = state;
+
+  await mkdir(join(root, "expanded"));
+  await writeFile(join(root, "expanded", "one.md"), "---\ntitle: One\n---\nExpanded body.\n");
+
+  await mkdir(join(root, "markdown"));
+  await writeFile(join(root, "markdown", "schema.ts"), schema);
+  await writeFile(join(root, "markdown", "one.md"), "---\nid: one\ntitle: One\n---\nRecord body.\n");
+
+  for (const name of ["csv", "json", "jsonl"]) {
+    await mkdir(join(root, name));
+    await writeFile(join(root, name, "schema.ts"), schema);
+  }
+  await writeFile(join(root, "csv", "_store.csv"), "id,title\none,One\n");
+  await writeFile(join(root, "json", "_store.json"), '[{"id":"one","title":"One"}]\n');
+  await writeFile(join(root, "jsonl", "_store.jsonl"), '{"id":"one","title":"One"}\n');
+
+  await mkdir(join(root, "sqlite"));
+  const sql = "create table items (id text primary key, title text not null);";
+  await writeFile(join(root, "sqlite", "schema.sql"), `${sql}\n`);
+  await writeFile(join(root, "sqlite", "relationships.json"), '{"version":1,"relationships":{}}\n');
+  const database = new Database(join(root, "sqlite", "_store.sqlite3"));
+  database.exec(sql);
+  database.query("insert into items values (?, ?)").run("one", "One");
+  database.close();
+
+  workspace = await Workspace.open(root);
+});
+
+afterAll(async () => {
+  await workspace?.[Symbol.asyncDispose]();
+  await rm(root, { recursive: true, force: true });
+  await rm(state, { recursive: true, force: true });
+});
+
+describe("ChildProvider conformance", () => {
+  const cases = [
+    { name: "expanded", parent: "/expanded", child: "/expanded/one", keyed: false, representation: { type: "expanded" } },
+    { name: "Markdown records", parent: "/markdown", child: "/markdown/one", keyed: true, representation: { type: "expanded" } },
+    { name: "CSV rollup", parent: "/csv", child: "/csv/one", keyed: true, representation: { type: "rollup", codec: "csv" } },
+    { name: "JSON rollup", parent: "/json", child: "/json/one", keyed: true, representation: { type: "rollup", codec: "json" } },
+    { name: "JSONL rollup", parent: "/jsonl", child: "/jsonl/one", keyed: true, representation: { type: "rollup", codec: "jsonl" } },
+    { name: "SQLite table", parent: "/sqlite/items", child: "/sqlite/items/one", keyed: true, representation: { type: "rollup", codec: "sqlite", scope: "children" } },
+  ] as const;
+
+  for (const item of cases) {
+    test(`${item.name} exposes the shared snapshot and child-page contract`, async () => {
+      const parent = await workspace.snapshot({ tree: workspace.tree, path: item.parent, stableKey: null });
+      expect(parent.capabilities.children?.representation).toMatchObject(item.representation);
+      expect(parent.enclosingTree).toMatchObject({ id: workspace.tree, osPath: workspace.root });
+
+      const page = await workspace.children(parent.ref);
+      expect(page.parent.path).toBe(item.parent);
+      expect(page.items).toHaveLength(1);
+      const summary = page.items[0]!;
+      expect(summary.ref.path).toBe(item.child);
+      expect(summary.properties.title).toBe("One");
+      expect(summary.capabilities.properties?.revision).toBe(summary.revision);
+
+      const key = item.keyed ? canonicalStableKey([["id", "one"]]) : null;
+      expect(summary.ref.stableKey).toBe(key);
+      const snapshot = await workspace.snapshot({
+        tree: workspace.tree,
+        path: item.keyed ? `${item.parent}/stale-path` : item.child,
+        stableKey: key,
+      });
+      expect(snapshot.ref).toEqual({ tree: workspace.tree, path: item.child, stableKey: key });
+      expect(snapshot.properties.title).toBe("One");
+      expect(snapshot.capabilities).toEqual(summary.capabilities);
+      expect(snapshot.enclosingTree).toMatchObject({ id: workspace.tree, osPath: workspace.root });
+    });
+  }
+
+  test("virtual table summaries remain NodeSummary values", async () => {
+    const page = await workspace.children({ tree: workspace.tree, path: "/sqlite", stableKey: null });
+    const table = page.items.find((item) => item.ref.path === "/sqlite/items");
+    expect(table).toBeDefined();
+    expect("observedThrough" in table!).toBe(false);
+    expect("enclosingTree" in table!).toBe(false);
+  });
+});

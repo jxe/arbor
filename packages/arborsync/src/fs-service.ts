@@ -8,9 +8,10 @@ import type {
   MutationRequest,
   NodeRef,
   NodeResponse,
+  NodeSummary,
   WorkspaceOperation,
 } from "@arbor/core";
-import type { CollectionPage, CollectionRow, TreeChild, TreeNode } from "@arbor/core/internal";
+import type { TreeChild, TreeNode } from "@arbor/core/internal";
 import {
   LOCAL_TREE,
   applySourceEdits,
@@ -30,14 +31,14 @@ import {
   CollectionMutationMismatchError,
   CollectionPropertyConflictError,
   CollectionPropertyWriteError,
-  CollectionStore,
   arborPrivateRoot,
 } from "@arbor/stores";
 import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import type { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { ProtocolError } from "./workspace.ts";
-import { collectionRowSummary, nodeProperties, sampleTreeNode, summarizeTreeNode } from "./node-sampling.ts";
+import { nodeProperties, sampleTreeNode, summarizeTreeNode } from "./node-sampling.ts";
+import { ChildProvider } from "./child-provider.ts";
 
 
 function isSystemError(error: unknown): error is NodeJS.ErrnoException {
@@ -86,7 +87,7 @@ export async function realOsPath(inputPath: string): Promise<string> {
  * scope, protocol receipts/events, pagination, and collection projection.
  */
 export class FilesystemService implements AsyncDisposable {
-  private collections = new CollectionStore();
+  private provider: ChildProvider;
   private receipts = new Map<string, { requestHash: string; receipt: MutationReceipt }>();
   private engine = WorkspaceFS.open("/", {
     stateDirectory: join(arborPrivateRoot(), "system", "untracked-fs"),
@@ -94,15 +95,27 @@ export class FilesystemService implements AsyncDisposable {
     identity: "path-only",
   });
 
-  constructor(private events: EventBus) {}
+  constructor(private events: EventBus) {
+    this.provider = new ChildProvider({
+      tree: LOCAL_TREE,
+      resolve: async (path) => {
+        const resolved = await (await this.engine).resolve(path);
+        return {
+          ...(resolved.directoryPath ? { directoryPath: resolved.directoryPath } : {}),
+          writable: resolved.writable,
+        };
+      },
+      snapshot: (ref, observedThrough) => this.snapshotExpanded(ref, observedThrough),
+      children: (ref, cursor, observedThrough, additionalItems) => this.childrenExpanded(ref, cursor, observedThrough, additionalItems),
+      writable: async (path) => (await (await this.engine).resolve(path)).writable,
+    });
+  }
 
   private async node(inputPath: string): Promise<TreeNode> {
     const fs = await this.engine;
     const read = await fs.read(inputPath);
     const resolved = read.node;
     if (resolved.kind === "missing") {
-      const virtual = await this.collectionVirtualNode(resolved.path);
-      if (virtual) return virtual;
       throw new ProtocolError("not-found", `Node not found: ${resolved.path}`, 404, { path: resolved.path });
     }
     if (resolved.kind === "file" || resolved.materialization === "placeholder") {
@@ -129,8 +142,8 @@ export class FilesystemService implements AsyncDisposable {
         diagnostics: resolved.diagnostics,
       };
     }
-    const collection = await this.collections.summary(resolved.directoryPath!).catch(() => null);
-    const children = await this.directoryChildren(resolved.path, collection?.tables ?? []);
+    const collection = await this.provider.summary(resolved.directoryPath!).catch(() => null);
+    const children = await this.directoryChildren(resolved.path);
     return {
       path: resolved.path,
       name: resolved.path === "/" ? "/" : nodeDisplayName(resolved.path),
@@ -151,7 +164,6 @@ export class FilesystemService implements AsyncDisposable {
 
   private async directoryChildren(
     path: string,
-    virtualTables: string[],
   ): Promise<{ children: TreeChild[]; diagnostics: Diagnostic[] }> {
     const fs = await this.engine;
     const entries = await fs.list(path);
@@ -161,7 +173,7 @@ export class FilesystemService implements AsyncDisposable {
       let kind: TreeChild["kind"] = entry.kind;
       if (entry.kind === "directory") {
         const resolved = await fs.resolve(entry.path);
-        if (resolved.directoryPath && await this.collections.summary(resolved.directoryPath).catch(() => null)) kind = "collection";
+        if (resolved.directoryPath && await this.provider.summary(resolved.directoryPath).catch(() => null)) kind = "collection";
       }
       children.push({
         tree: LOCAL_TREE,
@@ -173,44 +185,43 @@ export class FilesystemService implements AsyncDisposable {
       });
       diagnostics.push(...entry.diagnostics);
     }
-    for (const table of virtualTables) {
-      children.push({
-        tree: LOCAL_TREE,
-        name: table,
-        path: `${path === "/" ? "" : path}/${table}`,
-        kind: "collection",
-        materialization: "available",
-      });
-    }
     return { children: children.sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
-  }
-
-  private async collectionVirtualNode(treePath: string): Promise<TreeNode | null> {
-    const slash = treePath.lastIndexOf("/");
-    if (slash <= 0) return null;
-    const parentPath = treePath.slice(0, slash) || "/";
-    const table = treePath.slice(slash + 1);
-    const parent = await (await this.engine).resolve(parentPath);
-    if (!parent.directoryPath) return null;
-    const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
-    if (!summary?.tables?.includes(table)) return null;
-    const tableSummary = await this.collections.tableSummary(parent.directoryPath, table);
-    if (!tableSummary) return null;
-    return {
-      path: treePath,
-      name: table,
-      kind: "collection",
-      revision: tableSummary.revision ?? revisionOf(""),
-      ...(tableSummary.revision ? { childrenRevision: tableSummary.revision } : {}),
-      writable: tableSummary.editable && parent.writable,
-      materialization: "available",
-      collection: tableSummary,
-      diagnostics: tableSummary.diagnostics ?? [],
-    };
   }
 
   private snapshotFromTree(node: TreeNode, observedThrough: string): NodeResponse {
     return sampleTreeNode(node, { tree: LOCAL_TREE, observedThrough });
+  }
+
+  private async snapshotExpanded(ref: NodeRef, observedThrough: string): Promise<NodeResponse> {
+    return this.snapshotFromTree(await this.node(this.refPath(ref)), observedThrough);
+  }
+
+  private async childrenExpanded(
+    ref: NodeRef,
+    cursor: string | null,
+    observedThrough: string,
+    additionalItems: readonly NodeSummary[] = [],
+  ): Promise<ChildrenPage> {
+    const path = this.refPath(ref);
+    const node = await this.node(path);
+    if (node.kind !== "directory" && node.kind !== "collection") {
+      throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
+    }
+    const physical = await Promise.all((node.children ?? []).map(async (child) => summarizeTreeNode(
+      await this.node(child.path),
+      LOCAL_TREE,
+      child.materialization === "available" && node.writable,
+    )));
+    const all = [...physical, ...additionalItems].sort((left, right) => left.name.localeCompare(right.name));
+    const offset = decodePageCursor(cursor, `children:local:${path}`);
+    const items = all.slice(offset, offset + 100);
+    const nextOffset = offset + items.length;
+    return {
+      parent: { tree: LOCAL_TREE, path, stableKey: null },
+      items,
+      nextCursor: nextOffset < all.length ? encodePageCursor(`children:local:${path}`, nextOffset) : null,
+      observedThrough,
+    };
   }
 
   private async withErrors<T>(run: () => Promise<T>, operation?: WorkspaceOperation): Promise<T> {
@@ -234,121 +245,24 @@ export class FilesystemService implements AsyncDisposable {
     }
   }
 
-  private async collectionRow(ref: NodeRef): Promise<{
-    row: CollectionRow;
-    page: CollectionPage;
-    directory: string;
-  } | null> {
-    const path = canonicalNodePath(ref.path);
-    if (path === "/") return null;
-    const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
-    const parent = await (await this.engine).resolve(parentPath);
-    if (parent.directoryPath) {
-      const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
-      if (!summary || summary.backing === "postgres" || summary.backing === "sqlite") return null;
-      const result = await this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
-      return result ? { ...result, directory: parent.directoryPath } : null;
-    }
-    const grandparentPath = parentPath.slice(0, parentPath.lastIndexOf("/")) || "/";
-    const table = parentPath.slice(parentPath.lastIndexOf("/") + 1);
-    const grandparent = await (await this.engine).resolve(grandparentPath);
-    if (!grandparent.directoryPath) return null;
-    const summary = await this.collections.summary(grandparent.directoryPath).catch(() => null);
-    if (summary?.backing !== "sqlite" || !summary.tables?.includes(table)) return null;
-    const result = await this.collections.row(grandparent.directoryPath, parentPath, { path, stableKey: ref.stableKey }, table);
-    return result ? { ...result, directory: grandparent.directoryPath } : null;
-  }
-
   async snapshot(ref: NodeRef): Promise<NodeResponse> {
     return this.withErrors(async () => {
       const observedThrough = this.events.currentCursor();
-      const path = canonicalNodePath(ref.path);
-      const collectionRow = await this.collectionRow(ref);
-      if (collectionRow) {
-        const parentNode = await this.node(collectionRow.page.path);
-        const summary = collectionRowSummary(
-          collectionRow.row,
-          {
-            ...collectionRow.page,
-            editable: collectionRow.page.editable
-              && (!collectionRow.page.identityRule || collectionRow.row.stableKey !== null)
-              && parentNode.writable,
-          },
-          collectionRow.page.path,
-          LOCAL_TREE,
-        );
-        if (collectionRow.page.backing === "markdown") {
-          const physical = this.snapshotFromTree(await this.node(summary.ref.path), observedThrough);
-          return {
-            ...physical,
-            ...summary,
-            content: physical.content,
-            diagnostics: [...physical.diagnostics, ...summary.diagnostics],
-            observedThrough,
-          };
-        }
-        return { ...summary, observedThrough };
-      }
-      if (ref.stableKey !== null) {
-        throw new ProtocolError("invalid-reference", "No local collection row owns the supplied stable key", 404, { path });
-      }
-      return this.snapshotFromTree(await this.node(path), observedThrough);
+      return this.provider.snapshot(ref, observedThrough);
     });
   }
 
   async children(path: string, cursor?: string | null): Promise<ChildrenPage> {
     return this.withErrors(async () => {
       const observedThrough = this.events.currentCursor();
-      const node = await this.node(path);
-      if (node.kind !== "directory" && node.kind !== "collection") {
-        throw new ProtocolError("invalid-reference", `${node.path} does not have children`, 400, { path: node.path });
-      }
-      if (node.collection && !node.collection.tables?.length) {
-        const fs = await this.engine;
-        const resolved = await fs.resolve(node.path);
-        let absolute = resolved.directoryPath;
-        let table: string | undefined;
-        if (!absolute) {
-          const parent = await fs.resolve(node.path.slice(0, node.path.lastIndexOf("/")) || "/");
-          absolute = parent.directoryPath;
-          table = node.path.slice(node.path.lastIndexOf("/") + 1);
+      try {
+        return await this.provider.children({ tree: LOCAL_TREE, path, stableKey: null }, cursor ?? null, observedThrough);
+      } catch (error) {
+        if (error instanceof CollectionCursorError) {
+          throw new ProtocolError("invalid-reference", error.message, 400, { path });
         }
-        if (!absolute) throw new ProtocolError("invalid-reference", `${node.path} is not a collection`, 400, { path: node.path });
-        let page;
-        try {
-          page = await this.collections.page(absolute, node.path, cursor ?? null, 100, table);
-        } catch (error) {
-          if (error instanceof CollectionCursorError) {
-            throw new ProtocolError("invalid-reference", error.message, 400, { path: node.path });
-          }
-          throw error;
-        }
-        return {
-          parent: sampleTreeNode(node, { tree: LOCAL_TREE, observedThrough }).ref,
-          items: page.rows.map((row) => collectionRowSummary(row, {
-            ...page,
-            editable: page.editable && (!page.identityRule || row.stableKey !== null) && node.writable,
-          }, node.path, LOCAL_TREE)),
-          nextCursor: page.nextCursor,
-          observedThrough,
-        };
+        throw error;
       }
-      const offset = decodePageCursor(cursor, `children:local:${node.path}`);
-      const selected = (node.children ?? []).slice(offset, offset + 100);
-      const items = await Promise.all(selected.map(async (child) => summarizeTreeNode(
-        await this.node(child.path),
-        LOCAL_TREE,
-        child.materialization === "available" && node.writable,
-      )));
-      const nextOffset = offset + items.length;
-      return {
-        parent: { tree: LOCAL_TREE, path: node.path, stableKey: null },
-        items,
-        nextCursor: nextOffset < (node.children?.length ?? 0)
-          ? encodePageCursor(`children:local:${node.path}`, nextOffset)
-          : null,
-        observedThrough,
-      };
     });
   }
 
@@ -372,34 +286,12 @@ export class FilesystemService implements AsyncDisposable {
     return canonicalNodePath(ref.path);
   }
 
-  private async sqlitePropertyTarget(ref: NodeRef): Promise<{
-    directory: string;
-    parentPath: string;
-    table: string;
-  } | null> {
-    const path = canonicalNodePath(ref.path);
-    if (path === "/") return null;
-    const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
-    const grandparentPath = parentPath.slice(0, parentPath.lastIndexOf("/")) || "/";
-    const table = parentPath.slice(parentPath.lastIndexOf("/") + 1);
-    const grandparent = await (await this.engine).resolve(grandparentPath);
-    if (!grandparent.directoryPath) return null;
-    const summary = await this.collections.summary(grandparent.directoryPath).catch(() => null);
-    if (summary?.backing !== "sqlite" || !summary.tables?.includes(table)) return null;
-    return { directory: grandparent.directoryPath, parentPath, table };
-  }
-
-  private async contentPath(ref: NodeRef): Promise<string> {
-    const projected = await this.collectionRow(ref);
-    if (projected?.page.identityRule && projected.row.stableKey === null) {
-      throw new ProtocolError("read-only", "This collection row has invalid or duplicated declared identity", 422, {
-        path: ref.path,
-      });
+  private async writableContentPath(ref: NodeRef): Promise<string> {
+    const target = await this.provider.writeTarget(ref);
+    if (target && !target.writable) {
+      throw new ProtocolError("read-only", "This collection row is read-only", 422, { path: ref.path });
     }
-    if (projected?.page.backing === "markdown") {
-      return `${projected.page.path === "/" ? "" : projected.page.path}/${projected.row.path}`;
-    }
-    return this.refPath(ref);
+    return target?.backing === "markdown" ? target.path : this.refPath(ref);
   }
 
   private unsupported(what: string): never {
@@ -448,7 +340,7 @@ export class FilesystemService implements AsyncDisposable {
   async executeMutation(request: MutationRequest): Promise<MutationReceipt> {
     const patchWrite = request.operations.find((operation) => operation.op === "writeMarkdown");
     if (patchWrite?.sourceEdits) {
-      const current = await this.node(await this.contentPath(patchWrite.ref));
+      const current = await this.node(await this.writableContentPath(patchWrite.ref));
       if (current.revision !== patchWrite.baseContentRevision) {
         throw new ProtocolError("stale-content-revision", "The file changed since it was opened", 409, { path: current.path });
       }
@@ -485,22 +377,23 @@ export class FilesystemService implements AsyncDisposable {
       if (content.length === 1) {
         const write = content[0]!;
         if (write.op === "writeProperties") {
-          const sqliteTarget = await this.sqlitePropertyTarget(write.ref);
-          if (sqliteTarget) {
+          const target = await this.provider.writeTarget(write.ref);
+          if (target && !target.writable) {
+            throw new ProtocolError("read-only", "This collection row is read-only", 422, { path: write.ref.path });
+          }
+          if (target?.backing === "sqlite") {
             try {
-              const row = await this.collections.writeProperties(
-                sqliteTarget.directory,
-                sqliteTarget.parentPath,
+              const row = await this.provider.writeSQLiteProperties(
+                target,
                 write.ref,
                 write.basePropertiesRevision,
                 write.properties,
-                sqliteTarget.table,
                 { scope: LOCAL_TREE, id: request.mutationID },
               );
               return [{
                 kind: "updated" as const,
                 tree: LOCAL_TREE,
-                path: `${sqliteTarget.parentPath}/${row.path}`,
+                path: `${target.parentPath}/${row.path}`,
                 propertiesRevision: row.revision,
               }];
             } catch (error) {
@@ -526,23 +419,15 @@ export class FilesystemService implements AsyncDisposable {
           if (sampled?.capabilities.properties && !sampled.capabilities.properties.writable) {
             throw new ProtocolError("read-only", "This node's properties are read-only", 422, { path: sampled.ref.path });
           }
-          const projectedRow = await this.collectionRow(write.ref);
-          if (projectedRow && projectedRow.page.backing !== "markdown") {
-            throw new ProtocolError("read-only", `${projectedRow.page.backing} rollup rows are not directly writable yet`, 422, {
+          if (target && target.backing !== "markdown") {
+            throw new ProtocolError("read-only", `${target.backing} rollup rows are not directly writable yet`, 422, {
               path: write.ref.path,
             });
           }
-          if (projectedRow?.page.identityRule && projectedRow.row.stableKey === null) {
-            throw new ProtocolError("read-only", "This Markdown record has invalid or duplicated declared identity", 422, {
-              path: write.ref.path,
-            });
-          }
-          const path = projectedRow
-            ? `${projectedRow.page.path === "/" ? "" : projectedRow.page.path}/${projectedRow.row.path}`
-            : this.refPath(write.ref);
+          const path = target?.path ?? this.refPath(write.ref);
           const current = await this.node(path);
           if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });
-          const currentRevision = projectedRow?.row.revision ?? current.propertiesRevision ?? current.revision;
+          const currentRevision = target?.revision ?? current.propertiesRevision ?? current.revision;
           if (currentRevision !== write.basePropertiesRevision) {
             throw new ProtocolError("stale-properties-revision", "The node properties changed since they were read", 409, {
               path,
@@ -551,9 +436,9 @@ export class FilesystemService implements AsyncDisposable {
           }
           let properties = write.properties;
           let identityProperties: readonly string[] = [];
-          if (projectedRow) {
+          if (target) {
             try {
-              const prepared = await this.collections.prepareMarkdownProperties(projectedRow.directory, write.properties);
+              const prepared = await this.provider.prepareMarkdownProperties(target.directory, write.properties);
               properties = prepared.properties;
               identityProperties = prepared.identityRule?.properties ?? [];
             } catch (error) {
@@ -563,7 +448,7 @@ export class FilesystemService implements AsyncDisposable {
               throw error;
             }
             for (const name of identityProperties) {
-              if (canonicalJSONString(properties[name]) !== canonicalJSONString(projectedRow.row.values[name])) {
+              if (canonicalJSONString(properties[name]) !== canonicalJSONString(target.properties[name])) {
                 throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
               }
             }
@@ -591,7 +476,7 @@ export class FilesystemService implements AsyncDisposable {
         }
         const result = write.op === "writeText"
           ? await (await this.engine).writeFile(this.refPath(write.ref), new TextEncoder().encode(write.source), write.baseContentRevision)
-          : await (await this.engine).writeMarkdown(await this.contentPath(write.ref), {
+          : await (await this.engine).writeMarkdown(await this.writableContentPath(write.ref), {
               baseRevision: write.baseContentRevision,
               source: write.source,
             });
@@ -626,6 +511,7 @@ export class FilesystemService implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
+    await this.provider[Symbol.asyncDispose]();
     await (await this.engine)[Symbol.asyncDispose]();
   }
 }

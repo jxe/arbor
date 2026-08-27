@@ -12,6 +12,7 @@ import type {
   MutationRequest,
   NodeRef,
   NodeResponse,
+  NodeSummary,
   NodeWriteRequest,
   RecoveryEntry,
   RecoveryPage,
@@ -22,7 +23,7 @@ import type {
   StructuralWorkspaceOperation,
   WorkspaceOperation,
 } from "@arbor/core";
-import type { CollectionPage, CollectionRow, TreeChild, TreeNode } from "@arbor/core/internal";
+import type { TreeChild, TreeNode } from "@arbor/core/internal";
 import {
   canonicalJSONString,
   canonicalNodePath,
@@ -55,14 +56,15 @@ import {
   CollectionMutationMismatchError,
   CollectionPropertyConflictError,
   CollectionPropertyWriteError,
-  CollectionStore,
+  type CollectionWriteTarget,
   detectCollection,
   WorkspaceIndex,
   workspaceState,
 } from "@arbor/stores";
 import { EventBus } from "./events.ts";
 import { rootDisplayName } from "./root-title.ts";
-import { collectionRowSummary, nodeProperties, sampleTreeNode, summarizeTreeNode } from "./node-sampling.ts";
+import { nodeProperties, sampleTreeNode, summarizeTreeNode } from "./node-sampling.ts";
+import { ChildProvider } from "./child-provider.ts";
 
 
 const EMPTY_REVISION = revisionOf("");
@@ -124,7 +126,7 @@ export class Workspace implements AsyncDisposable {
   readonly mutations: MutationJournal;
   private stateDirectory: string;
   private index: WorkspaceIndex;
-  private collections = new CollectionStore();
+  private provider: ChildProvider;
   private idOwners = new Map<string, string>();
   private idOwnerSets = new Map<string, readonly string[]>();
   private displayName: string;
@@ -152,6 +154,23 @@ export class Workspace implements AsyncDisposable {
     this.index = index;
     this.faultInjector = options.faultInjector;
     this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
+    this.provider = new ChildProvider({
+      tree: this.tree,
+      enclosingTree: () => this.descriptor(),
+      resolve: async (path) => {
+        const resolved = await this.fs.resolve(path);
+        return {
+          ...(resolved.directoryPath ? { directoryPath: resolved.directoryPath } : {}),
+          writable: resolved.writable,
+        };
+      },
+      snapshot: (ref, observedThrough) => this.snapshotExpanded(ref, observedThrough),
+      children: (ref, cursor, observedThrough, additionalItems) => this.childrenExpanded(ref, cursor, observedThrough, additionalItems),
+      writable: async (path) => {
+        const resolved = await this.fs.resolve(path);
+        return resolved.writable && this.treeDescriptor.access !== "read";
+      },
+    });
   }
 
   static async open(path: string, options: WorkspaceOptions = {}): Promise<Workspace> {
@@ -221,78 +240,19 @@ export class Workspace implements AsyncDisposable {
 
   async snapshot(ref: NodeRef): Promise<NodeResponse> {
     const observedThrough = this.events.currentCursor();
-    const collectionRow = await this.collectionRow(ref);
-    if (collectionRow) {
-      const parent = await this.node(collectionRow.page.path);
-      const summary = collectionRowSummary(collectionRow.row, {
-        ...collectionRow.page,
-        editable: collectionRow.page.editable
-          && (!collectionRow.page.identityRule || collectionRow.row.stableKey !== null)
-          && parent.writable
-          && this.treeDescriptor.access !== "read",
-      }, collectionRow.page.path, this.tree);
-      if (collectionRow.page.backing === "markdown") {
-        const physical = this.snapshotFromTree(
-          await this.node(summary.ref.path),
-          observedThrough,
-        );
-        return {
-          ...physical,
-          ...summary,
-          content: physical.content,
-          diagnostics: [...physical.diagnostics, ...summary.diagnostics],
-          observedThrough,
-          enclosingTree: this.descriptor(),
-        };
-      }
-      return {
-        ...summary,
-        observedThrough,
-        enclosingTree: this.descriptor(),
-      };
-    }
-    const path = await this.resolveRef(ref);
-    return this.snapshotFromTree(await this.node(path), observedThrough);
+    return this.provider.snapshot(ref, observedThrough);
   }
 
   async children(ref: NodeRef, cursor?: string | null): Promise<ChildrenPage> {
     const observedThrough = this.events.currentCursor();
-    const path = await this.resolveRef(ref);
-    const node = await this.node(path);
-    if (node.kind !== "directory" && node.kind !== "collection") {
-      throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
+    try {
+      return await this.provider.children(ref, cursor ?? null, observedThrough);
+    } catch (error) {
+      if (error instanceof CollectionCursorError) {
+        throw new ProtocolError("invalid-reference", error.message, 400, { path: ref.path });
+      }
+      throw error;
     }
-    if (node.collection && !node.collection.tables?.length) {
-      const page = await this.collection(path, cursor ?? null, 100);
-      const visiblePage = { ...page, editable: page.editable && node.writable && this.treeDescriptor.access !== "read" };
-      return {
-        parent: sampleTreeNode(node, { tree: this.tree, observedThrough }).ref,
-        items: page.rows.map((row) => collectionRowSummary(row, {
-          ...visiblePage,
-          editable: visiblePage.editable && (!visiblePage.identityRule || row.stableKey !== null),
-        }, path, this.tree)),
-        nextCursor: page.nextCursor,
-        observedThrough,
-      };
-    }
-    const offset = this.decodePageCursor(cursor, `children:${path}`);
-    const selected = (node.children ?? []).slice(offset, offset + 100);
-    const items = await Promise.all(selected.map(async (child) => summarizeTreeNode(
-      await this.node(child.path),
-      this.tree,
-      child.materialization === "available" && node.writable && this.treeDescriptor.access !== "read",
-    )));
-    const nextOffset = offset + items.length;
-    return {
-      parent: {
-        tree: this.tree,
-        path,
-        stableKey: isPageID(node.document?.frontmatter.id) ? pageIDStableKey(node.document.frontmatter.id) : null,
-      },
-      items,
-      nextCursor: nextOffset < (node.children?.length ?? 0) ? this.encodePageCursor(`children:${path}`, nextOffset) : null,
-      observedThrough,
-    };
   }
 
   async searchPage(query: string, cursor?: string | null): Promise<SearchPage> {
@@ -584,8 +544,6 @@ export class Workspace implements AsyncDisposable {
     const read = await this.fs.read(inputPath, await this.directoryDocumentOptions(inputPath));
     const resolved = read.node;
     if (resolved.kind === "missing") {
-      const virtual = await this.collectionVirtualNode(resolved.path);
-      if (virtual) return virtual;
       throw new ProtocolError("not-found", `Node not found: ${resolved.path}`, 404, {
         path: resolved.path,
       });
@@ -635,8 +593,8 @@ export class Workspace implements AsyncDisposable {
       };
     }
 
-    const collection = await this.collections.summary(resolved.directoryPath!).catch(() => null);
-    const children = await this.directoryChildren(resolved.path, collection?.tables ?? []);
+    const collection = await this.provider.summary(resolved.directoryPath!).catch(() => null);
+    const children = await this.directoryChildren(resolved.path);
     const document = read.document!;
     const pageID = this.registerPageID(resolved.path, document.frontmatter.id);
     if (pageID) this.scheduleLinkHealing(resolved.path, read.byteRevision, document);
@@ -661,64 +619,6 @@ export class Workspace implements AsyncDisposable {
         ...children.diagnostics,
       ],
     };
-  }
-
-  async collection(inputPath: string, cursor: string | null = null, limit = 100, table?: string): Promise<CollectionPage> {
-    const treePath = canonicalNodePath(inputPath);
-    const resolved = await this.fs.resolve(treePath);
-    let absolute = resolved.directoryPath;
-    if (!absolute) {
-      const parent = await this.fs.resolve(treePath.slice(0, treePath.lastIndexOf("/")) || "/");
-      absolute = parent.directoryPath;
-      table ??= treePath.slice(treePath.lastIndexOf("/") + 1);
-    }
-    if (!absolute) throw new Error("Collection path is not a directory");
-    try {
-      return await this.collections.page(absolute, treePath, cursor, limit, table);
-    } catch (error) {
-      if (error instanceof CollectionCursorError) {
-        throw new ProtocolError("invalid-reference", error.message, 400, { path: treePath });
-      }
-      throw error;
-    }
-  }
-
-  private async collectionRow(ref: NodeRef): Promise<{ row: CollectionRow; page: CollectionPage; directory: string } | null> {
-    const path = canonicalNodePath(ref.path);
-    if (path === "/") return null;
-    const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
-    const parent = await this.fs.resolve(parentPath);
-    if (parent.directoryPath) {
-      const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
-      if (!summary || summary.backing === "postgres" || summary.backing === "sqlite") return null;
-      const result = await this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
-      return result ? { ...result, directory: parent.directoryPath } : null;
-    }
-    const grandparentPath = parentPath.slice(0, parentPath.lastIndexOf("/")) || "/";
-    const table = parentPath.slice(parentPath.lastIndexOf("/") + 1);
-    const grandparent = await this.fs.resolve(grandparentPath);
-    if (!grandparent.directoryPath) return null;
-    const summary = await this.collections.summary(grandparent.directoryPath).catch(() => null);
-    if (summary?.backing !== "sqlite" || !summary.tables?.includes(table)) return null;
-    const result = await this.collections.row(grandparent.directoryPath, parentPath, { path, stableKey: ref.stableKey }, table);
-    return result ? { ...result, directory: grandparent.directoryPath } : null;
-  }
-
-  private async sqlitePropertyTarget(ref: NodeRef): Promise<{
-    directory: string;
-    parentPath: string;
-    table: string;
-  } | null> {
-    const path = canonicalNodePath(ref.path);
-    if (path === "/") return null;
-    const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
-    const grandparentPath = parentPath.slice(0, parentPath.lastIndexOf("/")) || "/";
-    const table = parentPath.slice(parentPath.lastIndexOf("/") + 1);
-    const grandparent = await this.fs.resolve(grandparentPath);
-    if (!grandparent.directoryPath) return null;
-    const summary = await this.collections.summary(grandparent.directoryPath).catch(() => null);
-    if (summary?.backing !== "sqlite" || !summary.tables?.includes(table)) return null;
-    return { directory: grandparent.directoryPath, parentPath, table };
   }
 
   search(query: string, limit = 30): SearchResult[] { return this.index.search(query, limit); }
@@ -889,19 +789,15 @@ export class Workspace implements AsyncDisposable {
     );
     if (contentOperations.length === 1) {
       const operation = contentOperations[0]!;
-      const sqliteTarget = operation.op === "writeProperties" ? await this.sqlitePropertyTarget(operation.ref) : null;
-      const projectedRow = !sqliteTarget ? await this.collectionRow(operation.ref) : null;
-      if (projectedRow?.page.identityRule && projectedRow.row.stableKey === null) {
+      const target = await this.provider.writeTarget(operation.ref);
+      if (target && !target.writable) {
         throw new ProtocolError("read-only", "This collection row has invalid or duplicated declared identity", 422, {
           path: operation.ref.path,
         });
       }
-      const path = sqliteTarget?.parentPath
-        ?? (projectedRow?.page.backing === "markdown"
-          ? `${projectedRow.page.path === "/" ? "" : projectedRow.page.path}/${projectedRow.row.path}`
-          : undefined)
+      const path = (target?.backing === "sqlite" ? target.parentPath : target?.backing === "markdown" ? target.path : undefined)
         ?? await this.resolveRef(operation.ref);
-      return [await this.performContentOperation(operation, path, onMaterialized, onExpected, mutationID)];
+      return [await this.performContentOperation(operation, path, target, onMaterialized, onExpected, mutationID)];
     }
 
     try {
@@ -922,27 +818,25 @@ export class Workspace implements AsyncDisposable {
   private async performContentOperation(
     operation: ContentWorkspaceOperation,
     path: string,
+    target?: CollectionWriteTarget | null,
     onMaterialized?: (effects: MutationEffect[]) => void | Promise<void>,
     onExpected?: (effects: MutationEffect[]) => void | Promise<void>,
     mutationID?: string,
   ): Promise<MutationEffect> {
     if (operation.op === "writeProperties") {
-      const sqliteTarget = await this.sqlitePropertyTarget(operation.ref);
-      if (sqliteTarget) {
+      if (target?.backing === "sqlite") {
         try {
-          const row = await this.collections.writeProperties(
-            sqliteTarget.directory,
-            sqliteTarget.parentPath,
+          const row = await this.provider.writeSQLiteProperties(
+            target,
             operation.ref,
             operation.basePropertiesRevision,
             operation.properties,
-            sqliteTarget.table,
             { scope: this.tree, id: mutationID! },
           );
           const effect: MutationEffect = {
             kind: "updated",
             tree: this.tree,
-            path: `${sqliteTarget.parentPath}/${row.path}`,
+            path: `${target.parentPath}/${row.path}`,
             propertiesRevision: row.revision,
           };
           await onMaterialized?.([effect]);
@@ -966,16 +860,15 @@ export class Workspace implements AsyncDisposable {
           throw error;
         }
       }
-      const projectedRow = await this.collectionRow(operation.ref);
-      if (projectedRow) {
-        if (projectedRow.page.backing !== "markdown") {
-          throw new ProtocolError("read-only", `${projectedRow.page.backing} rollup rows are not directly writable yet`, 422, {
+      if (target) {
+        if (target.backing !== "markdown") {
+          throw new ProtocolError("read-only", `${target.backing} rollup rows are not directly writable yet`, 422, {
             path: operation.ref.path,
           });
         }
         const current = await this.node(path);
         if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });
-        if (projectedRow.row.revision !== operation.basePropertiesRevision) {
+        if (target.revision !== operation.basePropertiesRevision) {
           throw new ProtocolError("stale-properties-revision", "The node properties changed since they were read", 409, {
             path,
             current: await this.snapshot(operation.ref),
@@ -983,7 +876,7 @@ export class Workspace implements AsyncDisposable {
         }
         let prepared;
         try {
-          prepared = await this.collections.prepareMarkdownProperties(projectedRow.directory, operation.properties);
+          prepared = await this.provider.prepareMarkdownProperties(target.directory, operation.properties);
         } catch (error) {
           if (error instanceof CollectionPropertyWriteError) {
             throw new ProtocolError("unsupported-operation", error.message, 422, { path });
@@ -991,7 +884,7 @@ export class Workspace implements AsyncDisposable {
           throw error;
         }
         for (const name of prepared.identityRule?.properties ?? []) {
-          if (canonicalJSONString(prepared.properties[name]) !== canonicalJSONString(projectedRow.row.values[name])) {
+          if (canonicalJSONString(prepared.properties[name]) !== canonicalJSONString(target.properties[name])) {
             throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
           }
         }
@@ -1376,6 +1269,43 @@ export class Workspace implements AsyncDisposable {
     });
   }
 
+  private async snapshotExpanded(ref: NodeRef, observedThrough: string): Promise<NodeResponse> {
+    const path = await this.resolveRef(ref);
+    return this.snapshotFromTree(await this.node(path), observedThrough);
+  }
+
+  private async childrenExpanded(
+    ref: NodeRef,
+    cursor: string | null,
+    observedThrough: string,
+    additionalItems: readonly NodeSummary[] = [],
+  ): Promise<ChildrenPage> {
+    const path = await this.resolveRef(ref);
+    const node = await this.node(path);
+    if (node.kind !== "directory" && node.kind !== "collection") {
+      throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
+    }
+    const physical = await Promise.all((node.children ?? []).map(async (child) => summarizeTreeNode(
+      await this.node(child.path),
+      this.tree,
+      child.materialization === "available" && node.writable && this.treeDescriptor.access !== "read",
+    )));
+    const all = [...physical, ...additionalItems].sort((left, right) => left.name.localeCompare(right.name));
+    const offset = this.decodePageCursor(cursor, `children:${path}`);
+    const items = all.slice(offset, offset + 100);
+    const nextOffset = offset + items.length;
+    return {
+      parent: {
+        tree: this.tree,
+        path,
+        stableKey: isPageID(node.document?.frontmatter.id) ? pageIDStableKey(node.document.frontmatter.id) : null,
+      },
+      items,
+      nextCursor: nextOffset < all.length ? this.encodePageCursor(`children:${path}`, nextOffset) : null,
+      observedThrough,
+    };
+  }
+
   private requireWriteAccess(): void {
     if (this.treeDescriptor.access === "read") {
       throw new ProtocolError("read-only", "This tree placement is read-only", 422);
@@ -1411,13 +1341,13 @@ export class Workspace implements AsyncDisposable {
       if (directory.absolutePath === this.root) continue;
       if (directory.childNames.has("schema.ts") || directory.childNames.has("_store.postgres")) {
         const absolute = directory.absolutePath;
-        const summary = await this.collections.summary(absolute).catch(() => { temporaryFailure = true; return null; });
+        const summary = await this.provider.summary(absolute).catch(() => { temporaryFailure = true; return null; });
         if (summary) {
           const treePath = directory.treePath;
           const schemaPath = join(absolute, "schema.ts");
           if (summary.backing === "postgres") {
             try {
-              const schema = await this.collections.postgresSchema(absolute);
+              const schema = await this.provider.postgresSchema(absolute);
               const name = `PostgresDatabase${databaseIndex++}`;
               declarations.push(`interface ${name} {`);
               for (const [table, columns] of Object.entries(schema)) {
@@ -1503,10 +1433,11 @@ export class Workspace implements AsyncDisposable {
     for (const timer of this.healingTimers.values()) clearTimeout(timer);
     this.unsubscribeFS();
     this.index.close();
+    await this.provider[Symbol.asyncDispose]();
     await this.fs[Symbol.asyncDispose]();
   }
 
-  private async directoryChildren(treePath: string, virtualTables: string[]): Promise<{ children: TreeChild[]; diagnostics: TreeNode["diagnostics"] }> {
+  private async directoryChildren(treePath: string): Promise<{ children: TreeChild[]; diagnostics: TreeNode["diagnostics"] }> {
     const entries = await this.fs.list(treePath);
     const children: TreeChild[] = [];
     const diagnostics: TreeNode["diagnostics"] = [];
@@ -1514,7 +1445,7 @@ export class Workspace implements AsyncDisposable {
       let kind: TreeChild["kind"] = entry.kind;
       if (entry.kind === "directory") {
         const resolved = await this.fs.resolve(entry.path);
-        if (resolved.directoryPath && await this.collections.summary(resolved.directoryPath).catch(() => null)) kind = "collection";
+        if (resolved.directoryPath && await this.provider.summary(resolved.directoryPath).catch(() => null)) kind = "collection";
       }
       const pageID = entry.pageID ?? this.pathPageIDs.get(entry.path);
       children.push({
@@ -1527,35 +1458,7 @@ export class Workspace implements AsyncDisposable {
       });
       diagnostics.push(...entry.diagnostics);
     }
-    for (const table of virtualTables) {
-      const path = `${treePath === "/" ? "" : treePath}/${table}`;
-      children.push({ tree: this.tree, name: table, path, kind: "collection", materialization: "available" });
-    }
     return { children: children.sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
-  }
-
-  private async collectionVirtualNode(treePath: string): Promise<TreeNode | null> {
-    const slash = treePath.lastIndexOf("/");
-    if (slash <= 0) return null;
-    const parentPath = treePath.slice(0, slash) || "/";
-    const table = treePath.slice(slash + 1);
-    const parent = await this.fs.resolve(parentPath);
-    if (!parent.directoryPath) return null;
-    const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
-    if (!summary?.tables?.includes(table)) return null;
-    const tableSummary = await this.collections.tableSummary(parent.directoryPath, table);
-    if (!tableSummary) return null;
-    return {
-      path: treePath,
-      name: table,
-      kind: "collection",
-      revision: tableSummary.revision ?? EMPTY_REVISION,
-      ...(tableSummary.revision ? { childrenRevision: tableSummary.revision } : {}),
-      writable: tableSummary.editable && parent.writable,
-      materialization: "available",
-      collection: tableSummary,
-      diagnostics: tableSummary.diagnostics ?? [],
-    };
   }
 
   private registerPageID(path: string, candidate: unknown): string | null {

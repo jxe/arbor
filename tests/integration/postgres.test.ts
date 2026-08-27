@@ -30,11 +30,19 @@ test("Postgres collections stay live without exposing credentials", async () => 
     } as unknown as ConnectionStore;
     const collections = new CollectionStore(undefined, connections);
     const summary = await collections.summary(directory);
-    const page = await collections.page(directory, "/database", null, 1, "items");
+    const page = await collections.children(
+      directory,
+      "/database/items",
+      { tree: "tr_test", path: "/database/items", stableKey: null },
+      { tree: "tr_test", observedThrough: "test:0", writable: false },
+      null,
+      1,
+      "items",
+    );
     const catalog = await collections.postgresSchema(directory);
 
     expect(summary?.tables).toEqual(["items"]);
-    expect(page.rows[0]?.values.title).toBe("First");
+    expect(page.items[0]?.properties.title).toBe("First");
     expect(page.nextCursor).toBe("1");
     expect(catalog.items).toEqual({ id: "number", title: "string", published: "boolean | null" });
     const publicPayload = JSON.stringify({ summary, page, catalog });

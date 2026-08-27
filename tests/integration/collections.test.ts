@@ -13,6 +13,26 @@ import {
 } from "@arbor/stores";
 
 let root: string;
+const providerContext = { tree: "tr_test", observedThrough: "test:0", writable: true } as const;
+
+function childrenOf(
+  collections: CollectionStore,
+  directory: string,
+  path: string,
+  cursor: string | null = null,
+  limit = 100,
+  table?: string,
+) {
+  return collections.children(
+    directory,
+    path,
+    { tree: "tr_test", path, stableKey: null },
+    providerContext,
+    cursor,
+    limit,
+    table,
+  );
+}
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "arbor-collections-"));
@@ -51,44 +71,46 @@ describe("file-backed collections", () => {
   });
 
   test("validates CSV rows in the schema sandbox", async () => {
-    const page = await new CollectionStore().page(join(root, "csv"), "/csv", null, 20);
-    expect(page.columns).toEqual(["id", "title", "count"]);
-    expect(page.rows[0]?.values.count).toBe(1);
-    expect(page.rows[0]?.stableKey).toBe(canonicalStableKey([["id", "one"]]));
-    expect(page.rows[1]?.diagnostics[0]?.code).toBe("schema-validation");
-    expect(page.rows[1]?.stableKey).toBeNull();
+    const collections = new CollectionStore();
+    const summary = await collections.summary(join(root, "csv"));
+    const page = await childrenOf(collections, join(root, "csv"), "/csv", null, 20);
+    expect(summary?.columns).toEqual(["id", "title", "count"]);
+    expect(page.items[0]?.properties.count).toBe(1);
+    expect(page.items[0]?.ref.stableKey).toBe(canonicalStableKey([["id", "one"]]));
+    expect(page.items[1]?.diagnostics[0]?.code).toBe("schema-validation");
+    expect(page.items[1]?.ref.stableKey).toBeNull();
   });
 
   test("reports malformed JSONL by source line", async () => {
-    const page = await new CollectionStore().page(join(root, "jsonl"), "/jsonl", null, 20);
-    expect(page.rows[1]?.diagnostics[0]?.code).toBe("invalid-jsonl");
-    expect(page.rows[1]?.diagnostics[0]?.row).toBe(2);
-    expect(page.rows[0]?.stableKey).toBe(canonicalStableKey([["id", "one"]]));
+    const page = await childrenOf(new CollectionStore(), join(root, "jsonl"), "/jsonl", null, 20);
+    expect(page.items[1]?.diagnostics[0]?.code).toBe("invalid-jsonl");
+    expect(page.items[1]?.diagnostics[0]?.row).toBe(2);
+    expect(page.items[0]?.ref.stableKey).toBe(canonicalStableKey([["id", "one"]]));
   });
 
   test("uses declared keys for JSON row paths, keyset paging, and direct resolution", async () => {
     const collections = new CollectionStore();
-    const first = await collections.page(join(root, "json"), "/json", null, 1);
-    expect(first.identityRule).toEqual({ properties: ["id"] });
-    expect(first.rows[0]).toMatchObject({ path: "a", stableKey: canonicalStableKey([["id", "a"]]) });
+    const first = await childrenOf(collections, join(root, "json"), "/json", null, 1);
+    expect((await collections.summary(join(root, "json")))?.identityRule).toEqual({ properties: ["id"] });
+    expect(first.items[0]).toMatchObject({ ref: { path: "/json/a", stableKey: canonicalStableKey([["id", "a"]]) } });
     expect(first.nextCursor).not.toBeNull();
 
-    const second = await collections.page(join(root, "json"), "/json", first.nextCursor, 1);
-    expect(second.rows[0]).toMatchObject({ path: "b", stableKey: canonicalStableKey([["id", "b"]]) });
+    const second = await childrenOf(collections, join(root, "json"), "/json", first.nextCursor, 1);
+    expect(second.items[0]).toMatchObject({ ref: { path: "/json/b", stableKey: canonicalStableKey([["id", "b"]]) } });
     expect(second.nextCursor).toBeNull();
 
-    const resolved = await collections.row(join(root, "json"), "/json", {
+    const resolved = await collections.resolveChild(join(root, "json"), "/json", {
       path: "/json/stale-readable-path",
       stableKey: canonicalStableKey([["id", "b"]]),
-    });
-    expect(resolved?.row.values.title).toBe("Second");
+    }, providerContext);
+    expect(resolved?.properties.title).toBe("Second");
 
     const beforeFormatting = await collections.summary(join(root, "json"));
     await writeFile(join(root, "json", "_store.json"), '[\n  { "id": "b", "title": "Second" },\n  { "id": "a", "title": "First" }\n]\n');
     const afterFormatting = await collections.summary(join(root, "json"));
     expect(afterFormatting?.revision).not.toBe(beforeFormatting?.revision);
     expect(afterFormatting?.modelDigest).toBe(beforeFormatting?.modelDigest);
-    await expect(collections.page(join(root, "json"), "/json", first.nextCursor, 1)).rejects.toThrow("another revision");
+    await expect(childrenOf(collections, join(root, "json"), "/json", first.nextCursor, 1)).rejects.toThrow("another revision");
   });
 
   test("never falls back from duplicate or nullable declared identity", async () => {
@@ -96,9 +118,9 @@ describe("file-backed collections", () => {
     await mkdir(duplicate);
     await writeFile(join(duplicate, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
     await writeFile(join(duplicate, "_store.json"), '[{"id":"same","title":"One"},{"id":"same","title":"Two"}]\n');
-    const page = await new CollectionStore().page(duplicate, "/duplicate", null, 20);
-    expect(page.rows.every((row) => row.stableKey === null)).toBe(true);
-    expect(page.rows.every((row) => row.diagnostics.some((item) => item.code === "duplicate-row-key"))).toBe(true);
+    const page = await childrenOf(new CollectionStore(), duplicate, "/duplicate", null, 20);
+    expect(page.items.every((row) => row.ref.stableKey === null)).toBe(true);
+    expect(page.items.every((row) => row.diagnostics.some((item) => item.code === "duplicate-row-key"))).toBe(true);
 
     const nullable = join(root, "nullable");
     await mkdir(nullable);
@@ -108,9 +130,9 @@ describe("file-backed collections", () => {
   });
 
   test("keeps Markdown identity in the same property map as record fields", async () => {
-    const page = await new CollectionStore().page(join(root, "markdown"), "/markdown", null, 20);
-    expect(page.editable).toBe(true);
-    expect(page.rows[0]?.values).toEqual({ id: "abc123", title: "One", status: "draft" });
+    const page = await childrenOf(new CollectionStore(), join(root, "markdown"), "/markdown", null, 20);
+    expect(page.items[0]?.capabilities.properties?.writable).toBe(true);
+    expect(page.items[0]?.properties).toEqual({ id: "abc123", title: "One", status: "draft" });
   });
 
   test("projects SQLite tables and rows through the shared schema metadata", async () => {
@@ -134,26 +156,25 @@ describe("file-backed collections", () => {
       total: 2,
     });
 
-    const first = await collections.page(directory, "/sqlite/items", null, 1, "items");
-    expect(first.rows[0]).toMatchObject({
-      path: "a",
-      stableKey: canonicalStableKey([["id", "a"]]),
-      values: { id: "a", title: "First", active: true },
+    const first = await childrenOf(collections, directory, "/sqlite/items", null, 1, "items");
+    expect(first.items[0]).toMatchObject({
+      ref: { path: "/sqlite/items/a", stableKey: canonicalStableKey([["id", "a"]]) },
+      properties: { id: "a", title: "First", active: true },
     });
     expect(first.nextCursor).not.toBeNull();
-    const second = await collections.page(directory, "/sqlite/items", first.nextCursor, 1, "items");
-    expect(second.rows[0]?.path).toBe("b");
+    const second = await childrenOf(collections, directory, "/sqlite/items", first.nextCursor, 1, "items");
+    expect(second.items[0]?.ref.path).toBe("/sqlite/items/b");
 
-    const resolved = await collections.row(directory, "/sqlite/items", {
+    const resolved = await collections.resolveChild(directory, "/sqlite/items", {
       path: "/sqlite/items/stale-readable-path",
       stableKey: canonicalStableKey([["id", "b"]]),
-    }, "items");
-    expect(resolved?.row).toMatchObject({ path: "b", values: { title: "Second", active: false } });
+    }, providerContext, "items");
+    expect(resolved).toMatchObject({ ref: { path: "/sqlite/items/b" }, properties: { title: "Second", active: false } });
 
     const database = new Database(join(directory, "_store.sqlite3"));
     database.query("update items set title = ? where id = ?").run("Changed", "b");
     database.close();
-    await expect(collections.page(directory, "/sqlite/items", first.nextCursor, 1, "items"))
+    await expect(childrenOf(collections, directory, "/sqlite/items", first.nextCursor, 1, "items"))
       .rejects.toThrow("another revision");
   });
 
@@ -165,17 +186,18 @@ describe("file-backed collections", () => {
     database.close();
     const collections = new CollectionStore();
     expect(await collections.summary(directory)).toMatchObject({ backing: "sqlite", tables: ["notes"] });
-    expect((await collections.page(directory, "/standalone-sqlite/notes", null, 20, "notes")).rows[0]?.path).toBe("one");
+    expect((await childrenOf(collections, directory, "/standalone-sqlite/notes", null, 20, "notes")).items[0]?.ref.path)
+      .toBe("/standalone-sqlite/notes/one");
   });
 
   test("CAS-replaces stable SQLite row properties with durable idempotency", async () => {
     const directory = join(root, "sqlite");
     const collections = new CollectionStore();
-    const before = await collections.row(directory, "/sqlite/items", {
+    const before = await collections.writeTarget(directory, "/sqlite/items", {
       path: "/sqlite/items/stale-path",
       stableKey: canonicalStableKey([["id", "a"]]),
     }, "items");
-    expect(before?.page.editable).toBe(true);
+    expect(before?.writable).toBe(true);
     const write = (id: string, base: string, title: string, rowID = "a") => collections.writeProperties(
       directory,
       "/sqlite/items",
@@ -185,12 +207,12 @@ describe("file-backed collections", () => {
       "items",
       { scope: "tr_test", id },
     );
-    const saved = await write("write-a-1", before!.row.revision!, "First updated");
+    const saved = await write("write-a-1", before!.revision, "First updated");
     expect(saved.values).toEqual({ id: "a", title: "First updated", active: false });
-    expect(saved.revision).not.toBe(before?.row.revision);
-    expect(await write("write-a-1", before!.row.revision!, "First updated")).toEqual(saved);
-    await expect(write("write-a-1", before!.row.revision!, "Different")).rejects.toBeInstanceOf(CollectionMutationMismatchError);
-    await expect(write("write-a-stale", before!.row.revision!, "Stale")).rejects.toBeInstanceOf(CollectionPropertyConflictError);
+    expect(saved.revision).not.toBe(before?.revision);
+    expect(await write("write-a-1", before!.revision, "First updated")).toEqual(saved);
+    await expect(write("write-a-1", before!.revision, "Different")).rejects.toBeInstanceOf(CollectionMutationMismatchError);
+    await expect(write("write-a-stale", before!.revision, "Stale")).rejects.toBeInstanceOf(CollectionPropertyConflictError);
     await expect(write("write-a-identity", saved.revision!, "No", "renamed")).rejects.toBeInstanceOf(CollectionPropertyWriteError);
   });
 
@@ -207,19 +229,19 @@ describe("file-backed collections", () => {
     `);
     database.close();
     const collections = new CollectionStore();
-    const row = (await collections.page(directory, "/foreign-key-sqlite/children", null, 10, "children")).rows[0]!;
+    const row = (await childrenOf(collections, directory, "/foreign-key-sqlite/children", null, 10, "children")).items[0]!;
     await expect(collections.writeProperties(
       directory,
       "/foreign-key-sqlite/children",
-      { path: "/foreign-key-sqlite/children/child", stableKey: row.stableKey },
-      row.revision!,
+      { path: "/foreign-key-sqlite/children/child", stableKey: row.ref.stableKey },
+      row.capabilities.properties!.revision,
       { id: "child", parent_id: "missing" },
       "children",
       { scope: "tr_test", id: "invalid-foreign-key" },
     )).rejects.toThrow(/foreign key constraint/i);
-    expect((await collections.row(directory, "/foreign-key-sqlite/children", {
+    expect((await collections.resolveChild(directory, "/foreign-key-sqlite/children", {
       path: "/foreign-key-sqlite/children/child",
-      stableKey: row.stableKey,
-    }, "children"))?.row.values.parent_id).toBe("parent");
+      stableKey: row.ref.stableKey,
+    }, providerContext, "children"))?.properties.parent_id).toBe("parent");
   });
 });
