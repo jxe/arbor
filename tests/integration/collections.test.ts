@@ -41,9 +41,9 @@ describe("file-backed collections", () => {
     expect(page.rows[1]?.diagnostics[0]?.row).toBe(2);
   });
 
-  test("excludes reserved Markdown metadata from schema values", async () => {
+  test("keeps Markdown identity in the same property map as record fields", async () => {
     const page = await new CollectionStore().page(join(root, "markdown"), "/markdown", 0, 20);
     expect(page.editable).toBe(true);
-    expect(page.rows[0]?.values).toEqual({ title: "One", status: "draft" });
+    expect(page.rows[0]?.values).toEqual({ id: "abc123", title: "One", status: "draft" });
   });
 });

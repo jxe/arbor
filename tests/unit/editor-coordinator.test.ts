@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ArborBlock, NodeSnapshot } from "@arbor/core";
+import { serializeMarkdown } from "@arbor/editor";
 import {
   EditorCoordinator,
   type DocumentSnapshot,
@@ -32,22 +33,24 @@ function paragraph(id: string, content: string): ArborBlock {
 }
 
 function tree(revision: string, snapshot: DocumentSnapshot): NodeSnapshot {
+  const document = {
+    source: "",
+    frontmatter: snapshot.frontmatter,
+    frontmatterSource: null,
+    blocks: snapshot.blocks,
+    bodySource: "",
+  };
   return {
     ref: { tree: "local", path: "/page", stableKey: '[["id","abc123"]]' },
-    tree: "local",
-    path: "/page",
     name: "page",
-    kind: "markdown",
-    contentRevision: revision,
-    writable: true,
-    materialization: "available",
-    document: {
-      source: "",
-      frontmatter: snapshot.frontmatter,
-      frontmatterSource: null,
-      blocks: snapshot.blocks,
-      bodySource: "",
+    revision,
+    properties: snapshot.frontmatter as Record<string, import("@arbor/core").JSONValue>,
+    capabilities: {
+      properties: { revision, writable: true },
+      content: { revision, mediaType: "text/markdown", format: "markdown", writable: true },
     },
+    materialization: "available",
+    content: { source: serializeMarkdown(document, snapshot.blocks, snapshot.frontmatter) },
     diagnostics: [],
     observedThrough: `test:${revision}`,
   };

@@ -8,7 +8,8 @@
     "./logical-path": "./src/logical-path.ts",
     "./logical-url": "./src/logical-url.ts",
     "./node-key": "./src/node-key.ts",
-    "./node-model": "./src/node-model.ts"
+    "./node-model": "./src/node-model.ts",
+    "./internal": "./src/internal-types.ts"
   },
   "dependencies": {
     "@noble/hashes": "^2.2.0"

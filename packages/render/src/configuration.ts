@@ -190,7 +190,7 @@ export async function activeDevices(client: ArborSyncRESTClient): Promise<Active
   const { tree } = await context(client);
   const children = await client.allChildren({ tree, path: "/devices", stableKey: null });
   return Promise.all(children.filter((child) => child.name.startsWith("dv_")).map(async (child) => {
-    const file = await client.file({ tree, path: child.path, stableKey: null });
+    const file = await client.file(child.ref);
     const value = parseDocument(new TextDecoder().decode(file.bytes), { uniqueKeys: true }).toJS() as { label?: unknown };
     return {
       id: child.name.replace(/\.yaml$/, ""),

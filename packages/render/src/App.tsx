@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Share } from "lucide-react";
-import type { AccessEntry, RecoveryEntry, SearchResult, TreeChild, LocalTreeDescriptor } from "@arbor/core";
+import type { AccessEntry, RecoveryEntry, SearchResult, NodeSummary, LocalTreeDescriptor } from "@arbor/core";
 import type { CommunityPairingOffer, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { api } from "./api.ts";
 import { CollectionView } from "./CollectionView.tsx";
 import { PageEditor } from "./PageEditor.tsx";
 import { ReadOnlyPage } from "./ReadOnlyPage.tsx";
+import { hasChildren, hasMarkdownContent, nodeDocument, presentationKind } from "./node-presentation.ts";
 import type { ActiveDevice as CommunityDevice } from "./configuration.ts";
 
 type PublicAccess = "none" | "read" | "write";
@@ -29,7 +30,7 @@ type SidebarMenuMode = "createDirectory" | "createMarkdown" | "rename" | null;
 interface SidebarMenuState {
   x: number;
   y: number;
-  target: TreeChild | null;
+  target: NodeSummary | null;
   mode: SidebarMenuMode;
   value: string;
 }
@@ -63,18 +64,18 @@ function urlToRef(url: string): NodeRef {
 
 /** The URL-space spelling of a loaded node. */
 function nodeUrl(node: NodeSnapshot): string {
-  if (node.tree === "system") {
-    return node.path === "/" ? SYSTEM_URL_PREFIX.slice(0, -1) + ":" : `${SYSTEM_URL_PREFIX}${node.path.slice(1)}`;
+  if (node.ref.tree === "system") {
+    return node.ref.path === "/" ? SYSTEM_URL_PREFIX.slice(0, -1) + ":" : `${SYSTEM_URL_PREFIX}${node.ref.path.slice(1)}`;
   }
   if (node.enclosingTree?.osPath) {
-    return `${node.enclosingTree.osPath}${node.path === "/" ? "" : node.path}`;
+    return `${node.enclosingTree.osPath}${node.ref.path === "/" ? "" : node.ref.path}`;
   }
-  return node.path;
+  return node.ref.path;
 }
 
 /** Compose a scope-relative path from `container`'s scope into URL space. */
 function scopeUrl(container: NodeSnapshot, scopePath: string): string {
-  if (container.tree === "system") {
+  if (container.ref.tree === "system") {
     return `${SYSTEM_URL_PREFIX}${scopePath === "/" ? "" : scopePath.slice(1)}`;
   }
   if (container.enclosingTree?.osPath) {
@@ -98,7 +99,7 @@ function childPath(parent: string, name: string): string {
 }
 
 function isDirectoryNode(node: NodeSnapshot): boolean {
-  return node.kind === "directory" || node.kind === "collection";
+  return hasChildren(node);
 }
 
 function everyoneAccess(tree: TreeDescriptor): PublicAccess {
@@ -147,8 +148,8 @@ function crumbsFor(url: string, home: string | null): Crumb[] {
 }
 
 function scopeChip(node: NodeSnapshot): { label: string; className: string; iconOnly?: boolean } | null {
-  if (node.tree === "local") return { label: "Share", className: "scope-chip untracked", iconOnly: true };
-  if (node.tree === "system") return { label: "System · Read-only", className: "scope-chip system" };
+  if (node.ref.tree === "local") return { label: "Share", className: "scope-chip untracked", iconOnly: true };
+  if (node.ref.tree === "system") return { label: "System · Read-only", className: "scope-chip system" };
   if (node.enclosingTree) {
     const localOnly = node.enclosingTree.canonical === null;
     return {
@@ -247,9 +248,12 @@ function launchedRemoteLocation(): RemoteLocation | null {
 export function App() {
   const [path, setPath] = useState(pathFromLocation);
   const [node, setNode] = useState<NodeSnapshot | null>(null);
+  const [nodeChildren, setNodeChildren] = useState<NodeSummary[]>([]);
+  const [nodeChildrenCursor, setNodeChildrenCursor] = useState<string | null>(null);
   const [nodeUpdates, setNodeUpdates] = useState<AsyncIterable<ObservedNodeUpdate> | null>(null);
   const [pageActionsHost, setPageActionsHost] = useState<HTMLDivElement | null>(null);
   const [sidebar, setSidebar] = useState<NodeSnapshot | null>(null);
+  const [sidebarChildren, setSidebarChildren] = useState<NodeSummary[]>([]);
   const [sidebarMenu, setSidebarMenu] = useState<SidebarMenuState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -274,6 +278,7 @@ export function App() {
   const [treeSlug, setTreeSlug] = useState("");
   const [remoteLocation, setRemoteLocation] = useState<RemoteLocation | null>(launchedRemoteLocation);
   const [remoteNode, setRemoteNode] = useState<NodeSnapshot | null>(null);
+  const [remoteChildren, setRemoteChildren] = useState<NodeSummary[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [claimURL, setClaimURL] = useState("");
   const [claimPath, setClaimPath] = useState("");
@@ -295,13 +300,16 @@ export function App() {
   const nodeView = useRef<ObservedNodeView | null>(null);
   const pendingRef = useRef<NodeRef | null>(null);
   const sidebarRequest = useRef(0);
+  const systemRequest = useRef(0);
   const refreshSystem = useCallback(async () => {
+    const request = ++systemRequest.current;
     try {
       const [treeSnapshot, community, visitedDirectory] = await Promise.all([
         api.client.trees(),
         api.configurationStatus(),
         api.node({ tree: "system", path: "/visited", stableKey: null }),
       ]);
+      if (request !== systemRequest.current) return;
       const origin = community.origin;
       setServer({
         configured: community.configured,
@@ -313,18 +321,29 @@ export function App() {
         ...(typeof community.communityURL === "string" ? { communityURL: community.communityURL } : {}),
       });
       const nextTrees = treeSnapshot.snapshot;
-      setHome(nextTrees.find((tree) => tree.osPath)?.osPath ?? null);
+      const currentURLPath = pathFromLocation();
+      const activePlacement = nextTrees
+        .filter((tree) => tree.osPath && (
+          currentURLPath === tree.osPath || currentURLPath.startsWith(`${tree.osPath}/`)
+        ))
+        .sort((left, right) => right.osPath!.length - left.osPath!.length)[0];
+      setHome((current) => activePlacement?.osPath ?? current);
       setTrees(nextTrees);
       const recoveryPages = await Promise.all(nextTrees.filter((tree) => tree.osPath && !tree.missing).map(async (tree) => {
         try { return (await api.scoped(tree.id).recovery("/", true)).map((entry) => ({ tree, entry })); }
         catch { return []; }
       }));
+      if (request !== systemRequest.current) return;
       setRecoverable(recoveryPages.flat().sort((a, b) => b.entry.changedAt - a.entry.changedAt));
-      const visitRecords = await Promise.all((visitedDirectory.children ?? []).map((child) =>
-        api.node({ tree: "system", path: child.path, stableKey: null })
+      const visitedChildren = hasChildren(visitedDirectory)
+        ? (await api.children(visitedDirectory.ref)).items
+        : [];
+      const visitRecords = await Promise.all(visitedChildren.map((child) =>
+        api.node(child.ref)
       ));
+      if (request !== systemRequest.current) return;
       setVisits(visitRecords.flatMap((record): VisitedTreeSummary[] => {
-        const values = record.document?.frontmatter;
+        const values = record.properties;
         if (!values || typeof values.id !== "string" || typeof values.tree !== "string" || typeof values.locator !== "string") return [];
         return [{
           id: values.id,
@@ -348,6 +367,7 @@ export function App() {
   useEffect(() => {
     if (!remoteLocation || remoteLocation.claimable) {
       setRemoteNode(null);
+      setRemoteChildren([]);
       return;
     }
     const request = ++nodeRequest.current;
@@ -357,6 +377,11 @@ export function App() {
       (loaded) => {
         if (request !== nodeRequest.current) return;
         setRemoteNode(loaded);
+        if (hasChildren(loaded)) {
+          void api.children(loaded.ref).then((page) => {
+            if (request === nodeRequest.current) setRemoteChildren(page.items);
+          });
+        } else setRemoteChildren([]);
       },
       (remoteError) => {
         if (request === nodeRequest.current) setError(remoteError instanceof Error ? remoteError.message : String(remoteError));
@@ -399,6 +424,12 @@ export function App() {
       nodeView.current?.close();
       nodeView.current = view;
       const loaded = view.snapshot;
+      if (loaded.enclosingTree?.osPath) setHome(loaded.enclosingTree.osPath);
+      const childrenPage = hasChildren(loaded) ? await api.children(loaded.ref) : null;
+      if (request !== nodeRequest.current) {
+        view.close();
+        return;
+      }
       setNodeUpdates(view.updates);
       const url = nodeUrl(loaded);
       if (url !== next) {
@@ -407,6 +438,8 @@ export function App() {
       }
       try { localStorage.setItem(LAST_LOCATION_KEY, url); } catch {}
       setNode(loaded);
+      setNodeChildren(childrenPage?.items ?? []);
+      setNodeChildrenCursor(childrenPage?.nextCursor ?? null);
     }
     catch (error) {
       if (request === nodeRequest.current) setError(error instanceof Error ? error.message : String(error));
@@ -426,7 +459,12 @@ export function App() {
     sidebarRequest.current += 1;
     history.pushState({}, "", `/render${next || "/"}`);
     setPath(next); setNode(null);
-    if (!next) setSidebar(null);
+    setNodeChildren([]);
+    setNodeChildrenCursor(null);
+    if (!next) {
+      setSidebar(null);
+      setSidebarChildren([]);
+    }
   }, [path]);
 
   /** Navigation from inside a node's scope (editor links, collection rows). */
@@ -436,8 +474,8 @@ export function App() {
       navigate(container ? scopeUrl(container, canonicalNodePath(target)) : target);
       return;
     }
-    if (target.tree === undefined && container?.tree !== undefined) {
-      navigate({ ...target, tree: container.tree });
+    if (target.tree === undefined && container?.ref.tree !== undefined) {
+      navigate({ ...target, tree: container.ref.tree });
       return;
     }
     navigate(target);
@@ -451,6 +489,13 @@ export function App() {
     }
     setNode(loaded);
   }, [path]);
+
+  const loadMoreChildren = useCallback(async () => {
+    if (!node || !nodeChildrenCursor) return;
+    const page = await api.children(node.ref, nodeChildrenCursor);
+    setNodeChildren((items) => [...items, ...page.items]);
+    setNodeChildrenCursor(page.nextCursor);
+  }, [node, nodeChildrenCursor]);
 
   useEffect(() => {
     if (!path) {
@@ -473,10 +518,17 @@ export function App() {
     const request = ++sidebarRequest.current;
     try {
       const loaded = await api.node(urlToRef(sidebarUrl));
-      if (request === sidebarRequest.current) setSidebar(loaded);
+      const children = hasChildren(loaded) ? (await api.children(loaded.ref)).items : [];
+      if (request === sidebarRequest.current) {
+        setSidebar(loaded);
+        setSidebarChildren(children);
+      }
     }
     catch {
-      if (request === sidebarRequest.current) setSidebar(null);
+      if (request === sidebarRequest.current) {
+        setSidebar(null);
+        setSidebarChildren([]);
+      }
     }
   }, [sidebarUrl]);
   useEffect(() => {
@@ -484,19 +536,33 @@ export function App() {
     if (isDirectoryNode(node)) {
       sidebarRequest.current += 1;
       setSidebar((current) => current === node ? current : node);
+      setSidebarChildren(nodeChildren);
       return;
     }
     if (sidebar && nodeUrl(sidebar) === sidebarUrl) return;
     if (!sidebarUrl) return;
     const request = ++sidebarRequest.current;
-    api.node(urlToRef(sidebarUrl)).then(
-      (loaded) => { if (request === sidebarRequest.current) setSidebar(loaded); },
-      () => { if (request === sidebarRequest.current) setSidebar(null); },
+    api.node(urlToRef(sidebarUrl)).then(async (loaded) => ({
+      loaded,
+      children: hasChildren(loaded) ? (await api.children(loaded.ref)).items : [],
+    })).then(
+      ({ loaded, children }) => {
+        if (request === sidebarRequest.current) {
+          setSidebar(loaded);
+          setSidebarChildren(children);
+        }
+      },
+      () => {
+        if (request === sidebarRequest.current) {
+          setSidebar(null);
+          setSidebarChildren([]);
+        }
+      },
     );
     return () => {
       if (request === sidebarRequest.current) sidebarRequest.current += 1;
     };
-  }, [node, sidebar, sidebarUrl]);
+  }, [node, nodeChildren, sidebar, sidebarUrl]);
 
   useEffect(() => {
     if (!sidebarMenu) return;
@@ -584,13 +650,13 @@ export function App() {
     return () => clearTimeout(timer);
   }, [node, query, searchDisabled, searchScope, searchTree, sidebar, trees]);
 
-  const openSidebarMenu = useCallback((event: React.MouseEvent, target: TreeChild | null) => {
+  const openSidebarMenu = useCallback((event: React.MouseEvent, target: NodeSummary | null) => {
     event.preventDefault();
     event.stopPropagation();
     setSidebarMenu({ x: event.clientX, y: event.clientY, target, mode: null, value: "" });
   }, []);
 
-  const sidebarApi = useMemo(() => api.scoped(sidebar?.tree), [sidebar?.tree]);
+  const sidebarApi = useMemo(() => api.scoped(sidebar?.ref.tree), [sidebar?.ref.tree]);
 
   const submitSidebarName = useCallback(async () => {
     if (!sidebarMenu?.mode || !sidebar) return;
@@ -599,9 +665,9 @@ export function App() {
     try {
       setError(null);
       if (sidebarMenu.mode === "rename" && sidebarMenu.target) {
-        const oldPath = sidebarMenu.target.path;
+        const oldPath = sidebarMenu.target.ref.path;
         const nextPath = childPath(oldPath.slice(0, oldPath.lastIndexOf("/")) || "/", name);
-        await sidebarApi.mutate({ operations: [{ op: "rename", ref: { tree: sidebar.tree, path: oldPath, stableKey: null }, name }] });
+        await sidebarApi.mutate({ operations: [{ op: "rename", ref: sidebarMenu.target.ref, name }] });
         setSidebarMenu(null);
         const oldUrl = scopeUrl(sidebar, oldPath);
         if (path === oldUrl || path.startsWith(`${oldUrl}/`)) {
@@ -611,16 +677,16 @@ export function App() {
         }
         return;
       }
-      const destination = sidebarMenu.target?.kind === "directory" || sidebarMenu.target?.kind === "collection"
-        ? sidebarMenu.target.path
-        : sidebar.path;
+      const destination = sidebarMenu.target && hasChildren(sidebarMenu.target)
+        ? sidebarMenu.target.ref.path
+        : sidebar.ref.path;
       const createdPath = childPath(destination, name);
       const operation = sidebarMenu.mode === "createDirectory"
-        ? { op: "createDirectory" as const, tree: sidebar.tree, path: createdPath }
-        : { op: "createMarkdown" as const, tree: sidebar.tree, path: createdPath };
+        ? { op: "createDirectory" as const, tree: sidebar.ref.tree, path: createdPath }
+        : { op: "createMarkdown" as const, tree: sidebar.ref.tree, path: createdPath };
       await sidebarApi.mutate({ operations: [operation] });
       setSidebarMenu(null);
-      if (destination === sidebar.path) await refreshSidebar();
+      if (destination === sidebar.ref.path) await refreshSidebar();
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     }
@@ -631,9 +697,9 @@ export function App() {
     if (!target || !sidebar || !confirm(`Move ${target.name} to Trash?`)) return;
     try {
       setError(null);
-      await sidebarApi.mutate({ operations: [{ op: "trash", refs: [{ tree: sidebar.tree, path: target.path, stableKey: null }] }] });
+      await sidebarApi.mutate({ operations: [{ op: "trash", refs: [target.ref] }] });
       setSidebarMenu(null);
-      const targetUrl = scopeUrl(sidebar, target.path);
+      const targetUrl = scopeUrl(sidebar, target.ref.path);
       if (path === targetUrl || path.startsWith(`${targetUrl}/`)) navigate(parentUrl(targetUrl));
       else await refreshSidebar();
     } catch (error) {
@@ -945,11 +1011,11 @@ export function App() {
   const visibleCrumbs = collapseCrumbs ? [crumbs[0]!, ...crumbs.slice(-3)] : crumbs;
   const chip = node ? scopeChip(node) : null;
   const canPromoteHere = Boolean(node && isDirectoryNode(node) && (
-    node.tree === "local" || node.enclosingTree?.canonical === null || (node.enclosingTree && node.path !== "/")
+    node.ref.tree === "local" || node.enclosingTree?.canonical === null || (node.enclosingTree && node.ref.path !== "/")
   ));
-  const currentTree = node?.enclosingTree && node.enclosingTree.canonical !== null && node.path === "/" ? node.enclosingTree : null;
-  const nestedCanonicalPath = node?.enclosingTree?.canonical?.path && node.path !== "/"
-    ? `${node.enclosingTree.canonical?.path.replace(/\/$/, "")}${node.path}`
+  const currentTree = node?.enclosingTree && node.enclosingTree.canonical !== null && node.ref.path === "/" ? node.enclosingTree : null;
+  const nestedCanonicalPath = node?.enclosingTree?.canonical?.path && node.ref.path !== "/"
+    ? `${node.enclosingTree.canonical?.path.replace(/\/$/, "")}${node.ref.path}`
     : undefined;
   const sharingTarget = !remoteLocation && currentTree?.osPath
     ? { path: currentTree.osPath, tree: currentTree, proposedCanonicalPath: undefined }
@@ -1007,11 +1073,11 @@ export function App() {
         if (event.target === event.currentTarget) openSidebarMenu(event, null);
       }}>
         {sidebarUrl && sidebarUrl !== "/" && !sidebarUrl.endsWith(":") && <button className="nav-up" onClick={() => navigate(parentUrl(sidebarUrl))}><span>↑</span>Parent directory</button>}
-        {sidebar?.children?.map((child) => {
-          const childUrl = scopeUrl(sidebar, child.path);
+        {sidebar && sidebarChildren.map((child) => {
+          const childUrl = scopeUrl(sidebar, child.ref.path);
           return <button
             className={childUrl === path ? "active" : ""}
-            key={child.path}
+            key={`${child.ref.tree}:${child.ref.path}:${child.ref.stableKey ?? ""}`}
             onClick={() => navigate(childUrl)}
             onContextMenu={(event) => openSidebarMenu(event, child)}
             onKeyDown={(event) => {
@@ -1020,7 +1086,7 @@ export function App() {
               const bounds = event.currentTarget.getBoundingClientRect();
               setSidebarMenu({ x: bounds.left + 20, y: bounds.bottom, target: child, mode: null, value: "" });
             }}
-          ><span>{child.kind === "directory" || child.kind === "collection" ? "▸" : "·"}</span>{child.name}{child.materialization === "placeholder" && <small>offline</small>}</button>;
+          ><span>{hasChildren(child) ? "▸" : "·"}</span>{child.name}{child.materialization === "placeholder" && <small>offline</small>}</button>;
         })}
       </nav>
     </aside>
@@ -1058,9 +1124,7 @@ export function App() {
                   onClick={() => openTreeControl(sharingTarget.path, sharingTarget.tree, sharingTarget.proposedCanonicalPath)}
                 >{chip.iconOnly ? <Share aria-hidden="true" /> : chip.label}</button>
               : chip && <span className={chip.className}>{chip.label}</span>}
-          {displayedNode?.kind === "collection" && <span className="kind">
-            Collection{displayedNode.collection ? ` · ${displayedNode.collection.backing}` : ""}
-          </span>}
+          {displayedNode?.capabilities.children?.schema && <span className="kind">Structured children</span>}
           <button
             className="profile-button"
             aria-label="Community and profile"
@@ -1080,8 +1144,8 @@ export function App() {
         }}>Claim profile</button>
         <small>First successful claim wins.</small>
       </div> : error ? <div className="empty error">{error}</div> : !remoteNode ? <div className="empty">Loading…</div>
-        : remoteNode.document && (remoteNode.kind === "markdown" || remoteNode.kind === "directory")
-          ? <ReadOnlyPage node={remoteNode} navigate={navigateRemote} />
+        : hasMarkdownContent(remoteNode)
+          ? <ReadOnlyPage node={remoteNode} children={remoteChildren} navigate={navigateRemote} />
           : <div className="file-surface"><div className="file-glyph">◇</div><h1>{remoteNode.name}</h1><p>This remote file is not a Markdown document.</p></div>
       : !path ? <div className="home-surface">
         <h1>Arbor</h1>
@@ -1162,8 +1226,8 @@ export function App() {
           <h1>{node.name}</h1>
           <p>This file is stored by a cloud provider but is not materialized on this device.</p>
         </div> : <>
-          {(node.kind === "markdown" || node.kind === "directory" || node.kind === "collection") && node.document && nodeUpdates && <PageEditor node={node} updates={nodeUpdates} pageActionsHost={pageActionsHost} onSaved={acceptNode} navigate={navigateFromNode} />}
-          {node.kind === "file" && <div className="file-surface">
+          {hasMarkdownContent(node) && nodeUpdates && <PageEditor node={node} children={nodeChildren} updates={nodeUpdates} pageActionsHost={pageActionsHost} onSaved={acceptNode} onChildrenChanged={setNodeChildren} navigate={navigateFromNode} />}
+          {!hasMarkdownContent(node) && !hasChildren(node) && <div className="file-surface">
             <div className="file-glyph">◇</div>
             <h1>{node.name}</h1>
             <p>Arbor leaves this ordinary file in its native format.</p>
@@ -1173,7 +1237,14 @@ export function App() {
             </div>
           </div>}
         </>}
-        {node.kind === "collection" && <CollectionView node={node} navigate={navigateFromNode} refresh={() => load(path)} />}
+        {node.capabilities.children?.schema && <CollectionView
+          node={node}
+          items={nodeChildren}
+          nextCursor={nodeChildrenCursor}
+          navigate={navigateFromNode}
+          loadMore={loadMoreChildren}
+          refresh={() => load(path)}
+        />}
       </>}
     </main>
     {sidebarMenu && <div
@@ -1197,7 +1268,7 @@ export function App() {
           }}
         />
       </div> : <>
-        {(!sidebarMenu.target || sidebarMenu.target.kind === "directory" || sidebarMenu.target.kind === "collection") && <>
+        {(!sidebarMenu.target || hasChildren(sidebarMenu.target)) && <>
           <button role="menuitem" onClick={() => setSidebarMenu({ ...sidebarMenu, mode: "createMarkdown", value: "" })}>New Page</button>
           <button role="menuitem" onClick={() => setSidebarMenu({ ...sidebarMenu, mode: "createDirectory", value: "" })}>New Folder</button>
           <div className="menu-separator" />

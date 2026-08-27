@@ -12,6 +12,8 @@ import type {
   WorkspaceOperation,
 } from "@arbor/core";
 import { canonicalJSONString } from "@arbor/core";
+import type { NodeResponse } from "@arbor/core";
+import { nodeDocument } from "../helpers/node-snapshot.ts";
 
 const fixtures = join(import.meta.dir, "../fixtures/arborsync");
 const conformance = join(import.meta.dir, "../../conformance");
@@ -23,12 +25,12 @@ const conformanceJSON = async <T>(name: string): Promise<T> =>
 
 describe("REST v1 protocol fixtures", () => {
   test("decode the shared node, mutation, receipt, and unknown error values", async () => {
-    const node = await json<NodeSnapshot>("node.json");
+    const node = await json<NodeResponse>("node.json");
     const mutation = await json<MutationRequest>("mutation.json");
     const receipt = await json<MutationReceipt>("receipt.json");
     const error = await json<ArborSyncErrorEnvelope>("error.json");
     expect(node.ref).toEqual({ tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: '[["id","abc123"]]' });
-    expect(node.tree).toBe("tr_notes7f3q2ab7c");
+    expect(node.ref.tree).toBe("tr_notes7f3q2ab7c");
     expect(node.enclosingTree?.osPath).toBe("/Users/joe/notes");
     expect(mutation.operations[0]?.op).toBe("move");
     expect(receipt.effects[0]?.previousPath).toBe("/notes/today");
@@ -37,23 +39,23 @@ describe("REST v1 protocol fixtures", () => {
   });
 
   test("decodes the tree-scoped, unpromoted, and system fixtures", async () => {
-    const untracked = await json<NodeSnapshot>("node-untracked.json");
-    const systemTree = await json<NodeSnapshot>("node-system-tree.json");
+    const untracked = await json<NodeResponse>("node-untracked.json");
+    const systemTree = await json<NodeResponse>("node-system-tree.json");
     const backlinks = await json<BacklinksPage>("backlinks.json");
     const recovery = await json<RecoveryPage>("recovery.json");
-    expect(untracked.tree).toBe("local");
-    expect(untracked.path).toBe("/Users/joe/Desktop/stray");
+    expect(untracked.ref.tree).toBe("local");
+    expect(untracked.ref.path).toBe("/Users/joe/Desktop/stray");
     expect(untracked.enclosingTree).toBeUndefined();
-    expect(systemTree.tree).toBe("system");
-    expect(systemTree.writable).toBe(false);
-    expect(systemTree.document?.frontmatter.credentialAvailable).toBe(true);
+    expect(systemTree.ref.tree).toBe("system");
+    expect(systemTree.capabilities.content?.writable).toBe(false);
+    expect(nodeDocument(systemTree)?.frontmatter.credentialAvailable).toBe(true);
     expect(backlinks.entries[0]?.ref.stableKey).toBe('[["id","week01"]]');
     expect(recovery.entries.map((entry) => entry.kind)).toEqual(["block", "trash"]);
   });
 
   test("keeps unknown fields decodable while requiring explicit tree scope", async () => {
-    const node = await json<NodeSnapshot>("node-unknown-field.json");
-    expect(node.tree).toBe("tr_notes7f3q2ab7c");
+    const node = await json<NodeResponse>("node-unknown-field.json");
+    expect(node.ref.tree).toBe("tr_notes7f3q2ab7c");
     expect(node.ref.tree).toBe("tr_notes7f3q2ab7c");
   });
 

@@ -134,7 +134,7 @@ public struct LocalTreeDescriptor: Codable, Sendable, Equatable {
 public struct Diagnostic: Codable, Sendable, Equatable {
     public var code: String
     public var message: String
-    public var path: String
+    public var path: String?
     public var severity: String
     public var row: Int?
     public var field: String?
@@ -177,51 +177,134 @@ public struct MarkdownDocument: Codable, Sendable, Equatable {
     public var blocks: [ArborBlock]
 }
 
-public struct TreeChild: Codable, Sendable, Equatable {
-    public var tree: String
-    public var name: String
-    public var path: String
-    public var kind: String
-    public var materialization: String
-    /// Durable document identity, when known unambiguously.
-    public var pageID: String?
+public struct PropertiesCapability: Codable, Sendable, Equatable {
+    public var revision: String
+    public var schema: String?
+    public var writable: Bool
 }
 
-public struct CollectionSummary: Codable, Sendable, Equatable {
-    public var backing: String
-    public var columns: [String]
-    public var editable: Bool
+public struct ContentCapability: Codable, Sendable, Equatable {
+    public var revision: String
+    public var mediaType: String
+    public var format: String?
+    public var writable: Bool
+}
+
+public struct ChildRepresentationSummary: Codable, Sendable, Equatable {
+    public var type: String
+    public var codec: String?
+    public var scope: String?
+    public var modelDigest: String?
+    public var driver: String?
+}
+
+public struct ChildrenCapability: Codable, Sendable, Equatable {
+    public var revision: String
+    public var schema: String?
+    public var representation: ChildRepresentationSummary?
     public var total: Int?
-    public var tables: [String]?
+    public var writable: Bool
+}
+
+public struct ExecutableCapability: Codable, Sendable, Equatable {
+    public var version: String
+    public var state: String
+}
+
+public struct NodeCapabilities: Codable, Sendable, Equatable {
+    public var properties: PropertiesCapability?
+    public var content: ContentCapability?
+    public var children: ChildrenCapability?
+    public var executable: ExecutableCapability?
+}
+
+public struct NodeContentRepresentation: Codable, Sendable, Equatable {
+    public var state: String
+    public var origin: String?
+}
+
+public struct NodeContent: Codable, Sendable, Equatable {
+    public var source: String
+    public var representation: NodeContentRepresentation?
+}
+
+private enum LegacyNodeCodingKeys: String, CodingKey, CaseIterable {
+    case tree, path, kind, pageID, collection, document, children
+}
+
+private func rejectLegacyNodeFields(_ decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: LegacyNodeCodingKeys.self)
+    if let key = LegacyNodeCodingKeys.allCases.first(where: { container.contains($0) }) {
+        throw DecodingError.dataCorruptedError(
+            forKey: key,
+            in: container,
+            debugDescription: "\(key.stringValue) duplicates or violates the canonical node model"
+        )
+    }
+}
+
+public struct NodeSummary: Codable, Sendable, Equatable {
+    public var ref: ResolvedNodeRef
+    public var name: String
+    public var revision: String
+    public var properties: [String: JSONValue]
+    public var capabilities: NodeCapabilities
+    public var materialization: String
+    public var diagnostics: [Diagnostic]
+
+    private enum CodingKeys: String, CodingKey {
+        case ref, name, revision, properties, capabilities, materialization, diagnostics
+    }
+
+    public init(from decoder: Decoder) throws {
+        try rejectLegacyNodeFields(decoder)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ref = try container.decode(ResolvedNodeRef.self, forKey: .ref)
+        name = try container.decode(String.self, forKey: .name)
+        revision = try container.decode(String.self, forKey: .revision)
+        properties = try container.decode([String: JSONValue].self, forKey: .properties)
+        capabilities = try container.decode(NodeCapabilities.self, forKey: .capabilities)
+        materialization = try container.decode(String.self, forKey: .materialization)
+        diagnostics = try container.decode([Diagnostic].self, forKey: .diagnostics)
+    }
 }
 
 public struct NodeSnapshot: Codable, Sendable, Equatable {
     public var ref: ResolvedNodeRef
-    /// Scope the snapshot resolved in, after canonicalization.
-    public var tree: String
-    /// The enclosing shared tree or legacy placement, when applicable.
+    /// Placement context supplied by local/Canopy response adapters.
     public var enclosingTree: LocalTreeDescriptor?
-    public var path: String
     public var name: String
-    public var kind: String
-    public var writable: Bool
+    public var revision: String
+    public var properties: [String: JSONValue]
+    public var capabilities: NodeCapabilities
+    public var content: NodeContent?
     public var materialization: String
-    public var contentRevision: String?
-    public var directoryRevision: String?
-    /// "stored" or "implicit" — whether `document` reflects stored bytes.
-    public var bodyState: String?
-    /// "sibling" or "index" — which representation supplies a stored body.
-    public var bodyOrigin: String?
-    public var document: MarkdownDocument?
-    public var collection: CollectionSummary?
     public var diagnostics: [Diagnostic]
     public var observedThrough: String
-    public var children: [TreeChild]?
+
+    private enum CodingKeys: String, CodingKey {
+        case ref, enclosingTree, name, revision, properties, capabilities, content, materialization, diagnostics, observedThrough
+    }
+
+    public init(from decoder: Decoder) throws {
+        try rejectLegacyNodeFields(decoder)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ref = try container.decode(ResolvedNodeRef.self, forKey: .ref)
+        enclosingTree = try container.decodeIfPresent(LocalTreeDescriptor.self, forKey: .enclosingTree)
+        name = try container.decode(String.self, forKey: .name)
+        revision = try container.decode(String.self, forKey: .revision)
+        properties = try container.decode([String: JSONValue].self, forKey: .properties)
+        capabilities = try container.decode(NodeCapabilities.self, forKey: .capabilities)
+        content = try container.decodeIfPresent(NodeContent.self, forKey: .content)
+        materialization = try container.decode(String.self, forKey: .materialization)
+        diagnostics = try container.decode([Diagnostic].self, forKey: .diagnostics)
+        observedThrough = try container.decode(String.self, forKey: .observedThrough)
+    }
 }
 
 public struct ChildrenPage: Codable, Sendable, Equatable {
     public var parent: ResolvedNodeRef
-    public var items: [TreeChild]
+    public var items: [NodeSummary]
     public var nextCursor: String?
     public var observedThrough: String
 }
@@ -251,24 +334,6 @@ public struct BacklinksPage: Codable, Sendable, Equatable {
     public var target: ResolvedNodeRef
     public var entries: [BacklinkEntry]
     public var nextCursor: String?
-    public var observedThrough: String
-}
-
-public struct CollectionRow: Codable, Sendable, Equatable {
-    public var key: String
-    public var path: String?
-    public var values: [String: JSONValue]
-    public var diagnostics: [Diagnostic]
-}
-
-public struct CollectionPage: Codable, Sendable, Equatable {
-    public var path: String
-    public var backing: String
-    public var columns: [String]
-    public var rows: [CollectionRow]
-    public var nextCursor: String?
-    public var diagnostics: [Diagnostic]
-    public var editable: Bool
     public var observedThrough: String
 }
 

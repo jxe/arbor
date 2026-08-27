@@ -38,7 +38,6 @@ final class ArborClientTests: XCTestCase {
         let children = try decode(ChildrenPage.self, "children.json")
         let search = try decode(SearchPage.self, "search.json")
         let backlinks = try decode(BacklinksPage.self, "backlinks.json")
-        let collection = try decode(CollectionPage.self, "collection.json")
         let recovery = try decode(RecoveryPage.self, "recovery.json")
         let operationRequests = try decode([MutationRequest].self, "operations.json")
         let errors = try decode([ArborSyncErrorEnvelope].self, "errors.json")
@@ -51,22 +50,21 @@ final class ArborClientTests: XCTestCase {
         let intentFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: intentFixtureData) as? [String: Any])
 
         XCTAssertEqual(node.ref, ResolvedNodeRef(tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: pageIDStableKey("abc123")))
-        XCTAssertEqual(node.document?.source, "---\nid: abc123\ntitle: Today\n---\nHello\n")
-        XCTAssertEqual(node.tree, "tr_notes7f3q2ab7c")
+        XCTAssertEqual(node.content?.source, "---\nid: abc123\ntitle: Today\n---\nHello\n")
+        XCTAssertEqual(node.ref.tree, "tr_notes7f3q2ab7c")
         XCTAssertEqual(node.enclosingTree?.osPath, "/Users/joe/notes")
         XCTAssertEqual(node.enclosingTree?.canonical?.locator, "arbor://notes.example/~joe/notes")
-        XCTAssertEqual(untracked.tree, "local")
+        XCTAssertEqual(untracked.ref.tree, "local")
         XCTAssertNil(untracked.enclosingTree)
-        XCTAssertEqual(systemTree.tree, "system")
-        XCTAssertFalse(systemTree.writable)
-        XCTAssertEqual(unknownNode.tree, "tr_notes7f3q2ab7c")
+        XCTAssertEqual(systemTree.ref.tree, "system")
+        XCTAssertFalse(systemTree.capabilities.content?.writable ?? true)
+        XCTAssertEqual(unknownNode.ref.tree, "tr_notes7f3q2ab7c")
         XCTAssertEqual(mutation.operations.first?.op, "move")
         XCTAssertEqual(receipt.effects.first?.previousPath, "/notes/today")
         XCTAssertEqual(error.error, "future-error-code")
-        XCTAssertEqual(children.items.first?.path, "/notes/today")
+        XCTAssertEqual(children.items.first?.ref.path, "/notes/today")
         XCTAssertEqual(search.results.first?.pageID, "abc123")
         XCTAssertEqual(backlinks.entries.first?.ref.stableKey, pageIDStableKey("week01"))
-        XCTAssertEqual(collection.rows.first?.key, "one")
         XCTAssertEqual(recovery.entries.first?.status, "lost")
         XCTAssertEqual(recovery.entries.last?.kind, "trash")
         XCTAssertEqual(
@@ -238,6 +236,22 @@ final class ArborClientTests: XCTestCase {
         )))
     }
 
+    func testCanonicalNodeDecodersRejectLegacySnapshotFields() throws {
+        let fixture = try Data(contentsOf: fixtures.appending(path: "node.json"))
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: fixture) as? [String: Any])
+        object["tree"] = "tr_legacy"
+        let data = try JSONSerialization.data(withJSONObject: object)
+        XCTAssertThrowsError(try JSONDecoder().decode(NodeSnapshot.self, from: data))
+
+        let childrenFixture = try Data(contentsOf: fixtures.appending(path: "children.json"))
+        var page = try XCTUnwrap(JSONSerialization.jsonObject(with: childrenFixture) as? [String: Any])
+        var items = try XCTUnwrap(page["items"] as? [[String: Any]])
+        items[0]["kind"] = "markdown"
+        page["items"] = items
+        let childrenData = try JSONSerialization.data(withJSONObject: page)
+        XCTAssertThrowsError(try JSONDecoder().decode(ChildrenPage.self, from: childrenData))
+    }
+
     func testLiveServerWhenProvided() async throws {
         guard
             let value = ProcessInfo.processInfo.environment["ARBOR_TEST_URL"],
@@ -251,7 +265,7 @@ final class ArborClientTests: XCTestCase {
             retryDelay: { _ in }
         )
         let before = try await client.node(.path("/page", tree: tree))
-        XCTAssertEqual(before.path, "/page")
+        XCTAssertEqual(before.ref.path, "/page")
         let view = try await client.openNodeView(.path("/", tree: tree))
         let request = try await client.prepareStructuralMutation(
             [WorkspaceOperation(op: "createDirectory", tree: tree, path: "/from-swift")],
@@ -261,7 +275,7 @@ final class ArborClientTests: XCTestCase {
         let retry = try await client.mutate(request)
         XCTAssertEqual(first, retry)
         let created = try await client.node(.path("/from-swift", tree: tree))
-        XCTAssertEqual(created.path, "/from-swift")
+        XCTAssertEqual(created.ref.path, "/from-swift")
         for try await update in view.updates {
             guard case let .event(event) = update, event.change.mutationID == "swift-live-mutation" else {
                 continue

@@ -1,3 +1,4 @@
+import { nodeDocument, nodeKind } from "../helpers/node-snapshot.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
@@ -35,7 +36,7 @@ describe("workspace service", () => {
     expect(rootNode.children?.map((item) => item.name)).toContain(".claude");
     expect(rootNode.children?.map((item) => item.name)).not.toContain(".build");
     const leaf = await workspace.node("/notes");
-    expect(leaf.document?.blocks[0]?.type).toBe("toggle");
+    expect(nodeDocument(leaf)?.blocks[0]?.type).toBe("toggle");
     expect((await workspace.node("/notes.md")).path).toBe("/notes");
   });
 
@@ -70,20 +71,27 @@ describe("workspace service", () => {
     await mkdir(collection);
     await writeFile(join(collection, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ title: z.string() });\n');
     await writeFile(join(collection, "_index.md"), "About the records.\n");
-    await writeFile(join(collection, "one.md"), "---\ntitle: One\n---\nRow body.\n");
+    await writeFile(join(collection, "one.md"), "---\nid: abc123\ntitle: One\n---\nRow body.\n");
 
     const node = await workspace.node("/records");
     expect(node.kind).toBe("collection");
-    expect(node.document?.source).toBe("About the records.\n");
+    expect(nodeDocument(node)?.source).toBe("About the records.\n");
     expect(node.children?.some((child) => child.path === "/records/one")).toBe(true);
+    const snapshot = await workspace.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
+    expect(snapshot.capabilities.children?.schema).toStartWith("sha256:");
+    const children = await workspace.children(snapshot.ref);
+    expect(children.items).toContainEqual(expect.objectContaining({
+      ref: expect.objectContaining({ path: "/records/one", stableKey: '[["id","abc123"]]' }),
+      properties: expect.objectContaining({ id: "abc123", title: "One" }),
+    }));
   });
 
   test("writes exact source and enforces revision CAS", async () => {
     const node = await workspace.node("/notes");
     const source = "---\ntitle: Notes\n---\n▸ Changed\n  First\n";
     const saved = await workspace.write("/notes", { baseRevision: node.revision, source });
-    expect(saved.document?.frontmatter.id).toBeUndefined();
-    expect(saved.document?.source).toBe(source);
+    expect(nodeDocument(saved)?.frontmatter.id).toBeUndefined();
+    expect(nodeDocument(saved)?.source).toBe(source);
     expect(await readFile(join(root, "notes.md"), "utf8")).toContain("▸ Changed");
     await expect(workspace.write("/notes", { baseRevision: node.revision, source })).rejects.toBeInstanceOf(RevisionConflictError);
   });
@@ -99,30 +107,30 @@ describe("workspace service", () => {
 
   test("reports body state and unambiguous child identity", async () => {
     const notes = await workspace.snapshot({ tree: "local", path: "/notes", stableKey: null });
-    expect(notes.bodyState).toBe("stored");
-    expect(notes.bodyOrigin).toBe("sibling");
+    expect(notes.content?.representation?.state).toBe("stored");
+    expect(notes.content?.representation?.origin).toBe("sibling");
     expect(notes.ref.stableKey).toBeNull();
 
     const materialized = await workspace.snapshot({ tree: "local", path: "/folder", stableKey: null });
-    expect(materialized.bodyState).toBe("stored");
-    expect(materialized.bodyOrigin).toBe("index");
+    expect(materialized.content?.representation?.state).toBe("stored");
+    expect(materialized.content?.representation?.origin).toBe("index");
 
     await mkdir(join(root, "plain"));
     const implicit = await workspace.snapshot({ tree: "local", path: "/plain", stableKey: null });
-    expect(implicit.bodyState).toBe("implicit");
-    expect(implicit.bodyOrigin).toBeUndefined();
-    expect(implicit.document?.blocks).toEqual([]);
+    expect(implicit.content?.representation?.state).toBe("implicit");
+    expect(implicit.content?.representation?.origin).toBeUndefined();
+    expect(nodeDocument(implicit)?.blocks).toEqual([]);
 
     const listing = await workspace.children({ tree: "local", path: "/", stableKey: null });
-    const child = listing.items.find((item) => item.path === "/notes");
-    expect(child?.pageID).toBeUndefined();
-    expect(listing.items.find((item) => item.path === "/plain")?.pageID).toBeUndefined();
+    const child = listing.items.find((item) => item.ref.path === "/notes");
+    expect(child?.ref.stableKey).toBeNull();
+    expect(listing.items.find((item) => item.ref.path === "/plain")?.ref.stableKey).toBeNull();
   });
 
   test("ensureDocumentIdentity mints lazily, no-ops when present, and replays idempotently", async () => {
     await mkdir(join(root, "bodyless"));
     const before = await workspace.snapshot({ tree: "local", path: "/bodyless", stableKey: null });
-    expect(before.bodyState).toBe("implicit");
+    expect(before.content?.representation?.state).toBe("implicit");
     expect(before.ref.stableKey).toBeNull();
 
     const request = {
@@ -130,7 +138,7 @@ describe("workspace service", () => {
       operations: [{
         op: "ensureDocumentIdentity" as const,
         ref: { tree: "local", path: "/bodyless", stableKey: null },
-        baseContentRevision: before.contentRevision!,
+        baseContentRevision: before.capabilities.content?.revision!,
       }] as [never] & { 0: unknown },
     };
     const receipt = await workspace.executeMutation(request as never);
@@ -153,7 +161,7 @@ describe("workspace service", () => {
       }],
     } as never);
     expect(again.effects[0]?.pageID).toBe(effect.pageID);
-    expect(again.effects[0]?.contentRevision).toBe(after.contentRevision!);
+    expect(again.effects[0]?.contentRevision).toBe(after.capabilities.content?.revision!);
   });
 
   test("rename and trash preserve and report document identity", async () => {
@@ -213,7 +221,7 @@ describe("workspace service", () => {
       expect(rootNode.children?.filter((child) => child.path === "/same")).toHaveLength(1);
       const same = await duplicateWorkspace.node("/same");
       expect(same.kind).toBe("directory");
-      expect(same.document?.bodySource).toBe("Leaf\n\n[child](child)\n");
+      expect(nodeDocument(same)?.bodySource).toBe("Leaf\n\n[child](child)\n");
       await duplicateWorkspace[Symbol.asyncDispose]();
       duplicateWorkspace = null;
 
@@ -221,7 +229,7 @@ describe("workspace service", () => {
       duplicateWorkspace = await Workspace.open(duplicateRoot);
       const duplicate = await duplicateWorkspace.node("/same");
       expect(duplicate.diagnostics.some((item) => item.code === "duplicate-body-representation")).toBe(true);
-      await expect(duplicateWorkspace.write("/same", { baseRevision: duplicate.revision, source: duplicate.document?.source ?? "" })).rejects.toThrow("competing bodies");
+      await expect(duplicateWorkspace.write("/same", { baseRevision: duplicate.revision, source: nodeDocument(duplicate)?.source ?? "" })).rejects.toThrow("competing bodies");
     } finally {
       await duplicateWorkspace?.[Symbol.asyncDispose]();
       process.env.ARBOR_DATA_HOME = state;

@@ -179,7 +179,7 @@ struct ProviderContractTests {
         }
         let client = ArborSyncRESTClient(baseURL: origin)
         let snapshot = try await client.node(.path("/", tree: treeValue))
-        let tree = TreeID(rawValue: snapshot.tree)
+        let tree = TreeID(rawValue: snapshot.ref.tree)
         try await verify(
             provider: ArborSyncWorkspaceProvider(client: client),
             root: WorkspaceReference(tree: tree, path: "/")
@@ -196,7 +196,7 @@ struct ProviderContractTests {
         }
         let client = ArborSyncRESTClient(baseURL: origin)
         let snapshot = try await client.node(.path("/", tree: treeValue))
-        let tree = TreeID(rawValue: snapshot.tree)
+        let tree = TreeID(rawValue: snapshot.ref.tree)
         let node = try await ArborSyncWorkspaceProvider(client: client).resolve(
             WorkspaceReference(tree: tree, path: path)
         )
@@ -212,7 +212,7 @@ struct ProviderContractTests {
         }
         let client = ArborSyncRESTClient(baseURL: origin)
         let rootSnapshot = try await client.node(.path("/", tree: treeValue))
-        let tree = TreeID(rawValue: rootSnapshot.tree)
+        let tree = TreeID(rawValue: rootSnapshot.ref.tree)
         let root = WorkspaceReference(tree: tree, path: "/")
         let provider = ArborSyncWorkspaceProvider(client: client)
         let suffix = UUID().uuidString.lowercased().prefix(8)
@@ -341,19 +341,18 @@ struct ProviderContractTests {
         let json = """
         {
           "ref": { "tree": "\(tree)", "path": "/tmp/ordinary", "stableKey": null },
-          "tree": "\(tree)",
-          "path": "/tmp/ordinary",
           "name": "ordinary",
-          "kind": "directory",
-          "writable": true,
+          "revision": "rev_directory",
+          "properties": {},
+          "capabilities": {
+            "properties": { "revision": "rev_directory", "writable": true },
+            "content": { "revision": "rev_directory", "mediaType": "text/markdown", "format": "markdown", "writable": true },
+            "children": { "revision": "rev_directory", "representation": { "type": "expanded" }, "writable": true }
+          },
           "materialization": "available",
-          "contentRevision": "rev_directory",
-          "bodyState": "\(bodyState)",
-          "document": {
+          "content": {
             "source": "# ordinary\\n",
-            "frontmatter": {},
-            "bodySource": "# ordinary\\n",
-            "blocks": []
+            "representation": { "state": "\(bodyState)" }
           },
           "diagnostics": [],
           "observedThrough": "evt_1"

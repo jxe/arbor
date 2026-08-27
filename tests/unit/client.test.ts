@@ -11,26 +11,34 @@ function jsonResponse(value: unknown): Response {
 function directorySnapshot(): NodeSnapshot {
   return {
     ref: { tree: "local", path: "/dir", stableKey: null },
-    tree: "local",
-    path: "/dir",
     name: "dir",
-    kind: "directory",
-    writable: true,
+    revision: "sha256:dir",
+    properties: {},
+    capabilities: {
+      properties: { revision: "sha256:dir", writable: true },
+      content: { revision: "sha256:dir", mediaType: "text/markdown", format: "markdown", writable: true },
+      children: { revision: "sha256:dir", representation: { type: "expanded" }, writable: true },
+    },
     materialization: "available",
-    contentRevision: "sha256:dir",
-    directoryRevision: "sha256:dir",
-    bodyState: "implicit",
-    document: { source: "[child](child)\n\n", frontmatter: {}, frontmatterSource: null, bodySource: "[child](child)\n\n", blocks: [] },
+    content: { source: "[child](child)\n\n", representation: { state: "implicit" } },
     diagnostics: [],
     observedThrough: CURSOR,
   };
 }
 
 describe("ArborSyncRESTClient exact-source contract", () => {
-  test("hydrates children without constructing a second projected document", async () => {
+  test("keeps node sampling separate from paged children", async () => {
     const page: ChildrenPage = {
       parent: { tree: "local", path: "/dir", stableKey: null },
-      items: [{ tree: "local", name: "child", path: "/dir/child", kind: "markdown", materialization: "available" }],
+      items: [{
+        ref: { tree: "local", path: "/dir/child", stableKey: null },
+        name: "child",
+        revision: "sha256:child",
+        properties: {},
+        capabilities: { content: { revision: "sha256:child", mediaType: "text/markdown", format: "markdown", writable: true } },
+        materialization: "available",
+        diagnostics: [],
+      }],
       nextCursor: null,
       observedThrough: CURSOR,
     };
@@ -40,9 +48,9 @@ describe("ArborSyncRESTClient exact-source contract", () => {
         : jsonResponse(directorySnapshot()),
     });
     const node = await client.node({ tree: "local", path: "/dir", stableKey: null });
-    expect(node.document?.source).toBe("[child](child)\n\n");
-    expect(node.children).toEqual(page.items);
-    expect("projection" in node).toBe(false);
+    expect(node.content?.source).toBe("[child](child)\n\n");
+    expect(await client.children(node.ref)).toEqual(page);
+    expect("children" in node).toBe(false);
   });
 
   test("sends exact source and no parsed block payload", async () => {
@@ -68,7 +76,15 @@ describe("ArborSyncRESTClient exact-source contract", () => {
   });
 
   test("childRef prefers durable identity", () => {
-    expect(childRef({ tree: "tr_example", name: "a", path: "/a", kind: "markdown", materialization: "available", pageID: "opaque" }))
+    expect(childRef({
+      ref: { tree: "tr_example", path: "/a", stableKey: '[["id","opaque"]]' },
+      name: "a",
+      revision: "sha256:a",
+      properties: { id: "opaque" },
+      capabilities: {},
+      materialization: "available",
+      diagnostics: [],
+    }))
       .toEqual({ tree: "tr_example", path: "/a", stableKey: '[["id","opaque"]]' });
   });
 });

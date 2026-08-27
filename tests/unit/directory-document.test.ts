@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { TreeChild } from "@arbor/core";
+import type { TreeChild } from "@arbor/core/internal";
 import { completeDirectoryDocument } from "@arbor/editor";
 
 const child = (name: string, path: string, pageID?: string): TreeChild => ({

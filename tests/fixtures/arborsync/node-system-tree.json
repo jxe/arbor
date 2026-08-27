@@ -1,23 +1,35 @@
 {
-  "ref": { "tree": "system", "path": "/credentials", "stableKey": null },
-  "tree": "system",
-  "path": "/credentials",
-  "name": "credentials",
-  "kind": "markdown",
-  "writable": false,
-  "materialization": "available",
-  "contentRevision": "sha256:credential-status",
-  "bodyState": "stored",
-  "document": {
-    "source": "---\ncommunityAccount: connected\ncredentialAvailable: true\n---\n\n# Credentials\n\nSecrets are held by the operating system.\n",
-    "frontmatter": {
-      "communityAccount": "connected",
-      "credentialAvailable": true
-    },
-    "frontmatterSource": "---\ncommunityAccount: connected\ncredentialAvailable: true\n---\n",
-    "bodySource": "# Credentials\n\nSecrets are held by the operating system.\n",
-    "blocks": []
+  "ref": {
+    "tree": "system",
+    "path": "/credentials",
+    "stableKey": null
   },
+  "name": "credentials",
+  "revision": "sha256:credential-status",
+  "properties": {
+    "communityAccount": "connected",
+    "credentialAvailable": true
+  },
+  "capabilities": {
+    "properties": {
+      "revision": "sha256:credential-status",
+      "writable": false
+    },
+    "content": {
+      "revision": "sha256:credential-status",
+      "mediaType": "text/markdown",
+      "format": "markdown",
+      "writable": false
+    }
+  },
+  "content": {
+    "source": "---\ncommunityAccount: connected\ncredentialAvailable: true\n---\n\n# Credentials\n\nSecrets are held by the operating system.\n",
+    "representation": {
+      "state": "stored",
+      "origin": "sibling"
+    }
+  },
+  "materialization": "available",
   "diagnostics": [],
   "observedThrough": "11111111-1111-1111-1111-111111111111:4"
 }

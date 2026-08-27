@@ -30,7 +30,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
             let snapshot = try await client.node(.path(resolved.ref.path, tree: resolved.ref.tree))
             return try Self.workspaceNode(
                 from: snapshot,
-                fallbackTree: TreeID(rawValue: snapshot.tree),
+                fallbackTree: TreeID(rawValue: snapshot.ref.tree),
                 requestedLocation: .remote(locator: locator, rootLocator: rootLocator)
             )
         }
@@ -49,15 +49,16 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
             let children = try await client.allChildren(reference.nodeRef)
             return try await resolveAll(children.map { child in
                 .reference(WorkspaceReference(
-                    tree: TreeID(rawValue: childTree(child, fallback: reference.tree.rawValue)),
-                    path: child.path,
-                    pageID: child.pageID.map(PageID.init(rawValue:))
+                    tree: TreeID(rawValue: child.ref.tree),
+                    path: child.ref.path,
+                    pageID: pageIDFromStableKey(child.ref.stableKey).map(PageID.init(rawValue:))
                 ))
             })
         case let .remote(locator, rootLocator):
             let resolved = try await client.resolve(locator)
             let snapshot = try await client.node(.path(resolved.ref.path, tree: resolved.ref.tree))
-            return try await resolveAll((snapshot.children ?? []).map { child in
+            let children = try await client.allChildren(snapshot.ref)
+            return try await resolveAll(children.map { child in
                 .remote(locator: Self.appendingRemotePath(child.name, to: locator), rootLocator: rootLocator)
             })
         }
@@ -234,18 +235,18 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
         fallbackTree: TreeID,
         requestedLocation: WorkspaceLocation? = nil
     ) throws -> WorkspaceNode {
-        let tree = TreeID(rawValue: snapshot.tree)
+        let tree = TreeID(rawValue: snapshot.ref.tree)
         let reference = WorkspaceReference(
             tree: tree,
-            path: snapshot.path,
+            path: snapshot.ref.path,
             pageID: pageIDFromStableKey(snapshot.ref.stableKey).map(PageID.init(rawValue:))
         )
         let treeRootURL = snapshot.enclosingTree?.osPath.map { URL(fileURLWithPath: $0) }
         let physicalURL = treeRootURL.map { root in
-            snapshot.path == "/" ? root : root.appending(path: snapshot.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
-        } ?? (snapshot.tree == "local" ? URL(fileURLWithPath: snapshot.path) : nil)
+            snapshot.ref.path == "/" ? root : root.appending(path: snapshot.ref.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+        } ?? (snapshot.ref.tree == "local" ? URL(fileURLWithPath: snapshot.ref.path) : nil)
         let location: WorkspaceLocation = switch requestedLocation {
-        case .some(.localPath): physicalURL.map { .local($0.path) } ?? .local(snapshot.path)
+        case .some(.localPath): physicalURL.map { .local($0.path) } ?? .local(snapshot.ref.path)
         case let .some(.remote(locator, rootLocator)):
             .remote(
                 locator: Self.canonicalRemoteLocator(snapshot: snapshot, fallback: locator),
@@ -253,60 +254,60 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
             )
         default: .reference(reference)
         }
+        let content = snapshot.content
+        let contentCapability = snapshot.capabilities.content
+        let childrenCapability = snapshot.capabilities.children
+        let writable = contentCapability?.writable == true
+            || childrenCapability?.writable == true
+            || snapshot.capabilities.properties?.writable == true
         let surface: WorkspaceSurface
-        switch snapshot.kind {
-        case "markdown":
-            guard let document = snapshot.document, let revision = snapshot.contentRevision else {
-                throw WorkspaceProviderError.invalidAction("arborsync returned an incomplete Markdown node")
-            }
-            surface = .markdown(source: document.source, contentRevision: revision)
-        case "directory":
-            guard let document = snapshot.document, let revision = snapshot.contentRevision else {
-                surface = .directory(summary: snapshot.diagnostics.first?.message)
-                break
-            }
-            // Implicit directory Markdown is a real editable projection. In a
-            // managed tree the session establishes PageID identity first; in
-            // ordinary filesystem space it remains path-addressed, and the
-            // first authored edit materializes `_index.md` without an ID.
-            surface = .directoryDocument(
-                source: document.source,
-                contentRevision: revision,
-                stored: snapshot.bodyState == "stored"
-            )
-        case "collection", "database":
-            surface = .collection(
-                kind: snapshot.collection?.backing ?? snapshot.kind,
-                rowCount: snapshot.collection?.total
-            )
-        case "file":
-            surface = .file(name: snapshot.name, byteCount: nil, mediaType: nil)
-        default:
-            if snapshot.materialization == "placeholder" {
-                surface = .placeholder(message: "This node is not materialized on this Mac.")
-            } else if let diagnostic = snapshot.diagnostics.first {
-                surface = .diagnostic(title: diagnostic.code, detail: diagnostic.message)
+        if snapshot.materialization == "placeholder" {
+            surface = .placeholder(message: "This node is not materialized on this Mac.")
+        } else if contentCapability?.format == "markdown", let content, let revision = contentCapability?.revision {
+            if childrenCapability != nil {
+                surface = .directoryDocument(
+                    source: content.source,
+                    contentRevision: revision,
+                    stored: content.representation?.state == "stored"
+                )
             } else {
-                surface = .diagnostic(title: "Unsupported node", detail: "arborsync returned kind \(snapshot.kind)")
+                surface = .markdown(source: content.source, contentRevision: revision)
             }
+        } else if let childrenCapability {
+            if childrenCapability.schema != nil || childrenCapability.representation?.type != "expanded" {
+                surface = .collection(
+                    kind: childrenCapability.representation?.codec
+                        ?? childrenCapability.representation?.driver
+                        ?? "structured",
+                    rowCount: childrenCapability.total
+                )
+            } else {
+                surface = .directory(summary: snapshot.diagnostics.first?.message)
+            }
+        } else if contentCapability != nil {
+            surface = .file(name: snapshot.name, byteCount: nil, mediaType: contentCapability?.mediaType)
+        } else if let diagnostic = snapshot.diagnostics.first {
+            surface = .diagnostic(title: diagnostic.code, detail: diagnostic.message)
+        } else {
+            surface = .diagnostic(title: "Unsupported node", detail: "arborsync returned no presentable capability")
         }
         return WorkspaceNode(
             reference: reference,
             location: location,
             title: Self.displayTitle(
-                source: snapshot.document?.source,
-                fallback: snapshot.name.isEmpty ? Self.name(of: snapshot.path) : snapshot.name
+                source: snapshot.content?.source,
+                fallback: snapshot.name.isEmpty ? Self.name(of: snapshot.ref.path) : snapshot.name
             ),
             surface: surface,
             provenance: WorkspaceProvenance(
-                authority: snapshot.writable ? .local : .historical,
+                authority: writable ? .local : .historical,
                 sourceDescription: snapshot.enclosingTree?.canonical?.locator ?? snapshot.enclosingTree?.name ?? "Local arborsync",
                 physicalURL: physicalURL,
                 treeRootURL: treeRootURL,
-                contentRevision: snapshot.contentRevision
+                contentRevision: snapshot.capabilities.content?.revision
             ),
             materialization: Self.materialization(snapshot.materialization),
-            isWritable: snapshot.writable
+            isWritable: writable
         )
     }
 
@@ -349,17 +350,12 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
     private static func canonicalRemoteLocator(snapshot: NodeSnapshot, fallback: String) -> String {
         guard let root = snapshot.enclosingTree?.canonical?.httpURL,
               let rootURL = URL(string: root) else { return fallback }
-        guard snapshot.path != "/" else { return rootURL.absoluteString }
-        return snapshot.path.split(separator: "/").reduce(rootURL) { partial, component in
+        guard snapshot.ref.path != "/" else { return rootURL.absoluteString }
+        return snapshot.ref.path.split(separator: "/").reduce(rootURL) { partial, component in
             partial.appending(path: String(component))
         }.absoluteString
     }
 
-    private func childTree(_ child: TreeChild, fallback: String) -> String {
-        // Child payloads predate an explicit tree field. The enclosing request
-        // remains authoritative until the protocol adds it to TreeChild.
-        fallback
-    }
 }
 
 public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
@@ -389,7 +385,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
             let task = Task {
                 do {
                     continuation.yield(initial)
-                    var revision = view.snapshot.contentRevision
+                    var revision = view.snapshot.capabilities.content?.revision
                     for try await update in view.updates {
                         let snapshot: NodeSnapshot
                         switch update {
@@ -399,8 +395,8 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
                             guard Self.targets(event, reference: reference) else { continue }
                             snapshot = try await client.node(reference.nodeRef)
                         }
-                        guard snapshot.contentRevision != revision else { continue }
-                        revision = snapshot.contentRevision
+                        guard snapshot.capabilities.content?.revision != revision else { continue }
+                        revision = snapshot.capabilities.content?.revision
                         continuation.yield(try Self.documentSnapshot(snapshot, fallback: reference))
                     }
                     continuation.finish()
@@ -524,13 +520,13 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         _ node: NodeSnapshot,
         fallback: WorkspaceReference
     ) throws -> WorkspaceDocumentSnapshot {
-        guard let source = node.document?.source, let revision = node.contentRevision else {
+        guard let source = node.content?.source, let revision = node.capabilities.content?.revision else {
             throw WorkspaceProviderError.notDocument(fallback)
         }
         return WorkspaceDocumentSnapshot(
             reference: WorkspaceReference(
-                tree: TreeID(rawValue: node.tree),
-                path: node.path,
+                tree: TreeID(rawValue: node.ref.tree),
+                path: node.ref.path,
                 pageID: pageIDFromStableKey(node.ref.stableKey).map(PageID.init(rawValue:))
             ),
             source: source,

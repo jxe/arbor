@@ -3,7 +3,6 @@ import type {
   ArborSyncErrorValue,
   BacklinksPage,
   ChildrenPage,
-  CollectionResultPage,
   ContentMutationRequest,
   ContentRevision,
   ContentWorkspaceOperation,
@@ -15,14 +14,14 @@ import type {
   MutationEffect,
   MutationRequest,
   NodeRef,
-  NodeSnapshot,
+  NodeResponse,
+  NodeSummary,
   PageID,
   RecoveryPage,
   SearchPage,
   SnapshotEnvelope,
   StructuralMutationRequest,
   StructuralWorkspaceOperation,
-  TreeChild,
   TreeRef,
   WorkspaceEvent,
 } from "@arbor/core";
@@ -36,7 +35,6 @@ export type {
   BacklinkEntry,
   BacklinksPage,
   ChildrenPage,
-  CollectionResultPage,
   ContentMutationRequest,
   ContentRevision,
   ContentWorkspaceOperation,
@@ -46,7 +44,6 @@ export type {
   MutationReceipt,
   MutationRequest,
   NodeRef,
-  NodeSnapshot,
   PageID,
   RecoveryEntry,
   RecoveryPage,
@@ -55,11 +52,13 @@ export type {
   TreeID,
   StructuralMutationRequest,
   StructuralWorkspaceOperation,
-  TreeChild,
   TreeRef,
   WorkspaceEvent,
   WorkspaceOperation,
 } from "@arbor/core";
+
+/** A canonical node sample plus endpoint placement context when available. */
+export type NodeSnapshot = NodeResponse;
 
 export class ArborSyncError extends Error {
   readonly payload: ArborSyncErrorEnvelope;
@@ -104,10 +103,10 @@ export interface ArborSyncRESTClientOptions {
 
 export type ObservedNodeUpdate =
   | { kind: "event"; event: WorkspaceEvent }
-  | { kind: "resync"; snapshot: NodeSnapshot };
+  | { kind: "resync"; snapshot: NodeResponse };
 
 export interface ObservedNodeView {
-  snapshot: NodeSnapshot;
+  snapshot: NodeResponse;
   updates: AsyncIterable<ObservedNodeUpdate>;
   close(): void;
 }
@@ -120,12 +119,8 @@ export interface CommunityPairingOffer {
 }
 
 /** Build a canonical node reference, retaining a listed Markdown identity when present. */
-export function childRef(child: TreeChild): NodeRef {
-  return {
-    tree: child.tree,
-    path: child.path,
-    stableKey: child.pageID ? pageIDStableKey(child.pageID) : null,
-  };
+export function childRef(child: NodeSummary): NodeRef {
+  return child.ref;
 }
 
 class AsyncBuffer<T> implements AsyncIterable<T> {
@@ -215,8 +210,8 @@ export class ArborSyncRESTClient {
     };
   }
 
-  async node(ref: NodeRef): Promise<NodeSnapshot> {
-    return this.hydrateNode(await this.nodeSnapshot(ref));
+  node(ref: NodeRef): Promise<NodeResponse> {
+    return this.nodeSnapshot(ref);
   }
 
   trees(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
@@ -239,7 +234,7 @@ export class ArborSyncRESTClient {
     return this.request("/v1/sync", { method: "POST" });
   }
 
-  openSession(path: string): Promise<NodeSnapshot> {
+  openSession(path: string): Promise<NodeResponse> {
     return this.request("/v1/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -290,22 +285,15 @@ export class ArborSyncRESTClient {
     else signal?.addEventListener("abort", close, { once: true });
     void this.pumpNodeView(observedRef, snapshot.observedThrough, updates, controller.signal);
     try {
-      return { snapshot: await this.hydrateNode(snapshot), updates, close };
+      return { snapshot, updates, close };
     } catch (error) {
       close();
       throw error;
     }
   }
 
-  private nodeSnapshot(ref: NodeRef): Promise<NodeSnapshot> {
-    return this.request<NodeSnapshot>(`/v1/node?${refQuery(ref)}`);
-  }
-
-  private async hydrateNode(snapshot: NodeSnapshot): Promise<NodeSnapshot> {
-    if (snapshot.kind === "directory" || snapshot.kind === "collection") {
-      snapshot.children = await this.allChildren(snapshot.ref);
-    }
-    return snapshot;
+  private nodeSnapshot(ref: NodeRef): Promise<NodeResponse> {
+    return this.request<NodeResponse>(`/v1/node?${refQuery(ref)}`);
   }
 
   children(ref: NodeRef, cursor?: string | null): Promise<ChildrenPage> {
@@ -326,13 +314,6 @@ export class ArborSyncRESTClient {
 
   search(tree: TreeRef, query: string, cursor?: string | null): Promise<SearchPage> {
     return this.request(`/v1/search?tree=${encodeURIComponent(tree)}&q=${encodeURIComponent(query)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
-  }
-
-  collection(ref: NodeRef, cursor?: string | null, table?: string): Promise<CollectionResultPage> {
-    const query = new URLSearchParams(refQuery(ref));
-    if (cursor) query.set("cursor", cursor);
-    if (table) query.set("table", table);
-    return this.request(`/v1/collection?${query}`);
   }
 
   recovery(ref: NodeRef, options: { recursive?: boolean; cursor?: string | null } = {}): Promise<RecoveryPage> {

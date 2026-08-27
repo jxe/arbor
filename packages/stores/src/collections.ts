@@ -4,7 +4,9 @@ import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { parse } from "csv-parse";
 import { parseDocument } from "yaml";
-import type { CollectionBacking, CollectionPage, CollectionRow, CollectionSummary, Diagnostic } from "@arbor/core";
+import type { Diagnostic } from "@arbor/core";
+import type { CollectionBacking, CollectionPage, CollectionRow, CollectionSummary } from "@arbor/core/internal";
+import { revisionOf } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { ConnectionStore, connectionName } from "./connections.ts";
 import { SchemaSandbox } from "./schema.ts";
@@ -108,7 +110,9 @@ export class CollectionStore {
     const validated = await Promise.all(rows.map(async (row) => {
       if (!definition.schemaPath) return row;
       const result = await this.schemas.validate(definition.schemaPath, row.values);
-      return { ...row, values: (result.value as Record<string, unknown> | undefined) ?? row.values, diagnostics: [...row.diagnostics, ...result.diagnostics] };
+      const values = (result.value as Record<string, unknown> | undefined) ?? row.values;
+      if (Object.hasOwn(row.values, "id") && !Object.hasOwn(values, "id")) values.id = row.values.id;
+      return { ...row, values, diagnostics: [...row.diagnostics, ...result.diagnostics] };
     }));
     const columns = description.columns.length ? description.columns : [...new Set(validated.flatMap((row) => Object.keys(row.values)))];
     return {
@@ -167,9 +171,15 @@ export class CollectionStore {
     const paths = (definition.markdownPaths ?? []).sort();
     const selected = paths.slice(cursor, cursor + limit + 1);
     const rows = await Promise.all(selected.slice(0, limit).map(async (path) => {
-      const document = parseMarkdown(await readFile(path, "utf8"));
-      const { id: _id, ...values } = document.frontmatter;
-      return { key: String(document.frontmatter.id ?? basename(path, ".md")), path: basename(path, ".md"), values, diagnostics: [] } satisfies CollectionRow;
+      const source = await readFile(path, "utf8");
+      const document = parseMarkdown(source);
+      return {
+        key: String(document.frontmatter.id ?? basename(path, ".md")),
+        path: basename(path, ".md"),
+        revision: revisionOf(source),
+        values: document.frontmatter,
+        diagnostics: [],
+      } satisfies CollectionRow;
     }));
     return { rows, hasMore: selected.length > limit };
   }

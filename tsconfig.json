@@ -18,6 +18,7 @@
       "@arbor/core/logical-url": ["packages/core/src/logical-url.ts"],
       "@arbor/core/node-key": ["packages/core/src/node-key.ts"],
       "@arbor/core/node-model": ["packages/core/src/node-model.ts"],
+      "@arbor/core/internal": ["packages/core/src/internal-types.ts"],
       "@arbor/data": ["packages/data/src/index.ts"],
       "arbor/data": ["packages/data/src/index.ts"],
       "@arbor/stores": ["packages/stores/src/index.ts"],

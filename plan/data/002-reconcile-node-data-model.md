@@ -31,9 +31,9 @@
   rewrites the Markdown alias to the server-visible suffix. The owner index,
   rather than the locator parser, remains responsible for proving that a legacy
   bare fragment uniquely names an old PageID.
-- **Locator integration still open:** migrate Swift/native references,
-  `ArborReplica`'s private Markdown-link parser, search results and the old
-  `TreeChild` projection, and Canopy boundary resolution/redirects to the
+- **Locator integration still open:** migrate the remaining native presentation
+  references, `ArborReplica`'s private Markdown-link parser, PageID-shaped
+  search/event payloads, and Canopy boundary resolution/redirects to the
   stable-key slot. Remove the temporary stable-key-to-PageID bridges only with
   that coordinated node-model cutover. These items remain owned by Phases 3–6
   below rather than being mistaken for completed codec work.
@@ -54,13 +54,24 @@
   stale readable path, while a path-only request remains explicit with
   `stableKey: null`. Local REST rejects omitted identity state and the removed
   PageID/path-hint union. Markdown `id`, ArborKit's presentation-facing
-  `WorkspaceReference`, legacy event effects, search results, and `TreeChild`
-  still use PageID internally until the snapshot/children and native-workspace
-  projections are replaced; they are not an alternate wire reference.
-- **Next checkpoint:** replace TypeScript `NodeSnapshot`, `TreeChild`, and
-  collection results with capabilities, properties, exact-source content, and
-  `NodeSummary` children. Stop eager child draining, then port the same complete
-  protocol shape through Swift before provider expansion.
+  `WorkspaceReference`, legacy event effects, search results, and private
+  physical child records still use PageID internally; they are not an alternate
+  wire reference.
+- **2026-08-27 — snapshot, children, and collection protocol cutover complete:**
+  core exposes the frozen capability-based `NodeSnapshot`, `NodeSummary`, and
+  `ChildrenPage`; physical `TreeNode`/`TreeChild` and collection backing records
+  are provider-internal. Local, managed, system, mounted, and remote adapters
+  emit properties, exact-source content, capabilities, and generic paginated
+  summaries. `/v1/collection` and its TypeScript/Swift clients are removed, the
+  browser renders tables from `NodeSummary.properties`, and neither client
+  hydrates children during `node()` or observed-view admission. Swift rejects
+  the same legacy snapshot fields as TypeScript, native surfaces derive from
+  capabilities, and the macOS app builds against the new protocol.
+- **Next checkpoint:** unify the collection and executable-data store stacks.
+  Add declared stable identity and keyset paging for CSV/JSON/JSONL, add JSON
+  and SQLite rollup providers, make every table/row independently resolvable,
+  and route their writes through generic node mutation semantics before Wire
+  rollup synchronization.
 
 ## Target result
 
@@ -86,9 +97,11 @@ directories, collections, database containers, tables, and rows:
 - TypeScript, Swift, local, managed, offline, and remote providers consume the
   same conformance fixtures.
 
-## Current split to remove
+## Baseline split being removed
 
-The live tree currently has several incompatible models:
+This was the live implementation inventory when the plan was accepted. The
+checkpoint log above records which parts have since been removed; the remaining
+items continue to define migration scope rather than current public contracts:
 
 - `packages/core/src/types.ts` defines `NodeKind` as Markdown/directory/
   collection/file/Postgres and separately defines `CollectionSummary`,

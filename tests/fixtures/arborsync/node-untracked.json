@@ -1,23 +1,32 @@
 {
-  "ref": { "tree": "local", "path": "/Users/joe/Desktop/stray", "stableKey": null },
-  "tree": "local",
-  "path": "/Users/joe/Desktop/stray",
-  "name": "stray",
-  "kind": "markdown",
-  "writable": true,
-  "materialization": "available",
-  "contentRevision": "sha256:stray-content",
-  "bodyState": "stored",
-  "bodyOrigin": "sibling",
-  "document": {
-    "source": "Untracked note\n",
-    "frontmatter": {},
-    "frontmatterSource": null,
-    "bodySource": "Untracked note\n",
-    "blocks": [
-      { "id": "block-1", "type": "paragraph", "content": "Untracked note", "children": [] }
-    ]
+  "ref": {
+    "tree": "local",
+    "path": "/Users/joe/Desktop/stray",
+    "stableKey": null
   },
+  "name": "stray",
+  "revision": "sha256:stray-content",
+  "properties": {},
+  "capabilities": {
+    "properties": {
+      "revision": "sha256:stray-content",
+      "writable": true
+    },
+    "content": {
+      "revision": "sha256:stray-content",
+      "mediaType": "text/markdown",
+      "format": "markdown",
+      "writable": true
+    }
+  },
+  "content": {
+    "source": "Untracked note\n",
+    "representation": {
+      "state": "stored",
+      "origin": "sibling"
+    }
+  },
+  "materialization": "available",
   "diagnostics": [],
   "observedThrough": "11111111-1111-1111-1111-111111111111:4"
 }

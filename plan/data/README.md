@@ -7,7 +7,7 @@ dependency column controls execution order.
 | Plan | Outcome | Priority | Status | Depends on |
 |---|---|---:|---|---|
 | [001](001-replicated-store-topology.md) | Add placement-level SQLite projection of Postgres: read-only first, then Arbor-managed bidirectional replication | P2 | DEFERRED — specify now, implement only after the node model is unified | 002; Applications 001 compiler and Canopy execution |
-| [002](002-reconcile-node-data-model.md) | Make files, documents, directories, collections, tables, and rows one capability-based node model across every implementation | P1 | PLANNED | accepted data-model/format/locators/stores/wire specification |
+| [002](002-reconcile-node-data-model.md) | Make files, documents, directories, collections, tables, and rows one capability-based node model across every implementation | P1 | IN PROGRESS — refs, snapshots, children, clients, and collection endpoint cut over; store unification next | accepted data-model/format/locators/stores/wire specification |
 
 Plan 002 is the architectural prerequisite. Plan 001 must not introduce a
 second row protocol, collection endpoint, replication log, or identity model

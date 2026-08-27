@@ -1,15 +1,21 @@
-import type {
-  CollectionPage,
-  CollectionSummary,
-  Diagnostic,
-  MarkdownDocument,
-  SearchResult,
-  TreeChild,
-} from "./types.ts";
+import type { Diagnostic, SearchResult } from "./types.ts";
 import { sha256 } from "./hash.ts";
-import type { NodeRef, ResolvedNodeRef } from "./node-model.ts";
+import type { NodeRef, NodeSnapshot, ResolvedNodeRef } from "./node-model.ts";
 
-export type { NodeRef, ResolvedNodeRef } from "./node-model.ts";
+export type {
+  ChildRepresentationSummary,
+  ChildrenPage,
+  IdentityRule,
+  JSONValue,
+  NodeCapabilities,
+  NodeContent,
+  NodeDiagnostic,
+  NodeRef,
+  NodeSnapshot,
+  NodeSummary,
+  ResolvedNodeRef,
+  RollupDescriptor,
+} from "./node-model.ts";
 
 export type LogicalPath = string;
 export type PageID = string;
@@ -148,39 +154,9 @@ export interface RemoteTreeDescriptor extends TreeDescriptor {
   update: string;
 }
 
-export type ProtocolNodeKind = "markdown" | "directory" | "collection" | "database" | "file";
-
-export interface NodeSnapshot {
-  ref: ResolvedNodeRef;
-  /** Scope the snapshot resolved in, after canonicalization into an owning root. */
-  tree: TreeRef;
-  /** The enclosing durable or migration tree, when applicable. */
+/** Deployment/placement context carried by local and Canopy node responses. */
+export interface NodeResponse extends NodeSnapshot {
   enclosingTree?: LocalTreeDescriptor;
-  /** Canonical-path convenience field used by hand-maintained clients. */
-  path: LogicalPath;
-  name: string;
-  kind: ProtocolNodeKind;
-  writable: boolean;
-  materialization: "available" | "placeholder";
-  contentRevision?: ContentRevision;
-  directoryRevision?: DirectoryRevision;
-  /** Whether `document` reflects stored bytes or an implicit (bodyless) directory. */
-  bodyState?: "stored" | "implicit";
-  /** Which physical representation supplies a stored body. Diagnostic only. */
-  bodyOrigin?: "sibling" | "index";
-  document?: MarkdownDocument;
-  collection?: CollectionSummary;
-  diagnostics: Diagnostic[];
-  observedThrough: EventCursor;
-  /** Ergonomic client field. The wire node response omits this and uses /v1/children. */
-  children?: TreeChild[];
-}
-
-export interface ChildrenPage {
-  parent: ResolvedNodeRef;
-  items: TreeChild[];
-  nextCursor: string | null;
-  observedThrough: EventCursor;
 }
 
 export interface SearchPage {
@@ -202,10 +178,6 @@ export interface BacklinksPage {
   observedThrough: EventCursor;
 }
 
-export interface CollectionResultPage extends CollectionPage {
-  observedThrough: EventCursor;
-}
-
 export interface BlockRecoveryEntry {
   kind: "block";
   ref: ResolvedNodeRef;
@@ -220,7 +192,8 @@ export interface TrashRecoveryEntry {
   kind: "trash";
   ref: ResolvedNodeRef;
   originalPath: LogicalPath;
-  nodeKind: ProtocolNodeKind;
+  /** Physical recovery classification, not a logical node kind. */
+  nodeKind: "markdown" | "directory" | "file";
   changedAt: number;
 }
 

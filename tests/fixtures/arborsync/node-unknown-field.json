@@ -1,23 +1,38 @@
 {
-  "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "stableKey": "[[\"id\",\"abc123\"]]" },
-  "tree": "tr_notes7f3q2ab7c",
-  "path": "/notes/today",
-  "name": "today",
-  "kind": "markdown",
-  "writable": true,
-  "materialization": "available",
-  "contentRevision": "sha256:content",
-  "document": {
-    "source": "---\nid: abc123\n---\nHello\n",
-    "frontmatter": { "id": "abc123" },
-    "frontmatterSource": "---\nid: abc123\n---\n",
-    "bodySource": "Hello\n",
-    "blocks": [
-      { "id": "block-1", "type": "paragraph", "content": "Hello", "children": [], "futureBlockField": true }
-    ],
-    "futureDocumentField": "ignored"
+  "ref": {
+    "tree": "tr_notes7f3q2ab7c",
+    "path": "/notes/today",
+    "stableKey": "[[\"id\",\"abc123\"]]"
   },
+  "name": "today",
+  "revision": "sha256:content",
+  "properties": {
+    "id": "abc123"
+  },
+  "capabilities": {
+    "properties": {
+      "revision": "sha256:content",
+      "writable": true
+    },
+    "content": {
+      "revision": "sha256:content",
+      "mediaType": "text/markdown",
+      "format": "markdown",
+      "writable": true
+    }
+  },
+  "content": {
+    "source": "---\nid: abc123\n---\nHello\n",
+    "representation": {
+      "state": "stored",
+      "origin": "sibling"
+    },
+    "futureContentField": "ignored"
+  },
+  "materialization": "available",
   "diagnostics": [],
   "observedThrough": "11111111-1111-1111-1111-111111111111:4",
-  "futureNodeField": { "ignored": true }
+  "futureNodeField": {
+    "ignored": true
+  }
 }

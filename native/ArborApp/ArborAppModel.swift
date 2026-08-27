@@ -351,7 +351,7 @@ final class ArborWorkspaceState {
             visitDirectoryRequest
         )
         let localConfiguration = try loadLocalAccountConfiguration()
-        let connected = credentials.document?.frontmatter.string("communityAccount") == "connected"
+        let connected = credentials.properties.string("communityAccount") == "connected"
         let configurationTree = treeList.snapshot.first { $0.kind == "account-configuration" }?.id
         let trees = treeList.snapshot.map {
             LocalArborSyncTreePresentation(
@@ -363,13 +363,16 @@ final class ArborWorkspaceState {
                 sync: $0.sync
             )
         }
-        async let visitsRequest = loadLocalArborSyncVisits(client: client, children: visitDirectory.children ?? [])
+        async let visitsRequest = loadLocalArborSyncVisits(
+            client: client,
+            children: try await client.allChildren(visitDirectory.ref)
+        )
         let visits = try await visitsRequest
         return LocalArborSyncOverview(
             origin: connected ? localConfiguration.origin : nil,
             handle: connected ? localConfiguration.handle : nil,
             configurationTree: configurationTree,
-            credentialAvailable: connected && credentials.document?.frontmatter.bool("credentialAvailable") == true,
+            credentialAvailable: connected && credentials.properties.bool("credentialAvailable") == true,
             trees: trees,
             visits: visits,
             devices: connected ? localConfiguration.devices : [],
@@ -470,12 +473,13 @@ final class ArborWorkspaceState {
         } ?? ""
     }
 
-    private func loadLocalArborSyncVisits(client: ArborSyncRESTClient, children: [TreeChild]) async throws -> [LocalArborSyncVisitPresentation] {
+    private func loadLocalArborSyncVisits(client: ArborSyncRESTClient, children: [NodeSummary]) async throws -> [LocalArborSyncVisitPresentation] {
         let values = try await withThrowingTaskGroup(of: (Int, LocalArborSyncVisitPresentation?).self) { group in
             for (index, child) in children.enumerated() {
                 group.addTask {
-                    let node = try await client.node(.path(child.path, tree: "system"))
-                    guard let fields = node.document?.frontmatter,
+                    let node = try await client.node(child.ref)
+                    let fields = node.properties
+                    guard
                           let id = fields.string("id"),
                           let tree = fields.string("tree"),
                           let locator = fields.string("locator") else { return (index, nil) }

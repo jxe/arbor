@@ -5,11 +5,11 @@ import { join, resolve } from "node:path";
 import type {
   BacklinksPage,
   ChildrenPage,
-  CollectionResultPage,
   MutationReceipt,
   MutationRequest,
   NodeRef,
-  NodeSnapshot,
+  NodeResponse,
+  NodeSummary,
   RecoveryPage,
   SearchPage,
   LocalTreeDescriptor,
@@ -19,6 +19,7 @@ import type {
   TreeRef,
   WorkspaceOperation,
 } from "@arbor/core";
+import type { TreeNode } from "@arbor/core/internal";
 import { LOCAL_TREE, SYSTEM_TREE, canonicalNodePath, generateArborID, pageIDFromStableKey, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
 import { completeDirectoryDocument, parseMarkdown } from "@arbor/editor";
 import { FsConflictError } from "@arbor/fs";
@@ -75,6 +76,8 @@ import {
   withFilePatch,
 } from "./sync-state.ts";
 import type { ConfirmedSourcePatch } from "./workspace.ts";
+import { sampleTreeNode, summarizeSample, summarizeTreeNode } from "./node-sampling.ts";
+
 
 const SYSTEM_REMOTE_TIMEOUT_MS = 1_000;
 
@@ -125,6 +128,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   readonly localFs: FilesystemService;
   readonly communityConfig = new CommunityConfigStore();
   readonly visitedTrees = new VisitedTreeStore();
+  private remoteChildren = new Map<string, NodeSummary[]>();
   private syncTimer?: ReturnType<typeof setInterval>;
   private syncing = false;
   private syncRequested = false;
@@ -181,7 +185,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   /** Activates filesystem watching and durable identity for a client's browsing root. */
-  async openSession(path: string): Promise<NodeSnapshot> {
+  async openSession(path: string): Promise<NodeResponse> {
     await this.trees.openSession(path);
     return this.snapshot({ tree: LOCAL_TREE, path, stableKey: null });
   }
@@ -253,7 +257,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     throw new ProtocolError("not-found", `Unknown tree scope: ${tree}`, 404);
   }
 
-  async snapshot(ref: NodeRef): Promise<NodeSnapshot> {
+  async snapshot(ref: NodeRef): Promise<NodeResponse> {
     if (ref.tree !== LOCAL_TREE && ref.tree !== SYSTEM_TREE && this.remoteAuthorities.has(ref.tree) && !await this.trees.workspaceByTree(ref.tree)) {
       const remote = this.remoteAuthorities.get(ref.tree)!;
       const locator = `${remote.locator.replace(/\/$/, "")}${ref.path === "/" ? "" : ref.path}`;
@@ -303,7 +307,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return { ...resolution, ...(local ? { enclosingTree: local } : {}) };
   }
 
-  async remoteSnapshot(locatorInput: string): Promise<NodeSnapshot> {
+  async remoteSnapshot(locatorInput: string): Promise<NodeResponse> {
     const locator = (() => {
       try { return new URL(locatorInput).href; }
       catch { return locatorInput; }
@@ -323,7 +327,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
             {
               code: "cached-remote-visit",
               message: `Showing the copy visited on ${cached.visitedAt}; the community is currently unavailable.`,
-              path: cached.snapshot.path,
+              path: cached.snapshot.ref.path,
               severity: "warning",
             },
           ],
@@ -334,7 +338,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   /** Resolve one unplaced canonical URL into a read-only, in-memory node. */
-  private async fetchRemoteSnapshot(locatorInput: string): Promise<NodeSnapshot> {
+  private async fetchRemoteSnapshot(locatorInput: string): Promise<NodeResponse> {
     let locator: URL;
     try { locator = new URL(locatorInput); }
     catch { throw new ProtocolError("invalid-reference", "Remote browsing requires an HTTP or Arbor URL", 400); }
@@ -377,36 +381,28 @@ export class ArborSyncDaemon implements AsyncDisposable {
       placement: "remote",
       sync: "idle",
     };
-    const base = {
-      tree: remote.id,
-      enclosingTree,
-      writable: false,
-      materialization: "available" as const,
-      observedThrough,
-      diagnostics: logical.duplicateBody ? [{
+    const diagnostics = logical.duplicateBody ? [{
         code: "duplicate-body-representation",
         message: `${canonicalNodePath(remotePath!)} has both a sibling Markdown body and _index.md; keep only one.`,
         path: canonicalNodePath(remotePath!),
         severity: "error" as const,
-      }] : [],
-    };
+      }] : [];
+    const context = { tree: remote.id, enclosingTree, observedThrough, writable: false };
     if (object.type === "file") {
       const markdown = objectName.endsWith(".md");
       const source = new TextDecoder().decode(object.bytes);
       const document = markdown ? parseMarkdown(source) : undefined;
       const authoredTitle = document?.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
-      return {
-        ...base,
-        ref: { tree: remote.id, path: canonicalNodePath(remotePath!), stableKey: null },
+      return sampleTreeNode({
         path: canonicalNodePath(remotePath!),
         name: authoredTitle || (markdown ? objectName.slice(0, -3) : objectName),
         kind: markdown ? "markdown" : "file",
-        ...(markdown ? {
-          contentRevision: revisionOf(source),
-          bodyState: "stored" as const,
-          document,
-        } : {}),
-      };
+        revision: revisionOf(object.bytes),
+        writable: false,
+        materialization: "available",
+        ...(document ? { document, bodyOrigin: "sibling" as const } : {}),
+        diagnostics,
+      }, context);
     }
 
     const source = logical.body ? new TextDecoder().decode(logical.body.bytes) : "";
@@ -426,45 +422,63 @@ export class ArborSyncDaemon implements AsyncDisposable {
           ? parseMarkdown(new TextDecoder().decode(childObject.bytes))
           : null;
         const pageID = childDocument && typeof childDocument.frontmatter.id === "string" ? childDocument.frontmatter.id : undefined;
-        return {
-          tree: remote.id,
+        const node: TreeNode = {
           name,
           path,
           kind: entry.tree || childObject?.type === "directory" ? "directory" as const : markdown ? "markdown" as const : "file" as const,
+          revision: entry.hash ?? entry.tree ?? revisionOf(path),
+          writable: false,
+          materialization: "available" as const,
+          ...(childDocument ? { document: childDocument, bodyOrigin: "sibling" as const } : {}),
+          diagnostics: [],
+        };
+        const summary = summarizeTreeNode(node, remote.id, false);
+        if (pageID) summary.ref.stableKey = `[["id",${JSON.stringify(pageID)}]]`;
+        return { summary, treeChild: {
+          tree: remote.id,
+          name,
+          path,
+          kind: node.kind,
           materialization: "available" as const,
           ...(pageID ? { pageID } : {}),
-        };
+        } };
       }))).filter((child): child is NonNullable<typeof child> => child !== null);
     const isCollectionDirectory = object.entries.some((entry) =>
       entry.name === "schema.ts" || ["_store.csv", "_store.jsonl", "_store.sqlite3", "_store.postgres"].includes(entry.name)
     );
     const operationalChildren = isCollectionDirectory
-      ? children.filter((child) => child.kind !== "markdown")
+      ? children.filter((child) => child.treeChild.kind !== "markdown")
       : children;
-    const complete = completeDirectoryDocument(remotePath!, source, operationalChildren);
+    const complete = completeDirectoryDocument(remotePath!, source, operationalChildren.map((child) => child.treeChild));
     const authoredTitle = complete.document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
     const descriptors = operationalChildren
-      .map((child) => ({ path: canonicalNodePath(child.path), kind: child.kind, pageID: child.pageID ?? null }))
+      .map(({ treeChild: child }) => ({ path: canonicalNodePath(child.path), kind: child.kind, pageID: child.pageID ?? null }))
       .sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
-    return {
-      ...base,
-      ref: { tree: remote.id, path: canonicalNodePath(remotePath!), stableKey: null },
-      path: canonicalNodePath(remotePath!),
+    const path = canonicalNodePath(remotePath!);
+    this.remoteChildren.set(`${remote.id}\0${path}`, children.map((child) => child.summary));
+    return sampleTreeNode({
+      path,
       name: authoredTitle || objectName,
-      kind: "directory",
-      contentRevision: revisionOf(`${source}\0${JSON.stringify(descriptors)}`),
-      directoryRevision: revisionOf(operationalChildren.map((child) => `${child.path}:${child.kind}`).join("\n")),
-      bodyState: logical.body ? "stored" : "implicit",
+      kind: isCollectionDirectory ? "collection" : "directory",
+      revision: revisionOf(`${source}\0${JSON.stringify(descriptors)}`),
+      writable: false,
+      materialization: "available",
       ...(logical.bodyOrigin ? { bodyOrigin: logical.bodyOrigin } : {}),
       document: complete.document,
-      children,
-    };
+      children: operationalChildren.map((child) => child.treeChild),
+      diagnostics,
+    }, context);
   }
 
   async children(ref: NodeRef, cursor?: string | null): Promise<ChildrenPage> {
     if (ref.tree !== LOCAL_TREE && ref.tree !== SYSTEM_TREE && this.remoteAuthorities.has(ref.tree) && !await this.trees.workspaceByTree(ref.tree)) {
       const snapshot = await this.snapshot(ref);
-      return { parent: snapshot.ref, items: snapshot.children ?? [], nextCursor: null, observedThrough: snapshot.observedThrough };
+      return {
+        parent: snapshot.ref,
+        items: this.remoteChildren.get(`${snapshot.ref.tree}\0${snapshot.ref.path}`) ?? [],
+        nextCursor: null,
+        observedThrough: snapshot.observedThrough,
+      };
     }
     const scope = await this.resolveScope(ref);
     if (scope.kind === "root") {
@@ -475,30 +489,25 @@ export class ArborSyncDaemon implements AsyncDisposable {
         ...this.trees.localMountedChildren(scope.workspace.tree, canonicalNodePath(scope.ref.path)),
       ];
       if (!mounted.length) return page;
-      const existing = new Set(page.items.map((item) => item.path));
+      const existing = new Set(page.items.map((item) => item.ref.path));
       return {
         ...page,
         items: [
           ...page.items,
-          ...mounted.filter((item) => !existing.has(item.path)).map((item) => ({
-            tree: item.tree,
+          ...mounted.filter((item) => !existing.has(item.path)).map((item) => summarizeTreeNode({
             name: item.name,
             path: item.path,
             kind: "directory" as const,
+            revision: revisionOf(`${item.tree}\0${item.path}`),
+            writable: false,
             materialization: "available" as const,
-          })),
+            diagnostics: [],
+          }, item.tree, false)),
         ].sort((a, b) => a.name.localeCompare(b.name)),
       };
     }
     if (scope.kind === "local") return this.localFs.children(scope.path, cursor);
     return this.systemChildren(scope.path);
-  }
-
-  async collectionPage(ref: NodeRef, cursor?: string | null, table?: string): Promise<CollectionResultPage> {
-    const scope = await this.resolveScope(ref);
-    if (scope.kind === "root") return scope.workspace.collectionPage(scope.ref, cursor, table);
-    if (scope.kind === "local") return this.localFs.collectionPage(scope.path, cursor, table);
-    throw new ProtocolError("unsupported-operation", "The system scope has no collections", 422);
   }
 
   async backlinksPage(ref: NodeRef, cursor?: string | null): Promise<BacklinksPage> {
@@ -599,7 +608,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       throw new ProtocolError("unsupported-operation", "Files are unavailable in the system scope", 422);
     }
     const path = scope.kind === "root"
-      ? ("path" in scope.ref ? scope.ref.path : (await scope.workspace.snapshot(scope.ref)).path)
+      ? ("path" in scope.ref ? scope.ref.path : (await scope.workspace.snapshot(scope.ref)).ref.path)
       : scope.path;
     const surface = await this.scopedFileSurface(scope, path, false);
     if (!surface) {
@@ -699,74 +708,62 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   /** Safe diagnostic projections. Account configuration is ordinary tree content. */
-  private async systemSnapshot(path: string): Promise<NodeSnapshot> {
+  private async systemSnapshot(path: string): Promise<NodeResponse> {
     await this.trees.descriptors();
     const observedThrough = this.events.currentCursor();
-    const base = {
-      tree: SYSTEM_TREE,
-      writable: false,
-      materialization: "available" as const,
-      diagnostics: [],
-      observedThrough,
-    };
     if (path === "/") {
-      return {
-        ...base,
-        ref: { tree: SYSTEM_TREE, path: "/", stableKey: null },
+      return sampleTreeNode({
         path: "/",
         name: "system",
         kind: "directory",
-        contentRevision: revisionOf(""),
-        directoryRevision: revisionOf(""),
-        bodyState: "implicit",
+        revision: revisionOf(""),
+        writable: false,
+        materialization: "available",
         document: parseMarkdown(""),
         diagnostics: [],
-      };
+      }, { tree: SYSTEM_TREE, observedThrough, writable: false });
     }
     if (path === "/visited") {
       const listing = (await this.visitedTrees.list()).map((visit) => visit.id);
       const revision = revisionOf(listing.join("\n"));
-      return {
-        ...base,
-        ref: { tree: SYSTEM_TREE, path, stableKey: null },
+      return sampleTreeNode({
         path,
         name: path.slice(1),
         kind: "directory",
-        contentRevision: revision,
-        directoryRevision: revision,
-        bodyState: "implicit",
+        revision,
+        writable: false,
+        materialization: "available",
         document: parseMarkdown(""),
         diagnostics: this.trees.diagnostics(),
-      };
+      }, { tree: SYSTEM_TREE, observedThrough, writable: false });
     }
     const record = await this.systemRecordAt(path);
     if (!record) {
       throw new ProtocolError("not-found", `Node not found: system:${path.slice(1)}`, 404, { path });
     }
-    return {
-      ...base,
-      ref: { tree: SYSTEM_TREE, path, stableKey: null },
+    return sampleTreeNode({
       path,
       name: record.segment,
       kind: "markdown",
-      contentRevision: revisionOf(record.record.source),
-      bodyState: "stored",
+      revision: revisionOf(record.record.source),
+      writable: false,
+      materialization: "available",
+      bodyOrigin: "sibling",
       document: parseMarkdown(record.record.source),
       diagnostics: [],
-    };
+    }, { tree: SYSTEM_TREE, observedThrough, writable: false });
   }
 
   private async systemChildren(path: string): Promise<ChildrenPage> {
     await this.trees.descriptors();
     const observedThrough = this.events.currentCursor();
     if (path === "/") {
+      const items = await Promise.all(["/credentials", "/visited", "/diagnostics"].map(async (childPath) =>
+        summarizeSample(await this.systemSnapshot(childPath))
+      ));
       return {
         parent: { tree: SYSTEM_TREE, path: "/", stableKey: null },
-        items: [
-          { tree: SYSTEM_TREE, name: "credentials", path: "/credentials", kind: "markdown", materialization: "available" },
-          { tree: SYSTEM_TREE, name: "visited", path: "/visited", kind: "directory", materialization: "available" },
-          { tree: SYSTEM_TREE, name: "diagnostics", path: "/diagnostics", kind: "markdown", materialization: "available" },
-        ],
+        items,
         nextCursor: null,
         observedThrough,
       };
@@ -775,13 +772,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       const visits = await this.visitedTrees.list();
       return {
         parent: { tree: SYSTEM_TREE, path: "/visited", stableKey: null },
-        items: visits.map((visit) => ({
-          tree: SYSTEM_TREE,
-          name: visit.name,
-          path: `/visited/${visit.id}`,
-          kind: "markdown" as const,
-          materialization: "available" as const,
-        })),
+        items: await Promise.all(visits.map(async (visit) => summarizeSample(await this.systemSnapshot(`/visited/${visit.id}`)))),
         nextCursor: null,
         observedThrough,
       };

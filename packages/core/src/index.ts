@@ -2,6 +2,7 @@ export * from "./types.ts";
 export * from "./logical-path.ts";
 export * from "./logical-url.ts";
 export * from "./node-key.ts";
+export * from "./node-model.ts";
 export * from "./path.ts";
 export * from "./hash.ts";
 export * from "./page-id.ts";

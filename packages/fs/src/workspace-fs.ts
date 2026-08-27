@@ -2,7 +2,8 @@ import { constants } from "node:fs";
 import { access, cp, mkdir, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import * as watcher from "@parcel/watcher";
-import type { Diagnostic, MarkdownDocument, TreeChild } from "@arbor/core";
+import type { Diagnostic, MarkdownDocument } from "@arbor/core";
+import type { TreeChild } from "@arbor/core/internal";
 import {
   canonicalNodePath,
   isPageID,

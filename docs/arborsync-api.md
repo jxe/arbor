@@ -63,15 +63,13 @@ Every `NodeRef`, structural or content operation, result, event, effect, and
 relevant error names its tree explicitly. Omitted-tree defaults are invalid.
 
 ```ts
-type NodeRef =
-  | { tree: TreeRef; path: LogicalPath }
-  | { tree: TreeRef; pageID: string; pathHint?: LogicalPath };
-
-type ResolvedNodeRef = {
+type NodeRef = {
   tree: TreeRef;
   path: LogicalPath;
-  pageID?: string;
+  stableKey: string | null;
 };
+
+type ResolvedNodeRef = NodeRef;
 
 type LocatorResolution = {
   ref: ResolvedNodeRef;
@@ -167,27 +165,34 @@ tree, placement, or directory.
 ## 4. Node reads
 
 ```text
-GET /v1/node?tree={TreeRef}&path={path}[&pageID={id}][&revision={hash}]
-GET /v1/file?tree={TreeRef}&path={path}[&revision={hash}]
-GET /v1/children?tree={TreeRef}&path={path}[&revision={hash}][&cursor={cursor}]
+GET /v1/node?tree={TreeRef}&path={path}&stableKey={key-or-empty}[&revision={hash}]
+GET /v1/file?tree={TreeRef}&path={path}&stableKey={key-or-empty}[&revision={hash}]
+GET /v1/children?tree={TreeRef}&path={path}&stableKey={key-or-empty}[&revision={hash}][&cursor={cursor}]
 GET /v1/search?tree={TreeRef}&q={query}[&cursor={cursor}]
-GET /v1/backlinks?tree={TreeRef}&path={path}[&pageID={id}][&cursor={cursor}]
-GET /v1/collection?tree={TreeRef}&path={path}[&table={name}][&cursor={cursor}]
-GET /v1/recovery?tree={TreeRef}[&path={path}][&recursive=true][&cursor={cursor}]
+GET /v1/backlinks?tree={TreeRef}&path={path}&stableKey={key-or-empty}[&cursor={cursor}]
+GET /v1/recovery?tree={TreeRef}&path={path}&stableKey={key-or-empty}[&recursive=true][&cursor={cursor}]
 ```
 
-Every route requires `tree`, even where it is `local` or `system`. Logical
-paths are decoded exactly once. Revision reads are immutable and read-only.
+Every node-addressed route requires the complete `tree`, `path`, and
+`stableKey` reference, even where `tree` is `local` or `system`. An empty
+`stableKey` means explicit JSON `null`; a non-empty value is canonical
+identity-key JSON percent-encoded by the client. The removed PageID/path-hint
+union is invalid. Logical paths are decoded exactly once. Revision reads are immutable and read-only.
 Mutable JSON reads include `observedThrough`; lists and bare arrays use explicit
 snapshot/page envelopes. `GET /v1/file` returns exact bytes and does not need an
 independent cursor because its guarding content revision is obtained from the
-node snapshot.
+node snapshot. A node snapshot contains `ref`, properties, capabilities,
+optional exact-source content, materialization, diagnostics, and observation
+state. Child pages contain `NodeSummary` values and are fetched explicitly;
+`GET /v1/node` never hydrates or drains children.
 
 Logical-node rules come from the [data model](../spec/01-data-model.md); exact
 directory source, `_index.md`, frontmatter, and child-placement rules come from
 the portable [directory projection](../spec/02-directory-format.md).
-Children, search, backlinks, collections, recovery entries, mounted boundaries,
-events, and effects all retain explicit tree scope.
+Children are also the table/row browsing API: child summaries carry projected
+row properties and schema capability without a collection-specific endpoint.
+Children, search, backlinks, recovery entries, mounted boundaries, events, and
+effects all retain explicit tree scope.
 
 ## 5. Authored mutations
 
@@ -201,7 +206,7 @@ POST /v1/imports
 client-generated idempotency identity for one exact serialized intent.
 Operations include ordinary content and structural actions: `writeText`,
 `writeMarkdown`, `create`, `move`, `copy`, `trash`, `restore`, and supported
-collection mutations. Each operation includes explicit tree-scoped references
+data-node mutations. Each operation includes explicit tree-scoped references
 and the appropriate content or directory base revision.
 
 `writeText` is the exact guarded UTF-8 operation for ordinary files such as the

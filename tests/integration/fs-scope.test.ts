@@ -1,3 +1,4 @@
+import { nodeDocument, nodeKind } from "../helpers/node-snapshot.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -55,8 +56,8 @@ afterAll(async () => {
 describe("the local filesystem scope", () => {
   test("browses directories above the session root", async () => {
     const node = await client.node({ tree: "local", path: outer, stableKey: null });
-    expect(node.tree).toBe("local");
-    expect(node.kind).toBe("directory");
+    expect(node.ref.tree).toBe("local");
+    expect(nodeKind(node)).toBe("directory");
     expect(node.enclosingTree).toBeUndefined();
     const children = await client.children({ tree: "local", path: outer, stableKey: null });
     const names = children.items.map((item) => item.name);
@@ -68,23 +69,23 @@ describe("the local filesystem scope", () => {
   test("reads and CAS-edits an untracked Markdown file with byte-identical no-op saves", async () => {
     const path = join(outer, "stray", "note");
     const node = await client.node({ tree: "local", path, stableKey: null });
-    expect(node.tree).toBe("local");
-    expect(node.document?.bodySource).toBe("Untracked note\n");
+    expect(node.ref.tree).toBe("local");
+    expect(nodeDocument(node)?.bodySource).toBe("Untracked note\n");
     // No-op save round-trips byte-identically and mints no id.
     const noop: MutationRequest = {
       mutationID: "fs-noop-save",
       operations: [{
         op: "writeMarkdown",
         ref: { tree: "local", path, stableKey: null },
-        baseContentRevision: node.contentRevision!,
-        source: node.document!.source,
+        baseContentRevision: node.capabilities.content?.revision!,
+        source: nodeDocument(node)!.source,
       }],
     };
     const receipt = await client.mutate(noop);
     expect(receipt.effects[0]?.tree).toBe("local");
     const after = await client.node({ tree: "local", path, stableKey: null });
-    expect(after.contentRevision).toBe(node.contentRevision);
-    expect(after.document?.frontmatter.id).toBeUndefined();
+    expect(after.capabilities.content?.revision).toBe(node.capabilities.content?.revision);
+    expect(nodeDocument(after)?.frontmatter.id).toBeUndefined();
     // Retry returns the same receipt; a mismatched reuse is rejected.
     expect(await client.mutate(noop)).toEqual(receipt);
     // Stale CAS surfaces as a revision conflict with the current snapshot.
@@ -94,7 +95,7 @@ describe("the local filesystem scope", () => {
         op: "writeMarkdown",
         ref: { tree: "local", path, stableKey: null },
         baseContentRevision: "sha256:not-current",
-        source: node.document!.source,
+        source: nodeDocument(node)!.source,
       }],
     };
     expect(client.mutate(stale)).rejects.toThrow();
@@ -103,13 +104,13 @@ describe("the local filesystem scope", () => {
   test("exposes provider placeholders as unavailable logical files", async () => {
     const path = join(outer, "stray", "offline.txt");
     const placeholder = await client.node({ tree: "local", path, stableKey: null });
-    expect(placeholder.kind).toBe("file");
+    expect(nodeKind(placeholder)).toBe("file");
     expect(placeholder.materialization).toBe("placeholder");
-    expect(placeholder.writable).toBe(false);
+    expect(placeholder.capabilities.content?.writable).toBe(false);
     const children = await client.children({ tree: "local", path: join(outer, "stray"), stableKey: null });
     expect(children.items).toContainEqual(expect.objectContaining({
       name: "offline.txt",
-      path,
+      ref: expect.objectContaining({ path }),
       materialization: "placeholder",
     }));
     expect(await (await fetch(`${base}${path}`)).text()).not.toContain("provider marker");
@@ -117,8 +118,8 @@ describe("the local filesystem scope", () => {
 
   test("canonicalizes an absolute path inside the launch workspace", async () => {
     const viaLocal = await client.node({ tree: "local", path: join(root, "inside"), stableKey: null });
-    expect(viaLocal.tree).not.toBe("local");
-    expect(viaLocal.path).toBe("/inside");
+    expect(viaLocal.ref.tree).not.toBe("local");
+    expect(viaLocal.ref.path).toBe("/inside");
     expect(viaLocal.enclosingTree).toMatchObject({
       placement: "placed",
       access: "write",
@@ -129,49 +130,49 @@ describe("the local filesystem scope", () => {
   test("uses WorkspaceFS authored ordering through an absolute browser path", async () => {
     const absolute = join(root, "ordered");
     const directory = await client.node({ tree: "local", path: absolute, stableKey: null });
-    expect(directory.tree).not.toBe("local");
-    expect(directory.path).toBe("/ordered");
-    const first = directory.document!.blocks.find((block) => block.type === "standaloneLink" && block.props?.path === "first");
+    expect(directory.ref.tree).not.toBe("local");
+    expect(directory.ref.path).toBe("/ordered");
+    const first = nodeDocument(directory)!.blocks.find((block) => block.type === "standaloneLink" && block.props?.path === "first");
     expect(first).toBeDefined();
 
     await client.mutateContent({
       op: "writeMarkdown",
-      ref: { tree: directory.tree, path: "/ordered", stableKey: null },
-      baseContentRevision: directory.contentRevision!,
+      ref: { tree: directory.ref.tree, path: "/ordered", stableKey: null },
+      baseContentRevision: directory.capabilities.content?.revision!,
       source: "[second](second)\n\n[first](first)\n\n",
     }, "workspace-absolute-authored-order");
 
     const reordered = await client.node({ tree: "local", path: absolute, stableKey: null });
-    expect(reordered.document!.blocks
+    expect(nodeDocument(reordered)!.blocks
       .filter((block) => block.type === "standaloneLink")
       .map((block) => block.props?.path)).toEqual(["second", "first"]);
   });
 
   test("canonicalizes a symlink from untracked space into the launch workspace", async () => {
     const viaLink = await client.node({ tree: "local", path: join(outer, "stray", "link-into-root"), stableKey: null });
-    expect(viaLink.tree).not.toBe("local");
-    expect(viaLink.path).toBe("/inside");
-    expect(viaLink.kind).toBe("markdown");
+    expect(viaLink.ref.tree).not.toBe("local");
+    expect(viaLink.ref.path).toBe("/inside");
+    expect(nodeKind(viaLink)).toBe("markdown");
     expect(viaLink.enclosingTree).toMatchObject({ placement: "placed", access: "write", osPath: root });
   });
 
   test("uses the shared authored-order engine without minting identity in untracked space", async () => {
     const absolute = join(outer, "stray", "ordered");
     const directory = await client.node({ tree: "local", path: absolute, stableKey: null });
-    expect(directory.tree).toBe("local");
-    expect(directory.document?.frontmatter.id).toBeUndefined();
-    const first = directory.document!.blocks.find((block) => block.type === "standaloneLink" && block.props?.path === "first");
+    expect(directory.ref.tree).toBe("local");
+    expect(nodeDocument(directory)?.frontmatter.id).toBeUndefined();
+    const first = nodeDocument(directory)!.blocks.find((block) => block.type === "standaloneLink" && block.props?.path === "first");
     expect(first).toBeDefined();
 
     await client.mutateContent({
       op: "writeMarkdown",
       ref: { tree: "local", path: absolute, stableKey: null },
-      baseContentRevision: directory.contentRevision!,
+      baseContentRevision: directory.capabilities.content?.revision!,
       source: "[second](second)\n\n[first](first)\n\n",
     }, "untracked-authored-order");
 
     const reordered = await client.node({ tree: "local", path: absolute, stableKey: null });
-    expect(reordered.document!.blocks
+    expect(nodeDocument(reordered)!.blocks
       .filter((block) => block.type === "standaloneLink")
       .map((block) => block.props?.path)).toEqual([
         "second",
@@ -183,23 +184,23 @@ describe("the local filesystem scope", () => {
   test("materializes an implicit untracked directory only after an authored edit", async () => {
     const absolute = join(outer, "implicit-edit");
     const before = await client.node({ tree: "local", path: absolute, stableKey: null });
-    expect(before.bodyState).toBe("implicit");
+    expect(before.content?.representation?.state).toBe("implicit");
     expect(before.ref.stableKey).toBeNull();
     await expect(readFile(join(absolute, "_index.md"), "utf8")).rejects.toThrow();
 
-    const source = `${before.document!.source}\nAuthored directory note.\n`;
+    const source = `${nodeDocument(before)!.source}\nAuthored directory note.\n`;
     await client.mutateContent({
       op: "writeMarkdown",
       ref: { tree: "local", path: absolute, stableKey: null },
-      baseContentRevision: before.contentRevision!,
+      baseContentRevision: before.capabilities.content?.revision!,
       source,
     }, "untracked-implicit-directory-edit");
 
     expect(await readFile(join(absolute, "_index.md"), "utf8")).toBe(source);
     const after = await client.node({ tree: "local", path: absolute, stableKey: null });
-    expect(after.bodyState).toBe("stored");
+    expect(after.content?.representation?.state).toBe("stored");
     expect(after.ref.stableKey).toBeNull();
-    expect(after.document?.frontmatter.id).toBeUndefined();
+    expect(nodeDocument(after)?.frontmatter.id).toBeUndefined();
   });
 
   test("refuses managed-workspace capabilities in untracked space", async () => {
@@ -268,10 +269,13 @@ describe("the local filesystem scope", () => {
 
   test("completes an untracked directory in the same shape as a root-scope directory", async () => {
     const node = await client.node({ tree: "local", path: join(outer, "stray"), stableKey: null }) as NodeSnapshot;
-    expect(node.bodyState).toBe("implicit");
-    expect(node.directoryRevision).toBeDefined();
+    expect(node.content?.representation?.state).toBe("implicit");
+    expect(node.capabilities.children?.revision).toBeDefined();
     const children = await client.children({ tree: "local", path: join(outer, "stray"), stableKey: null });
     const note = children.items.find((item) => item.name === "note");
-    expect(note).toMatchObject({ kind: "markdown", path: join(outer, "stray", "note") });
+    expect(note).toMatchObject({
+      ref: { tree: "local", path: join(outer, "stray", "note"), stableKey: null },
+      capabilities: { content: { format: "markdown" } },
+    });
   });
 });

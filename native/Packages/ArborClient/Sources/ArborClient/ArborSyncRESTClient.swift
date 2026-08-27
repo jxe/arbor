@@ -139,7 +139,7 @@ public actor ArborSyncRESTClient {
     }
 
     public func node(_ ref: NodeRef) async throws -> NodeSnapshot {
-        try await hydrateNode(try await nodeSnapshot(ref))
+        try await nodeSnapshot(ref)
     }
 
     /// Read the exact current bytes of an ordinary file.
@@ -186,27 +186,19 @@ public actor ArborSyncRESTClient {
         let snapshot = try await nodeSnapshot(ref)
         let observedRef = snapshot.ref
         let updates = nodeUpdates(ref: observedRef, after: snapshot.observedThrough)
-        return ObservedNodeView(snapshot: try await hydrateNode(snapshot), updates: updates)
+        return ObservedNodeView(snapshot: snapshot, updates: updates)
     }
 
     private func nodeSnapshot(_ ref: NodeRef) async throws -> NodeSnapshot {
         try await get(path: "/v1/node", ref: ref)
     }
 
-    private func hydrateNode(_ initial: NodeSnapshot) async throws -> NodeSnapshot {
-        var snapshot = initial
-        if snapshot.kind == "directory" || snapshot.kind == "collection" {
-            snapshot.children = try await allChildren(snapshot.ref)
-        }
-        return snapshot
-    }
-
     public func children(_ ref: NodeRef, cursor: String? = nil) async throws -> ChildrenPage {
         try await get(path: "/v1/children", ref: ref, extra: cursor.map { [URLQueryItem(name: "cursor", value: $0)] } ?? [])
     }
 
-    public func allChildren(_ ref: NodeRef) async throws -> [TreeChild] {
-        var items: [TreeChild] = []
+    public func allChildren(_ ref: NodeRef) async throws -> [NodeSummary] {
+        var items: [NodeSummary] = []
         var cursor: String?
         repeat {
             let page = try await children(ref, cursor: cursor)
@@ -228,17 +220,6 @@ public actor ArborSyncRESTClient {
             ref: ref,
             extra: cursor.map { [URLQueryItem(name: "cursor", value: $0)] } ?? []
         )
-    }
-
-    public func collection(
-        _ ref: NodeRef,
-        cursor: String? = nil,
-        table: String? = nil
-    ) async throws -> CollectionPage {
-        var extra: [URLQueryItem] = []
-        if let cursor { extra.append(URLQueryItem(name: "cursor", value: cursor)) }
-        if let table { extra.append(URLQueryItem(name: "table", value: table)) }
-        return try await get(path: "/v1/collection", ref: ref, extra: extra)
     }
 
     public func recovery(

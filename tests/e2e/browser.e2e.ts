@@ -107,7 +107,7 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
   await expect(page).toHaveURL(atUrl("/books/one"));
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
   await expect(page.locator(".sidebar-path")).toHaveText("~/books");
-  await expect(page.getByRole("button", { name: "· one" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "· The Dispossessed" })).toBeVisible();
 
   const delayedRootResponse = page.waitForResponse((response) => {
     const url = new URL(response.url());
@@ -116,7 +116,7 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
   releaseRoot();
   await delayedRootResponse;
   await expect(page.locator(".sidebar-path")).toHaveText("~/books");
-  await expect(page.getByRole("button", { name: "· one" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "· The Dispossessed" })).toBeVisible();
 });
 
 test("opens authored and provider-completed child links", async ({ page }) => {
@@ -154,7 +154,7 @@ test("adds a Markdown title above the first provider-completed child row", async
   const titleFirstBody = async () => page.evaluate(async () => {
     const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Ftitle-first&stableKey=");
     const node = await response.json();
-    return node.document.bodySource as string;
+    return (node.content.source as string).replace(/^---\n[\s\S]*?\n---\n?/, "");
   });
   expect(await titleFirstBody()).toMatch(/^# Synthetic title/);
   expect(await titleFirstBody()).toContain("](child)");
@@ -198,7 +198,7 @@ test("adds a Markdown title above the first provider-completed child row", async
   expect(await page.evaluate(async () => {
     const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fempty-title&stableKey=");
     const node = await response.json();
-    return node.document.bodySource as string;
+    return (node.content.source as string).replace(/^---\n[\s\S]*?\n---\n?/, "");
   })).toMatch(/^# Empty title/);
 
   await page.setViewportSize({ width: 1200, height: 844 });
@@ -248,7 +248,7 @@ test("reorders a child row by writing the complete directory Markdown", async ({
   const bodySource = async () => page.evaluate(async () => {
     const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fdrag-order&stableKey=");
     const node = await response.json();
-    return node.document.bodySource as string;
+    return (node.content.source as string).replace(/^---\n[\s\S]*?\n---\n?/, "");
   });
   await expect.poll(async () => {
     const sourceText = await bodySource();
@@ -276,7 +276,7 @@ test("browses, searches, and edits toggle Markdown", async ({ page }) => {
   await expect(page).toHaveURL(atUrl("/books/one"));
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
   await expect(page.getByRole("button", { name: "↑ Parent directory" })).toBeVisible();
-  await page.getByRole("button", { name: "· one" }).click();
+  await page.getByRole("button", { name: "· The Dispossessed" }).click();
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
   await page.getByRole("button", { name: "↑ Parent directory" }).click();
   await expect(page).toHaveURL(atUrl(""));
@@ -309,7 +309,10 @@ test("a prose edit persists the provider-completed directory source", async ({ p
   const bodySource = await page.evaluate(async () => {
     const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fgarden&stableKey=");
     const node = await response.json();
-    return { body: node.document.bodySource as string, bodyState: node.bodyState as string };
+    return {
+      body: (node.content.source as string).replace(/^---\n[\s\S]*?\n---\n?/, ""),
+      bodyState: node.content.representation.state as string,
+    };
   });
   expect(bodySource.bodyState).toBe("stored");
   expect(bodySource.body).toContain("Garden prose.");
@@ -350,7 +353,7 @@ test("round-trips inline Markdown and uses Markdown-aware clipboard formats", as
   const bodySource = async () => page.evaluate(async () => {
     const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Finline-markdown&stableKey=");
     const node = await response.json();
-    return node.document.bodySource as string;
+    return (node.content.source as string).replace(/^---\n[\s\S]*?\n---\n?/, "");
   });
   expect((await bodySource()).trimEnd()).toBe(originalBody);
 
@@ -515,7 +518,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
   const bodySource = await page.evaluate(async () => {
     const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fmath-notes&stableKey=");
     const node = await response.json();
-    return node.document.bodySource as string;
+    return (node.content.source as string).replace(/^---\n[\s\S]*?\n---\n?/, "");
   });
   expect(bodySource).toContain("Energy is $E = mc^2$.[^energy] The integral below has a compact result.[^integral]");
   expect(bodySource).toContain("The criterion $e_B : \\prod_{i \\in B} \\mathcal{S}_i \\to \\{0,1\\}$ is intact; `literal $x_y$` remains code.");
@@ -546,7 +549,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
   const afterDelete = await page.evaluate(async () => {
     const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fmath-notes&stableKey=");
     const node = await response.json();
-    return node.document.bodySource as string;
+    return (node.content.source as string).replace(/^---\n[\s\S]*?\n---\n?/, "");
   });
   expect(afterDelete).not.toContain("[^integral]");
   expect(afterDelete).toContain("[^energy]: Einstein's mass-energy relation. Updated.");
@@ -555,7 +558,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
 test("renders a Markdown collection and opens a record", async ({ page }) => {
   await page.goto(r(""));
   await page.getByRole("button", { name: /books/ }).click();
-  await expect(page.locator(".kind")).toContainText("Collection");
+  await expect(page.locator(".kind")).toContainText("Structured children");
   await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible();
   await expect(page.locator('input[value="The Dispossessed"]')).toBeVisible();
   await page.getByRole("button", { name: "Open" }).click();
@@ -580,9 +583,7 @@ test("tracks an open page through a page-ID rename without replacing the editor"
         mutationID: "e2e-external-rename",
         operations: [{
           op: "rename",
-          ref: snapshot.ref.pageID
-            ? { tree: snapshot.tree, pageID: snapshot.ref.pageID, pathHint: "/notes" }
-            : { tree: snapshot.tree, path: "/notes" },
+          ref: snapshot.ref,
           name: "renamed-notes",
         }],
       }),
@@ -603,8 +604,8 @@ test("tracks an open page through a page-ID rename without replacing the editor"
   await expect(page.getByRole("status")).toHaveText("Saved");
   const source = await page.evaluate(async () => {
     const snapshot = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Frenamed-notes&stableKey=").then((value) => value.json());
-    if (!snapshot.ref.pageID) throw new Error("rename did not mint a durable PageID");
-    return snapshot.document.bodySource as string;
+    if (!snapshot.ref.stableKey) throw new Error("rename did not mint a stable key");
+    return (snapshot.content.source as string).replace(/^---\n[\s\S]*?\n---\n?/, "");
   });
   expect(source).toContain("Apple orchard notes are searchable. after rename");
 });
@@ -662,7 +663,7 @@ test("browses ordinary files and shares a subtree beneath the active profile", a
   await page.getByRole("button", { name: "Close" }).click();
 
   await page.getByRole("button", { name: "Arbor", exact: true }).click();
-  const garden = page.locator(".home-root").filter({ hasText: PROMOTABLE_ROOT });
+  const garden = page.locator(".home-root").filter({ has: page.locator("strong", { hasText: "URL Garden" }) });
   await expect(garden.locator("strong")).toHaveText("URL Garden");
   await expect(garden.locator(".scope-chip")).toHaveText("writable");
 

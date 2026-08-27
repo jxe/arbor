@@ -1,3 +1,4 @@
+import { nodeDocument, nodeKind } from "../helpers/node-snapshot.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -169,7 +170,7 @@ describe("private self-sync", () => {
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
     const note = await author.client.node({ tree, path: "/note", stableKey: null });
-    const source = note.document!.source.replace("Common", "From A");
+    const source = nodeDocument(note)!.source.replace("Common", "From A");
     const updateBodies: any[] = [];
     const systemFetch = globalThis.fetch;
     globalThis.fetch = (async (input, init) => {
@@ -183,7 +184,7 @@ describe("private self-sync", () => {
       await author.client.mutateContent({
         op: "writeMarkdown",
         ref: { tree, path: "/note", stableKey: null },
-        baseContentRevision: note.contentRevision!,
+        baseContentRevision: note.capabilities.content?.revision!,
         source,
         sourceEdits: [{ offset: 2, length: 6, replacement: "From A", expected: "Common" }],
       });
@@ -201,7 +202,7 @@ describe("private self-sync", () => {
 
     const reader = await launch(stateB, treeB);
     await waitFor(async () => (await readFile(join(treeB, "note.md"), "utf8")).includes("From A"));
-    expect(await reader.client.node({ tree, path: "/note", stableKey: null }).then((node) => node.document?.bodySource)).toContain("From A");
+    expect(await reader.client.node({ tree, path: "/note", stableKey: null }).then((node) => nodeDocument(node)?.bodySource)).toContain("From A");
     await reader.close();
 
     const fallback = await launch(stateA, treeA);
@@ -221,13 +222,13 @@ describe("private self-sync", () => {
       await fallback.client.mutateContent({
         op: "writeMarkdown",
         ref: { tree, path: "/note", stableKey: null },
-        baseContentRevision: beforeFallback.contentRevision!,
+        baseContentRevision: beforeFallback.capabilities.content?.revision!,
         source: "# Complete-object fallback\n",
         sourceEdits: [{
           offset: 0,
-          length: Buffer.byteLength(beforeFallback.document!.source),
+          length: Buffer.byteLength(nodeDocument(beforeFallback)!.source),
           replacement: "# Complete-object fallback\n",
-          expected: beforeFallback.document!.source,
+          expected: nodeDocument(beforeFallback)!.source,
         }],
       });
       await waitFor(async () => fallbackBodies.some((body) => Array.isArray(body.objects) && body.objects.length > 0));
@@ -270,13 +271,13 @@ describe("private self-sync", () => {
       await author.client.mutateContent({
         op: "writeMarkdown",
         ref: { tree, path: "/note", stableKey: null },
-        baseContentRevision: before.contentRevision!,
+        baseContentRevision: before.capabilities.content?.revision!,
         source: firstSource,
         sourceEdits: [{
           offset: 0,
-          length: Buffer.byteLength(before.document!.source),
+          length: Buffer.byteLength(nodeDocument(before)!.source),
           replacement: firstSource,
-          expected: before.document!.source,
+          expected: nodeDocument(before)!.source,
         }],
       });
       await firstObserved;
@@ -284,13 +285,13 @@ describe("private self-sync", () => {
       await author.client.mutateContent({
         op: "writeMarkdown",
         ref: { tree, path: "/note", stableKey: null },
-        baseContentRevision: afterFirst.contentRevision!,
+        baseContentRevision: afterFirst.capabilities.content?.revision!,
         source: secondSource,
         sourceEdits: [{
           offset: 0,
-          length: Buffer.byteLength(afterFirst.document!.source),
+          length: Buffer.byteLength(nodeDocument(afterFirst)!.source),
           replacement: secondSource,
-          expected: afterFirst.document!.source,
+          expected: nodeDocument(afterFirst)!.source,
         }],
       });
       releaseFirst();
@@ -309,13 +310,13 @@ describe("private self-sync", () => {
     await author.client.mutateContent({
       op: "writeMarkdown",
       ref: { tree, path: "/note", stableKey: null },
-      baseContentRevision: after.contentRevision!,
+      baseContentRevision: after.capabilities.content?.revision!,
       source: restoredSource,
       sourceEdits: [{
         offset: 0,
-        length: Buffer.byteLength(after.document!.source),
+        length: Buffer.byteLength(nodeDocument(after)!.source),
         replacement: restoredSource,
-        expected: after.document!.source,
+        expected: nodeDocument(after)!.source,
       }],
     });
     await waitFor(async () => (await author.running.service.trees.descriptors())
@@ -330,12 +331,12 @@ describe("private self-sync", () => {
 
     const offline = await launch(stateA, treeA);
     const offlineNode = await offline.client.node({ tree, path: "/note", stableKey: null });
-    const offlineSource = offlineNode.document!.source.replace("Complete-object", "Locally durable");
+    const offlineSource = nodeDocument(offlineNode)!.source.replace("Complete-object", "Locally durable");
     const savedOffline = await Promise.race([
       offline.client.mutateContent({
         op: "writeMarkdown",
         ref: { tree, path: "/note", stableKey: null },
-        baseContentRevision: offlineNode.contentRevision!,
+        baseContentRevision: offlineNode.capabilities.content?.revision!,
         source: offlineSource,
         sourceEdits: [{ offset: 2, length: 15, replacement: "Locally durable", expected: "Complete-object" }],
       }),

@@ -2,17 +2,15 @@ import { realpath } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type {
   ChildrenPage,
-  CollectionResultPage,
   Diagnostic,
   MutationEffect,
   MutationReceipt,
   MutationRequest,
   NodeRef,
-  NodeSnapshot,
-  TreeChild,
-  TreeNode,
+  NodeResponse,
   WorkspaceOperation,
 } from "@arbor/core";
+import type { TreeChild, TreeNode } from "@arbor/core/internal";
 import {
   LOCAL_TREE,
   applySourceEdits,
@@ -28,6 +26,8 @@ import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import type { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { ProtocolError } from "./workspace.ts";
+import { collectionRowSummary, sampleTreeNode, summarizeTreeNode } from "./node-sampling.ts";
+
 
 function isSystemError(error: unknown): error is NodeJS.ErrnoException {
   return Boolean(error) && typeof error === "object" && "code" in (error as object);
@@ -169,24 +169,8 @@ export class FilesystemService implements AsyncDisposable {
     return { children: children.sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
   }
 
-  private snapshotFromTree(node: TreeNode, observedThrough: string): NodeSnapshot {
-    return {
-      ref: { tree: LOCAL_TREE, path: node.path, stableKey: null },
-      tree: LOCAL_TREE,
-      path: node.path,
-      name: node.name,
-      kind: node.kind === "postgres" ? "database" : node.kind,
-      writable: node.writable,
-      materialization: node.materialization,
-      contentRevision: node.revision,
-      directoryRevision: node.kind === "directory" || node.kind === "collection" ? node.revision : undefined,
-      ...(node.document ? { bodyState: node.bodyOrigin ? "stored" as const : "implicit" as const } : {}),
-      ...(node.bodyOrigin ? { bodyOrigin: node.bodyOrigin } : {}),
-      document: node.document,
-      collection: node.collection,
-      diagnostics: node.diagnostics,
-      observedThrough,
-    };
+  private snapshotFromTree(node: TreeNode, observedThrough: string): NodeResponse {
+    return sampleTreeNode(node, { tree: LOCAL_TREE, observedThrough });
   }
 
   private async withErrors<T>(run: () => Promise<T>, operation?: WorkspaceOperation): Promise<T> {
@@ -210,7 +194,7 @@ export class FilesystemService implements AsyncDisposable {
     }
   }
 
-  async snapshot(path: string): Promise<NodeSnapshot> {
+  async snapshot(path: string): Promise<NodeResponse> {
     return this.withErrors(async () => {
       const observedThrough = this.events.currentCursor();
       return this.snapshotFromTree(await this.node(path), observedThrough);
@@ -225,7 +209,33 @@ export class FilesystemService implements AsyncDisposable {
         throw new ProtocolError("invalid-reference", `${node.path} does not have children`, 400, { path: node.path });
       }
       const offset = decodePageCursor(cursor, `children:local:${node.path}`);
-      const items = (node.children ?? []).slice(offset, offset + 100);
+      if (node.collection && !(node.collection.backing === "postgres" && node.collection.tables?.length)) {
+        const fs = await this.engine;
+        const resolved = await fs.resolve(node.path);
+        let absolute = resolved.directoryPath;
+        let table: string | undefined;
+        if (!absolute) {
+          const parent = await fs.resolve(node.path.slice(0, node.path.lastIndexOf("/")) || "/");
+          absolute = parent.directoryPath;
+          table = node.path.slice(node.path.lastIndexOf("/") + 1);
+        }
+        if (!absolute) throw new ProtocolError("invalid-reference", `${node.path} is not a collection`, 400, { path: node.path });
+        const page = await this.collections.page(absolute, node.path, offset, 100, table);
+        return {
+          parent: sampleTreeNode(node, { tree: LOCAL_TREE, observedThrough }).ref,
+          items: page.rows.map((row) => collectionRowSummary(row, page, node.path, LOCAL_TREE)),
+          nextCursor: page.nextCursor
+            ? encodePageCursor(`children:local:${node.path}`, Number(page.nextCursor))
+            : null,
+          observedThrough,
+        };
+      }
+      const selected = (node.children ?? []).slice(offset, offset + 100);
+      const items = await Promise.all(selected.map(async (child) => summarizeTreeNode(
+        await this.node(child.path),
+        LOCAL_TREE,
+        child.materialization === "available" && node.writable,
+      )));
       const nextOffset = offset + items.length;
       return {
         parent: { tree: LOCAL_TREE, path: node.path, stableKey: null },
@@ -235,25 +245,6 @@ export class FilesystemService implements AsyncDisposable {
           : null,
         observedThrough,
       };
-    });
-  }
-
-  async collectionPage(path: string, cursor?: string | null, table?: string): Promise<CollectionResultPage> {
-    return this.withErrors(async () => {
-      const observedThrough = this.events.currentCursor();
-      const fs = await this.engine;
-      const treePath = canonicalNodePath(path);
-      const resolved = await fs.resolve(treePath);
-      let absolute = resolved.directoryPath;
-      let effectiveTable = table;
-      if (!absolute) {
-        const parent = await fs.resolve(treePath.slice(0, treePath.lastIndexOf("/")) || "/");
-        absolute = parent.directoryPath;
-        effectiveTable ??= treePath.slice(treePath.lastIndexOf("/") + 1);
-      }
-      if (!absolute) throw new ProtocolError("invalid-reference", `${treePath} is not a collection`, 400, { path: treePath });
-      const offset = decodePageCursor(cursor, `collection:local:${treePath}:${effectiveTable ?? ""}`);
-      return { ...(await this.collections.page(absolute, treePath, offset, 100, effectiveTable)), observedThrough };
     });
   }
 

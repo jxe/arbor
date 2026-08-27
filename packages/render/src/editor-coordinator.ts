@@ -1,6 +1,7 @@
 import type { ArborBlock } from "@arbor/core";
 import type { NodeSnapshot } from "@arbor/client";
 import { mergeBlocks } from "@arbor/editor";
+import { nodeDocument } from "./node-presentation.ts";
 
 export const AUTOSAVE_DELAY_MS = 750;
 
@@ -234,10 +235,11 @@ export class EditorCoordinator {
   }
 
   reconcileServer(node: NodeSnapshot, displayed: DocumentSnapshot): void {
-    this.revision = node.contentRevision!;
+    const document = nodeDocument(node);
+    this.revision = node.capabilities.content?.revision!;
     this.base = {
-      blocks: structuredClone(node.document?.blocks ?? []),
-      frontmatter: structuredClone(node.document?.frontmatter ?? {}),
+      blocks: structuredClone(document?.blocks ?? []),
+      frontmatter: structuredClone(document?.frontmatter ?? {}),
     };
     if (this.isDirty || this.saveInFlight) return;
     this.applying = true;
@@ -256,10 +258,11 @@ export class EditorCoordinator {
       this.scheduleSave(0);
       return;
     }
-    this.revision = node.contentRevision!;
+    const document = nodeDocument(node);
+    this.revision = node.capabilities.content?.revision!;
     this.base = {
-      blocks: structuredClone(node.document?.blocks ?? []),
-      frontmatter: structuredClone(node.document?.frontmatter ?? {}),
+      blocks: structuredClone(document?.blocks ?? []),
+      frontmatter: structuredClone(document?.frontmatter ?? {}),
     };
     this.callbacks.acceptNode(node);
     this.setStatus("saved", null);
@@ -282,9 +285,9 @@ export class EditorCoordinator {
           saved = await this.callbacks.write(this.path, forceRevision ?? this.revision, local, this.base);
         } catch (error) {
           const conflict = error as Error & { status?: number; payload?: { current?: NodeSnapshot } };
-          if (conflict.status !== 409 || !conflict.payload?.current?.document) throw error;
+          if (conflict.status !== 409 || !conflict.payload?.current?.content) throw error;
           const current = conflict.payload.current;
-          const currentDocument = current.document!;
+          const currentDocument = nodeDocument(current)!;
           const merged = mergeBlocks(this.base.blocks, local.blocks, currentDocument.blocks);
           if (merged.conflicts.length) {
             this.setStatus(
@@ -294,7 +297,7 @@ export class EditorCoordinator {
             return;
           }
           const mergedSnapshot = { blocks: merged.blocks, frontmatter: local.frontmatter };
-          saved = await this.callbacks.write(this.path, current.contentRevision!, mergedSnapshot, this.base);
+          saved = await this.callbacks.write(this.path, current.capabilities.content!.revision, mergedSnapshot, this.base);
           if (!sameSnapshot(mergedSnapshot, local)) {
             this.applying = true;
             try {
@@ -311,10 +314,11 @@ export class EditorCoordinator {
           }
           this.setMessage("Merged an external edit.");
         }
-        this.revision = saved.contentRevision!;
+        const savedDocument = nodeDocument(saved);
+        this.revision = saved.capabilities.content!.revision;
         this.base = {
-          blocks: structuredClone(saved.document?.blocks ?? []),
-          frontmatter: structuredClone(saved.document?.frontmatter ?? {}),
+          blocks: structuredClone(savedDocument?.blocks ?? []),
+          frontmatter: structuredClone(savedDocument?.frontmatter ?? {}),
         };
         this.durableGenerationValue = Math.max(this.durableGenerationValue, savingGeneration);
         this.callbacks.acceptNode(saved);
@@ -353,7 +357,7 @@ export class EditorCoordinator {
       redo: () => this.applyHistorySnapshot(disk),
     });
     this.generationValue = this.durableGenerationValue;
-    this.revision = node.contentRevision!;
+    this.revision = node.capabilities.content?.revision!;
     this.base = cloneSnapshot(disk);
     this.applying = true;
     try {

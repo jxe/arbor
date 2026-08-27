@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import type { NodeSnapshot } from "@arbor/client";
+import type { NodeSummary } from "@arbor/core";
 import { resolveLogicalURL } from "@arbor/core/logical-url";
 import {
   ManagedRowsContext,
@@ -10,12 +11,15 @@ import {
   toBlockNote,
   type ManagedRowsController,
 } from "./blocks.tsx";
+import { nodeDocument, presentationKind } from "./node-presentation.ts";
 
-export function ReadOnlyPage({ node, navigate }: {
+export function ReadOnlyPage({ node, children: childItems, navigate }: {
   node: NodeSnapshot;
+  children: NodeSummary[];
   navigate: (path: string) => void;
 }) {
-  const blocks = node.document?.blocks ?? [];
+  const document = nodeDocument(node);
+  const blocks = document?.blocks ?? [];
   const editor = useMemo(() => {
     const instance = BlockNoteEditor.create({
       schema: arborSchema,
@@ -31,15 +35,18 @@ export function ReadOnlyPage({ node, navigate }: {
     });
     instance.isEditable = false;
     return instance;
-  }, [node.tree, node.path, node.contentRevision, node.directoryRevision]);
+  }, [node.ref.tree, node.ref.path, node.capabilities.content?.revision, node.capabilities.children?.revision]);
 
-  const children = useMemo(() => new Map((node.children ?? []).map((child) => [child.path, child])), [node.directoryRevision]);
+  const children = useMemo(() => new Map(childItems.map((child) => [child.ref.path, child])), [childItems]);
   const managedRows = useMemo<ManagedRowsController>(() => ({
     resolve: (rawPath) => {
-      const link = resolveLogicalURL(node.path, rawPath);
+      const link = resolveLogicalURL(node.ref.path, rawPath);
       return link?.kind === "local" && children.has(link.path) ? link.path : null;
     },
-    kind: (path) => children.get(path)?.kind ?? null,
+    kind: (path) => {
+      const child = children.get(path);
+      return child ? presentationKind(child) : null;
+    },
     selected: () => false,
     select: () => {},
     rename: () => {},
@@ -50,7 +57,7 @@ export function ReadOnlyPage({ node, navigate }: {
     setRenameValue: () => {},
     commitRename: () => {},
     cancelRename: () => {},
-  }), [children, node.path]);
+  }), [children, node.ref.path]);
 
   return <div className="editor-shell read-only-page" aria-label="Read-only remote page">
     <ManagedRowsContext.Provider value={managedRows}>
@@ -58,7 +65,7 @@ export function ReadOnlyPage({ node, navigate }: {
         const anchor = (event.target as Element).closest("a");
         const href = anchor?.getAttribute("href");
         if (!href) return;
-        const link = resolveLogicalURL(node.path, href);
+        const link = resolveLogicalURL(node.ref.path, href);
         if (link?.kind !== "local") return;
         event.preventDefault();
         navigate(link.path);

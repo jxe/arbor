@@ -477,9 +477,9 @@ struct ArborQuagmireTests {
         let client = ArborSyncRESTClient(baseURL: origin)
         let root = try await client.node(.path("/", tree: "local"))
         let reference = WorkspaceReference(
-            tree: TreeID(rawValue: root.tree),
-            path: root.path,
-            pageID: root.ref.pageID.map(PageID.init(rawValue:))
+            tree: TreeID(rawValue: root.ref.tree),
+            path: root.ref.path,
+            pageID: pageIDFromStableKey(root.ref.stableKey).map(PageID.init(rawValue:))
         )
         let provider = ArborSyncWorkspaceProvider(client: client)
         let session = try await provider.openDocument(reference)
@@ -511,9 +511,9 @@ struct ArborQuagmireTests {
         let client = ArborSyncRESTClient(baseURL: origin)
         let root = try await client.node(.path("/", tree: "local"))
         let reference = WorkspaceReference(
-            tree: TreeID(rawValue: root.tree),
-            path: root.path,
-            pageID: root.ref.pageID.map(PageID.init(rawValue:))
+            tree: TreeID(rawValue: root.ref.tree),
+            path: root.ref.path,
+            pageID: pageIDFromStableKey(root.ref.stableKey).map(PageID.init(rawValue:))
         )
         let provider = ArborSyncWorkspaceProvider(client: client)
         let session = try await provider.openDocument(reference)

@@ -19,14 +19,15 @@ These are implementation violations of the aspirational specification. They are 
 ### Other REST and client debt
 
 1. **Specify copied-subtree identity and link semantics.** Copy correctly remints page IDs while move preserves them, but recursive copy does not yet define whether page-ID links between copied pages should be remapped to the new subtree or continue pointing at the originals. Make that choice normative and test duplicate-page and nested-directory copies before presenting copy as project/folder duplication.
-2. **Stop eagerly draining children when large directories need incremental presentation.** The TypeScript client's `node()` and observed-node view currently drain all fixed-size child pages to preserve Arbor web's existing UI. Keep the fixed protocol page size, but introduce incremental or virtualized directory presentation before large trees make every navigation fetch the entire listing.
-3. **Share runtime protocol decoding only when another boundary needs it.** Arbor Sync's handwritten validators are becoming substantial, particularly for recursive Markdown block values. If the CLI or another trusted client needs runtime decoding, colocate pure decoders with the browser-safe protocol types in `@arbor/core`; do not introduce schema generation or a general validation framework solely to remove repetition.
+2. **Share runtime protocol decoding only when another boundary needs it.** Arbor Sync's handwritten validators are becoming substantial, particularly for recursive Markdown block values. If the CLI or another trusted client needs runtime decoding, colocate pure decoders with the browser-safe protocol types in `@arbor/core`; do not introduce schema generation or a general validation framework solely to remove repetition.
 
-4. **Complete the unified node-protocol migration.** [Data 002](../data/002-reconcile-node-data-model.md)
-   owns removal of duplicated `NodeSnapshot` scope fields, hydrated-only wire
-   fields, the separate collection page, and public physical-kind enums. Do not
-   repair these independently in a way that preserves the parallel ontology.
-5. **Remove the temporary pre-Canopy readers.** Version-1 device configuration currently accepts legacy `authority:` as well as canonical `server:`, and Canopy startup recognizes `authority.sqlite3` long enough to checkpoint, verify, back up, and rename it. Remove the YAML alias and legacy database discovery after the hosted account-configuration tree and every active device file have been verified to contain only `server:`, all deployed data roots use `canopy.sqlite3`, and the agreed rollback-retention window for `authority.sqlite3.pre-canopyd` has elapsed. Keep rejection of files containing both placement keys until the legacy reader itself is removed.
+3. **Complete the unified node-protocol migration.** [Data 002](../data/002-reconcile-node-data-model.md)
+   has removed duplicated snapshot scope, hydrated-only wire fields, the
+   collection endpoint, and public physical-kind enums. It still owns store
+   unification, resolvable and mutable rollup rows, bounded child placement,
+   Wire rollup objects, remote browsing, and provider-neutral queries. Do not
+   repair those independently in a way that recreates a parallel ontology.
+4. **Remove the temporary pre-Canopy readers.** Version-1 device configuration currently accepts legacy `authority:` as well as canonical `server:`, and Canopy startup recognizes `authority.sqlite3` long enough to checkpoint, verify, back up, and rename it. Remove the YAML alias and legacy database discovery after the hosted account-configuration tree and every active device file have been verified to contain only `server:`, all deployed data roots use `canopy.sqlite3`, and the agreed rollback-retention window for `authority.sqlite3.pre-canopyd` has elapsed. Keep rejection of files containing both placement keys until the legacy reader itself is removed.
 
 ## Filesystem and structural editing
 

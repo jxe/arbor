@@ -1,8 +1,53 @@
 {
-  "parent": { "tree": "tr_notes7f3q2ab7c", "path": "/notes", "stableKey": "[[\"id\",\"folder-id\"]]" },
+  "parent": {
+    "tree": "tr_notes7f3q2ab7c",
+    "path": "/notes",
+    "stableKey": "[[\"id\",\"folder-id\"]]"
+  },
   "items": [
-    { "tree": "tr_notes7f3q2ab7c", "name": "today", "path": "/notes/today", "kind": "markdown", "materialization": "available", "pageID": "abc123" },
-    { "tree": "tr_notes7f3q2ab7c", "name": "scratch", "path": "/notes/scratch", "kind": "directory", "materialization": "available" }
+    {
+      "ref": {
+        "tree": "tr_notes7f3q2ab7c",
+        "path": "/notes/today",
+        "stableKey": "[[\"id\",\"abc123\"]]"
+      },
+      "name": "today",
+      "revision": "sha256:today",
+      "properties": {
+        "id": "abc123"
+      },
+      "capabilities": {
+        "content": {
+          "revision": "sha256:today",
+          "mediaType": "text/markdown",
+          "format": "markdown",
+          "writable": true
+        }
+      },
+      "materialization": "available",
+      "diagnostics": []
+    },
+    {
+      "ref": {
+        "tree": "tr_notes7f3q2ab7c",
+        "path": "/notes/scratch",
+        "stableKey": null
+      },
+      "name": "scratch",
+      "revision": "sha256:scratch",
+      "properties": {},
+      "capabilities": {
+        "children": {
+          "revision": "sha256:scratch",
+          "representation": {
+            "type": "expanded"
+          },
+          "writable": true
+        }
+      },
+      "materialization": "available",
+      "diagnostics": []
+    }
   ],
   "nextCursor": null,
   "observedThrough": "11111111-1111-1111-1111-111111111111:4"

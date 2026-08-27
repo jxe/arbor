@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { NodeSnapshot } from "@arbor/core";
+import type { NodeResponse } from "@arbor/core";
 import { sha256 } from "@arbor/core";
 import { arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
@@ -11,7 +11,7 @@ export interface VisitedTreeRecord {
   name: string;
   canonical?: string;
   visitedAt: string;
-  snapshot: NodeSnapshot;
+  snapshot: NodeResponse;
 }
 
 /** A private, credential-free cache of explicitly browsed remote nodes. */
@@ -22,13 +22,13 @@ export class VisitedTreeStore {
     return sha256(locator).slice(0, 24);
   }
 
-  async remember(locator: string, snapshot: NodeSnapshot): Promise<VisitedTreeRecord> {
+  async remember(locator: string, snapshot: NodeResponse): Promise<VisitedTreeRecord> {
     await prepareArborDataRoot();
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const record: VisitedTreeRecord = {
       id: this.id(locator),
       locator,
-      tree: String(snapshot.tree ?? snapshot.enclosingTree?.id ?? ""),
+      tree: String(snapshot.ref.tree ?? snapshot.enclosingTree?.id ?? ""),
       name: snapshot.enclosingTree?.name ?? snapshot.name,
       canonical: snapshot.enclosingTree?.canonical?.httpURL ?? snapshot.enclosingTree?.canonical?.locator,
       visitedAt: new Date().toISOString(),

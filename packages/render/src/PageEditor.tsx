@@ -6,7 +6,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extensions";
 import { TextSelection } from "@tiptap/pm/state";
 import { FormattingToolbarController, SideMenuController, SuggestionMenuController } from "@blocknote/react";
-import type { ArborBlock, BacklinkEntry, RecoveryEntry, TreeChild } from "@arbor/core";
+import type { ArborBlock, BacklinkEntry, NodeSummary, RecoveryEntry } from "@arbor/core";
 import type {
   NodeRef,
   NodeSnapshot,
@@ -25,6 +25,7 @@ import {
   type HistoryEntry,
 } from "./editor-coordinator.ts";
 import { importEntries } from "./file-drop.ts";
+import { hasChildren, nodeDocument, presentationKind } from "./node-presentation.ts";
 import {
   arborSchema,
   arborEditorExtensions,
@@ -297,10 +298,13 @@ interface ChildDocumentRow {
   materialization: string;
 }
 
-function childDocumentRows(directory: string, blocks: readonly ArborBlock[], children: readonly TreeChild[]): ChildDocumentRow[] {
-  const childByPath = new Map(children.map((child) => [canonicalNodePath(child.path), child]));
-  const childByPageID = new Map(children.flatMap((child) => child.pageID ? [[child.pageID, child] as const] : []));
-  const matched = new Set<TreeChild>();
+function childDocumentRows(directory: string, blocks: readonly ArborBlock[], children: readonly NodeSummary[]): ChildDocumentRow[] {
+  const childByPath = new Map(children.map((child) => [canonicalNodePath(child.ref.path), child]));
+  const childByPageID = new Map(children.flatMap((child) => {
+    const pageID = pageIDFromStableKey(child.ref.stableKey);
+    return pageID ? [[pageID, child] as const] : [];
+  }));
+  const matched = new Set<NodeSummary>();
   const rows: ChildDocumentRow[] = [];
   const walk = (items: readonly ArborBlock[]): void => {
     for (const block of items) {
@@ -314,12 +318,8 @@ function childDocumentRows(directory: string, blocks: readonly ArborBlock[], chi
           matched.add(child);
           rows.push({
             blockID: block.id,
-            ref: {
-              tree: child.tree,
-              path: canonicalNodePath(child.path),
-              stableKey: child.pageID ? pageIDStableKey(child.pageID) : null,
-            },
-            kind: child.kind,
+            ref: child.ref,
+            kind: presentationKind(child),
             materialization: child.materialization,
           });
         }
@@ -345,35 +345,38 @@ function inverseMoves(moved: BrowserMutationResult["moved"], tree: string): Stru
   }));
 }
 
-export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }: {
+export function PageEditor({ node, children, updates, pageActionsHost, onSaved, onChildrenChanged, navigate }: {
   node: NodeSnapshot;
+  children: NodeSummary[];
   updates: AsyncIterable<ObservedNodeUpdate>;
   pageActionsHost: HTMLDivElement | null;
   onSaved: (node: NodeSnapshot) => void;
+  onChildrenChanged: (children: NodeSummary[]) => void;
   navigate: (target: string | NodeRef) => void;
 }) {
-  const authored = node.document?.blocks ?? [];
-  const isDirectory = node.kind === "directory" || node.kind === "collection";
-  const physicalChildren = node.children ?? [];
-  const childrenRevision = physicalChildren.map((child) => `${child.path}:${child.kind}:${child.materialization}`).join("\0");
-  const childrenByPath = useMemo(() => new Map(physicalChildren.map((child) => [child.path, child])), [childrenRevision]);
+  const markdownDocument = useMemo(() => nodeDocument(node), [node.capabilities.content?.revision, node.content?.source]);
+  const authored = markdownDocument?.blocks ?? [];
+  const isDirectory = hasChildren(node);
+  const physicalChildren = children;
+  const childrenRevision = physicalChildren.map((child) => `${child.ref.path}:${presentationKind(child)}:${child.materialization}`).join("\0");
+  const childrenByPath = useMemo(() => new Map(physicalChildren.map((child) => [child.ref.path, child])), [childrenRevision]);
   const initial = authored;
   const childRows = useMemo(
-    () => childDocumentRows(node.path, authored, physicalChildren),
-    [node.contentRevision, childrenRevision],
+    () => childDocumentRows(node.ref.path, authored, physicalChildren),
+    [node.capabilities.content?.revision, childrenRevision],
   );
   const managedOrder = childRows.map((row) => row.ref.path);
-  const originals = useMemo(() => originalMap(initial), [node.contentRevision, childrenRevision]);
-  const pageDirectory = isDirectory ? node.path : parentPath(node.path);
+  const originals = useMemo(() => originalMap(initial), [node.capabilities.content?.revision, childrenRevision]);
+  const pageDirectory = isDirectory ? node.ref.path : parentPath(node.ref.path);
   const pageDirectoryRef = useRef(pageDirectory);
   pageDirectoryRef.current = pageDirectory;
   // Every reference this editor issues stays in the node's tree scope, so
   // an in-flight save never follows a navigation into another root.
-  const sapi = useMemo(() => api.scoped(node.tree), [node.tree]);
+  const sapi = useMemo(() => api.scoped(node.ref.tree), [node.ref.tree]);
   const sapiRef = useRef(sapi);
   sapiRef.current = sapi;
   const nodeReference: NodeRef = node.ref;
-  const nodeIdentity = useRef(node.ref.stableKey ?? node.path).current;
+  const nodeIdentity = useRef(node.ref.stableKey ?? node.ref.path).current;
   const blockDropPosition = useRef<{ pos: number; orientation: string } | null>(null);
   const editor = useMemo(() => {
     const instance = BlockNoteEditor.create({
@@ -403,7 +406,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
   const editorRef = useRef(editor);
   editorRef.current = editor;
   const [, renderCoordinator] = useState(0);
-  const [frontmatter, setFrontmatter] = useState<Record<string, unknown>>({ ...(node.document?.frontmatter ?? {}) });
+  const [frontmatter, setFrontmatter] = useState<Record<string, unknown>>({ ...(markdownDocument?.frontmatter ?? {}) });
   const [backlinks, setBacklinks] = useState<BacklinkEntry[]>([]);
   const [recovery, setRecovery] = useState<RecoveryEntry[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -426,7 +429,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
 
   useEffect(() => {
     let cancelled = false;
-    if (node.tree === "local") {
+    if (node.ref.tree === "local") {
       setBacklinks([]);
       return;
     }
@@ -435,7 +438,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       () => { if (!cancelled) setBacklinks([]); },
     );
     return () => { cancelled = true; };
-  }, [node.path, node.ref.stableKey, node.tree]);
+  }, [node.ref.path, node.ref.stableKey, node.ref.tree]);
 
   useLayoutEffect(() => {
     const target = pendingScrollRestore.current;
@@ -451,14 +454,14 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       cancelAnimationFrame(firstFrame);
       if (secondFrame) cancelAnimationFrame(secondFrame);
     };
-  }, [node.path, node.contentRevision, childrenRevision]);
+  }, [node.ref.path, node.capabilities.content?.revision, childrenRevision]);
 
   useEffect(() => {
     setSelected(new Set());
     setSelectionAnchor(null);
     setCreating(null);
     setRenamingPath(null);
-  }, [node.path]);
+  }, [node.ref.path]);
 
   const currentBlocks = () => editor.document.map((block) => fromBlockNote(block as ArborEditorBlock, originals, editor));
   const snapshot = (nextFrontmatter = frontmatter): DocumentSnapshot => ({
@@ -487,15 +490,15 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     setFrontmatter(structuredClone(value.frontmatter));
   }, [editor]);
   const coordinator = useMemo(() => new EditorCoordinator({
-    path: node.path,
-    revision: node.contentRevision!,
+    path: node.ref.path,
+    revision: node.capabilities.content?.revision!,
     baseBlocks: authored,
-    baseFrontmatter: node.document?.frontmatter ?? {},
-    initialSnapshot: { blocks: initial, frontmatter: node.document?.frontmatter ?? {} },
+    baseFrontmatter: markdownDocument?.frontmatter ?? {},
+    initialSnapshot: { blocks: initial, frontmatter: markdownDocument?.frontmatter ?? {} },
     capture: () => snapshotRef.current(),
     write: (_path, baseRevision, value, base) => sapiRef.current.write(nodeReference, {
       baseContentRevision: baseRevision,
-      source: serializeMarkdown(node.document!, value.blocks, frontmatterPatch(base.frontmatter, value.frontmatter)),
+      source: serializeMarkdown(markdownDocument!, value.blocks, frontmatterPatch(base.frontmatter, value.frontmatter)),
     }),
     applySnapshot: replaceEditorSnapshot,
     acceptNode: onSavedPreservingScroll,
@@ -505,7 +508,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     capture: () => snapshotRef.current(),
     write: (_path, baseRevision, value, base) => sapiRef.current.write(nodeReference, {
       baseContentRevision: baseRevision,
-      source: serializeMarkdown(node.document!, value.blocks, frontmatterPatch(base.frontmatter, value.frontmatter)),
+      source: serializeMarkdown(markdownDocument!, value.blocks, frontmatterPatch(base.frontmatter, value.frontmatter)),
     }),
     applySnapshot: replaceEditorSnapshot,
     acceptNode: onSavedPreservingScroll,
@@ -525,9 +528,9 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
   useLayoutEffect(() => {
     coordinator.reconcileServer(node, {
       blocks: initial,
-      frontmatter: { ...(node.document?.frontmatter ?? {}) },
+      frontmatter: { ...(markdownDocument?.frontmatter ?? {}) },
     });
-  }, [childrenRevision, coordinator, node.contentRevision]);
+  }, [childrenRevision, coordinator, node.capabilities.content?.revision]);
 
   useEffect(() => () => coordinator.dispose(), [coordinator]);
 
@@ -564,7 +567,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       mutationObserver.disconnect();
       window.removeEventListener("resize", schedule);
     };
-  }, [editor, node.path]);
+  }, [editor, node.ref.path]);
 
   const observedNode = useRef(node);
   observedNode.current = node;
@@ -578,7 +581,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
           if (!active) return;
           const currentNode = observedNode.current;
           if (update.kind === "resync") {
-            if (update.snapshot.contentRevision !== currentNode.contentRevision) {
+            if (update.snapshot.capabilities.content?.revision !== currentNode.capabilities.content?.revision) {
               coordinator.observeExternal(update.snapshot);
             } else {
               observedOnSaved.current(update.snapshot);
@@ -587,23 +590,26 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
           }
           const event = update.event;
           if (event.change.mutationID && api.client.isOwnMutation(event.change.mutationID)) continue;
-          if (event.tree !== undefined && currentNode.tree !== undefined && event.tree !== currentNode.tree) continue;
+          if (event.tree !== undefined && event.tree !== currentNode.ref.tree) continue;
           const currentPageID = pageIDFromStableKey(currentNode.ref.stableKey);
-          const affectsNode = event.change.path === currentNode.path
-            || event.change.previousPath === currentNode.path
+          const affectsNode = event.change.path === currentNode.ref.path
+            || event.change.previousPath === currentNode.ref.path
             || Boolean(currentPageID && event.change.pageID === currentPageID);
-          const currentIsDirectory = currentNode.kind === "directory" || currentNode.kind === "collection";
+          const currentIsDirectory = hasChildren(currentNode);
           const affectsChildren = currentIsDirectory && (
-            parentPath(event.change.path) === currentNode.path
-            || (event.change.previousPath !== undefined && parentPath(event.change.previousPath) === currentNode.path)
+            parentPath(event.change.path) === currentNode.ref.path
+            || (event.change.previousPath !== undefined && parentPath(event.change.previousPath) === currentNode.ref.path)
           );
           if (!affectsNode && !affectsChildren) continue;
-          const ref = !currentNode.ref.stableKey && event.change.previousPath === currentNode.path && event.kind === "moved"
-            ? { tree: currentNode.tree, path: event.change.path, stableKey: null } satisfies NodeRef
+          const ref = !currentNode.ref.stableKey && event.change.previousPath === currentNode.ref.path && event.kind === "moved"
+            ? { tree: currentNode.ref.tree, path: event.change.path, stableKey: null } satisfies NodeRef
             : currentNode.ref;
           const loaded = await sapiRef.current.node(ref);
           if (affectsNode) coordinator.observeExternal(loaded);
-          else observedOnSaved.current(loaded);
+          else {
+            observedOnSaved.current(loaded);
+            onChildrenChanged((await sapiRef.current.children(loaded.ref)).items);
+          }
         }
       } catch (error) {
         if (active) coordinator.setMessage(error instanceof Error ? error.message : String(error));
@@ -615,7 +621,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
   // Untracked (`local`) scope has no watcher: revalidate on focus and apply
   // clean external revisions through the same coordinator path events use.
   useEffect(() => {
-    if (node.tree !== "local") return;
+    if (node.ref.tree !== "local") return;
     let inflight = false;
     const revalidate = async () => {
       if (inflight || document.hidden) return;
@@ -623,9 +629,9 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       try {
         const currentNode = observedNode.current;
         const loaded = await sapiRef.current.node(
-          "path" in nodeReference ? { ...nodeReference, path: currentNode.path } : nodeReference,
+          { ...nodeReference, path: currentNode.ref.path },
         );
-        if (loaded.contentRevision !== observedNode.current.contentRevision) {
+        if (loaded.capabilities.content?.revision !== observedNode.current.capabilities.content?.revision) {
           coordinator.observeExternal(loaded);
         }
       } catch {} finally {
@@ -638,16 +644,18 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       window.removeEventListener("focus", revalidate);
       document.removeEventListener("visibilitychange", revalidate);
     };
-  }, [coordinator, node.tree]);
+  }, [coordinator, node.ref.tree]);
 
   const reload = useCallback(async (nextSelection: string[] = []) => {
     const loaded = await sapiRef.current.node(nodeReference);
     onSavedPreservingScroll(loaded);
-    const visible = new Set((loaded.children ?? []).map((child) => child.path));
+    const loadedChildren = hasChildren(loaded) ? (await sapiRef.current.children(loaded.ref)).items : [];
+    onChildrenChanged(loadedChildren);
+    const visible = new Set(loadedChildren.map((child) => child.ref.path));
     const retained = nextSelection.filter((path) => visible.has(path));
     setSelected(new Set(retained));
     setSelectionAnchor(retained.at(-1) ?? null);
-  }, [node.path, onSavedPreservingScroll]);
+  }, [node.ref.path, onChildrenChanged, onSavedPreservingScroll]);
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
 
@@ -666,14 +674,14 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       let undoSelection: string[] = [];
       let redoSelection = nextSelection;
       if (result.created.length) {
-        undoOperations = [{ op: "trash", refs: result.created.map((path) => ({ tree: node.tree, path, stableKey: null })) }];
-        redoOperations = [{ op: "restore", refs: result.created.map(trashedPath).map((path) => ({ tree: node.tree, path, stableKey: null })) }];
+        undoOperations = [{ op: "trash", refs: result.created.map((path) => ({ tree: node.ref.tree, path, stableKey: null })) }];
+        redoOperations = [{ op: "restore", refs: result.created.map(trashedPath).map((path) => ({ tree: node.ref.tree, path, stableKey: null })) }];
         redoSelection = result.created;
       } else if (result.deleted.length) {
-        undoOperations = [{ op: "restore", refs: result.deleted.map(trashedPath).map((path) => ({ tree: node.tree, path, stableKey: null })) }];
+        undoOperations = [{ op: "restore", refs: result.deleted.map(trashedPath).map((path) => ({ tree: node.ref.tree, path, stableKey: null })) }];
         undoSelection = result.deleted;
       } else if (result.moved.length) {
-        undoOperations = inverseMoves(result.moved, node.tree);
+        undoOperations = inverseMoves(result.moved, node.ref.tree);
         undoSelection = result.moved.map((item) => item.from);
         redoSelection = result.moved.map((item) => item.to);
       }
@@ -737,7 +745,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       flushDocumentHistory();
       await flushAutosave();
       const result = await sapiRef.current.import(destination, entries);
-      const nextSelection = destination === node.path ? importedTopLevel(destination, entries) : [];
+      const nextSelection = destination === node.ref.path ? importedTopLevel(destination, entries) : [];
       await reload(nextSelection);
       if (result.created.length) {
         const created = result.created;
@@ -748,14 +756,14 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
         };
         pushHistory({
           label: "import",
-          undo: () => execute([{ op: "trash", refs: created.map((path) => ({ tree: node.tree, path, stableKey: null })) }], []),
-          redo: () => execute([{ op: "restore", refs: created.map(trashedPath).map((path) => ({ tree: node.tree, path, stableKey: null })) }], created),
+          undo: () => execute([{ op: "trash", refs: created.map((path) => ({ tree: node.ref.tree, path, stableKey: null })) }], []),
+          redo: () => execute([{ op: "restore", refs: created.map(trashedPath).map((path) => ({ tree: node.ref.tree, path, stableKey: null })) }], created),
         });
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
-  }, [flushAutosave, flushDocumentHistory, node.path, pushHistory, reload]);
+  }, [flushAutosave, flushDocumentHistory, node.ref.path, pushHistory, reload]);
 
   const runOptimisticMove = useCallback(async (
     paths: string[],
@@ -766,7 +774,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     await flushAutosave();
     const before = currentBlocks();
     const previewResult = reorderChildLinks(before, {
-      directory: node.path,
+      directory: node.ref.path,
       removePaths: paths,
       insertMoves: paths.map((path) => ({ oldPath: path, newPath: path })),
       beforePath,
@@ -787,7 +795,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     event.stopPropagation();
     const raw = event.dataTransfer.getData(ARBOR_DRAG_TYPE);
     if (!raw) {
-      await importDrop(event, position === "inside" ? targetPath : node.path);
+      await importDrop(event, position === "inside" ? targetPath : node.ref.path);
       return;
     }
     const paths = JSON.parse(raw) as string[];
@@ -795,15 +803,15 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       const moved = paths.map((path) => childPath(targetPath, path.slice(path.lastIndexOf("/") + 1)));
       await runMutation([{
         op: "move",
-        refs: paths.map((path) => ({ tree: node.tree, path, stableKey: null })),
-        destination: { tree: node.tree, path: targetPath, stableKey: null },
+        refs: paths.map((path) => ({ tree: node.ref.tree, path, stableKey: null })),
+        destination: { tree: node.ref.tree, path: targetPath, stableKey: null },
       }], moved);
       return;
     }
     const targetIndex = managedOrder.indexOf(targetPath);
     const beforePath = position === "before" ? targetPath : managedOrder[targetIndex + 1];
     try { await runOptimisticMove(paths, beforePath); } catch {}
-  }, [importDrop, managedOrder.join("\0"), node.path, runMutation, runOptimisticMove]);
+  }, [importDrop, managedOrder.join("\0"), node.ref.path, runMutation, runOptimisticMove]);
   const dropInDocument = useCallback(async (paths: string[], beforeBlockId?: string) => {
     try { await runOptimisticMove(paths, undefined, beforeBlockId); } catch {}
   }, [runOptimisticMove]);
@@ -854,8 +862,8 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       event.stopImmediatePropagation();
       const bounds = row.getBoundingClientRect();
       const ratio = (event.clientY - bounds.top) / Math.max(1, bounds.height);
-      const kind = childKindsRef.current.get(targetPath)?.kind;
-      const position = kind === "directory" || kind === "collection"
+      const targetNode = childKindsRef.current.get(targetPath);
+      const position = targetNode && hasChildren(targetNode)
         ? ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "inside"
         : ratio > 0.5 ? "after" : "before";
       void dropRef.current(targetPath, position, event as unknown as React.DragEvent);
@@ -1043,8 +1051,8 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       const dragEvent = new DragEvent("drop", { dataTransfer: transfer, clientX: event.clientX, clientY: event.clientY });
       const bounds = target.getBoundingClientRect();
       const ratio = (event.clientY - bounds.top) / Math.max(1, bounds.height);
-      const kind = childKindsRef.current.get(targetPath)?.kind;
-      const position = kind === "directory" || kind === "collection"
+      const targetNode = childKindsRef.current.get(targetPath);
+      const position = targetNode && hasChildren(targetNode)
         ? ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "inside"
         : ratio > 0.5 ? "after" : "before";
       void dropRef.current(targetPath, position, dragEvent as unknown as React.DragEvent);
@@ -1080,13 +1088,13 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
   const commitCreate = useCallback(async () => {
     const value = createValue.trim();
     if (!creating || !value) return;
-    const path = childPath(node.path, value);
+    const path = childPath(node.ref.path, value);
     try {
-      await runMutation([{ op: creating === "directory" ? "createDirectory" : "createMarkdown", tree: node.tree, path }], [path]);
+      await runMutation([{ op: creating === "directory" ? "createDirectory" : "createMarkdown", tree: node.ref.tree, path }], [path]);
       setCreating(null);
       setCreateValue("");
     } catch {}
-  }, [createValue, creating, node.path, runMutation]);
+  }, [createValue, creating, node.ref.path, runMutation]);
 
   const beginRename = useCallback((path: string) => {
     if (!selectedRef.current.has(path) || selectedRef.current.size !== 1) {
@@ -1109,7 +1117,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     if (name === path.slice(path.lastIndexOf("/") + 1)) { setRenamingPath(null); return; }
     const next = childPath(parentPath(path), name);
     setRenamingPath(null);
-    try { await runMutation([{ op: "rename", ref: { tree: node.tree, path, stableKey: null }, name }], [next]); } catch {}
+    try { await runMutation([{ op: "rename", ref: { tree: node.ref.tree, path, stableKey: null }, name }], [next]); } catch {}
   }, [renameValue, renamingPath, runMutation]);
 
   const trashSelection = useCallback(async (focusPath?: string) => {
@@ -1117,7 +1125,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       ? [focusPath]
       : managedOrder.filter((path) => selected.has(path));
     if (!paths.length || !confirm(`Move ${paths.length === 1 ? paths[0] : `${paths.length} items`} to Trash?`)) return;
-    try { await runMutation([{ op: "trash", refs: paths.map((path) => ({ tree: node.tree, path, stableKey: null })) }]); } catch {}
+    try { await runMutation([{ op: "trash", refs: paths.map((path) => ({ tree: node.ref.tree, path, stableKey: null })) }]); } catch {}
   }, [managedOrder.join("\0"), runMutation, selected]);
 
   useEffect(() => {
@@ -1151,13 +1159,13 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
 
   const managedRows = useMemo<ManagedRowsController>(() => ({
     resolve: (rawPath, blockID) => {
-      const path = resolveChildLinkPath(node.path, rawPath);
+      const path = resolveChildLinkPath(node.ref.path, rawPath);
       if (!path || !childrenByPath.has(path)) return null;
       const firstClaimingBlockID = (blocks: readonly any[]): string | null => {
         for (const block of blocks) {
           if (
             block.type === "standaloneLink"
-            && resolveChildLinkPath(node.path, String(block.props?.path ?? "")) === path
+            && resolveChildLinkPath(node.ref.path, String(block.props?.path ?? "")) === path
           ) {
             return String(block.id);
           }
@@ -1168,7 +1176,10 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       };
       return firstClaimingBlockID(editor.document) === blockID ? path : null;
     },
-    kind: (path) => childrenByPath.get(path)?.kind ?? null,
+    kind: (path) => {
+      const child = childrenByPath.get(path);
+      return child ? presentationKind(child) : null;
+    },
     selected: (path) => selected.has(path),
     select: selectRow,
     rename: beginRename,
@@ -1179,7 +1190,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     setRenameValue,
     commitRename: () => { void commitRename(); },
     cancelRename: () => setRenamingPath(null),
-  }), [beginRename, childrenByPath, commitRename, drop, editor, node.path, renameValue, renamingPath, selectRow, selected, trashSelection]);
+  }), [beginRename, childrenByPath, commitRename, drop, editor, node.ref.path, renameValue, renamingPath, selectRow, selected, trashSelection]);
 
   const keys = Object.keys(frontmatter);
   const propertyKeys = frontmatter.type === "group" && !("members" in frontmatter) ? [...keys, "members"] : keys;
@@ -1190,14 +1201,14 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     if (!href) return;
     // Every document resolves links from its canonical logical address as a
     // directory-like base, regardless of leaf/directory/_index.md backing.
-    const link = resolveLogicalURL(node.path, href);
+    const link = resolveLogicalURL(node.ref.path, href);
     if (link?.kind === "external") return;
     event.preventDefault();
     if (link?.kind === "local") {
       const pageID = legacyPageIDCandidate(link);
-      navigate(pageID ? { tree: node.tree, path: link.path, stableKey: pageIDStableKey(pageID) } : link.path);
+      navigate(pageID ? { tree: node.ref.tree, path: link.path, stableKey: pageIDStableKey(pageID) } : link.path);
     } else if (link?.kind === "fragment") {
-      navigate({ tree: node.tree, path: node.path, stableKey: pageIDStableKey(legacyPageIDCandidate(link)!) });
+      navigate({ tree: node.ref.tree, path: node.ref.path, stableKey: pageIDStableKey(legacyPageIDCandidate(link)!) });
     }
     // arbor://, system:, and local: destinations wait on mount/visit resolution.
   };
@@ -1270,7 +1281,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       <div role="menu">
         <button role="menuitem" disabled={!coordinator.canUndo} title="Undo (⌘Z)" onClick={() => { closePageActions(); void undo(); }}>Undo</button>
         <button role="menuitem" disabled={!coordinator.canRedo} title="Redo (⇧⌘Z)" onClick={() => { closePageActions(); void redo(); }}>Redo</button>
-        {node.tree !== "local" && <button role="menuitem" onClick={async () => {
+        {node.ref.tree !== "local" && <button role="menuitem" onClick={async () => {
           closePageActions();
           setRecovery(await sapiRef.current.recovery(nodeReference, isDirectory));
         }}>{isDirectory ? "Recover subtree…" : "Recover…"}</button>}
@@ -1289,13 +1300,14 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       {saveState === "conflict" && <button onClick={async () => {
         const local = snapshot();
         const loaded = await sapiRef.current.node(nodeReference);
+        const loadedDocument = nodeDocument(loaded);
         const disk: DocumentSnapshot = {
-          blocks: loaded.document?.blocks ?? [],
-          frontmatter: { ...(loaded.document?.frontmatter ?? {}) },
+          blocks: loadedDocument?.blocks ?? [],
+          frontmatter: { ...(loadedDocument?.frontmatter ?? {}) },
         };
         coordinator.useDisk(loaded, local, disk);
       }}>Use disk</button>}
-      {saveState === "conflict" && <button onClick={async () => save((await sapiRef.current.node(nodeReference)).contentRevision)}>Keep mine</button>}
+      {saveState === "conflict" && <button onClick={async () => save((await sapiRef.current.node(nodeReference)).capabilities.content?.revision)}>Keep mine</button>}
       {(saveState === "error" || saveState === "external") && <button className="retry-save" onClick={() => void save()}>Retry</button>}
       <span className={`save-state ${saveState}`} role="status">{saveStateLabel}</span>
     </div>
@@ -1336,8 +1348,8 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
             if (!block) {
               void runMutation([{
                 op: "move",
-                refs: paths.map((path) => ({ tree: node.tree, path, stableKey: null })),
-                destination: { tree: node.tree, path: node.path, stableKey: null },
+                refs: paths.map((path) => ({ tree: node.ref.tree, path, stableKey: null })),
+                destination: { tree: node.ref.tree, path: node.ref.path, stableKey: null },
               }], paths);
               return;
             }
@@ -1346,7 +1358,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
               ? block.nextElementSibling instanceof HTMLElement ? block.nextElementSibling.dataset.id : undefined
               : block.dataset.id;
             void dropInDocument(paths, beforeBlockId);
-          } else void importDrop(event, node.path);
+          } else void importDrop(event, node.ref.path);
         }}
         onClickCapture={openInternalLink}
       >

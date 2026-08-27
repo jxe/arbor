@@ -294,8 +294,8 @@ public actor ArborSyncProcessSupervisor {
     ) async throws -> ArborSyncRuntime {
         let snapshot = try await client.openSession(workspace.path)
         let home = WorkspaceReference(
-            tree: TreeID(rawValue: snapshot.tree),
-            path: snapshot.path,
+            tree: TreeID(rawValue: snapshot.ref.tree),
+            path: snapshot.ref.path,
             pageID: pageIDFromStableKey(snapshot.ref.stableKey).map(PageID.init(rawValue:))
         )
         return ArborSyncRuntime(

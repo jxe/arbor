@@ -1,4 +1,5 @@
-import type { MarkdownDocument, TreeChild } from "@arbor/core";
+import type { MarkdownDocument } from "@arbor/core";
+import type { TreeChild } from "@arbor/core/internal";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { legacyPageIDCandidate, relativeLogicalReference, resolveLogicalURL } from "@arbor/core/logical-url";
 import { parseMarkdown } from "./markdown.ts";

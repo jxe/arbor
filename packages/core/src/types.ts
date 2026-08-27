@@ -1,4 +1,3 @@
-export type NodeKind = "markdown" | "directory" | "collection" | "file" | "postgres";
 export type Materialization = "available" | "placeholder";
 
 export interface Diagnostic {
@@ -43,58 +42,6 @@ export interface MarkdownDocument {
   frontmatterSource: string | null;
   bodySource: string;
   blocks: ArborBlock[];
-}
-
-export interface TreeChild {
-  tree: string;
-  name: string;
-  path: string;
-  kind: NodeKind;
-  materialization: Materialization;
-  /** Durable document identity, when known unambiguously. */
-  pageID?: string;
-}
-
-export interface TreeNode {
-  path: string;
-  name: string;
-  kind: NodeKind;
-  revision: string;
-  writable: boolean;
-  materialization: Materialization;
-  /** Which physical representation supplies a stored body; absent for implicit bodies. */
-  bodyOrigin?: "sibling" | "index";
-  document?: MarkdownDocument;
-  children?: TreeChild[];
-  collection?: CollectionSummary;
-  diagnostics: Diagnostic[];
-}
-
-export type CollectionBacking = "csv" | "jsonl" | "markdown" | "postgres";
-
-export interface CollectionSummary {
-  backing: CollectionBacking;
-  columns: string[];
-  editable: boolean;
-  total?: number;
-  tables?: string[];
-}
-
-export interface CollectionRow {
-  key: string;
-  path?: string;
-  values: Record<string, unknown>;
-  diagnostics: Diagnostic[];
-}
-
-export interface CollectionPage {
-  path: string;
-  backing: CollectionBacking;
-  columns: string[];
-  rows: CollectionRow[];
-  nextCursor: string | null;
-  diagnostics: Diagnostic[];
-  editable: boolean;
 }
 
 export interface SearchResult {

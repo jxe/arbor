@@ -484,9 +484,6 @@ function startArborSyncServer(
         if (request.method === "GET" && url.pathname === "/v1/backlinks") {
           return json(await service.backlinksPage(queryRef(url), url.searchParams.get("cursor")));
         }
-        if (request.method === "GET" && url.pathname === "/v1/collection") {
-          return json(await service.collectionPage(queryRef(url), url.searchParams.get("cursor"), url.searchParams.get("table") ?? undefined));
-        }
         if (request.method === "GET" && url.pathname === "/v1/recovery") {
           return json(await service.recoveryPage(
             queryRef(url),
