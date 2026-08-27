@@ -1,13 +1,11 @@
-import { database, mutation, publicError } from "arbor/data"
+import { arbor, mutation, publicError } from "arbor/data"
 import { z } from "zod"
 
-const suppliesData = database("../data")
-const {
-  list_contributors,
-  list_practices,
-  lists,
-  practice_tags,
-} = suppliesData.relations
+const suppliesData = arbor("../data")
+const list_contributors = arbor("../data/list_contributors").children
+const list_practices = arbor("../data/list_practices").children
+const lists = arbor("../data/lists").children
+const practice_tags = arbor("../data/practice_tags").children
 
 // React Actions submit strings; imperative callers may already have booleans.
 export const booleanInput = z.union([z.boolean(), z.stringbool()])

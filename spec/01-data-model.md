@@ -82,15 +82,19 @@ type NodeRef = [tree: TreeID, path: Path, key: Key | null]
 ```
 
 The current readable path is always present. When `key` is `null`, `(TreeID,
-path)` identifies the node. A schema may instead select one or more required
-properties as a stable key, scoped either to the whole tree or to the node's
-parent. The third component then carries their canonical value and can check or
-repair a stale readable path within that scope.
+path)` identifies the node. A schema declaration may instead select one or more
+required properties as a stable key. The declaration site defines its keyspace:
+a rule declared by a tree indexes that tree, while a rule declared by a node's
+children capability indexes that immediate child set. The rule itself contains
+only its ordered property names; it does not repeat the keyspace as a `scope`
+tag. The third reference component carries the canonical value and can check or
+repair a stale readable path within the declaring keyspace.
 
-Markdown's `id` property is a tree-scoped key. A collection primary key is a
-parent-scoped key. They use the same slot and rules; there is no `page | row`
-reference union. Changing key properties is normally forbidden. Where a
-contract permits it, the change removes one node identity and creates another.
+Markdown's `id` rule is declared by its tree. A collection primary-key rule is
+declared by the parent collection's children capability. They use the same slot
+and rules; there is no `page | row` reference union. Changing key properties is
+normally forbidden. Where a contract permits it, the change removes one node
+identity and creates another.
 
 A canonical key is RFC 8785 JSON for the identity rule's ordered array of
 `[property, normalizedValue]` pairs. Values are required, non-null canonical
@@ -158,7 +162,7 @@ Ordinary application data uses the same nodes:
 |---|---|
 | Record | Fields are node properties |
 | Collection | Records are child nodes governed by a shared schema |
-| Row | One child node, usually with a parent-scoped stable key |
+| Row | One child node, usually with a stable-key rule declared by its parent |
 | Table | A collection with relational query and mutation capabilities |
 | Database | A node/subtree materialized by a database provider |
 | File | A node projected primarily through content bytes |

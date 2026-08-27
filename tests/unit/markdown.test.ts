@@ -3,6 +3,7 @@ import {
   blockFingerprint,
   documentIcon,
   parseMarkdown,
+  replaceFrontmatter,
   serializeMarkdown,
   sourceSettingDocumentIcon,
 } from "@arbor/editor";
@@ -20,6 +21,12 @@ describe("Markdown source preservation", () => {
     const output = serializeMarkdown(document, document.blocks, { status: "published" });
     expect(output).toContain("title: Kept # comment");
     expect(output).toContain("status: published");
+  });
+
+  test("complete frontmatter replacement preserves source style and explicit null", () => {
+    const source = "---\r\ntitle: Kept # comment\r\nremove: me\r\nstatus: draft\r\n---\r\n";
+    const output = replaceFrontmatter(source, { title: "Kept", status: null, added: true });
+    expect(output).toBe("---\r\ntitle: Kept # comment\r\nstatus: null\r\nadded: true\r\n---\r\n");
   });
 });
 

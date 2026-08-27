@@ -61,6 +61,7 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(unknownNode.ref.tree, "tr_notes7f3q2ab7c")
         XCTAssertEqual(mutation.operations.first?.op, "move")
         XCTAssertEqual(receipt.effects.first?.previousPath, "/notes/today")
+        XCTAssertEqual(receipt.effects.first?.propertiesRevision, "sha256:properties")
         XCTAssertEqual(error.error, "future-error-code")
         XCTAssertEqual(children.items.first?.ref.path, "/notes/today")
         XCTAssertEqual(search.results.first?.pageID, "abc123")
@@ -69,7 +70,7 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(recovery.entries.last?.kind, "trash")
         XCTAssertEqual(
             operationRequests.flatMap(\.operations).map(\.op),
-            ["writeMarkdown", "writeText", "createMarkdown", "createDirectory", "rename", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity"]
+            ["writeMarkdown", "writeProperties", "writeText", "createMarkdown", "createDirectory", "rename", "move", "copy", "trash", "restore", "restoreRecovery", "ensureDocumentIdentity"]
         )
         XCTAssertEqual(errors.last?.error, "future-error-code")
         XCTAssertEqual(mergeFixtures["version"] as? Int, 2)

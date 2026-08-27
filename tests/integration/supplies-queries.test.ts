@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { revisionOf } from "@arbor/core";
 import { z } from "zod";
 import {
-  database,
+  arbor,
   query,
   QueryInputError,
   QueryUserRequiredError,
@@ -164,9 +164,8 @@ describe("Supplies SQLite query engine", () => {
   });
 
   test("applies Standard Schema transformations and query.one cardinality", async () => {
-    const data = database("./data");
     const transformedSearch = query.many(
-      data.relations.practices!,
+      arbor("./data/practices").children,
       z.object({ search: z.string().trim().toLowerCase() }),
       (practice, { input }: any) => ({
         where: (practice.name as any).contains(input.search),
@@ -175,7 +174,7 @@ describe("Supplies SQLite query engine", () => {
       }),
     );
     const exactPractice = query.one(
-      data.relations.practices!,
+      arbor("./data/practices").children,
       z.object({ id: z.string().uuid() }),
       (practice, { input }: any) => ({
         where: (practice.id as any).eq(input.id),

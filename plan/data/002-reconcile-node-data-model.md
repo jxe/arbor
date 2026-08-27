@@ -69,8 +69,9 @@
   capabilities, and the macOS app builds against the new protocol.
 - **2026-08-27 — file-rollup identity and read path complete:** `schema.ts`
   primary-key declarations are sandboxed and checked against required schema
-  properties; CSV, JSON, and JSONL derive canonical parent-scoped keys and
-  deterministic row segments after validation. `_store.json` is a recognized
+  properties; CSV, JSON, and JSONL derive canonical keys from the identity rule
+  declared by their parent and deterministic row segments after validation.
+  `_store.json` is a recognized
   rollup in managed, untracked, remote-detection, filesystem-reserved, and
   offline-native surfaces. File children use exact-revision-bound keyset
   cursors when every declared key is valid, while identity-less or invalid
@@ -92,12 +93,34 @@
   and stale-path key resolution. Managed and untracked filesystem adapters use
   the same database/table/row behavior. Generic capabilities remain read-only,
   while the existing authored query and named mutation APIs are unchanged.
-- **Next checkpoint:** agree how generic row property edits relate to named
-  executable mutations, then route SQLite and file-row writes through the
-  chosen node mutation semantics. Extract the remaining internal
-  collection-page and parent/grandparent adapter probes into the shared
-  `ChildProvider` snapshot contract; defer Wire rollup synchronization until
-  those local mutation semantics are proved.
+- **2026-08-27 — portable query and direct-edit design accepted:** authored
+  queries use `arbor(path).children` for every provider. The initial universal
+  algebra is predicate filtering plus explicit field selection and cardinality;
+  it has automatic stable-key/path ordering and does not promise joins,
+  relationships, aggregates, or authored ordering. Generic direct editing uses
+  `writeProperties` with complete candidate properties, property-revision CAS,
+  and immutable identity. Named `mutate` remains the transaction/authorization/
+  cascade surface.
+- **2026-08-27 — portable query and direct property-edit checkpoint complete:**
+  authored queries now start at `arbor(path).children`, and one provider-neutral
+  evaluator applies the accepted filter, field-selection, cardinality, and
+  deterministic-order baseline to expanded Markdown children and SQLite rows.
+  Unsupported relational extensions fail before provider reads. Generic
+  `writeProperties` uses a complete property map, property-revision CAS, and
+  immutable stable identity. Markdown preserves the exact body while replacing
+  frontmatter; stable-key SQLite rows update in a foreign-key-checked
+  transaction with a durable same-transaction retry receipt. CSV, JSON, and
+  JSONL remain explicitly read-only. TypeScript and Swift protocol fixtures,
+  local and managed adapters, the client, Supplies authored handles, specs, and
+  hardening debt are aligned. The obsolete authored `database()`/`.relations`
+  namespace was removed without an adapter. Identity rules now contain only
+  `properties`; the declaration site supplies the tree or sibling keyspace, and
+  decoders reject the temporary scoped form introduced at the first checkpoint.
+- **Next checkpoint:** extract the remaining internal collection-page and
+  parent/grandparent adapter probes into the shared `ChildProvider` snapshot
+  contract. Then prepare exact-source file-rollup property writes before
+  enabling them; defer Wire rollup synchronization until those local mutation
+  semantics are proved.
 
 ## Target result
 
@@ -186,7 +209,6 @@ type NodeRef = {
 };
 
 type IdentityRule = {
-  scope: "tree" | "parent";
   properties: string[];
 };
 
@@ -261,6 +283,14 @@ type ChildrenPage = {
   nextCursor: string | null;
   observedThrough: EventCursor;
 };
+
+type WritePropertiesOperation = {
+  op: "writeProperties";
+  ref: NodeRef;
+  basePropertiesRevision: string;
+  // Complete candidate map. Omission deletes; JSON null remains a value.
+  properties: Record<string, JSONValue>;
+};
 ```
 
 The precise serialized form is decided in Phase 0. Preserve these invariants:
@@ -270,8 +300,11 @@ The precise serialized form is decided in Phase 0. Preserve these invariants:
 - Physical provider kinds are internal dispatch facts, never public identity.
 - Capabilities, not kind strings, decide whether clients can edit content,
   enumerate children, render properties, run an executable, or fetch bytes.
-- A Markdown node's frontmatter and body share the exact-source concurrency
-  boundary even though they project as properties and content.
+- A Markdown provider may map property and content revisions to the same exact
+  source byte revision, but clients address the two capabilities separately.
+- `writeProperties` is provider-neutral. It replaces the complete property map
+  under `basePropertiesRevision`; it never changes content, children, or stable
+  identity as an implicit side effect.
 - A row's columns are `properties`; optional Markdown body is `content`; nested
   relations/materialized subcollections may be `children`.
 - `children` returns enough projected properties and schema metadata for table
@@ -288,7 +321,10 @@ The precise serialized form is decided in Phase 0. Preserve these invariants:
   current path, stable key or null)`. Never replace or omit the path merely
   because a stable key exists.
 - Derive the third component through one schema `IdentityRule`; do not expose a
-  `page | row` identity union or another public node taxonomy.
+  `page | row` identity union or another public node taxonomy. The rule's
+  declaration site supplies its keyspace: a tree declaration indexes that tree,
+  while a children declaration indexes that parent's child set. Do not repeat
+  that fact as a public `scope` discriminator.
 - Preserve PageID behavior across Markdown rename/move.
 - Add the canonical collection-scoped row identity from `spec/06-stores.md` to
   TypeScript, Swift, locators, fixtures, search results, backlinks, mutation
@@ -298,7 +334,7 @@ The precise serialized form is decided in Phase 0. Preserve these invariants:
 - Changing a primary key is delete/create. Ordinary row mutation cannot mutate
   identity.
 - A stale path may be checked or healed through a non-null key only within the
-  key scope declared by the addressed schema.
+  keyspace implied by the addressed schema declaration site.
 - Duplicate/invalid keys disable durable references and mutation. Never fall
   back to row position.
 
@@ -359,11 +395,21 @@ Delete collection-specific child filtering rather than adapting it:
 
 Keep three operations distinct while using one node model:
 
-- generic property/content/structural node mutations for authored editing;
+- generic `writeProperties`, exact-content writes, and structural node
+  operations for direct authored editing;
 - named executable `mutate` intent for transactions, authorization, foreign
   keys, cascades, and exactly-once receipts; and
 - tree `updates` for complete candidate-state synchronization and direct
   external rollup edits.
+
+`writeProperties` is a single-node compare-and-swap, not an escape hatch for
+business logic. Omitted properties are deleted, explicit JSON `null` remains a
+value, identity properties cannot change, and providers validate the complete
+candidate against their schema and local constraints. A primary-key change is
+delete/create. SQLite applies the write with foreign-key checking and a durable
+provider receipt in the same transaction. Markdown rewrites only frontmatter
+and preserves the body exact. CSV/JSON/JSONL stay read-only until they can
+prepare and atomically replace their exact source.
 
 A named transaction produces one indivisible accepted logical update containing
 all direct and cascading row effects. Candidate-state merge is row-identity
@@ -376,9 +422,9 @@ require one SQLite/Postgres transaction domain or a future coordinated rollup;
 do not claim cross-file atomicity. Direct file edits are decoded into candidate
 logical state only after exact-source revision checking.
 
-## Query algebra over the whole node graph
+## Portable query algebra over node children
 
-The current executable query API is structurally SQLite-specific:
+The executable query API entering this slice was structurally SQLite-specific:
 
 - `QueryHandle` owns exactly one `DatabaseHandle`;
 - every `QueryPlan` starts from a relation name;
@@ -387,31 +433,32 @@ The current executable query API is structurally SQLite-specific:
 - live dependencies are partitioned into `database` rows plus a special profile
   resolver.
 
-Replace that model with one finite declarative node-selection graph. A query
-may root at any authorized logical node or node set and may traverse explicit
-edges. The portable universal surface includes:
+Replace that authored source model with `arbor(path)` everywhere. The first
+portable node-set source is `.children`; it has the same meaning for expanded
+directories, Markdown records, file rollups, SQLite tables, and later external
+or replicated providers. Exact-node, descendant, reference, and backlink
+sources can be added to `arbor()` later without introducing a database-specific
+root namespace.
 
-- exact node refs and path-resolved nodes;
-- immediate children and explicitly bounded descendants;
-- intrinsic identity, name, location, revision, capabilities, and diagnostics;
-- typed authored properties and content projections;
-- references extracted from typed properties or authored content, plus derived
-  backlinks with tree provenance; and
-- schema-declared named relationships.
+The initial universal algebra is deliberately small:
 
-`query.one`, `query.maybe`, and `query.many` remain cardinality assertions over
-an arbitrary source, not synonyms for SQL row cardinality. Add a value/object
-form that can compose several independent selections in one finite result.
-Database relations, file-backed collections, and rollup children implement the
-same typed node-set interface. They may additionally advertise relational
-capabilities such as joins, correlated relationships, grouping, and aggregates.
-Calling an operator that the resolved source cannot preserve is a compile-time
-or activation diagnostic; the runtime never emulates an unbounded database
-query by silently loading a whole tree.
+- predicate filtering over schema-known properties using the same comparison
+  and logical operators;
+- explicit field picking/aliasing from schema-declared node properties;
+- `query.one`, `query.maybe`, and `query.many` cardinality assertions; and
+- automatic deterministic result order by canonical stable key, falling back
+  to canonical path when a source lacks durable child identity.
 
-Freeze a small typed authoring surface in Phase 0. Its information model should
-be equivalent to this illustrative form; the exact names remain a Phase 0
-fixture/API decision:
+Joins, relationship expansion, grouping, aggregates, authored ordering,
+pagination operators, and unbounded descendant traversal are not part of this
+portable baseline. A capable relational provider may retain them as explicit
+extensions while migration proceeds, but application code that uses an
+extension is not representation-isomorphic until every allowed placement can
+prove the same capability. Calling a non-portable operator is a development-time
+or activation diagnostic; the runtime never silently emulates an unbounded
+database query by loading a whole tree.
+
+The accepted small typed authoring surface uses these names:
 
 ```ts
 const practices = arbor("./practices").children
@@ -420,26 +467,17 @@ export const matchingPractices = query.many(
   practices,
   inputSchema,
   (node, { input }) => ({
-    where: node.properties.name.contains(input.text),
-    orderBy: node.properties.name,
-    select: {
-      ref: node.ref,
-      name: node.properties.name,
-      about: node.content.markdown,
-      authors: node.relationship("authors")({
-        select: author => ({ ref: author.ref, name: author.properties.name }),
-      }),
-    },
+    where: node.name.contains(input.text),
+    select: node.pick("id", "name", "description"),
   }),
 )
 ```
 
-Properties require a schema before typed comparison or ordering. Unschemaed
+Properties require a schema before typed comparison. Unschemaed
 properties may be selected as validated JSON but do not acquire guessed types.
-Content operations require a compatible content capability. Generic children
-and reference traversal preserve node identity; a relational driver's named
-relationship is an optimized/proved edge over those same nodes, not a second
-result ontology or a separately authored node facet.
+Generic children preserve node identity. A future relational driver's named
+relationship must be an optimized/proved edge over those same nodes, not a
+second result ontology or a separately authored node facet.
 
 Make this statically useful in the authored TypeScript workflow. The development
 compiler resolves literal Arbor locators against the checked source/tree graph,
@@ -640,12 +678,12 @@ snapshots/transactions and language-neutral vectors.
   scoped model digests rather than raw SQLite path identity.
 - Replace `QueryHandle.database`, relation-root-only `QueryPlan`, SQLite-only
   compilation, and `dependencies.database` with provider-neutral sources,
-  selections, edges, and sensitivities. Keep `database(path).relations` only as
-  a typed relational capability adapter over logical node sets.
-- Add query fixtures for exact node, children, bounded descendants, properties,
-  Markdown content, extracted references, backlinks, multiple roots, mounted trees, file
-  rollups, and relational joins/aggregates. Verify unsupported capabilities
-  fail before reading data.
+  selections, and sensitivities. Author every source as `arbor(path)`; do not
+  retain a `database()` or `.relations` compatibility namespace.
+- Add portable query fixtures for expanded children, Markdown records, file
+  rollups, and SQLite rows using the same filters and field picks. Add separate
+  capability-extension fixtures for any retained relational joins/aggregates,
+  and verify unsupported operators fail before reading data.
 - Ensure React Actions, named Wire calls, local runtime, and Canopy use the same
   compiled handles and transaction semantics.
 

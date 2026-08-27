@@ -14,7 +14,6 @@ export interface NodeRef {
 export type ResolvedNodeRef = NodeRef;
 
 export interface IdentityRule {
-  scope: "tree" | "parent";
   properties: string[];
 }
 
@@ -170,13 +169,13 @@ export function decodeNodeRef(value: unknown): NodeRef {
 
 export function decodeIdentityRule(value: unknown): IdentityRule {
   const source = object(value, "identityRule");
-  if (source.scope !== "tree" && source.scope !== "parent") throw new TypeError("identityRule.scope is invalid");
+  if (Object.hasOwn(source, "scope")) throw new TypeError("identityRule.scope was removed; the declaration site defines the keyspace");
   if (!Array.isArray(source.properties) || !source.properties.length) {
     throw new TypeError("identityRule.properties must be nonempty");
   }
   const properties = source.properties.map((item, index) => string(item, `identityRule.properties[${index}]`));
   if (new Set(properties).size !== properties.length) throw new TypeError("identityRule.properties must be unique");
-  return { scope: source.scope, properties };
+  return { properties };
 }
 
 function decodeRepresentation(value: unknown): ChildRepresentationSummary {

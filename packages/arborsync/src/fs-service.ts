@@ -16,18 +16,28 @@ import {
   applySourceEdits,
   canonicalJSONString,
   canonicalNodePath,
+  isPageID,
   nodeDisplayName,
   normalizeTreePath,
+  parseCanonicalStableKey,
   revisionOf,
   sha256,
 } from "@arbor/core";
+import { replaceFrontmatter } from "@arbor/editor";
 import { FsConflictError, type FsMutation, WorkspaceFS } from "@arbor/fs";
-import { CollectionCursorError, CollectionStore, arborPrivateRoot } from "@arbor/stores";
+import {
+  CollectionCursorError,
+  CollectionMutationMismatchError,
+  CollectionPropertyConflictError,
+  CollectionPropertyWriteError,
+  CollectionStore,
+  arborPrivateRoot,
+} from "@arbor/stores";
 import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import type { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { ProtocolError } from "./workspace.ts";
-import { collectionRowSummary, sampleTreeNode, summarizeTreeNode } from "./node-sampling.ts";
+import { collectionRowSummary, nodeProperties, sampleTreeNode, summarizeTreeNode } from "./node-sampling.ts";
 
 
 function isSystemError(error: unknown): error is NodeJS.ErrnoException {
@@ -192,7 +202,7 @@ export class FilesystemService implements AsyncDisposable {
       kind: "collection",
       revision: tableSummary.revision ?? revisionOf(""),
       ...(tableSummary.revision ? { childrenRevision: tableSummary.revision } : {}),
-      writable: false,
+      writable: tableSummary.editable && parent.writable,
       materialization: "available",
       collection: tableSummary,
       diagnostics: tableSummary.diagnostics ?? [],
@@ -235,10 +245,13 @@ export class FilesystemService implements AsyncDisposable {
           const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
           if (summary && summary.backing !== "markdown" && summary.backing !== "postgres" && summary.backing !== "sqlite") {
             const collectionRow = await this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
-            if (collectionRow) return {
-              ...collectionRowSummary(collectionRow.row, collectionRow.page, parentPath, LOCAL_TREE),
-              observedThrough,
-            };
+            if (collectionRow) {
+              const parentNode = await this.node(parentPath);
+              return {
+                ...collectionRowSummary(collectionRow.row, { ...collectionRow.page, editable: collectionRow.page.editable && parentNode.writable }, parentPath, LOCAL_TREE),
+                observedThrough,
+              };
+            }
           }
         } else {
           const grandparentPath = parentPath.slice(0, parentPath.lastIndexOf("/")) || "/";
@@ -248,10 +261,13 @@ export class FilesystemService implements AsyncDisposable {
             const summary = await this.collections.summary(grandparent.directoryPath).catch(() => null);
             if (summary?.backing === "sqlite" && summary.tables?.includes(table)) {
               const collectionRow = await this.collections.row(grandparent.directoryPath, parentPath, { path, stableKey: ref.stableKey }, table);
-              if (collectionRow) return {
-                ...collectionRowSummary(collectionRow.row, collectionRow.page, parentPath, LOCAL_TREE),
-                observedThrough,
-              };
+              if (collectionRow) {
+                const parentNode = await this.node(parentPath);
+                return {
+                  ...collectionRowSummary(collectionRow.row, { ...collectionRow.page, editable: collectionRow.page.editable && parentNode.writable }, parentPath, LOCAL_TREE),
+                  observedThrough,
+                };
+              }
             }
           }
         }
@@ -292,7 +308,7 @@ export class FilesystemService implements AsyncDisposable {
         }
         return {
           parent: sampleTreeNode(node, { tree: LOCAL_TREE, observedThrough }).ref,
-          items: page.rows.map((row) => collectionRowSummary(row, page, node.path, LOCAL_TREE)),
+          items: page.rows.map((row) => collectionRowSummary(row, { ...page, editable: page.editable && node.writable }, node.path, LOCAL_TREE)),
           nextCursor: page.nextCursor,
           observedThrough,
         };
@@ -334,6 +350,23 @@ export class FilesystemService implements AsyncDisposable {
       throw new ProtocolError("invalid-reference", "Durable identity resolution requires a managed workspace", 400);
     }
     return canonicalNodePath(ref.path);
+  }
+
+  private async sqlitePropertyTarget(ref: NodeRef): Promise<{
+    directory: string;
+    parentPath: string;
+    table: string;
+  } | null> {
+    const path = canonicalNodePath(ref.path);
+    if (path === "/") return null;
+    const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
+    const grandparentPath = parentPath.slice(0, parentPath.lastIndexOf("/")) || "/";
+    const table = parentPath.slice(parentPath.lastIndexOf("/") + 1);
+    const grandparent = await (await this.engine).resolve(grandparentPath);
+    if (!grandparent.directoryPath) return null;
+    const summary = await this.collections.summary(grandparent.directoryPath).catch(() => null);
+    if (summary?.backing !== "sqlite" || !summary.tables?.includes(table)) return null;
+    return { directory: grandparent.directoryPath, parentPath, table };
   }
 
   private unsupported(what: string): never {
@@ -410,14 +443,85 @@ export class FilesystemService implements AsyncDisposable {
       }
       return existing.receipt;
     }
-    const content = request.operations.filter((operation) => operation.op === "writeMarkdown" || operation.op === "writeText");
+    const content = request.operations.filter((operation) => operation.op === "writeProperties" || operation.op === "writeMarkdown" || operation.op === "writeText");
     if (content.length && (content.length !== 1 || request.operations.length !== 1)) {
       throw new ProtocolError("unsupported-operation", "A content mutation cannot be mixed with structural operations", 422);
     }
     const operation = request.operations[0];
-    const effects = await this.withErrors(async () => {
+    const effects: MutationEffect[] = await this.withErrors(async (): Promise<MutationEffect[]> => {
       if (content.length === 1) {
         const write = content[0]!;
+        if (write.op === "writeProperties") {
+          const sqliteTarget = await this.sqlitePropertyTarget(write.ref);
+          if (sqliteTarget) {
+            try {
+              const row = await this.collections.writeProperties(
+                sqliteTarget.directory,
+                sqliteTarget.parentPath,
+                write.ref,
+                write.basePropertiesRevision,
+                write.properties,
+                sqliteTarget.table,
+                { scope: LOCAL_TREE, id: request.mutationID },
+              );
+              return [{
+                kind: "updated" as const,
+                tree: LOCAL_TREE,
+                path: `${sqliteTarget.parentPath}/${row.path}`,
+                propertiesRevision: row.revision,
+              }];
+            } catch (error) {
+              if (error instanceof CollectionPropertyConflictError) {
+                throw new ProtocolError("stale-properties-revision", error.message, 409, {
+                  path: write.ref.path,
+                  current: await this.snapshot(write.ref).catch(() => undefined),
+                });
+              }
+              if (error instanceof CollectionMutationMismatchError) {
+                throw new ProtocolError("mutation-mismatch", error.message, 409, { mutationID: request.mutationID });
+              }
+              if (error instanceof CollectionPropertyWriteError) {
+                throw new ProtocolError("unsupported-operation", error.message, 422, { path: write.ref.path });
+              }
+              if (error instanceof Error && /constraint/i.test(error.message)) {
+                throw new ProtocolError("conflict", error.message, 409, { path: write.ref.path });
+              }
+              throw error;
+            }
+          }
+          const sampled = await this.snapshot(write.ref).catch(() => null);
+          if (sampled?.capabilities.properties && !sampled.capabilities.properties.writable) {
+            throw new ProtocolError("read-only", "This node's properties are read-only", 422, { path: sampled.ref.path });
+          }
+          const path = this.refPath(write.ref);
+          const current = await this.node(path);
+          if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });
+          const currentRevision = current.propertiesRevision ?? current.revision;
+          if (currentRevision !== write.basePropertiesRevision) {
+            throw new ProtocolError("stale-properties-revision", "The node properties changed since they were read", 409, {
+              path,
+              current: this.snapshotFromTree(current, this.events.currentCursor()),
+            });
+          }
+          const identity = write.ref.stableKey ? parseCanonicalStableKey(write.ref.stableKey) : null;
+          for (const [name, value] of identity ?? []) {
+            if (write.properties[name] !== value) throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
+          }
+          const currentProperties = nodeProperties(current);
+          if (isPageID(currentProperties.id) && write.properties.id !== currentProperties.id) {
+            throw new ProtocolError("invalid-reference", "Identity property id is immutable", 422, { path });
+          }
+          const source = `${replaceFrontmatter(current.document.frontmatterSource, write.properties) ?? ""}${current.document.bodySource}`;
+          const result = await (await this.engine).writeMarkdown(path, { baseRevision: current.revision, source });
+          return [{
+            kind: "updated" as const,
+            tree: LOCAL_TREE,
+            path: result.node.path,
+            contentRevision: result.byteRevision,
+            propertiesRevision: result.byteRevision,
+            directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
+          }];
+        }
         const result = write.op === "writeText"
           ? await (await this.engine).writeFile(this.refPath(write.ref), new TextEncoder().encode(write.source), write.baseContentRevision)
           : await (await this.engine).writeMarkdown(this.refPath(write.ref), {
@@ -443,6 +547,7 @@ export class FilesystemService implements AsyncDisposable {
         path: effect.path,
         previousPath: effect.previousPath,
         contentRevision: effect.contentRevision,
+        propertiesRevision: effect.propertiesRevision,
         directoryRevision: effect.directoryRevision,
         origin: "api",
         mutationID: request.mutationID,

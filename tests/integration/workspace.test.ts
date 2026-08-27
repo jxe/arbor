@@ -136,7 +136,7 @@ describe("workspace service", () => {
     const row = await workspace.snapshot({ tree: workspace.tree, path: "/database/items/stale", stableKey: key });
     expect(row.ref).toEqual({ tree: workspace.tree, path: "/database/items/b", stableKey: key });
     expect(row.properties).toEqual({ id: "b", title: "Second" });
-    expect(row.capabilities.properties?.writable).toBe(false);
+    expect(row.capabilities.properties?.writable).toBe(true);
   });
 
   test("writes exact source and enforces revision CAS", async () => {

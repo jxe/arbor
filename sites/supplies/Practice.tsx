@@ -1,5 +1,5 @@
 import { Markdown, useMutationAction, useQuery, useUser } from "arbor/react"
-import { database, mutation, publicError, query } from "arbor/data"
+import { arbor, mutation, publicError, query } from "arbor/data"
 import { z } from "zod"
 import { setListPractice } from "./scripts/mutations"
 import { myLists } from "./scripts/queries"
@@ -15,8 +15,10 @@ import {
   TextInput,
 } from "./components/shared"
 
-const suppliesData = database("./data")
-const { arbor_profiles, practice_authors, practices } = suppliesData.relations
+const suppliesData = arbor("./data")
+const arbor_profiles = arbor("./data/arbor_profiles").children
+const practice_authors = arbor("./data/practice_authors").children
+const practices = arbor("./data/practices").children
 const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
 export const practice = query.maybe(

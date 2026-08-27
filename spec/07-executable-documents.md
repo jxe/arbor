@@ -86,45 +86,43 @@ A source tree is identified by its existing `TreeID`; Arbor adds no application-
 
 For each exported handle, compilation exposes stable function identity, input validation, code version, declared or inferred tree access, and public result metadata without disclosing privileged implementation code. Literal tree paths contribute precise prefixes; computed paths require explicit declarations. Compilation fails when code can address an undeclared path, closes over UI-only state, or imports ambient host authority.
 
-`query.value`, `query.many`, `query.one`, `query.maybe`, and `mutation` accept an optional Standard Schema-compatible input schema. Zod is supported directly, without an Arbor-specific validator vocabulary. The handle's call input is the schema input type; the query plan or mutation handler receives its validated, transformed output. Validation occurs before data access. A no-input query omits the schema and is called as `useQuery(handle)`.
+`query.many`, `query.one`, `query.maybe`, and `mutation` accept an optional Standard Schema-compatible input schema. Zod is supported directly, without an Arbor-specific validator vocabulary. The handle's call input is the schema input type; the query plan or mutation handler receives its validated, transformed output. Validation occurs before data access. A no-input query omits the schema and is called as `useQuery(handle)`.
 
 ## Queries
 
 A query is a deterministic function of `(resolved workspace snapshot,
-validated input, trusted user context)`. Its only data door is one finite,
-declarative selection graph over the scoped logical node model. It may select an
-exact node, immediate children, explicitly bounded descendants, properties,
-content, references extracted from those values, derived backlinks,
-mounted-tree nodes, and schema-declared relationships.
-Every result retains tree-scoped provenance internally even when the authored
-public projection omits it.
+validated input, trusted user context)`. Its only data door is a finite,
+declarative selection over the scoped logical node model. Authored sources use
+`arbor(path)` everywhere. The initial portable node-set source is `.children`,
+with the same meaning for expanded directories, Markdown records, file rollups,
+SQLite tables, and later external or replicated providers. Every result retains
+tree-scoped provenance internally even when the authored projection omits it.
 
 `query.one`, `query.maybe`, and `query.many` assert the cardinality of any typed
-node source; they do not imply a database relation. `query.value` composes a
-finite object from several independent selections. Their callbacks return
-predicates, ordering, bounds, explicit nested selections, and safe scalar
-values. Predicates that prevent private nodes or rows from being disclosed stay
+node source; they do not imply a database relation. The portable callback
+returns predicates and explicit field picks/aliases. Predicates that prevent
+private nodes or rows from being disclosed stay
 in the server plan and are never delegated to a component.
 
-The universal symbolic node surface includes ref, path/name, revision,
-capabilities, diagnostics, declared properties, compatible content projections,
-and derived reference edges. A schema-governed collection or database relation is
-the same node-set source with additional proved relational capabilities:
-relationships, joins, grouping, and aggregates. `database(path).relations`
-remains a schema-derived convenience over those node sets, not a parallel
-ontology. A provider may push a plan into SQL, indexes, tree traversal, or
-search, but cannot change its portable meaning. An unavailable capability or
-an unbounded traversal fails before data access rather than silently loading an
-entire tree into executable memory.
+The initial universal symbolic surface is the source's schema-declared
+properties. Filtering and field picking behave identically across providers.
+Results have automatic deterministic ordering by canonical stable
+key, falling back to canonical path; authored ordering is not portable yet.
+Relationships, joins, grouping, aggregates, explicit ordering, pagination
+operators, and unbounded traversal are capability extensions rather than
+baseline semantics. A provider may push a portable plan into SQL, indexes, or
+tree traversal, but cannot change its meaning. An unavailable capability fails
+before data access rather than silently loading an entire tree into executable
+memory. There is no authored `database()` source or `.relations` namespace.
 
 Literal node/store locators are resolved by the development compiler. Declared
-property, content, child, and edge schemas generate TypeScript source types;
+property and child schemas generate TypeScript source types;
 homogeneous children receive one item type and heterogeneous children a declared
 discriminated union. Computed locators require an explicit schema and capability
 bound. The compiler never guesses from sampled data. The document manifest pins
 the contributing tree roots and schema fingerprints, and activation refuses a
-stale plan or keeps the last-known-good version. `NodeOf`, `RowOf`, and
-`ResultOf` expose inferred types, so authored source maintains no second result
+stale plan or keeps the last-known-good version. `RowOf` and `ResultOf` expose
+inferred types, so authored source maintains no second result
 schema.
 
 The return shape selects node/store facts and specified aggregates rather than
@@ -163,7 +161,7 @@ External side effects and cross-domain workflows require a separately specified 
 
 Components are React authoring in TSX or MDX within a confined UI realm. Workspace data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. General network and host APIs are absent; UI-local timers, focus, and animation do not become data authority.
 
-The public component package is `arbor/react`; data and handle authoring come from `arbor/data`. The former provides `useQuery`, `skipQuery`, `useMutationAction`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`. The latter provides logical node sources, `database`, schema-derived callable relation handles, `query`, `mutation`, `publicError`, `NodeOf`, `RowOf`, and `ResultOf`. Package names are part of the authored portability surface.
+The public component package is `arbor/react`; data and handle authoring come from `arbor/data`. The former provides `useQuery`, `skipQuery`, `useMutationAction`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`. The latter provides `arbor(path)` logical node sources, schema-derived children handles, `query`, `mutation`, `publicError`, `RowOf`, and `ResultOf`. Package names are part of the authored portability surface.
 
 Cross-tree source imports use absolute Arbor locators and resolve to immutable code identities for one build or execution. Imported handles retain their own declared access; resolving an import cannot silently widen it.
 

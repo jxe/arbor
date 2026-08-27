@@ -5,7 +5,7 @@ import {
   relationNameOf,
   type ArborUser,
   type MutationHandle,
-  type RelationHandle,
+  type NodeSetHandle,
   type StandardSchemaV1,
 } from "./authoring.ts";
 import type { FieldMetadata, RelationMetadata, StoreSchema } from "./schema.ts";
@@ -39,7 +39,7 @@ function quote(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function relationFor(schema: StoreSchema, handle: RelationHandle): RelationMetadata {
+function relationFor(schema: StoreSchema, handle: NodeSetHandle): RelationMetadata {
   const name = relationNameOf(handle);
   const relation = schema.relations[name];
   if (!relation || relation.source !== "sqlite") throw new Error(`Relation ${name} is not a writable SQLite relation`);
@@ -105,7 +105,7 @@ function provedUnique(relation: RelationMetadata, where: Record<string, unknown>
 export class SQLiteMutationTransaction {
   constructor(private readonly database: Database, readonly schema: StoreSchema) {}
 
-  one(relationHandle: RelationHandle, where: Record<string, unknown>): Record<string, unknown> | null {
+  one(relationHandle: NodeSetHandle, where: Record<string, unknown>): Record<string, unknown> | null {
     const relation = relationFor(this.schema, relationHandle);
     if (!provedUnique(relation, where)) throw new TypeError(`tx.one on ${relation.name} requires a proved unique key`);
     const parameters: unknown[] = [];
@@ -115,7 +115,7 @@ export class SQLiteMutationTransaction {
     return rows[0] ?? null;
   }
 
-  many(relationHandle: RelationHandle, where: Record<string, unknown>, options: MutationManyOptions = {}): Record<string, unknown>[] {
+  many(relationHandle: NodeSetHandle, where: Record<string, unknown>, options: MutationManyOptions = {}): Record<string, unknown>[] {
     const relation = relationFor(this.schema, relationHandle);
     const parameters: unknown[] = [];
     const predicate = whereClause(relation, where, parameters);
@@ -128,7 +128,7 @@ export class SQLiteMutationTransaction {
     return normalizeRows(this.database.query(sql).all(...parameters as any[]) as Record<string, unknown>[], relation);
   }
 
-  insert(relationHandle: RelationHandle, value: Record<string, unknown>): void {
+  insert(relationHandle: NodeSetHandle, value: Record<string, unknown>): void {
     const relation = relationFor(this.schema, relationHandle);
     const normalized = normalizedRecord(relation, value);
     const fields = Object.keys(normalized);
@@ -137,7 +137,7 @@ export class SQLiteMutationTransaction {
       .run(...Object.values(normalized) as any[]);
   }
 
-  update(relationHandle: RelationHandle, where: Record<string, unknown>, patch: Record<string, unknown>): number {
+  update(relationHandle: NodeSetHandle, where: Record<string, unknown>, patch: Record<string, unknown>): number {
     const relation = relationFor(this.schema, relationHandle);
     const normalized = normalizedRecord(relation, patch, { partial: true });
     const fields = Object.keys(normalized);
@@ -150,7 +150,7 @@ export class SQLiteMutationTransaction {
   }
 
   upsert(
-    relationHandle: RelationHandle,
+    relationHandle: NodeSetHandle,
     key: Record<string, unknown>,
     values: { create: Record<string, unknown>; update: Record<string, unknown> },
   ): "inserted" | "updated" {
@@ -162,20 +162,20 @@ export class SQLiteMutationTransaction {
     return "inserted";
   }
 
-  delete(relationHandle: RelationHandle, key: Record<string, unknown>): number {
+  delete(relationHandle: NodeSetHandle, key: Record<string, unknown>): number {
     const relation = relationFor(this.schema, relationHandle);
     if (!provedUnique(relation, key)) throw new TypeError(`tx.delete on ${relation.name} requires a proved unique key`);
     return this.deleteWhere(relationHandle, key);
   }
 
-  deleteWhere(relationHandle: RelationHandle, where: Record<string, unknown>): number {
+  deleteWhere(relationHandle: NodeSetHandle, where: Record<string, unknown>): number {
     const relation = relationFor(this.schema, relationHandle);
     const parameters: unknown[] = [];
     const predicate = whereClause(relation, where, parameters);
     return Number(this.database.query(`delete from ${quote(relation.name)} where ${predicate}`).run(...parameters as any[]).changes);
   }
 
-  ordered(relationHandle: RelationHandle, options: OrderedRelationOptions) {
+  ordered(relationHandle: NodeSetHandle, options: OrderedRelationOptions) {
     const relation = relationFor(this.schema, relationHandle);
     const within = normalizedRecord(relation, options.within, { partial: true });
     if (Object.keys(within).length === 0) throw new TypeError(`An ordered ${relation.name} partition cannot be empty`);

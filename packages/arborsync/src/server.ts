@@ -101,6 +101,7 @@ function errorResponse(
       case "reserved-boundary":
       case "duplicate-page-id":
       case "stale-content-revision":
+      case "stale-properties-revision":
       case "stale-directory-revision":
       case "occupied-destination":
       case "mutation-mismatch": return "conflict";
@@ -164,7 +165,7 @@ function decodeMutation(value: unknown): MutationRequest {
     validateOperation(operation);
   }
   const contentCount = input.operations.filter((operation) =>
-    operation.op === "writeMarkdown" || operation.op === "writeText" || operation.op === "restoreRecovery"
+    operation.op === "writeProperties" || operation.op === "writeMarkdown" || operation.op === "writeText" || operation.op === "restoreRecovery"
     || operation.op === "ensureDocumentIdentity"
   ).length;
   if (contentCount > 0 && (contentCount !== 1 || input.operations.length !== 1)) {
@@ -207,6 +208,14 @@ function optionalString(value: unknown, field: string): void {
   }
 }
 
+function isJSONValue(value: unknown, depth = 0): boolean {
+  if (depth > 100) return false;
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((item) => isJSONValue(item, depth + 1));
+  return isRecord(value) && Object.values(value).every((item) => isJSONValue(item, depth + 1));
+}
+
 function validateSourceEdits(value: unknown): void {
   if (value === undefined) return;
   if (!Array.isArray(value) || value.length === 0 || value.length > 100_000) {
@@ -243,6 +252,12 @@ function validateOperation(value: unknown): void {
     throw new ProtocolError("invalid-reference", "Every operation requires an op discriminator", 400);
   }
   switch (value.op) {
+    case "writeProperties":
+      validateRef(value.ref, "writeProperties.ref");
+      if (typeof value.basePropertiesRevision !== "string" || !value.basePropertiesRevision || !isRecord(value.properties) || !isJSONValue(value.properties)) {
+        throw new ProtocolError("invalid-request", "writeProperties requires basePropertiesRevision and a complete JSON property map", 400);
+      }
+      return;
     case "writeText":
       validateRef(value.ref, "writeText.ref");
       if (typeof value.baseContentRevision !== "string" || typeof value.source !== "string") {

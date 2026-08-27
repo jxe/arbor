@@ -8,7 +8,8 @@
       "path": "/archive/today",
       "previousPath": "/notes/today",
       "pageID": "abc123",
-      "contentRevision": "sha256:content"
+      "contentRevision": "sha256:content",
+      "propertiesRevision": "sha256:properties"
     }
   ]
 }

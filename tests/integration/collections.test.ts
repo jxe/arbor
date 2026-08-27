@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { canonicalStableKey } from "@arbor/core";
-import { CollectionStore, detectCollection } from "@arbor/stores";
+import {
+  CollectionMutationMismatchError,
+  CollectionPropertyConflictError,
+  CollectionPropertyWriteError,
+  CollectionStore,
+  detectCollection,
+} from "@arbor/stores";
 
 let root: string;
 
@@ -63,7 +69,7 @@ describe("file-backed collections", () => {
   test("uses declared keys for JSON row paths, keyset paging, and direct resolution", async () => {
     const collections = new CollectionStore();
     const first = await collections.page(join(root, "json"), "/json", null, 1);
-    expect(first.identityRule).toEqual({ scope: "parent", properties: ["id"] });
+    expect(first.identityRule).toEqual({ properties: ["id"] });
     expect(first.rows[0]).toMatchObject({ path: "a", stableKey: canonicalStableKey([["id", "a"]]) });
     expect(first.nextCursor).not.toBeNull();
 
@@ -123,7 +129,7 @@ describe("file-backed collections", () => {
     expect(table).toMatchObject({
       backing: "sqlite",
       columns: ["id", "title", "active"],
-      identityRule: { scope: "parent", properties: ["id"] },
+      identityRule: { properties: ["id"] },
       rollupScope: "children",
       total: 2,
     });
@@ -160,5 +166,60 @@ describe("file-backed collections", () => {
     const collections = new CollectionStore();
     expect(await collections.summary(directory)).toMatchObject({ backing: "sqlite", tables: ["notes"] });
     expect((await collections.page(directory, "/standalone-sqlite/notes", null, 20, "notes")).rows[0]?.path).toBe("one");
+  });
+
+  test("CAS-replaces stable SQLite row properties with durable idempotency", async () => {
+    const directory = join(root, "sqlite");
+    const collections = new CollectionStore();
+    const before = await collections.row(directory, "/sqlite/items", {
+      path: "/sqlite/items/stale-path",
+      stableKey: canonicalStableKey([["id", "a"]]),
+    }, "items");
+    expect(before?.page.editable).toBe(true);
+    const write = (id: string, base: string, title: string, rowID = "a") => collections.writeProperties(
+      directory,
+      "/sqlite/items",
+      { path: "/sqlite/items/stale-path", stableKey: canonicalStableKey([["id", "a"]]) },
+      base,
+      { id: rowID, title, active: false },
+      "items",
+      { scope: "tr_test", id },
+    );
+    const saved = await write("write-a-1", before!.row.revision!, "First updated");
+    expect(saved.values).toEqual({ id: "a", title: "First updated", active: false });
+    expect(saved.revision).not.toBe(before?.row.revision);
+    expect(await write("write-a-1", before!.row.revision!, "First updated")).toEqual(saved);
+    await expect(write("write-a-1", before!.row.revision!, "Different")).rejects.toBeInstanceOf(CollectionMutationMismatchError);
+    await expect(write("write-a-stale", before!.row.revision!, "Stale")).rejects.toBeInstanceOf(CollectionPropertyConflictError);
+    await expect(write("write-a-identity", saved.revision!, "No", "renamed")).rejects.toBeInstanceOf(CollectionPropertyWriteError);
+  });
+
+  test("enforces SQLite foreign keys during direct property writes", async () => {
+    const directory = join(root, "foreign-key-sqlite");
+    await mkdir(directory);
+    const database = new Database(join(directory, "_store.sqlite3"));
+    database.exec(`
+      pragma foreign_keys = on;
+      create table parents (id text primary key);
+      create table children (id text primary key, parent_id text not null references parents(id));
+      insert into parents values ('parent');
+      insert into children values ('child', 'parent');
+    `);
+    database.close();
+    const collections = new CollectionStore();
+    const row = (await collections.page(directory, "/foreign-key-sqlite/children", null, 10, "children")).rows[0]!;
+    await expect(collections.writeProperties(
+      directory,
+      "/foreign-key-sqlite/children",
+      { path: "/foreign-key-sqlite/children/child", stableKey: row.stableKey },
+      row.revision!,
+      { id: "child", parent_id: "missing" },
+      "children",
+      { scope: "tr_test", id: "invalid-foreign-key" },
+    )).rejects.toThrow(/foreign key constraint/i);
+    expect((await collections.row(directory, "/foreign-key-sqlite/children", {
+      path: "/foreign-key-sqlite/children/child",
+      stableKey: row.stableKey,
+    }, "children"))?.row.values.parent_id).toBe("parent");
   });
 });

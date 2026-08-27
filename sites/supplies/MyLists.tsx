@@ -5,7 +5,7 @@ import {
   useQuery,
   useUser,
 } from "arbor/react"
-import { database, mutation, publicError } from "arbor/data"
+import { arbor, mutation, publicError } from "arbor/data"
 import { z } from "zod"
 import { myLists } from "./scripts/queries"
 import {
@@ -17,8 +17,8 @@ import {
   TextInput,
 } from "./components/shared"
 
-const suppliesData = database("./data")
-const { lists } = suppliesData.relations
+const suppliesData = arbor("./data")
+const lists = arbor("./data/lists").children
 
 export const createList = mutation(
   suppliesData,

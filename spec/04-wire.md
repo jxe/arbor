@@ -644,8 +644,14 @@ type NodeRef = {
   stableKey: string | null;
 };
 
+type WritePropertiesOperation = {
+  op: "writeProperties";
+  ref: NodeRef;
+  basePropertiesRevision: string;
+  properties: Record<string, JSONValue>;
+};
+
 type IdentityRule = {
-  scope: "tree" | "parent";
   properties: string[];
 };
 
@@ -721,9 +727,9 @@ or format may be retained or ignored for forward compatibility but never
 grants editing, execution, traversal, or file access.
 
 Clients may derive a parsed Markdown document from exact `NodeContent.source`;
-that derived representation is not a second authored value. Markdown
-properties and content use the same exact-source concurrency boundary even when
-both capabilities are advertised. A `ChildRepresentationSummary` describes the observed placement;
+that derived representation is not a second authored value. Markdown property
+and content operations are addressed separately even when their capability
+revisions name the same exact source bytes. A `ChildRepresentationSummary` describes the observed placement;
 it does not make backing or projection topology part of node identity. The
 exact synchronized rollup form remains the `RollupDescriptor` below.
 

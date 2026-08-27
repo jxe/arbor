@@ -110,7 +110,7 @@ export async function resolveDatabaseLocation(
   boundaries: readonly TreeBoundary[] = [],
 ): Promise<ResolvedDatabaseLocation> {
   if (!isAbsolute(importingModulePath)) throw new Error("The importing module path must be absolute");
-  if (!specifier.startsWith(".")) throw new Error("database() accepts only local relative Arbor paths");
+  if (!specifier.startsWith(".")) throw new Error("arbor() accepts only local relative paths for SQLite store binding");
   const unresolved = resolve(dirname(importingModulePath), specifier);
   const directory = await realpath(unresolved);
   const boundary = boundaries

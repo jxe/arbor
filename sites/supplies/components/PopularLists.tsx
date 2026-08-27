@@ -1,9 +1,9 @@
 import { useQuery } from "arbor/react"
-import { database, query } from "arbor/data"
+import { arbor, query } from "arbor/data"
 import { ListGrid } from "./shared"
 
-const suppliesData = database("../data")
-const { arbor_profiles, lists } = suppliesData.relations
+const arbor_profiles = arbor("../data/arbor_profiles").children
+const lists = arbor("../data/lists").children
 const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
 export const popularLists = query.many(

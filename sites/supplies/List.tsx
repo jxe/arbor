@@ -7,7 +7,7 @@ import {
   useUser,
 } from "arbor/react"
 import {
-  database,
+  arbor,
   mutation,
   publicError,
   query,
@@ -33,17 +33,15 @@ import {
   TextInput,
 } from "./components/shared"
 
-const suppliesData = database("./data")
-const {
-  arbor_profiles,
-  list_practices,
-  list_reactions,
-  list_tags,
-  lists,
-  practice_authors,
-  practice_tags,
-  practices,
-} = suppliesData.relations
+const suppliesData = arbor("./data")
+const arbor_profiles = arbor("./data/arbor_profiles").children
+const list_practices = arbor("./data/list_practices").children
+const list_reactions = arbor("./data/list_reactions").children
+const list_tags = arbor("./data/list_tags").children
+const lists = arbor("./data/lists").children
+const practice_authors = arbor("./data/practice_authors").children
+const practice_tags = arbor("./data/practice_tags").children
+const practices = arbor("./data/practices").children
 const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
 export const list = query.maybe(

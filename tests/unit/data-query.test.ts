@@ -1,15 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { compileQuery, database, introspectStoreSchema, query, resolveDatabaseLocation, QueryCompileError } from "arbor/data";
+import { arbor, compileQuery, introspectStoreSchema, query, resolveDatabaseLocation, QueryCompileError } from "arbor/data";
 
 const repository = join(import.meta.dir, "..", "..");
 const supplies = join(repository, "sites", "supplies");
 
 describe("arbor/data query planning", () => {
   test("runs an authored planner once and retains symbolic input", () => {
-    const data = database("./data");
     let invocations = 0;
-    const handle = query.many(data.relations.practices!, (practice, { input }: any) => {
+    const handle = query.many(arbor("./data/practices").children, (practice, { input }: any) => {
       invocations += 1;
       return {
         where: (practice.name as any).contains(input.search),
@@ -28,9 +27,9 @@ describe("arbor/data query planning", () => {
   test("rejects unknown fields and unproved singular queries during compilation", async () => {
     const location = await resolveDatabaseLocation(join(supplies, "List.tsx"), "./data");
     const schema = await introspectStoreSchema(location);
-    const data = database("./data");
-    const unknown = query.many(data.relations.lists!, (list) => ({ select: { leaked: (list as any).secret } }));
-    const ambiguous = query.maybe(data.relations.lists!, (list) => ({
+    const lists = arbor("./data/lists").children;
+    const unknown = query.many(lists, (list) => ({ select: { leaked: (list as any).secret } }));
+    const ambiguous = query.maybe(lists, (list) => ({
       where: (list.visibility as any).eq("public"),
       select: (list as any).pick("id"),
     }));

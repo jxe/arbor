@@ -212,9 +212,9 @@ POST /v1/imports
 
 `/v1/mutations` accepts `{ mutationID, operations }`. `mutationID` is a stable
 client-generated idempotency identity for one exact serialized intent.
-Operations include ordinary content and structural actions: `writeText`,
-`writeMarkdown`, `create`, `move`, `copy`, `trash`, `restore`, and supported
-data-node mutations. Each operation includes explicit tree-scoped references
+Operations include ordinary property, content, and structural actions:
+`writeProperties`, `writeText`, `writeMarkdown`, `create`, `move`, `copy`,
+`trash`, and `restore`. Each operation includes explicit tree-scoped references
 and the appropriate content or directory base revision.
 
 `writeText` is the exact guarded UTF-8 operation for ordinary files such as the
@@ -237,6 +237,24 @@ candidate account-tree update is synchronized.
 Markdown writes submit the complete operational source and its exact
 `baseContentRevision`. Optional ordered nonoverlapping UTF-8 source edits may
 prove editor provenance, but the complete source remains authoritative.
+`writeProperties` is the representation-independent direct-edit operation:
+
+```ts
+type WriteProperties = {
+  op: "writeProperties";
+  ref: { tree: TreeRef; path: LogicalPath; stableKey: string | null };
+  basePropertiesRevision: string;
+  properties: Record<string, JSONValue>;
+};
+```
+
+The submitted map is complete: omitted keys are deletions and explicit `null`
+is a value. Identity properties cannot change. Markdown rewrites only
+frontmatter while retaining the exact body; a primary-key SQLite row is updated
+in one foreign-key-checked transaction. Identity-less rows and CSV/JSON/JSONL
+rollups remain read-only until their providers implement prepared exact-source
+writes. Named executable mutations remain the surface for authorization,
+multi-row work, cascades, and business invariants.
 Structural operations guard the relevant directory revisions. Multipart assets
 and imports contain explicit destination `NodeRef`s and are idempotent under the
 same mutation identity rules.

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { revisionOf, type QueryHandleRef, type QueryStreamEvent } from "@arbor/core";
 import {
-  database,
+  arbor,
   introspectStoreSchema,
   LiveQueryBroker,
   query,
@@ -22,18 +22,19 @@ const careList = "10000000-0000-4000-8000-000000000001";
 const listeningList = "10000000-0000-4000-8000-000000000003";
 const ada = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-const authored = database("./data");
-const topPublicList = query.many(authored.relations.lists!, (list: any) => ({
+const lists = arbor("./data/lists").children;
+const arborProfiles = arbor("./data/arbor_profiles").children;
+const topPublicList = query.many(lists, (list: any) => ({
   where: list.visibility.eq("public"),
   orderBy: list.updated_at.desc(),
   take: 1,
   select: list.pick("id", "name", "about", "updated_at"),
 }));
-const listOwner = query.one(authored.relations.lists!, (list: any) => ({
+const listOwner = query.one(lists, (list: any) => ({
   where: list.id.eq(careList),
   select: {
     id: list.id,
-    owner: list.owner(authored.relations.arbor_profiles!.pick("id", "name", "handle", "portrait")),
+    owner: list.owner(arborProfiles.pick("id", "name", "handle", "portrait")),
   },
 }));
 

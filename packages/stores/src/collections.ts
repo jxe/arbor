@@ -5,9 +5,9 @@ import { createInterface } from "node:readline";
 import { Database } from "bun:sqlite";
 import { parse } from "csv-parse";
 import { parseDocument } from "yaml";
-import type { Diagnostic } from "@arbor/core";
+import type { Diagnostic, JSONValue } from "@arbor/core";
 import type { CollectionBacking, CollectionPage, CollectionRow, CollectionSummary } from "@arbor/core/internal";
-import { canonicalJSONString, revisionOf, rowPathSegment, stableKeyFromProperties } from "@arbor/core";
+import { canonicalJSONString, parseCanonicalStableKey, revisionOf, rowPathSegment, sha256, stableKeyFromProperties } from "@arbor/core";
 import { introspectSQLiteDatabase, introspectStoreSchema, type FieldMetadata, type StoreSchema } from "@arbor/data";
 import { parseMarkdown } from "@arbor/editor";
 import { ConnectionStore, connectionName } from "./connections.ts";
@@ -27,7 +27,7 @@ interface LoadedCollection {
   revision: string;
   modelDigest: string;
   diagnostics: Diagnostic[];
-  identityRule?: { scope: "parent"; properties: string[] };
+  identityRule?: { properties: string[] };
   editable: boolean;
 }
 
@@ -37,12 +37,13 @@ interface LoadedSQLiteTable {
   revision: string;
   modelDigest: string;
   diagnostics: Diagnostic[];
-  identityRule?: { scope: "parent"; properties: string[] };
+  identityRule?: { properties: string[] };
 }
 
 interface LoadedSQLiteStore {
   schema: StoreSchema;
   tables: Record<string, LoadedSQLiteTable>;
+  schemaVersion: number;
   revision: string;
   modelDigest: string;
 }
@@ -58,6 +59,15 @@ interface StoredCursor {
 
 export class CollectionCursorError extends Error {}
 
+export class CollectionPropertyConflictError extends Error {
+  constructor(public current: CollectionRow) {
+    super("The row properties changed since they were read");
+  }
+}
+
+export class CollectionMutationMismatchError extends Error {}
+export class CollectionPropertyWriteError extends Error {}
+
 function sqliteIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
@@ -68,6 +78,50 @@ function sqlitePropertyValue(field: FieldMetadata, value: unknown): unknown {
   if (value instanceof Uint8Array) return { $bytes: Buffer.from(value).toString("base64") };
   if (typeof value === "bigint") return value.toString();
   return value;
+}
+
+function sqliteWriteValue(field: FieldMetadata, value: JSONValue): string | number | bigint | boolean | Uint8Array | null {
+  if (value === null) return null;
+  if (field.type === "string") {
+    if (typeof value !== "string") throw new CollectionPropertyWriteError(`${field.name} must be a string`);
+    return value;
+  }
+  if (field.type === "number") {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && /^-?[0-9]+$/.test(value)) return BigInt(value);
+    throw new CollectionPropertyWriteError(`${field.name} must be a finite number or exact integer string`);
+  }
+  if (field.type === "boolean") {
+    if (typeof value !== "boolean") throw new CollectionPropertyWriteError(`${field.name} must be a boolean`);
+    return value ? 1 : 0;
+  }
+  if (field.type === "bytes") {
+    if (!value || Array.isArray(value) || typeof value !== "object" || Object.keys(value).length !== 1 || typeof value.$bytes !== "string") {
+      throw new CollectionPropertyWriteError(`${field.name} must be a {$bytes: base64} value`);
+    }
+    return new Uint8Array(Buffer.from(value.$bytes, "base64"));
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  throw new CollectionPropertyWriteError(`${field.name} cannot be bound to this SQLite column`);
+}
+
+function sqliteRow(
+  schema: StoreSchema,
+  relation: StoreSchema["relations"][string],
+  raw: Record<string, unknown>,
+): CollectionRow {
+  const columns = Object.keys(relation.fields);
+  const values = Object.fromEntries(columns.map((column) => [column, sqlitePropertyValue(relation.fields[column]!, raw[column])])) as Record<string, JSONValue>;
+  const stableKey = stableKeyFromProperties(relation.primaryKey, values);
+  if (!stableKey) throw new CollectionPropertyWriteError(`SQLite row does not have a valid ${relation.primaryKey.join(", ")} stable key`);
+  return {
+    key: stableKey,
+    path: rowPathSegment(stableKey),
+    stableKey,
+    revision: revisionOf(canonicalJSONString({ schema: schema.fingerprint, relation: relation.name, values })),
+    values,
+    diagnostics: [],
+  };
 }
 
 function encodeCursor(value: StoredCursor): string {
@@ -184,7 +238,7 @@ export class CollectionStore {
         schemaRevision: loaded.schema.fingerprint,
         modelDigest: relation.modelDigest,
         diagnostics: relation.diagnostics,
-        editable: false,
+        editable: Boolean(relation.identityRule),
         rollupScope: "children",
         total: relation.rows.length,
       };
@@ -275,7 +329,7 @@ export class CollectionStore {
         revision: table.revision,
         schemaRevision: loaded.schema.fingerprint,
         diagnostics: [...definition.diagnostics, ...table.diagnostics],
-        editable: false,
+        editable: Boolean(table.identityRule),
       };
     }
     const loaded = await this.loadFileCollection(definition);
@@ -341,7 +395,7 @@ export class CollectionStore {
           revision: table.revision,
           schemaRevision: loaded.schema.fingerprint,
           diagnostics: [...definition.diagnostics, ...table.diagnostics],
-          editable: false,
+          editable: Boolean(table.identityRule),
         },
       };
     }
@@ -368,6 +422,90 @@ export class CollectionStore {
     };
   }
 
+  /** Replace one stable SQLite row's complete property map under row-level CAS. */
+  async writeProperties(
+    directory: string,
+    treePath: string,
+    ref: { path: string; stableKey: string | null },
+    basePropertiesRevision: string,
+    properties: Record<string, JSONValue>,
+    tableName: string,
+    mutation: { scope: string; id: string },
+  ): Promise<CollectionRow> {
+    const definition = await detectCollection(directory);
+    if (!definition || definition.backing !== "sqlite") {
+      throw new CollectionPropertyWriteError(`${treePath} is not a writable SQLite table`);
+    }
+    const loaded = await this.loadSQLiteStore(definition);
+    const relation = loaded.schema.relations[tableName];
+    if (!relation || relation.source !== "sqlite") throw new CollectionPropertyWriteError(`Unknown SQLite table ${tableName}`);
+    if (!relation.primaryKey.length || !ref.stableKey) {
+      throw new CollectionPropertyWriteError(`SQLite table ${tableName} requires a primary key for direct property writes`);
+    }
+    const keyPairs = parseCanonicalStableKey(ref.stableKey);
+    if (!keyPairs || keyPairs.length !== relation.primaryKey.length || keyPairs.some((pair, index) => pair[0] !== relation.primaryKey[index])) {
+      throw new CollectionPropertyWriteError("The supplied stable key does not match the table primary key");
+    }
+    const columns = Object.keys(relation.fields);
+    const sortedColumns = [...columns].sort();
+    const supplied = Object.keys(properties).sort();
+    if (supplied.length !== sortedColumns.length || supplied.some((column, index) => column !== sortedColumns[index])) {
+      throw new CollectionPropertyWriteError(`writeProperties requires exactly these fields: ${columns.join(", ")}`);
+    }
+    for (const [name, keyValue] of keyPairs) {
+      if (properties[name] !== keyValue) throw new CollectionPropertyWriteError(`Identity property ${name} is immutable`);
+    }
+    const requestHash = sha256(canonicalJSONString({ tableName, stableKey: ref.stableKey, basePropertiesRevision, properties }));
+    const database = new Database(definition.storePath!, { strict: true });
+    database.exec("pragma foreign_keys = on");
+    database.exec("begin immediate");
+    try {
+      const currentSchemaVersion = database.query("pragma schema_version").get() as { schema_version: number };
+      if (currentSchemaVersion.schema_version !== loaded.schemaVersion) {
+        throw new CollectionPropertyWriteError("The SQLite schema changed while the row write was being prepared");
+      }
+      database.exec(`create table if not exists __arbor_property_receipts (
+        scope text not null,
+        mutation_id text not null,
+        request_hash text not null,
+        result_json text not null,
+        primary key (scope, mutation_id)
+      )`);
+      const receipt = database.query("select request_hash, result_json from __arbor_property_receipts where scope = ? and mutation_id = ?")
+        .get(mutation.scope, mutation.id) as { request_hash: string; result_json: string } | null;
+      if (receipt) {
+        if (receipt.request_hash !== requestHash) throw new CollectionMutationMismatchError("This mutation ID was already used for a different row write");
+        database.exec("commit");
+        return JSON.parse(receipt.result_json) as CollectionRow;
+      }
+      const where = relation.primaryKey.map((name) => `${sqliteIdentifier(name)} = ?`).join(" and ");
+      const keyValues = keyPairs.map(([name, value]) => sqliteWriteValue(relation.fields[name]!, value));
+      const projection = columns.map(sqliteIdentifier).join(", ");
+      const currentRaw = database.query(`select ${projection} from ${sqliteIdentifier(tableName)} where ${where}`).get(...keyValues) as Record<string, unknown> | null;
+      if (!currentRaw) throw new CollectionPropertyWriteError("No SQLite row owns the supplied stable key");
+      const current = sqliteRow(loaded.schema, relation, currentRaw);
+      if (current.revision !== basePropertiesRevision) throw new CollectionPropertyConflictError(current);
+      const mutable = columns.filter((column) => !relation.primaryKey.includes(column));
+      if (mutable.length) {
+        const assignments = mutable.map((column) => `${sqliteIdentifier(column)} = ?`).join(", ");
+        const values = mutable.map((column) => sqliteWriteValue(relation.fields[column]!, properties[column]!));
+        database.query(`update ${sqliteIdentifier(tableName)} set ${assignments} where ${where}`).run(...values, ...keyValues);
+      }
+      const savedRaw = database.query(`select ${projection} from ${sqliteIdentifier(tableName)} where ${where}`).get(...keyValues) as Record<string, unknown> | null;
+      if (!savedRaw) throw new CollectionPropertyWriteError("The SQLite row disappeared while it was being written");
+      const saved = sqliteRow(loaded.schema, relation, savedRaw);
+      database.query("insert into __arbor_property_receipts (scope, mutation_id, request_hash, result_json) values (?, ?, ?, ?)")
+        .run(mutation.scope, mutation.id, requestHash, canonicalJSONString(saved));
+      database.exec("commit");
+      return saved;
+    } catch (error) {
+      try { database.exec("rollback"); } catch {}
+      throw error;
+    } finally {
+      database.close();
+    }
+  }
+
   private async loadSQLiteStore(definition: CollectionDefinition): Promise<LoadedSQLiteStore> {
     const directory = dirname(definition.storePath!);
     let schema: StoreSchema;
@@ -384,12 +522,13 @@ export class CollectionStore {
     const database = new Database(definition.storePath!, { readonly: true, strict: true });
     database.exec("begin");
     try {
+      const schemaVersion = (database.query("pragma schema_version").get() as { schema_version: number }).schema_version;
       const tables: Record<string, LoadedSQLiteTable> = {};
       for (const relation of Object.values(schema.relations).filter((candidate) => candidate.source === "sqlite")) {
         const columns = Object.keys(relation.fields);
         const rawRows = database.query(`select ${columns.map(sqliteIdentifier).join(", ")} from ${sqliteIdentifier(relation.name)}`).all() as Record<string, unknown>[];
         const identityRule = relation.primaryKey.length
-          ? { scope: "parent" as const, properties: relation.primaryKey }
+          ? { properties: relation.primaryKey }
           : undefined;
         const diagnostics: Diagnostic[] = identityRule ? [] : [{
           code: "missing-primary-key",
@@ -435,6 +574,7 @@ export class CollectionStore {
       return {
         schema,
         tables,
+        schemaVersion,
         modelDigest,
         revision: revisionOf(canonicalJSONString({ schema: schema.fingerprint, tables: logicalStore })),
       };
@@ -454,7 +594,7 @@ export class CollectionStore {
       : await this.markdownRows(definition);
     const identityProperties = description.primaryKey
       ?? (definition.backing === "markdown" && description.columns.includes("id") ? ["id"] : null);
-    const identityRule = identityProperties ? { scope: "parent" as const, properties: identityProperties } : undefined;
+    const identityRule = identityProperties ? { properties: identityProperties } : undefined;
     const validated = await Promise.all(loaded.rows.map(async (row, index) => {
       const result = definition.schemaPath
         ? await this.schemas.validate(definition.schemaPath, row.values)

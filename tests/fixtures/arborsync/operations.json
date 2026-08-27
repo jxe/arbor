@@ -9,6 +9,12 @@
         "source": "---\nid: abc123\ntitle: Today\n---\nUpdated\n"
       },
       {
+        "op": "writeProperties",
+        "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "stableKey": "[[\"id\",\"abc123\"]]" },
+        "basePropertiesRevision": "sha256:properties",
+        "properties": { "id": "abc123", "title": "Today", "featured": true }
+      },
+      {
         "op": "writeText",
         "ref": { "tree": "tr_config7f3q2ab7c", "path": "/trees.yaml", "stableKey": null },
         "baseContentRevision": "sha256:configuration",

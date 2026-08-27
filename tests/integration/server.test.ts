@@ -1,11 +1,12 @@
 import { nodeDocument, nodeKind } from "../helpers/node-snapshot.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { Database } from "bun:sqlite";
 import { serveArborSyncControl, serveArborSync } from "@arbor/arborsync";
 import { ArborSyncRESTClient, type MutationRequest, type WorkspaceEvent } from "@arbor/client";
-import { canonicalJSONString, pageIDFromStableKey, pageIDStableKey, sha256 } from "@arbor/core";
+import { canonicalJSONString, canonicalStableKey, pageIDFromStableKey, pageIDStableKey, sha256 } from "@arbor/core";
 import type { Workspace } from "@arbor/arborsync";
 
 let root: string;
@@ -27,6 +28,10 @@ beforeAll(async () => {
   await writeFile(join(root, "source.md"), "---\nid: source\n---\nSee [Target](/target#target).\n");
   await writeFile(join(root, "duplicate-a.md"), "---\nid: duplicate-id\n---\nA\n");
   await writeFile(join(root, "duplicate-b.md"), "---\nid: duplicate-id\n---\nB\n");
+  await mkdir(join(root, "data"));
+  const database = new Database(join(root, "data", "_store.sqlite3"));
+  database.exec("create table items (id text primary key, title text not null); insert into items values ('one', 'One')");
+  database.close();
   const running = await serveArborSync(root, { port: 0 });
   activeWorkspace = running.workspace;
   scope = activeWorkspace.tree;
@@ -113,6 +118,36 @@ describe("arborsync REST v1", () => {
     durableWriteReceipt = first;
   });
 
+  test("writes node properties without changing Markdown content and writes stable SQLite rows", async () => {
+    const page = await client.node({ tree: scope, path: "/page", stableKey: null });
+    const body = nodeDocument(page)!.bodySource;
+    const pageReceipt = await client.writeProperties(
+      page.ref,
+      page.capabilities.properties!.revision,
+      { title: "Property title", optional: null },
+      "write-page-properties-1",
+    );
+    const savedPage = await client.node(page.ref);
+    expect(savedPage.properties).toEqual({ title: "Property title", optional: null });
+    expect(nodeDocument(savedPage)?.bodySource).toBe(body);
+    expect(pageReceipt.effects[0]?.propertiesRevision).toBe(savedPage.capabilities.properties?.revision);
+
+    const rows = await client.children({ tree: scope, path: "/data/items", stableKey: null });
+    const row = rows.items[0]!;
+    expect(row.capabilities.properties?.writable).toBe(true);
+    expect(row.ref.stableKey).toBe(canonicalStableKey([["id", "one"]]));
+    const rowReceipt = await client.writeProperties(
+      { ...row.ref, path: "/data/items/stale-readable-path" },
+      row.capabilities.properties!.revision,
+      { id: "one", title: "One updated" },
+      "write-row-properties-1",
+    );
+    const savedRow = await client.node(row.ref);
+    expect(savedRow.properties.title).toBe("One updated");
+    expect(rowReceipt.effects[0]?.path).toBe("/data/items/one");
+    expect(rowReceipt.effects[0]?.propertiesRevision).toBe(savedRow.capabilities.properties?.revision);
+  });
+
   test("rejects mutation ID reuse with changed intent", async () => {
     await expect(client.mutate({
       mutationID: "write-page-1",
@@ -167,6 +202,8 @@ describe("arborsync REST v1", () => {
       { mutationID: "bad-move", operations: [{ op: "move", refs: [], destination: { path: "/" } }] },
       { mutationID: "bad-source-edits", operations: [{ op: "writeMarkdown", ref: { path: "/page" }, baseContentRevision: "sha256:old", source: "x", sourceEdits: [] }] },
       { mutationID: "overlapping-source-edits", operations: [{ op: "writeMarkdown", ref: { path: "/page" }, baseContentRevision: "sha256:old", source: "x", sourceEdits: [{ offset: 2, length: 2, replacement: "a" }, { offset: 3, length: 1, replacement: "b" }] }] },
+      { mutationID: "bad-properties-revision", operations: [{ op: "writeProperties", ref: { tree: scope, path: "/page", stableKey: null }, basePropertiesRevision: "", properties: {} }] },
+      { mutationID: "bad-properties-map", operations: [{ op: "writeProperties", ref: { tree: scope, path: "/page", stableKey: null }, basePropertiesRevision: "sha256:old", properties: [] }] },
     ]) {
       const response = await fetch(`${base}/v1/mutations`, {
         method: "POST",

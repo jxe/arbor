@@ -45,9 +45,17 @@ private struct FrozenNodeRef: Decodable, Equatable {
 }
 
 private struct FrozenIdentityRule: Decodable {
-    enum Scope: String, Decodable { case tree, parent }
-    var scope: Scope
     var properties: [String]
+
+    private enum CodingKeys: String, CodingKey { case properties, scope }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.scope) {
+            throw DecodingError.dataCorruptedError(forKey: .scope, in: container, debugDescription: "identity rule scope was removed")
+        }
+        properties = try container.decode([String].self, forKey: .properties)
+    }
 }
 
 private struct FrozenIdentityCase: Decodable {
@@ -178,6 +186,7 @@ private struct FrozenNamed<Value: Decodable>: Decodable {
 private struct FrozenNodeModelFixture: Decodable {
     var version: String
     var identityRules: [FrozenIdentityCase]
+    var invalidIdentityRules: [FrozenNamed<JSONValue>]
     var snapshots: [FrozenNamed<FrozenNodeSnapshot>]
     var childrenPages: [FrozenNamed<FrozenChildrenPage>]
     var rollups: [FrozenRollup]
@@ -212,6 +221,10 @@ final class NodeModelConformanceTests: XCTestCase {
                 (property, try XCTUnwrap(item.properties[property], "missing \(property) in \(item.name)"))
             }
             XCTAssertEqual(try canonicalStableKey(pairs), item.stableKey, item.name)
+        }
+        for item in value.invalidIdentityRules {
+            let data = try JSONEncoder().encode(item.value)
+            XCTAssertThrowsError(try JSONDecoder().decode(FrozenIdentityRule.self, from: data), item.name)
         }
 
         XCTAssertEqual(

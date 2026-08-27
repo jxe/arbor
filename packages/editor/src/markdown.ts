@@ -434,6 +434,24 @@ export function patchFrontmatter(
   return `---${newline}${yaml}${yaml.endsWith(newline) ? "" : newline}---${newline}`;
 }
 
+/** Replace the complete frontmatter map while preserving its YAML source style where possible. */
+export function replaceFrontmatter(
+  source: string | null,
+  properties: Record<string, unknown>,
+): string | null {
+  if (!source && !Object.keys(properties).length) return null;
+  const newline = source?.includes("\r\n") ? "\r\n" : "\n";
+  const split = source ? splitFrontmatter(source) : null;
+  const document = parseDocument(split?.frontmatterBody ?? "", { keepSourceTokens: true });
+  const current = document.toJSON();
+  for (const key of current && typeof current === "object" && !Array.isArray(current)
+    ? Object.keys(current as Record<string, unknown>)
+    : []) if (!Object.hasOwn(properties, key)) document.delete(key);
+  for (const [key, value] of Object.entries(properties)) document.set(key, value);
+  const yaml = document.toString({ lineWidth: 0 }).replaceAll("\n", newline);
+  return `---${newline}${yaml}${yaml.endsWith(newline) ? "" : newline}---${newline}`;
+}
+
 export function serializeMarkdown(
   document: MarkdownDocument,
   blocks: ArborBlock[],

@@ -156,6 +156,43 @@ describe("the local filesystem scope", () => {
     expect(healed.ref.path).toBe(join(databasePath, "items", "one"));
   });
 
+  test("directly edits untracked Markdown and stable SQLite properties", async () => {
+    const markdownPath = join(outer, "stray", "note");
+    const markdown = await client.node({ tree: "local", path: markdownPath, stableKey: null });
+    const markdownReceipt = await client.writeProperties(
+      markdown.ref,
+      markdown.capabilities.properties!.revision,
+      { title: "Untracked title", optional: null },
+      "untracked-properties-1",
+    );
+    expect(markdownReceipt.effects[0]?.propertiesRevision).toMatch(/^sha256:/);
+    const savedMarkdown = await client.node(markdown.ref);
+    expect(savedMarkdown.properties).toEqual({ title: "Untracked title", optional: null });
+    expect(nodeDocument(savedMarkdown)?.bodySource).toBe("Untracked note\n");
+
+    const databasePath = join(outer, "stray", "database");
+    const rows = await client.children({ tree: "local", path: join(databasePath, "items"), stableKey: null });
+    const row = rows.items[0]!;
+    expect(row.capabilities.properties?.writable).toBe(true);
+    const request = {
+      ref: row.ref,
+      revision: row.capabilities.properties!.revision,
+      properties: { id: "one", title: "One updated" },
+    } as const;
+    const first = await client.writeProperties(request.ref, request.revision, request.properties, "untracked-row-properties-1");
+    expect(await client.writeProperties(request.ref, request.revision, request.properties, "untracked-row-properties-1")).toEqual(first);
+    const savedRow = await client.node({ ...row.ref, path: join(databasePath, "items", "stale-again") });
+    expect(savedRow.properties).toEqual(request.properties);
+    expect(savedRow.capabilities.properties?.revision).toBe(first.effects[0]?.propertiesRevision);
+
+    await expect(client.writeProperties(
+      row.ref,
+      savedRow.capabilities.properties!.revision,
+      { id: "renamed", title: "No" },
+      "untracked-row-properties-identity",
+    )).rejects.toThrow("immutable");
+  });
+
   test("uses WorkspaceFS authored ordering through an absolute browser path", async () => {
     const absolute = join(root, "ordered");
     const directory = await client.node({ tree: "local", path: absolute, stableKey: null });
@@ -220,6 +257,13 @@ describe("the local filesystem scope", () => {
     const row = await client.node({ tree: "local", path: join(collection, "old-name"), stableKey: key });
     expect(row.ref.path).toBe(join(collection, "one"));
     expect(row.properties).toEqual({ id: "one", title: "One" });
+    expect(row.capabilities.properties?.writable).toBe(false);
+    await expect(client.writeProperties(
+      row.ref,
+      row.capabilities.properties!.revision,
+      { id: "one", title: "Changed" },
+      "untracked-json-properties-read-only",
+    )).rejects.toThrow("read-only");
   });
 
   test("materializes an implicit untracked directory only after an authored edit", async () => {

@@ -366,6 +366,8 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
     public var path: String?
     public var name: String?
     public var destination: NodeRef?
+    public var basePropertiesRevision: String?
+    public var properties: [String: JSONValue]?
     public var baseContentRevision: String?
     public var source: String?
     public var sourceEdits: [ProtocolSourceEdit]?
@@ -379,6 +381,8 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         path: String? = nil,
         name: String? = nil,
         destination: NodeRef? = nil,
+        basePropertiesRevision: String? = nil,
+        properties: [String: JSONValue]? = nil,
         baseContentRevision: String? = nil,
         source: String? = nil,
         sourceEdits: [ProtocolSourceEdit]? = nil,
@@ -391,6 +395,8 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
         self.path = path
         self.name = name
         self.destination = destination
+        self.basePropertiesRevision = basePropertiesRevision
+        self.properties = properties
         self.baseContentRevision = baseContentRevision
         self.source = source
         self.sourceEdits = sourceEdits
@@ -398,7 +404,7 @@ public struct WorkspaceOperation: Codable, Sendable, Equatable {
     }
 
     public var isContentOperation: Bool {
-        op == "writeText" || op == "writeMarkdown" || op == "restoreRecovery" || op == "ensureDocumentIdentity"
+        op == "writeProperties" || op == "writeText" || op == "writeMarkdown" || op == "restoreRecovery" || op == "ensureDocumentIdentity"
     }
 }
 
@@ -434,6 +440,7 @@ public struct MutationEffect: Codable, Sendable, Equatable {
     public var previousPath: String?
     public var pageID: String?
     public var contentRevision: String?
+    public var propertiesRevision: String?
     public var directoryRevision: String?
 }
 
@@ -448,6 +455,7 @@ public struct WorkspaceChange: Codable, Sendable, Equatable {
     public var previousPath: String?
     public var pageID: String?
     public var contentRevision: String?
+    public var propertiesRevision: String?
     public var directoryRevision: String?
     public var origin: String
     public var mutationID: String?

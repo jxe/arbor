@@ -1,6 +1,6 @@
 const NODE = Symbol.for("arbor.data.node");
 const RELATION = Symbol.for("arbor.data.relation");
-const DATABASE = Symbol.for("arbor.data.database");
+const SOURCE = Symbol.for("arbor.data.source");
 
 export type QueryCardinality = "many" | "one" | "maybe";
 export type Direction = "asc" | "desc";
@@ -108,12 +108,12 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
   };
 }
 
-export interface DatabaseHandle {
+export interface ArborNodeHandle {
   readonly path: string;
-  readonly relations: Record<string, RelationHandle>;
+  readonly children: NodeSetHandle;
 }
 
-export interface RelationHandle<Row = Record<string, unknown>> {
+export interface NodeSetHandle<Row = Record<string, unknown>> {
   readonly __row?: Row;
   pick<Keys extends keyof Row & string>(...fields: Keys[]): Pick<Row, Keys>;
   readonly [field: string]: unknown;
@@ -121,7 +121,7 @@ export interface RelationHandle<Row = Record<string, unknown>> {
 
 export interface QueryHandle<Result = unknown, Input = undefined> {
   readonly kind: "query";
-  readonly database: DatabaseHandle;
+  readonly source: ArborNodeHandle;
   readonly plan: QueryPlan;
   readonly schema?: StandardSchemaV1<Input, Input>;
   readonly __result?: Result;
@@ -130,14 +130,14 @@ export interface QueryHandle<Result = unknown, Input = undefined> {
 
 export interface MutationHandle<Result = unknown, Input = unknown> {
   readonly kind: "mutation";
-  readonly database: DatabaseHandle;
+  readonly source: ArborNodeHandle;
   readonly schema: StandardSchemaV1<Input, Input>;
   readonly handler: (...args: any[]) => Result | Promise<Result>;
   readonly __result?: Result;
   readonly __input?: Input;
 }
 
-export type RowOf<Relation> = Relation extends RelationHandle<infer Row> ? Row : never;
+export type RowOf<Source> = Source extends NodeSetHandle<infer Row> ? Row : never;
 export type ResultOf<Handle> = Handle extends QueryHandle<infer Result, any>
   ? Result
   : Handle extends MutationHandle<infer Result, any>
@@ -223,18 +223,18 @@ function member(relation: string, field: string): unknown {
   });
 }
 
-function rowScope(relation: string, owner?: DatabaseHandle): RelationHandle {
+function rowScope(relation: string, source?: ArborNodeHandle): NodeSetHandle {
   const target = {};
   return new Proxy(target, {
     get(_target, property) {
       if (property === RELATION) return relation;
-      if (property === DATABASE) return owner;
+      if (property === SOURCE) return source;
       if (property === "pick") return (...fields: string[]) => Object.fromEntries(fields.map((field) => [field, member(relation, field)]));
       if (property === "then") return undefined;
       if (typeof property === "string") return member(relation, property);
       return undefined;
     },
-  }) as unknown as RelationHandle;
+  }) as unknown as NodeSetHandle;
 }
 
 function parameterProxy(path: string[] = []): unknown {
@@ -332,49 +332,52 @@ function relationshipSelection(relation: string, relationship: string, argument:
   });
 }
 
-export function database(path: string): DatabaseHandle {
-  if (!path || !path.startsWith(".")) throw new Error("database() requires a local relative Arbor path");
-  const handle = { path } as DatabaseHandle;
-  const relations = new Proxy({}, {
-    get(_target, property) {
-      if (property === "then") return undefined;
-      if (typeof property !== "string") return undefined;
-      return rowScope(property, handle);
-    },
-  }) as Record<string, RelationHandle>;
-  Object.assign(handle, { relations });
+function relationFromPath(path: string): string {
+  const normalized = path.replace(/\/+$/, "");
+  const relation = normalized.slice(normalized.lastIndexOf("/") + 1);
+  if (!relation || relation === "." || relation === "..") throw new Error("arbor() children require a named node path");
+  return relation;
+}
+
+export function arbor(path: string): ArborNodeHandle {
+  if (!path || (!path.startsWith(".") && !path.startsWith("/") && !path.startsWith("arbor:"))) {
+    throw new Error("arbor() requires a relative, logical, or Arbor path");
+  }
+  const handle = { path } as ArborNodeHandle;
+  Object.assign(handle, { children: rowScope(relationFromPath(path), handle) });
   return Object.freeze(handle);
 }
 
-type Planner = (row: RelationHandle, context: { input: unknown; user: unknown }) => unknown;
+type Planner = (row: NodeSetHandle, context: { input: unknown; user: unknown }) => unknown;
 
-function createQuery(cardinality: QueryCardinality, relation: RelationHandle, schemaOrPlanner: StandardSchemaV1 | Planner, possiblePlanner?: Planner): QueryHandle<any, any> {
+function createQuery(cardinality: QueryCardinality, relation: NodeSetHandle, schemaOrPlanner: StandardSchemaV1 | Planner, possiblePlanner?: Planner): QueryHandle<any, any> {
   const actualRelation = (relation as unknown as { [RELATION]: string })[RELATION];
   const planner = possiblePlanner ?? schemaOrPlanner as Planner;
   const schema = possiblePlanner ? schemaOrPlanner as StandardSchemaV1 : undefined;
   const planned = planner(rowScope(actualRelation), { input: parameterProxy(), user: userValue(false) });
   const normalized = normalizePlan(actualRelation, planned);
-  const databaseHandle = (relation as unknown as { [DATABASE]: DatabaseHandle })[DATABASE];
+  const source = (relation as unknown as { [SOURCE]: ArborNodeHandle })[SOURCE];
+  if (!source) throw new Error("A root query source must be arbor(path).children");
   return Object.freeze({
     kind: "query" as const,
-    database: databaseHandle,
+    source,
     plan: { ...normalized, relation: actualRelation, cardinality },
     ...(schema ? { schema } : {}),
   });
 }
 
 export const query = {
-  many: (relation: RelationHandle, schemaOrPlanner: StandardSchemaV1 | Planner, planner?: Planner) => createQuery("many", relation, schemaOrPlanner, planner),
-  one: (relation: RelationHandle, schemaOrPlanner: StandardSchemaV1 | Planner, planner?: Planner) => createQuery("one", relation, schemaOrPlanner, planner),
-  maybe: (relation: RelationHandle, schemaOrPlanner: StandardSchemaV1 | Planner, planner?: Planner) => createQuery("maybe", relation, schemaOrPlanner, planner),
+  many: (relation: NodeSetHandle, schemaOrPlanner: StandardSchemaV1 | Planner, planner?: Planner) => createQuery("many", relation, schemaOrPlanner, planner),
+  one: (relation: NodeSetHandle, schemaOrPlanner: StandardSchemaV1 | Planner, planner?: Planner) => createQuery("one", relation, schemaOrPlanner, planner),
+  maybe: (relation: NodeSetHandle, schemaOrPlanner: StandardSchemaV1 | Planner, planner?: Planner) => createQuery("maybe", relation, schemaOrPlanner, planner),
 };
 
 export function mutation<Result, Input>(
-  databaseHandle: DatabaseHandle,
+  source: ArborNodeHandle,
   schema: StandardSchemaV1<Input, Input>,
   handler: (...args: any[]) => Result | Promise<Result>,
 ): MutationHandle<Result, Input> {
-  return Object.freeze({ kind: "mutation" as const, database: databaseHandle, schema, handler });
+  return Object.freeze({ kind: "mutation" as const, source, schema, handler });
 }
 
 export class PublicMutationError extends Error {
@@ -388,6 +391,6 @@ export function publicError(code: string, message: string): PublicMutationError 
   return new PublicMutationError(code, message);
 }
 
-export function relationNameOf(relation: RelationHandle): string {
+export function relationNameOf(relation: NodeSetHandle): string {
   return (relation as unknown as { [RELATION]: string })[RELATION];
 }

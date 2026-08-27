@@ -1,10 +1,9 @@
 import { useQuery, useUser } from "arbor/react"
-import { database, query } from "arbor/data"
+import { arbor, query } from "arbor/data"
 import { z } from "zod"
 import { ListGrid, PracticeGrid, Shell } from "./components/shared"
 
-const suppliesData = database("./data")
-const { arbor_profiles } = suppliesData.relations
+const arbor_profiles = arbor("./data/arbor_profiles").children
 const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
 export const profile = query.maybe(

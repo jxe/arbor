@@ -3,16 +3,19 @@
   "identityRules": [
     {
       "name": "markdown-id",
-      "rule": { "scope": "tree", "properties": ["id"] },
+      "rule": { "properties": ["id"] },
       "properties": { "id": "pg_practices", "title": "Practices" },
       "stableKey": "[[\"id\",\"pg_practices\"]]"
     },
     {
       "name": "compound-row-key",
-      "rule": { "scope": "parent", "properties": ["list_id", "practice_id"] },
+      "rule": { "properties": ["list_id", "practice_id"] },
       "properties": { "list_id": "list_a", "practice_id": "practice_b", "position": 3 },
       "stableKey": "[[\"list_id\",\"list_a\"],[\"practice_id\",\"practice_b\"]]"
     }
+  ],
+  "invalidIdentityRules": [
+    { "name": "removed-explicit-scope", "value": { "scope": "parent", "properties": ["id"] } }
   ],
   "snapshots": [
     {

@@ -254,6 +254,15 @@ export class ArborSyncRESTClient {
     return this.mutateContent({ op: "writeText", ref, baseContentRevision, source }, mutationID);
   }
 
+  writeProperties(
+    ref: NodeRef,
+    basePropertiesRevision: Extract<ContentWorkspaceOperation, { op: "writeProperties" }>["basePropertiesRevision"],
+    properties: Extract<ContentWorkspaceOperation, { op: "writeProperties" }>["properties"],
+    mutationID?: string,
+  ): Promise<MutationReceipt> {
+    return this.mutateContent({ op: "writeProperties", ref, basePropertiesRevision, properties }, mutationID);
+  }
+
   claimProfile(input: { origin: string; handle: string; path: string; displayName?: string }): Promise<MutationReceipt> {
     return this.request("/v1/bootstrap/claims", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
   }
@@ -489,7 +498,7 @@ export class ArborSyncRESTClient {
       throw new TypeError("A mutation requires a non-empty mutation ID and operations array");
     }
     const contentCount = request.operations.filter((operation) =>
-      operation.op === "writeMarkdown" || operation.op === "writeText" || operation.op === "restoreRecovery"
+      operation.op === "writeProperties" || operation.op === "writeMarkdown" || operation.op === "writeText" || operation.op === "restoreRecovery"
       || operation.op === "ensureDocumentIdentity"
     ).length;
     if (contentCount > 0 && (contentCount !== 1 || request.operations.length !== 1)) {

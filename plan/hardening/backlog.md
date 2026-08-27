@@ -114,6 +114,48 @@ These are implementation violations of the aspirational specification. They are 
     rollup provider must carry an exact accepted source/object revision and a
     separate scoped model digest so vacuuming, indexes, and representation-only
     changes participate in synchronization without changing logical equality.
+12. **Move portable query compilation out of the SQLite module.** The first
+    `NodeQueryEngine` intentionally reuses predicate/input errors and evaluation
+    behavior from `sqlite.ts`, which leaves a provider-neutral runtime importing
+    a relational executor. Extract one closed query-core package before adding
+    another provider or operator; SQLite and child providers must consume the
+    same predicate, selection, input, and cardinality semantics rather than
+    maintaining lookalike implementations.
+13. **Generate source schemas before ordinary-tree query activation.** The
+    development compiler must bind every literal `arbor(path).children` handle
+    to declared property types and a schema fingerprint, including an empty
+    child set. The current ordinary-node engine validates returned JSON values
+    but cannot reject an unknown selected/filter field when no sample exposes
+    it. Delete sample-derived fallback typing once generated source declarations
+    and activation-time fingerprint checks cover expanded and rolled-up sources.
+14. **Replace the temporary whole-source query bound.** Portable ordinary-node
+    queries currently page up to 10,000 children before filtering and picking.
+    Add a manifest-declared finite source bound plus provider pushdown/cursors,
+    and reject activation when neither can prove bounded execution. Do not turn
+    this emergency ceiling into public query semantics.
+15. **Retire the SQLite direct-write receipt bridge deliberately.** Generic row
+    writes currently create `__arbor_property_receipts` inside the store so a
+    crash after the row commit can replay the same mutation safely. The shared
+    provider transaction protocol must define receipt retention/pruning,
+    representation-sync behavior, and how copied or replicated stores scope
+    caller mutation IDs. Remove the private table only after provider commit
+    recovery offers the same crash guarantee.
+16. **Prepare exact-source writes before enabling file-rollup properties.** CSV,
+    JSON, and JSONL rows correctly remain read-only in the first
+    `writeProperties` slice. Enable them only after the provider can retain the
+    sampled exact source, apply one row candidate without losing unrelated
+    formatting/comments where the codec permits it, validate the complete
+    logical collection, atomically replace the file, and recover/replay the
+    mutation. Do not route them through a lossy parse-and-reserialize shortcut.
+17. **Give portable live queries a child-set dependency.** The first
+    `NodeQueryEngine` reports the revisions of every sampled child, which can
+    detect edits to existing matches and nonmatches but cannot by itself detect
+    insertion or removal from the source. Before routing ordinary-tree handles
+    through `/queries`, make `ChildProvider` expose the resolved parent's
+    children revision and observation cursor, include that membership token in
+    query dependencies, and prove snapshot-then-follow has no gap. Remove the
+    row-list dependency retrofit once the shared sensitivity model can express
+    property, membership, schema, and access changes directly.
 
 ## Filesystem and structural editing
 

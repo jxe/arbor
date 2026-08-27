@@ -20,6 +20,7 @@ interface NodeModelFixture {
     properties: Record<string, unknown>;
     stableKey: string;
   }>;
+  invalidIdentityRules: Array<{ name: string; value: unknown }>;
   snapshots: Array<{ name: string; value: unknown }>;
   childrenPages: Array<{ name: string; value: unknown }>;
   rollups: unknown[];
@@ -32,13 +33,16 @@ async function fixture(): Promise<NodeModelFixture> {
 }
 
 describe("unified node-model conformance", () => {
-  test("derives tree- and parent-scoped keys through one identity rule", async () => {
+  test("derives keys through one declaration-site-scoped identity rule", async () => {
     const value = await fixture();
     expect(value.version).toBe("node-model-v1");
     for (const item of value.identityRules) {
       const rule = decodeIdentityRule(item.rule);
       const pairs = rule.properties.map((property) => [property, item.properties[property]] as const);
       expect(canonicalStableKey(pairs), item.name).toBe(item.stableKey);
+    }
+    for (const item of value.invalidIdentityRules) {
+      expect(() => decodeIdentityRule(item.value), item.name).toThrow();
     }
   });
 

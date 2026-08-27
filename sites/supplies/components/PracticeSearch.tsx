@@ -1,11 +1,11 @@
 import { useState } from "react"
 import { skipQuery, useQuery } from "arbor/react"
-import { database, query } from "arbor/data"
+import { arbor, query } from "arbor/data"
 import { z } from "zod"
 import { PracticeGrid, TextInput } from "./shared"
 
-const suppliesData = database("../data")
-const { arbor_profiles, practices } = suppliesData.relations
+const arbor_profiles = arbor("../data/arbor_profiles").children
+const practices = arbor("../data/practices").children
 const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
 
 export const practiceSearch = query.many(

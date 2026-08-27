@@ -28,7 +28,7 @@ The Phase 1–3 `arbor/data` query, live-result, and transactional mutation surf
 - Arbor-native Markdown rendering and default Suspense/error/resync query boundaries;
 - required-user gates that delegate session UI to the Arbor authority;
 - single-consumer queries and mutations colocated with their document/component;
-- relative `database()` handles in each consumer instead of a central data module;
+- relative `arbor(path).children` handles in each consumer instead of a central data module;
 - Zod input schemas for both queries and mutations through the Standard Schema contract;
 - mutation handlers receiving a default atomic `tx` instead of wrapping themselves in transactions;
 - query-inferred values instead of handwritten person/practice/list DTOs;

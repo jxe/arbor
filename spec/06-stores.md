@@ -54,18 +54,18 @@ digest itself.
 
 The general query contract is defined by [executable documents](07-executable-documents.md#queries).
 A database relation or schema-governed collection is a typed node set within
-that language, not a separate query universe. It additionally supplies proved
-relational edges, joins, aggregates, grouping, and transaction-domain metadata.
-Providers may compile those operators to SQL or another native plan. The same
-selection over properties, content, children, intrinsic refs, and references
-derived from typed properties or authored content remains available to
-non-database nodes; unsupported relational operators fail before data access.
+that language, not a separate query universe. Its portable surface is the same
+property filtering, field picking, and cardinality available to ordinary
+`arbor(path).children` sources. A relational capability extension may
+add proved relationships, joins, aggregates, grouping, ordering, and
+transaction-domain metadata; providers may compile those operators to SQL or
+another native plan. Unsupported extensions fail before data access.
 
 A mutable collection has a declared primary key. The key may be compound, but
 it must be stable, non-null, serializable, and independent of row position,
 SQLite `rowid`, a display label, or a database query plan. That declaration is
-the collection's parent-scoped stable-key rule. A row uses the same
-uniform `(TreeID, current path, stable key)` reference as every other node; its
+the stable-key rule declared by the collection's children capability. A row
+uses the same uniform `(TreeID, current path, stable key)` reference as every other node; its
 third component is derived from the declared key fields in order. Each key
 field's Standard Schema output is a canonical JSON scalar: a string, boolean,
 or finite number. A backing value that cannot be represented exactly in one of
@@ -87,9 +87,17 @@ node identities and executable-document handles cannot use the paging keys for
 mutation or durable references. Duplicate, missing, invalid, or noncanonical
 declared keys are diagnostics and disable mutation rather than silently falling
 back to position.
-Results have explicit ordering with a proved stable key as a deterministic final
-tie-breaker. Live or mutable pagination uses a revision-bound keyset cursor
-rather than an unqualified offset.
+The portable query baseline over any `arbor(path).children` source is predicate
+filtering plus explicit field picking and cardinality. It orders results
+automatically by canonical stable key, falling back to canonical path. Authored
+ordering, relationships, aggregates, joins, and pagination operators are not
+portable in this version. A placement-dependent extension may expose them only
+when the application manifest declares and every allowed placement proves that
+capability.
+
+Where a relational extension supplies explicit ordering, a proved stable key is
+the deterministic final tie-breaker. Live or mutable pagination uses a
+revision-bound keyset cursor rather than an unqualified offset.
 
 Relational node-set queries use ordinary TypeScript to construct the same closed
 declarative selection graph as other node queries rather than imperative CRUD
@@ -103,8 +111,9 @@ callers use `useQuery(handle)` rather than supplying an empty object.
 ```tsx
 import { z } from "zod"
 
-const { arbor_profiles, lists } = suppliesData.relations
-const profileCard = arbor_profiles.pick("id", "name", "handle", "portrait")
+const arborProfiles = arbor("./data/arbor_profiles").children
+const lists = arbor("./data/lists").children
+const profileCard = arborProfiles.pick("id", "name", "handle", "portrait")
 
 export const list = query.maybe(
   lists,

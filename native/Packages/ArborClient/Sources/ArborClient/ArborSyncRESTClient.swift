@@ -114,7 +114,7 @@ public actor ArborSyncRESTClient {
         mutationID: String? = nil
     ) throws -> MutationRequest {
         guard operation.isContentOperation else {
-            throw InvalidMutationDomainError("A content mutation requires writeText, writeMarkdown, or restoreRecovery")
+            throw InvalidMutationDomainError("A content mutation requires writeProperties, writeText, writeMarkdown, restoreRecovery, or ensureDocumentIdentity")
         }
         return MutationRequest(
             mutationID: mutationID ?? mutationIDGenerator(),

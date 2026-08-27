@@ -35,6 +35,7 @@ describe("REST v1 protocol fixtures", () => {
     expect(mutation.operations[0]?.op).toBe("move");
     expect(receipt.effects[0]?.previousPath).toBe("/notes/today");
     expect(receipt.effects[0]?.tree).toBe("tr_notes7f3q2ab7c");
+    expect(receipt.effects[0]?.propertiesRevision).toBe("sha256:properties");
     expect(error.error).toBe("future-error-code");
   });
 
@@ -68,6 +69,7 @@ describe("REST v1 protocol fixtures", () => {
       .flatMap((request) => [...request.operations] as WorkspaceOperation[])
       .map((operation) => operation.op)).toEqual([
       "writeMarkdown",
+      "writeProperties",
       "writeText",
       "createMarkdown",
       "createDirectory",

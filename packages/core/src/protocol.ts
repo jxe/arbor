@@ -1,6 +1,6 @@
 import type { Diagnostic, SearchResult } from "./types.ts";
 import { sha256 } from "./hash.ts";
-import type { NodeRef, NodeSnapshot, ResolvedNodeRef } from "./node-model.ts";
+import type { JSONValue, NodeRef, NodeSnapshot, ResolvedNodeRef } from "./node-model.ts";
 
 export type {
   ChildRepresentationSummary,
@@ -283,6 +283,13 @@ export function applySourceEdits(source: string, edits: readonly SourceEdit[]): 
 
 export type ContentWorkspaceOperation =
   | {
+    op: "writeProperties";
+    ref: NodeRef;
+    basePropertiesRevision: string;
+    /** Complete candidate property map; omitted keys are deletions. */
+    properties: Record<string, JSONValue>;
+  }
+  | {
     op: "writeText";
     ref: NodeRef;
     baseContentRevision: ContentRevision;
@@ -345,6 +352,7 @@ export interface MutationEffect {
   previousPath?: LogicalPath;
   pageID?: PageID;
   contentRevision?: ContentRevision;
+  propertiesRevision?: string;
   directoryRevision?: DirectoryRevision;
 }
 
@@ -361,6 +369,7 @@ export interface WorkspaceChange {
   previousPath?: LogicalPath;
   pageID?: PageID;
   contentRevision?: ContentRevision;
+  propertiesRevision?: string;
   directoryRevision?: DirectoryRevision;
   origin: WorkspaceEventOrigin;
   mutationID?: string;
