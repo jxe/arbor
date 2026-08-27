@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { sha256 } from "@arbor/core";
-import type { AccessEntry, AccessLevel, LocatorResolution, ObservationEvent, RemoteTreeDescriptor } from "@arbor/core";
+import type { AccessEntry, AccessLevel, LocatorResolution, ObservationEvent, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime, RemoteTreeDescriptor } from "@arbor/core";
 import {
   AlreadyClaimedError,
   RefConflictError,
@@ -26,6 +26,23 @@ import { renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
+}
+
+function queryStreamResponse(
+  runtime: QueryStreamRuntime,
+  input: QueryStreamRequest,
+  signal: AbortSignal,
+  user: { profile: string } | null,
+): Promise<Response> | Response {
+  const encoder = new TextEncoder();
+  const response = (events: ReadableStream<QueryStreamEvent>) => new Response(events.pipeThrough(new TransformStream({
+    transform(event, controller) {
+      const { type, ...data } = event;
+      controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+    },
+  })), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" } });
+  const events = runtime.stream(input, { signal, user });
+  return events instanceof Promise ? events.then(response) : response(events);
 }
 
 function wireError(
@@ -195,6 +212,7 @@ export async function serveCanopy(options: {
   accounts?: CanopyBootstrapAccount[];
   port?: number;
   hostname?: string;
+  queryRuntime?: QueryStreamRuntime;
 }) {
   const bootstrapAccounts = options.accounts ?? [];
   let publicOrigin = options.publicOrigin.replace(/\/$/, "");
@@ -216,6 +234,19 @@ export async function serveCanopy(options: {
       const authentication = canopy.authenticateToken(bearer(request));
       const account = authentication?.account ?? null;
       try {
+        if (request.method === "POST" && url.pathname === "/.arbor/query-stream") {
+          if (!options.queryRuntime) return wireError("unsupported-operation", "No query runtime is active", 422);
+          try {
+            return await queryStreamResponse(
+              options.queryRuntime,
+              await request.json() as QueryStreamRequest,
+              request.signal,
+              account?.profileTree ? { profile: account.profileTree } : null,
+            );
+          } catch (error) {
+            return wireError("invalid-request", error instanceof Error ? error.message : "Invalid query stream request", 400);
+          }
+        }
         if (request.method === "GET" && url.pathname === "/.arbor/health") {
           try {
             await canopy.verifyIntegrity();

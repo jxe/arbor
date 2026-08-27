@@ -6,6 +6,8 @@ import type {
   ArborSyncErrorEnvelope,
   MutationRequest,
   NodeRef,
+  QueryStreamRequest,
+  QueryStreamRuntime,
 } from "@arbor/core";
 import { PathEscapeError, generateArborID } from "@arbor/core";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
@@ -31,6 +33,23 @@ const MIME: Record<string, string> = {
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
+}
+
+function queryStreamResponse(
+  runtime: QueryStreamRuntime,
+  input: QueryStreamRequest,
+  signal: AbortSignal,
+  user: { profile: string } | null,
+): Promise<Response> | Response {
+  const encoder = new TextEncoder();
+  const response = (events: ReadableStream<import("@arbor/core").QueryStreamEvent>) => new Response(events.pipeThrough(new TransformStream({
+    transform(event, controller) {
+      const { type, ...data } = event;
+      controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+    },
+  })), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" } });
+  const events = runtime.stream(input, { signal, user });
+  return events instanceof Promise ? events.then(response) : response(events);
 }
 
 function fileResponse(
@@ -365,10 +384,12 @@ async function decodeImport(request: Request): Promise<{
   return { mutationID: metadata.mutationID, destination: metadata.destination as NodeRef, entries };
 }
 
-interface ArborSyncServerOptions {
+export interface ArborSyncServerOptions {
   port?: number;
   hostname?: string;
   faultInjector?: (stage: string) => void | Promise<void>;
+  queryRuntime?: QueryStreamRuntime;
+  queryUser?: { profile: string } | null;
 }
 
 function startArborSyncServer(
@@ -377,6 +398,8 @@ function startArborSyncServer(
   options: {
     port?: number;
     hostname?: string;
+    queryRuntime?: QueryStreamRuntime;
+    queryUser?: { profile: string } | null;
   } = {},
 ) {
   const renderRoot = join(import.meta.dir, "../../render/dist");
@@ -478,6 +501,19 @@ function startArborSyncServer(
           return new Response(service.events.stream(after, request.signal), {
             headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" },
           });
+        }
+        if (request.method === "POST" && (url.pathname === "/v1/query-stream" || url.pathname === "/.arbor/query-stream")) {
+          if (!options.queryRuntime) return errorResponse("unsupported-operation", "No query runtime is active", 422);
+          try {
+            return await queryStreamResponse(
+              options.queryRuntime,
+              await request.json() as QueryStreamRequest,
+              request.signal,
+              options.queryUser ?? null,
+            );
+          } catch (error) {
+            return errorResponse("invalid-request", error instanceof Error ? error.message : "Invalid query stream request", 400);
+          }
         }
         if (request.method === "POST" && url.pathname === "/v1/mutations") {
           return json(await service.executeMutation(decodeMutation(await request.json())));

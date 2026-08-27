@@ -120,7 +120,7 @@ Finish the phase by invoking every Supplies query directly in a headless harness
 
 ### Phase 2 — query result streaming
 
-**Status: Next.**
+**Status: Implemented and verified on 2026-08-27.** The SQLite store broker now publishes transactional row changes only after commit and detects external revisions conservatively. Query subscriptions derive semantic sensitivity, establish snapshot-then-follow boundaries, union dependencies across reruns, suppress identical canonical outputs, and serve complete mounted graphs through the shared stateless Local REST and Arbor Wire SSE contract. Compilation and automatic activation of these runtimes remain correctly owned by Phase 4.
 
 1. Add a committed-change observer to the SQLite store broker. Arbor-owned transactions emit ordered cursor, collection, primary-key, changed-field, and before/after information only after commit.
 2. Derive a sensitivity plan from each normalized query: exact rows/fields, predicates that a new row may enter, correlation keys, aggregates, ordering/window boundaries, schema identity, profile-tree refs, and user/access context.

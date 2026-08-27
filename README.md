@@ -59,7 +59,7 @@ Markdown page names are logical and extensionless in Arbor. `x.md` supplies `/x`
 bun run arbor open sites/supplies
 ```
 
-The first executable-runtime phase is implemented: `arbor/data` can lower and execute every checked-in Supplies query against its private SQLite fixture, including reviewed relationships and batch ProfileID resolution. Document compilation, React presentation, live streaming, mutations, and hosting are not implemented yet. The [Supplies live-site plan](plan/product/supplies-live-site.md) drives that remaining work end to end: local Arbor web, signed macOS Arbor, explicit Canopy activation at the tree's canonical website, and finally a repeatable migration of the real Meaning Supplies Postgres corpus into the private SQLite data tree.
+The first two executable-runtime phases are implemented: `arbor/data` can lower and execute every checked-in Supplies query against its private SQLite fixture, then keep complete authorized results current from committed SQLite/profile changes through a race-free stateless SSE stream shared by Local REST and Arbor Wire. Document compilation, React presentation, mutations, automatic runtime activation, and hosting are not implemented yet. The [Supplies live-site plan](plan/product/supplies-live-site.md) drives that remaining work end to end: local Arbor web, signed macOS Arbor, explicit Canopy activation at the tree's canonical website, and finally a repeatable migration of the real Meaning Supplies Postgres corpus into the private SQLite data tree.
 
 ## Testing
 

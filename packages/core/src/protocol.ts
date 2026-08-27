@@ -14,6 +14,45 @@ export type DirectoryRevision = string;
 export type EventCursor = string;
 export type Hash = `sha256:${string}`;
 
+export interface QueryHandleRef {
+  tree: TreeID;
+  module: LogicalPath;
+  export: string;
+  version: string;
+}
+
+export interface QueryStreamDocumentRef {
+  tree: TreeID;
+  path: LogicalPath;
+  version: string;
+}
+
+export interface QueryStreamMount {
+  id: string;
+  handle: QueryHandleRef;
+  input?: unknown;
+  knownOutputHash?: Hash;
+}
+
+export interface QueryStreamRequest {
+  document: QueryStreamDocumentRef;
+  queries: QueryStreamMount[];
+}
+
+export type QueryStreamEvent =
+  | { type: "result"; id: string; observedThrough: EventCursor; outputHash: Hash; value: unknown }
+  | { type: "error"; id: string; observedThrough: EventCursor; error: ArborSyncErrorValue }
+  | { type: "ready"; queries: Array<{ id: string; observedThrough: EventCursor; outputHash?: Hash }> }
+  | { type: "reload"; reason: "source-changed" | "access-changed" };
+
+/** Server-side adapter shared by Local REST and Arbor Wire query-stream routes. */
+export interface QueryStreamRuntime {
+  stream(
+    request: QueryStreamRequest,
+    context: { signal: AbortSignal; user: { profile: string } | null },
+  ): ReadableStream<QueryStreamEvent> | Promise<ReadableStream<QueryStreamEvent>>;
+}
+
 /**
  * The tree dimension of a reference: which scope it resolves in.
  * Values are `"local"` (the degenerate filesystem scope; paths are

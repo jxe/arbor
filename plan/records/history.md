@@ -3,6 +3,45 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
+## Supplies query-result streaming
+
+**Status: Live data documents Phase 2 implemented and verified on 2026-08-27.**
+
+The SQLite store broker owns Arbor write transactions and observes them with connection-local TEMP triggers. An ordered transaction event contains the affected collection, primary key, exact changed fields, and before/after rows, but is published only after commit; rollback produces no event. A supported `data_version` check driven by database/WAL filesystem notifications detects another SQLite connection conservatively and invalidates the complete store without parsing undocumented WAL structures.
+
+Each query execution now owns an isolated read-only transaction. The live broker combines normalized-plan relation, field, predicate, aggregate, order/window, and correlation sensitivity with exact result-row keys, relationship correlation tuples, schema identity, ProfileID tree/ref dependencies, and Arbor-user context. A listener is attached before the initial snapshot. Changes racing an execution are checked against both its former and newly observed dependencies, bursts coalesce into a stable rerun, identical canonical output hashes are suppressed, and only complete current replacement values are published.
+
+The shared stateless POST contract is available at Local REST `/v1/query-stream` and Arbor Wire `/.arbor/query-stream`. Its versioned document and complete mounted query graph resolve through an injected registry rather than a Supplies-specific server path. SSE publishes `result`, `ready`, and terminal `reload` events, ignores replay headers, retains no execution ID or acknowledgement state, releases listeners on close, and treats every reconnect as a fresh snapshot-then-follow request. Canopy supplies the authenticated stable profile identity; neither host exposes raw database access or server handle implementations.
+
+Primary ownership:
+
+- [`packages/data/src/observer.ts`](../../packages/data/src/observer.ts)
+- [`packages/data/src/live.ts`](../../packages/data/src/live.ts)
+- [`packages/core/src/protocol.ts`](../../packages/core/src/protocol.ts)
+- [`packages/arborsync/src/server.ts`](../../packages/arborsync/src/server.ts)
+- [`packages/canopy/src/host.ts`](../../packages/canopy/src/host.ts)
+- [`tests/integration/data-live-query.test.ts`](../../tests/integration/data-live-query.test.ts)
+- [`tests/integration/query-stream-api.test.ts`](../../tests/integration/query-stream-api.test.ts)
+
+Intentional limits:
+
+- complete replacements are the only result transport; keyed diffs remain measurement-driven;
+- the document compiler and activation watcher will construct registries and call `reload` in Phase 4;
+- mutation primitives, authorization inside write transactions, and durable retry receipts begin in Phase 3;
+- SQLite is the only live-data driver required for the Supplies milestone.
+
+Verification recorded with this delivery:
+
+```text
+bun run typecheck       passed
+bun run build           passed
+focused data/API tests  19 passed, 0 failed, 8 retained Phase 1 snapshots
+isolated self-sync      4 passed, 0 failed
+git diff --check        passed
+```
+
+The repository-wide runner reached 250 of 251 tests on the final serialized pass; its existing binary-conflict self-sync case intermittently returned a 500 after earlier files, while the complete self-sync file passed immediately in isolation. No Phase 2 test failed in that run.
+
 ## Supplies SQLite query engine
 
 **Status: Live data documents Phase 1 implemented and verified on 2026-08-26.**
@@ -22,7 +61,7 @@ Primary ownership:
 
 Intentional limits:
 
-- query result observation and streaming begin in Phase 2;
+- query result observation and streaming were delivered in Phase 2;
 - transactions, durable mutation receipts, and ordered writes begin in Phase 3;
 - generated source types, source-located diagnostics, document compilation, and `arbor/react` begin in Phase 4;
 - executable web/native/Canopy presentation and real-data migration remain later Supplies phases;

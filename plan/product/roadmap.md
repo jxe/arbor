@@ -66,7 +66,7 @@ Completion gate: Alice mounts two different Arbor trees at locally meaningful pa
 
 **Status: Next.**
 
-Phase 1, the headless Supplies SQLite query engine, was implemented on 2026-08-26. Phase 2, race-free query-result streaming, is next; the milestone remains incomplete until every surface and the real-data migration pass the gate below.
+Phase 1, the headless Supplies SQLite query engine, was implemented on 2026-08-26. Phase 2, race-free query-result streaming over the shared Local/Wire contract, was implemented on 2026-08-27. Phase 3, the transactional mutation runner, is next; the milestone remains incomplete until every surface and the real-data migration pass the gate below.
 
 Outcome: the checked-in Supplies tree is the first complete executable Arbor site—SQLite-backed, live, editable, Arbor-user-aware, locally browsable, native-presented, Canopy-hosted, and finally populated from the real service.
 

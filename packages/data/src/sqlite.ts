@@ -25,6 +25,7 @@ export interface ProfileResolver {
     rows: readonly Record<string, unknown>[];
     dependencies: readonly ProfileDependency[];
   }>;
+  subscribe?(listener: (change: { profile: string; tree: string; ref: string }) => void): () => void;
 }
 
 export interface ProfileDependency {
@@ -47,7 +48,10 @@ export interface QueryExecution<Result> {
   result: Result;
   statements: ExecutedStatement[];
   queryPlans: Array<{ sql: string; details: string[] }>;
-  dependencies: { profiles: ProfileDependency[] };
+  dependencies: {
+    profiles: ProfileDependency[];
+    database: Record<string, { rows: Record<string, unknown>[]; matchAny: Record<string, unknown>[] }>;
+  };
   schemaFingerprint: string;
 }
 
@@ -73,11 +77,16 @@ export class QueryUserRequiredError extends Error {
 }
 
 interface ExecutionContext {
+  database: Database;
   input: unknown;
   user: ArborUser | null;
   statements: ExecutedStatement[];
   queryPlans: Array<{ sql: string; details: string[] }>;
   profileDependencies: Map<string, ProfileDependency>;
+  databaseDependencies: Map<string, {
+    rows: Map<string, Record<string, unknown>>;
+    matchAny: Map<string, Record<string, unknown>>;
+  }>;
 }
 
 interface CompiledQuery<Result = unknown, Input = unknown> {
@@ -420,6 +429,29 @@ function tupleKey(values: readonly unknown[]): string {
   return JSON.stringify(values);
 }
 
+function dependencyFor(context: ExecutionContext, relation: string) {
+  let dependency = context.databaseDependencies.get(relation);
+  if (!dependency) {
+    dependency = { rows: new Map(), matchAny: new Map() };
+    context.databaseDependencies.set(relation, dependency);
+  }
+  return dependency;
+}
+
+function recordRows(context: ExecutionContext, schema: StoreSchema, relation: string, rows: readonly Record<string, unknown>[]): void {
+  const fields = schema.relations[relation]!.primaryKey;
+  const dependency = dependencyFor(context, relation);
+  for (const row of rows) {
+    const key = Object.fromEntries(fields.map((field) => [field, row[field]]));
+    dependency.rows.set(tupleKey(fields.map((field) => row[field])), key);
+  }
+}
+
+function recordMatches(context: ExecutionContext, relation: string, matches: readonly Record<string, unknown>[]): void {
+  const dependency = dependencyFor(context, relation);
+  for (const match of matches) dependency.matchAny.set(JSON.stringify(match), match);
+}
+
 function assertStableRows(
   rows: readonly Record<string, unknown>[],
   schema: StoreSchema,
@@ -533,14 +565,17 @@ async function resolveProfiles(
 export class SQLiteQueryEngine implements AsyncDisposable {
   private constructor(
     readonly schema: StoreSchema,
-    private readonly database: Database,
+    readonly databasePath: string,
     private readonly profiles: ProfileResolver,
   ) {}
 
   static async open(location: ResolvedDatabaseLocation, profiles: ProfileResolver): Promise<SQLiteQueryEngine> {
     const schema = await introspectStoreSchema(location);
-    const database = new Database(location.databasePath, { readonly: true, strict: true });
-    return new SQLiteQueryEngine(schema, database, profiles);
+    return new SQLiteQueryEngine(schema, location.databasePath, profiles);
+  }
+
+  subscribeProfiles(listener: (change: { profile: string; tree: string; ref: string }) => void): () => void {
+    return this.profiles.subscribe?.(listener) ?? (() => undefined);
   }
 
   async execute<Result, Input>(
@@ -549,31 +584,49 @@ export class SQLiteQueryEngine implements AsyncDisposable {
   ): Promise<QueryExecution<Result>> {
     const compiled = compileQuery(handle, this.schema);
     const input = await validatedInput(handle.schema, options.input);
+    const database = new Database(this.databasePath, { readonly: true, strict: true });
     const context: ExecutionContext = {
+      database,
       input,
       user: options.user ?? null,
       statements: [],
       queryPlans: [],
       profileDependencies: new Map(),
+      databaseDependencies: new Map(),
     };
-    if (containsRequiredUser(compiled.plan) && !context.user) throw new QueryUserRequiredError();
-    const raw = await this.rootRows(compiled.plan, context);
-    if (compiled.plan.cardinality === "many") assertStableRows(raw, this.schema, compiled.plan.relation, compiled.plan);
-    const shaped = await this.shapeBatch(raw, compiled.plan.relation, compiled.plan, context);
-    let result: unknown;
-    if (compiled.plan.cardinality === "many") result = shaped;
-    else {
-      if (shaped.length > 1) throw new QueryCompileError(`query.${compiled.plan.cardinality} returned more than one row`);
-      if (compiled.plan.cardinality === "one" && shaped.length !== 1) throw new QueryCompileError("query.one returned no row");
-      result = shaped[0] ?? null;
+    try {
+      database.exec("begin");
+      if (containsRequiredUser(compiled.plan) && !context.user) throw new QueryUserRequiredError();
+      const raw = await this.rootRows(compiled.plan, context);
+      if (compiled.plan.cardinality === "many") assertStableRows(raw, this.schema, compiled.plan.relation, compiled.plan);
+      const shaped = await this.shapeBatch(raw, compiled.plan.relation, compiled.plan, context);
+      let result: unknown;
+      if (compiled.plan.cardinality === "many") result = shaped;
+      else {
+        if (shaped.length > 1) throw new QueryCompileError(`query.${compiled.plan.cardinality} returned more than one row`);
+        if (compiled.plan.cardinality === "one" && shaped.length !== 1) throw new QueryCompileError("query.one returned no row");
+        result = shaped[0] ?? null;
+      }
+      database.exec("commit");
+      return {
+        result: result as Result,
+        statements: context.statements,
+        queryPlans: context.queryPlans,
+        dependencies: {
+          profiles: [...context.profileDependencies.values()].sort((left, right) => left.profile.localeCompare(right.profile)),
+          database: Object.fromEntries([...context.databaseDependencies].sort(([left], [right]) => left.localeCompare(right)).map(([relation, value]) => [relation, {
+            rows: [...value.rows.values()],
+            matchAny: [...value.matchAny.values()],
+          }])),
+        },
+        schemaFingerprint: this.schema.fingerprint,
+      };
+    } catch (error) {
+      try { database.exec("rollback"); } catch {}
+      throw error;
+    } finally {
+      database.close();
     }
-    return {
-      result: result as Result,
-      statements: context.statements,
-      queryPlans: context.queryPlans,
-      dependencies: { profiles: [...context.profileDependencies.values()].sort((left, right) => left.profile.localeCompare(right.profile)) },
-      schemaFingerprint: this.schema.fingerprint,
-    };
   }
 
   private async rootRows(plan: QueryPlan, context: ExecutionContext): Promise<Record<string, unknown>[]> {
@@ -594,7 +647,9 @@ export class SQLiteQueryEngine implements AsyncDisposable {
     const order = orders.length ? ` order by ${orders.join(", ")}` : "";
     const limit = plan.take ?? (plan.cardinality === "many" ? undefined : 2);
     const sql = `select ${selections.join(", ")} from ${quote(plan.relation)} as ${quote(alias)}${where}${order}${limit ? ` limit ${limit}` : ""}`;
-    return shareSelectedAggregates(normalizeSQLiteRows(executeStatement(this.database, sql, parameters, context), relationMetadata), plan);
+    const rows = shareSelectedAggregates(normalizeSQLiteRows(executeStatement(context.database, sql, parameters, context), relationMetadata), plan);
+    recordRows(context, this.schema, plan.relation, rows);
+    return rows;
   }
 
   private async shapeBatch(
@@ -690,9 +745,17 @@ export class SQLiteQueryEngine implements AsyncDisposable {
     const orders = orderSQL(plan, metadata.target, alias, this.schema, context, parameters, metadata);
     const sql = `select ${selections.join(", ")} from ${from} where ${constraint}${orders.length ? ` order by ${orders.join(", ")}` : ""}`;
     const rows = shareSelectedAggregates(
-      normalizeSQLiteRows(executeStatement(this.database, sql, parameters, context), this.schema.relations[metadata.target]!),
+      normalizeSQLiteRows(executeStatement(context.database, sql, parameters, context), this.schema.relations[metadata.target]!),
       plan,
     );
+    recordRows(context, this.schema, metadata.target, rows);
+    if (metadata.direct) {
+      recordMatches(context, metadata.target, uniqueTuples(parents, parentFields).map((tuple) =>
+        Object.fromEntries(metadata.direct!.map((pair, index) => [pair.target, tuple[index]]))));
+    } else {
+      recordMatches(context, metadata.through!.relation, uniqueTuples(parents, parentFields).map((tuple) =>
+        Object.fromEntries(metadata.through!.source.map((pair, index) => [pair.through, tuple[index]]))));
+    }
     const parentLookup = new Map<string, number[]>();
     parents.forEach((parent, index) => {
       const key = tupleKey(parentFields.map((field) => parent[field]));
@@ -729,10 +792,12 @@ export class SQLiteQueryEngine implements AsyncDisposable {
       const parameters: unknown[] = [];
       const parentFields = through.source.map((pair) => pair.source);
       const linkFields = through.source.map((pair) => pair.through);
+      recordMatches(context, through.relation, uniqueTuples(parents, parentFields).map((tuple) =>
+        Object.fromEntries(through.source.map((pair, index) => [pair.through, tuple[index]]))));
       const constraint = tuplePredicate("link", linkFields, uniqueTuples(parents, parentFields), parameters);
       const aliases = linkFields.map((field, index) => `${quote("link")}.${quote(field)} as ${quote(`__parent_${index}`)}`);
       const sql = `select ${[...aliases, `${quote("link")}.${quote(idPair.through)} as ${quote("__profile_id")}`].join(", ")} from ${quote(through.relation)} as ${quote("link")} where ${constraint}`;
-      const rows = executeStatement(this.database, sql, parameters, context);
+      const rows = executeStatement(context.database, sql, parameters, context);
       const parentLookup = new Map<string, number[]>();
       parents.forEach((parent, index) => {
         const key = tupleKey(parentFields.map((field) => parent[field]));
@@ -754,6 +819,7 @@ export class SQLiteQueryEngine implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
-    this.database.close();
+    // Executions own short-lived read connections so concurrent subscriptions
+    // cannot interleave statements within one SQLite snapshot.
   }
 }
