@@ -688,6 +688,15 @@ final class ArborWorkspaceState {
                     }
                 } catch is CancellationError {
                     return
+                } catch let error as WireHTTPError where error.code == "resync-required" {
+                    do {
+                        _ = try await coordinator.recoverWatchGap()
+                        lastEventID = try await coordinator.watchCursor()
+                        reconnectAttempt = 0
+                        await self?.refreshSyncPresentation(from: coordinator)
+                    } catch {
+                        reconnectAttempt += 1
+                    }
                 } catch {
                     reconnectAttempt += 1
                 }

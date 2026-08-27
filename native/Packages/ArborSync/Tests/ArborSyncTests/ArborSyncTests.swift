@@ -9,12 +9,19 @@ private actor ClosureTransport: ReplicaWireTransport {
     typealias Submit = @Sendable (PreparedWireUpdate, Int) async throws -> WireUpdateResponse
     let initial: WireSnapshot
     let currentUpdate: String
+    let currentObservedThrough: String
     let submitter: Submit
     private(set) var requests: [PreparedWireUpdate] = []
 
-    init(initial: WireSnapshot, currentUpdate: String = "up_initial", submitter: @escaping Submit) {
+    init(
+        initial: WireSnapshot,
+        currentUpdate: String = "up_initial",
+        currentObservedThrough: String? = nil,
+        submitter: @escaping Submit
+    ) {
         self.initial = initial
         self.currentUpdate = currentUpdate
+        self.currentObservedThrough = currentObservedThrough ?? currentUpdate
         self.submitter = submitter
     }
 
@@ -27,7 +34,7 @@ private actor ClosureTransport: ReplicaWireTransport {
         return WireCurrentSnapshot(
             tree: descriptor(tree: tree, snapshot: initial, update: currentUpdate),
             snapshot: initial,
-            observedThrough: currentUpdate
+            observedThrough: currentObservedThrough
         )
     }
 }
@@ -189,6 +196,39 @@ struct ArborSyncTests {
             #expect(result.state == .current)
             #expect(result.acceptedRoot == remote.root)
             #expect(try await replica.heads().acceptedCursor == "up_remote")
+            #expect(await remoteTransport.requests.isEmpty)
+        }
+    }
+
+    @Test("An expired watch cursor pulls a coherent snapshot and resumes after its observation boundary")
+    func watchGapRecovery() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_watch_gap"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOne\n")
+            let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nTwo\n")
+            let bootstrap = ClosureTransport(initial: initial) { _, _ in
+                throw ArborWireValidationError.invalidValue("Placement must not submit")
+            }
+            let replica = try await ReplicaPlacementService.place(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"),
+                transport: bootstrap
+            )
+            let remoteTransport = ClosureTransport(
+                initial: remote,
+                currentUpdate: "up_remote",
+                currentObservedThrough: "observation_after_remote"
+            ) { _, _ in
+                throw ArborWireValidationError.invalidValue("Gap recovery must not submit")
+            }
+            let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: remoteTransport, stateRoot: root)
+
+            let result = try await coordinator.recoverWatchGap()
+
+            #expect(result.state == .current)
+            #expect(result.acceptedRoot == remote.root)
+            #expect(try await replica.heads().acceptedUpdate == "up_remote")
+            #expect(try await coordinator.watchCursor() == "observation_after_remote")
             #expect(await remoteTransport.requests.isEmpty)
         }
     }

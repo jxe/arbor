@@ -55,6 +55,17 @@ public actor ReplicaSyncCoordinator {
         return try await replica.heads().acceptedCursor
     }
 
+    /** Reestablishes a coherent snapshot-then-follow boundary after watch history expires. */
+    @discardableResult
+    public func recoverWatchGap() async throws -> WorkspaceSyncPresentation {
+        try requireOpen()
+        let heads = try await replica.heads()
+        if control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
+            return try await synchronize(admission: nil)
+        }
+        return try await pullCurrentSnapshot(treeID: await replica.treeID().rawValue, priorHeads: heads)
+    }
+
     /** Applies one accepted-state invalidation without turning a clean pull into a write. */
     @discardableResult
     public func observe(_ event: WireWatchEvent) async throws -> WorkspaceSyncPresentation {
@@ -72,7 +83,14 @@ public actor ReplicaSyncCoordinator {
         if control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
             return try await synchronize(admission: nil)
         }
-        let current = try await transport.currentSnapshot(tree: event.tree.id)
+        return try await pullCurrentSnapshot(treeID: event.tree.id, priorHeads: heads)
+    }
+
+    private func pullCurrentSnapshot(
+        treeID: String,
+        priorHeads heads: ReplicaHeads
+    ) async throws -> WorkspaceSyncPresentation {
+        let current = try await transport.currentSnapshot(tree: treeID)
         let update = current.tree.update
         guard !update.isEmpty else { throw ReplicaSyncError.replicaIsNotPlaced }
         let latestHeads = try await replica.heads()
@@ -81,13 +99,13 @@ public actor ReplicaSyncCoordinator {
         }
         do {
             if current.snapshot.root == latestHeads.materializedRoot {
-                try await replica.recordAccepted(root: current.snapshot.root, update: update, cursor: update)
+                try await replica.recordAccepted(root: current.snapshot.root, update: update, cursor: current.observedThrough)
             } else {
                 let replacement = try SnapshotBridge.replacement(
                     snapshot: current.snapshot,
                     tree: await replica.treeID(),
                     update: update,
-                    cursor: update
+                    cursor: current.observedThrough
                 )
                 try await replica.replaceFromSystem(replacement)
             }
@@ -430,7 +448,7 @@ public enum ReplicaPlacementService {
             snapshot: current.snapshot,
             tree: TreeID(rawValue: tree.id),
             update: update,
-            cursor: update
+            cursor: current.observedThrough
         )
         try await replica.initializeFromSystem(replacement)
         return replica
