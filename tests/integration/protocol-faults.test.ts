@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Workspace, serveArborSync } from "@arbor/arborsync";
 import { ArborSyncRESTClient } from "@arbor/client";
 import type { MutationRequest } from "@arbor/core";
+import { canonicalStableKey } from "@arbor/core";
 
 const temporary: string[] = [];
 
@@ -81,5 +82,46 @@ describe("REST v1 protocol fault recovery", () => {
       running.server.stop(true);
       await running.workspace[Symbol.asyncDispose]();
     }
+  });
+
+  test("recovers an exact-source rollup committed before its materialization record", async () => {
+    const { root, state } = await directories();
+    process.env.ARBOR_DATA_HOME = state;
+    const collection = join(root, "records");
+    await mkdir(collection);
+    await writeFile(join(collection, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
+    await writeFile(join(collection, "_store.json"), '[{"id":"one","title":"One"}]\n');
+    let injected = false;
+    const first = await Workspace.open(root, {
+      faultInjector: (point) => {
+        if (!injected && point === "protocol:provider-committed") {
+          injected = true;
+          throw new Error("injected provider commit");
+        }
+      },
+    });
+    const tree = first.tree;
+    const key = canonicalStableKey([["id", "one"]]);
+    const row = await first.snapshot({ tree, path: "/records/one", stableKey: key });
+    const request: MutationRequest = {
+      mutationID: "fault-file-rollup-commit",
+      operations: [{
+        op: "writeProperties",
+        ref: row.ref,
+        basePropertiesRevision: row.capabilities.properties!.revision,
+        properties: { id: "one", title: "Changed" },
+      }],
+    };
+    await expect(first.executeMutation(request)).rejects.toThrow("protocol:provider-committed");
+    expect(await readFile(join(collection, "_store.json"), "utf8"))
+      .toBe('[{"id":"one","title":"Changed"}]\n');
+    await first[Symbol.asyncDispose]();
+
+    const recovered = await Workspace.open(root);
+    const receipt = await recovered.executeMutation(request);
+    expect(receipt.effects[0]).toMatchObject({ path: "/records/one", propertiesRevision: expect.stringMatching(/^sha256:/) });
+    expect((await recovered.snapshot({ tree, path: "/records/stale", stableKey: key })).properties.title).toBe("Changed");
+    expect(await recovered.executeMutation(request)).toEqual(receipt);
+    await recovered[Symbol.asyncDispose]();
   });
 });

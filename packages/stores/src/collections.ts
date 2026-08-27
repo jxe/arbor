@@ -10,7 +10,9 @@ import type { CollectionBacking, CollectionRow, CollectionSummary } from "@arbor
 import { canonicalJSONString, parseCanonicalStableKey, revisionOf, rowPathSegment, sha256, stableKeyFromProperties } from "@arbor/core";
 import { introspectSQLiteDatabase, introspectStoreSchema, type FieldMetadata, type StoreSchema } from "@arbor/data";
 import { parseMarkdown } from "@arbor/editor";
+import { commitPrepared, prepareAtomic, readRevision, removeIfExists } from "@arbor/fs";
 import { ConnectionStore, connectionName } from "./connections.ts";
+import { replaceFileRollupRow, type WritableFileRollup } from "./file-rollup-writes.ts";
 import { SchemaSandbox, type SchemaDescription } from "./schema.ts";
 
 interface CollectionDefinition {
@@ -25,6 +27,7 @@ interface LoadedCollection {
   description: SchemaDescription;
   rows: CollectionRow[];
   revision: string;
+  sourceRevision: string;
   modelDigest: string;
   diagnostics: Diagnostic[];
   identityRule?: { properties: string[] };
@@ -37,6 +40,7 @@ interface LoadedCollectionSlice {
   columns: string[];
   identityRule?: { properties: string[] };
   revision: string;
+  sourceRevision?: string;
   schemaRevision: string;
   rows: CollectionRow[];
   nextCursor: string | null;
@@ -59,9 +63,29 @@ export interface CollectionWriteTarget {
   path: string;
   stableKey: string | null;
   revision: string;
+  sourceRevision?: string;
   properties: Record<string, JSONValue>;
   identityRule?: { properties: string[] };
   writable: boolean;
+}
+
+export interface PreparedFilePropertyWrite {
+  kind: "file-rollup";
+  backing: WritableFileRollup;
+  storePath: string;
+  temporaryPath: string;
+  sourceRevision: string;
+  path: string;
+  stableKey: string;
+  revision: string;
+  properties: Record<string, JSONValue>;
+}
+
+export interface CollectionPropertyWriteResult {
+  path: string;
+  stableKey: string;
+  revision: string;
+  properties: Record<string, JSONValue>;
 }
 
 interface LoadedSQLiteTable {
@@ -100,6 +124,7 @@ export class CollectionPropertyConflictError extends Error {
 
 export class CollectionMutationMismatchError extends Error {}
 export class CollectionPropertyWriteError extends Error {}
+export class CollectionSourceConflictError extends Error {}
 
 function jsonValue(value: unknown): JSONValue | undefined {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
@@ -267,6 +292,7 @@ export async function detectCollection(directory: string): Promise<CollectionDef
 }
 
 export class CollectionStore {
+  private fileCommitTails = new Map<string, Promise<void>>();
   constructor(
     private schemas = new SchemaSandbox(),
     private connections = new ConnectionStore(),
@@ -320,7 +346,7 @@ export class CollectionStore {
       modelDigest: loaded.modelDigest,
       diagnostics: loaded.diagnostics,
       total: loaded.rows.length,
-      editable: loaded.editable,
+      editable: definition.backing === "markdown" && loaded.editable,
     };
   }
 
@@ -490,6 +516,7 @@ export class CollectionStore {
       path: `${parentPath === "/" ? "" : parentPath}/${result.row.path}`,
       stableKey: result.row.stableKey,
       revision: result.row.revision ?? digest({ key: result.row.key, properties: result.row.values }),
+      ...(result.page.sourceRevision ? { sourceRevision: result.page.sourceRevision } : {}),
       properties: (jsonValue(result.row.values) ?? {}) as Record<string, JSONValue>,
       ...(result.page.identityRule ? { identityRule: result.page.identityRule } : {}),
       writable: result.page.editable && (!result.page.identityRule || result.row.stableKey !== null),
@@ -580,6 +607,7 @@ export class CollectionStore {
       rows,
       nextCursor,
       revision: loaded.revision,
+      sourceRevision: loaded.sourceRevision,
       schemaRevision: loaded.description.revision,
       diagnostics: loaded.diagnostics,
       editable: loaded.editable,
@@ -636,6 +664,7 @@ export class CollectionStore {
         rows: [row],
         nextCursor: null,
         revision: loaded.revision,
+        sourceRevision: loaded.sourceRevision,
         schemaRevision: loaded.description.revision,
         diagnostics: loaded.diagnostics,
         editable: loaded.editable,
@@ -672,6 +701,117 @@ export class CollectionStore {
       properties: validated.value as Record<string, JSONValue>,
       ...(identityProperties ? { identityRule: { properties: identityProperties } } : {}),
     };
+  }
+
+  async prepareFileProperties(
+    target: CollectionWriteTarget,
+    ref: { path: string; stableKey: string | null },
+    basePropertiesRevision: string,
+    properties: Record<string, JSONValue>,
+  ): Promise<PreparedFilePropertyWrite> {
+    const definition = await detectCollection(target.directory);
+    if (!definition?.storePath || !definition.schemaPath
+      || (definition.backing !== "csv" && definition.backing !== "json" && definition.backing !== "jsonl")) {
+      throw new CollectionPropertyWriteError(`${target.parentPath} is not a writable file rollup`);
+    }
+    const loaded = await this.loadFileCollection(definition);
+    const current = loaded.rows.find((row) => target.stableKey
+      ? row.stableKey === target.stableKey
+      : row.path === target.path.slice(target.path.lastIndexOf("/") + 1));
+    if (!current) throw new CollectionPropertyWriteError("No rollup row owns the supplied reference");
+    if (current.revision !== basePropertiesRevision) throw new CollectionPropertyConflictError(current);
+    if (target.sourceRevision !== loaded.sourceRevision) {
+      throw new CollectionSourceConflictError("The exact rollup source changed while the row write was being prepared");
+    }
+    if (!loaded.editable || !loaded.identityRule || !current.stableKey) {
+      throw new CollectionPropertyWriteError("The complete rollup must be schema-valid with unique stable keys before it can be edited");
+    }
+
+    const validation = await this.schemas.validate(definition.schemaPath, properties);
+    if (validation.diagnostics.length) {
+      throw new CollectionPropertyWriteError(validation.diagnostics.map((item) => {
+        const field = item.field ? `${item.field}: ` : "";
+        return `${field}${item.message}`;
+      }).join("; "));
+    }
+    if (!validation.value || typeof validation.value !== "object" || Array.isArray(validation.value)) {
+      throw new CollectionPropertyWriteError("Rollup properties must validate to an object");
+    }
+    const candidate = (jsonValue(validation.value) ?? {}) as Record<string, JSONValue>;
+    const candidateKey = stableKeyFromProperties(loaded.identityRule.properties, candidate);
+    if (candidateKey !== current.stableKey) {
+      throw new CollectionPropertyWriteError(`Identity properties ${loaded.identityRule.properties.join(", ")} are immutable`);
+    }
+
+    const source = await readFile(definition.storePath, "utf8");
+    if (revisionOf(source) !== loaded.sourceRevision) {
+      throw new CollectionSourceConflictError("The exact rollup source changed while the row write was being prepared");
+    }
+    let temporaryPath: string | undefined;
+    try {
+      const output = canonicalJSONString(current.values) === canonicalJSONString(candidate)
+        ? source
+        : replaceFileRollupRow(definition.backing, source, current.key, candidate);
+      temporaryPath = await prepareAtomic(definition.storePath, output);
+      const prepared = await this.loadFileCollection({ ...definition, storePath: temporaryPath });
+      const preparedRow = prepared.rows.find((row) => row.stableKey === current.stableKey);
+      const expectedRows = loaded.rows.map((row) => row.stableKey === current.stableKey
+        ? { key: row.stableKey, path: row.path, properties: candidate }
+        : { key: row.stableKey, path: row.path, properties: (jsonValue(row.values) ?? {}) as Record<string, JSONValue> });
+      const actualRows = prepared.rows.map((row) => ({
+        key: row.stableKey,
+        path: row.path,
+        properties: (jsonValue(row.values) ?? {}) as Record<string, JSONValue>,
+      }));
+      if (!prepared.editable || !preparedRow
+        || canonicalJSONString(expectedRows) !== canonicalJSONString(actualRows)
+        || canonicalJSONString(preparedRow.values) !== canonicalJSONString(candidate)) {
+        throw new CollectionPropertyWriteError("The exact-source edit did not round-trip to the complete candidate collection");
+      }
+      return {
+        kind: "file-rollup",
+        backing: definition.backing,
+        storePath: definition.storePath,
+        temporaryPath,
+        sourceRevision: loaded.sourceRevision,
+        path: `${target.parentPath === "/" ? "" : target.parentPath}/${preparedRow.path}`,
+        stableKey: current.stableKey,
+        revision: preparedRow.revision!,
+        properties: candidate,
+      };
+    } catch (error) {
+      if (temporaryPath) await removeIfExists(temporaryPath);
+      if (error instanceof CollectionPropertyWriteError || error instanceof CollectionSourceConflictError) throw error;
+      throw new CollectionPropertyWriteError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  commitFileProperties(prepared: PreparedFilePropertyWrite): Promise<CollectionPropertyWriteResult> {
+    const previous = this.fileCommitTails.get(prepared.storePath) ?? Promise.resolve();
+    const commit = previous.then(async () => {
+      try {
+        const current = await readRevision(prepared.storePath);
+        if (current.revision !== prepared.sourceRevision) {
+          throw new CollectionSourceConflictError("The exact rollup source changed before the prepared write could commit");
+        }
+        await commitPrepared(prepared.temporaryPath, prepared.storePath);
+        return {
+          path: prepared.path,
+          stableKey: prepared.stableKey,
+          revision: prepared.revision,
+          properties: prepared.properties,
+        };
+      } catch (error) {
+        await removeIfExists(prepared.temporaryPath);
+        throw error;
+      }
+    });
+    const settled = commit.then(() => undefined, () => undefined);
+    this.fileCommitTails.set(prepared.storePath, settled);
+    void settled.finally(() => {
+      if (this.fileCommitTails.get(prepared.storePath) === settled) this.fileCommitTails.delete(prepared.storePath);
+    });
+    return commit;
   }
 
   /** Replace one stable SQLite row's complete property map under row-level CAS. */
@@ -867,7 +1007,7 @@ export class CollectionStore {
         ...row,
         path: definition.backing === "markdown" ? row.path : stableKey ? rowPathSegment(stableKey) : `~row-${index + 1}`,
         stableKey,
-        revision: row.revision ?? revisionOf(JSON.stringify(values)),
+        revision: row.revision ?? revisionOf(canonicalJSONString(values)),
         values,
         diagnostics,
       } satisfies CollectionRow;
@@ -901,10 +1041,13 @@ export class CollectionStore {
       description,
       rows,
       revision,
+      sourceRevision: loaded.revision,
       modelDigest,
       diagnostics: [...definition.diagnostics, ...loaded.diagnostics],
       ...(identityRule ? { identityRule } : {}),
-      editable: definition.backing === "markdown",
+      editable: definition.backing === "markdown"
+        || Boolean(identityRule && loaded.diagnostics.every((item) => item.severity !== "error")
+          && rows.every((row) => row.diagnostics.every((item) => item.severity !== "error"))),
     };
   }
 
@@ -1022,6 +1165,7 @@ export class CollectionStore {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
+    await Promise.all(this.fileCommitTails.values());
     await this.schemas[Symbol.asyncDispose]();
   }
 }

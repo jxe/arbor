@@ -144,10 +144,25 @@
   JSONL, and SQLite children. Private physical `TreeNode`/`TreeChild` and store
   loading records remain implementation details pending the broader filesystem
   and observation phases.
-- **Next checkpoint:** prepare exact-source file-rollup property writes before
-  enabling them, while continuing the generated activation-manifest and
-  cross-provider query-equivalence work. Defer Wire rollup synchronization
-  until those local mutation semantics are proved.
+- **2026-08-27 — exact-source file-rollup property writes complete:** CSV,
+  JSON, and JSONL rows with declared stable keys now expose writable properties
+  through the same `ChildProvider` transaction boundary as Markdown and
+  SQLite. Preparation compares both the sampled row revision and the complete
+  source revision, validates the candidate and the complete rewritten
+  collection, preserves every untouched source span, and creates an fsynced
+  replacement without publishing it. Commit rechecks the exact source and
+  atomically renames the prepared file. Managed mutations record their expected
+  logical row effect before publication and recover that effect after a crash;
+  concurrent preparations conflict rather than losing an update. Provider,
+  managed, and untracked conformance tests cover JSON formatting, JSONL line
+  endings, CSV multiline records and unknown fields, no-op byte identity,
+  invalid-neighbor fail-closed behavior, retry, conflict, and post-rename crash
+  recovery. Collection membership remains read-only through this operation.
+- **Next checkpoint:** extract the provider-neutral query core, freeze
+  cross-provider query equivalence, and add a child-set membership dependency.
+  Continue generated activation-manifest work before routing ordinary-tree
+  handles through Wire `/queries`. Defer Wire rollup synchronization until
+  those local query and observation semantics are proved.
 
 ## Target result
 
@@ -437,8 +452,10 @@ value, identity properties cannot change, and providers validate the complete
 candidate against their schema and local constraints. A primary-key change is
 delete/create. SQLite applies the write with foreign-key checking and a durable
 provider receipt in the same transaction. Markdown rewrites only frontmatter
-and preserves the body exact. CSV/JSON/JSONL stay read-only until they can
-prepare and atomically replace their exact source.
+and preserves the body exact. CSV/JSON/JSONL compare both logical row and exact
+source revisions, validate the complete collection, prepare and fsync a whole
+replacement while preserving untouched source spans, then publish it by atomic
+rename. This direct operation cannot add, remove, or reorder rows.
 
 A named transaction produces one indivisible accepted logical update containing
 all direct and cascading row effects. Candidate-state merge is row-identity

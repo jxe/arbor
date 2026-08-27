@@ -145,13 +145,18 @@ These are implementation violations of the aspirational specification. They are 
     representation-sync behavior, and how copied or replicated stores scope
     caller mutation IDs. Remove the private table only after provider commit
     recovery offers the same crash guarantee.
-15. **Prepare exact-source writes before enabling file-rollup properties.** CSV,
-    JSON, and JSONL rows correctly remain read-only in the first
-    `writeProperties` slice. Enable them only after the provider can retain the
-    sampled exact source, apply one row candidate without losing unrelated
-    formatting/comments where the codec permits it, validate the complete
-    logical collection, atomically replace the file, and recover/replay the
-    mutation. Do not route them through a lossy parse-and-reserialize shortcut.
+15. **Finish the file-rollup transaction lifecycle outside managed workspaces.**
+    Exact-source CSV/JSON/JSONL writes now prepare an fsynced sibling file,
+    publish it by compare-and-rename, and participate in the managed workspace's
+    durable mutation journal. `FilesystemService` still retains completed
+    direct-write receipts only in memory, and a process exit before commit can
+    leave an unreferenced prepared sibling. Add a scoped durable receipt/journal
+    for untracked roots and startup cleanup for positively identified abandoned
+    prepare files. Also make the cooperative writer-lock boundary explicit:
+    revision checking serializes Arbor writers, but a non-cooperating external
+    editor can still replace the source between the last comparison and rename
+    on filesystems without conditional rename. Do not weaken exact retry
+    identity or delete arbitrary editor-created siblings.
 16. **Give portable live queries a child-set dependency.** The first
     `NodeQueryEngine` reports the revisions of every sampled child, which can
     detect edits to existing matches and nonmatches but cannot by itself detect

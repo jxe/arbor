@@ -147,7 +147,20 @@ describe("workspace service", () => {
     expect(row.ref).toEqual({ tree: workspace.tree, path: "/rolled/b", stableKey: key });
     expect(row.properties).toEqual({ id: "b", title: "Second" });
     expect(row.capabilities.content).toBeUndefined();
-    expect(row.capabilities.properties?.writable).toBe(false);
+    expect(row.capabilities.properties?.writable).toBe(true);
+    await workspace.executeMutation({
+      mutationID: "json-row-properties",
+      operations: [{
+        op: "writeProperties",
+        ref: row.ref,
+        basePropertiesRevision: row.capabilities.properties!.revision,
+        properties: { id: "b", title: "Changed" },
+      }],
+    });
+    expect(await readFile(join(collection, "_store.json"), "utf8"))
+      .toBe('[{"id":"b","title":"Changed"},{"id":"a","title":"First"}]\n');
+    const updated = await workspace.snapshot({ tree: workspace.tree, path: "/rolled/stale-again", stableKey: key });
+    expect(updated.properties).toEqual({ id: "b", title: "Changed" });
   });
 
   test("resolves SQLite databases, tables, and rows as ordinary nodes", async () => {

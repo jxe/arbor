@@ -296,6 +296,10 @@ driver locks and revision-checks the source, validates the complete key set and
 requested effects, writes and fsyncs a complete replacement, atomically renames
 it, fsyncs the containing directory where supported, and records retry
 completion in the same crash-recoverable workflow before acknowledgement.
+`writeProperties` additionally compares the sampled row-properties revision;
+the complete candidate property map must preserve its declared key. A logical
+no-op leaves the source byte-identical. A direct row-property write cannot add,
+remove, or reorder rows.
 Multi-row mutations preserve row order unless the mutation
 explicitly changes ordered membership. JSONL drivers preserve untouched line
 bytes; JSON drivers preserve untouched value formatting where the source edit

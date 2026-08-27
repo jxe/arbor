@@ -250,7 +250,7 @@ describe("the local filesystem scope", () => {
     expect(await readFile(join(absolute, "_index.md"), "utf8")).not.toContain("id:");
   });
 
-  test("resolves stable rolled-up rows outside a managed workspace", async () => {
+  test("resolves and exactly edits stable rolled-up rows outside a managed workspace", async () => {
     const collection = join(outer, "stray", "rolled");
     const children = await client.children({ tree: "local", path: collection, stableKey: null });
     expect(children.items).toHaveLength(1);
@@ -260,13 +260,23 @@ describe("the local filesystem scope", () => {
     const row = await client.node({ tree: "local", path: join(collection, "old-name"), stableKey: key });
     expect(row.ref.path).toBe(join(collection, "one"));
     expect(row.properties).toEqual({ id: "one", title: "One" });
-    expect(row.capabilities.properties?.writable).toBe(false);
-    await expect(client.writeProperties(
+    expect(row.capabilities.properties?.writable).toBe(true);
+    const receipt = await client.writeProperties(
       row.ref,
       row.capabilities.properties!.revision,
       { id: "one", title: "Changed" },
-      "untracked-json-properties-read-only",
-    )).rejects.toThrow("read-only");
+      "untracked-json-properties",
+    );
+    expect(await client.writeProperties(
+      row.ref,
+      row.capabilities.properties!.revision,
+      { id: "one", title: "Changed" },
+      "untracked-json-properties",
+    )).toEqual(receipt);
+    expect(await readFile(join(collection, "_store.json"), "utf8"))
+      .toBe('[{"id":"one","title":"Changed"}]\n');
+    expect((await client.node({ tree: "local", path: join(collection, "stale-again"), stableKey: key })).properties)
+      .toEqual({ id: "one", title: "Changed" });
   });
 
   test("treats untracked Markdown records as identity-safe writable nodes", async () => {

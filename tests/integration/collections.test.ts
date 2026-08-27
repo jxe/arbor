@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
@@ -8,6 +8,7 @@ import {
   CollectionMutationMismatchError,
   CollectionPropertyConflictError,
   CollectionPropertyWriteError,
+  CollectionSourceConflictError,
   CollectionStore,
   detectCollection,
 } from "@arbor/stores";
@@ -48,6 +49,15 @@ beforeAll(async () => {
   await mkdir(join(root, "markdown"));
   await writeFile(join(root, "markdown", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), status: z.enum(["draft", "done"]) });\n');
   await writeFile(join(root, "markdown", "one.md"), "---\nid: abc123\ntitle: One\nstatus: draft\n---\nBody\n");
+  await mkdir(join(root, "writable-json"));
+  await writeFile(join(root, "writable-json", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), count: z.number() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(root, "writable-json", "_store.json"), '[\n  { "id": "one", "title": "One", "count": 1 },\n  {\n    "id":"two",\n    "title":"Two",\n    "count":2\n  }\n]\n');
+  await mkdir(join(root, "writable-jsonl"));
+  await writeFile(join(root, "writable-jsonl", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), count: z.number() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(root, "writable-jsonl", "_store.jsonl"), '{"id":"one","title":"One","count":1}\r\n  {"id":"two","title":"Two","count":2}  \r\n');
+  await mkdir(join(root, "writable-csv"));
+  await writeFile(join(root, "writable-csv", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), count: z.coerce.number(), notes: z.string() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(root, "writable-csv", "_store.csv"), 'id,title,count,notes\r\none,One,1,"first\r\nnote"\r\ntwo,Two,2,plain\r\n');
   await mkdir(join(root, "sqlite"));
   const sqliteSchema = "create table items (id text primary key, title text not null, active boolean not null); create table memberships (list_id text not null, profile text not null, primary key (list_id, profile));";
   await writeFile(join(root, "sqlite", "schema.sql"), `${sqliteSchema}\n`);
@@ -77,6 +87,7 @@ describe("file-backed collections", () => {
     expect(summary?.columns).toEqual(["id", "title", "count"]);
     expect(page.items[0]?.properties.count).toBe(1);
     expect(page.items[0]?.ref.stableKey).toBe(canonicalStableKey([["id", "one"]]));
+    expect(page.items[0]?.capabilities.properties?.writable).toBe(false);
     expect(page.items[1]?.diagnostics[0]?.code).toBe("schema-validation");
     expect(page.items[1]?.ref.stableKey).toBeNull();
   });
@@ -86,6 +97,7 @@ describe("file-backed collections", () => {
     expect(page.items[1]?.diagnostics[0]?.code).toBe("invalid-jsonl");
     expect(page.items[1]?.diagnostics[0]?.row).toBe(2);
     expect(page.items[0]?.ref.stableKey).toBe(canonicalStableKey([["id", "one"]]));
+    expect(page.items[0]?.capabilities.properties?.writable).toBe(false);
   });
 
   test("uses declared keys for JSON row paths, keyset paging, and direct resolution", async () => {
@@ -133,6 +145,111 @@ describe("file-backed collections", () => {
     const page = await childrenOf(new CollectionStore(), join(root, "markdown"), "/markdown", null, 20);
     expect(page.items[0]?.capabilities.properties?.writable).toBe(true);
     expect(page.items[0]?.properties).toEqual({ id: "abc123", title: "One", status: "draft" });
+  });
+
+  test("prepares and atomically commits exact-source JSON, JSONL, and CSV row edits", async () => {
+    const cases = [
+      {
+        name: "writable-json",
+        source: "_store.json",
+        before: '[\n  { "id": "one", "title": "One", "count": 1 },\n  {\n    "id":"two",\n    "title":"Two",\n    "count":2\n  }\n]\n',
+        after: '[\n  { "id": "one", "title": "One", "count": 1 },\n  {"id":"two","title":"Updated","count":3}\n]\n',
+        properties: { id: "two", title: "Updated", count: 3 },
+      },
+      {
+        name: "writable-jsonl",
+        source: "_store.jsonl",
+        before: '{"id":"one","title":"One","count":1}\r\n  {"id":"two","title":"Two","count":2}  \r\n',
+        after: '{"id":"one","title":"One","count":1}\r\n  {"id":"two","title":"Updated","count":3}  \r\n',
+        properties: { id: "two", title: "Updated", count: 3 },
+      },
+      {
+        name: "writable-csv",
+        source: "_store.csv",
+        before: 'id,title,count,notes\r\none,One,1,"first\r\nnote"\r\ntwo,Two,2,plain\r\n',
+        after: 'id,title,count,notes\r\none,One,1,"first\r\nnote"\r\ntwo,Updated,3,changed\r\n',
+        properties: { id: "two", title: "Updated", count: 3, notes: "changed" },
+      },
+    ] as const;
+    for (const item of cases) {
+      const collections = new CollectionStore();
+      const directory = join(root, item.name);
+      const ref = { path: `/${item.name}/stale`, stableKey: canonicalStableKey([["id", "two"]]) };
+      const target = await collections.writeTarget(directory, `/${item.name}`, ref);
+      expect(target?.writable).toBe(true);
+      const prepared = await collections.prepareFileProperties(target!, ref, target!.revision, item.properties);
+      expect(await readFile(join(directory, item.source), "utf8")).toBe(item.before);
+      const saved = await collections.commitFileProperties(prepared);
+      expect(saved.properties).toEqual(item.properties);
+      expect(await readFile(join(directory, item.source), "utf8")).toBe(item.after);
+      await collections[Symbol.asyncDispose]();
+    }
+  });
+
+  test("rejects stale exact-source commits, invalid candidates, and identity changes", async () => {
+    const directory = join(root, "writable-json");
+    const path = join(directory, "_store.json");
+    const collections = new CollectionStore();
+    const ref = { path: "/writable-json/stale", stableKey: canonicalStableKey([["id", "one"]]) };
+    const target = await collections.writeTarget(directory, "/writable-json", ref);
+    const original = await readFile(path, "utf8");
+    await expect(collections.prepareFileProperties(target!, ref, target!.revision, { id: "renamed", title: "No", count: 1 }))
+      .rejects.toBeInstanceOf(CollectionPropertyWriteError);
+    await expect(collections.prepareFileProperties(target!, ref, target!.revision, { id: "one", title: 7, count: 1 } as never))
+      .rejects.toBeInstanceOf(CollectionPropertyWriteError);
+    expect(await readFile(path, "utf8")).toBe(original);
+
+    const prepared = await collections.prepareFileProperties(target!, ref, target!.revision, { id: "one", title: "Changed", count: 4 });
+    await writeFile(path, `${original} `);
+    await expect(collections.commitFileProperties(prepared)).rejects.toBeInstanceOf(CollectionSourceConflictError);
+    expect(await readFile(path, "utf8")).toBe(`${original} `);
+    await collections[Symbol.asyncDispose]();
+  });
+
+  test("serializes commits against one exact source revision", async () => {
+    const directory = join(root, "writable-json");
+    const path = join(directory, "_store.json");
+    await writeFile(path, '[{"id":"one","title":"One","count":1},{"id":"two","title":"Two","count":2}]\n');
+    const collections = new CollectionStore();
+    const oneRef = { path: "/writable-json/one", stableKey: canonicalStableKey([["id", "one"]]) };
+    const twoRef = { path: "/writable-json/two", stableKey: canonicalStableKey([["id", "two"]]) };
+    const [one, two] = await Promise.all([
+      collections.writeTarget(directory, "/writable-json", oneRef),
+      collections.writeTarget(directory, "/writable-json", twoRef),
+    ]);
+    const [preparedOne, preparedTwo] = await Promise.all([
+      collections.prepareFileProperties(one!, oneRef, one!.revision, { id: "one", title: "Changed one", count: 1 }),
+      collections.prepareFileProperties(two!, twoRef, two!.revision, { id: "two", title: "Changed two", count: 2 }),
+    ]);
+    const committed = await Promise.allSettled([
+      collections.commitFileProperties(preparedOne),
+      collections.commitFileProperties(preparedTwo),
+    ]);
+    expect(committed[0]?.status).toBe("fulfilled");
+    expect(committed[1]?.status).toBe("rejected");
+    expect(committed[1]?.status === "rejected" ? committed[1].reason : null)
+      .toBeInstanceOf(CollectionSourceConflictError);
+    expect(await readFile(path, "utf8"))
+      .toBe('[{"id":"one","title":"Changed one","count":1},{"id":"two","title":"Two","count":2}]\n');
+    await collections[Symbol.asyncDispose]();
+  });
+
+  test("keeps a logical no-op byte-identical regardless of property order", async () => {
+    const directory = join(root, "writable-json");
+    const path = join(directory, "_store.json");
+    const collections = new CollectionStore();
+    const ref = { path: "/writable-json/one", stableKey: canonicalStableKey([["id", "one"]]) };
+    const target = await collections.writeTarget(directory, "/writable-json", ref);
+    const before = await readFile(path, "utf8");
+    const prepared = await collections.prepareFileProperties(target!, ref, target!.revision, {
+      count: 1,
+      title: "Changed one",
+      id: "one",
+    });
+    await collections.commitFileProperties(prepared);
+    expect(await readFile(path, "utf8")).toBe(before);
+    expect((await collections.writeTarget(directory, "/writable-json", ref))?.revision).toBe(target?.revision);
+    await collections[Symbol.asyncDispose]();
   });
 
   test("projects SQLite tables and rows through the shared schema metadata", async () => {

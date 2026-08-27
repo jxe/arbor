@@ -31,6 +31,7 @@ import {
   CollectionMutationMismatchError,
   CollectionPropertyConflictError,
   CollectionPropertyWriteError,
+  CollectionSourceConflictError,
   arborPrivateRoot,
 } from "@arbor/stores";
 import { decodePageCursor, encodePageCursor } from "./cursors.ts";
@@ -411,6 +412,34 @@ export class FilesystemService implements AsyncDisposable {
               }
               if (error instanceof Error && /constraint/i.test(error.message)) {
                 throw new ProtocolError("conflict", error.message, 409, { path: write.ref.path });
+              }
+              throw error;
+            }
+          }
+          if (target && (target.backing === "csv" || target.backing === "json" || target.backing === "jsonl")) {
+            try {
+              const prepared = await this.provider.prepareFileProperties(
+                target,
+                write.ref,
+                write.basePropertiesRevision,
+                write.properties,
+              );
+              const saved = await this.provider.commitFileProperties(prepared);
+              return [{
+                kind: "updated" as const,
+                tree: LOCAL_TREE,
+                path: saved.path,
+                propertiesRevision: saved.revision,
+              }];
+            } catch (error) {
+              if (error instanceof CollectionPropertyConflictError || error instanceof CollectionSourceConflictError) {
+                throw new ProtocolError("stale-properties-revision", error.message, 409, {
+                  path: write.ref.path,
+                  current: await this.snapshot(write.ref).catch(() => undefined),
+                });
+              }
+              if (error instanceof CollectionPropertyWriteError) {
+                throw new ProtocolError("unsupported-operation", error.message, 422, { path: write.ref.path });
               }
               throw error;
             }

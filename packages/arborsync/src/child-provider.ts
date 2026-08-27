@@ -4,6 +4,7 @@ import type { CollectionSummary } from "@arbor/core/internal";
 import {
   CollectionStore,
   type CollectionWriteTarget,
+  type PreparedFilePropertyWrite,
 } from "@arbor/stores";
 
 export interface PhysicalChildAdapter {
@@ -159,6 +160,19 @@ export class ChildProvider {
 
   prepareMarkdownProperties(directory: string, properties: Record<string, JSONValue>) {
     return this.collections.prepareMarkdownProperties(directory, properties);
+  }
+
+  prepareFileProperties(
+    target: CollectionWriteTarget,
+    ref: NodeRef,
+    basePropertiesRevision: string,
+    properties: Record<string, JSONValue>,
+  ): Promise<PreparedFilePropertyWrite> {
+    return this.collections.prepareFileProperties(target, ref, basePropertiesRevision, properties);
+  }
+
+  commitFileProperties(prepared: PreparedFilePropertyWrite) {
+    return this.collections.commitFileProperties(prepared);
   }
 
   writeSQLiteProperties(

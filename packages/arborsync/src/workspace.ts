@@ -56,6 +56,7 @@ import {
   CollectionMutationMismatchError,
   CollectionPropertyConflictError,
   CollectionPropertyWriteError,
+  CollectionSourceConflictError,
   type CollectionWriteTarget,
   detectCollection,
   WorkspaceIndex,
@@ -795,7 +796,7 @@ export class Workspace implements AsyncDisposable {
           path: operation.ref.path,
         });
       }
-      const path = (target?.backing === "sqlite" ? target.parentPath : target?.backing === "markdown" ? target.path : undefined)
+      const path = (target?.backing === "sqlite" ? target.parentPath : target?.path)
         ?? await this.resolveRef(operation.ref);
       return [await this.performContentOperation(operation, path, target, onMaterialized, onExpected, mutationID)];
     }
@@ -856,6 +857,38 @@ export class Workspace implements AsyncDisposable {
           }
           if (error instanceof Error && /constraint/i.test(error.message)) {
             throw new ProtocolError("conflict", error.message, 409, { path: operation.ref.path });
+          }
+          throw error;
+        }
+      }
+      if (target && (target.backing === "csv" || target.backing === "json" || target.backing === "jsonl")) {
+        try {
+          const prepared = await this.provider.prepareFileProperties(
+            target,
+            operation.ref,
+            operation.basePropertiesRevision,
+            operation.properties,
+          );
+          const effect: MutationEffect = {
+            kind: "updated",
+            tree: this.tree,
+            path: prepared.path,
+            propertiesRevision: prepared.revision,
+          };
+          await onExpected?.([effect]);
+          await this.provider.commitFileProperties(prepared);
+          await this.protocolFault("protocol:provider-committed");
+          await onMaterialized?.([effect]);
+          return effect;
+        } catch (error) {
+          if (error instanceof CollectionPropertyConflictError || error instanceof CollectionSourceConflictError) {
+            throw new ProtocolError("stale-properties-revision", error.message, 409, {
+              path: operation.ref.path,
+              current: await this.snapshot(operation.ref).catch(() => undefined),
+            });
+          }
+          if (error instanceof CollectionPropertyWriteError) {
+            throw new ProtocolError("unsupported-operation", error.message, 422, { path: operation.ref.path });
           }
           throw error;
         }
@@ -1212,10 +1245,25 @@ export class Workspace implements AsyncDisposable {
     }
     for (const record of await this.mutations.pending()) {
       if (record.state === "pending" && record.expectedEffects?.length) {
+        const request = record.request as { operations?: Array<{ ref?: NodeRef }> };
         const matches = await Promise.all(record.expectedEffects.map(async (effect) => {
           try {
-            const current = await this.node(effect.path);
-            return !effect.contentRevision || current.revision === effect.contentRevision;
+            const operationRefs = request.operations?.flatMap((operation) => operation.ref ? [operation.ref] : []) ?? [];
+            const operationRef = operationRefs.find((ref) => ref.path === effect.path)
+              ?? (operationRefs.length === 1 ? operationRefs[0] : undefined);
+            const current = await this.snapshot({
+              tree: effect.tree ?? this.tree,
+              path: effect.path,
+              stableKey: operationRef?.stableKey ?? null,
+            });
+            return (!effect.contentRevision
+                || current.capabilities.content?.revision === effect.contentRevision
+                || current.revision === effect.contentRevision)
+              && (!effect.propertiesRevision
+                || current.capabilities.properties?.revision === effect.propertiesRevision)
+              && (!effect.directoryRevision
+                || current.capabilities.children?.revision === effect.directoryRevision
+                || current.revision === effect.directoryRevision);
           } catch {
             return false;
           }
