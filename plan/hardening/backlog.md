@@ -29,6 +29,57 @@ These are implementation violations of the aspirational specification. They are 
    repair those independently in a way that recreates a parallel ontology.
 4. **Remove the temporary pre-Canopy readers.** Version-1 device configuration currently accepts legacy `authority:` as well as canonical `server:`, and Canopy startup recognizes `authority.sqlite3` long enough to checkpoint, verify, back up, and rename it. Remove the YAML alias and legacy database discovery after the hosted account-configuration tree and every active device file have been verified to contain only `server:`, all deployed data roots use `canopy.sqlite3`, and the agreed rollback-retention window for `authority.sqlite3.pre-canopyd` has elapsed. Keep rejection of files containing both placement keys until the legacy reader itself is removed.
 
+### Data 002 migration bridges
+
+1. **Remove the PageID-shaped compatibility bridge.** `pageIDStableKey`,
+   `pageIDFromStableKey`, private PageID owner indexes, legacy search/event
+   payload fields, and native presentation references temporarily translate
+   Markdown `id` into the uniform stable-key slot. Delete the bridge only after
+   search, events, backlinks, native healing, and Canopy boundary redirects all
+   carry generic stable keys and the legacy-fragment uniqueness reader has
+   passed its retention window. Keep the owner index behavior behind the
+   generic identity rule; do not remove rename healing itself.
+2. **Delete the provider-internal collection page ontology.** `TreeNode`,
+   `TreeChild`, `CollectionSummary`, `CollectionRow`, and `CollectionPage` now
+   live behind `@arbor/core/internal`, but Arbor Sync still translates them into
+   canonical snapshots and child pages. Remove these types when the shared
+   `ChildProvider` directly describes, pages, resolves, prepares, and observes
+   expanded files, file rollups, SQLite, and external stores; no REST, browser,
+   native, or generated-type consumer may depend on the bridge at removal.
+3. **Unify row resolution below workspace scope dispatch.** Managed and
+   untracked adapters temporarily probe a file-backed collection parent before
+   their ordinary filesystem lookup. Replace both probes with provider-neutral
+   `ChildProvider.resolve` after SQLite and external drivers implement the same
+   contract. At that point stable-key lookup, stale-path repair, diagnostics,
+   access checks, and historical reads must have one implementation.
+4. **Replace remote physical-child caching with Wire rollup projection.** The
+   unplaced-tree adapter currently keeps an in-memory `remoteChildren` map and
+   retains collection-aware physical child filtering because Wire cannot yet
+   resolve rollup rows. Delete both when rollup descriptors, remote row paging,
+   bounded marker placement, and schema/model-digest validation are live on
+   Canopy; remote results must then match placed and offline providers.
+5. **Remove Postgres virtual nodes and provisional offset cursors.** Postgres
+   tables still use virtual-node special cases and an opaque cursor bound to the
+   placeholder revision `external:postgres`, not a proved transaction snapshot.
+   Replace this path when `_store.yaml` is driver-dispatched through the shared
+   provider, introspected primary keys produce stable row refs, and paging uses
+   a real revision-bound keyset cursor. Do not expose mutable Postgres rows
+   before those conditions hold.
+6. **Reconcile expanded Markdown row paths with key-derived rollup paths.**
+   Existing Markdown records retain their authored filename as the readable
+   path while CSV/JSON/JSONL rows derive it from the declared primary key. Add a
+   reviewed migration/converter or a provider-neutral logical-path map before
+   claiming representation migration preserves paths automatically. Delete
+   this exception only when the same fixture has identical refs as Markdown,
+   CSV, JSON, JSONL, and SQLite and relative Markdown links remain ordinary.
+7. **Cache bounded parsed provider snapshots instead of reparsing rollups.**
+   File-backed summary, paging, and stable-key resolution currently reparse and
+   revalidate the complete backing to establish duplicate-key safety. Replace
+   that retrofit with a size-bounded, exact-revision-keyed provider snapshot
+   shared by describe/page/resolve, with filesystem invalidation and no stale
+   schema reuse. Preserve full-key-set validation; do not optimize by checking
+   only the returned page.
+
 ## Filesystem and structural editing
 
 1. **Make structural undo workspace-scoped.** The current undo stack lives in `PageEditor`, so it covers body-view mutations but is lost on navigation and does not include mutations initiated from the sidebar context menu. Move history ownership above individual page editors and store transaction descriptors rather than closures.

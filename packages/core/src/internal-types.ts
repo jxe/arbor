@@ -1,4 +1,5 @@
 import type { Diagnostic, MarkdownDocument, Materialization } from "./types.ts";
+import type { IdentityRule } from "./node-model.ts";
 
 /** Physical/provider dispatch types. Never serialize these as the node model. */
 export type NodeKind = "markdown" | "directory" | "collection" | "file" | "postgres";
@@ -17,6 +18,9 @@ export interface TreeNode {
   name: string;
   kind: NodeKind;
   revision: string;
+  contentRevision?: string;
+  propertiesRevision?: string;
+  childrenRevision?: string;
   writable: boolean;
   materialization: Materialization;
   bodyOrigin?: "sibling" | "index";
@@ -26,11 +30,16 @@ export interface TreeNode {
   diagnostics: Diagnostic[];
 }
 
-export type CollectionBacking = "csv" | "jsonl" | "markdown" | "postgres";
+export type CollectionBacking = "csv" | "json" | "jsonl" | "markdown" | "postgres";
 
 export interface CollectionSummary {
   backing: CollectionBacking;
   columns: string[];
+  identityRule?: IdentityRule;
+  revision?: string;
+  schemaRevision?: string;
+  modelDigest?: string;
+  diagnostics?: Diagnostic[];
   editable: boolean;
   total?: number;
   tables?: string[];
@@ -38,7 +47,8 @@ export interface CollectionSummary {
 
 export interface CollectionRow {
   key: string;
-  path?: string;
+  path: string;
+  stableKey: string | null;
   revision?: string;
   values: Record<string, unknown>;
   diagnostics: Diagnostic[];
@@ -48,6 +58,9 @@ export interface CollectionPage {
   path: string;
   backing: CollectionBacking;
   columns: string[];
+  identityRule?: IdentityRule;
+  revision: string;
+  schemaRevision: string;
   rows: CollectionRow[];
   nextCursor: string | null;
   diagnostics: Diagnostic[];

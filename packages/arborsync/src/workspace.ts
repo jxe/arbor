@@ -22,7 +22,7 @@ import type {
   StructuralWorkspaceOperation,
   WorkspaceOperation,
 } from "@arbor/core";
-import type { CollectionPage, TreeChild, TreeNode } from "@arbor/core/internal";
+import type { CollectionPage, CollectionRow, TreeChild, TreeNode } from "@arbor/core/internal";
 import {
   canonicalJSONString,
   canonicalNodePath,
@@ -49,7 +49,7 @@ import {
   writeAtomic,
 } from "@arbor/fs";
 import { mintPageID, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
-import { CollectionStore, detectCollection, WorkspaceIndex, workspaceState } from "@arbor/stores";
+import { CollectionCursorError, CollectionStore, detectCollection, WorkspaceIndex, workspaceState } from "@arbor/stores";
 import { EventBus } from "./events.ts";
 import { rootDisplayName } from "./root-title.ts";
 import { collectionRowSummary, sampleTreeNode, summarizeTreeNode } from "./node-sampling.ts";
@@ -211,6 +211,14 @@ export class Workspace implements AsyncDisposable {
 
   async snapshot(ref: NodeRef): Promise<NodeResponse> {
     const observedThrough = this.events.currentCursor();
+    const collectionRow = await this.collectionRow(ref);
+    if (collectionRow) {
+      return {
+        ...collectionRowSummary(collectionRow.row, collectionRow.page, collectionRow.page.path, this.tree),
+        observedThrough,
+        enclosingTree: this.descriptor(),
+      };
+    }
     const path = await this.resolveRef(ref);
     return this.snapshotFromTree(await this.node(path), observedThrough);
   }
@@ -222,18 +230,16 @@ export class Workspace implements AsyncDisposable {
     if (node.kind !== "directory" && node.kind !== "collection") {
       throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
     }
-    const offset = this.decodePageCursor(cursor, `children:${path}`);
     if (node.collection && !(node.collection.backing === "postgres" && node.collection.tables?.length)) {
-      const page = await this.collection(path, offset, 100);
+      const page = await this.collection(path, cursor ?? null, 100);
       return {
         parent: sampleTreeNode(node, { tree: this.tree, observedThrough }).ref,
         items: page.rows.map((row) => collectionRowSummary(row, page, path, this.tree)),
-        nextCursor: page.nextCursor
-          ? this.encodePageCursor(`children:${path}`, Number(page.nextCursor))
-          : null,
+        nextCursor: page.nextCursor,
         observedThrough,
       };
     }
+    const offset = this.decodePageCursor(cursor, `children:${path}`);
     const selected = (node.children ?? []).slice(offset, offset + 100);
     const items = await Promise.all(selected.map(async (child) => summarizeTreeNode(
       await this.node(child.path),
@@ -600,7 +606,10 @@ export class Workspace implements AsyncDisposable {
       path: resolved.path,
       name: resolved.path === "/" ? basename(this.root) : nodeDisplayName(resolved.path),
       kind: collection ? "collection" : "directory",
-      revision: read.byteRevision,
+      revision: collection?.revision ? revisionOf(`${read.byteRevision}\0${collection.revision}`) : read.byteRevision,
+      contentRevision: read.byteRevision,
+      propertiesRevision: read.byteRevision,
+      ...(collection?.revision ? { childrenRevision: collection.revision } : {}),
       writable: resolved.writable,
       materialization: resolved.materialization,
       bodyOrigin: resolved.bodySource ?? undefined,
@@ -610,12 +619,13 @@ export class Workspace implements AsyncDisposable {
       diagnostics: [
         ...resolved.diagnostics,
         ...this.pageIDDiagnostics(resolved.path, pageID),
+        ...(collection?.diagnostics ?? []),
         ...children.diagnostics,
       ],
     };
   }
 
-  async collection(inputPath: string, cursor = 0, limit = 100, table?: string): Promise<CollectionPage> {
+  async collection(inputPath: string, cursor: string | null = null, limit = 100, table?: string): Promise<CollectionPage> {
     const treePath = canonicalNodePath(inputPath);
     const resolved = await this.fs.resolve(treePath);
     let absolute = resolved.directoryPath;
@@ -625,7 +635,25 @@ export class Workspace implements AsyncDisposable {
       table ??= treePath.slice(treePath.lastIndexOf("/") + 1);
     }
     if (!absolute) throw new Error("Collection path is not a directory");
-    return this.collections.page(absolute, treePath, cursor, limit, table);
+    try {
+      return await this.collections.page(absolute, treePath, cursor, limit, table);
+    } catch (error) {
+      if (error instanceof CollectionCursorError) {
+        throw new ProtocolError("invalid-reference", error.message, 400, { path: treePath });
+      }
+      throw error;
+    }
+  }
+
+  private async collectionRow(ref: NodeRef): Promise<{ row: CollectionRow; page: CollectionPage } | null> {
+    const path = canonicalNodePath(ref.path);
+    if (path === "/") return null;
+    const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
+    const parent = await this.fs.resolve(parentPath);
+    if (!parent.directoryPath) return null;
+    const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
+    if (!summary || summary.backing === "markdown" || summary.backing === "postgres") return null;
+    return this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
   }
 
   search(query: string, limit = 30): SearchResult[] { return this.index.search(query, limit); }

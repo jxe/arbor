@@ -296,6 +296,10 @@ public actor ArborReplica {
         case "_store.csv":
             let lines = String(decoding: store.bytes ?? Data(), as: UTF8.self).split(whereSeparator: \.isNewline)
             return ("CSV", max(0, lines.count - 1))
+        case "_store.json":
+            guard let value = try? JSONSerialization.jsonObject(with: store.bytes ?? Data()),
+                  let rows = value as? [Any] else { return ("JSON", nil) }
+            return ("JSON", rows.count)
         case "_store.jsonl":
             return ("JSONL", String(decoding: store.bytes ?? Data(), as: UTF8.self).split(whereSeparator: \.isNewline).count)
         case "_store.sqlite3": return ("SQLite", nil)

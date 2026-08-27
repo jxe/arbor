@@ -18,10 +18,11 @@ import {
   canonicalNodePath,
   nodeDisplayName,
   normalizeTreePath,
+  revisionOf,
   sha256,
 } from "@arbor/core";
 import { FsConflictError, type FsMutation, WorkspaceFS } from "@arbor/fs";
-import { CollectionStore, arborPrivateRoot } from "@arbor/stores";
+import { CollectionCursorError, CollectionStore, arborPrivateRoot } from "@arbor/stores";
 import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import type { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
@@ -122,14 +123,17 @@ export class FilesystemService implements AsyncDisposable {
       path: resolved.path,
       name: resolved.path === "/" ? "/" : nodeDisplayName(resolved.path),
       kind: collection ? "collection" : "directory",
-      revision: read.byteRevision,
+      revision: collection?.revision ? revisionOf(`${read.byteRevision}\0${collection.revision}`) : read.byteRevision,
+      contentRevision: read.byteRevision,
+      propertiesRevision: read.byteRevision,
+      ...(collection?.revision ? { childrenRevision: collection.revision } : {}),
       writable: resolved.writable,
       materialization: resolved.materialization,
       bodyOrigin: resolved.bodySource ?? undefined,
       document: read.document,
       children: children.children,
       collection: collection ?? undefined,
-      diagnostics: [...resolved.diagnostics, ...children.diagnostics],
+      diagnostics: [...resolved.diagnostics, ...(collection?.diagnostics ?? []), ...children.diagnostics],
     };
   }
 
@@ -181,7 +185,7 @@ export class FilesystemService implements AsyncDisposable {
       if (error instanceof FsConflictError) {
         const mapped = fsErrorCode(error);
         const current = error.details.current
-          ? await this.snapshot(error.details.current.node.path).catch(() => undefined)
+          ? await this.snapshot({ tree: LOCAL_TREE, path: error.details.current.node.path, stableKey: null }).catch(() => undefined)
           : undefined;
         throw new ProtocolError(mapped.code, error.message, mapped.status, {
           path: error.details.path,
@@ -194,9 +198,27 @@ export class FilesystemService implements AsyncDisposable {
     }
   }
 
-  async snapshot(path: string): Promise<NodeResponse> {
+  async snapshot(ref: NodeRef): Promise<NodeResponse> {
     return this.withErrors(async () => {
       const observedThrough = this.events.currentCursor();
+      const path = canonicalNodePath(ref.path);
+      if (path !== "/") {
+        const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
+        const parent = await (await this.engine).resolve(parentPath);
+        if (parent.directoryPath) {
+          const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
+          if (summary && summary.backing !== "markdown" && summary.backing !== "postgres") {
+            const collectionRow = await this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
+            if (collectionRow) return {
+              ...collectionRowSummary(collectionRow.row, collectionRow.page, parentPath, LOCAL_TREE),
+              observedThrough,
+            };
+          }
+        }
+      }
+      if (ref.stableKey !== null) {
+        throw new ProtocolError("invalid-reference", "No local collection row owns the supplied stable key", 404, { path });
+      }
       return this.snapshotFromTree(await this.node(path), observedThrough);
     });
   }
@@ -208,7 +230,6 @@ export class FilesystemService implements AsyncDisposable {
       if (node.kind !== "directory" && node.kind !== "collection") {
         throw new ProtocolError("invalid-reference", `${node.path} does not have children`, 400, { path: node.path });
       }
-      const offset = decodePageCursor(cursor, `children:local:${node.path}`);
       if (node.collection && !(node.collection.backing === "postgres" && node.collection.tables?.length)) {
         const fs = await this.engine;
         const resolved = await fs.resolve(node.path);
@@ -220,16 +241,23 @@ export class FilesystemService implements AsyncDisposable {
           table = node.path.slice(node.path.lastIndexOf("/") + 1);
         }
         if (!absolute) throw new ProtocolError("invalid-reference", `${node.path} is not a collection`, 400, { path: node.path });
-        const page = await this.collections.page(absolute, node.path, offset, 100, table);
+        let page;
+        try {
+          page = await this.collections.page(absolute, node.path, cursor ?? null, 100, table);
+        } catch (error) {
+          if (error instanceof CollectionCursorError) {
+            throw new ProtocolError("invalid-reference", error.message, 400, { path: node.path });
+          }
+          throw error;
+        }
         return {
           parent: sampleTreeNode(node, { tree: LOCAL_TREE, observedThrough }).ref,
           items: page.rows.map((row) => collectionRowSummary(row, page, node.path, LOCAL_TREE)),
-          nextCursor: page.nextCursor
-            ? encodePageCursor(`children:local:${node.path}`, Number(page.nextCursor))
-            : null,
+          nextCursor: page.nextCursor,
           observedThrough,
         };
       }
+      const offset = decodePageCursor(cursor, `children:local:${node.path}`);
       const selected = (node.children ?? []).slice(offset, offset + 100);
       const items = await Promise.all(selected.map(async (child) => summarizeTreeNode(
         await this.node(child.path),

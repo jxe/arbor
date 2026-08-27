@@ -67,11 +67,27 @@
   hydrates children during `node()` or observed-view admission. Swift rejects
   the same legacy snapshot fields as TypeScript, native surfaces derive from
   capabilities, and the macOS app builds against the new protocol.
-- **Next checkpoint:** unify the collection and executable-data store stacks.
-  Add declared stable identity and keyset paging for CSV/JSON/JSONL, add JSON
-  and SQLite rollup providers, make every table/row independently resolvable,
-  and route their writes through generic node mutation semantics before Wire
-  rollup synchronization.
+- **2026-08-27 — file-rollup identity and read path complete:** `schema.ts`
+  primary-key declarations are sandboxed and checked against required schema
+  properties; CSV, JSON, and JSONL derive canonical parent-scoped keys and
+  deterministic row segments after validation. `_store.json` is a recognized
+  rollup in managed, untracked, remote-detection, filesystem-reserved, and
+  offline-native surfaces. File children use exact-revision-bound keyset
+  cursors when every declared key is valid, while identity-less or invalid
+  read-only projections use explicit revision-bound positional cursors.
+  Exact representation/schema revisions are separate from the normalized
+  scoped model digest, so formatting-only JSON changes invalidate paging
+  without changing logical equivalence.
+  Duplicate, missing, nullable, and invalid keys produce diagnostics and never
+  fall back to durable positional identity. Rolled-up rows resolve through
+  ordinary node reads by path or stable key, including stale readable paths in
+  managed and untracked scopes. The deliberate compatibility/retrofit layers
+  and their deletion conditions are recorded in the hardening backlog.
+- **Next checkpoint:** bind the existing SQLite schema/query/mutation engine to
+  the same generic table/row provider, then route file-row writes through
+  generic node mutation semantics. Replace the internal collection-page and
+  adapter probes only once both use the shared provider snapshot contract;
+  defer Wire rollup synchronization until those local semantics are proved.
 
 ## Target result
 

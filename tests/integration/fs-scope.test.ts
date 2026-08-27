@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { serveArborSync } from "@arbor/arborsync";
 import { ArborSyncRESTClient } from "@arbor/client";
 import type { MutationRequest, NodeSnapshot } from "@arbor/core";
+import { canonicalStableKey } from "@arbor/core";
 
 let outer: string;
 let root: string;
@@ -34,6 +35,9 @@ beforeAll(async () => {
   await writeFile(join(outer, "stray", "ordered", "_index.md"), "[First](first)\n\n[Second](second)\n");
   await writeFile(join(outer, "stray", "ordered", "first.md"), "First\n");
   await writeFile(join(outer, "stray", "ordered", "second.md"), "Second\n");
+  await mkdir(join(outer, "stray", "rolled"));
+  await writeFile(join(outer, "stray", "rolled", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(outer, "stray", "rolled", "_store.json"), '[{"id":"one","title":"One"}]\n');
   await mkdir(join(outer, "implicit-edit"));
   await writeFile(join(outer, "implicit-edit", "child.md"), "Child\n");
   await symlink(join(root, "inside.md"), join(outer, "stray", "link-into-root.md"));
@@ -179,6 +183,18 @@ describe("the local filesystem scope", () => {
         "first",
       ]);
     expect(await readFile(join(absolute, "_index.md"), "utf8")).not.toContain("id:");
+  });
+
+  test("resolves stable rolled-up rows outside a managed workspace", async () => {
+    const collection = join(outer, "stray", "rolled");
+    const children = await client.children({ tree: "local", path: collection, stableKey: null });
+    expect(children.items).toHaveLength(1);
+    const key = canonicalStableKey([["id", "one"]]);
+    expect(children.items[0]?.ref).toEqual({ tree: "local", path: join(collection, "one"), stableKey: key });
+
+    const row = await client.node({ tree: "local", path: join(collection, "old-name"), stableKey: key });
+    expect(row.ref.path).toBe(join(collection, "one"));
+    expect(row.properties).toEqual({ id: "one", title: "One" });
   });
 
   test("materializes an implicit untracked directory only after an authored edit", async () => {

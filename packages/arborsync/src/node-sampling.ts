@@ -8,7 +8,7 @@ import type {
   TreeRef,
 } from "@arbor/core";
 import type { CollectionPage, CollectionRow, TreeNode } from "@arbor/core/internal";
-import { canonicalJSONString, canonicalStableKey, isPageID, pageIDStableKey, sha256 } from "@arbor/core";
+import { canonicalJSONString, isPageID, pageIDStableKey, sha256 } from "@arbor/core";
 
 function jsonValue(value: unknown): JSONValue | undefined {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
@@ -43,19 +43,13 @@ export function collectionRowSummary(
   tree: TreeRef,
 ): NodeSummary {
   const properties = (jsonValue(row.values) ?? {}) as Record<string, JSONValue>;
-  const id = properties.id;
-  const stableKey = page.backing === "markdown" && (
-    typeof id === "string" || typeof id === "number" || typeof id === "boolean"
-  )
-    ? canonicalStableKey([["id", id]])
-    : null;
-  const segment = row.path ?? row.key.replace(/[^a-zA-Z0-9._-]+/g, "-");
+  const segment = row.path;
   const revision = row.revision ?? digest({ key: row.key, properties });
   return {
     ref: {
       tree,
       path: `${parentPath === "/" ? "" : parentPath}/${segment}`,
-      stableKey,
+      stableKey: row.stableKey,
     },
     name: typeof properties.title === "string" ? properties.title
       : typeof properties.name === "string" ? properties.name
@@ -66,7 +60,7 @@ export function collectionRowSummary(
     capabilities: {
       properties: {
         revision,
-        schema: digest({ columns: page.columns }),
+        schema: page.schemaRevision as Hash,
         writable: page.editable,
       },
       ...(page.backing === "markdown" ? {
@@ -103,18 +97,18 @@ function capabilities(node: TreeNode, writable: boolean): NodeCapabilities {
   const result: NodeCapabilities = {};
   if (node.document) {
     result.properties = {
-      revision: node.revision,
+      revision: node.propertiesRevision ?? node.revision,
       writable,
     };
     result.content = {
-      revision: node.revision,
+      revision: node.contentRevision ?? node.revision,
       mediaType: "text/markdown",
       format: "markdown",
       writable,
     };
   } else if (node.kind === "file") {
     result.content = {
-      revision: node.revision,
+      revision: node.contentRevision ?? node.revision,
       mediaType: mediaType(node.path),
       writable,
     };
@@ -123,22 +117,22 @@ function capabilities(node: TreeNode, writable: boolean): NodeCapabilities {
     const collection = node.collection;
     const representation = collection?.backing === "postgres"
       ? { type: "external" as const, driver: "postgres" }
-      : collection?.backing === "csv" || collection?.backing === "jsonl"
+      : collection?.backing === "csv" || collection?.backing === "json" || collection?.backing === "jsonl"
         ? {
           type: "rollup" as const,
           codec: collection.backing,
           scope: "children" as const,
-          modelDigest: digest({ columns: collection.columns }),
+          modelDigest: (collection.modelDigest ?? digest({ columns: collection.columns, identityRule: collection.identityRule })) as Hash,
         }
         : { type: "expanded" as const };
     result.children = {
-      revision: node.revision,
-      ...(collection ? { schema: digest({ columns: collection.columns }) } : {}),
+      revision: node.childrenRevision ?? collection?.revision ?? node.revision,
+      ...(collection ? { schema: (collection.schemaRevision ?? digest({ columns: collection.columns, identityRule: collection.identityRule })) as Hash } : {}),
       representation,
       ...(collection?.total !== undefined
         ? { total: collection.total }
         : node.children ? { total: node.children.length } : {}),
-      writable,
+      writable: collection ? collection.editable && writable : writable,
     };
   }
   return result;

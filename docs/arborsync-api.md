@@ -194,6 +194,14 @@ row properties and schema capability without a collection-specific endpoint.
 Children, search, backlinks, recovery entries, mounted boundaries, events, and
 effects all retain explicit tree scope.
 
+For file-backed rollups, `_store.csv`, `_store.json`, and `_store.jsonl` rows
+receive durable references only when `schema.ts` declares a valid primary key.
+Their child pages use a cursor bound to the exact rollup/schema revision and
+advance by stable key. Missing, invalid, or duplicate declared keys leave the
+affected rows explicitly identity-less and read-only; the server never
+substitutes a row offset as durable identity. Markdown rows may derive the same
+identity from a schema-declared `id` property.
+
 ## 5. Authored mutations
 
 ```text

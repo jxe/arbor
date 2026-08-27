@@ -2,10 +2,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getQuickJS, type QuickJSContext, type QuickJSRuntime } from "quickjs-emscripten";
 import type { Diagnostic } from "@arbor/core";
+import { revisionOf } from "@arbor/core";
 
 export interface SchemaDescription {
   jsonSchema: Record<string, unknown>;
   columns: string[];
+  primaryKey: string[] | null;
+  revision: string;
 }
 
 interface CompiledSchema {
@@ -28,6 +31,7 @@ export class SchemaSandbox implements AsyncDisposable {
     const schemaBody = source
       .replace(/import\s*\{\s*z\s*\}\s*from\s*["']zod["'];?/g, "")
       .replace(/export\s+const\s+schema\b/, "const schema")
+      .replace(/export\s+const\s+primaryKey\b/, "const primaryKey")
       .replace(/export\s+type\s+/g, "type ")
       .replace(/export\s*\{[^}]*\};?/g, "");
     if (!/\bconst\s+schema\s*=/.test(schemaBody)) throw new Error("schema.ts must export `const schema = z.object(...)`");
@@ -35,6 +39,7 @@ export class SchemaSandbox implements AsyncDisposable {
       `import { z } from "zod";`,
       schemaBody,
       `globalThis.__ARBOR_SCHEMA = JSON.stringify(z.toJSONSchema(schema));`,
+      `globalThis.__ARBOR_PRIMARY_KEY = typeof primaryKey === "undefined" ? "null" : JSON.stringify(primaryKey);`,
       `globalThis.__ARBOR_VALIDATE = (text) => {`,
       `  const result = schema.safeParse(JSON.parse(text));`,
       `  return JSON.stringify(result.success ? { ok: true, value: result.data } : { ok: false, issues: result.error.issues });`,
@@ -69,7 +74,28 @@ export class SchemaSandbox implements AsyncDisposable {
     const serialized = context.dump(handle) as string;
     handle.dispose();
     const jsonSchema = JSON.parse(serialized) as Record<string, unknown>;
-    const description = { jsonSchema, columns: Object.keys((jsonSchema.properties as Record<string, unknown> | undefined) ?? {}) };
+    const primaryKeyHandle = context.getProp(context.global, "__ARBOR_PRIMARY_KEY");
+    const primaryKeySerialized = context.dump(primaryKeyHandle) as string;
+    primaryKeyHandle.dispose();
+    const declaredPrimaryKey = JSON.parse(primaryKeySerialized) as unknown;
+    const columns = Object.keys((jsonSchema.properties as Record<string, unknown> | undefined) ?? {});
+    const required = new Set(Array.isArray(jsonSchema.required) ? jsonSchema.required : []);
+    if (declaredPrimaryKey !== null && (
+      !Array.isArray(declaredPrimaryKey)
+      || declaredPrimaryKey.length === 0
+      || declaredPrimaryKey.some((field) => typeof field !== "string" || !columns.includes(field) || !required.has(field))
+      || new Set(declaredPrimaryKey).size !== declaredPrimaryKey.length
+    )) {
+      context.dispose();
+      runtime.dispose();
+      throw new Error("primaryKey must name unique required schema properties");
+    }
+    const description = {
+      jsonSchema,
+      columns,
+      primaryKey: declaredPrimaryKey as string[] | null,
+      revision: revisionOf(source),
+    };
     cached?.context.dispose();
     cached?.runtime.dispose();
     this.compiled.set(path, { context, runtime, source, description });

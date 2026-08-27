@@ -30,7 +30,7 @@ test("Postgres collections stay live without exposing credentials", async () => 
     } as unknown as ConnectionStore;
     const collections = new CollectionStore(undefined, connections);
     const summary = await collections.summary(directory);
-    const page = await collections.page(directory, "/database", 0, 1, "items");
+    const page = await collections.page(directory, "/database", null, 1, "items");
     const catalog = await collections.postgresSchema(directory);
 
     expect(summary?.tables).toEqual(["items"]);

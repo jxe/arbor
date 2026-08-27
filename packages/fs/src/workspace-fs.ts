@@ -46,7 +46,7 @@ import {
   type WorkspaceFSOptions,
 } from "./types.ts";
 
-const RESERVED = new Set(["schema.ts", "_store.csv", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
+const RESERVED = new Set(["schema.ts", "_store.csv", "_store.json", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
 const IGNORED = IGNORED_WORKSPACE_DIRECTORIES;
 const EMPTY_REVISION = revisionOf("");
 

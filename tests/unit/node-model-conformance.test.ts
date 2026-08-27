@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { canonicalStableKey } from "@arbor/core/node-key";
+import { canonicalStableKey, rowPathSegment, stableKeyFromProperties } from "@arbor/core/node-key";
 import {
   decodeChildrenPage,
   decodeIdentityRule,
@@ -40,6 +40,19 @@ describe("unified node-model conformance", () => {
       const pairs = rule.properties.map((property) => [property, item.properties[property]] as const);
       expect(canonicalStableKey(pairs), item.name).toBe(item.stableKey);
     }
+  });
+
+  test("derives portable row keys and deterministic logical child segments", () => {
+    const readable = stableKeyFromProperties(["slug"], { slug: "walking", title: "Walking" });
+    expect(readable).toBe('[["slug","walking"]]');
+    expect(rowPathSegment(readable!)).toBe("walking");
+
+    const compound = stableKeyFromProperties(["list", "position"], { list: "a", position: 2 });
+    expect(compound).toBe('[["list","a"],["position",2]]');
+    expect(rowPathSegment(compound!)).toStartWith("~row-");
+    expect(rowPathSegment('[["id","unsafe.md"]]')).toStartWith("~row-");
+    expect(stableKeyFromProperties(["id"], { id: null })).toBeNull();
+    expect(stableKeyFromProperties(["id"], { id: Number.NaN })).toBeNull();
   });
 
   test("decodes snapshots, summaries, capabilities, and rollups without kinds", async () => {

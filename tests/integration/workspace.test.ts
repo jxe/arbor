@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Workspace, RevisionConflictError } from "@arbor/arborsync";
+import { canonicalStableKey } from "@arbor/core";
 
 let root: string;
 let state: string;
@@ -69,7 +70,7 @@ describe("workspace service", () => {
   test("keeps Markdown collection rows out of the directory document", async () => {
     const collection = join(root, "records");
     await mkdir(collection);
-    await writeFile(join(collection, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ title: z.string() });\n');
+    await writeFile(join(collection, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() });\n');
     await writeFile(join(collection, "_index.md"), "About the records.\n");
     await writeFile(join(collection, "one.md"), "---\nid: abc123\ntitle: One\n---\nRow body.\n");
 
@@ -84,6 +85,26 @@ describe("workspace service", () => {
       ref: expect.objectContaining({ path: "/records/one", stableKey: '[["id","abc123"]]' }),
       properties: expect.objectContaining({ id: "abc123", title: "One" }),
     }));
+  });
+
+  test("resolves rolled-up JSON rows as ordinary stable-key nodes", async () => {
+    const collection = join(root, "rolled");
+    await mkdir(collection);
+    await writeFile(join(collection, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
+    await writeFile(join(collection, "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
+
+    const parent = await workspace.snapshot({ tree: workspace.tree, path: "/rolled", stableKey: null });
+    expect(parent.capabilities.children?.representation).toMatchObject({ type: "rollup", codec: "json" });
+    expect(parent.capabilities.children?.writable).toBe(false);
+    const children = await workspace.children(parent.ref);
+    expect(children.items.map((item) => item.ref.path)).toEqual(["/rolled/a", "/rolled/b"]);
+
+    const key = canonicalStableKey([["id", "b"]]);
+    const row = await workspace.snapshot({ tree: workspace.tree, path: "/rolled/stale-name", stableKey: key });
+    expect(row.ref).toEqual({ tree: workspace.tree, path: "/rolled/b", stableKey: key });
+    expect(row.properties).toEqual({ id: "b", title: "Second" });
+    expect(row.capabilities.content).toBeUndefined();
+    expect(row.capabilities.properties?.writable).toBe(false);
   });
 
   test("writes exact source and enforces revision CAS", async () => {

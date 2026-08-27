@@ -92,3 +92,43 @@ export function pageIDFromStableKey(stableKey: string | null): string | null {
     ? pairs[0][1]
     : null;
 }
+
+/** Derive one canonical key from declared properties without coercing values. */
+export function stableKeyFromProperties(
+  properties: readonly string[],
+  values: Readonly<Record<string, unknown>>,
+): string | null {
+  if (!properties.length || new Set(properties).size !== properties.length) return null;
+  const pairs: StableKeyPair[] = [];
+  for (const property of properties) {
+    if (!property) return null;
+    const value = values[property];
+    if (
+      typeof value !== "string"
+      && typeof value !== "boolean"
+      && !(typeof value === "number" && Number.isFinite(value))
+    ) return null;
+    pairs.push([property, value]);
+  }
+  return canonicalStableKey(pairs);
+}
+
+function readableRowSegment(value: string): boolean {
+  return Boolean(value)
+    && value !== "."
+    && value !== ".."
+    && !value.startsWith("~row-")
+    && !value.endsWith(".md")
+    && !value.includes("/")
+    && !value.includes("\\")
+    && !value.includes("\0");
+}
+
+/** Deterministic logical child segment for a schema-derived row key. */
+export function rowPathSegment(stableKey: string): string {
+  const pairs = parseCanonicalStableKey(stableKey);
+  if (!pairs) throw new TypeError("row path requires a canonical stable key");
+  const onlyValue = pairs.length === 1 ? pairs[0]![1] : null;
+  if (typeof onlyValue === "string" && readableRowSegment(onlyValue)) return onlyValue;
+  return `~row-${encodeStableKey(stableKey)}`;
+}

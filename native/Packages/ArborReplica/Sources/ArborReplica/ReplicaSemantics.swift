@@ -163,7 +163,7 @@ enum ReplicaSemantics {
     }
 
     static func isStoreFile(_ node: ReplicaNodeRecord) -> Bool {
-        node.kind == .file && ["_store.csv", "_store.jsonl", "_store.sqlite3", "_store.postgres"].contains(name(of: node.path))
+        node.kind == .file && ["_store.csv", "_store.json", "_store.jsonl", "_store.sqlite3", "_store.postgres"].contains(name(of: node.path))
     }
 
     private static func standaloneLinks(in source: String, relativeTo directory: String) -> (paths: [String], pageIDs: [String]) {

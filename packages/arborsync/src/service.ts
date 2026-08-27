@@ -249,10 +249,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
           };
         }
       }
-      if (ref.stableKey !== null) {
-        throw new ProtocolError("invalid-reference", "Stable-key resolution requires a managed workspace", 400);
-      }
-      return { kind: "local", path: real, ref: { tree: LOCAL_TREE, path: real, stableKey: null } };
+      return { kind: "local", path: real, ref: { tree: LOCAL_TREE, path: real, stableKey: ref.stableKey } };
     }
     throw new ProtocolError("not-found", `Unknown tree scope: ${tree}`, 404);
   }
@@ -265,7 +262,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     }
     const scope = await this.resolveScope(ref);
     if (scope.kind === "root") return scope.workspace.snapshot(scope.ref);
-    if (scope.kind === "local") return this.localFs.snapshot(scope.path);
+    if (scope.kind === "local") return this.localFs.snapshot(scope.ref);
     return this.systemSnapshot(scope.path);
   }
 
@@ -444,7 +441,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
         } };
       }))).filter((child): child is NonNullable<typeof child> => child !== null);
     const isCollectionDirectory = object.entries.some((entry) =>
-      entry.name === "schema.ts" || ["_store.csv", "_store.jsonl", "_store.sqlite3", "_store.postgres"].includes(entry.name)
+      entry.name === "schema.ts" || ["_store.csv", "_store.json", "_store.jsonl", "_store.sqlite3", "_store.postgres"].includes(entry.name)
     );
     const operationalChildren = isCollectionDirectory
       ? children.filter((child) => child.treeChild.kind !== "markdown")
