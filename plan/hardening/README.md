@@ -97,13 +97,11 @@ any of these.
   with `zod` pre-bundled, versus bundling in a locked-down child process), which
   is why it is a spike, not a plan. Effort M, confidence MED on the specific
   vector.
-- **Browse daemon lacks DNS-rebinding protection.**
-  `packages/arborsync/src/server.ts:433` binds loopback with no auth, and
-  `assertSameOrigin` (`:38-44`) allows any non-GET request that simply omits
-  `Origin`. There is no `Host` check. A page resolving an attacker hostname to
-  127.0.0.1 becomes same-origin with a daemon that reads any file the user can
-  read. Loopback-only-and-unauthenticated is a defensible design; the missing
-  `Host` allowlist and the "absent Origin means allow" default are not. Effort S.
+- **Resolved: browse-daemon DNS rebinding.** Arbor Sync now rejects every
+  non-loopback `Host` header before routing reads or writes and retains the
+  same-origin check for browser mutations. This closes the attacker-hostname
+  route to the persistent loopback daemon while preserving non-browser local
+  clients that do not send `Origin`.
 - **Wire host derives HTTP status from English error text.**
   `packages/wire/src/host.ts:382` uses `/authentication|not allowed/i` to choose
   403 versus 400, over prose thrown from `canopy.ts`. Rewording an error

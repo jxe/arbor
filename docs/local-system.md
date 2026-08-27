@@ -20,6 +20,12 @@ The directory above `.state` is the checkout of the account-configuration tree. 
 
 Raw credentials use the platform credential facility where available and are scoped to the selected data home. Other implementations may use an equivalent secret facility, but no raw credential or access-link secret belongs in synchronized configuration or authored trees.
 
+## Daemon supervision
+
+The reference CLI exposes `arbor daemon install|uninstall|start|stop|restart|status|logs` independently of the host service manager. The default data home has exactly one supervised local daemon and all native and command-line clients attach to its Arbor Sync REST origin. An explicit `ARBOR_DATA_HOME` remains an isolated foreground run instead of accidentally becoming a second default service.
+
+macOS implements this contract as the per-user launchd label `org.nxhx.Arbor.arborsync`. A signed Arbor app registers its relocatable bundled agent with `SMAppService`; a CLI-only installation writes a user LaunchAgent pointing at that CLI installation. Both paths use the same label, port, control-mode daemon, and log location, so launchd cannot load competing owners. Future Linux and Windows adapters should preserve the commands and one-daemon-per-data-home invariant while translating them to the native user-service manager.
+
 ## Watching and local activation
 
 Arbor Sync watches `account.yaml`, `trees.yaml`, and `devices/*.yaml`. A valid direct edit is synchronized as an ordinary account-tree change. An invalid candidate leaves the last fully valid configuration active and creates a safe diagnostic. Arbor-authored edits preserve unrelated comments and mapping order and replace files atomically.

@@ -265,6 +265,13 @@ export class TreeManager implements AsyncDisposable {
     );
     const trackedID = trackedEntry?.[0];
     const tracked = trackedEntry?.[1];
+    const existing = trackedID
+      ? this.workspaces.get(trackedID)
+      : [...this.workspaces.values()].find((workspace) => workspace.root === canonical);
+    if (existing) {
+      this.sessionID = existing.tree;
+      return existing;
+    }
     const workspace = await Workspace.open(tracked?.osPath ?? canonical, {
       ...options,
       events: this.events,

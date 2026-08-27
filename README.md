@@ -83,8 +83,9 @@ For hands-on testing without modifying the checked-in fixture, copy it to a scra
 
 ```sh
 test_root="$(mktemp -d)"
+test_state="$(mktemp -d)"
 cp -R tests/fixtures/workspace/. "$test_root/"
-bun run arborsync "$test_root" --port 4317
+ARBOR_DATA_HOME="$test_state" bun run arborsync "$test_root" --port 4317
 ```
 
 Open `http://127.0.0.1:4317`. Check that the sidebar shows `notes` without `.md`; while reading it, the sidebar should still list its containing directory. Toggle it with the header control and Cmd-\, then verify a narrow window uses the overlay drawer. Its inline link and standalone `Book` document-link row should both navigate to `books/one`, and a provider-completed child link on the root page should open its child. Entering `/render/notes.md` should immediately canonicalize to `/render/notes`. Expand and collapse its toggle without producing an authored change, then type `▸ ` in an empty paragraph and confirm BlockNote converts it in one undo step. Open the Properties disclosure, edit a property and body block, and verify the contextual status progresses from pending/saving to the visually quiet saved state without remounting or losing the current editor position; inspect the copied Markdown for a minimal exact-source diff. Make a clean external file edit and confirm the open BlockNote instance reconciles it without adding an authored undo step. On a directory page, drag one child link by BlockNote's native handle between prose blocks and verify the request is `writeMarkdown` with complete source, never a physical move. Check Undo, Redo, and Recover in the page menu and filesystem actions in the directory/sidebar menus. Open `books` to edit its Markdown-backed row. CSV/JSONL/Postgres collection cells should remain read-only.

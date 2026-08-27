@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { extname, isAbsolute, join } from "node:path";
 import type {
   ArborSyncErrorCode,
   ArborSyncErrorEnvelope,
@@ -121,6 +121,9 @@ function errorResponse(
 }
 
 function assertSameOrigin(request: Request, url: URL): void {
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost" && url.hostname !== "[::1]") {
+    throw new ProtocolError("invalid-request", "Arbor Sync accepts only loopback Host headers", 400, { path: url.pathname });
+  }
   if (request.method === "GET" || request.method === "HEAD") return;
   const origin = request.headers.get("origin");
   if (origin && origin !== url.origin) {
@@ -414,6 +417,17 @@ function startArborSyncServer(
         if (request.method === "GET" && url.pathname === "/v1/status") {
           const deviceID = await currentDeviceID();
           return json({ service: "arborsync", version: "0.1.0", protocolVersion: "v1", ...(deviceID ? { deviceID } : {}) });
+        }
+        if (request.method === "POST" && url.pathname === "/v1/sync") {
+          await service.synchronizeNow();
+          return json({ synchronized: true });
+        }
+        if (request.method === "POST" && url.pathname === "/v1/sessions") {
+          const body = await request.json() as { path?: unknown };
+          if (typeof body.path !== "string" || !isAbsolute(body.path)) {
+            throw new ProtocolError("invalid-request", "A local session requires an absolute path", 400);
+          }
+          return json(await service.openSession(body.path), 201);
         }
         if (request.method === "POST" && url.pathname === "/v1/tree-ids") {
           return json({ id: generateArborID("tr") }, 201);

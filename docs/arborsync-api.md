@@ -4,7 +4,9 @@
 The current version is Arbor Sync REST v1.
 
 Arbor Sync binds to loopback and rejects cross-origin browser requests. JSON is
-UTF-8. Request URLs never contain credentials or access-link secrets.
+UTF-8. It rejects non-loopback `Host` headers so DNS rebinding cannot turn an
+attacker-controlled origin into a local file reader. Request URLs never contain
+credentials or access-link secrets.
 
 ## 1. Shared values
 
@@ -136,13 +138,20 @@ and fields but never reinterpret malformed required data.
 
 ```text
 GET  /v1/status
+POST /v1/sync
+POST /v1/sessions
 POST /v1/tree-ids
 GET  /v1/trees
 GET  /v1/resolve?locator={ArborLocator}
 ```
 
 Status returns the service and protocol versions plus the current `DeviceID`
-when connected. `POST /v1/tree-ids` returns an unreserved client-generated
+when connected. `POST /v1/sync` waits for the daemon's current synchronization
+pass and lets attached CLI clients use the same process rather than creating a
+second writer. `POST /v1/sessions` accepts one absolute local root and activates
+the daemon's filesystem watching and durable node identity for that browsing
+session; repeated activation of the same root is idempotent.
+`POST /v1/tree-ids` returns an unreserved client-generated
 `{ id }`; it edits no file and reserves no server state. New IDs are `tr_`
 plus 26 lowercase base32 characters encoding 128 random bits.
 

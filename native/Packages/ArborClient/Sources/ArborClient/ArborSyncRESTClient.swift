@@ -79,6 +79,15 @@ public actor ArborSyncRESTClient {
         try await get(path: "/v1/status", items: [])
     }
 
+    public func openSession(_ path: String) async throws -> NodeSnapshot {
+        struct Request: Encodable { var path: String }
+        var request = URLRequest(url: url("/v1/sessions"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(Request(path: path))
+        return try await perform(request)
+    }
+
     public func trees() async throws -> SnapshotEnvelope<[LocalTreeDescriptor]> {
         try await get(path: "/v1/trees", items: [])
     }

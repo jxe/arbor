@@ -235,6 +235,18 @@ export class ArborSyncRESTClient {
     return this.request("/v1/status");
   }
 
+  synchronizeNow(): Promise<{ synchronized: true }> {
+    return this.request("/v1/sync", { method: "POST" });
+  }
+
+  openSession(path: string): Promise<NodeSnapshot> {
+    return this.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+  }
+
   async file(ref: NodeRef): Promise<{ bytes: Uint8Array; revision: string }> {
     const response = await this.fetcher(`${this.baseURL}/v1/file?${refQuery(ref)}`);
     if (!response.ok) await this.throwResponse(response);

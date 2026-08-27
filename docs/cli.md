@@ -31,6 +31,25 @@ through arborsync or a server and never edits guessed private `.state` files.
 - `arbor connection set|test|remove <name>` manages safe private connection
   metadata while credentials remain in the OS credential store.
 
+## Local daemon lifecycle
+
+`arbor daemon install|uninstall|start|stop|restart|status|logs` is the
+platform-neutral lifecycle surface for the one local daemon that owns the
+default Arbor data home. The command vocabulary is stable across operating
+systems; each platform supplies its own user-service adapter.
+
+On macOS, CLI-only installations use a per-user launchd agent. The signed
+native Arbor app registers the same label and bundled executable through
+`SMAppService`. The two registration paths are alternatives beneath the same
+CLI contract, never two daemons. `start`, `stop`, and `restart` control either
+loaded agent. `uninstall` removes a CLI-owned agent without removing
+`~/.arbor`; app-owned registration remains owned by the app.
+
+An explicit `ARBOR_DATA_HOME` is an isolated foreground context and is not
+silently registered as the user's default service. Linux and Windows service
+adapters are not implemented yet; an existing `arborsync --control` process is
+still a compatible daemon there.
+
 All CLI-authored configuration edits are guarded exact UTF-8 writes through
 arborsync's `writeText` operation. They preserve unrelated YAML comments and
 mapping order. The CLI obtains a fresh ID from `POST /v1/tree-ids`; arborsync does

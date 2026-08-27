@@ -180,6 +180,12 @@ export class ArborSyncDaemon implements AsyncDisposable {
     }
   }
 
+  /** Activates filesystem watching and durable identity for a client's browsing root. */
+  async openSession(path: string): Promise<NodeSnapshot> {
+    await this.trees.openSession(path);
+    return this.snapshot({ tree: LOCAL_TREE, path });
+  }
+
   /** Resolve a reference's scope, canonicalizing placed refs into owning trees. */
   async resolveScope(ref: NodeRef): Promise<ResolvedScope> {
     const tree = ref.tree;

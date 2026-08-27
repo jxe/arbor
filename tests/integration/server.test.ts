@@ -44,6 +44,34 @@ afterAll(async () => {
 });
 
 describe("arborsync REST v1", () => {
+  test("rejects DNS-rebound Host headers", async () => {
+    const response = await fetch(`${base}/v1/status`, { headers: { host: "attacker.example" } });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "invalid-request",
+      message: "Arbor Sync accepts only loopback Host headers",
+    });
+  });
+
+  test("offers an explicit synchronization boundary to attached clients", async () => {
+    expect(await client.synchronizeNow()).toEqual({ synchronized: true });
+  });
+
+  test("idempotently activates a browsing session on the persistent control daemon", async () => {
+    const running = await serveArborSyncControl({ port: 0 });
+    try {
+      const controlClient = new ArborSyncRESTClient({ baseURL: running.url });
+      const first = await controlClient.openSession(root);
+      const repeated = await controlClient.openSession(root);
+      expect(first.ref.tree).not.toBe("local");
+      expect(repeated.ref.tree).toBe(first.ref.tree);
+      expect(repeated.path).toBe("/");
+    } finally {
+      running.server.stop(true);
+      await running.service[Symbol.asyncDispose]();
+    }
+  });
+
   test("serves remote/account surfaces without a local browsing session", async () => {
     const running = await serveArborSyncControl({ port: 0 });
     try {

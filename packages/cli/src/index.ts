@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
-import { ArborSyncDaemon, serveArborSync, serveArborSyncControl } from "@arbor/arborsync";
+import { serveArborSync, serveArborSyncControl } from "@arbor/arborsync";
 import { ArborSyncRESTClient } from "@arbor/client";
 import {
   ConnectionStore,
@@ -16,6 +16,7 @@ import {
 } from "@arbor/stores";
 import { decodeWireObject, WireClient } from "@arbor/wire";
 import { parseDocument, type Document } from "yaml";
+import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
 
 type ShareAudience =
   | { kind: "private" }
@@ -29,6 +30,7 @@ type ShareAudience =
 function usage(): never {
   console.error(`Usage:
   arbor open <locator> [--port <number>]
+  arbor daemon <install|uninstall|start|stop|restart|status|logs>
   arbor connect <community-url>
   arbor sync [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
   arbor sync <canonical-url> <local-path>
@@ -56,8 +58,8 @@ export async function attachedArborSyncURL(target: OpenTarget, port: number): Pr
     const status = await fetch(`${origin}/v1/status`);
     if (!status.ok || (await status.json() as { service?: string }).service !== "arborsync") return null;
     if (target.path) {
-      const query = new URLSearchParams({ tree: "local", path: target.path });
-      if (!(await fetch(`${origin}/v1/node?${query}`)).ok) return null;
+      const client = new ArborSyncRESTClient({ baseURL: origin });
+      await client.openSession(target.path);
       return new URL(`${origin}/render${target.path}`);
     }
     const browserURL = new URL(`${origin}/render`);
@@ -125,16 +127,16 @@ export async function isReservedProfile(target: OpenTarget): Promise<boolean> {
   }
 }
 
-export async function placedRemotePath(target: OpenTarget, service: ArborSyncDaemon): Promise<string | null> {
+export async function placedRemotePath(target: OpenTarget, client: ArborSyncRESTClient): Promise<string | null> {
   if (!target.remoteURL) return null;
   try {
     const canonical = canonicalTarget(target.remoteURL);
-    const account = await service.communityConfig.get();
+    const account = await new CommunityConfigStore().get();
     const token = account?.record.origin === canonical.endpoint ? account.accountToken : undefined;
     const remote = await new WireClient(canonical.endpoint, token).resolve(canonical.canonicalPath);
-    const placement = service.trees.placementFor(remote.ref.tree);
-    if (!placement) return null;
-    return `${placement.path}${remote.ref.path === "/" ? "" : remote.ref.path}`;
+    const placement = (await client.trees()).snapshot.find((tree) => tree.id === remote.ref.tree && tree.osPath);
+    if (!placement?.osPath) return null;
+    return `${placement.osPath}${remote.ref.path === "/" ? "" : remote.ref.path}`;
   } catch {
     return null;
   }
@@ -228,8 +230,35 @@ function initialAudience(operations: CliAudienceOperation[], target: CanonicalTa
 
 async function withArborSync<T>(
   path: string,
-  run: (client: ArborSyncRESTClient, service: ArborSyncDaemon) => Promise<T>,
+  run: (
+    client: ArborSyncRESTClient,
+    service: { synchronizeNow(): Promise<void>; communityConfig: CommunityConfigStore },
+  ) => Promise<T>,
 ): Promise<T> {
+  if (!process.env.ARBOR_DATA_HOME) {
+    const baseURL = process.env.ARBOR_SYNC_URL ?? `http://127.0.0.1:${ARBOR_SYNC_PORT}`;
+    let client = new ArborSyncRESTClient({ baseURL });
+    let compatible = await client.status().then(
+      (status) => status.service === "arborsync" && status.protocolVersion === "v1",
+      () => false,
+    );
+    if (!compatible && !process.env.ARBOR_SYNC_URL && process.platform === "darwin") {
+      const supervisor = arborDaemonSupervisor();
+      const status = await supervisor.status();
+      if (!status.installed) throw new Error("Arbor Sync is not running; run `arbor daemon install` first");
+      await supervisor.start();
+      client = new ArborSyncRESTClient({ baseURL });
+      compatible = true;
+    }
+    if (!compatible) {
+      throw new Error(`A compatible Arbor Sync is not reachable at ${baseURL}; start \`arborsync --control\` with your user service manager`);
+    }
+    await client.openSession(path);
+    return run(client, {
+      communityConfig: new CommunityConfigStore(),
+      async synchronizeNow() { await client.synchronizeNow(); },
+    });
+  }
   const running = await serveArborSync(path, { port: 0 });
   try {
     return await run(new ArborSyncRESTClient({ baseURL: running.url }), running.service);
@@ -278,32 +307,27 @@ async function connectCommand(args: string[]): Promise<void> {
   const target = canonicalTarget(args[0]!);
   const token = process.env.ARBOR_ACCOUNT_TOKEN ?? await readSecret(`Account/device credential for ${target.endpoint}: `);
   if (!token) throw new Error("No account credential supplied");
-  const service = await ArborSyncDaemon.openControl();
-  try {
-    const store = new CommunityConfigStore();
-    await store.storeProvisionalCredential(token);
-    const wire = new WireClient(target.endpoint, token);
-    const { account } = await wire.account();
-    if (!account.device) throw new Error("The server did not identify the authenticated device");
-    const configuration = await wire.currentSnapshot(account.configuration.id);
-    await installConfigurationCheckout(configuration, account.device.id);
-    await store.set(target.endpoint, token, {
-      id: account.id,
-      handle: account.handle,
-      profileTree: account.profileTree,
-      profileURL: account.profileURL,
-      communityTree: account.community.id,
-      communityURL: account.community.canonical!.locator,
-      configurationTree: account.configuration.id,
-      configurationRef: account.configuration.ref,
-      configurationUpdate: account.configuration.update,
-    });
-    const record = await service.communityConfig.safe();
-    if (!record) throw new Error("The community connection was not saved");
-    console.log(`Connected as ~${record.handle} to ${record.communityURL ?? target.endpoint}`);
-  } finally {
-    await service[Symbol.asyncDispose]();
-  }
+  const store = new CommunityConfigStore();
+  await store.storeProvisionalCredential(token);
+  const wire = new WireClient(target.endpoint, token);
+  const { account } = await wire.account();
+  if (!account.device) throw new Error("The server did not identify the authenticated device");
+  const configuration = await wire.currentSnapshot(account.configuration.id);
+  await installConfigurationCheckout(configuration, account.device.id);
+  await store.set(target.endpoint, token, {
+    id: account.id,
+    handle: account.handle,
+    profileTree: account.profileTree,
+    profileURL: account.profileURL,
+    communityTree: account.community.id,
+    communityURL: account.community.canonical!.locator,
+    configurationTree: account.configuration.id,
+    configurationRef: account.configuration.ref,
+    configurationUpdate: account.configuration.update,
+  });
+  const record = await store.safe();
+  if (!record) throw new Error("The community connection was not saved");
+  console.log(`Connected as ~${record.handle} to ${record.communityURL ?? target.endpoint}`);
 }
 
 async function installConfigurationCheckout(
@@ -582,23 +606,54 @@ async function unsyncCommand(args: string[]): Promise<void> {
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+  if (command === "daemon") {
+    if (args.length !== 1) usage();
+    const supervisor = arborDaemonSupervisor();
+    const [action] = args;
+    if (action === "install") console.log(await supervisor.install());
+    else if (action === "uninstall") console.log(await supervisor.uninstall());
+    else if (action === "start") console.log(await supervisor.start());
+    else if (action === "stop") console.log(await supervisor.stop());
+    else if (action === "restart") console.log(await supervisor.restart());
+    else if (action === "logs") console.log(await supervisor.logs());
+    else if (action === "status") {
+      const status = await supervisor.status();
+      console.log(`Arbor Sync: ${status.state}`);
+      console.log(`Supervision: ${status.installed ? "installed" : "not installed"} (${status.platform})`);
+      console.log(`Origin: ${status.origin}`);
+      if (status.pid) console.log(`PID: ${status.pid}`);
+      console.log(status.detail);
+    } else usage();
+    return;
+  }
   if (command === "open") {
     const portIndex = args.indexOf("--port");
     const portValue = portIndex >= 0 ? args[portIndex + 1] : undefined;
     if (portIndex >= 0 && (!portValue || portValue.startsWith("--"))) throw new Error("--port requires a number");
-    const port = Number(portValue ?? 4317);
+    const port = Number(portValue ?? ARBOR_SYNC_PORT);
     if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("Arbor Sync port must be an integer from 0 through 65535");
     const positionals = args.filter((arg, index) => !arg.startsWith("--") && index !== portIndex + 1);
     const unknown = args.filter((arg) => arg.startsWith("--") && arg !== "--port");
     if (unknown.length || positionals.length > 1) usage();
     const input = positionals[0] ?? ".";
     const target = openTarget(input);
-    const attached = await attachedArborSyncURL(target, port);
+    let attached = await attachedArborSyncURL(target, port);
+    if (!attached && !process.env.ARBOR_DATA_HOME && port === ARBOR_SYNC_PORT && process.platform === "darwin") {
+      const supervisor = arborDaemonSupervisor();
+      const status = await supervisor.status();
+      if (!status.installed) throw new Error("Arbor Sync is not running; run `arbor daemon install` first");
+      await supervisor.start();
+      attached = await attachedArborSyncURL(target, port);
+      if (!attached) throw new Error(`Arbor Sync started but could not open ${input}`);
+    }
     if (attached) {
       if (target.remoteURL && await isReservedProfile(target)) attached.searchParams.set("claimable", "true");
       console.log(`Attached to Arbor Sync at ${attached.origin}`);
       await openBrowser(attached.toString());
       return;
+    }
+    if (!process.env.ARBOR_DATA_HOME) {
+      throw new Error(`A compatible Arbor Sync is not reachable on port ${port}; run \`arbor daemon status\` for details`);
     }
     const running = target.remoteURL
       ? await serveArborSyncControl({ port })
@@ -617,7 +672,9 @@ async function main(): Promise<void> {
     }
     console.log(url);
     const claimable = target.remoteURL ? await isReservedProfile(target) : false;
-    const placedPath = target.remoteURL && !claimable ? await placedRemotePath(target, service) : null;
+    const placedPath = target.remoteURL && !claimable
+      ? await placedRemotePath(target, new ArborSyncRESTClient({ baseURL: url }))
+      : null;
     const browserURL = new URL(`${url}/render${placedPath ?? start}`);
     if (target.remoteURL) {
       if (!placedPath) browserURL.searchParams.set("browse", target.remoteURL);
