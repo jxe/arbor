@@ -10,7 +10,7 @@ import type {
   NodeResponse,
   WorkspaceOperation,
 } from "@arbor/core";
-import type { TreeChild, TreeNode } from "@arbor/core/internal";
+import type { CollectionPage, CollectionRow, TreeChild, TreeNode } from "@arbor/core/internal";
 import {
   LOCAL_TREE,
   applySourceEdits,
@@ -234,43 +234,60 @@ export class FilesystemService implements AsyncDisposable {
     }
   }
 
+  private async collectionRow(ref: NodeRef): Promise<{
+    row: CollectionRow;
+    page: CollectionPage;
+    directory: string;
+  } | null> {
+    const path = canonicalNodePath(ref.path);
+    if (path === "/") return null;
+    const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
+    const parent = await (await this.engine).resolve(parentPath);
+    if (parent.directoryPath) {
+      const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
+      if (!summary || summary.backing === "postgres" || summary.backing === "sqlite") return null;
+      const result = await this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
+      return result ? { ...result, directory: parent.directoryPath } : null;
+    }
+    const grandparentPath = parentPath.slice(0, parentPath.lastIndexOf("/")) || "/";
+    const table = parentPath.slice(parentPath.lastIndexOf("/") + 1);
+    const grandparent = await (await this.engine).resolve(grandparentPath);
+    if (!grandparent.directoryPath) return null;
+    const summary = await this.collections.summary(grandparent.directoryPath).catch(() => null);
+    if (summary?.backing !== "sqlite" || !summary.tables?.includes(table)) return null;
+    const result = await this.collections.row(grandparent.directoryPath, parentPath, { path, stableKey: ref.stableKey }, table);
+    return result ? { ...result, directory: grandparent.directoryPath } : null;
+  }
+
   async snapshot(ref: NodeRef): Promise<NodeResponse> {
     return this.withErrors(async () => {
       const observedThrough = this.events.currentCursor();
       const path = canonicalNodePath(ref.path);
-      if (path !== "/") {
-        const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
-        const parent = await (await this.engine).resolve(parentPath);
-        if (parent.directoryPath) {
-          const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
-          if (summary && summary.backing !== "markdown" && summary.backing !== "postgres" && summary.backing !== "sqlite") {
-            const collectionRow = await this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
-            if (collectionRow) {
-              const parentNode = await this.node(parentPath);
-              return {
-                ...collectionRowSummary(collectionRow.row, { ...collectionRow.page, editable: collectionRow.page.editable && parentNode.writable }, parentPath, LOCAL_TREE),
-                observedThrough,
-              };
-            }
-          }
-        } else {
-          const grandparentPath = parentPath.slice(0, parentPath.lastIndexOf("/")) || "/";
-          const table = parentPath.slice(parentPath.lastIndexOf("/") + 1);
-          const grandparent = await (await this.engine).resolve(grandparentPath);
-          if (grandparent.directoryPath) {
-            const summary = await this.collections.summary(grandparent.directoryPath).catch(() => null);
-            if (summary?.backing === "sqlite" && summary.tables?.includes(table)) {
-              const collectionRow = await this.collections.row(grandparent.directoryPath, parentPath, { path, stableKey: ref.stableKey }, table);
-              if (collectionRow) {
-                const parentNode = await this.node(parentPath);
-                return {
-                  ...collectionRowSummary(collectionRow.row, { ...collectionRow.page, editable: collectionRow.page.editable && parentNode.writable }, parentPath, LOCAL_TREE),
-                  observedThrough,
-                };
-              }
-            }
-          }
+      const collectionRow = await this.collectionRow(ref);
+      if (collectionRow) {
+        const parentNode = await this.node(collectionRow.page.path);
+        const summary = collectionRowSummary(
+          collectionRow.row,
+          {
+            ...collectionRow.page,
+            editable: collectionRow.page.editable
+              && (!collectionRow.page.identityRule || collectionRow.row.stableKey !== null)
+              && parentNode.writable,
+          },
+          collectionRow.page.path,
+          LOCAL_TREE,
+        );
+        if (collectionRow.page.backing === "markdown") {
+          const physical = this.snapshotFromTree(await this.node(summary.ref.path), observedThrough);
+          return {
+            ...physical,
+            ...summary,
+            content: physical.content,
+            diagnostics: [...physical.diagnostics, ...summary.diagnostics],
+            observedThrough,
+          };
         }
+        return { ...summary, observedThrough };
       }
       if (ref.stableKey !== null) {
         throw new ProtocolError("invalid-reference", "No local collection row owns the supplied stable key", 404, { path });
@@ -308,7 +325,10 @@ export class FilesystemService implements AsyncDisposable {
         }
         return {
           parent: sampleTreeNode(node, { tree: LOCAL_TREE, observedThrough }).ref,
-          items: page.rows.map((row) => collectionRowSummary(row, { ...page, editable: page.editable && node.writable }, node.path, LOCAL_TREE)),
+          items: page.rows.map((row) => collectionRowSummary(row, {
+            ...page,
+            editable: page.editable && (!page.identityRule || row.stableKey !== null) && node.writable,
+          }, node.path, LOCAL_TREE)),
           nextCursor: page.nextCursor,
           observedThrough,
         };
@@ -369,6 +389,19 @@ export class FilesystemService implements AsyncDisposable {
     return { directory: grandparent.directoryPath, parentPath, table };
   }
 
+  private async contentPath(ref: NodeRef): Promise<string> {
+    const projected = await this.collectionRow(ref);
+    if (projected?.page.identityRule && projected.row.stableKey === null) {
+      throw new ProtocolError("read-only", "This collection row has invalid or duplicated declared identity", 422, {
+        path: ref.path,
+      });
+    }
+    if (projected?.page.backing === "markdown") {
+      return `${projected.page.path === "/" ? "" : projected.page.path}/${projected.row.path}`;
+    }
+    return this.refPath(ref);
+  }
+
   private unsupported(what: string): never {
     throw new ProtocolError("unsupported-operation", `${what} is unavailable outside a managed workspace`, 422);
   }
@@ -415,7 +448,7 @@ export class FilesystemService implements AsyncDisposable {
   async executeMutation(request: MutationRequest): Promise<MutationReceipt> {
     const patchWrite = request.operations.find((operation) => operation.op === "writeMarkdown");
     if (patchWrite?.sourceEdits) {
-      const current = await this.node(this.refPath(patchWrite.ref));
+      const current = await this.node(await this.contentPath(patchWrite.ref));
       if (current.revision !== patchWrite.baseContentRevision) {
         throw new ProtocolError("stale-content-revision", "The file changed since it was opened", 409, { path: current.path });
       }
@@ -493,25 +526,59 @@ export class FilesystemService implements AsyncDisposable {
           if (sampled?.capabilities.properties && !sampled.capabilities.properties.writable) {
             throw new ProtocolError("read-only", "This node's properties are read-only", 422, { path: sampled.ref.path });
           }
-          const path = this.refPath(write.ref);
+          const projectedRow = await this.collectionRow(write.ref);
+          if (projectedRow && projectedRow.page.backing !== "markdown") {
+            throw new ProtocolError("read-only", `${projectedRow.page.backing} rollup rows are not directly writable yet`, 422, {
+              path: write.ref.path,
+            });
+          }
+          if (projectedRow?.page.identityRule && projectedRow.row.stableKey === null) {
+            throw new ProtocolError("read-only", "This Markdown record has invalid or duplicated declared identity", 422, {
+              path: write.ref.path,
+            });
+          }
+          const path = projectedRow
+            ? `${projectedRow.page.path === "/" ? "" : projectedRow.page.path}/${projectedRow.row.path}`
+            : this.refPath(write.ref);
           const current = await this.node(path);
           if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });
-          const currentRevision = current.propertiesRevision ?? current.revision;
+          const currentRevision = projectedRow?.row.revision ?? current.propertiesRevision ?? current.revision;
           if (currentRevision !== write.basePropertiesRevision) {
             throw new ProtocolError("stale-properties-revision", "The node properties changed since they were read", 409, {
               path,
               current: this.snapshotFromTree(current, this.events.currentCursor()),
             });
           }
+          let properties = write.properties;
+          let identityProperties: readonly string[] = [];
+          if (projectedRow) {
+            try {
+              const prepared = await this.collections.prepareMarkdownProperties(projectedRow.directory, write.properties);
+              properties = prepared.properties;
+              identityProperties = prepared.identityRule?.properties ?? [];
+            } catch (error) {
+              if (error instanceof CollectionPropertyWriteError) {
+                throw new ProtocolError("unsupported-operation", error.message, 422, { path });
+              }
+              throw error;
+            }
+            for (const name of identityProperties) {
+              if (canonicalJSONString(properties[name]) !== canonicalJSONString(projectedRow.row.values[name])) {
+                throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
+              }
+            }
+          }
           const identity = write.ref.stableKey ? parseCanonicalStableKey(write.ref.stableKey) : null;
           for (const [name, value] of identity ?? []) {
-            if (write.properties[name] !== value) throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
+            if (canonicalJSONString(properties[name]) !== canonicalJSONString(value)) {
+              throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
+            }
           }
           const currentProperties = nodeProperties(current);
-          if (isPageID(currentProperties.id) && write.properties.id !== currentProperties.id) {
+          if (isPageID(currentProperties.id) && properties.id !== currentProperties.id) {
             throw new ProtocolError("invalid-reference", "Identity property id is immutable", 422, { path });
           }
-          const source = `${replaceFrontmatter(current.document.frontmatterSource, write.properties) ?? ""}${current.document.bodySource}`;
+          const source = `${replaceFrontmatter(current.document.frontmatterSource, properties) ?? ""}${current.document.bodySource}`;
           const result = await (await this.engine).writeMarkdown(path, { baseRevision: current.revision, source });
           return [{
             kind: "updated" as const,
@@ -524,7 +591,7 @@ export class FilesystemService implements AsyncDisposable {
         }
         const result = write.op === "writeText"
           ? await (await this.engine).writeFile(this.refPath(write.ref), new TextEncoder().encode(write.source), write.baseContentRevision)
-          : await (await this.engine).writeMarkdown(this.refPath(write.ref), {
+          : await (await this.engine).writeMarkdown(await this.contentPath(write.ref), {
               baseRevision: write.baseContentRevision,
               source: write.source,
             });

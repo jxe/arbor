@@ -1,5 +1,5 @@
 import { readFile, realpath } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
 import { canonicalJSONString, sha256 } from "@arbor/core";
 
@@ -96,11 +96,24 @@ export interface ResolvedDatabaseLocation {
   schemaPath: string;
   relationshipsPath: string;
   tree?: string;
+  path?: string;
+}
+
+export interface ResolvedArborSource {
+  authoredPath: string;
+  tree: string;
+  path: string;
+  schemaFingerprint: string;
 }
 
 function inside(root: string, candidate: string): boolean {
   const child = relative(root, candidate);
   return child === "" || (!child.startsWith("..") && !isAbsolute(child));
+}
+
+function logicalPath(root: string, candidate: string): string {
+  const child = relative(resolve(root), candidate);
+  return child === "" ? "/" : `/${child.split(sep).join("/")}`;
 }
 
 /** Resolve an authored database path from its importing module, honoring the longest nested tree boundary. */
@@ -121,8 +134,33 @@ export async function resolveDatabaseLocation(
     databasePath: join(directory, "_store.sqlite3"),
     schemaPath: join(directory, "schema.sql"),
     relationshipsPath: join(directory, "relationships.json"),
-    ...(boundary ? { tree: boundary.tree } : {}),
+    ...(boundary ? { tree: boundary.tree, path: logicalPath(boundary.root, directory) } : {}),
   };
+}
+
+/** Resolve one compiler-authored Arbor source to a tree/path before provider activation. */
+export async function resolveArborSource(
+  importingModulePath: string,
+  specifier: string,
+  boundaries: readonly TreeBoundary[],
+  schemaFingerprint: string,
+  options: { virtualLeaf?: boolean } = {},
+): Promise<ResolvedArborSource> {
+  if (!isAbsolute(importingModulePath)) throw new Error("The importing module path must be absolute");
+  if (!specifier.startsWith(".")) {
+    throw new Error("This SQLite activation path requires a compiler-resolved local relative arbor() source");
+  }
+  const unresolved = resolve(dirname(importingModulePath), specifier);
+  const physical = await realpath(options.virtualLeaf ? dirname(unresolved) : unresolved);
+  const boundary = boundaries
+    .filter((candidate) => inside(resolve(candidate.root), physical))
+    .sort((left, right) => resolve(right.root).length - resolve(left.root).length)[0];
+  if (!boundary) throw new Error(`arbor(${JSON.stringify(specifier)}) does not resolve inside a declared tree boundary`);
+  const parentPath = logicalPath(boundary.root, physical);
+  const path = options.virtualLeaf
+    ? `${parentPath === "/" ? "" : parentPath}/${basename(unresolved)}`
+    : parentPath;
+  return { authoredPath: specifier, tree: boundary.tree, path, schemaFingerprint };
 }
 
 function identifier(value: string): string {

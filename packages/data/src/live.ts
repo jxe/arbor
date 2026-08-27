@@ -1,6 +1,6 @@
 import { canonicalJSONString, sha256, type Hash, type QueryHandleRef, type QueryStreamEvent, type QueryStreamRequest, type QueryStreamRuntime } from "@arbor/core";
 import type { ArborUser, PredicateExpression, QueryHandle, QueryPlan, SelectionPlan, ValueExpression } from "./authoring.ts";
-import type { StoreSchema } from "./schema.ts";
+import type { ResolvedArborSource, StoreSchema } from "./schema.ts";
 import { SQLiteQueryEngine, type QueryExecution } from "./sqlite.ts";
 import { SQLiteStoreBroker, type SQLiteRowChange, type SQLiteStoreChange } from "./observer.ts";
 
@@ -295,6 +295,10 @@ export class LiveQueryBroker implements AsyncDisposable {
   private nextCursor(): string { this.sequence += 1; return this.currentCursor(); }
   private publish(event: Invalidation): void { for (const listener of [...this.listeners]) listener(event); }
 
+  bind(handle: QueryHandle<unknown, unknown>, source: ResolvedArborSource): void {
+    this.engine.bind(handle, source);
+  }
+
   async [Symbol.asyncDispose](): Promise<void> {
     this.stopStore();
     this.stopProfiles();
@@ -308,9 +312,12 @@ export class RegisteredQueryRuntime implements QueryStreamRuntime {
   constructor(
     readonly document: QueryStreamRequest["document"],
     readonly broker: LiveQueryBroker,
-    entries: readonly { ref: QueryHandleRef; handle: QueryHandle<unknown, unknown> }[],
+    entries: readonly { ref: QueryHandleRef; handle: QueryHandle<unknown, unknown>; source: ResolvedArborSource }[],
   ) {
-    for (const entry of entries) this.handles.set(refKey(entry.ref), entry.handle);
+    for (const entry of entries) {
+      this.broker.bind(entry.handle, entry.source);
+      this.handles.set(refKey(entry.ref), entry.handle);
+    }
   }
 
   stream(request: QueryStreamRequest, context: { signal: AbortSignal; user: ArborUser | null }): ReadableStream<QueryStreamEvent> {

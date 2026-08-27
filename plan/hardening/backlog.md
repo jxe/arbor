@@ -54,7 +54,11 @@ These are implementation violations of the aspirational specification. They are 
    lookup. Replace both probes with provider-neutral `ChildProvider.resolve`
    after mutable SQLite and external drivers implement the same contract. At
    that point stable-key lookup, stale-path repair, diagnostics, access checks,
-   and historical reads must have one implementation.
+   historical reads, Markdown schema validation, identity enforcement, and
+   exact-source property writes must have one implementation. The current
+   Markdown-record retrofit deliberately duplicates the final adapter routing
+   in `Workspace` and `FilesystemService`; delete that duplication with the
+   parent/grandparent probes rather than adding a third copy.
 4. **Replace remote physical-child caching with Wire rollup projection.** The
    unplaced-tree adapter currently keeps an in-memory `remoteChildren` map and
    retains collection-aware physical child filtering because Wire cannot yet
@@ -120,14 +124,26 @@ These are implementation violations of the aspirational specification. They are 
     a relational executor. Extract one closed query-core package before adding
     another provider or operator; SQLite and child providers must consume the
     same predicate, selection, input, and cardinality semantics rather than
-    maintaining lookalike implementations.
+    maintaining lookalike implementations. The current executors are not yet
+    fully equivalent: ordinary nodes sort the canonical stable-key/path bytes,
+    while SQLite's implicit order follows raw primary-key SQL values, and
+    SQLite can prove singular cardinality at compilation where the ordinary
+    evaluator discovers excess matches only after reading. Freeze cross-provider
+    fixtures for compound/numeric/Unicode keys and `one`/`maybe`, then make one
+    activation and ordering rule authoritative before claiming full portable
+    query equivalence.
 13. **Generate source schemas before ordinary-tree query activation.** The
     development compiler must bind every literal `arbor(path).children` handle
     to declared property types and a schema fingerprint, including an empty
     child set. The current ordinary-node engine validates returned JSON values
     but cannot reject an unknown selected/filter field when no sample exposes
-    it. Delete sample-derived fallback typing once generated source declarations
-    and activation-time fingerprint checks cover expanded and rolled-up sources.
+    it. SQLite now rejects handles unless an activation caller supplies the
+    resolved authored path, TreeID, logical path, and schema fingerprint, but
+    that caller-side binding array is a temporary manifest/compiler seam rather
+    than the final generated activation artifact. Delete the manual binding
+    assembly and sample-derived fallback typing once generated source
+    declarations and activation-time fingerprint checks cover expanded and
+    rolled-up sources, imported helper modules, and computed-locator bounds.
 14. **Replace the temporary whole-source query bound.** Portable ordinary-node
     queries currently page up to 10,000 children before filtering and picking.
     Add a manifest-declared finite source bound plus provider pushdown/cursors,

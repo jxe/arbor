@@ -493,7 +493,12 @@ type MutationResultReceipt<Result = unknown> = {
 `document.tree` must equal the route `SourceTreeID`. The host validates the
 document/handle versions and input before opening the transaction domain.
 Mutation semantic identity is the SHA-256 of RFC 8785 canonical JSON for
-`{ version: "mutate-v1", handle, input }`. Durable lookup is scoped by
+`{ version: "mutate-v1", handle, input, sources }`, where `sources` is the
+activated handle's complete, authored-path-sorted set of
+`{ authoredPath, tree, path, schemaFingerprint }` bindings. The bindings are
+reviewed manifest state, not caller-selected destinations. This prevents an
+ambiguous retry from executing the same code and input against a newly resolved
+store, relation, or schema. Durable lookup is scoped by
 the source tree, authenticated subject, and `mutationID`. Reusing that identity
 with a different request digest is a conflict; an exact ambiguous retry returns
 the original receipt and creates no second effect. This is the same committed-

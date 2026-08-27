@@ -422,6 +422,37 @@ export class CollectionStore {
     };
   }
 
+  /** Validate and normalize a complete property replacement for one Markdown record. */
+  async prepareMarkdownProperties(
+    directory: string,
+    properties: Record<string, JSONValue>,
+  ): Promise<{ properties: Record<string, JSONValue>; identityRule?: { properties: string[] } }> {
+    const definition = await detectCollection(directory);
+    if (!definition || definition.backing !== "markdown" || !definition.schemaPath) {
+      throw new CollectionPropertyWriteError(`${directory} is not a schema-governed Markdown collection`);
+    }
+    if (definition.diagnostics.some((item) => item.severity === "error")) {
+      throw new CollectionPropertyWriteError(definition.diagnostics.map((item) => item.message).join("; "));
+    }
+    const description = await this.schemas.compile(definition.schemaPath);
+    const validated = await this.schemas.validate(definition.schemaPath, properties);
+    if (validated.diagnostics.length) {
+      throw new CollectionPropertyWriteError(validated.diagnostics.map((item) => {
+        const field = item.field ? `${item.field}: ` : "";
+        return `${field}${item.message}`;
+      }).join("; "));
+    }
+    if (!validated.value || typeof validated.value !== "object" || Array.isArray(validated.value)) {
+      throw new CollectionPropertyWriteError("Markdown collection properties must validate to an object");
+    }
+    const identityProperties = description.primaryKey
+      ?? (description.columns.includes("id") ? ["id"] : null);
+    return {
+      properties: validated.value as Record<string, JSONValue>,
+      ...(identityProperties ? { identityRule: { properties: identityProperties } } : {}),
+    };
+  }
+
   /** Replace one stable SQLite row's complete property map under row-level CAS. */
   async writeProperties(
     directory: string,

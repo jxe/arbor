@@ -52,6 +52,24 @@ let handles: Record<string, MutationHandle<unknown, unknown>>;
 let refs: Record<string, MutationHandleRef>;
 let clock = 0;
 
+function storeSource() { return { tree: "tr_supplies_data", path: "/" }; }
+
+function sourceBindings() {
+  const schemaFingerprint = engine.schema.fingerprint;
+  const relations = Object.values(engine.schema.relations)
+    .filter((relation) => relation.source === "sqlite")
+    .map((relation) => relation.name);
+  return ["./data", "../data"].flatMap((authoredRoot) => [
+    { authoredPath: authoredRoot, ...storeSource(), schemaFingerprint },
+    ...relations.map((relation) => ({
+      authoredPath: `${authoredRoot}/${relation}`,
+      tree: storeSource().tree,
+      path: `/${relation}`,
+      schemaFingerprint,
+    })),
+  ]);
+}
+
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "arbor-supplies-mutations-"));
   await Promise.all(["_store.sqlite3", "schema.sql", "relationships.json"].map((name) => cp(join(fixture, name), join(directory, name))));
@@ -61,6 +79,7 @@ beforeAll(async () => {
     databasePath,
     schemaPath: join(directory, "schema.sql"),
     relationshipsPath: join(directory, "relationships.json"),
+    ...storeSource(),
   };
   const profiles = JSON.parse(await readFile(join(repository, "tests", "fixtures", "supplies", "profiles.json"), "utf8")) as Array<Record<string, unknown>>;
   const resolver: ProfileResolver = {
@@ -76,7 +95,7 @@ beforeAll(async () => {
   engine = await SQLiteQueryEngine.open(location, resolver);
   store = new SQLiteStoreBroker(databasePath, engine.schema, { watchExternal: false });
   live = new LiveQueryBroker(engine, store);
-  broker = new SQLiteMutationBroker(engine.schema, store, {
+  broker = new SQLiteMutationBroker(engine.schema, store, storeSource(), {
     now: () => new Date(Date.UTC(2026, 7, 27, 12, 0, clock++)),
   });
 
@@ -107,7 +126,11 @@ beforeAll(async () => {
     export: name,
     version: `sha256:${name}`,
   }]));
-  runtime = new RegisteredMutationRuntime(document, broker, Object.entries(handles).map(([name, handle]) => ({ ref: refs[name]!, handle })));
+  runtime = new RegisteredMutationRuntime(document, broker, Object.entries(handles).map(([name, handle]) => ({
+    ref: refs[name]!,
+    handle,
+    sources: sourceBindings(),
+  })));
 });
 
 afterAll(async () => {
@@ -152,7 +175,7 @@ describe.serial("Supplies mutation runner", () => {
     expect(all("select name from lists where id = ?", careList)[0]?.name).toBe("Community care");
 
     const diagnostics: unknown[] = [];
-    const diagnosticBroker = new SQLiteMutationBroker(engine.schema, store, { diagnostic: (error) => diagnostics.push(error) });
+    const diagnosticBroker = new SQLiteMutationBroker(engine.schema, store, storeSource(), { diagnostic: (error) => diagnostics.push(error) });
     const authored = arbor("./data");
     const lists = arbor("./data/lists").children;
     const failing = mutation(authored, z.object({}), async ({ tx }: any) => {
@@ -172,9 +195,20 @@ describe.serial("Supplies mutation runner", () => {
     await expect(diagnosticBroker.execute(failing, {
       scope: document.tree,
       handle: { tree: document.tree, module: "/failure.ts", export: "failing", version: "sha256:failure" },
+      mutationID: "wrong-source",
+      input: {},
+      user: { profile: ada },
+      sources: sourceBindings().map((source) => source.authoredPath === "./data"
+        ? { ...source, path: "/wrong" }
+        : source),
+    })).rejects.toMatchObject({ value: { code: "conflict", message: expect.stringContaining("does not resolve") } });
+    await expect(diagnosticBroker.execute(failing, {
+      scope: document.tree,
+      handle: { tree: document.tree, module: "/failure.ts", export: "failing", version: "sha256:failure" },
       mutationID: "unexpected-failure",
       input: {},
       user: { profile: ada },
+      sources: sourceBindings(),
     })).rejects.toMatchObject({ value: { code: "internal-error", message: "The mutation could not be completed" } });
     expect(String(diagnostics[0])).toContain("private SQL");
     expect(all("select * from lists where name = 'Must disappear'")).toHaveLength(0);
@@ -192,9 +226,10 @@ describe.serial("Supplies mutation runner", () => {
     stop();
     expect(retry).toEqual(first);
     expect(first.requestDigest).toBe(semanticRequestDigest({
-      version: "mutation-call-v1",
+      version: "mutate-v1",
       handle: refs.createList,
       input: { name: "Retry stable", visibility: "private" },
+      sources: sourceBindings().sort((left, right) => left.authoredPath.localeCompare(right.authoredPath)),
     }));
     expect(first.result.id).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-5[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
     expect(all("select id, created_at from lists where name = 'Retry stable'")).toEqual([{ id: first.result.id, created_at: "2026-08-27T12:00:01.000Z" }]);
@@ -286,6 +321,7 @@ describe.serial("Supplies mutation runner", () => {
       where: list.id.eq(listeningList),
       select: list.pick("id", "name"),
     }));
+    engine.bind(currentName, sourceBindings().find((source) => source.authoredPath === "./data/lists")!);
     const reader = live.stream([{ id: "list", handle: currentName }], { signal: new AbortController().signal, user: null }).getReader();
     await next(reader, "result");
     await next(reader, "ready");
@@ -303,6 +339,7 @@ describe.serial("Supplies mutation runner", () => {
       databasePath,
       schemaPath: join(directory, "schema.sql"),
       relationshipsPath: join(directory, "relationships.json"),
+      ...storeSource(),
     };
     const nextEngine = await SQLiteQueryEngine.open(reopened, { async resolve() { return { rows: [], dependencies: [] }; } });
     expect(nextEngine.schema.relations.__arbor_mutation_receipts).toBeUndefined();

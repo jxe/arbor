@@ -224,11 +224,29 @@ export class Workspace implements AsyncDisposable {
     const collectionRow = await this.collectionRow(ref);
     if (collectionRow) {
       const parent = await this.node(collectionRow.page.path);
+      const summary = collectionRowSummary(collectionRow.row, {
+        ...collectionRow.page,
+        editable: collectionRow.page.editable
+          && (!collectionRow.page.identityRule || collectionRow.row.stableKey !== null)
+          && parent.writable
+          && this.treeDescriptor.access !== "read",
+      }, collectionRow.page.path, this.tree);
+      if (collectionRow.page.backing === "markdown") {
+        const physical = this.snapshotFromTree(
+          await this.node(summary.ref.path),
+          observedThrough,
+        );
+        return {
+          ...physical,
+          ...summary,
+          content: physical.content,
+          diagnostics: [...physical.diagnostics, ...summary.diagnostics],
+          observedThrough,
+          enclosingTree: this.descriptor(),
+        };
+      }
       return {
-        ...collectionRowSummary(collectionRow.row, {
-          ...collectionRow.page,
-          editable: collectionRow.page.editable && parent.writable && this.treeDescriptor.access !== "read",
-        }, collectionRow.page.path, this.tree),
+        ...summary,
         observedThrough,
         enclosingTree: this.descriptor(),
       };
@@ -249,7 +267,10 @@ export class Workspace implements AsyncDisposable {
       const visiblePage = { ...page, editable: page.editable && node.writable && this.treeDescriptor.access !== "read" };
       return {
         parent: sampleTreeNode(node, { tree: this.tree, observedThrough }).ref,
-        items: page.rows.map((row) => collectionRowSummary(row, visiblePage, path, this.tree)),
+        items: page.rows.map((row) => collectionRowSummary(row, {
+          ...visiblePage,
+          editable: visiblePage.editable && (!visiblePage.identityRule || row.stableKey !== null),
+        }, path, this.tree)),
         nextCursor: page.nextCursor,
         observedThrough,
       };
@@ -662,15 +683,16 @@ export class Workspace implements AsyncDisposable {
     }
   }
 
-  private async collectionRow(ref: NodeRef): Promise<{ row: CollectionRow; page: CollectionPage } | null> {
+  private async collectionRow(ref: NodeRef): Promise<{ row: CollectionRow; page: CollectionPage; directory: string } | null> {
     const path = canonicalNodePath(ref.path);
     if (path === "/") return null;
     const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
     const parent = await this.fs.resolve(parentPath);
     if (parent.directoryPath) {
       const summary = await this.collections.summary(parent.directoryPath).catch(() => null);
-      if (!summary || summary.backing === "markdown" || summary.backing === "postgres" || summary.backing === "sqlite") return null;
-      return this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
+      if (!summary || summary.backing === "postgres" || summary.backing === "sqlite") return null;
+      const result = await this.collections.row(parent.directoryPath, parentPath, { path, stableKey: ref.stableKey });
+      return result ? { ...result, directory: parent.directoryPath } : null;
     }
     const grandparentPath = parentPath.slice(0, parentPath.lastIndexOf("/")) || "/";
     const table = parentPath.slice(parentPath.lastIndexOf("/") + 1);
@@ -678,7 +700,8 @@ export class Workspace implements AsyncDisposable {
     if (!grandparent.directoryPath) return null;
     const summary = await this.collections.summary(grandparent.directoryPath).catch(() => null);
     if (summary?.backing !== "sqlite" || !summary.tables?.includes(table)) return null;
-    return this.collections.row(grandparent.directoryPath, parentPath, { path, stableKey: ref.stableKey }, table);
+    const result = await this.collections.row(grandparent.directoryPath, parentPath, { path, stableKey: ref.stableKey }, table);
+    return result ? { ...result, directory: grandparent.directoryPath } : null;
   }
 
   private async sqlitePropertyTarget(ref: NodeRef): Promise<{
@@ -867,8 +890,17 @@ export class Workspace implements AsyncDisposable {
     if (contentOperations.length === 1) {
       const operation = contentOperations[0]!;
       const sqliteTarget = operation.op === "writeProperties" ? await this.sqlitePropertyTarget(operation.ref) : null;
-      const projectedRow = operation.op === "writeProperties" && !sqliteTarget ? await this.collectionRow(operation.ref) : null;
-      const path = sqliteTarget?.parentPath ?? projectedRow?.page.path ?? await this.resolveRef(operation.ref);
+      const projectedRow = !sqliteTarget ? await this.collectionRow(operation.ref) : null;
+      if (projectedRow?.page.identityRule && projectedRow.row.stableKey === null) {
+        throw new ProtocolError("read-only", "This collection row has invalid or duplicated declared identity", 422, {
+          path: operation.ref.path,
+        });
+      }
+      const path = sqliteTarget?.parentPath
+        ?? (projectedRow?.page.backing === "markdown"
+          ? `${projectedRow.page.path === "/" ? "" : projectedRow.page.path}/${projectedRow.row.path}`
+          : undefined)
+        ?? await this.resolveRef(operation.ref);
       return [await this.performContentOperation(operation, path, onMaterialized, onExpected, mutationID)];
     }
 
@@ -936,9 +968,54 @@ export class Workspace implements AsyncDisposable {
       }
       const projectedRow = await this.collectionRow(operation.ref);
       if (projectedRow) {
-        throw new ProtocolError("read-only", `${projectedRow.page.backing} rollup rows are not directly writable yet`, 422, {
-          path: operation.ref.path,
+        if (projectedRow.page.backing !== "markdown") {
+          throw new ProtocolError("read-only", `${projectedRow.page.backing} rollup rows are not directly writable yet`, 422, {
+            path: operation.ref.path,
+          });
+        }
+        const current = await this.node(path);
+        if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });
+        if (projectedRow.row.revision !== operation.basePropertiesRevision) {
+          throw new ProtocolError("stale-properties-revision", "The node properties changed since they were read", 409, {
+            path,
+            current: await this.snapshot(operation.ref),
+          });
+        }
+        let prepared;
+        try {
+          prepared = await this.collections.prepareMarkdownProperties(projectedRow.directory, operation.properties);
+        } catch (error) {
+          if (error instanceof CollectionPropertyWriteError) {
+            throw new ProtocolError("unsupported-operation", error.message, 422, { path });
+          }
+          throw error;
+        }
+        for (const name of prepared.identityRule?.properties ?? []) {
+          if (canonicalJSONString(prepared.properties[name]) !== canonicalJSONString(projectedRow.row.values[name])) {
+            throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
+          }
+        }
+        const source = `${replaceFrontmatter(current.document.frontmatterSource, prepared.properties) ?? ""}${current.document.bodySource}`;
+        const propertyEffect = (result: FsWriteResult): MutationEffect => ({
+          kind: "updated",
+          tree: this.tree,
+          path: result.node.path,
+          pageID: result.pageID,
+          contentRevision: result.byteRevision,
+          propertiesRevision: result.byteRevision,
         });
+        const saved = await this.write(path, { baseRevision: current.revision, source }, {
+          onPrepared: onExpected ? async (result) => onExpected([propertyEffect(result)]) : undefined,
+          onMaterialized: onMaterialized ? async (result) => onMaterialized([propertyEffect(result)]) : undefined,
+        });
+        return {
+          kind: "updated",
+          tree: this.tree,
+          path: saved.path,
+          pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
+          contentRevision: saved.revision,
+          propertiesRevision: saved.propertiesRevision ?? saved.revision,
+        };
       }
       const current = await this.node(path);
       if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });

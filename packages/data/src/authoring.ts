@@ -394,3 +394,7 @@ export function publicError(code: string, message: string): PublicMutationError 
 export function relationNameOf(relation: NodeSetHandle): string {
   return (relation as unknown as { [RELATION]: string })[RELATION];
 }
+
+export function sourceOf(relation: NodeSetHandle): ArborNodeHandle | undefined {
+  return (relation as unknown as { [SOURCE]: ArborNodeHandle | undefined })[SOURCE];
+}

@@ -125,6 +125,15 @@ stale plan or keeps the last-known-good version. `RowOf` and `ResultOf` expose
 inferred types, so authored source maintains no second result
 schema.
 
+Activation retains each literal's authored spelling together with its resolved
+`(TreeID, logical path, schema fingerprint)`; the authored basename is never a
+store identity. Before query data access or mutation transaction entry, the
+provider verifies that complete binding against the mounted tree, store root,
+selected child relation, and active schema. Imported helpers retain the binding
+of the module in which their `arbor(path)` was authored. An unbound, ambiguous,
+stale, or differently resolved handle is inactive rather than being redirected
+to a same-named table in the currently open database.
+
 The return shape selects node/store facts and specified aggregates rather than
 running arbitrary presentation code over loaded results. The callback constructs
 the plan once at compilation and is not called per node. A backing-coupled query
@@ -151,7 +160,7 @@ query discovery, delegated authorization, or server-to-server routing.
 
 A mutation is validated code running against explicit write prefixes. The runner opens one transaction in the selected store and supplies it as `tx`. Returning commits; throwing rolls back. All reads, authorization checks, ordered operations, and writes through `tx` share that transaction. A mutation cannot silently span several transaction domains.
 
-The caller supplies one mutation identity and reuses it for an ambiguous retry. Durable lookup is scoped by source tree, authenticated subject, and mutation ID; a canonical request digest binds that identity to the handle, code version, and validated input, so changed intent conflicts. The runtime captures one logical mutation time and deterministic generated-ID namespace before execution; exact retries observe the same values. A receipt includes the request digest and committed store/tree cursor needed to reconcile related live queries.
+The caller supplies one mutation identity and reuses it for an ambiguous retry. Durable lookup is scoped by source tree, authenticated subject, and mutation ID; a canonical request digest binds that identity to the handle, code version, validated input, and complete activated source bindings, so changed intent or changed store/schema resolution conflicts. The runtime captures one logical mutation time and deterministic generated-ID namespace before execution; exact retries observe the same values. A receipt includes the request digest and committed store/tree cursor needed to reconcile related live queries.
 
 `arbor/react` adapts a mutation handle to React Actions. Form conversion is shallow and deterministic: a name occurring once becomes its string or file value, a repeated name becomes an array in document order, and an omitted name is absent. Coercion belongs to the authored schema. Expected failures use `publicError(code, message, options?)` from `arbor/data`; other thrown values become a generic internal error without stack traces, SQL, paths, or private row data.
 

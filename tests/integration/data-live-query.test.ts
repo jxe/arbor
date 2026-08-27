@@ -47,6 +47,15 @@ let engine: SQLiteQueryEngine;
 let store: SQLiteStoreBroker;
 let broker: LiveQueryBroker;
 
+function source(authoredPath: string, relation: string) {
+  return {
+    authoredPath,
+    tree: "tr_supplies_data",
+    path: `/${relation}`,
+    schemaFingerprint: engine.schema.fingerprint,
+  };
+}
+
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "arbor-live-query-"));
   await Promise.all(["_store.sqlite3", "schema.sql", "relationships.json"].map((name) => cp(join(fixture, name), join(directory, name))));
@@ -55,6 +64,8 @@ beforeEach(async () => {
     databasePath: join(directory, "_store.sqlite3"),
     schemaPath: join(directory, "schema.sql"),
     relationshipsPath: join(directory, "relationships.json"),
+    tree: "tr_supplies_data",
+    path: "/",
   };
   schema = await introspectStoreSchema(location);
   profiles = JSON.parse(await readFile(join(repository, "tests", "fixtures", "supplies", "profiles.json"), "utf8"));
@@ -78,6 +89,8 @@ beforeEach(async () => {
     },
   };
   engine = await SQLiteQueryEngine.open(location, resolver);
+  engine.bind(topPublicList, source(topPublicList.source.path, topPublicList.plan.relation));
+  engine.bind(listOwner, source(listOwner.source.path, listOwner.plan.relation));
   store = new SQLiteStoreBroker(location.databasePath, schema, { watchExternal: false });
   broker = new LiveQueryBroker(engine, store);
 });
@@ -252,8 +265,8 @@ describe("live query state machine", () => {
     const topRef: QueryHandleRef = { tree: "tr_supplies_source", module: "/components/PopularLists.tsx", export: "popularLists", version: "query-v1" };
     const ownerRef: QueryHandleRef = { tree: "tr_supplies_source", module: "/List.tsx", export: "listOwner", version: "query-v1" };
     const runtime = new RegisteredQueryRuntime(document, broker, [
-      { ref: topRef, handle: topPublicList },
-      { ref: ownerRef, handle: listOwner },
+      { ref: topRef, handle: topPublicList, source: source(topPublicList.source.path, topPublicList.plan.relation) },
+      { ref: ownerRef, handle: listOwner, source: source(listOwner.source.path, listOwner.plan.relation) },
     ]);
     const first = runtime.stream({ document, queries: [{ id: "top", handle: topRef }] }, { signal: new AbortController().signal, user: null }).getReader();
     await ready(first);

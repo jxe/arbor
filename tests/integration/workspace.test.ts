@@ -86,6 +86,48 @@ describe("workspace service", () => {
       ref: expect.objectContaining({ path: "/records/one", stableKey: '[["id","abc123"]]' }),
       properties: expect.objectContaining({ id: "abc123", title: "One" }),
     }));
+    const key = canonicalStableKey([["id", "abc123"]]);
+    const row = await workspace.snapshot({ tree: workspace.tree, path: "/records/stale", stableKey: key });
+    expect(row.ref.path).toBe("/records/one");
+    expect(row.capabilities.properties?.writable).toBe(true);
+    expect(row.capabilities.content?.writable).toBe(true);
+    expect(nodeDocument(row)?.bodySource).toBe("Row body.\n");
+
+    await workspace.executeMutation({
+      mutationID: "markdown-row-properties",
+      operations: [{
+        op: "writeProperties",
+        ref: { tree: workspace.tree, path: "/records/one", stableKey: null },
+        basePropertiesRevision: row.capabilities.properties!.revision,
+        properties: { id: "abc123", title: "Updated" },
+      }],
+    });
+    const updated = await workspace.snapshot({ tree: workspace.tree, path: "/records/stale", stableKey: key });
+    expect(updated.properties).toEqual({ id: "abc123", title: "Updated" });
+    expect(nodeDocument(updated)?.bodySource).toBe("Row body.\n");
+
+    await expect(workspace.executeMutation({
+      mutationID: "markdown-row-identity-change",
+      operations: [{
+        op: "writeProperties",
+        ref: { tree: workspace.tree, path: "/records/one", stableKey: null },
+        basePropertiesRevision: updated.capabilities.properties!.revision,
+        properties: { id: "different", title: "Updated" },
+      }],
+    })).rejects.toMatchObject({ code: "invalid-reference" });
+
+    const changedSource = nodeDocument(updated)!.source.replace("Row body.", "Changed body.");
+    await workspace.executeMutation({
+      mutationID: "markdown-row-content",
+      operations: [{
+        op: "writeMarkdown",
+        ref: { tree: workspace.tree, path: "/records/stale", stableKey: key },
+        baseContentRevision: updated.capabilities.content!.revision,
+        source: changedSource,
+      }],
+    });
+    expect(nodeDocument(await workspace.snapshot({ tree: workspace.tree, path: "/records/one", stableKey: key }))?.bodySource)
+      .toBe("Changed body.\n");
   });
 
   test("resolves rolled-up JSON rows as ordinary stable-key nodes", async () => {

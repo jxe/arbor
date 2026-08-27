@@ -1,14 +1,16 @@
 import { canonicalJSONString, semanticRequestDigest, sha256, type Hash, type MutationCallRequest, type MutationCallRuntime, type MutationHandleRef, type MutationResultReceipt } from "@arbor/core";
 import { Database } from "bun:sqlite";
+import { posix } from "node:path";
 import {
   PublicMutationError,
   relationNameOf,
+  sourceOf,
   type ArborUser,
   type MutationHandle,
   type NodeSetHandle,
   type StandardSchemaV1,
 } from "./authoring.ts";
-import type { FieldMetadata, RelationMetadata, StoreSchema } from "./schema.ts";
+import type { FieldMetadata, RelationMetadata, ResolvedArborSource, StoreSchema } from "./schema.ts";
 import { SQLiteStoreBroker } from "./observer.ts";
 
 export interface MutationPublicErrorValue {
@@ -39,8 +41,22 @@ function quote(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function relationFor(schema: StoreSchema, handle: NodeSetHandle): RelationMetadata {
+function relationFor(
+  schema: StoreSchema,
+  handle: NodeSetHandle,
+  bindings: ReadonlyMap<string, ResolvedArborSource>,
+  storeSource: { tree: string; path: string },
+): RelationMetadata {
   const name = relationNameOf(handle);
+  const authored = sourceOf(handle);
+  const binding = authored ? bindings.get(authored.path) : undefined;
+  if (!authored || !binding) throw new Error(`Relation ${name} has no activated arbor() source`);
+  if (binding.authoredPath !== authored.path || binding.schemaFingerprint !== schema.fingerprint) {
+    throw new Error(`Relation ${name} has a stale or mismatched arbor() source`);
+  }
+  if (binding.tree !== storeSource.tree || posix.dirname(binding.path) !== storeSource.path || posix.basename(binding.path) !== name) {
+    throw new Error(`Relation ${name} does not resolve under the active SQLite store`);
+  }
   const relation = schema.relations[name];
   if (!relation || relation.source !== "sqlite") throw new Error(`Relation ${name} is not a writable SQLite relation`);
   return relation;
@@ -103,10 +119,19 @@ function provedUnique(relation: RelationMetadata, where: Record<string, unknown>
 }
 
 export class SQLiteMutationTransaction {
-  constructor(private readonly database: Database, readonly schema: StoreSchema) {}
+  constructor(
+    private readonly database: Database,
+    readonly schema: StoreSchema,
+    private readonly bindings: ReadonlyMap<string, ResolvedArborSource>,
+    private readonly storeSource: { tree: string; path: string },
+  ) {}
+
+  private relation(handle: NodeSetHandle): RelationMetadata {
+    return relationFor(this.schema, handle, this.bindings, this.storeSource);
+  }
 
   one(relationHandle: NodeSetHandle, where: Record<string, unknown>): Record<string, unknown> | null {
-    const relation = relationFor(this.schema, relationHandle);
+    const relation = this.relation(relationHandle);
     if (!provedUnique(relation, where)) throw new TypeError(`tx.one on ${relation.name} requires a proved unique key`);
     const parameters: unknown[] = [];
     const sql = `select ${Object.keys(relation.fields).map(quote).join(", ")} from ${quote(relation.name)} where ${whereClause(relation, where, parameters)} limit 2`;
@@ -116,7 +141,7 @@ export class SQLiteMutationTransaction {
   }
 
   many(relationHandle: NodeSetHandle, where: Record<string, unknown>, options: MutationManyOptions = {}): Record<string, unknown>[] {
-    const relation = relationFor(this.schema, relationHandle);
+    const relation = this.relation(relationHandle);
     const parameters: unknown[] = [];
     const predicate = whereClause(relation, where, parameters);
     const orders = (options.orderBy ?? []).map(([field, direction]) => {
@@ -129,7 +154,7 @@ export class SQLiteMutationTransaction {
   }
 
   insert(relationHandle: NodeSetHandle, value: Record<string, unknown>): void {
-    const relation = relationFor(this.schema, relationHandle);
+    const relation = this.relation(relationHandle);
     const normalized = normalizedRecord(relation, value);
     const fields = Object.keys(normalized);
     if (fields.length === 0) this.database.query(`insert into ${quote(relation.name)} default values`).run();
@@ -138,7 +163,7 @@ export class SQLiteMutationTransaction {
   }
 
   update(relationHandle: NodeSetHandle, where: Record<string, unknown>, patch: Record<string, unknown>): number {
-    const relation = relationFor(this.schema, relationHandle);
+    const relation = this.relation(relationHandle);
     const normalized = normalizedRecord(relation, patch, { partial: true });
     const fields = Object.keys(normalized);
     if (fields.length === 0) throw new TypeError(`An update to ${relation.name} cannot be empty`);
@@ -163,20 +188,20 @@ export class SQLiteMutationTransaction {
   }
 
   delete(relationHandle: NodeSetHandle, key: Record<string, unknown>): number {
-    const relation = relationFor(this.schema, relationHandle);
+    const relation = this.relation(relationHandle);
     if (!provedUnique(relation, key)) throw new TypeError(`tx.delete on ${relation.name} requires a proved unique key`);
     return this.deleteWhere(relationHandle, key);
   }
 
   deleteWhere(relationHandle: NodeSetHandle, where: Record<string, unknown>): number {
-    const relation = relationFor(this.schema, relationHandle);
+    const relation = this.relation(relationHandle);
     const parameters: unknown[] = [];
     const predicate = whereClause(relation, where, parameters);
     return Number(this.database.query(`delete from ${quote(relation.name)} where ${predicate}`).run(...parameters as any[]).changes);
   }
 
   ordered(relationHandle: NodeSetHandle, options: OrderedRelationOptions) {
-    const relation = relationFor(this.schema, relationHandle);
+    const relation = this.relation(relationHandle);
     const within = normalizedRecord(relation, options.within, { partial: true });
     if (Object.keys(within).length === 0) throw new TypeError(`An ordered ${relation.name} partition cannot be empty`);
     const keyField = relation.fields[options.key];
@@ -251,6 +276,7 @@ export class SQLiteMutationBroker {
   constructor(
     readonly schema: StoreSchema,
     readonly store: SQLiteStoreBroker,
+    private readonly source: { tree: string; path: string },
     private readonly options: {
       now?: () => Date;
       diagnostic?: (error: unknown) => void;
@@ -259,16 +285,39 @@ export class SQLiteMutationBroker {
 
   async execute<Result, Input>(
     handle: MutationHandle<Result, Input>,
-    call: { scope: string; handle: MutationHandleRef; mutationID: string; input: unknown; user: ArborUser | null },
+    call: {
+      scope: string;
+      handle: MutationHandleRef;
+      mutationID: string;
+      input: unknown;
+      user: ArborUser | null;
+      sources: readonly ResolvedArborSource[];
+    },
   ): Promise<MutationResultReceipt<Result>> {
     if (!call.scope || !call.mutationID) throw new MutationCallError({ code: "invalid-request", message: "A mutation identity is required", retryable: false });
+    const bindings = new Map<string, ResolvedArborSource>();
+    for (const source of call.sources) {
+      const existing = bindings.get(source.authoredPath);
+      if (existing && canonicalJSONString(existing) !== canonicalJSONString(source)) {
+        throw new MutationCallError({ code: "conflict", message: `Authored source ${source.authoredPath} resolves ambiguously`, retryable: false });
+      }
+      if (source.schemaFingerprint !== this.schema.fingerprint || source.tree !== this.source.tree) {
+        throw new MutationCallError({ code: "conflict", message: "A mutation source is not active for this store", retryable: false });
+      }
+      bindings.set(source.authoredPath, source);
+    }
+    const root = bindings.get(handle.source.path);
+    if (!root || root.path !== this.source.path || root.authoredPath !== handle.source.path) {
+      throw new MutationCallError({ code: "conflict", message: "The mutation's arbor() source does not resolve to this store", retryable: false });
+    }
     const input = await validateInput(handle.schema, call.input);
     const inputJSON = canonicalJSONString(input);
     const handleJSON = canonicalJSONString(call.handle);
     if (typeof inputJSON !== "string" || typeof handleJSON !== "string") {
       throw new MutationCallError({ code: "invalid-input", message: "Mutation input must be canonical JSON", retryable: false });
     }
-    const requestDigest = semanticRequestDigest({ version: "mutation-call-v1", handle: call.handle, input });
+    const resolvedSources = [...bindings.values()].sort((left, right) => left.authoredPath.localeCompare(right.authoredPath));
+    const requestDigest = semanticRequestDigest({ version: "mutate-v1", handle: call.handle, input, sources: resolvedSources });
     const subject = call.user?.profile ?? "anonymous";
     const mutationNow = (this.options.now?.() ?? new Date()).toISOString();
     try {
@@ -289,7 +338,7 @@ export class SQLiteMutationBroker {
             replayed: true,
           };
         }
-        const tx = new SQLiteMutationTransaction(database, this.schema);
+        const tx = new SQLiteMutationTransaction(database, this.schema, bindings, this.source);
         const idCounts = new Map<string, number>();
         const id = (label: string) => {
           if (!label) throw new TypeError("Generated IDs require a non-empty label");
@@ -322,28 +371,36 @@ function refKey(ref: MutationHandleRef): string {
 }
 
 export class RegisteredMutationRuntime implements MutationCallRuntime {
-  private readonly handles = new Map<string, MutationHandle<unknown, unknown>>();
+  private readonly handles = new Map<string, {
+    handle: MutationHandle<unknown, unknown>;
+    sources: readonly ResolvedArborSource[];
+  }>();
 
   constructor(
     readonly document: MutationCallRequest["document"],
     readonly broker: SQLiteMutationBroker,
-    entries: readonly { ref: MutationHandleRef; handle: MutationHandle<unknown, unknown> }[],
+    entries: readonly {
+      ref: MutationHandleRef;
+      handle: MutationHandle<unknown, unknown>;
+      sources: readonly ResolvedArborSource[];
+    }[],
   ) {
-    for (const entry of entries) this.handles.set(refKey(entry.ref), entry.handle);
+    for (const entry of entries) this.handles.set(refKey(entry.ref), { handle: entry.handle, sources: entry.sources });
   }
 
   call(request: MutationCallRequest, context: { user: ArborUser | null }): Promise<MutationResultReceipt> {
     if (canonicalJSONString(request.document) !== canonicalJSONString(this.document)) {
       throw new MutationCallError({ code: "conflict", message: "The mounted document version is not active", retryable: false });
     }
-    const handle = this.handles.get(refKey(request.handle));
-    if (!handle) throw new MutationCallError({ code: "not-found", message: "The mutation handle or version is not active", retryable: false });
-    return this.broker.execute(handle, {
+    const entry = this.handles.get(refKey(request.handle));
+    if (!entry) throw new MutationCallError({ code: "not-found", message: "The mutation handle or version is not active", retryable: false });
+    return this.broker.execute(entry.handle, {
       scope: request.document.tree,
       handle: request.handle,
       mutationID: request.mutationID,
       input: request.input,
       user: context.user,
+      sources: entry.sources,
     });
   }
 }

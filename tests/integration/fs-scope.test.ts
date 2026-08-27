@@ -39,6 +39,9 @@ beforeAll(async () => {
   await mkdir(join(outer, "stray", "rolled"));
   await writeFile(join(outer, "stray", "rolled", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
   await writeFile(join(outer, "stray", "rolled", "_store.json"), '[{"id":"one","title":"One"}]\n');
+  await mkdir(join(outer, "stray", "records"));
+  await writeFile(join(outer, "stray", "records", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ slug: z.string(), title: z.string() }); export const primaryKey = ["slug"] as const;\n');
+  await writeFile(join(outer, "stray", "records", "one.md"), '---\nslug: one\ntitle: One\n---\nRecord body.\n');
   await mkdir(join(outer, "stray", "database"));
   const sqlite = new Database(join(outer, "stray", "database", "_store.sqlite3"));
   sqlite.exec("create table items (id text primary key, title text not null); insert into items values ('one', 'One')");
@@ -264,6 +267,43 @@ describe("the local filesystem scope", () => {
       { id: "one", title: "Changed" },
       "untracked-json-properties-read-only",
     )).rejects.toThrow("read-only");
+  });
+
+  test("treats untracked Markdown records as identity-safe writable nodes", async () => {
+    const collection = join(outer, "stray", "records");
+    const key = canonicalStableKey([["slug", "one"]]);
+    const row = await client.node({ tree: "local", path: join(collection, "stale"), stableKey: key });
+    expect(row.ref.path).toBe(join(collection, "one"));
+    expect(row.capabilities.properties?.writable).toBe(true);
+    expect(row.capabilities.content?.writable).toBe(true);
+    expect(nodeDocument(row)?.bodySource).toBe("Record body.\n");
+
+    await client.writeProperties(
+      { tree: "local", path: join(collection, "one"), stableKey: null },
+      row.capabilities.properties!.revision,
+      { slug: "one", title: "Updated" },
+      "untracked-markdown-properties",
+    );
+    const updated = await client.node({ tree: "local", path: join(collection, "one"), stableKey: key });
+    expect(updated.properties).toEqual({ slug: "one", title: "Updated" });
+    expect(nodeDocument(updated)?.bodySource).toBe("Record body.\n");
+
+    await expect(client.writeProperties(
+      { tree: "local", path: join(collection, "one"), stableKey: null },
+      updated.capabilities.properties!.revision,
+      { slug: "different", title: "Updated" },
+      "untracked-markdown-identity-change",
+    )).rejects.toThrow("immutable");
+
+    const changed = nodeDocument(updated)!.source.replace("Record body.", "Changed body.");
+    await client.mutateContent({
+      op: "writeMarkdown",
+      ref: { tree: "local", path: join(collection, "stale"), stableKey: key },
+      baseContentRevision: updated.capabilities.content!.revision,
+      source: changed,
+    }, "untracked-markdown-content");
+    expect(nodeDocument(await client.node({ tree: "local", path: join(collection, "one"), stableKey: key }))?.bodySource)
+      .toBe("Changed body.\n");
   });
 
   test("materializes an implicit untracked directory only after an authored edit", async () => {

@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { posix } from "node:path";
 import type {
   ArborUser,
   CountExpression,
@@ -16,6 +17,7 @@ import type {
   RelationMetadata,
   RelationshipMetadata,
   ResolvedDatabaseLocation,
+  ResolvedArborSource,
   StoreSchema,
 } from "./schema.ts";
 import { introspectStoreSchema } from "./schema.ts";
@@ -563,15 +565,42 @@ async function resolveProfiles(
 }
 
 export class SQLiteQueryEngine implements AsyncDisposable {
+  private readonly bindings = new WeakMap<QueryHandle<unknown, unknown>, ResolvedArborSource>();
+
   private constructor(
     readonly schema: StoreSchema,
     readonly databasePath: string,
     private readonly profiles: ProfileResolver,
+    private readonly source: { tree: string; path: string },
   ) {}
 
   static async open(location: ResolvedDatabaseLocation, profiles: ProfileResolver): Promise<SQLiteQueryEngine> {
+    if (!location.tree || !location.path) {
+      throw new Error("A SQLite query engine requires the authoritative Arbor tree and store path");
+    }
     const schema = await introspectStoreSchema(location);
-    return new SQLiteQueryEngine(schema, location.databasePath, profiles);
+    return new SQLiteQueryEngine(schema, location.databasePath, profiles, { tree: location.tree, path: location.path });
+  }
+
+  bind(handle: QueryHandle<unknown, unknown>, source: ResolvedArborSource): void {
+    if (source.authoredPath !== handle.source.path) {
+      throw new QueryCompileError("The resolved query source does not match its authored arbor() path");
+    }
+    this.assertSource(handle, source);
+    this.bindings.set(handle, source);
+  }
+
+  private assertSource(handle: QueryHandle<unknown, unknown>, source: ResolvedArborSource): void {
+    if (source.schemaFingerprint !== this.schema.fingerprint) {
+      throw new QueryCompileError("The resolved query source schema is not active");
+    }
+    if (source.tree !== this.source.tree) {
+      throw new QueryCompileError("The resolved query source belongs to another tree");
+    }
+    const parent = posix.dirname(source.path);
+    if (parent !== this.source.path || posix.basename(source.path) !== handle.plan.relation) {
+      throw new QueryCompileError("The resolved arbor() path does not name this SQLite store relation");
+    }
   }
 
   subscribeProfiles(listener: (change: { profile: string; tree: string; ref: string }) => void): () => void {
@@ -582,6 +611,9 @@ export class SQLiteQueryEngine implements AsyncDisposable {
     handle: QueryHandle<Result, Input>,
     options: QueryExecutionOptions<Input> = {},
   ): Promise<QueryExecution<Result>> {
+    const source = this.bindings.get(handle as QueryHandle<unknown, unknown>);
+    if (!source) throw new QueryCompileError("The query's arbor() source was not resolved during activation");
+    this.assertSource(handle as QueryHandle<unknown, unknown>, source);
     const compiled = compileQuery(handle, this.schema);
     const input = await validatedInput(handle.schema, options.input);
     const database = new Database(this.databasePath, { readonly: true, strict: true });

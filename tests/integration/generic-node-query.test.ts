@@ -44,7 +44,15 @@ beforeAll(async () => {
     databasePath: join(databaseDirectory, "_store.sqlite3"),
     schemaPath: join(databaseDirectory, "schema.sql"),
     relationshipsPath: join(databaseDirectory, "relationships.json"),
+    tree: workspace.tree,
+    path: "/",
   }, profiles);
+  sqlite.bind(matching, {
+    authoredPath: matching.source.path,
+    tree: workspace.tree,
+    path: "/records",
+    schemaFingerprint: sqlite.schema.fingerprint,
+  });
 });
 
 afterAll(async () => {

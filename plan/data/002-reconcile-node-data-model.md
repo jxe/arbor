@@ -116,6 +116,21 @@
   namespace was removed without an adapter. Identity rules now contain only
   `properties`; the declaration site supplies the tree or sibling keyspace, and
   decoders reject the temporary scoped form introduced at the first checkpoint.
+- **2026-08-27 — authoritative source binding and Markdown-record write path
+  complete:** SQLite query activation now binds each authored `arbor(path)` to
+  its complete logical tree/path and schema fingerprint. Execution rejects an
+  unbound handle, a stale schema, another tree/store root, or a relation leaf
+  that does not match the resolved path before opening the query database.
+  Named mutation activation supplies the complete source set, validates every
+  relation again inside the transaction API, and includes the resolved sources
+  in the semantic retry digest. Managed and untracked schema-governed Markdown
+  records now resolve as the same ordinary node whether addressed by current
+  path or stable key: snapshots include projected properties and exact Markdown
+  content, `writeProperties` schema-validates complete frontmatter while
+  preserving the body, path-only writes cannot change declared identity, and
+  exact content writes accept the same stable row reference. The remaining
+  provider-probe and activation-manifest retrofits, plus portable query semantic
+  equivalence not completed in this slice, are explicit hardening debt.
 - **Next checkpoint:** extract the remaining internal collection-page and
   parent/grandparent adapter probes into the shared `ChildProvider` snapshot
   contract. Then prepare exact-source file-rollup property writes before
@@ -303,8 +318,10 @@ The precise serialized form is decided in Phase 0. Preserve these invariants:
 - A Markdown provider may map property and content revisions to the same exact
   source byte revision, but clients address the two capabilities separately.
 - `writeProperties` is provider-neutral. It replaces the complete property map
-  under `basePropertiesRevision`; it never changes content, children, or stable
-  identity as an implicit side effect.
+  under `basePropertiesRevision`; it never changes the logical content value,
+  children, or stable identity as an implicit side effect. A Markdown provider
+  may advance the shared exact-source/content revision because frontmatter and
+  body occupy the same authored byte stream, while preserving the body exactly.
 - A row's columns are `properties`; optional Markdown body is `content`; nested
   relations/materialized subcollections may be `children`.
 - `children` returns enough projected properties and schema metadata for table

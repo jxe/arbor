@@ -9,6 +9,7 @@ import {
   QueryInputError,
   QueryUserRequiredError,
   SQLiteQueryEngine,
+  resolveArborSource,
   resolveDatabaseLocation,
   type ProfileResolver,
   type QueryExecution,
@@ -78,6 +79,28 @@ beforeAll(async () => {
     popularLists: popularLists.popularLists,
     myLists: sharedQueries.myLists,
   };
+  const boundaries = [
+    { root: supplies, tree: "tr_supplies_source" },
+    { root: join(supplies, "data"), tree: "tr_supplies_data" },
+  ];
+  const modules: Record<string, string> = {
+    list: join(supplies, "List.tsx"),
+    practiceChoices: join(supplies, "List.tsx"),
+    practice: join(supplies, "Practice.tsx"),
+    profile: join(supplies, "Profile.tsx"),
+    practiceSearch: join(supplies, "components", "PracticeSearch.tsx"),
+    popularLists: join(supplies, "components", "PopularLists.tsx"),
+    myLists: join(supplies, "scripts", "queries.ts"),
+  };
+  await Promise.all(Object.entries(handles).map(async ([name, handle]) => {
+    engine.bind(handle, await resolveArborSource(
+      modules[name]!,
+      handle.source.path,
+      boundaries,
+      engine.schema.fingerprint,
+      { virtualLeaf: true },
+    ));
+  }));
 });
 
 afterAll(async () => {
@@ -110,6 +133,25 @@ describe("Supplies SQLite query engine", () => {
     expect(engine.schema.relationships["list_practices.tags"]?.through?.source).toHaveLength(2);
     expect(engine.schema.relationships["lists.items"]?.key).toEqual(["practice_id"]);
     expect(engine.schema.fingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  test("rejects unactivated and incorrectly resolved arbor() sources before execution", async () => {
+    const unbound = query.many(arbor("./data/lists").children, (list: any) => ({
+      select: list.pick("id"),
+    }));
+    await expect(engine.execute(unbound)).rejects.toThrow("was not resolved during activation");
+    expect(() => engine.bind(unbound, {
+      authoredPath: unbound.source.path,
+      tree: "tr_wrong_tree",
+      path: "/lists",
+      schemaFingerprint: engine.schema.fingerprint,
+    })).toThrow("belongs to another tree");
+    expect(() => engine.bind(unbound, {
+      authoredPath: unbound.source.path,
+      tree: "tr_supplies_data",
+      path: "/wrong/lists",
+      schemaFingerprint: engine.schema.fingerprint,
+    })).toThrow("does not name this SQLite store relation");
   });
 
   test("executes every checked-in Supplies query with shaped, deterministic results", async () => {
@@ -181,6 +223,18 @@ describe("Supplies SQLite query engine", () => {
         select: (practice as any).pick("id", "name"),
       }),
     );
+    for (const handle of [transformedSearch, exactPractice]) {
+      engine.bind(handle, await resolveArborSource(
+        join(supplies, "List.tsx"),
+        handle.source.path,
+        [
+          { root: supplies, tree: "tr_supplies_source" },
+          { root: join(supplies, "data"), tree: "tr_supplies_data" },
+        ],
+        engine.schema.fingerprint,
+        { virtualLeaf: true },
+      ));
+    }
     const searched = await engine.execute(transformedSearch, { input: { search: "  LISTEN  " } });
     const exact = await engine.execute(exactPractice, { input: { id: listeningPractice } });
     expect(searched.result).toEqual([{ id: listeningPractice, name: "Listening circles" }]);

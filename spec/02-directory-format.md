@@ -38,7 +38,9 @@ explicit JSON `null` is retained as a value. It preserves the Markdown body
 exactly, rejects stale revisions, and cannot change a property selected by the
 applicable identity declaration. Providers may expose the property and content
 capabilities separately even when both revisions currently name the same
-Markdown source bytes.
+Markdown source bytes. In that shared-byte representation, a successful
+frontmatter-only write advances both exact-source capability revisions even
+though the logical Markdown body is byte-for-byte unchanged.
 
 A materialized Markdown document may carry an opaque durable `id`. This
 projection historically calls its value a `PageID`; in the common data model it
