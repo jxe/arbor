@@ -214,13 +214,15 @@ export class FilesystemService implements AsyncDisposable {
       child.materialization === "available" && node.writable,
     )));
     const all = [...physical, ...additionalItems].sort((left, right) => left.name.localeCompare(right.name));
-    const offset = decodePageCursor(cursor, `children:local:${path}`);
+    const childrenRevision = node.childrenRevision ?? node.revision;
+    const cursorKey = `children:local:${path}:${childrenRevision}`;
+    const offset = decodePageCursor(cursor, cursorKey);
     const items = all.slice(offset, offset + 100);
     const nextOffset = offset + items.length;
     return {
       parent: { tree: LOCAL_TREE, path, stableKey: null },
       items,
-      nextCursor: nextOffset < all.length ? encodePageCursor(`children:local:${path}`, nextOffset) : null,
+      nextCursor: nextOffset < all.length ? encodePageCursor(cursorKey, nextOffset) : null,
       observedThrough,
     };
   }

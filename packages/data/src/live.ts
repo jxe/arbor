@@ -3,6 +3,7 @@ import type { ArborUser, PredicateExpression, QueryHandle, QueryPlan, SelectionP
 import type { ResolvedArborSource, StoreSchema } from "./schema.ts";
 import { SQLiteQueryEngine, type QueryExecution } from "./sqlite.ts";
 import { SQLiteStoreBroker, type SQLiteRowChange, type SQLiteStoreChange } from "./observer.ts";
+import { evaluateQueryPredicate } from "./query-core.ts";
 
 type Invalidation =
   | { cursor: string; kind: "store"; change: SQLiteStoreChange }
@@ -98,32 +99,13 @@ function sensitivity(schema: StoreSchema, plan: QueryPlan, input: unknown, user:
   return { relations, input, user };
 }
 
-function inputValue(input: unknown, path: readonly string[]): unknown {
-  let value = input;
-  for (const part of path) value = value && typeof value === "object" ? (value as Record<string, unknown>)[part] : undefined;
-  return value;
-}
-
-function value(value: ValueExpression, row: Record<string, unknown>, query: QuerySensitivity): unknown {
-  if (value.kind === "field") return row[value.field];
-  if (value.kind === "parameter") return inputValue(query.input, value.path);
-  if (value.kind === "user") return query.user?.profile ?? null;
-  if (value.kind === "literal") return value.value;
-  return undefined;
-}
-
 function predicateMatches(predicate: PredicateExpression | undefined, row: Record<string, unknown> | null, query: QuerySensitivity): boolean {
   if (!row) return false;
-  if (!predicate) return true;
-  if (predicate.kind === "logical") return predicate.operator === "and"
-    ? predicate.operands.every((operand) => predicateMatches(operand, row, query))
-    : predicate.operands.some((operand) => predicateMatches(operand, row, query));
-  if (predicate.left.kind === "count" || predicate.right.kind === "count") return true;
-  const left = value(predicate.left, row, query);
-  const right = value(predicate.right, row, query);
-  return predicate.operator === "eq"
-    ? left === right
-    : String(left ?? "").toLocaleLowerCase().includes(String(right ?? "").toLocaleLowerCase());
+  const containsCount = (value: PredicateExpression): boolean => value.kind === "logical"
+    ? value.operands.some(containsCount)
+    : value.left.kind === "count" || value.right.kind === "count";
+  if (predicate && containsCount(predicate)) return true;
+  return evaluateQueryPredicate(predicate, row, query);
 }
 
 function matches(record: Record<string, unknown> | null, expected: Record<string, unknown>): boolean {

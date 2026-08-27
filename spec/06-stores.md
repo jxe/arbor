@@ -95,6 +95,11 @@ portable in this version. A placement-dependent extension may expose them only
 when the application manifest declares and every allowed placement proves that
 capability.
 
+Input validation, authenticated-user requirements, predicate evaluation, field
+shaping, cardinality checks, and canonical-key comparison have one portable
+meaning independent of provider. A native pushdown must produce that meaning;
+backing-default comparison or collation is not an acceptable substitute.
+
 Where a relational extension supplies explicit ordering, a proved stable key is
 the deterministic final tie-breaker. Live or mutable pagination uses a
 revision-bound keyset cursor rather than an unqualified offset.

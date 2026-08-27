@@ -149,6 +149,15 @@ can affect the result. Providers translate it into committed observation or
 conservative subtree/store invalidation. Observation precision is an
 optimization and cannot change the result.
 
+For a `.children` source, execution samples the resolved parent before reading
+child pages and retains its children revision, schema revision, and
+`observedThrough` cursor as a membership dependency. Continuation cursors are
+bound to the membership revision used to create them. A subscriber follows or
+replays from the retained pre-read cursor; therefore an insertion or removal
+that races sampling or paging forces a rerun and cannot fall into a
+snapshot/observation gap. Per-child revisions may narrow property invalidation
+but do not replace the parent membership dependency.
+
 A query whose nodes are not materialized locally may be hosted by the relevant
 server when that host advertises and enforces the same manifest, validation,
 access, determinism, and version contract. A read-only placement projection may

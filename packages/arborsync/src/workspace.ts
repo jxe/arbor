@@ -1339,7 +1339,9 @@ export class Workspace implements AsyncDisposable {
       child.materialization === "available" && node.writable && this.treeDescriptor.access !== "read",
     )));
     const all = [...physical, ...additionalItems].sort((left, right) => left.name.localeCompare(right.name));
-    const offset = this.decodePageCursor(cursor, `children:${path}`);
+    const childrenRevision = node.childrenRevision ?? node.revision;
+    const cursorKey = `children:${path}:${childrenRevision}`;
+    const offset = this.decodePageCursor(cursor, cursorKey);
     const items = all.slice(offset, offset + 100);
     const nextOffset = offset + items.length;
     return {
@@ -1349,7 +1351,7 @@ export class Workspace implements AsyncDisposable {
         stableKey: isPageID(node.document?.frontmatter.id) ? pageIDStableKey(node.document.frontmatter.id) : null,
       },
       items,
-      nextCursor: nextOffset < all.length ? this.encodePageCursor(`children:${path}`, nextOffset) : null,
+      nextCursor: nextOffset < all.length ? this.encodePageCursor(cursorKey, nextOffset) : null,
       observedThrough,
     };
   }

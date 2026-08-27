@@ -107,21 +107,7 @@ These are implementation violations of the aspirational specification. They are 
     rollup provider must carry an exact accepted source/object revision and a
     separate scoped model digest so vacuuming, indexes, and representation-only
     changes participate in synchronization without changing logical equality.
-11. **Move portable query compilation out of the SQLite module.** The first
-    `NodeQueryEngine` intentionally reuses predicate/input errors and evaluation
-    behavior from `sqlite.ts`, which leaves a provider-neutral runtime importing
-    a relational executor. Extract one closed query-core package before adding
-    another provider or operator; SQLite and child providers must consume the
-    same predicate, selection, input, and cardinality semantics rather than
-    maintaining lookalike implementations. The current executors are not yet
-    fully equivalent: ordinary nodes sort the canonical stable-key/path bytes,
-    while SQLite's implicit order follows raw primary-key SQL values, and
-    SQLite can prove singular cardinality at compilation where the ordinary
-    evaluator discovers excess matches only after reading. Freeze cross-provider
-    fixtures for compound/numeric/Unicode keys and `one`/`maybe`, then make one
-    activation and ordering rule authoritative before claiming full portable
-    query equivalence.
-12. **Generate source schemas before ordinary-tree query activation.** The
+11. **Generate source schemas before ordinary-tree query activation.** The
     development compiler must bind every literal `arbor(path).children` handle
     to declared property types and a schema fingerprint, including an empty
     child set. The current ordinary-node engine validates returned JSON values
@@ -133,19 +119,22 @@ These are implementation violations of the aspirational specification. They are 
     assembly and sample-derived fallback typing once generated source
     declarations and activation-time fingerprint checks cover expanded and
     rolled-up sources, imported helper modules, and computed-locator bounds.
-13. **Replace the temporary whole-source query bound.** Portable ordinary-node
-    queries currently page up to 10,000 children before filtering and picking.
-    Add a manifest-declared finite source bound plus provider pushdown/cursors,
-    and reject activation when neither can prove bounded execution. Do not turn
-    this emergency ceiling into public query semantics.
-14. **Retire the SQLite direct-write receipt bridge deliberately.** Generic row
+12. **Replace temporary whole-source portable query evaluation.** Ordinary-node
+    queries currently page up to 10,000 children before filtering and picking,
+    and the SQLite reference driver reads the complete root relation before
+    applying the shared predicate so SQLite coercion/collation cannot alter
+    portable meaning. Add a manifest-declared finite source bound plus proved
+    semantics-preserving provider pushdown/cursors, and reject activation when
+    neither can prove bounded execution. Do not turn the emergency ceiling or
+    the reference driver's full scan into public query semantics.
+13. **Retire the SQLite direct-write receipt bridge deliberately.** Generic row
     writes currently create `__arbor_property_receipts` inside the store so a
     crash after the row commit can replay the same mutation safely. The shared
     provider transaction protocol must define receipt retention/pruning,
     representation-sync behavior, and how copied or replicated stores scope
     caller mutation IDs. Remove the private table only after provider commit
     recovery offers the same crash guarantee.
-15. **Finish the file-rollup transaction lifecycle outside managed workspaces.**
+14. **Finish the file-rollup transaction lifecycle outside managed workspaces.**
     Exact-source CSV/JSON/JSONL writes now prepare an fsynced sibling file,
     publish it by compare-and-rename, and participate in the managed workspace's
     durable mutation journal. `FilesystemService` still retains completed
@@ -157,15 +146,16 @@ These are implementation violations of the aspirational specification. They are 
     editor can still replace the source between the last comparison and rename
     on filesystems without conditional rename. Do not weaken exact retry
     identity or delete arbitrary editor-created siblings.
-16. **Give portable live queries a child-set dependency.** The first
-    `NodeQueryEngine` reports the revisions of every sampled child, which can
-    detect edits to existing matches and nonmatches but cannot by itself detect
-    insertion or removal from the source. Before routing ordinary-tree handles
-    through `/queries`, make `ChildProvider` expose the resolved parent's
-    children revision and observation cursor, include that membership token in
-    query dependencies, and prove snapshot-then-follow has no gap. Remove the
-    row-list dependency retrofit once the shared sensitivity model can express
-    property, membership, schema, and access changes directly.
+15. **Replace the ordinary-query dependency adapter with the shared live
+    sensitivity runtime.** `NodeQueryEngine` now records the resolved parent's
+    membership/schema revision and pre-read observation cursor alongside every
+    sampled row, so insertions and removals have a gap-free conservative token.
+    It is not yet mounted in `RegisteredQueryRuntime` or translated into field,
+    schema, access, mount, and provider sensitivities; the SQLite live broker
+    still owns a relational dependency shape. Build one provider-neutral live
+    broker before serving ordinary-tree handles through Wire `/queries`, then
+    remove the temporary complete row-list dependency where a narrower proved
+    sensitivity is available.
 
 ## Filesystem and structural editing
 

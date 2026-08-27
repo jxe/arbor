@@ -10,7 +10,6 @@ import type {
   RelationshipSelection,
   SelectionPlan,
   SelectionValue,
-  StandardSchemaV1,
   ValueExpression,
 } from "./authoring.ts";
 import type {
@@ -21,6 +20,22 @@ import type {
   StoreSchema,
 } from "./schema.ts";
 import { introspectStoreSchema } from "./schema.ts";
+import {
+  compareQueryValues,
+  containsRequiredUser,
+  evaluateQueryPredicate,
+  finishCardinality,
+  isPortableNodePlan,
+  parameterValue,
+  QueryCompileError,
+  QueryInputError,
+  QueryUserRequiredError,
+  runtimeQueryValue,
+  sortPortablePropertyRows,
+  validateQueryInput,
+} from "./query-core.ts";
+
+export { QueryCompileError, QueryInputError, QueryUserRequiredError } from "./query-core.ts";
 
 export interface ProfileResolver {
   resolve(ids: readonly string[], fields: readonly string[]): Promise<{
@@ -55,27 +70,6 @@ export interface QueryExecution<Result> {
     database: Record<string, { rows: Record<string, unknown>[]; matchAny: Record<string, unknown>[] }>;
   };
   schemaFingerprint: string;
-}
-
-export class QueryCompileError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "QueryCompileError";
-  }
-}
-
-export class QueryInputError extends Error {
-  constructor(readonly issues: readonly { message: string; path?: readonly unknown[] }[]) {
-    super(issues.map((issue) => issue.message).join("; ") || "Invalid query input");
-    this.name = "QueryInputError";
-  }
-}
-
-export class QueryUserRequiredError extends Error {
-  constructor() {
-    super("This query requires an Arbor user");
-    this.name = "QueryUserRequiredError";
-  }
 }
 
 interface ExecutionContext {
@@ -178,13 +172,6 @@ function equalityFields(predicate: PredicateExpression | undefined): Set<string>
   return result;
 }
 
-function containsRequiredUser(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
-  if ((value as { kind?: string }).kind === "user" && (value as { required?: boolean }).required) return true;
-  if (Array.isArray(value)) return value.some(containsRequiredUser);
-  return Object.entries(value).some(([key, child]) => key !== "schema" && containsRequiredUser(child));
-}
-
 export function compileQuery<Result, Input>(handle: QueryHandle<Result, Input>, schema: StoreSchema): CompiledQuery<Result, Input> {
   validatePlan(schema, handle.plan.relation, handle.plan);
   const root = schema.relations[handle.plan.relation]!;
@@ -207,49 +194,12 @@ export function compileQuery<Result, Input>(handle: QueryHandle<Result, Input>, 
   return { handle, plan: handle.plan, schema };
 }
 
-function parameterValue(input: unknown, path: readonly string[]): unknown {
-  let value = input;
-  for (const part of path) {
-    if (!value || typeof value !== "object") return undefined;
-    value = (value as Record<string, unknown>)[part];
-  }
-  return value;
-}
-
 function runtimeValue(value: ValueExpression, row: Record<string, unknown>, context: ExecutionContext): unknown {
-  if (value.kind === "field") return row[value.field];
-  if (value.kind === "parameter") return parameterValue(context.input, value.path);
-  if (value.kind === "user") return context.user?.[value.field] ?? null;
-  if (value.kind === "literal") return value.value;
-  return row[`__aggregate_${value.id}`];
+  return runtimeQueryValue(value, row, context);
 }
 
 function evaluatePredicate(value: PredicateExpression | undefined, row: Record<string, unknown>, context: ExecutionContext): boolean {
-  if (!value) return true;
-  if (value.kind === "logical") {
-    return value.operator === "and"
-      ? value.operands.every((operand) => evaluatePredicate(operand, row, context))
-      : value.operands.some((operand) => evaluatePredicate(operand, row, context));
-  }
-  const left = runtimeValue(value.left, row, context);
-  const right = runtimeValue(value.right, row, context);
-  if (value.operator === "eq") return left === right;
-  return String(left ?? "").toLocaleLowerCase().includes(String(right ?? "").toLocaleLowerCase());
-}
-
-function compareValues(left: unknown, right: unknown): number {
-  if (left === right) return 0;
-  if (left === null || left === undefined) return -1;
-  if (right === null || right === undefined) return 1;
-  if (typeof left === "number" && typeof right === "number") return left - right;
-  const leftBytes = new TextEncoder().encode(String(left));
-  const rightBytes = new TextEncoder().encode(String(right));
-  const length = Math.min(leftBytes.length, rightBytes.length);
-  for (let index = 0; index < length; index++) {
-    const difference = leftBytes[index]! - rightBytes[index]!;
-    if (difference !== 0) return difference;
-  }
-  return leftBytes.length - rightBytes.length;
+  return evaluateQueryPredicate(value, row, context);
 }
 
 function stableKey(schema: StoreSchema, relationName: string, plan: SelectionPlan, relationshipMetadata?: RelationshipMetadata): string[] {
@@ -272,7 +222,7 @@ function sortRows(
   }
   return rows.sort((left, right) => {
     for (const order of orders) {
-      const compared = compareValues(runtimeValue(order.value, left, context), runtimeValue(order.value, right, context));
+      const compared = compareQueryValues(runtimeValue(order.value, left, context), runtimeValue(order.value, right, context));
       if (compared !== 0) return order.direction === "asc" ? compared : -compared;
     }
     return 0;
@@ -509,16 +459,6 @@ function normalizeSQLiteRows(rows: Record<string, unknown>[], relation: Relation
   });
 }
 
-async function validatedInput<Input>(schema: StandardSchemaV1<Input, Input> | undefined, input: unknown): Promise<Input | undefined> {
-  if (!schema) {
-    if (input !== undefined) throw new QueryInputError([{ message: "This query does not accept input" }]);
-    return undefined;
-  }
-  const result = await schema["~standard"].validate(input);
-  if (result.issues) throw new QueryInputError(result.issues);
-  return result.value;
-}
-
 function profileIDFromPredicate(predicate: PredicateExpression | undefined, context: ExecutionContext): string | undefined {
   if (!predicate) return undefined;
   if (predicate.kind === "logical") {
@@ -615,7 +555,7 @@ export class SQLiteQueryEngine implements AsyncDisposable {
     if (!source) throw new QueryCompileError("The query's arbor() source was not resolved during activation");
     this.assertSource(handle as QueryHandle<unknown, unknown>, source);
     const compiled = compileQuery(handle, this.schema);
-    const input = await validatedInput(handle.schema, options.input);
+    const input = await validateQueryInput(handle.schema, options.input);
     const database = new Database(this.databasePath, { readonly: true, strict: true });
     const context: ExecutionContext = {
       database,
@@ -630,15 +570,12 @@ export class SQLiteQueryEngine implements AsyncDisposable {
       database.exec("begin");
       if (containsRequiredUser(compiled.plan) && !context.user) throw new QueryUserRequiredError();
       const raw = await this.rootRows(compiled.plan, context);
+      if (compiled.plan.cardinality === "many" && isPortableNodePlan(compiled.plan)) {
+        sortPortablePropertyRows(raw, this.schema.relations[compiled.plan.relation]!.primaryKey);
+      }
       if (compiled.plan.cardinality === "many") assertStableRows(raw, this.schema, compiled.plan.relation, compiled.plan);
       const shaped = await this.shapeBatch(raw, compiled.plan.relation, compiled.plan, context);
-      let result: unknown;
-      if (compiled.plan.cardinality === "many") result = shaped;
-      else {
-        if (shaped.length > 1) throw new QueryCompileError(`query.${compiled.plan.cardinality} returned more than one row`);
-        if (compiled.plan.cardinality === "one" && shaped.length !== 1) throw new QueryCompileError("query.one returned no row");
-        result = shaped[0] ?? null;
-      }
+      const result = finishCardinality(shaped, compiled.plan.cardinality, "row");
       database.exec("commit");
       return {
         result: result as Result,
@@ -663,6 +600,7 @@ export class SQLiteQueryEngine implements AsyncDisposable {
 
   private async rootRows(plan: QueryPlan, context: ExecutionContext): Promise<Record<string, unknown>[]> {
     const relationMetadata = this.schema.relations[plan.relation]!;
+    const portable = isPortableNodePlan(plan);
     if (relationMetadata.source === "arbor-profile") {
       const id = profileIDFromPredicate(plan.where, context);
       if (!id) throw new QueryCompileError("A root arbor_profiles query must constrain id exactly");
@@ -674,14 +612,14 @@ export class SQLiteQueryEngine implements AsyncDisposable {
     const alias = "root";
     const parameters: unknown[] = [];
     const selections = selectionSQL(plan, plan.relation, alias, this.schema);
-    const where = plan.where ? ` where ${compilePredicateSQL(plan.where, plan.relation, alias, this.schema, context, parameters)}` : "";
-    const orders = orderSQL(plan, plan.relation, alias, this.schema, context, parameters);
+    const where = !portable && plan.where ? ` where ${compilePredicateSQL(plan.where, plan.relation, alias, this.schema, context, parameters)}` : "";
+    const orders = portable ? [] : orderSQL(plan, plan.relation, alias, this.schema, context, parameters);
     const order = orders.length ? ` order by ${orders.join(", ")}` : "";
-    const limit = plan.take ?? (plan.cardinality === "many" ? undefined : 2);
+    const limit = portable ? undefined : plan.take ?? (plan.cardinality === "many" ? undefined : 2);
     const sql = `select ${selections.join(", ")} from ${quote(plan.relation)} as ${quote(alias)}${where}${order}${limit ? ` limit ${limit}` : ""}`;
     const rows = shareSelectedAggregates(normalizeSQLiteRows(executeStatement(context.database, sql, parameters, context), relationMetadata), plan);
     recordRows(context, this.schema, plan.relation, rows);
-    return rows;
+    return portable ? rows.filter((row) => evaluatePredicate(plan.where, row, context)) : rows;
   }
 
   private async shapeBatch(

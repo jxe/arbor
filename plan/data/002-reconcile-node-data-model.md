@@ -158,11 +158,24 @@
   endings, CSV multiline records and unknown fields, no-op byte identity,
   invalid-neighbor fail-closed behavior, retry, conflict, and post-rename crash
   recovery. Collection membership remains read-only through this operation.
-- **Next checkpoint:** extract the provider-neutral query core, freeze
-  cross-provider query equivalence, and add a child-set membership dependency.
-  Continue generated activation-manifest work before routing ordinary-tree
-  handles through Wire `/queries`. Defer Wire rollup synchronization until
-  those local query and observation semantics are proved.
+- **2026-08-27 — portable query-core and membership checkpoint complete:**
+  SQLite and ordinary child execution now consume one provider-neutral module
+  for input validation, required-user checks, predicate meaning, field shaping,
+  cardinality, and value comparison. The portable subset orders both providers
+  by canonical stable-key bytes rather than SQLite's raw primary-key order;
+  compound, numeric, and Unicode keys plus `one`/`maybe` share conformance
+  fixtures. `NodeQueryEngine` samples the resolved source before paging and
+  returns its children revision, schema revision, and observation cursor as a
+  membership dependency alongside row revisions. Expanded-directory cursors
+  are revision-bound, and a racing membership event is replayable from the
+  sampled boundary. SQLite-only relationships, aggregates, authored ordering,
+  and SQL planning remain explicit capability extensions rather than leaking
+  back into the common engine.
+- **Next checkpoint:** generate typed source declarations and the activation
+  manifest for ordinary and rolled-up paths, including empty child sets and
+  schema fingerprints. Then build the provider-neutral live broker that can
+  route those activated handles through Wire `/queries`. No authored query
+  syntax change is assumed by this checkpoint; discuss one before adopting it.
 
 ## Target result
 
@@ -542,6 +555,13 @@ edge/schema fingerprints, mounted tree roots, and authenticated access/profile
 facts. Providers translate this sensitivity plan into SQL observation, file
 watching, tree watch, or conservative subtree invalidation. Optimization may
 change rerun cost but never results or disclosure.
+
+An ordinary-child execution samples its resolved source before reading any
+page. Its dependency set includes that source's child-membership revision,
+schema revision, and `observedThrough` cursor as well as sampled row revisions.
+Every continuation cursor is bound to one membership revision. A live consumer
+attaches or replays from the pre-read observation cursor, so an insertion or
+removal racing the page reads causes a conservative rerun rather than a gap.
 
 The Wire `QUERY /.arbor/trees/{SourceTreeID}/queries` route executes reviewed
 handles from the source-tree manifest regardless of which node providers those
