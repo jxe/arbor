@@ -1,15 +1,15 @@
-# Plan 020: Complete device-management browser E2E
+# Interface 004: Complete device-management browser E2E
 
 > **Executor instructions**: Add focused browser automation for the already shipped pairing and device-management surface. Treat Plan 010's protocol, security model, and production behavior as fixed. Never expose a pairing secret or device credential in snapshots, traces, logs, failure messages, or checked-in fixtures.
 >
-> **Drift check**: `git diff --stat 664f43b..HEAD -- packages/render packages/arbord packages/wire tests/e2e playwright.config.ts plan/native/010-add-device-pairing.md`
+> **Drift check**: `git diff --stat 664f43b..HEAD -- packages/render packages/arborsync packages/canopy packages/wire tests/e2e playwright.config.ts plan/history/native/010-add-device-pairing.md`
 
 ## Status
 
 - **Priority**: P2
 - **Effort**: S
 - **Risk**: MEDIUM
-- **Depends on**: Plan 010
+- **Depends on**: completed native [Plan 010](../history/native/010-add-device-pairing.md)
 - **Category**: browser hardening
 - **Planned at**: Arbor `664f43b`, 2026-08-24
 - **Progress**: TODO — deliberately deferred from Plan 010 after protocol/runtime, Hetzner, migration, and live Railway revocation verification passed.

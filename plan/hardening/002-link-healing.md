@@ -1,4 +1,4 @@
-# Plan 002: Fix the escaped-backslash bug in the link-healing regex
+# Hardening 002: Fix the escaped-backslash bug in the link-healing regex
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
@@ -111,7 +111,7 @@ Repo conventions:
 
 ## Git workflow
 
-- Branch: `advisor/002-fix-link-healing-regex`
+- Branch: `hardening/002-link-healing`
 - Commit message style from `git log`: short imperative sentence, no prefix.
   Example: `Match whitespace, not the letter s, when healing links`.
 - Do NOT push or open a PR.

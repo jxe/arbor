@@ -3,7 +3,7 @@
 
 ## Specification stance
 
-This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [plan/product/roadmap.md](plan/product/roadmap.md) and [plan/records/history.md](plan/records/history.md) own implementation status, sequencing, and evidence; [plan/hardening/technical-debt.md](plan/hardening/technical-debt.md) records known conformance failures.
+This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [The roadmap](plan/roadmap.md) and [implemented outcomes](plan/history/outcomes.md) own implementation status, direction, and evidence; [the hardening backlog](plan/hardening/backlog.md) records known conformance failures.
 
 The specification contains only behavior that must remain portable across independently implemented Arbor components. The [reference documentation](docs/reference-implementation.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Arbor requirements.
 

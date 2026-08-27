@@ -1,4 +1,4 @@
-# Plan 006: Stop rebuilding the whole index on every move or delete
+# Hardening 005: Stop rebuilding the whole index on every move or delete
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
@@ -153,7 +153,7 @@ anything — run it before and after and record both numbers.
 
 **Out of scope** (do NOT touch):
 
-- The `search()` method and the excerpt shape. If `plan/hardening/001-escape-search-excerpts.md`
+- The `search()` method and the excerpt shape. If [`001-search-excerpts.md`](001-search-excerpts.md)
   has landed, `search()` returns structured segments; if it has not, it returns
   an HTML string. Either way, **do not modify `search()` in this plan.** If both
   plans are in flight, land 001 first to avoid a conflict in the same file.
@@ -165,7 +165,7 @@ anything — run it before and after and record both numbers.
 
 ## Git workflow
 
-- Branch: `advisor/006-incremental-index-updates`
+- Branch: `hardening/005-index-updates`
 - Commit message style from `git log`: short imperative sentence, no prefix.
   Example: `Update the index incrementally on move and delete`.
 - Do NOT push or open a PR.
@@ -349,7 +349,7 @@ Stop and report back (do not improvise) if:
   index has drifted — report the symptom rather than adding a `'rebuild'` call
   to paper over it. A `'rebuild'` in the incremental path defeats the entire
   purpose of this plan.
-- `plan/hardening/001-escape-search-excerpts.md` is mid-flight and has uncommitted
+- [`001-search-excerpts.md`](001-search-excerpts.md) is mid-flight and has uncommitted
   changes to `packages/stores/src/indexer.ts`.
 
 ## Maintenance notes

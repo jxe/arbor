@@ -1,4 +1,4 @@
-# External agent access through the Arbor CLI
+# Interface 001: External agent access through the Arbor CLI
 
 **Status:** Planned. This is an independent enabling plan, not the Canopy-hosted agent milestone. Read-only work can begin against the implemented arborsync/client surface; compiled executable-document handle invocation follows the live-data document work.
 

@@ -1,6 +1,6 @@
-# Canopy-hosted agent implementation plan
+# Application 002: Host authored agents on Canopy
 
-**Status:** Planned. Depends on the live-data document compiler, query/mutation handles, Arbor-user context, and Canopy-hosted execution proven by the Supplies milestone.
+**Status:** Planned. Depends on the compiler, query/mutation handles, Arbor-user context, and Canopy execution delivered by [Application 001](001-supplies-executable-site.md).
 
 ## Target result
 

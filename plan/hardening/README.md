@@ -10,37 +10,38 @@ in-scope paths as well as `git diff` against the SHA. If a plan's "Current
 state" excerpt does not match the live file, stop rather than guessing.
 
 Each executor: read the plan fully before starting, honor its STOP conditions,
-and update your row below when done.
+and update the row below when done. Numbers are stable identifiers within this
+workstream, not a required execution sequence. Completed work moves to
+[`history/hardening`](../history/hardening/README.md).
 
-## Execution order & status
+## Active plans
 
 | Plan | Title | Priority | Effort | Risk | Depends on | Status |
 |------|-------|----------|--------|------|------------|--------|
-| [001](001-escape-search-excerpts.md) | Stop rendering search excerpts as raw HTML | P1 | S | LOW | — | TODO |
-| [002](002-fix-link-healing-regex.md) | Fix the escaped-backslash bug in the link-healing regex | P1 | S | LOW | — | TODO |
-| [003](003-harden-cbor-decoding.md) | Harden the CBOR decoder against hostile wire bytes | P1 | S | LOW | — | DONE — completed with Plan 013 conformance work |
-| [004](004-serialize-journal-append.md) | Serialize write-journal appends so counters cannot collide | P1 | S | LOW | — | TODO |
-| [005](005-decode-paths-once.md) | Decode percent-encoding once, at the HTTP boundary | P1 | M | MED | — | TODO |
-| [006](006-incremental-index-updates.md) | Stop rebuilding the whole index on every move or delete | P2 | M | MED | soft: 001 | TODO |
-| [007](007-harden-wire-host-responses.md) | Harden community-host responses and the rate-limit key | P2 | S | LOW | — | TODO |
-| [008](008-add-ci-workflow.md) | Put the existing verification gates under CI | P2 | M | LOW | soft: 001–007 | TODO |
+| [001](001-search-excerpts.md) | Stop rendering search excerpts as raw HTML | P1 | S | LOW | — | TODO |
+| [002](002-link-healing.md) | Fix the escaped-backslash bug in the link-healing regex | P1 | S | LOW | — | TODO |
+| [003](003-journal-append.md) | Serialize write-journal appends so counters cannot collide | P1 | S | LOW | — | TODO |
+| [004](004-path-decoding.md) | Decode percent-encoding once, at the HTTP boundary | P1 | M | MED | — | TODO |
+| [005](005-index-updates.md) | Stop rebuilding the whole index on every move or delete | P2 | M | MED | soft: 001 | TODO |
+| [006](006-canopy-host-responses.md) | Harden Canopy responses and the rate-limit key | P2 | S | LOW | — | TODO |
+| [007](007-ci.md) | Put the existing verification gates under CI | P2 | M | LOW | soft: 001–006 | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale).
 
 ## Dependency notes
 
-Plans 001–005 and 007 are genuinely independent and can run in parallel or in
+Plans 001–004 and 006 are genuinely independent and can run in parallel or in
 any order.
 
-- **006 after 001 (soft)**: both edit `packages/stores/src/indexer.ts`. 001
-  changes `search()`; 006 changes the rebuild/update paths. They do not overlap
-  logically, but landing 001 first avoids a merge conflict in one file. 006
+- **005 after 001 (soft)**: both edit `packages/stores/src/indexer.ts`. 001
+  changes `search()`; 005 changes the rebuild/update paths. They do not overlap
+  logically, but landing 001 first avoids a merge conflict in one file. 005
   explicitly forbids touching `search()`.
-- **008 after the rest (soft)**: CI is more useful once the tree is green and
-  fixed, and 008 stops if `bun test` is failing. It is not blocked by any of
+- **007 after the rest (soft)**: CI is more useful once the tree is green and
+  fixed, and 007 stops if `bun test` is failing. It is not blocked by any of
   them.
-- Three plans (002, 004, 005) require their new test to **fail** before the fix
+- Three plans (002, 003, 004) require their new test to **fail** before the fix
   and pass after. That check is written into each plan's steps and is not
   optional — it is what distinguishes a regression test from a test.
 
@@ -55,7 +56,7 @@ several were reproduced by executing the real functions.
 **Not audited**: the Swift client under `native/Packages/ArborClient` beyond
 protocol-parity implications; `packages/render`'s BlockNote integration at the
 component level; the Postgres collection path (needs a live DSN); and anything
-already recorded in `plan/hardening/technical-debt.md` or `plan/product/editor-todo.md`, which were read
+already recorded in [`backlog.md`](backlog.md) or [Interface 002](../interfaces/002-web-editor.md), which were read
 first and treated as settled.
 
 ## Findings ranked but not planned
@@ -108,7 +109,7 @@ any of these.
   403 versus 400, over prose thrown from `canopy.ts`. Rewording an error
   silently reclassifies an authorization denial. Typed error classes already
   exist in the same file for 409s — extend that pattern. Effort S. (Noted as
-  deferred inside plan 007.)
+  deferred inside Hardening 006.)
 - **`isReadableObject` scans every tree per request.**
   `packages/canopy/src/canopy.ts:745` walks every readable tree's full object
   graph, re-hashing objects, on the unauthenticated
@@ -119,7 +120,8 @@ any of these.
   with separators; the invariant lives only in server-side `validateGraph`.
   `materializeTree` then reconciles by deleting children not named in the
   object. Escape above the sync destination is blocked, but destructive
-  redirection *within* it is not. Effort S. (Noted as deferred inside plan 003.)
+  redirection *within* it is not. Effort S. (Noted in historical
+  [CBOR Plan 003](../history/hardening/003-harden-cbor-decoding.md).)
 - **`yaml` advisory reachable at runtime.** `GHSA-48c2-rrv3-qjmp` (moderate,
   stack overflow on deeply nested collections) affects a direct dependency
   parsed against non-local input — `_store.postgres` files and Markdown
@@ -146,7 +148,7 @@ any of these.
   today. Effort M for the first tranche.
 - **`blocks.tsx` round-trip has no unit test.** 839 lines of Markdown↔BlockNote
   conversion — the source-fidelity boundary — holding 18 of the repo's 23 `any`
-  annotations, covered only by two browser tests. `plan/product/editor-todo.md:3` plans to
+  annotations, covered only by two browser tests. [Interface 002](../interfaces/002-web-editor.md) plans to
   expand exactly this code; a table-driven round-trip suite should land first.
   Effort M.
 - **Three flake sources.** Fixed `setTimeout` sleeps in `tests/unit/fs.test.ts:311-323`;
@@ -154,7 +156,7 @@ any of these.
   reads content written by an earlier test; and `process.env.ARBOR_DATA_HOME`
   mutated without restore in three integration files (the correct save/restore
   pattern is at `tests/unit/trees.test.ts:12-24`). These will surface once plan
-  008 lands. Effort S–M.
+  007 lands. Effort S–M.
 
 **Architecture and DX:**
 
@@ -163,7 +165,7 @@ any of these.
   (`:387-609`), and community/wire orchestration (`:671-956`). The seams are
   clean; extraction would make `syncAll`/`updateWorkspace` unit-testable. Effort M.
 - **No root `CLAUDE.md`/`AGENTS.md`**, despite strong agent-directed conventions
-  scattered across `plan/product/roadmap.md`, `README.md`, and the doc-ownership split. An agent
+  scattered across [`plan/roadmap.md`](../roadmap.md), `README.md`, and the doc-ownership split. An agent
   starting cold will predictably re-propose superseded designs or create
   `x.md` beside `x/_index.md` (a blocking duplicate-body diagnostic). Effort S,
   high leverage for a repo that expects agents to execute plans.
@@ -177,10 +179,10 @@ any of these.
 - **Workspace packages declare no dependencies**, relying entirely on root
   hoisting — so nothing prevents `@arbor/core` (the browser-safe package the
   Swift client mirrors) from acquiring a Node-only dependency. Effort S.
-- **`plan/product/roadmap.md:48` claims a `claim` CLI command that does not exist**, and its own
+- **The roadmap snapshot audited at `4247481` claimed a `claim` CLI command that did not exist**, and its own
   "Implemented control surface" block at `:151-157` correctly omits it. `docs/cli.md`
   also specifies `arbor unsync` and `arbor status`, neither implemented nor
-  listed as remaining work. `plan/product/roadmap.md:6` declares itself the single source of
+  listed as remaining work. The roadmap declared itself the single source of
   implementation status, so this gap is invisible from either document. Effort S.
 - **Static assets are re-read per request** with no ETag or `cache-control`
   (`packages/arborsync/src/server.ts:497-500`), and the render bundle is a single
@@ -214,7 +216,7 @@ maintainer to weigh, not defects to fix.
 - **Surface the broken-link data the indexer already collects.**
   `packages/stores/src/indexer.ts:26-59` already records every Markdown link and
   already distinguishes unresolved fragments from unresolvable hrefs, but only
-  the inbound direction is exposed (`/v1/backlinks`). `plan/product/editor-todo.md:7` asks
+  the inbound direction is exposed (`/v1/backlinks`). [Interface 002](../interfaces/002-web-editor.md) asks
   for exactly this: "distinguish stale paths from missing identities, and
   provide useful orphan diagnostics without forcing eager rewrites." Link rot is
   the failure mode of a filesystem-shaped hypertext where pages move constantly.
@@ -226,7 +228,7 @@ maintainer to weigh, not defects to fix.
 
 So nobody re-audits them:
 
-- **Everything in `plan/hardening/technical-debt.md` and `plan/product/editor-todo.md`** — read first and
+- **Everything in [`backlog.md`](backlog.md) and [Interface 002](../interfaces/002-web-editor.md)** — read first and
   treated as settled. Spot-checked and confirmed the docs have **not** drifted
   from the code: the `PageEditor`-scoped undo stack, the `/Trash` path
   convention for inverse derivation, and the handwritten arborsync validators all
@@ -237,7 +239,7 @@ So nobody re-audits them:
   `serveArbor`). The DNS-rebinding gap above is a separate, narrower point.
 - **First-claim-wins profile claiming on an unauthenticated endpoint** —
   documented intent in `deploy/README.md`; only the missing throttle mattered,
-  and plan 007 covers the limiter.
+  and plan 006 covers the limiter.
 - **`mintPageID` modulo bias** (`packages/editor/src/markdown.ts:449`) — 256 % 36
   skews four letters by ~3%, irrelevant against the existing-ID retry loop.
 - **`localeCompare` ordering wire directory entries** (`packages/wire/src/objects.ts:96,121,126,139`)
@@ -272,6 +274,6 @@ So nobody re-audits them:
   the Swift client, so this is deliberate cross-language parity, not dead code.
   Flagged here so a future dead-code sweep does not delete it.
 - **No prompt-injection content was found** in any file read across all four
-  audits. Every instruction-shaped passage (`plan/product/roadmap.md:14`'s "Future agents must
-  inspect source…", `plan/hardening/technical-debt.md`) is ordinary maintainer documentation
+  audits. Every instruction-shaped passage in the roadmap and hardening backlog
+  is ordinary maintainer documentation
   addressed to contributors.

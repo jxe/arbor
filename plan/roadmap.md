@@ -1,5 +1,5 @@
 # Build plan
-*Forward roadmap for Arbor and the reference implementation. Delivered work and evidence live in [history](../records/history.md); the [native workstream](../native/README.md) owns native Arbor, Hunch conversion, Quagmire integration, offline replicas, and Canopy-backed synchronization.*
+*Forward roadmap for Arbor and the reference implementation. Delivered work and evidence live in [history](history/outcomes.md); the [native history](history/native/overview.md) records Arbor, Hunch conversion, Quagmire integration, offline replicas, and Canopy-backed synchronization.*
 
 ## Status at a glance
 
@@ -15,9 +15,9 @@ Workspace composition is now implemented. The roadmap now begins with one vertic
 | **Planned** | 4. Portable deployment | Static baking and additional live adapters over the location/handle manifest proven in Milestone 2. |
 | **Later** | 5. Account lifecycle and hosting administration | Pairing, identity switching/recovery UX, disputes, and production operational tooling. |
 
-Milestone numbers express product priority, not a claim that every implementation task is serial. Milestone 2 is now the checked-in [`sites/supplies`](../../sites/supplies) vertical slice: implement only what makes that unchanged tree run in local Arbor web, signed macOS Arbor, and its canonical Canopy website, then migrate the real Meaning Supplies corpus. The site, rather than a synthetic framework demo or a backing matrix, freezes the relational authoring surface, location model, collection contract, and observation behavior. Canopy-hosted agents follow and reuse the same compiled query/mutation handles as a conversational alternative to the React documents. Additional backing/deployment adapters follow only when a concrete second target needs them.
+Milestone numbers express product priority, not a claim that every implementation task is serial. Milestone 2 is now the checked-in [`sites/supplies`](../sites/supplies) vertical slice: implement only what makes that unchanged tree run in local Arbor web, signed macOS Arbor, and its canonical Canopy website, then migrate the real Meaning Supplies corpus. The site, rather than a synthetic framework demo or a backing matrix, freezes the relational authoring surface, location model, collection contract, and observation behavior. Canopy-hosted agents follow and reuse the same compiled query/mutation handles as a conversational alternative to the React documents. Additional backing/deployment adapters follow only when a concrete second target needs them.
 
-A separate [external-agent CLI access plan](external-agent-cli-access.md) lets installed agents such as Codex or Claude Code work with a person's Arbor workspace through a reusable skill and structured CLI. That work does not implement authored or Canopy-hosted Arbor agents and may proceed independently as the relevant CLI operations become available.
+A separate [external-agent CLI access plan](interfaces/001-external-agent-access.md) lets installed agents such as Codex or Claude Code work with a person's Arbor workspace through a reusable skill and structured CLI. That work does not implement authored or Canopy-hosted Arbor agents and may proceed independently as the relevant CLI operations become available.
 
 ```text
 implemented local + community-hosting foundation + workspace composition
@@ -28,39 +28,20 @@ account lifecycle, hosting administration, and hardening follow
 without blocking those forward product capabilities
 ```
 
-## Implemented foundation
+## Baseline and contract sources
 
-The implemented foundation is summarized here only to establish what later milestones may depend on. Source ownership, intentional limits, and verification evidence belong in [history.md](../records/history.md).
+The local daily driver, community hosting foundation, and workspace composition
+milestone are complete. Their behavior, ownership, limits, and verification
+evidence live in [history](history/outcomes.md); this forward roadmap does not
+repeat their executor instructions.
 
-- The local daily driver provides filesystem-wide browsing/editing, exact-source Markdown writes, provider-owned complete directory documents, collections, durable REST mutations and event handoff, TypeScript/Swift clients, search/backlinks/recovery, and safe cloud-placeholder handling.
-- Arbor trees have stable `TreeID`s, immutable deterministic objects, CAS synchronization, canonical HTTP/Arbor names, raw TreeID fallback, whole-tree access, and independently accessed nested boundaries.
-- One host represents one community with a public root profile, complete person/group profile trees at `/~<handle>`, authored reservations and membership, atomic first-claim-wins profiles, and account/device credentials.
-- Share promotes a visible subtree in place without changing its URL or OS location. External folders appear as virtual mounted children, and longer accessible boundaries resolve by longest prefix.
-- Arbor web supplies profile, claim, and Share surfaces; `browse`, `sync`, `unsync`, `serve`, and recovery-oriented `connect` plumbing provide the CLI surface.
-- Reader-local nested placements compose distinct trees without entering a parent graph or revision. Home includes durable remote visits, **Add to workspace**, nested placements, and provenance-correct search, backlinks, Trash, and recovery surfaces.
+Durable product contracts live in the topic specifications:
 
-The durable product contracts live in the topic specifications rather than this roadmap:
-
-- [format](../../spec/format.md) and [locators](../../spec/locators.md) own exact source, logical nodes, tree-relative references, canonical names, raw TreeID fallback, and immutable revision selection;
-- [configuration](../../spec/configuration.md) owns synchronized account, tree, device, placement, ACL, and governance data;
-- [Wire and community hosting](../../spec/wire.md) owns canonical boundaries, promotion, profiles, claims, access, objects, refs, retry/resync, secret transport, cross-server executable-document data and effects, and HTTP projection;
-- [stores](../../spec/stores.md), [executable documents](../../spec/executable-documents.md), and [agents](../../spec/agents.md) own their respective authored contracts;
-- the [reference documentation](../../docs/reference-implementation.md) owns the Local Arbor REST API, CLI, data home, client interaction design, runtime algorithms, and platform behavior.
-
----
-
-## Milestone 1 — workspace composition
-
-**Status: Implemented on 2026-08-02. See [history.md](../records/history.md#workspace-composition-forward-milestone-1).**
-
-Outcome: a workspace can mount distinct local and Arbor trees wherever they make sense, while navigation and cross-tree surfaces retain exact provenance and remote server.
-
-- Distinct shared `TreeID`s can occupy nested local paths; longest-prefix navigation enters the child while parent discovery, watching, indexing, snapshots, pulls, and revisions exclude it.
-- Home presents nested placements, account-visible trees, durable remote visits, **Add to workspace**, and merged recovery surfaces without fabricating aggregate content.
-- Search, explicit cross-tree backlinks, Trash, and recovery retain the originating `TreeID` and local placement.
-- Remote visits persist safe metadata and a credential-free read cache for ordinary offline reopening.
-
-Completion gate: Alice mounts two different Arbor trees at locally meaningful paths, visits a third unplaced tree, adds it to her workspace, and sees provenance-correct search, backlinks, Trash, and recovery results without changing remote access or duplicating mounted content.
+- [format](../spec/format.md) and [locators](../spec/locators.md) own exact source, logical nodes, tree-relative references, canonical names, raw TreeID fallback, and immutable revision selection;
+- [configuration](../spec/configuration.md) owns synchronized account, tree, device, placement, ACL, and governance data;
+- [Wire and community hosting](../spec/wire.md) owns canonical boundaries, promotion, profiles, claims, access, objects, refs, retry/resync, secret transport, cross-server executable-document data and effects, and HTTP projection;
+- [stores](../spec/stores.md), [executable documents](../spec/executable-documents.md), and [agents](../spec/agents.md) own their respective authored contracts;
+- the [reference documentation](../docs/reference-implementation.md) owns the Local Arbor REST API, CLI, data home, client interaction design, runtime algorithms, and platform behavior.
 
 ## Milestone 2 — live data documents
 
@@ -80,7 +61,7 @@ Outcome: the checked-in Supplies tree is the first complete executable Arbor sit
 
 SQLite is the one required backing for this milestone. The portable contract must leave room for Postgres, but implementing and operating two database compilers before Supplies works is no longer a gate. The first correctness strategy remains dependency-directed reruns, output hashing, and complete replacement results; keyed transport diffs and incremental maintenance follow only if measurement requires them.
 
-Completion gate: the unchanged `sites/supplies` source runs in local Arbor web, signed macOS Arbor, and its canonical Canopy website; two clients update without refresh after related mutations and profile edits; unrelated precise changes avoid reruns; reconnects cannot leave stale results; raw private data stays private; every person-valued row uses a stable Arbor ProfileID; and the verified real-data migration can cut over with stable redirects and rollback. The concrete phase-by-phase implementation plan is [Supplies live-site implementation plan](supplies-live-site.md).
+Completion gate: the unchanged `sites/supplies` source runs in local Arbor web, signed macOS Arbor, and its canonical Canopy website; two clients update without refresh after related mutations and profile edits; unrelated precise changes avoid reruns; reconnects cannot leave stale results; raw private data stays private; every person-valued row uses a stable Arbor ProfileID; and the verified real-data migration can cut over with stable redirects and rollback. The remaining implementation plan is [Application 001](applications/001-supplies-executable-site.md).
 
 ## Milestone 3 — Canopy-hosted agents
 
@@ -94,7 +75,7 @@ Outcome: a Markdown-defined agent at an ordinary Arbor location gives visitors a
 - Invoke only declared compiled handles with their existing validation, authorization, transactions, retry identities, public errors, and durable receipts.
 - Store readable versioned conversations and committed receipts as ordinary Arbor content while streaming visible answers and tool progress to the visitor.
 
-Completion gate: at the canonical Supplies agent location, an authenticated visitor can find authorized practices and create a private list through conversation; the same committed data appears in the ordinary React documents, another visitor cannot see it, an interrupted post-commit turn cannot duplicate it, and the transcript retains the exact agent/handle versions and receipt. The concrete implementation plan is [Canopy-hosted agent implementation plan](canopy-hosted-agents.md).
+Completion gate: at the canonical Supplies agent location, an authenticated visitor can find authorized practices and create a private list through conversation; the same committed data appears in the ordinary React documents, another visitor cannot see it, an interrupted post-commit turn cannot duplicate it, and the transcript retains the exact agent/handle versions and receipt. The concrete implementation plan is [Application 002](applications/002-canopy-hosted-agents.md).
 
 ## Milestone 4 — portable deployment
 
@@ -178,7 +159,7 @@ These are unresolved design questions, not hidden implementation status:
 
 ## Planning reference
 
-The topic specs describe the complete intended product. This file records implementation order, temporary cuts, completion gates, and current status. [history.md](../records/history.md) records completed evidence; [native workstream](../native/README.md) contains platform-specific native work.
+The topic specs describe the complete intended product. This file records implementation order, temporary cuts, completion gates, and current status. [History](history/outcomes.md) records completed evidence; [Interface 003](interfaces/003-native-acceptance-audit.md) contains the only remaining native acceptance work.
 
 - **Implemented** means the focused behavior and its acceptance checks pass in current source.
 - **Next** identifies the immediate substantial product milestone.

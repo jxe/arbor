@@ -1,7 +1,7 @@
 ---
 id: pmfd95
 ---
-# Arbor editor follow-up
+# Interface 002: Arbor web editor follow-up
 
 This list starts after the logical filesystem, source-preserving BlockNote adapter, structural child rows, Hunch-derived visual system, generation-aware autosave/history coordinator, and persistent BlockNote reconciliation tranche. Difficulty is relative to the current web editor.
 

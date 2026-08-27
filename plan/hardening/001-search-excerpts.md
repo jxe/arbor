@@ -1,4 +1,4 @@
-# Plan 001: Stop rendering search excerpts as raw HTML
+# Hardening 001: Stop rendering search excerpts as raw HTML
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
@@ -107,7 +107,7 @@ long-lived server.
 - `packages/arborsync/src/service.ts` — the `searchPage` method only forwards
   results; it needs no change and touching it widens the diff.
 - The FTS5 schema and the `rebuild`/`indexFile` methods — indexing behavior is
-  the subject of a separate plan (`plan/hardening/006-*`). Changing the schema here will
+  the subject of a separate plan ([`005-index-updates.md`](005-index-updates.md)). Changing the schema here will
   collide with it.
 - `packages/render/src/PageEditor.tsx` and `blocks.tsx` — unrelated rendering
   surfaces.
@@ -116,7 +116,7 @@ long-lived server.
 
 ## Git workflow
 
-- Branch: `advisor/001-escape-search-excerpts`
+- Branch: `hardening/001-search-excerpts`
 - Commit message style matches `git log`: a short imperative sentence with no
   prefix or scope, e.g. `Escape search excerpts before rendering them`.
 - Do NOT push or open a PR.

@@ -1,5 +1,5 @@
-# Implemented history
-*Delivered Arbor and arbord milestones. The forward roadmap lives in [product/roadmap.md](../product/roadmap.md); native application integration lives in [native/README.md](../native/README.md).*
+# Implemented outcomes
+*Delivered Arbor milestones. The forward roadmap lives in [`roadmap.md`](../roadmap.md); native application history lives in [`native/`](native/README.md).*
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
@@ -231,7 +231,7 @@ Primary ownership:
 - [`packages/editor`](../../packages/editor)
 - [`packages/stores`](../../packages/stores)
 - [`packages/render`](../../packages/render)
-- [`packages/arbord/src/workspace.ts`](../../packages/arbord/src/workspace.ts)
+- [`packages/arborsync/src/workspace.ts`](../../packages/arborsync/src/workspace.ts)
 
 Important constraints:
 
@@ -259,10 +259,10 @@ This supersedes the client-projection architecture recorded in the historical Mi
 Primary ownership:
 
 - [`spec/format.md`](../../spec/format.md)
-- [`docs/arbord-api.md`](../../docs/arbord-api.md)
+- [`docs/arborsync-api.md`](../../docs/arborsync-api.md)
 - [`packages/editor/src/directory-document.ts`](../../packages/editor/src/directory-document.ts)
 - [`packages/fs/src/workspace-fs.ts`](../../packages/fs/src/workspace-fs.ts)
-- [`packages/arbord`](../../packages/arbord)
+- [`packages/arborsync`](../../packages/arborsync)
 - [`packages/client`](../../packages/client)
 - [`native/Packages/ArborClient`](../../native/Packages/ArborClient)
 - [`packages/render`](../../packages/render)
@@ -320,7 +320,7 @@ git diff --check        passed
 The detailed completed executor plan was retired after this outcome was folded
 into history and the active publication/integration preconditions. Extraction,
 publication, and remote Hunch adoption remain active work in
-[`native/001-publish-quagmire.md`](../native/001-publish-quagmire.md).
+[`native/001-publish-quagmire.md`](native/001-publish-quagmire.md).
 
 ## Canonical and community-hosting foundation
 
@@ -343,7 +343,7 @@ Contract and reference documentation:
 - [`docs/client.md`](../../docs/client.md)
 - [`docs/cli.md`](../../docs/cli.md)
 - [`spec/configuration.md`](../../spec/configuration.md)
-- [`docs/arbord-api.md`](../../docs/arbord-api.md)
+- [`docs/arborsync-api.md`](../../docs/arborsync-api.md)
 
 The delivered slice intentionally does not claim end-user device pairing, claim recovery/dispute resolution, multiple active local identities, nested or cross-community groups, boundary moves/aliases, or production hosting administration. Those follow-ups have their own position in the forward roadmap rather than keeping the foundation permanently partial.
 
@@ -376,8 +376,8 @@ Delivered:
 
 Primary ownership:
 
-- [`packages/arbord/src/tree-manager.ts`](../../packages/arbord/src/tree-manager.ts)
-- [`packages/arbord/src/service.ts`](../../packages/arbord/src/service.ts)
+- [`packages/arborsync/src/tree-manager.ts`](../../packages/arborsync/src/tree-manager.ts)
+- [`packages/arborsync/src/service.ts`](../../packages/arborsync/src/service.ts)
 - [`packages/fs/src/discovery.ts`](../../packages/fs/src/discovery.ts)
 - [`packages/fs/src/workspace-fs.ts`](../../packages/fs/src/workspace-fs.ts)
 - [`packages/wire/src/objects.ts`](../../packages/wire/src/objects.ts)
@@ -419,9 +419,9 @@ Outcome:
 
 Implemented in:
 
-- [`docs/arbord-api.md`](../../docs/arbord-api.md)
+- [`docs/arborsync-api.md`](../../docs/arborsync-api.md)
 - [`packages/core/src/protocol.ts`](../../packages/core/src/protocol.ts)
-- [`packages/arbord`](../../packages/arbord)
+- [`packages/arborsync`](../../packages/arborsync)
 - [`packages/client`](../../packages/client)
 - [`native/Packages/ArborClient`](../../native/Packages/ArborClient)
 - [`conformance`](../../conformance)
@@ -470,8 +470,8 @@ Implemented in:
 - [`native/Packages/ArborClient`](../../native/Packages/ArborClient)
 - [`packages/stores/src/indexer.ts`](../../packages/stores/src/indexer.ts)
 - [`packages/fs/src/materialization.ts`](../../packages/fs/src/materialization.ts)
-- [`packages/arbord/src/workspace.ts`](../../packages/arbord/src/workspace.ts)
-- [`packages/arbord/src/server.ts`](../../packages/arbord/src/server.ts)
+- [`packages/arborsync/src/workspace.ts`](../../packages/arborsync/src/workspace.ts)
+- [`packages/arborsync/src/server.ts`](../../packages/arborsync/src/server.ts)
 - [`packages/render/src/PageEditor.tsx`](../../packages/render/src/PageEditor.tsx)
 - [`packages/render/src/App.tsx`](../../packages/render/src/App.tsx)
 
@@ -514,12 +514,12 @@ Outcome:
 
 Implemented in:
 
-- [`packages/arbord/src/service.ts`](../../packages/arbord/src/service.ts)
-- `packages/arbord/src/roots.ts` (historical; later consolidated into `service.ts`)
-- [`packages/arbord/src/fs-service.ts`](../../packages/arbord/src/fs-service.ts)
+- [`packages/arborsync/src/service.ts`](../../packages/arborsync/src/service.ts)
+- `packages/arbord/src/roots.ts` (historical; later consolidated into the current arborsync `service.ts`)
+- [`packages/arborsync/src/fs-service.ts`](../../packages/arborsync/src/fs-service.ts)
 - [`packages/stores/src/trees.ts`](../../packages/stores/src/trees.ts)
 - [`packages/stores/src/private-state.ts`](../../packages/stores/src/private-state.ts)
-- [`packages/arbord/src/root-title.ts`](../../packages/arbord/src/root-title.ts)
+- [`packages/arborsync/src/root-title.ts`](../../packages/arborsync/src/root-title.ts)
 - [`packages/core/src/protocol.ts`](../../packages/core/src/protocol.ts)
 - [`packages/render/src/App.tsx`](../../packages/render/src/App.tsx)
 

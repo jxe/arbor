@@ -5,13 +5,13 @@ id: 6r6ov1
 
 [intro](intro)
 
-[editor-todo](plan/editor-todo)
+[editor-todo](plan/interfaces/002-web-editor)
 
 [README](README)
 
-[technical-debt](plan/technical-debt)
+[technical-debt](plan/hardening/backlog)
 
-[plan-native](plan/native)
+[plan-native-history](plan/history/native/overview)
 
 [plan](plan/roadmap)
 

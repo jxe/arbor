@@ -1,4 +1,4 @@
-# Plan 004: Serialize write-journal appends so counters cannot collide
+# Hardening 003: Serialize write-journal appends so counters cannot collide
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
@@ -140,7 +140,7 @@ Repo conventions:
 
 ## Git workflow
 
-- Branch: `advisor/004-serialize-journal-append`
+- Branch: `hardening/003-journal-append`
 - Commit message style from `git log`: short imperative sentence, no prefix.
   Example: `Serialize journal appends per page`.
 - Do NOT push or open a PR.

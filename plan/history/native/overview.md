@@ -1,13 +1,13 @@
-# Native Arbor plan
-*Canonical product and architecture plan for the new Swift Arbor app. Active executor handoffs are indexed in [`execution.md`](execution.md); implemented evidence lives in [`../records/history.md`](../records/history.md).*
+# Native Arbor architecture at completion
+*Historical architecture and decision record for the Swift Arbor implementation. The original plan sequence is indexed in [`README.md`](README.md); implemented evidence lives in [`../outcomes.md`](../outcomes.md). Remaining hands-on acceptance is [Interface 003](../../interfaces/003-native-acceptance-audit.md).*
 
 ## Status and identity
 
-- Quagmire `0.3.0` is published at commit `adab6d6`; Hunch commit `bc2d792` and native Arbor consume the exact remote release. It retains the optional `QuagmireExtras` product for link previews, voice/recovery, App Intent, and transcript polishing and adds the host-neutral async image lifecycle plus link-owned relocation hook. Plan 001 remains the historical `0.1.0` milestone; active Plan 018 records the remaining hands-on image/title/recovery/accessibility audit.
+- Quagmire `0.3.0` is published at commit `adab6d6`; Hunch commit `bc2d792` and native Arbor consume the exact remote release. It retains the optional `QuagmireExtras` product for link previews, voice/recovery, App Intent, and transcript polishing and adds the host-neutral async image lifecycle plus link-owned relocation hook. Plan 001 remains the historical `0.1.0` milestone; the remaining hands-on image/title/recovery/accessibility audit is now Interface 003.
 - Plans 002–005 captured a superseded TreeHopper/iCloud design and must not be executed. Their files remain as historical evidence.
 - The native product is **Arbor**, not TreeHopper: display name and scheme `Arbor`, app module `ArborApp`, bundle ID `org.nxhx.Arbor`, and iOS/macOS 27 deployment targets.
 - The app is new work under `native/`; it is not a renamed Hunch target and must not reuse Hunch defaults, caches, bookmarks, logs, app groups, bundle IDs, or iCloud containers.
-- Plans 012–016 and 021 are complete: the generated Arbor shell and UI-independent ArborKit contracts build on macOS and iOS 27; independent ArborWire conformance passes the shared fixtures and disposable authority harness; ArborReplica provides the private crash-recoverable offline provider; ArborSync adds authority-owned convergence with immediate verified editor patches, sparse complete-object fallback, and conditional returned snapshots. Plan 016's historical ArborQuagmire milestone used exact Quagmire `0.1.0`; active Plan 018 has since upgraded the bridge and app to exact `0.3.0` plus QuagmireExtras while retaining source-preserving guarded admissions.
+- Plans 012–016 and 021 are complete: the generated Arbor shell and UI-independent ArborKit contracts build on macOS and iOS 27; independent ArborWire conformance passes the shared fixtures and disposable authority harness; ArborReplica provides the private crash-recoverable offline provider; ArborSync adds authority-owned convergence with immediate verified editor patches, sparse complete-object fallback, and conditional returned snapshots. Plan 016's historical ArborQuagmire milestone used exact Quagmire `0.1.0`; the completed Plan 018 implementation upgraded the bridge and app to exact `0.3.0` plus QuagmireExtras while retaining source-preserving guarded admissions.
 
 Execution order:
 
@@ -23,12 +23,12 @@ Execution order:
 10. [015 — native replica sync](015-sync-native-replicas.md)
 11. [016 — Quagmire bridge](016-bridge-quagmire.md)
 12. [017 — daily-driver core](017-complete-daily-driver.md)
-13. [018 — Hunch native strengths](018-port-hunch-strengths.md)
+13. [018 — Hunch native strengths](../../interfaces/003-native-acceptance-audit.md) — implementation complete; acceptance extracted
 14. [019 — repeatable Hunch conversion rehearsals and adopted cutover](019-convert-hunch-workspace.md)
-15. [020 — device-management browser E2E](020-test-device-management-browser.md)
+15. [020 — device-management browser E2E](../../interfaces/004-device-management-browser-e2e.md) — deferred active interface work
 16. [021 — immediate editor-patch authority updates](021-add-wire-file-patches.md)
 
-The next cross-workstream product target is the checked-in [Meaning Supplies executable site](../product/supplies-live-site.md). Its native gate is deliberately macOS-first: native Arbor presents arbord's same local executable-document runtime in a constrained web surface while retaining native tab identity, provenance, navigation, and source controls. It does not fork Supplies into Swift. Authority-hosted presentation on iOS may follow once the shared runtime exists; a fully offline iOS executable-document query runtime is a separate explicit milestone rather than an implication of the macOS result.
+The next cross-workstream product target is the checked-in [Meaning Supplies executable site](../../applications/001-supplies-executable-site.md). Its native gate is deliberately macOS-first: native Arbor presents arborsync's same local executable-document runtime in a constrained web surface while retaining native tab identity, provenance, navigation, and source controls. It does not fork Supplies into Swift. Authority-hosted presentation on iOS may follow once the shared runtime exists; a fully offline iOS executable-document query runtime is a separate explicit milestone rather than an implication of the macOS result.
 
 ## Product and persistence boundary
 
@@ -90,7 +90,7 @@ Native Arbor must reproduce Hunch's accepted daily-use strengths before final ad
 
 Plan 019 retains repeatable, copy-only rehearsal tooling for the former Hunch workspace. Arbor never opens the source folder for writing, and edits made while evaluating one rehearsal tree never flow back into retained Hunch data or silently seed a later rehearsal. A stable private conversion recipe preserves the same reviewed PageIDs across runs. Every optional future rehearsal gets a fresh destination and run manifest. This is focused operator tooling, not an app import feature.
 
-The disposable repository-local converter is implemented under [`tools/hunch-rehearsal`](../../tools/hunch-rehearsal). It inventories without writes, drafts a private recipe, requires two identical dry-run confirmations, stages and verifies every output byte before publishing a new destination, and can verify the untouched import baseline afterward. No personal recipe, manifest, content, or hash is checked in. The first private rehearsal was created and verified on 2026-08-25, then opened repeatedly in signed native Arbor builds while the Hunch source remained unchanged.
+The disposable repository-local converter is implemented under [`tools/hunch-rehearsal`](../../../tools/hunch-rehearsal). It inventories without writes, drafts a private recipe, requires two identical dry-run confirmations, stages and verifies every output byte before publishing a new destination, and can verify the untouched import baseline afterward. No personal recipe, manifest, content, or hash is checked in. The first private rehearsal was created and verified on 2026-08-25, then opened repeatedly in signed native Arbor builds while the Hunch source remained unchanged.
 
 Joe accepted the Hunch-to-Arbor cutover as already complete on 2026-08-25. The external-backup restoration demonstration and additional promoted/final rehearsal sequence are not requirements. The reviewed conversion contains 70 curated live pages and 17 assets, preserves 61 existing IDs, mints stable reviewed IDs for nine retained ID-less pages, uses `Console.md` as Home, and discards only the seven explicitly reviewed `main N.md` iCloud collision artifacts. Hunch and Arbor must never coauthor the same folder.
 

@@ -1,4 +1,4 @@
-# Plan 005: Decode percent-encoding once, at the HTTP boundary
+# Hardening 004: Decode percent-encoding once, at the HTTP boundary
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
@@ -160,7 +160,7 @@ Repo conventions:
 
 ## Git workflow
 
-- Branch: `advisor/005-decode-paths-once`
+- Branch: `hardening/004-path-decoding`
 - Commit message style from `git log`: short imperative sentence, no prefix.
   Example: `Decode logical paths once, at the HTTP boundary`.
 - Commit per step where the tree is green; steps 1–3 should land together since

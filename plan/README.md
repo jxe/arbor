@@ -1,21 +1,20 @@
 # Arbor planning documents
 
-Planning is grouped by kind of work so architecture, executor handoffs, debt,
-and completed evidence do not compete in one flat queue.
+Active planning is grouped by the outcome or interface being changed. Numbers
+are stable identifiers within a workstream, not a global execution sequence;
+priority and real dependencies live in each workstream index.
 
-- [`product/`](product/roadmap.md) — forward platform/product direction,
-  concrete product implementation plans, and the editor/browser backlog. Agent
-  work is split between [external CLI access](product/external-agent-cli-access.md)
-  and [Canopy-hosted agents](product/Canopy-hosted-agents.md).
-- [`native/`](native/README.md) — canonical native Arbor architecture plus its
-  active numbered implementation handoffs.
-- [`hardening/`](hardening/README.md) — known technical debt and the older
-  audited defect-remediation handoffs. These plan numbers are scoped to the
-  hardening workstream, not the native sequence.
-- [`records/`](records/history.md) — implemented outcomes and verification
-  evidence.
+- [`roadmap.md`](roadmap.md) — the cross-workstream forward map.
+- [`applications/`](applications/README.md) — authored Arbor applications and
+  the execution capabilities they prove.
+- [`interfaces/`](interfaces/README.md) — native, web, CLI, and browser-facing
+  ways people and tools use Arbor.
+- [`hardening/`](hardening/README.md) — correctness, security, performance, and
+  delivery work that cuts across product milestones.
+- [`history/`](history/README.md) — completed, rejected, and superseded plans,
+  plus durable implementation evidence.
 
-The former `advisor-plans/`, `execution/`, and `generated/` buckets have been
-retired. Completed foundation Plan 000 is represented by its durable outcome
-in history rather than by a finished executor file; native execution begins at
-001 without renumbering stable plan IDs.
+An active plan should describe only work that remains. When a milestone is
+completed, move its executor document to `history/` without renumbering its
+historical identifier, record the outcome and verification evidence, and leave
+only a short dependency link in any continuing plan.
