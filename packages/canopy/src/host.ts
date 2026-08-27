@@ -390,7 +390,7 @@ export async function serveCanopy(options: {
               canopy.canWrite(account, resolved.tree.id, linkDigest(request)) ? "write" : "read",
             );
           return json({
-            ref: { tree: resolved.tree.id, path: resolved.path },
+            ref: { tree: resolved.tree.id, path: resolved.path, stableKey: null },
             enclosingTree,
             historical: false,
             observedThrough: canopy.observedThrough(resolved.tree.id),

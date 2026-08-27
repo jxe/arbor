@@ -84,6 +84,23 @@ public func canonicalStableKey(_ pairs: [(String, JSONValue)]) throws -> String 
     return result
 }
 
+public func pageIDStableKey(_ pageID: String) -> String {
+    try! canonicalStableKey([("id", .string(pageID))])
+}
+
+public func pageIDFromStableKey(_ stableKey: String?) -> String? {
+    guard
+        let stableKey,
+        canonicalStableKeyJSON(stableKey),
+        let data = stableKey.data(using: .utf8),
+        let pairs = try? JSONSerialization.jsonObject(with: data) as? [[Any]],
+        pairs.count == 1,
+        pairs[0].count == 2,
+        pairs[0][0] as? String == "id"
+    else { return nil }
+    return pairs[0][1] as? String
+}
+
 public func encodeStableKey(_ value: String) -> String? {
     guard canonicalStableKeyJSON(value) else { return nil }
     return Data(value.utf8).base64EncodedString()

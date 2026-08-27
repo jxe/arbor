@@ -19,7 +19,7 @@ import type {
   TreeRef,
   WorkspaceOperation,
 } from "@arbor/core";
-import { LOCAL_TREE, SYSTEM_TREE, canonicalNodePath, generateArborID, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
+import { LOCAL_TREE, SYSTEM_TREE, canonicalNodePath, generateArborID, pageIDFromStableKey, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
 import { completeDirectoryDocument, parseMarkdown } from "@arbor/editor";
 import { FsConflictError } from "@arbor/fs";
 import { CommunityConfigStore, VisitedTreeStore, arborDataRoot, arborPrivateRoot, saveCurrentDeviceID } from "@arbor/stores";
@@ -183,7 +183,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   /** Activates filesystem watching and durable identity for a client's browsing root. */
   async openSession(path: string): Promise<NodeSnapshot> {
     await this.trees.openSession(path);
-    return this.snapshot({ tree: LOCAL_TREE, path });
+    return this.snapshot({ tree: LOCAL_TREE, path, stableKey: null });
   }
 
   /** Resolve a reference's scope, canonicalizing placed refs into owning trees. */
@@ -191,32 +191,25 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const tree = ref.tree;
     const workspace = await this.trees.workspaceByTree(tree);
     if (workspace) {
-      if ("path" in ref) {
-        const mounted = this.trees.reservedBoundary(tree, canonicalNodePath(ref.path))
-          ?? this.trees.localMountBoundary(tree, canonicalNodePath(ref.path));
-        if (mounted) {
-          const mountedWorkspace = await this.trees.workspaceByTree(mounted.tree);
-          if (mountedWorkspace) {
+      const mounted = this.trees.reservedBoundary(tree, canonicalNodePath(ref.path))
+        ?? this.trees.localMountBoundary(tree, canonicalNodePath(ref.path));
+      if (mounted) {
+        const mountedWorkspace = await this.trees.workspaceByTree(mounted.tree);
+        if (mountedWorkspace) {
           return {
             kind: "root",
             workspace: mountedWorkspace,
-            ref: { tree: mounted.tree, path: mounted.treePath },
+            ref: { tree: mounted.tree, path: mounted.treePath, stableKey: ref.stableKey },
           };
-          }
         }
       }
       return { kind: "root", workspace, ref };
     }
     if (tree === SYSTEM_TREE) {
-      if (!("path" in ref)) {
-        throw new ProtocolError("invalid-reference", "The system scope is addressed by path", 400);
-      }
+      if (ref.stableKey !== null) throw new ProtocolError("invalid-reference", "System nodes do not have stable keys", 400);
       return { kind: "system", path: canonicalNodePath(ref.path) };
     }
     if (tree === LOCAL_TREE) {
-      if (!("path" in ref)) {
-        throw new ProtocolError("invalid-reference", "Durable identity resolution requires a live root", 400);
-      }
       const canonical = canonicalNodePath(ref.path);
       const real = await realOsPath(canonical);
       const owner = await this.trees.ownerOf(real);
@@ -229,14 +222,14 @@ export class ArborSyncDaemon implements AsyncDisposable {
           return {
             kind: "root",
             workspace: mountedWorkspace,
-            ref: { tree: mounted.tree, path: mounted.treePath },
+            ref: { tree: mounted.tree, path: mounted.treePath, stableKey: ref.stableKey },
           };
           }
         }
         return {
           kind: "root",
           workspace: owner.workspace,
-          ref: { tree: owner.workspace.tree, path: canonicalNodePath(owner.treePath) },
+          ref: { tree: owner.workspace.tree, path: canonicalNodePath(owner.treePath), stableKey: ref.stableKey },
         };
       }
       // A Markdown node's physical representation is its `.md` sibling; a
@@ -248,18 +241,20 @@ export class ArborSyncDaemon implements AsyncDisposable {
           return {
             kind: "root",
             workspace: siblingOwner.workspace,
-            ref: { tree: siblingOwner.workspace.tree, path: canonicalNodePath(siblingOwner.treePath) },
+            ref: { tree: siblingOwner.workspace.tree, path: canonicalNodePath(siblingOwner.treePath), stableKey: ref.stableKey },
           };
         }
       }
-      return { kind: "local", path: real, ref: { tree: LOCAL_TREE, path: real } };
+      if (ref.stableKey !== null) {
+        throw new ProtocolError("invalid-reference", "Stable-key resolution requires a managed workspace", 400);
+      }
+      return { kind: "local", path: real, ref: { tree: LOCAL_TREE, path: real, stableKey: null } };
     }
     throw new ProtocolError("not-found", `Unknown tree scope: ${tree}`, 404);
   }
 
   async snapshot(ref: NodeRef): Promise<NodeSnapshot> {
     if (ref.tree !== LOCAL_TREE && ref.tree !== SYSTEM_TREE && this.remoteAuthorities.has(ref.tree) && !await this.trees.workspaceByTree(ref.tree)) {
-      if (!("path" in ref)) throw new ProtocolError("unsupported-operation", "Transient remote visits require a logical path", 422);
       const remote = this.remoteAuthorities.get(ref.tree)!;
       const locator = `${remote.locator.replace(/\/$/, "")}${ref.path === "/" ? "" : ref.path}`;
       return this.remoteSnapshot(locator);
@@ -276,16 +271,16 @@ export class ArborSyncDaemon implements AsyncDisposable {
 
   async resolveLocator(locator: string): Promise<LocatorResolution> {
     if (locator.startsWith("system:")) {
-      return { ref: { tree: SYSTEM_TREE, path: canonicalNodePath(`/${locator.slice("system:".length)}`) }, historical: false, observedThrough: this.events.currentCursor() };
+      return { ref: { tree: SYSTEM_TREE, path: canonicalNodePath(`/${locator.slice("system:".length)}`), stableKey: null }, historical: false, observedThrough: this.events.currentCursor() };
     }
     if (!/^(?:https?|arbor):\/\//.test(locator)) {
       const absolute = resolveUserPath(locator);
-      const scope = await this.resolveScope({ tree: LOCAL_TREE, path: absolute });
+      const scope = await this.resolveScope({ tree: LOCAL_TREE, path: absolute, stableKey: null });
       if (scope.kind === "root") {
         const enclosingTree = (await this.trees.descriptors()).find((tree) => tree.id === scope.workspace.tree);
         return { ref: scope.ref as import("@arbor/core").ResolvedNodeRef, ...(enclosingTree ? { enclosingTree } : {}), historical: false, observedThrough: this.events.currentCursor() };
       }
-      return { ref: { tree: LOCAL_TREE, path: absolute }, historical: false, observedThrough: this.events.currentCursor() };
+      return { ref: { tree: LOCAL_TREE, path: absolute, stableKey: null }, historical: false, observedThrough: this.events.currentCursor() };
     }
     const parsed = new URL(locator);
     if (parsed.protocol === "arbor:" && parsed.hostname === "tree") {
@@ -293,7 +288,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       if (!tree) throw new ProtocolError("invalid-request", "Raw tree locator requires a TreeID", 400);
       const descriptor = (await this.trees.descriptors()).find((candidate) => candidate.id === tree);
       if (!descriptor) throw new ProtocolError("not-found", `Unknown tree scope: ${tree}`, 404);
-      return { ref: { tree, path: canonicalNodePath(`/${segments.map(decodeURIComponent).join("/")}`) }, enclosingTree: descriptor, historical: false, observedThrough: this.events.currentCursor() };
+      return { ref: { tree, path: canonicalNodePath(`/${segments.map(decodeURIComponent).join("/")}`), stableKey: null }, enclosingTree: descriptor, historical: false, observedThrough: this.events.currentCursor() };
     }
     const origin = parsed.protocol === "arbor:"
       ? `${parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" ? "http" : "https"}://${parsed.host}`
@@ -402,7 +397,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       const authoredTitle = document?.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
       return {
         ...base,
-        ref: { tree: remote.id, path: canonicalNodePath(remotePath!) },
+        ref: { tree: remote.id, path: canonicalNodePath(remotePath!), stableKey: null },
         path: canonicalNodePath(remotePath!),
         name: authoredTitle || (markdown ? objectName.slice(0, -3) : objectName),
         kind: markdown ? "markdown" : "file",
@@ -453,7 +448,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       .sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
     return {
       ...base,
-      ref: { tree: remote.id, path: canonicalNodePath(remotePath!) },
+      ref: { tree: remote.id, path: canonicalNodePath(remotePath!), stableKey: null },
       path: canonicalNodePath(remotePath!),
       name: authoredTitle || objectName,
       kind: "directory",
@@ -518,7 +513,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
         .flatMap((workspace) => workspace.backlinksTo({
           tree: target.tree!,
           path: target.path,
-          ...(target.pageID ? { pageID: target.pageID } : {}),
+          ...(pageIDFromStableKey(target.stableKey) ? { pageID: pageIDFromStableKey(target.stableKey)! } : {}),
         }));
       const seen = new Set<string>();
       const entries = [...primary.entries, ...crossTree].filter((entry) => {
@@ -635,7 +630,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       return await run();
     } catch (error) {
       if (error instanceof RevisionConflictError) {
-        const current = await workspace.snapshot({ tree: workspace.tree, path: error.current.path }).catch(() => undefined);
+        const current = await workspace.snapshot({ tree: workspace.tree, path: error.current.path, stableKey: null }).catch(() => undefined);
         throw new ProtocolError("stale-content-revision", error.message, 409, {
           path: error.current.path,
           current,
@@ -644,7 +639,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       if (error instanceof FsConflictError) {
         const mapped = fsErrorCode(error);
         const current = error.details.current
-          ? await workspace.snapshot({ tree: workspace.tree, path: error.details.current.node.path }).catch(() => undefined)
+          ? await workspace.snapshot({ tree: workspace.tree, path: error.details.current.node.path, stableKey: null }).catch(() => undefined)
           : undefined;
         throw new ProtocolError(mapped.code, error.message, mapped.status, {
           path: error.details.path,
@@ -671,7 +666,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     raw: boolean,
   ): Promise<{ bytes: Uint8Array; revision: string; path: string } | null> {
     try {
-      const scope = await this.resolveScope({ tree: LOCAL_TREE, path: referrerUrlPath });
+      const scope = await this.resolveScope({ tree: LOCAL_TREE, path: referrerUrlPath, stableKey: null });
       if (scope.kind !== "root") return null;
       return await this.scopedFileSurface(scope, treeRootedPath, raw);
     } catch {
@@ -682,7 +677,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   async fileSurface(urlPath: string, raw: boolean): Promise<{ bytes: Uint8Array; revision: string; path: string } | null> {
     let scope: ResolvedScope;
     try {
-      scope = await this.resolveScope({ tree: LOCAL_TREE, path: urlPath });
+      scope = await this.resolveScope({ tree: LOCAL_TREE, path: urlPath, stableKey: null });
     } catch {
       return null;
     }
@@ -703,23 +698,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return null;
   }
 
-  /** Resolve a bare pageID across all live trees. */
-  private async pageIDWorkspace(pageID: string): Promise<Workspace> {
-    const owners: Array<{ workspace: Workspace; paths: readonly string[] }> = [];
-    for (const workspace of await this.trees.openAll()) {
-      const paths = workspace.pageIDOwners(pageID);
-      if (paths.length) owners.push({ workspace, paths });
-    }
-    if (owners.length > 1) {
-      throw new ProtocolError("duplicate-page-id", `Page ID ${pageID} has owners in multiple trees`, 409, {
-        owners: owners.flatMap((owner) =>
-          owner.paths.map((path) => `${owner.workspace.root}${path === "/" ? "" : path}`)
-        ),
-      });
-    }
-    return owners[0]?.workspace ?? this.session;
-  }
-
   /** Safe diagnostic projections. Account configuration is ordinary tree content. */
   private async systemSnapshot(path: string): Promise<NodeSnapshot> {
     await this.trees.descriptors();
@@ -734,7 +712,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (path === "/") {
       return {
         ...base,
-        ref: { tree: SYSTEM_TREE, path: "/" },
+        ref: { tree: SYSTEM_TREE, path: "/", stableKey: null },
         path: "/",
         name: "system",
         kind: "directory",
@@ -750,7 +728,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       const revision = revisionOf(listing.join("\n"));
       return {
         ...base,
-        ref: { tree: SYSTEM_TREE, path },
+        ref: { tree: SYSTEM_TREE, path, stableKey: null },
         path,
         name: path.slice(1),
         kind: "directory",
@@ -767,7 +745,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     }
     return {
       ...base,
-      ref: { tree: SYSTEM_TREE, path },
+      ref: { tree: SYSTEM_TREE, path, stableKey: null },
       path,
       name: record.segment,
       kind: "markdown",
@@ -783,7 +761,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const observedThrough = this.events.currentCursor();
     if (path === "/") {
       return {
-        parent: { tree: SYSTEM_TREE, path: "/" },
+        parent: { tree: SYSTEM_TREE, path: "/", stableKey: null },
         items: [
           { tree: SYSTEM_TREE, name: "credentials", path: "/credentials", kind: "markdown", materialization: "available" },
           { tree: SYSTEM_TREE, name: "visited", path: "/visited", kind: "directory", materialization: "available" },
@@ -796,7 +774,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (path === "/visited") {
       const visits = await this.visitedTrees.list();
       return {
-        parent: { tree: SYSTEM_TREE, path: "/visited" },
+        parent: { tree: SYSTEM_TREE, path: "/visited", stableKey: null },
         items: visits.map((visit) => ({
           tree: SYSTEM_TREE,
           name: visit.name,
@@ -1577,7 +1555,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
       return ref;
     };
     const rejectReservedMount = async (ref: NodeRef): Promise<void> => {
-      if (!("path" in ref)) return;
       if (ref.tree && ref.tree !== LOCAL_TREE && ref.tree !== SYSTEM_TREE) {
         const mounted = this.trees.reservedBoundary(ref.tree, canonicalNodePath(ref.path));
         if (mounted?.exact) {
@@ -1627,8 +1604,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
         translated.destination = await translateRef(translated.destination);
       }
       if (translated.op === "createMarkdown" || translated.op === "createDirectory") {
-        await rejectReservedMount({ tree: translated.tree, path: translated.path });
-        const scope = await this.resolveScope({ tree: translated.tree, path: translated.path });
+        await rejectReservedMount({ tree: translated.tree, path: translated.path, stableKey: null });
+        const scope = await this.resolveScope({ tree: translated.tree, path: translated.path, stableKey: null });
         if (scope.kind === "root") {
           claim(scope.workspace.tree);
           if ("path" in scope.ref) translated.path = scope.ref.path;

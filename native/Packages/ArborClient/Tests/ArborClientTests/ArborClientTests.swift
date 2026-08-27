@@ -50,7 +50,7 @@ final class ArborClientTests: XCTestCase {
         let intentFixtureData = try Data(contentsOf: conformanceFixtures.appending(path: "wire-update-intent.json"))
         let intentFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: intentFixtureData) as? [String: Any])
 
-        XCTAssertEqual(node.ref, ResolvedNodeRef(tree: "tr_notes7f3q2ab7c", path: "/notes/today", pageID: "abc123"))
+        XCTAssertEqual(node.ref, ResolvedNodeRef(tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: pageIDStableKey("abc123")))
         XCTAssertEqual(node.document?.source, "---\nid: abc123\ntitle: Today\n---\nHello\n")
         XCTAssertEqual(node.tree, "tr_notes7f3q2ab7c")
         XCTAssertEqual(node.enclosingTree?.osPath, "/Users/joe/notes")
@@ -65,7 +65,7 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(error.error, "future-error-code")
         XCTAssertEqual(children.items.first?.path, "/notes/today")
         XCTAssertEqual(search.results.first?.pageID, "abc123")
-        XCTAssertEqual(backlinks.entries.first?.ref.pageID, "week01")
+        XCTAssertEqual(backlinks.entries.first?.ref.stableKey, pageIDStableKey("week01"))
         XCTAssertEqual(collection.rows.first?.key, "one")
         XCTAssertEqual(recovery.entries.first?.status, "lost")
         XCTAssertEqual(recovery.entries.last?.kind, "trash")
@@ -81,7 +81,7 @@ final class ArborClientTests: XCTestCase {
             (intentFixtures["replayCases"] as? [[String: Any]])?.compactMap { $0["name"] as? String },
             ["same-intent-different-object-envelope", "different-candidate-has-different-digest"]
         )
-        XCTAssertEqual(unknownNode.ref.pageID, "abc123")
+        XCTAssertEqual(unknownNode.ref.stableKey, pageIDStableKey("abc123"))
     }
 
     func testMultipartMetadataFixturesRemainLanguageNeutralJSON() throws {
@@ -217,6 +217,25 @@ final class ArborClientTests: XCTestCase {
             ),
             "../roadmap;arbor-key=\(encoded)?view=board&edit#implementation"
         )
+    }
+
+    func testNodeRefRequiresAndEncodesExplicitStableKey() throws {
+        let encoded = try JSONEncoder().encode(NodeRef.path("/notes", tree: "tr_notes"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertTrue(object["stableKey"] is NSNull)
+        XCTAssertThrowsError(try JSONDecoder().decode(
+            NodeRef.self,
+            from: Data(#"{"tree":"tr_notes","path":"/notes"}"#.utf8)
+        ))
+        XCTAssertThrowsError(try JSONDecoder().decode(
+            NodeRef.self,
+            from: Data(#"{"tree":"tr_notes","pageID":"pg_notes","pathHint":"/notes","stableKey":null}"#.utf8)
+        ))
+        XCTAssertThrowsError(try JSONEncoder().encode(NodeRef(
+            tree: "tr_notes",
+            path: "/notes",
+            stableKey: "not canonical"
+        )))
     }
 
     func testLiveServerWhenProvided() async throws {
@@ -358,14 +377,16 @@ final class ArborClientTests: XCTestCase {
             session: stubSession()
         )
 
-        let result = try await client.file(
-            .pageID("pg_image", pathHint: "/Assets/photo.png", tree: "tr_notes")
-        )
+        let result = try await client.file(.init(
+            tree: "tr_notes",
+            path: "/Assets/photo.png",
+            stableKey: pageIDStableKey("pg_image")
+        ))
         XCTAssertEqual(result.bytes, bytes)
         let snapshot = await URLProtocolStub.state.snapshot()
         let request = try XCTUnwrap(snapshot.requests.first)
         XCTAssertEqual(request.path, "/v1/file")
-        XCTAssertEqual(request.query, "tree=tr_notes&pageID=pg_image&pathHint=/Assets/photo.png")
+        XCTAssertEqual(request.query, "tree=tr_notes&path=/Assets/photo.png&stableKey=%5B%5B%22id%22,%22pg_image%22%5D%5D")
     }
 
     func testWireClientDecodesAcceptedUpdateAndRetriesExactPreparedBody() async throws {
@@ -510,7 +531,7 @@ final class ArborClientTests: XCTestCase {
     }
 
     func testRemoteBrowsingResolvesThenUsesExplicitTreeScope() async throws {
-        let response = Data(#"{"ref":{"tree":"tr_notes7f3q2ab7c","path":"/notes/today","pageID":"abc123"},"enclosingTree":{"id":"tr_notes7f3q2ab7c","kind":"shared-subtree","access":"read","canonical":{"locator":"arbor://example.test/~alice/notes","path":"/~alice/notes","endpoint":"https://example.test","httpURL":"https://example.test/~alice/notes","parentTree":null}},"historical":false,"observedThrough":"up_notes"}"#.utf8)
+        let response = Data(#"{"ref":{"tree":"tr_notes7f3q2ab7c","path":"/notes/today","stableKey":"[[\"id\",\"abc123\"]]"},"enclosingTree":{"id":"tr_notes7f3q2ab7c","kind":"shared-subtree","access":"read","canonical":{"locator":"arbor://example.test/~alice/notes","path":"/~alice/notes","endpoint":"https://example.test","httpURL":"https://example.test/~alice/notes","parentTree":null}},"historical":false,"observedThrough":"up_notes"}"#.utf8)
         await URLProtocolStub.state.install { request, _ in
             request.url?.path == "/v1/resolve"
                 ? (200, response)
@@ -523,7 +544,7 @@ final class ArborClientTests: XCTestCase {
 
         let resolved = try await client.resolve("arbor://example.test/~alice/notes/today")
 
-        XCTAssertEqual(resolved.ref.pageID, "abc123")
+        XCTAssertEqual(resolved.ref.stableKey, pageIDStableKey("abc123"))
         XCTAssertEqual(resolved.ref.tree, "tr_notes7f3q2ab7c")
         let captured = await URLProtocolStub.state.snapshot()
         let request = try XCTUnwrap(captured.requests.first)

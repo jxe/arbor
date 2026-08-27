@@ -10,7 +10,7 @@ function jsonResponse(value: unknown): Response {
 
 function directorySnapshot(): NodeSnapshot {
   return {
-    ref: { tree: "local", path: "/dir" },
+    ref: { tree: "local", path: "/dir", stableKey: null },
     tree: "local",
     path: "/dir",
     name: "dir",
@@ -29,7 +29,7 @@ function directorySnapshot(): NodeSnapshot {
 describe("ArborSyncRESTClient exact-source contract", () => {
   test("hydrates children without constructing a second projected document", async () => {
     const page: ChildrenPage = {
-      parent: { tree: "local", path: "/dir" },
+      parent: { tree: "local", path: "/dir", stableKey: null },
       items: [{ tree: "local", name: "child", path: "/dir/child", kind: "markdown", materialization: "available" }],
       nextCursor: null,
       observedThrough: CURSOR,
@@ -39,7 +39,7 @@ describe("ArborSyncRESTClient exact-source contract", () => {
         ? jsonResponse(page)
         : jsonResponse(directorySnapshot()),
     });
-    const node = await client.node({ tree: "local", path: "/dir" });
+    const node = await client.node({ tree: "local", path: "/dir", stableKey: null });
     expect(node.document?.source).toBe("[child](child)\n\n");
     expect(node.children).toEqual(page.items);
     expect("projection" in node).toBe(false);
@@ -57,7 +57,7 @@ describe("ArborSyncRESTClient exact-source contract", () => {
     });
     await client.mutateContent({
       op: "writeMarkdown",
-      ref: { tree: "local", path: "/page" },
+      ref: { tree: "local", path: "/page", stableKey: null },
       baseContentRevision: "sha256:before",
       source: "# Exact\r\n\r\nunknown <x>\r\n",
     });
@@ -69,6 +69,6 @@ describe("ArborSyncRESTClient exact-source contract", () => {
 
   test("childRef prefers durable identity", () => {
     expect(childRef({ tree: "tr_example", name: "a", path: "/a", kind: "markdown", materialization: "available", pageID: "opaque" }))
-      .toEqual({ tree: "tr_example", pageID: "opaque", pathHint: "/a" });
+      .toEqual({ tree: "tr_example", path: "/a", stableKey: '[["id","opaque"]]' });
   });
 });

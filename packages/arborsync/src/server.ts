@@ -10,6 +10,7 @@ import type {
   QueryStreamRuntime,
 } from "@arbor/core";
 import { PathEscapeError, encodeSSEFrame, generateArborID } from "@arbor/core";
+import { decodeNodeRef } from "@arbor/core/node-model";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
 import { currentDeviceID } from "@arbor/stores";
 import { ResyncRequiredError } from "./events.ts";
@@ -133,15 +134,17 @@ function assertSameOrigin(request: Request, url: URL): void {
 
 function queryRef(url: URL): NodeRef {
   const path = url.searchParams.get("path");
-  const pageID = url.searchParams.get("pageID");
-  if (Boolean(path) === Boolean(pageID)) {
-    throw new ProtocolError("invalid-reference", "Supply exactly one of path or pageID", 400);
-  }
   const tree = url.searchParams.get("tree");
   if (!tree) throw new ProtocolError("invalid-request", "An explicit tree scope is required", 400);
-  return path !== null
-    ? { tree, path }
-    : { tree, pageID: pageID!, ...(url.searchParams.has("pathHint") ? { pathHint: url.searchParams.get("pathHint")! } : {}) };
+  if (path === null) throw new ProtocolError("invalid-reference", "A node reference requires path", 400);
+  if (!url.searchParams.has("stableKey")) {
+    throw new ProtocolError("invalid-reference", "A node reference requires explicit stableKey", 400);
+  }
+  try {
+    return decodeNodeRef({ tree, path, stableKey: url.searchParams.get("stableKey") || null });
+  } catch (error) {
+    throw new ProtocolError("invalid-reference", error instanceof Error ? error.message : "Invalid node reference", 400);
+  }
 }
 
 function decodeMutation(value: unknown): MutationRequest {
@@ -179,20 +182,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function validateRef(value: unknown, field: string): asserts value is NodeRef {
-  if (!isRecord(value)) {
-    throw new ProtocolError("invalid-reference", `${field} must be a node reference`, 400);
-  }
-  const hasPath = Object.prototype.hasOwnProperty.call(value, "path");
-  const hasPageID = Object.prototype.hasOwnProperty.call(value, "pageID");
-  if (
-    hasPath === hasPageID
-    || (hasPath && (typeof value.path !== "string" || !value.path))
-    || (hasPageID && (typeof value.pageID !== "string" || !value.pageID))
-    || (value.pathHint !== undefined && typeof value.pathHint !== "string")
-    || typeof value.tree !== "string"
-    || !value.tree
-  ) {
-    throw new ProtocolError("invalid-reference", `${field} must contain exactly one non-empty path or pageID`, 400);
+  try {
+    decodeNodeRef(value);
+  } catch (error) {
+    throw new ProtocolError(
+      "invalid-reference",
+      `${field}: ${error instanceof Error ? error.message : "invalid node reference"}`,
+      400,
+    );
   }
 }
 
@@ -339,6 +336,7 @@ async function decodeAsset(request: Request): Promise<{
     || !metadata.directory
     || typeof metadata.directory !== "object"
   ) throw new ProtocolError("invalid-reference", "Asset metadata is incomplete", 400);
+  validateRef(metadata.directory, "asset.directory");
   return {
     mutationID: metadata.mutationID,
     directory: metadata.directory as NodeRef,
@@ -371,6 +369,7 @@ async function decodeImport(request: Request): Promise<{
     || typeof metadata.destination !== "object"
     || !Array.isArray(metadata.entries)
   ) throw new ProtocolError("invalid-reference", "Import metadata is incomplete", 400);
+  validateRef(metadata.destination, "import.destination");
   const entries: FsImportEntry[] = [];
   for (const item of metadata.entries) {
     if (typeof item.path !== "string" || (item.kind !== "file" && item.kind !== "directory")) {
@@ -596,7 +595,7 @@ function startArborSyncServer(
           return errorResponse("resync-required", error.message, 409, { retryable: true });
         }
         if (error instanceof RevisionConflictError) {
-          const current = workspace ? await workspace.snapshot({ tree: workspace.tree, path: error.current.path }) : undefined;
+          const current = workspace ? await workspace.snapshot({ tree: workspace.tree, path: error.current.path, stableKey: null }) : undefined;
           return errorResponse("stale-content-revision", error.message, 409, {
             tree: workspace?.tree,
             path: error.current.path,
@@ -606,7 +605,7 @@ function startArborSyncServer(
         if (error instanceof FsConflictError) {
           const mapped = fsErrorCode(error);
           const current = workspace && error.details.current
-            ? await workspace.snapshot({ tree: workspace.tree, path: error.details.current.node.path }).catch(() => undefined)
+            ? await workspace.snapshot({ tree: workspace.tree, path: error.details.current.node.path, stableKey: null }).catch(() => undefined)
             : undefined;
           return errorResponse(mapped.code, error.message, mapped.status, {
             path: error.details.path,

@@ -45,41 +45,52 @@ public struct ArborSyncStatus: Codable, Sendable, Equatable {
     }
 }
 
-/// A local reference: a logical path or a durable page ID plus hint,
-/// qualified by the required `tree` scope: "local", "system", or a TreeID.
+/// One node location with optional schema-derived stable identity.
 public struct NodeRef: Codable, Sendable, Equatable {
     public var tree: String
-    public var path: String?
-    public var pageID: String?
-    public var pathHint: String?
+    public var path: String
+    public var stableKey: String?
 
-    public init(tree: String, path: String? = nil, pageID: String? = nil, pathHint: String? = nil) {
+    public init(tree: String, path: String, stableKey: String? = nil) {
         self.tree = tree
         self.path = path
-        self.pageID = pageID
-        self.pathHint = pathHint
+        self.stableKey = stableKey
     }
 
     public static func path(_ path: String, tree: String) -> NodeRef {
         NodeRef(tree: tree, path: path)
     }
 
-    public static func pageID(_ pageID: String, pathHint: String? = nil, tree: String) -> NodeRef {
-        NodeRef(tree: tree, pageID: pageID, pathHint: pathHint)
+    private enum CodingKeys: String, CodingKey { case tree, path, stableKey, pageID, pathHint }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard container.contains(.stableKey), !container.contains(.pageID), !container.contains(.pathHint) else {
+            throw DecodingError.dataCorruptedError(forKey: .stableKey, in: container, debugDescription: "node refs require explicit stableKey and reject PageID references")
+        }
+        tree = try container.decode(String.self, forKey: .tree)
+        path = try container.decode(String.self, forKey: .path)
+        stableKey = try container.decodeIfPresent(String.self, forKey: .stableKey)
+        guard !tree.isEmpty, !path.isEmpty, stableKey.map({ encodeStableKey($0) != nil }) ?? true else {
+            throw DecodingError.dataCorruptedError(forKey: .stableKey, in: container, debugDescription: "node refs require nonempty location fields and a canonical stable key")
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(tree, forKey: .tree)
+        try container.encode(path, forKey: .path)
+        if let stableKey {
+            guard encodeStableKey(stableKey) != nil else {
+                throw EncodingError.invalidValue(stableKey, .init(codingPath: encoder.codingPath, debugDescription: "stableKey is not canonical identity JSON"))
+            }
+            try container.encode(stableKey, forKey: .stableKey)
+        }
+        else { try container.encodeNil(forKey: .stableKey) }
     }
 }
 
-public struct ResolvedNodeRef: Codable, Sendable, Equatable {
-    public var tree: String
-    public var path: String
-    public var pageID: String?
-
-    public init(tree: String, path: String, pageID: String? = nil) {
-        self.tree = tree
-        self.path = path
-        self.pageID = pageID
-    }
-}
+public typealias ResolvedNodeRef = NodeRef
 
 public struct CanonicalTreeDescriptor: Codable, Sendable, Equatable {
     public var locator: String

@@ -168,7 +168,7 @@ describe("private self-sync", () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const note = await author.client.node({ tree, path: "/note" });
+    const note = await author.client.node({ tree, path: "/note", stableKey: null });
     const source = note.document!.source.replace("Common", "From A");
     const updateBodies: any[] = [];
     const systemFetch = globalThis.fetch;
@@ -182,7 +182,7 @@ describe("private self-sync", () => {
     try {
       await author.client.mutateContent({
         op: "writeMarkdown",
-        ref: { tree, path: "/note" },
+        ref: { tree, path: "/note", stableKey: null },
         baseContentRevision: note.contentRevision!,
         source,
         sourceEdits: [{ offset: 2, length: 6, replacement: "From A", expected: "Common" }],
@@ -201,13 +201,13 @@ describe("private self-sync", () => {
 
     const reader = await launch(stateB, treeB);
     await waitFor(async () => (await readFile(join(treeB, "note.md"), "utf8")).includes("From A"));
-    expect(await reader.client.node({ tree, path: "/note" }).then((node) => node.document?.bodySource)).toContain("From A");
+    expect(await reader.client.node({ tree, path: "/note", stableKey: null }).then((node) => node.document?.bodySource)).toContain("From A");
     await reader.close();
 
     const fallback = await launch(stateA, treeA);
     await waitFor(async () => (await fallback.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const beforeFallback = await fallback.client.node({ tree, path: "/note" });
+    const beforeFallback = await fallback.client.node({ tree, path: "/note", stableKey: null });
     const fallbackBodies: any[] = [];
     const fallbackFetch = globalThis.fetch;
     globalThis.fetch = (async (input, init) => {
@@ -220,7 +220,7 @@ describe("private self-sync", () => {
     try {
       await fallback.client.mutateContent({
         op: "writeMarkdown",
-        ref: { tree, path: "/note" },
+        ref: { tree, path: "/note", stableKey: null },
         baseContentRevision: beforeFallback.contentRevision!,
         source: "# Complete-object fallback\n",
         sourceEdits: [{
@@ -244,7 +244,7 @@ describe("private self-sync", () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-    const before = await author.client.node({ tree, path: "/note" });
+    const before = await author.client.node({ tree, path: "/note", stableKey: null });
     const firstSource = "# Rapid generation one\n";
     const secondSource = "# Rapid generation two\n";
     const updateBodies: any[] = [];
@@ -269,7 +269,7 @@ describe("private self-sync", () => {
     try {
       await author.client.mutateContent({
         op: "writeMarkdown",
-        ref: { tree, path: "/note" },
+        ref: { tree, path: "/note", stableKey: null },
         baseContentRevision: before.contentRevision!,
         source: firstSource,
         sourceEdits: [{
@@ -280,10 +280,10 @@ describe("private self-sync", () => {
         }],
       });
       await firstObserved;
-      const afterFirst = await author.client.node({ tree, path: "/note" });
+      const afterFirst = await author.client.node({ tree, path: "/note", stableKey: null });
       await author.client.mutateContent({
         op: "writeMarkdown",
-        ref: { tree, path: "/note" },
+        ref: { tree, path: "/note", stableKey: null },
         baseContentRevision: afterFirst.contentRevision!,
         source: secondSource,
         sourceEdits: [{
@@ -304,11 +304,11 @@ describe("private self-sync", () => {
 
     expect(updateBodies[1].base.root).toBe(updateBodies[0].candidate);
     expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
-    const after = await author.client.node({ tree, path: "/note" });
+    const after = await author.client.node({ tree, path: "/note", stableKey: null });
     const restoredSource = "# Complete-object fallback\n";
     await author.client.mutateContent({
       op: "writeMarkdown",
-      ref: { tree, path: "/note" },
+      ref: { tree, path: "/note", stableKey: null },
       baseContentRevision: after.contentRevision!,
       source: restoredSource,
       sourceEdits: [{
@@ -329,12 +329,12 @@ describe("private self-sync", () => {
     await host.canopy[Symbol.asyncDispose]();
 
     const offline = await launch(stateA, treeA);
-    const offlineNode = await offline.client.node({ tree, path: "/note" });
+    const offlineNode = await offline.client.node({ tree, path: "/note", stableKey: null });
     const offlineSource = offlineNode.document!.source.replace("Complete-object", "Locally durable");
     const savedOffline = await Promise.race([
       offline.client.mutateContent({
         op: "writeMarkdown",
-        ref: { tree, path: "/note" },
+        ref: { tree, path: "/note", stableKey: null },
         baseContentRevision: offlineNode.contentRevision!,
         source: offlineSource,
         sourceEdits: [{ offset: 2, length: 15, replacement: "Locally durable", expected: "Complete-object" }],

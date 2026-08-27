@@ -31,12 +31,12 @@
   rewrites the Markdown alias to the server-visible suffix. The owner index,
   rather than the locator parser, remains responsible for proving that a legacy
   bare fragment uniquely names an old PageID.
-- **Locator integration still open:** migrate protocol `NodeRef`, REST request
-  decoding, browser/native navigation, `ArborReplica`'s private Markdown-link
-  parser, search/backlink records, and Canopy boundary resolution/redirects to
-  the stable-key slot. Remove the temporary stable-key-to-PageID bridges only
-  with that coordinated node-model cutover. These items remain owned by Phases
-  3–6 below rather than being mistaken for completed codec work.
+- **Locator integration still open:** migrate Swift/native references,
+  `ArborReplica`'s private Markdown-link parser, search results and the old
+  `TreeChild` projection, and Canopy boundary resolution/redirects to the
+  stable-key slot. Remove the temporary stable-key-to-PageID bridges only with
+  that coordinated node-model cutover. These items remain owned by Phases 3–6
+  below rather than being mistaken for completed codec work.
 - **2026-08-27 — node sampling contract complete:**
   `conformance/node-model.json` freezes the three-part ref, identity rules,
   capabilities, exact-source content, summaries, snapshots, children pages,
@@ -45,9 +45,22 @@
   and reject missing nullable keys, the old PageID union, duplicated location,
   public kinds, and write authority inferred from omission. Wire endpoint
   vectors now freeze tree-scoped `QUERY .../queries` and `POST .../mutate`.
-- **Next checkpoint:** replace the core TypeScript and Swift protocol shapes
-  from these fixtures in one green tranche, then migrate the first providers
-  without retaining collection paging as a compatibility ontology.
+- **2026-08-27 — TypeScript and Swift node-reference cutover complete:** the
+  public core and ArborClient references, local REST query and JSON decoders,
+  managed/untracked filesystem dispatch, client encoding, browser navigation,
+  native provider adaptation, backlinks, recovery, transfer metadata, and
+  protocol fixtures now use required
+  `{ tree, path, stableKey: string | null }`. Stable-key resolution survives a
+  stale readable path, while a path-only request remains explicit with
+  `stableKey: null`. Local REST rejects omitted identity state and the removed
+  PageID/path-hint union. Markdown `id`, ArborKit's presentation-facing
+  `WorkspaceReference`, legacy event effects, search results, and `TreeChild`
+  still use PageID internally until the snapshot/children and native-workspace
+  projections are replaced; they are not an alternate wire reference.
+- **Next checkpoint:** replace TypeScript `NodeSnapshot`, `TreeChild`, and
+  collection results with capabilities, properties, exact-source content, and
+  `NodeSummary` children. Stop eager child draining, then port the same complete
+  protocol shape through Swift before provider expansion.
 
 ## Target result
 

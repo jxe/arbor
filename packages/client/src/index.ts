@@ -26,6 +26,7 @@ import type {
   TreeRef,
   WorkspaceEvent,
 } from "@arbor/core";
+import { pageIDStableKey } from "@arbor/core/node-key";
 
 export type {
   ArborBlock,
@@ -118,11 +119,13 @@ export interface CommunityPairingOffer {
   expiresAt: number;
 }
 
-/** A pageID-bearing reference to a listed child, preferring durable identity. */
+/** Build a canonical node reference, retaining a listed Markdown identity when present. */
 export function childRef(child: TreeChild): NodeRef {
-  return child.pageID
-    ? { tree: child.tree, pageID: child.pageID, pathHint: child.path }
-    : { tree: child.tree, path: child.path };
+  return {
+    tree: child.tree,
+    path: child.path,
+    stableKey: child.pageID ? pageIDStableKey(child.pageID) : null,
+  };
 }
 
 class AsyncBuffer<T> implements AsyncIterable<T> {
@@ -169,12 +172,9 @@ class AsyncBuffer<T> implements AsyncIterable<T> {
 
 function refQuery(ref: NodeRef): string {
   const query = new URLSearchParams();
-  if (ref.tree !== undefined) query.set("tree", ref.tree);
-  if ("path" in ref) query.set("path", ref.path);
-  else {
-    query.set("pageID", ref.pageID);
-    if (ref.pathHint !== undefined) query.set("pathHint", ref.pathHint);
-  }
+  query.set("tree", ref.tree);
+  query.set("path", ref.path);
+  query.set("stableKey", ref.stableKey ?? "");
   return query.toString();
 }
 
@@ -279,9 +279,7 @@ export class ArborSyncRESTClient {
 
   async openNodeView(ref: NodeRef, signal?: AbortSignal): Promise<ObservedNodeView> {
     const snapshot = await this.nodeSnapshot(ref);
-    const observedRef: NodeRef = snapshot.ref.pageID
-      ? { tree: snapshot.tree ?? snapshot.ref.tree, pageID: snapshot.ref.pageID, pathHint: snapshot.path }
-      : { tree: snapshot.tree ?? snapshot.ref.tree, path: snapshot.path };
+    const observedRef = snapshot.ref;
     const controller = new AbortController();
     const updates = new AsyncBuffer<ObservedNodeUpdate>();
     const close = () => {
@@ -376,10 +374,7 @@ export class ArborSyncRESTClient {
   }
 
 
-  /**
-   * Ensure the referenced document carries a durable PageID, materializing a
-   * frontmatter-only `_index.md` for an implicit directory when necessary.
-   */
+  /** Ensure the referenced document has an `id` identity property. */
   async ensureDocumentIdentity(
     ref: NodeRef,
     baseContentRevision: ContentRevision,

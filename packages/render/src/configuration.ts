@@ -36,7 +36,7 @@ async function context(client: ArborSyncRESTClient) {
   const [trees, status] = await Promise.all([client.trees(), client.status()]);
   const configuration = trees.snapshot.find((tree) => tree.kind === "account-configuration");
   if (!configuration || !status.deviceID) throw new Error("This device has no active account configuration checkout");
-  const accountFile = await client.file({ tree: configuration.id, path: "/account.yaml" });
+  const accountFile = await client.file({ tree: configuration.id, path: "/account.yaml", stableKey: null });
   const account = parseDocument(new TextDecoder().decode(accountFile.bytes), { uniqueKeys: true }).toJS() as {
     community?: unknown;
     profile?: { tree?: unknown; handle?: unknown };
@@ -64,7 +64,7 @@ export async function configurationStatus(client: ArborSyncRESTClient) {
 }
 
 async function edit(client: ArborSyncRESTClient, tree: string, path: string, change: (document: Document) => void | Promise<void>) {
-  const ref = { tree, path } as const;
+  const ref = { tree, path, stableKey: null } as const;
   const file = await client.file(ref);
   const source = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
   const document = parseDocument(source, { uniqueKeys: true, keepSourceTokens: true });
@@ -104,7 +104,7 @@ function subjectID(subject: any): string {
 export async function configurationAccessEntries(client: ArborSyncRESTClient, treeID: string): Promise<AccessEntry[]> {
   const { tree } = await context(client);
   const [file, descriptors] = await Promise.all([
-    client.file({ tree, path: "/trees.yaml" }),
+    client.file({ tree, path: "/trees.yaml", stableKey: null }),
     client.trees(),
   ]);
   const locators = new Map(descriptors.snapshot.map((descriptor) => [descriptor.id, descriptor.canonical?.locator]));
@@ -188,9 +188,9 @@ export async function applyConfigurationAction(client: ArborSyncRESTClient, acti
 
 export async function activeDevices(client: ArborSyncRESTClient): Promise<ActiveDevice[]> {
   const { tree } = await context(client);
-  const children = await client.allChildren({ tree, path: "/devices" });
+  const children = await client.allChildren({ tree, path: "/devices", stableKey: null });
   return Promise.all(children.filter((child) => child.name.startsWith("dv_")).map(async (child) => {
-    const file = await client.file({ tree, path: child.path });
+    const file = await client.file({ tree, path: child.path, stableKey: null });
     const value = parseDocument(new TextDecoder().decode(file.bytes), { uniqueKeys: true }).toJS() as { label?: unknown };
     return {
       id: child.name.replace(/\.yaml$/, ""),
@@ -204,5 +204,5 @@ export async function activeDevices(client: ArborSyncRESTClient): Promise<Active
 
 export async function revokeActiveDevice(client: ArborSyncRESTClient, id: string): Promise<void> {
   const { tree } = await context(client);
-  await client.mutateStructural([{ op: "trash", refs: [{ tree, path: `/devices/${id}.yaml` }] }]);
+  await client.mutateStructural([{ op: "trash", refs: [{ tree, path: `/devices/${id}.yaml`, stableKey: null }] }]);
 }

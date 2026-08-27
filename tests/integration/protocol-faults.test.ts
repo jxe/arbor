@@ -50,7 +50,7 @@ describe("REST v1 protocol fault recovery", () => {
       const recovered = await Workspace.open(root);
       const receipt = await recovered.executeMutation(request);
       expect(receipt.effects[0]).toMatchObject({ kind: "created", path: "/once" });
-      expect((await recovered.snapshot({ tree, path: "/once" })).path).toBe("/once");
+      expect((await recovered.snapshot({ tree, path: "/once", stableKey: null })).path).toBe("/once");
       expect(await recovered.executeMutation(request)).toEqual(receipt);
       await recovered[Symbol.asyncDispose]();
     });
@@ -76,7 +76,7 @@ describe("REST v1 protocol fault recovery", () => {
         "response-delivery",
       );
       expect(receipt.effects[0]).toMatchObject({ kind: "created", path: "/after-response-loss" });
-      expect((await client.node({ tree: running.workspace.tree, path: "/after-response-loss" })).path).toBe("/after-response-loss");
+      expect((await client.node({ tree: running.workspace.tree, path: "/after-response-loss", stableKey: null })).path).toBe("/after-response-loss");
     } finally {
       running.server.stop(true);
       await running.workspace[Symbol.asyncDispose]();

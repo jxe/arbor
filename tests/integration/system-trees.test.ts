@@ -29,19 +29,19 @@ afterAll(async () => {
 
 describe("narrow system scope", () => {
   test("contains only safe local diagnostics, credential availability, and visits", async () => {
-    const system = await client.node({ tree: "system", path: "/" });
+    const system = await client.node({ tree: "system", path: "/", stableKey: null });
     expect(system.children?.map((child) => child.name)).toEqual([
       "credentials",
       "visited",
       "diagnostics",
     ]);
     for (const removed of ["device", "community", "trees"]) {
-      await expect(client.node({ tree: "system", path: `/${removed}` })).rejects.toMatchObject({ status: 404 });
+      await expect(client.node({ tree: "system", path: `/${removed}`, stableKey: null })).rejects.toMatchObject({ status: 404 });
     }
   });
 
   test("keeps ordinary local browsing explicit and separate from system scope", async () => {
-    const note = await client.node({ tree: "local", path: join(root, "notes", "today") });
+    const note = await client.node({ tree: "local", path: join(root, "notes", "today"), stableKey: null });
     expect(note.tree).toBe(running.workspace.tree);
     expect(note.enclosingTree).toMatchObject({ placement: "placed" });
     expect(note.document?.bodySource).toContain("Today");

@@ -56,9 +56,9 @@ function pathFromLocation(): string {
 
 function urlToRef(url: string): NodeRef {
   if (url.startsWith(SYSTEM_URL_PREFIX)) {
-    return { tree: "system", path: `/${url.slice(SYSTEM_URL_PREFIX.length)}` || "/" };
+    return { tree: "system", path: `/${url.slice(SYSTEM_URL_PREFIX.length)}` || "/", stableKey: null };
   }
-  return { tree: "local", path: url };
+  return { tree: "local", path: url, stableKey: null };
 }
 
 /** The URL-space spelling of a loaded node. */
@@ -300,7 +300,7 @@ export function App() {
       const [treeSnapshot, community, visitedDirectory] = await Promise.all([
         api.client.trees(),
         api.configurationStatus(),
-        api.node({ tree: "system", path: "/visited" }),
+        api.node({ tree: "system", path: "/visited", stableKey: null }),
       ]);
       const origin = community.origin;
       setServer({
@@ -321,7 +321,7 @@ export function App() {
       }));
       setRecoverable(recoveryPages.flat().sort((a, b) => b.entry.changedAt - a.entry.changedAt));
       const visitRecords = await Promise.all((visitedDirectory.children ?? []).map((child) =>
-        api.node({ tree: "system", path: child.path })
+        api.node({ tree: "system", path: child.path, stableKey: null })
       ));
       setVisits(visitRecords.flatMap((record): VisitedTreeSummary[] => {
         const values = record.document?.frontmatter;
@@ -416,11 +416,7 @@ export function App() {
   const navigate = useCallback((target: string | NodeRef) => {
     setMobileSidebarOpen(false);
     setCrumbsExpanded(false);
-    const next = typeof target === "string"
-      ? target
-      : target.tree === undefined && "pageID" in target
-        ? path
-        : "path" in target ? target.path : target.pathHint ?? path;
+    const next = typeof target === "string" ? target : target.path;
     pendingRef.current = typeof target === "string" ? null : target;
     if (next === path && !pendingRef.current) return;
     nodeRequest.current += 1;
@@ -605,7 +601,7 @@ export function App() {
       if (sidebarMenu.mode === "rename" && sidebarMenu.target) {
         const oldPath = sidebarMenu.target.path;
         const nextPath = childPath(oldPath.slice(0, oldPath.lastIndexOf("/")) || "/", name);
-        await sidebarApi.mutate({ operations: [{ op: "rename", ref: { tree: sidebar.tree, path: oldPath }, name }] });
+        await sidebarApi.mutate({ operations: [{ op: "rename", ref: { tree: sidebar.tree, path: oldPath, stableKey: null }, name }] });
         setSidebarMenu(null);
         const oldUrl = scopeUrl(sidebar, oldPath);
         if (path === oldUrl || path.startsWith(`${oldUrl}/`)) {
@@ -635,7 +631,7 @@ export function App() {
     if (!target || !sidebar || !confirm(`Move ${target.name} to Trash?`)) return;
     try {
       setError(null);
-      await sidebarApi.mutate({ operations: [{ op: "trash", refs: [{ tree: sidebar.tree, path: target.path }] }] });
+      await sidebarApi.mutate({ operations: [{ op: "trash", refs: [{ tree: sidebar.tree, path: target.path, stableKey: null }] }] });
       setSidebarMenu(null);
       const targetUrl = scopeUrl(sidebar, target.path);
       if (path === targetUrl || path.startsWith(`${targetUrl}/`)) navigate(parentUrl(targetUrl));

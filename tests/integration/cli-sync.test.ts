@@ -278,7 +278,7 @@ describe("primary CLI sync forms", () => {
     const tree = host.canopy.boundary("/~owner/notes")!.id;
     const service = await ArborSyncDaemon.open(destination);
     try {
-      expect((await service.snapshot({ tree, path: "/note" })).writable).toBe(true);
+      expect((await service.snapshot({ tree, path: "/note", stableKey: null })).writable).toBe(true);
       await service.executeMutation({
         mutationID: "anonymous-public-write",
         operations: [{ op: "createMarkdown", tree, path: "/public-note" }],

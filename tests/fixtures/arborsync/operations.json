@@ -4,13 +4,13 @@
     "operations": [
       {
         "op": "writeMarkdown",
-        "ref": { "tree": "tr_notes7f3q2ab7c", "pageID": "abc123", "pathHint": "/notes/today" },
+        "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "stableKey": "[[\"id\",\"abc123\"]]" },
         "baseContentRevision": "sha256:content",
         "source": "---\nid: abc123\ntitle: Today\n---\nUpdated\n"
       },
       {
         "op": "writeText",
-        "ref": { "tree": "tr_config7f3q2ab7c", "path": "/trees.yaml" },
+        "ref": { "tree": "tr_config7f3q2ab7c", "path": "/trees.yaml", "stableKey": null },
         "baseContentRevision": "sha256:configuration",
         "source": "version: 1\ntrees: {}\n"
       }
@@ -21,19 +21,19 @@
     "operations": [
       { "op": "createMarkdown", "tree": "tr_notes7f3q2ab7c", "path": "/notes/tomorrow", "source": "Tomorrow\n" },
       { "op": "createDirectory", "tree": "tr_notes7f3q2ab7c", "path": "/archive" },
-      { "op": "rename", "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/draft" }, "name": "published" },
+      { "op": "rename", "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/draft", "stableKey": null }, "name": "published" },
       {
         "op": "move",
-        "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/notes/tomorrow" }],
-        "destination": { "tree": "tr_notes7f3q2ab7c", "path": "/archive" }
+        "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/notes/tomorrow", "stableKey": null }],
+        "destination": { "tree": "tr_notes7f3q2ab7c", "path": "/archive", "stableKey": null }
       },
       {
         "op": "copy",
-        "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/notes/today" }],
-        "destination": { "tree": "tr_notes7f3q2ab7c", "path": "/archive" }
+        "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "stableKey": null }],
+        "destination": { "tree": "tr_notes7f3q2ab7c", "path": "/archive", "stableKey": null }
       },
-      { "op": "trash", "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/draft" }] },
-      { "op": "restore", "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/Trash/draft" }] }
+      { "op": "trash", "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/draft", "stableKey": null }] },
+      { "op": "restore", "refs": [{ "tree": "tr_notes7f3q2ab7c", "path": "/Trash/draft", "stableKey": null }] }
     ]
   },
   {
@@ -41,13 +41,13 @@
     "operations": [
       {
         "op": "restoreRecovery",
-        "ref": { "tree": "tr_notes7f3q2ab7c", "pageID": "abc123", "pathHint": "/notes/today" },
+        "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "stableKey": "[[\"id\",\"abc123\"]]" },
         "hash": "sha256:lost",
         "baseContentRevision": "sha256:content"
       },
       {
         "op": "ensureDocumentIdentity",
-        "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/projects/atlas" },
+        "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/projects/atlas", "stableKey": null },
         "baseContentRevision": "sha256:content"
       }
     ]

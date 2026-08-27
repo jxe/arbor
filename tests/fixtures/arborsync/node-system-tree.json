@@ -1,5 +1,5 @@
 {
-  "ref": { "tree": "system", "path": "/credentials" },
+  "ref": { "tree": "system", "path": "/credentials", "stableKey": null },
   "tree": "system",
   "path": "/credentials",
   "name": "credentials",

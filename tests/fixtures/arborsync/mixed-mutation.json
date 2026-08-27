@@ -3,7 +3,7 @@
   "operations": [
     {
       "op": "writeMarkdown",
-      "ref": { "tree": "tr_notes7f3q2ab7c", "pageID": "abc123", "pathHint": "/notes/today" },
+      "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "stableKey": "[[\"id\",\"abc123\"]]" },
       "baseContentRevision": "sha256:content",
       "source": "Not valid in this batch\n"
     },

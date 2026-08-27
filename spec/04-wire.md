@@ -727,6 +727,16 @@ both capabilities are advertised. A `ChildRepresentationSummary` describes the o
 it does not make backing or projection topology part of node identity. The
 exact synchronized rollup form remains the `RollupDescriptor` below.
 
+The local HTTP adapter carries this same reference without inventing a second
+locator shape. Requests to `/v1/node`, `/v1/file`, `/v1/children`,
+`/v1/backlinks`, and `/v1/recovery` require the `tree`, `path`, and `stableKey`
+query parameters. An empty `stableKey` parameter encodes JSON `null`; a
+non-empty value is the canonical identity-key JSON, percent-encoded by the HTTP
+client. JSON mutation and transfer requests embed the three fields directly.
+The removed `pageID | pathHint` request union is invalid on every route. The
+local-only `local` and `system` tree scopes use the same three-field shape even
+though those sentinel scopes never cross Arbor Wire.
+
 New tree IDs are `tr_` plus 26 lowercase base32 characters encoding 128 random
 bits. New device IDs use the same encoding after `dv_`. Existing shorter IDs
 may remain valid during migration, but activation and pairing require the new

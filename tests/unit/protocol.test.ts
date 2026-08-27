@@ -27,7 +27,7 @@ describe("REST v1 protocol fixtures", () => {
     const mutation = await json<MutationRequest>("mutation.json");
     const receipt = await json<MutationReceipt>("receipt.json");
     const error = await json<ArborSyncErrorEnvelope>("error.json");
-    expect(node.ref).toEqual({ tree: "tr_notes7f3q2ab7c", path: "/notes/today", pageID: "abc123" });
+    expect(node.ref).toEqual({ tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: '[["id","abc123"]]' });
     expect(node.tree).toBe("tr_notes7f3q2ab7c");
     expect(node.enclosingTree?.osPath).toBe("/Users/joe/notes");
     expect(mutation.operations[0]?.op).toBe("move");
@@ -47,7 +47,7 @@ describe("REST v1 protocol fixtures", () => {
     expect(systemTree.tree).toBe("system");
     expect(systemTree.writable).toBe(false);
     expect(systemTree.document?.frontmatter.credentialAvailable).toBe(true);
-    expect(backlinks.entries[0]?.ref.pageID).toBe("week01");
+    expect(backlinks.entries[0]?.ref.stableKey).toBe('[["id","week01"]]');
     expect(recovery.entries.map((entry) => entry.kind)).toEqual(["block", "trash"]);
   });
 
@@ -79,7 +79,7 @@ describe("REST v1 protocol fixtures", () => {
     ]);
     expect(errors.map((value) => value.error)).toContain("internal-error");
     expect(errors.at(-1)?.error).toBe("future-error-code");
-    expect(node.ref.pageID).toBe("abc123");
+    expect(node.ref.stableKey).toBe('[["id","abc123"]]');
     expect(cursors.current).toEndWith(":5");
     expect(cursors.foreignEpoch).not.toStartWith("11111111");
     expect(cursors.malformed).not.toContain(":");

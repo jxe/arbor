@@ -32,6 +32,8 @@ import {
   applySourceEdits,
   isPageID,
   nodeDisplayName,
+  pageIDFromStableKey,
+  pageIDStableKey,
   resolveTreePath,
   revisionOf,
   sha256,
@@ -225,7 +227,11 @@ export class Workspace implements AsyncDisposable {
     const items = (node.children ?? []).slice(offset, offset + 100);
     const nextOffset = offset + items.length;
     return {
-      parent: { tree: this.tree, path, ...(isPageID(node.document?.frontmatter.id) ? { pageID: node.document.frontmatter.id } : {}) },
+      parent: {
+        tree: this.tree,
+        path,
+        stableKey: isPageID(node.document?.frontmatter.id) ? pageIDStableKey(node.document.frontmatter.id) : null,
+      },
       items,
       nextCursor: nextOffset < (node.children?.length ?? 0) ? this.encodePageCursor(`children:${path}`, nextOffset) : null,
       observedThrough,
@@ -260,14 +266,14 @@ export class Workspace implements AsyncDisposable {
         ref: {
           tree: this.tree,
           path: entry.path,
-          ...(sourcePageID ? { pageID: sourcePageID } : {}),
+          stableKey: sourcePageID ? pageIDStableKey(sourcePageID) : null,
         },
         title: entry.title,
         context: entry.context,
       };
     });
     return {
-      target: { tree: this.tree, path, ...(pageID ? { pageID } : {}) },
+      target: { tree: this.tree, path, stableKey: pageID ? pageIDStableKey(pageID) : null },
       entries,
       nextCursor: entries.length === 30
         ? this.encodePageCursor(`backlinks:${path}:${pageID ?? ""}`, offset + entries.length)
@@ -283,7 +289,7 @@ export class Workspace implements AsyncDisposable {
         ref: {
           tree: this.tree,
           path: entry.path,
-          ...(sourcePageID ? { pageID: sourcePageID } : {}),
+          stableKey: sourcePageID ? pageIDStableKey(sourcePageID) : null,
         },
         title: entry.title,
         context: entry.context,
@@ -318,7 +324,11 @@ export class Workspace implements AsyncDisposable {
     const entries = allEntries.slice(offset, offset + 100);
     const nextOffset = offset + entries.length;
     return {
-      ref: { tree: this.tree, path, ...(isPageID(snapshot.document?.frontmatter.id) ? { pageID: snapshot.document.frontmatter.id } : {}) },
+      ref: {
+        tree: this.tree,
+        path,
+        stableKey: isPageID(snapshot.document?.frontmatter.id) ? pageIDStableKey(snapshot.document.frontmatter.id) : null,
+      },
       entries,
       nextCursor: nextOffset < allEntries.length ? this.encodePageCursor(key, nextOffset) : null,
       observedThrough,
@@ -507,11 +517,7 @@ export class Workspace implements AsyncDisposable {
     if (!output) {
       const path = receipt.effects.find((effect) => effect.path !== "/Assets")?.path;
       if (!path) throw new ProtocolError("internal-error", "Stored asset receipt has no path", 500);
-      const directory = await this.resolveRef(directoryRef).catch(() =>
-        "path" in directoryRef
-          ? canonicalNodePath(directoryRef.path)
-          : canonicalNodePath(directoryRef.pathHint ?? "/")
-      );
+      const directory = await this.resolveRef(directoryRef).catch(() => canonicalNodePath(directoryRef.path));
       const resolved = await this.fs.resolve(directory);
       const physicalDirectory = resolved.directoryPath ?? dirname(resolved.bodyPath ?? this.root);
       output = {
@@ -704,7 +710,7 @@ export class Workspace implements AsyncDisposable {
 
   private async blockRecoveryEntries(path: string): Promise<RecoveryEntry[]> {
     const pageID = this.pathPageIDs.get(path);
-    const ref = { tree: this.tree, path, ...(pageID ? { pageID } : {}) };
+    const ref = { tree: this.tree, path, stableKey: pageID ? pageIDStableKey(pageID) : null };
     return (await this.recovery(path)).map((entry) => ({
       kind: "block" as const,
       ref,
@@ -737,7 +743,7 @@ export class Workspace implements AsyncDisposable {
       const pageID = this.pathPageIDs.get(currentPath);
       entries.push({
         kind: "trash",
-        ref: { tree: this.tree, path: currentPath, ...(pageID ? { pageID } : {}) },
+        ref: { tree: this.tree, path: currentPath, stableKey: pageID ? pageIDStableKey(pageID) : null },
         originalPath: currentPath.slice("/Trash".length) || "/",
         nodeKind: resolved.kind === "markdown" || resolved.kind === "directory" || resolved.kind === "file"
           ? resolved.kind
@@ -1093,20 +1099,21 @@ export class Workspace implements AsyncDisposable {
   }
 
   private async resolveRef(ref: NodeRef): Promise<string> {
-    if ("path" in ref) return canonicalNodePath(ref.path);
-    if (!isPageID(ref.pageID)) {
-      throw new ProtocolError("invalid-reference", "A page reference requires a non-empty page ID", 400);
+    const pageID = pageIDFromStableKey(ref.stableKey);
+    if (!ref.stableKey) return canonicalNodePath(ref.path);
+    if (!pageID) {
+      throw new ProtocolError("invalid-reference", "This workspace cannot resolve the supplied stable key", 400);
     }
-    const owners = this.idOwnerSets.get(ref.pageID) ?? [];
+    const owners = this.idOwnerSets.get(pageID) ?? [];
     if (owners.length > 1) {
-      throw new ProtocolError("duplicate-page-id", `Page ID ${ref.pageID} has multiple owners`, 409, {
+      throw new ProtocolError("duplicate-page-id", `Stable key ${ref.stableKey} has multiple owners`, 409, {
         owners: [...owners],
       });
     }
-    const owner = owners[0] ?? this.idOwners.get(ref.pageID);
+    const owner = owners[0] ?? this.idOwners.get(pageID);
     if (!owner) {
-      throw new ProtocolError("not-found", `No page owns ID ${ref.pageID}`, 404, {
-        path: ref.pathHint,
+      throw new ProtocolError("not-found", `No node owns stable key ${ref.stableKey}`, 404, {
+        path: ref.path,
       });
     }
     return owner;
@@ -1115,7 +1122,7 @@ export class Workspace implements AsyncDisposable {
   private snapshotFromTree(node: TreeNode, observedThrough: string): NodeSnapshot {
     const pageID = isPageID(node.document?.frontmatter.id) ? node.document.frontmatter.id : undefined;
     return {
-      ref: { tree: this.tree, path: node.path, ...(pageID ? { pageID } : {}) },
+      ref: { tree: this.tree, path: node.path, stableKey: pageID ? pageIDStableKey(pageID) : null },
       tree: this.tree,
       enclosingTree: this.descriptor(),
       path: node.path,

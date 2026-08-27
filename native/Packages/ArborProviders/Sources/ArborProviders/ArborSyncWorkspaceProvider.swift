@@ -94,7 +94,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
                     reference: WorkspaceReference(
                         tree: TreeID(rawValue: entry.ref.tree),
                         path: entry.ref.path,
-                        pageID: entry.ref.pageID.map(PageID.init(rawValue:))
+                        pageID: pageIDFromStableKey(entry.ref.stableKey).map(PageID.init(rawValue:))
                     ),
                     title: entry.title,
                     excerpt: entry.context.isEmpty ? nil : entry.context
@@ -238,7 +238,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
         let reference = WorkspaceReference(
             tree: tree,
             path: snapshot.path,
-            pageID: snapshot.ref.pageID.map(PageID.init(rawValue:))
+            pageID: pageIDFromStableKey(snapshot.ref.stableKey).map(PageID.init(rawValue:))
         )
         let treeRootURL = snapshot.enclosingTree?.osPath.map { URL(fileURLWithPath: $0) }
         let physicalURL = treeRootURL.map { root in
@@ -531,7 +531,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
             reference: WorkspaceReference(
                 tree: TreeID(rawValue: node.tree),
                 path: node.path,
-                pageID: node.ref.pageID.map(PageID.init(rawValue:))
+                pageID: pageIDFromStableKey(node.ref.stableKey).map(PageID.init(rawValue:))
             ),
             source: source,
             contentRevision: revision
@@ -548,9 +548,10 @@ private extension JSONValue {
 
 private extension WorkspaceReference {
     var nodeRef: NodeRef {
-        if let pageID {
-            return .pageID(pageID.rawValue, pathHint: pathHint, tree: tree.rawValue)
-        }
-        return .path(pathHint, tree: tree.rawValue)
+        NodeRef(
+            tree: tree.rawValue,
+            path: pathHint,
+            stableKey: pageID.map { pageIDStableKey($0.rawValue) }
+        )
     }
 }

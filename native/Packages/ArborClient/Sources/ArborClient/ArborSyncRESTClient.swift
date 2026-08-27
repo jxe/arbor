@@ -184,9 +184,7 @@ public actor ArborSyncRESTClient {
 
     public func openNodeView(_ ref: NodeRef) async throws -> ObservedNodeView {
         let snapshot = try await nodeSnapshot(ref)
-        let observedRef = snapshot.ref.pageID.map {
-            NodeRef.pageID($0, pathHint: snapshot.path, tree: snapshot.tree)
-        } ?? .path(snapshot.path, tree: snapshot.tree)
+        let observedRef = snapshot.ref
         let updates = nodeUpdates(ref: observedRef, after: snapshot.observedThrough)
         return ObservedNodeView(snapshot: try await hydrateNode(snapshot), updates: updates)
     }
@@ -198,10 +196,7 @@ public actor ArborSyncRESTClient {
     private func hydrateNode(_ initial: NodeSnapshot) async throws -> NodeSnapshot {
         var snapshot = initial
         if snapshot.kind == "directory" || snapshot.kind == "collection" {
-            let ref = snapshot.ref.pageID.map {
-                NodeRef.pageID($0, pathHint: snapshot.ref.path, tree: snapshot.tree)
-            } ?? .path(snapshot.ref.path, tree: snapshot.tree)
-            snapshot.children = try await allChildren(ref)
+            snapshot.children = try await allChildren(snapshot.ref)
         }
         return snapshot
     }
@@ -582,16 +577,11 @@ public actor ArborSyncRESTClient {
     }
 
     private func queryItems(_ ref: NodeRef) -> [URLQueryItem] {
-        var items: [URLQueryItem] = [URLQueryItem(name: "tree", value: ref.tree)]
-        if let path = ref.path {
-            items.append(URLQueryItem(name: "path", value: path))
-        } else if let pageID = ref.pageID {
-            items.append(URLQueryItem(name: "pageID", value: pageID))
-            if let pathHint = ref.pathHint {
-                items.append(URLQueryItem(name: "pathHint", value: pathHint))
-            }
-        }
-        return items
+        [
+            URLQueryItem(name: "tree", value: ref.tree),
+            URLQueryItem(name: "path", value: ref.path),
+            URLQueryItem(name: "stableKey", value: ref.stableKey ?? ""),
+        ]
     }
 
     private func multipart(

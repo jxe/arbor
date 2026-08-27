@@ -7,6 +7,9 @@ import type {
   TreeChild,
 } from "./types.ts";
 import { sha256 } from "./hash.ts";
+import type { NodeRef, ResolvedNodeRef } from "./node-model.ts";
+
+export type { NodeRef, ResolvedNodeRef } from "./node-model.ts";
 
 export type LogicalPath = string;
 export type PageID = string;
@@ -118,16 +121,6 @@ export interface AccessEntry {
 
 export const LOCAL_TREE: TreeRef = "local";
 export const SYSTEM_TREE: TreeRef = "system";
-
-export type NodeRef =
-  | { tree: TreeRef; path: LogicalPath }
-  | { tree: TreeRef; pageID: PageID; pathHint?: LogicalPath };
-
-export interface ResolvedNodeRef {
-  tree: TreeRef;
-  path: LogicalPath;
-  pageID?: PageID;
-}
 
 export interface TreeDescriptor {
   id: TreeID;

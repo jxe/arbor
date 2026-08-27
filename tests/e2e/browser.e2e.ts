@@ -152,7 +152,7 @@ test("adds a Markdown title above the first provider-completed child row", async
   await expect(page.getByRole("heading", { name: "Synthetic title", level: 1 })).toBeVisible();
   await expect(page.getByRole("status")).toHaveText("Saved");
   const titleFirstBody = async () => page.evaluate(async () => {
-    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Ftitle-first");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Ftitle-first&stableKey=");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -196,7 +196,7 @@ test("adds a Markdown title above the first provider-completed child row", async
   await page.keyboard.type("Empty title");
   await expect(page.getByRole("status")).toHaveText("Saved");
   expect(await page.evaluate(async () => {
-    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fempty-title");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fempty-title&stableKey=");
     const node = await response.json();
     return node.document.bodySource as string;
   })).toMatch(/^# Empty title/);
@@ -246,7 +246,7 @@ test("reorders a child row by writing the complete directory Markdown", async ({
   await expect.poll(() => operations.filter((operation) => operation.op === "writeMarkdown").length).toBe(1);
   expect(operations.some((operation) => operation.op === "move")).toBe(false);
   const bodySource = async () => page.evaluate(async () => {
-    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fdrag-order");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fdrag-order&stableKey=");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -307,7 +307,7 @@ test("a prose edit persists the provider-completed directory source", async ({ p
   await expect(page.getByRole("status")).toHaveText("Saved");
 
   const bodySource = await page.evaluate(async () => {
-    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fgarden");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fgarden&stableKey=");
     const node = await response.json();
     return { body: node.document.bodySource as string, bodyState: node.bodyState as string };
   });
@@ -348,7 +348,7 @@ test("round-trips inline Markdown and uses Markdown-aware clipboard formats", as
     "After raw Markdown.",
   ].join("\n");
   const bodySource = async () => page.evaluate(async () => {
-    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Finline-markdown");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Finline-markdown&stableKey=");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -513,7 +513,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
   await expect(page.getByRole("status")).toHaveText("Saved");
 
   const bodySource = await page.evaluate(async () => {
-    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fmath-notes");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fmath-notes&stableKey=");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -544,7 +544,7 @@ test("renders footnotes and LaTeX and preserves the cursor through background sa
   await expect(page.locator(".footnote-definition")).toHaveCount(1);
   await expect(page.getByRole("status")).toHaveText("Saved");
   const afterDelete = await page.evaluate(async () => {
-    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fmath-notes");
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fmath-notes&stableKey=");
     const node = await response.json();
     return node.document.bodySource as string;
   });
@@ -572,7 +572,7 @@ test("tracks an open page through a page-ID rename without replacing the editor"
   await page.evaluate(() => { (window as any).__arborEditorBeforeRename = (window as any).ProseMirror; });
 
   const response = await page.evaluate(async () => {
-    const snapshot = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fnotes").then((value) => value.json());
+    const snapshot = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fnotes&stableKey=").then((value) => value.json());
     return fetch("/v1/mutations", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -602,7 +602,7 @@ test("tracks an open page through a page-ID rename without replacing the editor"
   await page.keyboard.type(" after rename");
   await expect(page.getByRole("status")).toHaveText("Saved");
   const source = await page.evaluate(async () => {
-    const snapshot = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Frenamed-notes").then((value) => value.json());
+    const snapshot = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Frenamed-notes&stableKey=").then((value) => value.json());
     if (!snapshot.ref.pageID) throw new Error("rename did not mint a durable PageID");
     return snapshot.document.bodySource as string;
   });

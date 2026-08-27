@@ -340,7 +340,7 @@ struct ProviderContractTests {
     private func directorySnapshot(tree: String, bodyState: String) throws -> NodeSnapshot {
         let json = """
         {
-          "ref": { "tree": "\(tree)", "path": "/tmp/ordinary" },
+          "ref": { "tree": "\(tree)", "path": "/tmp/ordinary", "stableKey": null },
           "tree": "\(tree)",
           "path": "/tmp/ordinary",
           "name": "ordinary",

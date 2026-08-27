@@ -7,6 +7,7 @@ import type {
   MutationEffect,
   MutationReceipt,
   MutationRequest,
+  NodeRef,
   NodeSnapshot,
   TreeChild,
   TreeNode,
@@ -170,7 +171,7 @@ export class FilesystemService implements AsyncDisposable {
 
   private snapshotFromTree(node: TreeNode, observedThrough: string): NodeSnapshot {
     return {
-      ref: { tree: LOCAL_TREE, path: node.path },
+      ref: { tree: LOCAL_TREE, path: node.path, stableKey: null },
       tree: LOCAL_TREE,
       path: node.path,
       name: node.name,
@@ -227,7 +228,7 @@ export class FilesystemService implements AsyncDisposable {
       const items = (node.children ?? []).slice(offset, offset + 100);
       const nextOffset = offset + items.length;
       return {
-        parent: { tree: LOCAL_TREE, path: node.path },
+        parent: { tree: LOCAL_TREE, path: node.path, stableKey: null },
         items,
         nextCursor: nextOffset < (node.children?.length ?? 0)
           ? encodePageCursor(`children:local:${node.path}`, nextOffset)
@@ -269,8 +270,8 @@ export class FilesystemService implements AsyncDisposable {
     });
   }
 
-  private refPath(ref: { path: string } | { pageID: string; pathHint?: string }): string {
-    if (!("path" in ref)) {
+  private refPath(ref: NodeRef): string {
+    if (ref.stableKey !== null) {
       throw new ProtocolError("invalid-reference", "Durable identity resolution requires a managed workspace", 400);
     }
     return canonicalNodePath(ref.path);

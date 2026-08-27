@@ -275,7 +275,7 @@ async function editConfigurationYAML(
 ): Promise<void> {
   const configuration = (await client.trees()).snapshot.find((tree) => tree.kind === "account-configuration");
   if (!configuration) throw new Error("The account-configuration tree is unavailable");
-  const ref = { tree: configuration.id, path } as const;
+  const ref = { tree: configuration.id, path, stableKey: null } as const;
   const file = await client.file(ref);
   const document = parseDocument(new TextDecoder("utf-8", { fatal: true }).decode(file.bytes), { uniqueKeys: true, keepSourceTokens: true });
   if (document.errors.length) throw new Error(document.errors[0]!.message);

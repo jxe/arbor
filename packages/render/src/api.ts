@@ -51,7 +51,7 @@ export type BrowserEffect = MutationEffect;
  */
 function makeApi(tree: TreeRef = "local") {
   const refOf = (value: string | NodeRef): NodeRef => {
-    if (typeof value === "string") return { tree, path: value };
+    if (typeof value === "string") return { tree, path: value, stableKey: null };
     return value;
   };
   const scopeOperation = (operation: StructuralWorkspaceOperation): StructuralWorkspaceOperation => {

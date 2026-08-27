@@ -1,8 +1,8 @@
 {
-  "target": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "pageID": "abc123" },
+  "target": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "stableKey": "[[\"id\",\"abc123\"]]" },
   "entries": [
     {
-      "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/journal/week", "pageID": "week01" },
+      "ref": { "tree": "tr_notes7f3q2ab7c", "path": "/journal/week", "stableKey": "[[\"id\",\"week01\"]]" },
       "title": "This week",
       "context": "Review [today's note](../notes/today#abc123)."
     }

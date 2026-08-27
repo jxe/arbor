@@ -1,5 +1,5 @@
 {
-  "parent": { "tree": "tr_notes7f3q2ab7c", "path": "/notes", "pageID": "folder-id" },
+  "parent": { "tree": "tr_notes7f3q2ab7c", "path": "/notes", "stableKey": "[[\"id\",\"folder-id\"]]" },
   "items": [
     { "tree": "tr_notes7f3q2ab7c", "name": "today", "path": "/notes/today", "kind": "markdown", "materialization": "available", "pageID": "abc123" },
     { "tree": "tr_notes7f3q2ab7c", "name": "scratch", "path": "/notes/scratch", "kind": "directory", "materialization": "available" }

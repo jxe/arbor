@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArborSyncControl, serveArborSync } from "@arbor/arborsync";
 import { ArborSyncRESTClient, type MutationRequest, type WorkspaceEvent } from "@arbor/client";
-import { canonicalJSONString, sha256 } from "@arbor/core";
+import { canonicalJSONString, pageIDFromStableKey, pageIDStableKey, sha256 } from "@arbor/core";
 import type { Workspace } from "@arbor/arborsync";
 
 let root: string;
@@ -76,7 +76,7 @@ describe("arborsync REST v1", () => {
     const running = await serveArborSyncControl({ port: 0 });
     try {
       const controlClient = new ArborSyncRESTClient({ baseURL: running.url });
-      expect((await controlClient.node({ tree: "system", path: "/diagnostics" })).tree).toBe("system");
+      expect((await controlClient.node({ tree: "system", path: "/diagnostics", stableKey: null })).tree).toBe("system");
       const response = await fetch(`${running.url}/v1/node?path=%2F`);
       expect(response.status).toBe(400);
       expect((await response.json() as any).error).toBe("invalid-request");
@@ -87,13 +87,17 @@ describe("arborsync REST v1", () => {
   });
 
   test("reads and idempotently writes a Markdown node", async () => {
-    const node = await client.node({ tree: scope, path: "/page" });
+    const legacy = await fetch(`${base}/v1/node?tree=${encodeURIComponent(scope)}&path=%2Fpage`);
+    expect(legacy.status).toBe(400);
+    expect(await legacy.json()).toMatchObject({ error: "invalid-request", message: expect.stringContaining("stableKey") });
+
+    const node = await client.node({ tree: scope, path: "/page", stableKey: null });
     const source = node.document!.source.replace("Hello API", "Changed through REST v1");
     const request: MutationRequest = {
       mutationID: "write-page-1",
       operations: [{
         op: "writeMarkdown",
-        ref: { tree: scope, path: "/page" },
+        ref: { tree: scope, path: "/page", stableKey: null },
         baseContentRevision: node.contentRevision!,
         source,
       }],
@@ -101,7 +105,7 @@ describe("arborsync REST v1", () => {
     const first = await client.mutate(request);
     const retry = await client.mutate(request);
     expect(retry).toEqual(first);
-    const saved = await client.node({ tree: scope, path: "/page" });
+    const saved = await client.node({ tree: scope, path: "/page", stableKey: null });
     expect(saved.document?.source).toBe(source);
     expect(saved.document?.bodySource).toContain("Changed through REST v1");
     durableWriteRequest = request;
@@ -116,7 +120,7 @@ describe("arborsync REST v1", () => {
   });
 
   test("verifies guarded UTF-8 source edits before recording a content intent", async () => {
-    const before = await client.node({ tree: scope, path: "/page" });
+    const before = await client.node({ tree: scope, path: "/page", stableKey: null });
     const original = before.document!.source;
     const originalBytes = Buffer.from(original);
     const target = Buffer.from("REST");
@@ -129,25 +133,25 @@ describe("arborsync REST v1", () => {
       mutationID: "bad-source-edit-result",
       operations: [{
         op: "writeMarkdown",
-        ref: { tree: scope, path: "/page" },
+        ref: { tree: scope, path: "/page", stableKey: null },
         baseContentRevision: before.contentRevision!,
         source: `${source}wrong`,
         sourceEdits: [edit],
       }],
     })).rejects.toThrow("sourceEdits do not produce");
-    expect((await client.node({ tree: scope, path: "/page" })).document?.source).toBe(original);
+    expect((await client.node({ tree: scope, path: "/page", stableKey: null })).document?.source).toBe(original);
 
     await client.mutate({
       mutationID: "valid-source-edit",
       operations: [{
         op: "writeMarkdown",
-        ref: { tree: scope, path: "/page" },
+        ref: { tree: scope, path: "/page", stableKey: null },
         baseContentRevision: before.contentRevision!,
         source,
         sourceEdits: [edit],
       }],
     });
-    expect((await client.node({ tree: scope, path: "/page" })).document?.source).toBe(source);
+    expect((await client.node({ tree: scope, path: "/page", stableKey: null })).document?.source).toBe(source);
   });
 
   test("rejects malformed and empty mutation batches at the protocol boundary", async () => {
@@ -180,28 +184,28 @@ describe("arborsync REST v1", () => {
     expect((await unsupported.json() as any).error).toBe("unsupported-operation");
   });
 
-  test("resolves renamed Markdown pages by opaque page ID", async () => {
-    await client.mutateStructural([{ op: "rename", ref: { tree: scope, path: "/page" }, name: "renamed" }], "rename-page");
-    const renamed = await client.node({ tree: scope, path: "/renamed" });
-    const after = await client.node({ tree: scope, pageID: renamed.ref.pageID!, pathHint: "/page" });
+  test("resolves renamed Markdown pages by stable key", async () => {
+    await client.mutateStructural([{ op: "rename", ref: { tree: scope, path: "/page", stableKey: null }, name: "renamed" }], "rename-page");
+    const renamed = await client.node({ tree: scope, path: "/renamed", stableKey: null });
+    const after = await client.node({ tree: scope, path: "/page", stableKey: renamed.ref.stableKey });
     expect(after.path).toBe("/renamed");
   });
 
   test("reports duplicate page IDs deterministically", async () => {
-    await expect(client.node({ tree: scope, pageID: "duplicate-id" })).rejects.toThrow("multiple owners");
+    await expect(client.node({ tree: scope, path: "/duplicate-a", stableKey: pageIDStableKey("duplicate-id") })).rejects.toThrow("multiple owners");
   });
 
   test("returns indexed backlinks by path or durable target identity", async () => {
-    const byPath = await client.backlinks({ tree: scope, path: "/target" });
-    expect(byPath.target.pageID).toBe("target");
+    const byPath = await client.backlinks({ tree: scope, path: "/target", stableKey: null });
+    expect(byPath.target.stableKey).toBe(pageIDStableKey("target"));
     expect(byPath.entries).toEqual([
       expect.objectContaining({
-        ref: expect.objectContaining({ path: "/source", pageID: "source" }),
+        ref: expect.objectContaining({ path: "/source", stableKey: pageIDStableKey("source") }),
         title: "source",
         context: "See [Target](/target#target).",
       }),
     ]);
-    const byID = await client.backlinks({ tree: scope, pageID: "target", pathHint: "/stale" });
+    const byID = await client.backlinks({ tree: scope, path: "/stale", stableKey: pageIDStableKey("target") });
     expect(byID.entries).toEqual(byPath.entries);
   });
 
@@ -230,11 +234,11 @@ describe("arborsync REST v1", () => {
   });
 
   test("rejects mixed and multiple-content batches before recording intent", async () => {
-    const before = await client.node({ tree: scope, path: "/renamed" });
+    const before = await client.node({ tree: scope, path: "/renamed", stableKey: null });
     const source = before.document!.source.replace(before.document!.bodySource, "Must not materialize\n");
     const content = {
       op: "writeMarkdown",
-      ref: { tree: scope, pageID: before.ref.pageID!, pathHint: "/renamed" },
+      ref: before.ref,
       baseContentRevision: before.contentRevision!,
       source,
     };
@@ -242,7 +246,7 @@ describe("arborsync REST v1", () => {
       join(import.meta.dir, "../fixtures/arborsync/mixed-mutation.json"),
       "utf8",
     ));
-    mixedFixture.operations[0].ref = { tree: scope, pageID: before.ref.pageID!, pathHint: "/renamed" };
+    mixedFixture.operations[0].ref = before.ref;
     mixedFixture.operations[0].baseContentRevision = before.contentRevision!;
     mixedFixture.operations[0].source = source;
     mixedFixture.operations[1].path = "/mixed-success";
@@ -251,7 +255,7 @@ describe("arborsync REST v1", () => {
       [mixedFixture.mutationID, mixedFixture.operations],
       ["multiple-content", [content, {
         op: "writeMarkdown",
-        ref: { tree: scope, pageID: before.ref.pageID!, pathHint: "/renamed" },
+        ref: before.ref,
         baseContentRevision: before.contentRevision!,
         source,
       }]],
@@ -266,8 +270,8 @@ describe("arborsync REST v1", () => {
         error: "unsupported-operation",
       });
     }
-    expect((await client.node({ tree: scope, path: "/renamed" })).contentRevision).toBe(before.contentRevision);
-    await expect(client.node({ tree: scope, path: "/mixed-success" })).rejects.toMatchObject({ status: 404 });
+    expect((await client.node({ tree: scope, path: "/renamed", stableKey: null })).contentRevision).toBe(before.contentRevision);
+    await expect(client.node({ tree: scope, path: "/mixed-success", stableKey: null })).rejects.toMatchObject({ status: 404 });
     expect((await client.search(scope, "Must not materialize")).results).toHaveLength(0);
     expect(() => client.prepareStructuralMutation([])).toThrow("at least one operation");
   });
@@ -289,11 +293,11 @@ describe("arborsync REST v1", () => {
     });
     const receipt = await lossy.mutateStructural([{ op: "createDirectory", tree: scope, path: "/after-loss" }], "lost-response");
     expect(receipt.mutationID).toBe("lost-response");
-    expect((await client.node({ tree: scope, path: "/after-loss" })).path).toBe("/after-loss");
+    expect((await client.node({ tree: scope, path: "/after-loss", stableKey: null })).path).toBe("/after-loss");
   });
 
   test("replays events after a snapshot cursor and rejects another epoch", async () => {
-    const snapshot = await client.node({ tree: scope, path: "/" });
+    const snapshot = await client.node({ tree: scope, path: "/", stableKey: null });
     await client.mutateStructural([{ op: "createDirectory", tree: scope, path: "/eventful" }], "eventful");
     const abort = new AbortController();
     let replayed: WorkspaceEvent | null = null;
@@ -327,7 +331,7 @@ describe("arborsync REST v1", () => {
         return fetch(input, init);
       },
     });
-    const viewPromise = observing.openNodeView({ tree: scope, path: "/" });
+    const viewPromise = observing.openNodeView({ tree: scope, path: "/", stableKey: null });
     await childrenStarted;
     await client.mutateStructural([{ op: "createDirectory", tree: scope, path: "/during-view-load" }], "during-view-load");
     releaseChildren();
@@ -361,7 +365,7 @@ describe("arborsync REST v1", () => {
         return fetch(input, init);
       },
     });
-    const view = await observing.openNodeView({ tree: scope, path: "/renamed" });
+    const view = await observing.openNodeView({ tree: scope, path: "/renamed", stableKey: null });
     try {
       for await (const update of view.updates) {
         if (update.kind === "resync") {
@@ -376,12 +380,12 @@ describe("arborsync REST v1", () => {
   });
 
   test("imports a multipart directory manifest atomically", async () => {
-    const receipt = await client.import({ tree: scope, path: "/folder" }, [
+    const receipt = await client.import({ tree: scope, path: "/folder", stableKey: null }, [
       { path: "drop", kind: "directory" },
       { path: "drop/readme.md", kind: "file", file: new File(["Imported\n"], "readme.md", { type: "text/markdown" }) },
     ], "import-drop");
     expect(receipt.effects.some((effect) => effect.path === "/folder/drop")).toBe(true);
-    expect((await client.node({ tree: scope, path: "/folder/drop/readme" })).document?.bodySource).toBe("Imported\n");
+    expect((await client.node({ tree: scope, path: "/folder/drop/readme", stableKey: null })).document?.bodySource).toBe("Imported\n");
   });
 
   test("retries an asset transfer with the same mutation identity", async () => {
@@ -400,32 +404,32 @@ describe("arborsync REST v1", () => {
       },
     });
     const file = new File(["asset bytes"], "diagram.txt", { type: "text/plain" });
-    const first = await lossy.asset({ tree: scope, path: "/folder" }, file, "asset-after-loss");
-    const retry = await client.asset({ tree: scope, path: "/folder" }, file, "asset-after-loss");
+    const first = await lossy.asset({ tree: scope, path: "/folder", stableKey: null }, file, "asset-after-loss");
+    const retry = await client.asset({ tree: scope, path: "/folder", stableKey: null }, file, "asset-after-loss");
     expect(retry.receipt).toEqual(first.receipt);
-    expect((await client.node({ tree: scope, path: first.path })).kind).toBe("file");
+    expect((await client.node({ tree: scope, path: first.path, stableKey: null })).kind).toBe("file");
   });
 
   test("covers copy, trash, restore, and recovery restoration through logical operations", async () => {
     const copied = await client.mutateStructural([{
       op: "copy",
-      refs: [{ tree: scope, path: "/renamed" }],
-      destination: { tree: scope, path: "/folder" },
+      refs: [{ tree: scope, path: "/renamed", stableKey: null }],
+      destination: { tree: scope, path: "/folder", stableKey: null },
     }], "copy-page");
     const copyPath = copied.effects.find((effect) => effect.kind === "created")!.path;
-    const copiedNode = await client.node({ tree: scope, path: copyPath });
+    const copiedNode = await client.node({ tree: scope, path: copyPath, stableKey: null });
     expect(copiedNode.kind).toBe("markdown");
-    expect(copiedNode.ref.pageID).not.toBe((await client.node({ tree: scope, path: "/renamed" })).ref.pageID);
+    expect(copiedNode.ref.stableKey).not.toBe((await client.node({ tree: scope, path: "/renamed", stableKey: null })).ref.stableKey);
 
-    const trashed = await client.mutateStructural([{ op: "trash", refs: [{ tree: scope, path: copyPath }] }], "trash-copy");
+    const trashed = await client.mutateStructural([{ op: "trash", refs: [{ tree: scope, path: copyPath, stableKey: null }] }], "trash-copy");
     const trashPath = `/Trash${copyPath}`;
     expect(trashed.effects).toContainEqual(expect.objectContaining({ kind: "deleted", path: copyPath }));
-    await expect(client.node({ tree: scope, path: copyPath })).rejects.toMatchObject({ status: 404 });
-    const restored = await client.mutateStructural([{ op: "restore", refs: [{ tree: scope, path: trashPath }] }], "restore-copy");
-    expect((await client.node({ tree: scope, path: restored.effects[0]!.path })).kind).toBe("markdown");
+    await expect(client.node({ tree: scope, path: copyPath, stableKey: null })).rejects.toMatchObject({ status: 404 });
+    const restored = await client.mutateStructural([{ op: "restore", refs: [{ tree: scope, path: trashPath, stableKey: null }] }], "restore-copy");
+    expect((await client.node({ tree: scope, path: restored.effects[0]!.path, stableKey: null })).kind).toBe("markdown");
 
-    const before = await client.node({ tree: scope, path: "/renamed" });
-    const pageRef = { tree: scope, pageID: before.ref.pageID!, pathHint: before.path };
+    const before = await client.node({ tree: scope, path: "/renamed", stableKey: null });
+    const pageRef = before.ref;
     const recoverySourceText = before.document!.source.replace(before.document!.bodySource, "Recovery source\n");
     await client.mutateContent({
       op: "writeMarkdown",
@@ -456,8 +460,8 @@ describe("arborsync REST v1", () => {
     expect((await client.node(pageRef)).document?.bodySource).toContain("Recovery source");
 
     await client.mutateStructural([{ op: "createMarkdown", tree: scope, path: "/discarded" }], "create-discarded");
-    await client.mutateStructural([{ op: "trash", refs: [{ tree: scope, path: "/discarded" }] }], "trash-discarded");
-    const subtree = await client.recovery({ tree: scope, path: "/" }, { recursive: true });
+    await client.mutateStructural([{ op: "trash", refs: [{ tree: scope, path: "/discarded", stableKey: null }] }], "trash-discarded");
+    const subtree = await client.recovery({ tree: scope, path: "/", stableKey: null }, { recursive: true });
     expect(subtree.entries).not.toContainEqual(expect.objectContaining({
       kind: "block",
       ref: expect.objectContaining({ path: "/renamed" }),
@@ -516,7 +520,7 @@ describe("arborsync REST v1", () => {
 
   test("asset receipts carry the tree-rooted markdown destination", async () => {
     const form = new FormData();
-    form.set("metadata", JSON.stringify({ mutationID: "asset-rooted-1", directory: { tree: scope, path: "/" } }));
+    form.set("metadata", JSON.stringify({ mutationID: "asset-rooted-1", directory: { tree: scope, path: "/", stableKey: null } }));
     form.set("file", new File([new TextEncoder().encode("img")], "leaf.png", { type: "image/png" }));
     const response = await fetch(`${base}/v1/assets`, { method: "POST", body: form });
     expect(response.status).toBe(200);
@@ -530,13 +534,13 @@ describe("arborsync REST v1", () => {
     expect(served.status).toBe(200);
     expect(await served.text()).toBe("img");
 
-    const exact = await fetch(`${base}/v1/file?tree=${encodeURIComponent(scope)}&path=${encodeURIComponent(result.path)}`);
+    const exact = await fetch(`${base}/v1/file?tree=${encodeURIComponent(scope)}&path=${encodeURIComponent(result.path)}&stableKey=`);
     expect(exact.status).toBe(200);
     expect(exact.headers.get("content-type")).toBe("image/png");
     expect(exact.headers.get("cache-control")).toBe("no-store");
     expect(await exact.text()).toBe("img");
 
-    const document = await fetch(`${base}/v1/file?tree=${encodeURIComponent(scope)}&path=${encodeURIComponent("/page")}`);
+    const document = await fetch(`${base}/v1/file?tree=${encodeURIComponent(scope)}&path=${encodeURIComponent("/page")}&stableKey=`);
     expect(document.status).toBe(404);
   });
 
@@ -553,12 +557,12 @@ describe("arborsync REST v1", () => {
       kind: "created",
       path: "/recovered-effect",
     }]);
-    const written = await client.node({ tree: scope, path: "/renamed" });
+    const written = await client.node({ tree: scope, path: "/renamed", stableKey: null });
     const recoveredWriteRequest: MutationRequest = {
       mutationID: "write-replaced-before-receipt",
       operations: [{
         op: "writeMarkdown",
-        ref: { tree: scope, pageID: written.ref.pageID!, pathHint: "/renamed" },
+        ref: written.ref,
         baseContentRevision: "sha256:pre-crash-base",
         source: written.document!.source,
       }],
@@ -569,7 +573,7 @@ describe("arborsync REST v1", () => {
       tree: scope,
       kind: "updated",
       path: "/renamed",
-      pageID: written.ref.pageID,
+      pageID: pageIDFromStableKey(written.ref.stableKey) ?? undefined,
       contentRevision: written.contentRevision,
     }]);
 

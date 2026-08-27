@@ -15,6 +15,7 @@ import type {
 } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { legacyPageIDCandidate, resolveLogicalURL } from "@arbor/core/logical-url";
+import { pageIDFromStableKey, pageIDStableKey } from "@arbor/core/node-key";
 import { reorderChildLinks, resolveChildLinkPath, serializeMarkdown } from "@arbor/editor";
 import { api, type BrowserMutationResult } from "./api.ts";
 import {
@@ -313,9 +314,11 @@ function childDocumentRows(directory: string, blocks: readonly ArborBlock[], chi
           matched.add(child);
           rows.push({
             blockID: block.id,
-            ref: child.pageID
-              ? { tree: child.tree, pageID: child.pageID, pathHint: canonicalNodePath(child.path) }
-              : { tree: child.tree, path: canonicalNodePath(child.path) },
+            ref: {
+              tree: child.tree,
+              path: canonicalNodePath(child.path),
+              stableKey: child.pageID ? pageIDStableKey(child.pageID) : null,
+            },
             kind: child.kind,
             materialization: child.materialization,
           });
@@ -337,8 +340,8 @@ function inverseMoves(moved: BrowserMutationResult["moved"], tree: string): Stru
   }
   return [...byParent].map(([destination, paths]) => ({
     op: "move",
-    refs: paths.map((path) => ({ tree, path })),
-    destination: { tree, path: destination },
+    refs: paths.map((path) => ({ tree, path, stableKey: null })),
+    destination: { tree, path: destination, stableKey: null },
   }));
 }
 
@@ -359,7 +362,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     () => childDocumentRows(node.path, authored, physicalChildren),
     [node.contentRevision, childrenRevision],
   );
-  const managedOrder = childRows.map((row) => "path" in row.ref ? row.ref.path : row.ref.pathHint!);
+  const managedOrder = childRows.map((row) => row.ref.path);
   const originals = useMemo(() => originalMap(initial), [node.contentRevision, childrenRevision]);
   const pageDirectory = isDirectory ? node.path : parentPath(node.path);
   const pageDirectoryRef = useRef(pageDirectory);
@@ -369,10 +372,8 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
   const sapi = useMemo(() => api.scoped(node.tree), [node.tree]);
   const sapiRef = useRef(sapi);
   sapiRef.current = sapi;
-  const nodeReference: NodeRef = node.ref.pageID
-    ? { tree: node.tree, pageID: node.ref.pageID, pathHint: node.path }
-    : { tree: node.tree, path: node.path };
-  const nodeIdentity = useRef(node.ref.pageID ?? node.path).current;
+  const nodeReference: NodeRef = node.ref;
+  const nodeIdentity = useRef(node.ref.stableKey ?? node.path).current;
   const blockDropPosition = useRef<{ pos: number; orientation: string } | null>(null);
   const editor = useMemo(() => {
     const instance = BlockNoteEditor.create({
@@ -434,7 +435,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       () => { if (!cancelled) setBacklinks([]); },
     );
     return () => { cancelled = true; };
-  }, [node.path, node.ref.pageID, node.tree]);
+  }, [node.path, node.ref.stableKey, node.tree]);
 
   useLayoutEffect(() => {
     const target = pendingScrollRestore.current;
@@ -587,20 +588,19 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
           const event = update.event;
           if (event.change.mutationID && api.client.isOwnMutation(event.change.mutationID)) continue;
           if (event.tree !== undefined && currentNode.tree !== undefined && event.tree !== currentNode.tree) continue;
+          const currentPageID = pageIDFromStableKey(currentNode.ref.stableKey);
           const affectsNode = event.change.path === currentNode.path
             || event.change.previousPath === currentNode.path
-            || Boolean(currentNode.ref.pageID && event.change.pageID === currentNode.ref.pageID);
+            || Boolean(currentPageID && event.change.pageID === currentPageID);
           const currentIsDirectory = currentNode.kind === "directory" || currentNode.kind === "collection";
           const affectsChildren = currentIsDirectory && (
             parentPath(event.change.path) === currentNode.path
             || (event.change.previousPath !== undefined && parentPath(event.change.previousPath) === currentNode.path)
           );
           if (!affectsNode && !affectsChildren) continue;
-          const ref = !currentNode.ref.pageID && event.change.previousPath === currentNode.path && event.kind === "moved"
-            ? { tree: currentNode.tree, path: event.change.path } satisfies NodeRef
-            : currentNode.ref.pageID
-              ? { tree: currentNode.tree, pageID: currentNode.ref.pageID, pathHint: currentNode.path }
-              : { tree: currentNode.tree, path: currentNode.path };
+          const ref = !currentNode.ref.stableKey && event.change.previousPath === currentNode.path && event.kind === "moved"
+            ? { tree: currentNode.tree, path: event.change.path, stableKey: null } satisfies NodeRef
+            : currentNode.ref;
           const loaded = await sapiRef.current.node(ref);
           if (affectsNode) coordinator.observeExternal(loaded);
           else observedOnSaved.current(loaded);
@@ -666,11 +666,11 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       let undoSelection: string[] = [];
       let redoSelection = nextSelection;
       if (result.created.length) {
-        undoOperations = [{ op: "trash", refs: result.created.map((path) => ({ tree: node.tree, path })) }];
-        redoOperations = [{ op: "restore", refs: result.created.map(trashedPath).map((path) => ({ tree: node.tree, path })) }];
+        undoOperations = [{ op: "trash", refs: result.created.map((path) => ({ tree: node.tree, path, stableKey: null })) }];
+        redoOperations = [{ op: "restore", refs: result.created.map(trashedPath).map((path) => ({ tree: node.tree, path, stableKey: null })) }];
         redoSelection = result.created;
       } else if (result.deleted.length) {
-        undoOperations = [{ op: "restore", refs: result.deleted.map(trashedPath).map((path) => ({ tree: node.tree, path })) }];
+        undoOperations = [{ op: "restore", refs: result.deleted.map(trashedPath).map((path) => ({ tree: node.tree, path, stableKey: null })) }];
         undoSelection = result.deleted;
       } else if (result.moved.length) {
         undoOperations = inverseMoves(result.moved, node.tree);
@@ -748,8 +748,8 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
         };
         pushHistory({
           label: "import",
-          undo: () => execute([{ op: "trash", refs: created.map((path) => ({ tree: node.tree, path })) }], []),
-          redo: () => execute([{ op: "restore", refs: created.map(trashedPath).map((path) => ({ tree: node.tree, path })) }], created),
+          undo: () => execute([{ op: "trash", refs: created.map((path) => ({ tree: node.tree, path, stableKey: null })) }], []),
+          redo: () => execute([{ op: "restore", refs: created.map(trashedPath).map((path) => ({ tree: node.tree, path, stableKey: null })) }], created),
         });
       }
     } catch (error) {
@@ -795,8 +795,8 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       const moved = paths.map((path) => childPath(targetPath, path.slice(path.lastIndexOf("/") + 1)));
       await runMutation([{
         op: "move",
-        refs: paths.map((path) => ({ tree: node.tree, path })),
-        destination: { tree: node.tree, path: targetPath },
+        refs: paths.map((path) => ({ tree: node.tree, path, stableKey: null })),
+        destination: { tree: node.tree, path: targetPath, stableKey: null },
       }], moved);
       return;
     }
@@ -1109,7 +1109,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     if (name === path.slice(path.lastIndexOf("/") + 1)) { setRenamingPath(null); return; }
     const next = childPath(parentPath(path), name);
     setRenamingPath(null);
-    try { await runMutation([{ op: "rename", ref: { tree: node.tree, path }, name }], [next]); } catch {}
+    try { await runMutation([{ op: "rename", ref: { tree: node.tree, path, stableKey: null }, name }], [next]); } catch {}
   }, [renameValue, renamingPath, runMutation]);
 
   const trashSelection = useCallback(async (focusPath?: string) => {
@@ -1117,7 +1117,7 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
       ? [focusPath]
       : managedOrder.filter((path) => selected.has(path));
     if (!paths.length || !confirm(`Move ${paths.length === 1 ? paths[0] : `${paths.length} items`} to Trash?`)) return;
-    try { await runMutation([{ op: "trash", refs: paths.map((path) => ({ tree: node.tree, path })) }]); } catch {}
+    try { await runMutation([{ op: "trash", refs: paths.map((path) => ({ tree: node.tree, path, stableKey: null })) }]); } catch {}
   }, [managedOrder.join("\0"), runMutation, selected]);
 
   useEffect(() => {
@@ -1195,9 +1195,9 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
     event.preventDefault();
     if (link?.kind === "local") {
       const pageID = legacyPageIDCandidate(link);
-      navigate(pageID ? { tree: node.tree, pageID, pathHint: link.path } : link.path);
+      navigate(pageID ? { tree: node.tree, path: link.path, stableKey: pageIDStableKey(pageID) } : link.path);
     } else if (link?.kind === "fragment") {
-      navigate({ tree: node.tree, pageID: legacyPageIDCandidate(link)! });
+      navigate({ tree: node.tree, path: node.path, stableKey: pageIDStableKey(legacyPageIDCandidate(link)!) });
     }
     // arbor://, system:, and local: destinations wait on mount/visit resolution.
   };
@@ -1336,8 +1336,8 @@ export function PageEditor({ node, updates, pageActionsHost, onSaved, navigate }
             if (!block) {
               void runMutation([{
                 op: "move",
-                refs: paths.map((path) => ({ tree: node.tree, path })),
-                destination: { tree: node.tree, path: node.path },
+                refs: paths.map((path) => ({ tree: node.tree, path, stableKey: null })),
+                destination: { tree: node.tree, path: node.path, stableKey: null },
               }], paths);
               return;
             }

@@ -1,5 +1,5 @@
 {
   "mutationID": "33333333-3333-3333-3333-333333333333",
-  "directory": { "pageID": "abc123", "pathHint": "/notes/today" },
+  "directory": { "tree": "tr_notes7f3q2ab7c", "path": "/notes/today", "stableKey": "[[\"id\",\"abc123\"]]" },
   "filename": "diagram.png"
 }
