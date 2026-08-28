@@ -173,8 +173,20 @@ private struct ArborEditorBlockMenuItems: View {
         ArborEditorCommandButton(title: "Indent Selected Blocks", key: .tab, modifiers: [], requires: .canIndent, action: .indent)
         ArborEditorCommandButton(title: "Outdent Selected Blocks", key: .tab, modifiers: .shift, requires: .canOutdent, action: .outdent)
         Divider()
-        ArborEditorCommandButton(title: "Move Selected Blocks Up", key: .upArrow, modifiers: .option, action: .moveBlockUp)
-        ArborEditorCommandButton(title: "Move Selected Blocks Down", key: .downArrow, modifiers: .option, action: .moveBlockDown)
+        ArborEditorCommandButton(
+            title: "Move Selected Blocks Up",
+            key: .upArrow,
+            modifiers: .option,
+            requires: .canMoveBlockUp,
+            action: .moveBlockUp
+        )
+        ArborEditorCommandButton(
+            title: "Move Selected Blocks Down",
+            key: .downArrow,
+            modifiers: .option,
+            requires: .canMoveBlockDown,
+            action: .moveBlockDown
+        )
     }
 }
 

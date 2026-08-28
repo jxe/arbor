@@ -39,6 +39,7 @@
 /* Begin PBXFileReference section */
 		0C536D28F5F2FF55DBC77F41 /* ArborStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborStyle.swift; sourceTree = "<group>"; };
 		0F299E4C90ABCF2B66C525FF /* ArborSupportDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSupportDirectories.swift; sourceTree = "<group>"; };
+		192B54A67B893F9A75A0E5F7 /* quagmire */ = {isa = PBXFileReference; lastKnownFileType = folder; name = quagmire; path = ../../quagmire; sourceTree = SOURCE_ROOT; };
 		1E659894DB90798769861B59 /* ArborProviders */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ArborProviders; path = Packages/ArborProviders; sourceTree = SOURCE_ROOT; };
 		1EB05A227DAEF0E129AA6CA2 /* ArborSaveDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborSaveDiagnostics.swift; sourceTree = "<group>"; };
 		24B7B875410B0C94CDD95EF0 /* ArborAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArborAppModel.swift; sourceTree = "<group>"; };
@@ -106,6 +107,7 @@
 				AF413A530D273F3DD668F9FB /* ArborReplica */,
 				AF5FF8D863EECB201E9FC2A2 /* ArborSync */,
 				3D2630E60EAEFC5EACBFFF9B /* ArborWire */,
+				192B54A67B893F9A75A0E5F7 /* quagmire */,
 			);
 			path = Packages;
 			sourceTree = "<group>";
@@ -210,13 +212,13 @@
 			mainGroup = D456DBA015945693DC8C5A27;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				1192F4E788C6EF5C26724C74 /* XCRemoteSwiftPackageReference "quagmire" */,
 				F63E7F980F71FDEE16232E33 /* XCLocalSwiftPackageReference "Packages/ArborKit" */,
 				AAEB8A5B11A45E9BC0A4D392 /* XCLocalSwiftPackageReference "Packages/ArborProviders" */,
 				29463BC7E721D7865A0CD0C8 /* XCLocalSwiftPackageReference "Packages/ArborQuagmire" */,
 				D1DB62CC83D949E8774C3AEE /* XCLocalSwiftPackageReference "Packages/ArborReplica" */,
 				BE279AC9DD090FF8976A474E /* XCLocalSwiftPackageReference "Packages/ArborSync" */,
 				D9638D504CB818D826F9B7A6 /* XCLocalSwiftPackageReference "Packages/ArborWire" */,
+				5E0BD0F6461295DAB89B8558 /* XCLocalSwiftPackageReference "../../quagmire" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E229EC80D1677D4209FC0651 /* Products */;
@@ -557,6 +559,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/ArborQuagmire;
 		};
+		5E0BD0F6461295DAB89B8558 /* XCLocalSwiftPackageReference "../../quagmire" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../quagmire;
+		};
 		AAEB8A5B11A45E9BC0A4D392 /* XCLocalSwiftPackageReference "Packages/ArborProviders" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/ArborProviders;
@@ -578,17 +584,6 @@
 			relativePath = Packages/ArborKit;
 		};
 /* End XCLocalSwiftPackageReference section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		1192F4E788C6EF5C26724C74 /* XCRemoteSwiftPackageReference "quagmire" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/jxe/quagmire.git";
-			requirement = {
-				kind = exactVersion;
-				version = 0.4.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		00048AC9019C9BC06814ED85 /* ArborQuagmire */ = {
@@ -613,7 +608,6 @@
 		};
 		58BDC1D3069C577A3C27996C /* QuagmireExtras */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 1192F4E788C6EF5C26724C74 /* XCRemoteSwiftPackageReference "quagmire" */;
 			productName = QuagmireExtras;
 		};
 		CE998621587AADDAF474B4ED /* ArborReplica */ = {
