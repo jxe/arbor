@@ -200,7 +200,7 @@ struct ProviderContractTests {
         let node = try await ArborSyncWorkspaceProvider(client: client).resolve(
             WorkspaceReference(tree: tree, path: path)
         )
-        #expect(node.reference.pathHint == path)
+        #expect(node.reference.path == path)
         #expect(node.surface.supportsDocumentSession)
     }
 
@@ -287,29 +287,29 @@ struct ProviderContractTests {
         try await session.flush()
 
         let search = try await provider.search("Durable contract", in: root.tree)
-        #expect(search.contains { $0.reference.pathHint == note.reference.pathHint })
+        #expect(search.contains { $0.reference.path == note.reference.path })
 
         let linker = try #require(try await provider.perform(.createMarkdown(
             parent: folder.reference,
             name: "linker",
-            source: "# Linker\n\n[Provider contract](\(note.reference.pathHint))\n"
+            source: "# Linker\n\n[Provider contract](\(note.reference.path))\n"
         )))
         _ = linker
         let backlinks = try await provider.backlinks(to: note.reference)
-        #expect(backlinks.contains { $0.reference.pathHint.hasSuffix("/linker") })
+        #expect(backlinks.contains { $0.reference.path.hasSuffix("/linker") })
 
         let renamed = try #require(try await provider.perform(.rename(reference: note.reference, name: "renamed")))
-        #expect(renamed.reference.pathHint.hasSuffix("/renamed"))
-        #expect(try await provider.children(of: folder.reference).contains { $0.reference.pathHint == renamed.reference.pathHint })
-        if let originalID = note.reference.pageID, let renamedID = renamed.reference.pageID {
+        #expect(renamed.reference.path.hasSuffix("/renamed"))
+        #expect(try await provider.children(of: folder.reference).contains { $0.reference.path == renamed.reference.path })
+        if let originalID = note.reference.stableKey, let renamedID = renamed.reference.stableKey {
             #expect(originalID == renamedID)
         }
 
         let archive = try #require(try await provider.perform(.createDirectory(parent: folder.reference, name: "archive")))
         let copied = try #require(try await provider.perform(.copy(reference: renamed.reference, destination: archive.reference)))
-        #expect(copied.reference.pathHint.contains("/archive/"))
-        #expect(try await provider.children(of: archive.reference).contains { $0.reference.pathHint == copied.reference.pathHint })
-        if let originalID = renamed.reference.pageID, let copiedID = copied.reference.pageID {
+        #expect(copied.reference.path.contains("/archive/"))
+        #expect(try await provider.children(of: archive.reference).contains { $0.reference.path == copied.reference.path })
+        if let originalID = renamed.reference.stableKey, let copiedID = copied.reference.stableKey {
             #expect(originalID != copiedID)
         }
 
@@ -317,16 +317,16 @@ struct ProviderContractTests {
             asset: WorkspaceAsset(name: "contract.txt", mediaType: "text/plain", bytes: Data("asset".utf8)),
             in: folder.reference
         )
-        #expect(asset.reference.pathHint.contains("Assets") || asset.reference.pathHint.hasSuffix("contract.txt"))
+        #expect(asset.reference.path.contains("Assets") || asset.reference.path.hasSuffix("contract.txt"))
         #expect(!asset.markdownSource.isEmpty)
         #expect(try await provider.readFile(asset.reference) == Data("asset".utf8))
 
         let trashed = try #require(try await provider.perform(.trash(reference: copied.reference)))
-        #expect(trashed.reference.pathHint.hasPrefix("/Trash"))
-        #expect(try await provider.children(of: archive.reference).allSatisfy { $0.reference.pathHint != copied.reference.pathHint })
+        #expect(trashed.reference.path.hasPrefix("/Trash"))
+        #expect(try await provider.children(of: archive.reference).allSatisfy { $0.reference.path != copied.reference.path })
         let restored = try #require(try await provider.perform(.restore(reference: trashed.reference)))
-        #expect(!restored.reference.pathHint.hasPrefix("/Trash"))
-        #expect(try await provider.children(of: archive.reference).contains { $0.reference.pathHint == restored.reference.pathHint })
+        #expect(!restored.reference.path.hasPrefix("/Trash"))
+        #expect(try await provider.children(of: archive.reference).contains { $0.reference.path == restored.reference.path })
 
         let history = try await session.history()
         #expect(!history.isEmpty)

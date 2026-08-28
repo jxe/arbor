@@ -630,10 +630,10 @@ final class ArborWorkspaceState {
         catch { errorMessage = "Saving did not finish: \(error.localizedDescription)" }
     }
 
-    func deliverVoiceTranscript(_ transcript: String, to pageID: PageID) async throws {
+    func deliverVoiceTranscript(_ transcript: String, to stableKey: String) async throws {
         try await editorWorkspace.appendTranscript(
             transcript,
-            to: pageID,
+            to: stableKey,
             in: home.tree
         )
     }
@@ -990,13 +990,13 @@ final class ArborAppModel {
 
     func evaluateTitleRenameProposal() async {
         guard let binding, let node, node.isWritable,
-              binding.reference.pathHint != "/",
+              binding.reference.path != "/",
               binding.lastError == nil, binding.conflict == nil else {
             titleRenameProposal = nil
             return
         }
         let title = binding.acceptedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let currentName = binding.reference.pathHint.split(separator: "/").last.map(String.init) ?? ""
+        let currentName = binding.reference.path.split(separator: "/").last.map(String.init) ?? ""
         guard !title.isEmpty, !WorkspaceTitleSlug.matches(name: currentName, title: title) else {
             titleRenameProposal = nil
             return
@@ -1005,7 +1005,7 @@ final class ArborAppModel {
         let siblings = (try? await workspace.provider.children(of: parent)) ?? []
         let occupied = Set(siblings.compactMap { sibling -> String? in
             guard sibling.reference.identity != binding.reference.identity else { return nil }
-            return sibling.reference.pathHint.split(separator: "/").last.map(String.init)?.lowercased()
+            return sibling.reference.path.split(separator: "/").last.map(String.init)?.lowercased()
         })
         let stem = WorkspaceTitleSlug.name(for: title)
         var proposed = stem
@@ -1066,27 +1066,27 @@ final class ArborAppModel {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    func startVoiceRecording(_ session: VoiceRecordingSession<PageID>) async {
-        guard let node, node.isWritable, let pageID = binding?.reference.pageID else {
+    func startVoiceRecording(_ session: VoiceRecordingSession<String>) async {
+        guard let node, node.isWritable, let stableKey = binding?.reference.stableKey else {
             session.reportError("Open a writable Arbor page before starting a recording.")
             return
         }
-        await session.start(destination: pageID)
+        await session.start(destination: stableKey)
     }
 
-    func toggleVoiceRecordingFromShortcut(_ session: VoiceRecordingSession<PageID>) async {
+    func toggleVoiceRecordingFromShortcut(_ session: VoiceRecordingSession<String>) async {
         switch session.state {
         case .idle:
             do {
                 let homeNode = try await workspace.provider.resolve(workspace.home)
                 guard homeNode.isWritable,
                       homeNode.surface.supportsDocumentSession,
-                      let pageID = homeNode.reference.pageID else {
+                      let stableKey = homeNode.reference.stableKey else {
                     session.reportError("The Home node must be a writable Arbor page before starting a Shortcut recording.")
                     return
                 }
                 await navigate(to: homeNode.reference)
-                await session.start(destination: pageID)
+                await session.start(destination: stableKey)
             } catch {
                 session.reportError("Arbor could not open Home for recording: \(error.localizedDescription)")
             }
@@ -1120,14 +1120,14 @@ final class ArborAppModel {
         switch currentLocation {
         case .localPath:
             guard let root = node.provenance.treeRootURL else { return .reference(reference) }
-            let path = reference.pathHint == "/"
+            let path = reference.path == "/"
                 ? root.path
-                : root.appending(path: reference.pathHint.trimmingCharacters(in: CharacterSet(charactersIn: "/"))).path
+                : root.appending(path: reference.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))).path
             return .local(path)
         case let .remote(_, rootLocator):
             guard var components = URLComponents(string: rootLocator) else { return .reference(reference) }
             let rootPath = components.percentEncodedPath.replacingOccurrences(of: "/$", with: "", options: .regularExpression)
-            let suffix = reference.pathHint == "/" ? "" : reference.pathHint
+            let suffix = reference.path == "/" ? "" : reference.path
             components.percentEncodedPath = rootPath + suffix
             guard let locator = components.url?.absoluteString else { return .reference(reference) }
             return .remote(locator: locator, rootLocator: rootLocator)

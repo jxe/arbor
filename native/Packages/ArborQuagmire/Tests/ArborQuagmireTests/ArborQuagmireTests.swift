@@ -251,7 +251,7 @@ struct ArborQuagmireTests {
     @Test("Synchronous commits enqueue ordered patch admissions and flush awaits the final generation")
     func hostPersistence() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
-        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome")
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = InMemoryDocumentSession(snapshot: .init(
             reference: reference,
             source: "# Welcome\n\nNative Arbor is ready.\n",
@@ -294,7 +294,7 @@ struct ArborQuagmireTests {
     @Test("Pasted images persist in order and resolve through provider bytes")
     func imageLifecycle() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
-        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome")
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = try await provider.openDocument(reference)
         let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
         let host = ArborEditorHost(
@@ -321,7 +321,7 @@ struct ArborQuagmireTests {
     @MainActor
     @Test("An exact self-confirmation does not replace the live editor tree")
     func exactSaveDoesNotReload() async throws {
-        let reference = WorkspaceReference(tree: "tr_sample", path: "/blank", pageID: "pg_blank")
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/blank", stableKey: markdownStableKey("pg_blank"))
         let session = InMemoryDocumentSession(snapshot: .init(
             reference: reference,
             source: "before\n\nafter\n",
@@ -352,7 +352,7 @@ struct ArborQuagmireTests {
     @MainActor
     @Test("An already durable edit resolves a stale acknowledgement as success")
     func staleExactSaveIsIdempotent() async throws {
-        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome")
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = AlreadyAppliedStaleSession(snapshot: .init(
             reference: reference,
             source: "# Welcome\n\nBefore.\n",
@@ -387,8 +387,8 @@ struct ArborQuagmireTests {
     func duplicateTabs() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
         let workspace = ArborEditorWorkspace(provider: provider)
-        let first = try await workspace.lease(.init(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome"))
-        let second = try await workspace.lease(.init(tree: "tr_sample", path: "/stale", pageID: "pg_welcome"))
+        let first = try await workspace.lease(.init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
+        let second = try await workspace.lease(.init(tree: "tr_sample", path: "/stale", stableKey: markdownStableKey("pg_welcome")))
         #expect(first.binding === second.binding)
         await workspace.release(first)
         await workspace.release(second)
@@ -402,13 +402,13 @@ struct ArborQuagmireTests {
         let reference = WorkspaceReference(
             tree: "tr_sample",
             path: "/welcome",
-            pageID: "pg_welcome"
+            stableKey: markdownStableKey("pg_welcome")
         )
         let lease = try await workspace.lease(reference)
 
         try await workspace.appendTranscript(
             "Captured through the workspace.",
-            to: "pg_welcome",
+            to: markdownStableKey("pg_welcome"),
             in: "tr_sample"
         )
 
@@ -431,9 +431,9 @@ struct ArborQuagmireTests {
     @Test("Destination failure leaves the source exact and references retain tree plus PageID scope")
     func safeActions() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
-        let session = try await provider.openDocument(.init(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome"))
+        let session = try await provider.openDocument(.init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
         let binding = try await ArborDocumentBinding.open(
-            reference: .init(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome"),
+            reference: .init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")),
             session: session
         )
         var openedReference: WorkspaceReference?
@@ -450,10 +450,10 @@ struct ArborQuagmireTests {
             from: URL(string: "Reference.md#stdu7s")!,
             in: binding.document
         ))
-        #expect(ArborDocumentReferenceCodec.decode(hunchLink)?.pathHint == "/Reference")
+        #expect(ArborDocumentReferenceCodec.decode(hunchLink)?.path == "/Reference")
         let standaloneHunchLink = DocumentReference("welcome.md#pg_welcome")
         host.openDocument(standaloneHunchLink)
-        #expect(openedReference?.pathHint == "/welcome")
+        #expect(openedReference?.path == "/welcome")
         #expect(host.lookupDocument(standaloneHunchLink) == .pending)
         for _ in 0..<20 where host.lookupDocument(standaloneHunchLink) == .pending {
             await Task.yield()
@@ -479,7 +479,7 @@ struct ArborQuagmireTests {
         let reference = WorkspaceReference(
             tree: TreeID(rawValue: root.ref.tree),
             path: root.ref.path,
-            pageID: pageIDFromStableKey(root.ref.stableKey).map(PageID.init(rawValue:))
+            stableKey: root.ref.stableKey
         )
         let provider = ArborSyncWorkspaceProvider(client: client)
         let session = try await provider.openDocument(reference)
@@ -513,7 +513,7 @@ struct ArborQuagmireTests {
         let reference = WorkspaceReference(
             tree: TreeID(rawValue: root.ref.tree),
             path: root.ref.path,
-            pageID: pageIDFromStableKey(root.ref.stableKey).map(PageID.init(rawValue:))
+            stableKey: root.ref.stableKey
         )
         let provider = ArborSyncWorkspaceProvider(client: client)
         let session = try await provider.openDocument(reference)
@@ -599,7 +599,7 @@ struct ArborQuagmireTests {
             provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
         )
         let destination = WorkspaceNode(
-            reference: .init(tree: tree, path: "/destination", pageID: "pg_destination"),
+            reference: .init(tree: tree, path: "/destination", stableKey: markdownStableKey("pg_destination")),
             title: "Destination",
             surface: .markdown(source: "# Destination\n", contentRevision: "r1"),
             provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
@@ -639,13 +639,13 @@ struct ArborQuagmireTests {
             provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
         )
         let parent = WorkspaceNode(
-            reference: .init(tree: tree, path: "/parent", pageID: "pg_parent"),
+            reference: .init(tree: tree, path: "/parent", stableKey: markdownStableKey("pg_parent")),
             title: "Parent",
             surface: .directoryDocument(source: "# Parent\n", contentRevision: "r1", stored: true),
             provenance: root.provenance
         )
         let child = WorkspaceNode(
-            reference: .init(tree: tree, path: "/parent/child", pageID: "pg_child"),
+            reference: .init(tree: tree, path: "/parent/child", stableKey: markdownStableKey("pg_child")),
             title: "Child",
             surface: .markdown(source: "# Child\n", contentRevision: "r1"),
             provenance: root.provenance
@@ -675,16 +675,16 @@ struct ArborQuagmireTests {
             from: URL(string: "child")!,
             in: binding.document
         ))
-        #expect(ArborDocumentReferenceCodec.decode(generatedChildLink)?.pathHint == "/parent/child")
+        #expect(ArborDocumentReferenceCodec.decode(generatedChildLink)?.path == "/parent/child")
         let relativeSiblingLink = try #require(host.resolveReference(
             from: URL(string: "../destination")!,
             in: binding.document
         ))
-        #expect(ArborDocumentReferenceCodec.decode(relativeSiblingLink)?.pathHint == "/destination")
+        #expect(ArborDocumentReferenceCodec.decode(relativeSiblingLink)?.path == "/destination")
         let reference = ArborDocumentReferenceCodec.encode(.init(
             tree: tree,
             path: "/stale-child-hint",
-            pageID: "pg_child"
+            stableKey: markdownStableKey("pg_child")
         ))
 
         let move = Task { await host.relocateDocument(reference, from: binding.document) }
@@ -693,8 +693,8 @@ struct ArborQuagmireTests {
         host.resolveStructuralMoveRequest(with: destination.reference)
         #expect(await move.value)
 
-        let resolved = try await provider.resolve(.init(tree: tree, path: "/stale", pageID: "pg_child"))
-        #expect(resolved.reference.pathHint == "/destination/child")
+        let resolved = try await provider.resolve(.init(tree: tree, path: "/stale", stableKey: markdownStableKey("pg_child")))
+        #expect(resolved.reference.path == "/destination/child")
         #expect(!(await host.relocateDocument(
             ArborDocumentReferenceCodec.encode(destination.reference),
             from: binding.document
@@ -709,7 +709,7 @@ struct ArborQuagmireTests {
         let reference = WorkspaceReference(
             tree: "tr_sample",
             path: "/welcome",
-            pageID: "pg_welcome"
+            stableKey: markdownStableKey("pg_welcome")
         )
         let session = try await provider.openDocument(reference)
         let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
@@ -738,7 +738,7 @@ struct ArborQuagmireTests {
     @Test("Clean accepted replacement keeps matching BlockIDs and emits no authored commit")
     func acceptedReplacement() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
-        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome")
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         let session = try await provider.openDocument(reference)
         let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
         let originalIDs = binding.document.children.map(\.id)
@@ -762,7 +762,7 @@ struct ArborQuagmireTests {
     @MainActor
     @Test("A clean open editor reconciles a live authoritative update in place")
     func liveAuthoritativeUpdate() async throws {
-        let reference = WorkspaceReference(tree: "tr_live", path: "/", pageID: "pg_live")
+        let reference = WorkspaceReference(tree: "tr_live", path: "/", stableKey: markdownStableKey("pg_live"))
         let initial = WorkspaceDocumentSnapshot(
             reference: reference,
             source: "---\nid: pg_live\n---\n\n# Live\n",

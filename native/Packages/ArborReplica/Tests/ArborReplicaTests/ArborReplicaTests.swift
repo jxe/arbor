@@ -70,12 +70,12 @@ struct ReplicaProviderTests {
                 name: "today",
                 source: "# Today\n\nOffline first.\n"
             )))
-            let pageID = try #require(created.reference.pageID)
+            let pageID = try #require(created.reference.stableKey)
             guard case let .markdown(createdSource, createdRevision) = created.surface else {
                 Issue.record("Expected Markdown")
                 return
             }
-            #expect(ReplicaSemantics.pageID(in: createdSource) == pageID.rawValue)
+            #expect(ReplicaSemantics.pageID(in: createdSource) == markdownID(fromStableKey: pageID))
 
             let notesNode = try await provider.resolve(notes.reference)
             guard case let .directoryDocument(notesSource, _, notesStored) = notesNode.surface else {
@@ -90,8 +90,8 @@ struct ReplicaProviderTests {
                 source: notesSnapshot.source,
                 baseContentRevision: notesSnapshot.contentRevision
             )
-            #expect(admittedNotes.reference.pageID != nil)
-            #expect(ReplicaSemantics.pageID(in: admittedNotes.source) == admittedNotes.reference.pageID?.rawValue)
+            #expect(admittedNotes.reference.stableKey != nil)
+            #expect(ReplicaSemantics.pageID(in: admittedNotes.source) == markdownID(fromStableKey: admittedNotes.reference.stableKey))
             guard case let .directoryDocument(_, _, admittedStored) = try await provider.resolve(admittedNotes.reference).surface else {
                 Issue.record("Expected the stored directory document")
                 return
@@ -108,33 +108,33 @@ struct ReplicaProviderTests {
             }
 
             let renamed = try #require(try await provider.perform(.rename(reference: created.reference, name: "renamed")))
-            #expect(renamed.reference.pageID == pageID)
-            #expect(renamed.reference.pathHint == "/notes/renamed")
-            #expect(try await session.snapshot().reference.pathHint == "/notes/renamed")
+            #expect(renamed.reference.stableKey == pageID)
+            #expect(renamed.reference.path == "/notes/renamed")
+            #expect(try await session.snapshot().reference.path == "/notes/renamed")
 
             let archive = try #require(try await provider.perform(.createDirectory(parent: rootRef, name: "archive")))
             let moved = try #require(try await provider.perform(.move(reference: renamed.reference, destination: archive.reference)))
-            #expect(moved.reference.pageID == pageID)
-            #expect(moved.reference.pathHint == "/archive/renamed")
+            #expect(moved.reference.stableKey == pageID)
+            #expect(moved.reference.path == "/archive/renamed")
 
             let copied = try #require(try await provider.perform(.copy(reference: moved.reference, destination: notes.reference)))
-            #expect(copied.reference.pathHint == "/notes/renamed")
-            #expect(copied.reference.pageID != pageID)
+            #expect(copied.reference.path == "/notes/renamed")
+            #expect(copied.reference.stableKey != pageID)
             await #expect(throws: ReplicaError.self) {
                 _ = try await provider.perform(.rename(reference: copied.reference, name: "renamed"))
             }
 
             let trashed = try #require(try await provider.perform(.trash(reference: moved.reference)))
-            #expect(trashed.reference.pageID == pageID)
-            #expect(trashed.reference.pathHint == "/Trash/archive/renamed")
+            #expect(trashed.reference.stableKey == pageID)
+            #expect(trashed.reference.path == "/Trash/archive/renamed")
             let restored = try #require(try await provider.perform(.restore(reference: trashed.reference)))
-            #expect(restored.reference.pageID == pageID)
-            #expect(restored.reference.pathHint == "/archive/renamed")
+            #expect(restored.reference.stableKey == pageID)
+            #expect(restored.reference.path == "/archive/renamed")
 
             let asset = WorkspaceAsset(name: "diagram.bin", mediaType: "application/octet-stream", bytes: Data([0, 1, 2, 3]))
             let storedAsset = try await provider.store(asset: asset, in: archive.reference)
-            #expect(storedAsset.reference.pathHint.contains("diagram.bin"))
-            #expect(storedAsset.markdownSource == storedAsset.reference.pathHint)
+            #expect(storedAsset.reference.path.contains("diagram.bin"))
+            #expect(storedAsset.markdownSource == storedAsset.reference.path)
             #expect(try await provider.readFile(storedAsset.reference) == asset.bytes)
             #expect(try await provider.store(asset: asset, in: archive.reference) == storedAsset)
             await #expect(throws: ReplicaError.self) {
@@ -161,7 +161,7 @@ struct ReplicaProviderTests {
                 name: "linker",
                 source: "# Linker\n\n[Today](\(restoredLink))\n"
             )))
-            #expect(try await provider.search("durable edit", in: tree).contains { $0.reference.pageID == pageID })
+            #expect(try await provider.search("durable edit", in: tree).contains { $0.reference.stableKey == pageID })
             #expect(try await provider.backlinks(to: restored.reference).contains { $0.reference == linker.reference })
 
             let history = try await session.history()
@@ -200,8 +200,8 @@ struct ReplicaProviderTests {
 
             let reopened = try await ArborReplica.open(at: root, tree: tree)
             let reopenedProvider = ReplicaWorkspaceProvider(replica: reopened)
-            #expect(try await reopenedProvider.resolve(.init(tree: tree, path: "/stale", pageID: pageID)).reference.pathHint == "/archive/renamed")
-            #expect(try await reopenedProvider.search("Offline first", in: tree).contains { $0.reference.pageID == pageID })
+            #expect(try await reopenedProvider.resolve(.init(tree: tree, path: "/stale", stableKey: pageID)).reference.path == "/archive/renamed")
+            #expect(try await reopenedProvider.search("Offline first", in: tree).contains { $0.reference.stableKey == pageID })
         }
     }
 
@@ -307,14 +307,14 @@ struct ReplicaProviderTests {
             let rootRef = WorkspaceReference(tree: tree, path: "/")
             let directory = try #require(try await provider.perform(.createDirectory(parent: rootRef, name: "many")))
             let names = ["z", "ä", "A"] + (0..<32).map { "node-\(String(format: "%02d", $0))" }
-            var identities = Set<PageID>()
+            var identities = Set<String>()
             for name in names.reversed() {
                 let node = try #require(try await provider.perform(.createMarkdown(
                     parent: directory.reference,
                     name: name,
                     source: "# \(name)\n"
                 )))
-                #expect(identities.insert(try #require(node.reference.pageID)).inserted)
+                #expect(identities.insert(try #require(node.reference.stableKey)).inserted)
             }
             let before = try await replica.currentSnapshot()
             let beforeHeads = try await replica.heads()
@@ -331,7 +331,7 @@ struct ReplicaProviderTests {
             }
             #expect(source.isEmpty)
             let orderedNames = try await provider.children(of: directory.reference).map {
-                String($0.reference.pathHint.split(separator: "/").last ?? "")
+                String($0.reference.path.split(separator: "/").last ?? "")
             }
             #expect(try #require(orderedNames.firstIndex(of: "A")) < #require(orderedNames.firstIndex(of: "z")))
             #expect(try #require(orderedNames.firstIndex(of: "z")) < #require(orderedNames.firstIndex(of: "ä")))
@@ -391,7 +391,7 @@ struct ReplicaCrashTests {
                 let recovered = try await ArborReplica.open(at: root, tree: tree)
                 let recoveredProvider = ReplicaWorkspaceProvider(replica: recovered)
                 let node = try await recoveredProvider.resolve(.init(tree: tree, path: "/survives"))
-                #expect(node.reference.pageID != nil, Comment(rawValue: point.rawValue))
+                #expect(node.reference.stableKey != nil, Comment(rawValue: point.rawValue))
                 let heads = try await recovered.heads()
                 #expect(heads.generation == 1)
                 #expect(heads.materializedRoot == heads.pendingRoot)
@@ -412,7 +412,7 @@ struct ReplicaCrashTests {
             let provider = ReplicaWorkspaceProvider(replica: initial)
             let rootRef = WorkspaceReference(tree: tree, path: "/")
             let note = try #require(try await provider.perform(.createMarkdown(parent: rootRef, name: "note", source: "# Note\n")))
-            let pageID = try #require(note.reference.pageID)
+            let pageID = try #require(note.reference.stableKey)
             let destination = try #require(try await provider.perform(.createDirectory(parent: rootRef, name: "destination")))
             await initial.close()
 
@@ -423,8 +423,8 @@ struct ReplicaCrashTests {
             }
             let moved = try await ArborReplica.open(at: root, tree: tree)
             let movedProvider = ReplicaWorkspaceProvider(replica: moved)
-            let movedNode = try await movedProvider.resolve(.init(tree: tree, path: "/stale", pageID: pageID))
-            #expect(movedNode.reference.pathHint == "/destination/note")
+            let movedNode = try await movedProvider.resolve(.init(tree: tree, path: "/stale", stableKey: pageID))
+            #expect(movedNode.reference.path == "/destination/note")
             await moved.close()
 
             let trashing = try await ArborReplica.open(at: root, tree: tree, faultInjector: OneShotFault(.afterHistory))
@@ -434,11 +434,11 @@ struct ReplicaCrashTests {
             }
             let trashed = try await ArborReplica.open(at: root, tree: tree)
             let trashedProvider = ReplicaWorkspaceProvider(replica: trashed)
-            let trashedNode = try await trashedProvider.resolve(.init(tree: tree, path: "/stale", pageID: pageID))
-            #expect(trashedNode.reference.pathHint == "/Trash/destination/note")
+            let trashedNode = try await trashedProvider.resolve(.init(tree: tree, path: "/stale", stableKey: pageID))
+            #expect(trashedNode.reference.path == "/Trash/destination/note")
             let restored = try #require(try await trashedProvider.perform(.restore(reference: trashedNode.reference)))
-            #expect(restored.reference.pathHint == "/destination/note")
-            #expect(restored.reference.pageID == pageID)
+            #expect(restored.reference.path == "/destination/note")
+            #expect(restored.reference.stableKey == pageID)
         }
     }
 }

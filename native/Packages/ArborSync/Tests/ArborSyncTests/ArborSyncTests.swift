@@ -77,7 +77,7 @@ struct ArborSyncTests {
                 transport: transport
             )
             let provider = ReplicaWorkspaceProvider(replica: replica)
-            let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", pageID: "pg_note"))
+            let session = try await provider.openDocument(.init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note")))
             let base = try await session.snapshot()
             _ = try await session.admit(source: base.source + "Local\n", baseContentRevision: base.contentRevision)
 
@@ -121,7 +121,7 @@ struct ArborSyncTests {
                 await coordinator.syncImmediately(admission)
             }
             let session = try await provider.openDocument(
-                .init(tree: TreeID(rawValue: tree), path: "/note", pageID: "pg_note")
+                .init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
             )
             let base = try await session.snapshot()
             let baseBytes = Data(base.source.utf8)
@@ -261,7 +261,7 @@ struct ArborSyncTests {
                 transport: transport
             )
             let session = try await ReplicaWorkspaceProvider(replica: replica).openDocument(
-                .init(tree: TreeID(rawValue: tree), path: "/note", pageID: "pg_note")
+                .init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
             )
             let base = try await session.snapshot()
             _ = try await session.admit(source: base.source + "Local\n", baseContentRevision: base.contentRevision)
@@ -305,7 +305,7 @@ struct ArborSyncTests {
                 transport: bootstrap
             )
             let provider = ReplicaWorkspaceProvider(replica: replica)
-            let reference = WorkspaceReference(tree: TreeID(rawValue: tree), path: "/note", pageID: "pg_note")
+            let reference = WorkspaceReference(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
             let session = try await provider.openDocument(reference)
             let base = try await session.snapshot()
             let candidate = try await session.admit(source: base.source + "Candidate\n", baseContentRevision: base.contentRevision)
@@ -354,7 +354,7 @@ struct ArborSyncTests {
                 transport: bootstrap
             )
             let session = try await ReplicaWorkspaceProvider(replica: replica).openDocument(
-                .init(tree: TreeID(rawValue: tree), path: "/note", pageID: "pg_note")
+                .init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
             )
             let localBase = try await session.snapshot()
             _ = try await session.admit(source: localBase.source + "Local\n", baseContentRevision: localBase.contentRevision)
@@ -471,7 +471,7 @@ struct ArborSyncTests {
                     transport: transport
                 )
                 let session = try await ReplicaWorkspaceProvider(replica: replica).openDocument(
-                    .init(tree: TreeID(rawValue: tree), path: "/note", pageID: "pg_note")
+                    .init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
                 )
                 let base = try await session.snapshot()
                 _ = try await session.admit(source: base.source + "Local\n", baseContentRevision: base.contentRevision)
@@ -517,7 +517,7 @@ struct LiveNativePeerTests {
                 at: root.appending(path: "tablet"),
                 transport: transport
             )
-            let reference = WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/note", pageID: "pg_note")
+            let reference = WorkspaceReference(tree: TreeID(rawValue: tree.id), path: "/note", stableKey: markdownStableKey("pg_note"))
             let macSession = try await ReplicaWorkspaceProvider(replica: mac).openDocument(reference)
             let tabletSession = try await ReplicaWorkspaceProvider(replica: tablet).openDocument(reference)
             let macBase = try await macSession.snapshot()

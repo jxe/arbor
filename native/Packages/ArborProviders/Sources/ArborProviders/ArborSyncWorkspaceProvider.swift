@@ -41,7 +41,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
         case let .localPath(path):
             let parent = try await resolve(location)
             let children = try await client.allChildren(.path(path, tree: "local"))
-            let parentPath = parent.location.pathHint
+            let parentPath = parent.location.path
             return try await resolveAll(children.map { child in
                 .local(URL(fileURLWithPath: parentPath).appending(path: child.name).path)
             })

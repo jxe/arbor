@@ -7,13 +7,6 @@ public struct TreeID: RawRepresentable, Hashable, Codable, Sendable, Expressible
     public init(stringLiteral value: String) { self.rawValue = value }
 }
 
-@available(*, deprecated, message: "Use WorkspaceReference.stableKey")
-public struct PageID: RawRepresentable, Hashable, Codable, Sendable, ExpressibleByStringLiteral {
-    public var rawValue: String
-    public init(rawValue: String) { self.rawValue = rawValue }
-    public init(stringLiteral value: String) { self.rawValue = value }
-}
-
 public struct WorkspaceReference: Hashable, Codable, Sendable {
     public var tree: TreeID
     public var path: String
@@ -23,23 +16,6 @@ public struct WorkspaceReference: Hashable, Codable, Sendable {
         self.tree = tree
         self.path = Self.normalized(path)
         self.stableKey = stableKey
-    }
-
-    @available(*, deprecated, message: "Pass the canonical stable key")
-    public init(tree: TreeID, path: String, pageID: PageID?) {
-        self.init(tree: tree, path: path, stableKey: pageID.map { markdownStableKey($0.rawValue) })
-    }
-
-    @available(*, deprecated, message: "Use path")
-    public var pathHint: String {
-        get { path }
-        set { path = Self.normalized(newValue) }
-    }
-
-    @available(*, deprecated, message: "Use stableKey")
-    public var pageID: PageID? {
-        get { markdownID(fromStableKey: stableKey).map(PageID.init(rawValue:)) }
-        set { stableKey = newValue.map { markdownStableKey($0.rawValue) } }
     }
 
     public var parent: WorkspaceReference? {
@@ -105,7 +81,7 @@ public enum WorkspaceLocation: Hashable, Codable, Sendable {
         }
     }
 
-    public var pathHint: String {
+    public var path: String {
         switch self {
         case let .localPath(path): path
         case let .reference(reference): reference.path

@@ -40,7 +40,7 @@ public actor WorkspaceCoordinator {
         let session = try await provider.openDocument(node.reference)
         let durableIdentity = await session.identity
         if var entry = sessions[durableIdentity] {
-            // Opening may promote a path-only document to a durable PageID.
+            // Opening may promote a path-only document to a durable stable key.
             // Reuse the already-live session if another presentation arrived
             // through the durable identity first.
             await session.close()

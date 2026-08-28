@@ -122,10 +122,10 @@ struct ArborAppTests {
     func documentKeepsContainingDirectorySidebar() async {
         let model = ArborAppModel()
         await model.load()
-        await model.navigate(to: .init(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome"))
+        await model.navigate(to: .init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
 
         #expect(model.node?.title == "Welcome")
-        #expect(model.sidebarLocation.pathHint == "/")
+        #expect(model.sidebarLocation.path == "/")
         #expect(model.children.map(\.title) == ["Welcome", "Files", "People", "Offline item", "Provider diagnostic"])
     }
 
@@ -134,7 +134,7 @@ struct ArborAppTests {
         let model = ArborAppModel()
         await model.load()
         let home = model.currentReference
-        let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome")
+        let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
 
         await model.navigate(to: welcome)
 
@@ -153,7 +153,7 @@ struct ArborAppTests {
         await model.load()
         await model.navigate(to: .init(tree: "tr_sample", path: "/files"))
 
-        #expect(model.sidebarLocation.pathHint == "/files")
+        #expect(model.sidebarLocation.path == "/files")
         #expect(model.children.map(\.title) == ["arbor.png"])
     }
 
@@ -174,7 +174,7 @@ struct ArborAppTests {
         let second = ArborAppModel(workspace: workspace)
         await first.load()
         await second.load()
-        let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome")
+        let welcome = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
         await first.navigate(to: welcome)
         await second.navigate(to: welcome)
 
@@ -189,7 +189,7 @@ struct ArborAppTests {
         let workspace = ArborWorkspaceState(provider: .sample())
         let model = ArborAppModel(workspace: workspace)
         await model.load()
-        await model.navigate(to: .init(tree: "tr_sample", path: "/welcome", pageID: "pg_welcome"))
+        await model.navigate(to: .init(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome")))
         let binding = try #require(model.binding)
         let host = try #require(model.editorHost)
         var foundParagraph: BlockID?
@@ -207,7 +207,7 @@ struct ArborAppTests {
         let saved = try await workspace.provider.resolve(.init(
             tree: "tr_sample",
             path: "/welcome",
-            pageID: "pg_welcome"
+            stableKey: markdownStableKey("pg_welcome")
         ))
         guard case let .markdown(source, _) = saved.surface else {
             Issue.record("Welcome was no longer a Markdown surface")
@@ -224,7 +224,7 @@ struct ArborAppTests {
         let welcome = WorkspaceReference(
             tree: "tr_sample",
             path: "/welcome",
-            pageID: "pg_welcome"
+            stableKey: markdownStableKey("pg_welcome")
         )
         await model.navigate(to: welcome)
 
@@ -255,7 +255,7 @@ struct ArborAppTests {
         let welcome = WorkspaceReference(
             tree: "tr_sample",
             path: "/welcome",
-            pageID: "pg_welcome"
+            stableKey: markdownStableKey("pg_welcome")
         )
 
         try await workspace.deliverVoiceTranscript(

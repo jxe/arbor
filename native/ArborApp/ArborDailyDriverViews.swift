@@ -398,13 +398,13 @@ struct ArborStructuralMoveSheet: View {
                         dismiss()
                     } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: directory.reference.pathHint == "/" ? "house" : "folder")
+                            Image(systemName: directory.reference.path == "/" ? "house" : "folder")
                                 .foregroundStyle(.secondary)
                                 .frame(width: 18)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(directory.title)
                                     .font(ArborStyle.shellFont(size: 14, weight: .medium))
-                                Text(directory.reference.pathHint)
+                                Text(directory.reference.path)
                                     .font(ArborStyle.shellFont(size: 11))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
@@ -721,10 +721,10 @@ struct ArborBreadcrumbs: View {
         .padding(.horizontal, 12)
         .frame(height: 28)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Location: \(reference.pathHint)")
+        .accessibilityLabel("Location: \(reference.path)")
     }
 
-    private var components: [String] { reference.pathHint.split(separator: "/").map(String.init) }
+    private var components: [String] { reference.path.split(separator: "/").map(String.init) }
 }
 
 struct ArborStatusBar: View {
@@ -770,8 +770,8 @@ struct ArborSourceInspector: View {
             Form {
                 Section("Identity") {
                     LabeledContent("Tree", value: node.reference.tree.rawValue)
-                    LabeledContent("Path", value: node.reference.pathHint)
-                    if let pageID = node.reference.pageID { LabeledContent("PageID", value: pageID.rawValue) }
+                    LabeledContent("Path", value: node.reference.path)
+                    if let stableKey = node.reference.stableKey { LabeledContent("Stable key", value: stableKey) }
                 }
                 Section("Provenance") {
                     LabeledContent("Source", value: node.provenance.sourceDescription)

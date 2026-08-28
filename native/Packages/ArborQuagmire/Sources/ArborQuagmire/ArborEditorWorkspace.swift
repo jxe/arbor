@@ -57,13 +57,13 @@ public final class ArborEditorWorkspace {
 
     public func appendTranscript(
         _ transcript: String,
-        to pageID: PageID,
+        to stableKey: String,
         in tree: TreeID
     ) async throws {
         let block = Block.paragraph(text: AttributedString(transcript))
 
         if let binding = entries.values.lazy.map(\.binding).first(where: {
-            $0.reference.tree == tree && $0.reference.pageID == pageID
+            $0.reference.tree == tree && $0.reference.stableKey == stableKey
         }) {
             let priorGeneration = binding.generation
             binding.document.transaction(name: "Insert Transcript") {
@@ -84,7 +84,7 @@ public final class ArborEditorWorkspace {
             return
         }
 
-        let reference = WorkspaceReference(tree: tree, path: "/", pageID: pageID)
+        let reference = WorkspaceReference(tree: tree, path: "/", stableKey: stableKey)
         let lease = try await coordinator.leaseDocument(reference)
         do {
             let snapshot = try await lease.session.snapshot()
@@ -100,7 +100,7 @@ public final class ArborEditorWorkspace {
             let confirmed = try await lease.session.admit(patch: admission.patch)
             try await lease.session.flush()
             if let binding = entries.values.lazy.map(\.binding).first(where: {
-                $0.reference.tree == tree && $0.reference.pageID == pageID
+                $0.reference.tree == tree && $0.reference.stableKey == stableKey
             }) {
                 await binding.applyAcceptedReplacement(confirmed)
             }

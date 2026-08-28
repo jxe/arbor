@@ -20,7 +20,7 @@ struct ArborRootView: View {
     let workspace: ArborWorkspaceState
     let onDisconnect: @MainActor () -> Void
     @State private var model: ArborAppModel
-    @State private var recordingSession: VoiceRecordingSession<PageID>
+    @State private var recordingSession: VoiceRecordingSession<String>
     @State private var accountPresented = false
     @State private var pairingPresented = false
     @State private var presentedSheet: ArborPresentedSheet?
@@ -223,7 +223,7 @@ struct ArborRootView: View {
                     )
                 }
             } header: {
-                Text(model.sidebarLocation.pathHint == "/" ? "Home" : model.sidebarLocation.pathHint)
+                Text(model.sidebarLocation.path == "/" ? "Home" : model.sidebarLocation.path)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -388,10 +388,10 @@ struct ArborRootView: View {
             hasDocument: model.binding != nil,
             hasNode: model.node != nil,
             canMovePageToTrash: model.node?.isWritable == true
-                && model.currentReference.pathHint != "/"
-                && !model.currentReference.pathHint.hasPrefix("/Trash/"),
+                && model.currentReference.path != "/"
+                && !model.currentReference.path.hasPrefix("/Trash/"),
             canRestorePage: model.node?.isWritable == true
-                && model.currentReference.pathHint.hasPrefix("/Trash/")
+                && model.currentReference.path.hasPrefix("/Trash/")
         )
     }
 
@@ -409,7 +409,7 @@ struct ArborRootView: View {
                 ArborTabStrip(
                     tabs: model.tabItems,
                     selected: model.selectedTabID,
-                    title: { tab in tab.current.pathHint == "/" ? "Home" : tab.current.pathHint.split(separator: "/").last.map(String.init) ?? "Arbor" },
+                    title: { tab in tab.current.path == "/" ? "Home" : tab.current.path.split(separator: "/").last.map(String.init) ?? "Arbor" },
                     select: { id in Task { await model.selectTab(id) } },
                     close: { Task { await model.closeSelectedTab() } },
                     create: { Task { await model.newTab() } }
@@ -576,7 +576,7 @@ struct ArborRootView: View {
                 default:
                     URL(fileURLWithPath: path).deletingLastPathComponent().path
                 }
-            default: workspace.launchLocation.pathHint
+            default: workspace.launchLocation.path
             }
             expanded = URL(fileURLWithPath: base).appending(path: value).path
         }

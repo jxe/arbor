@@ -19,7 +19,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             provenance: .init(authority: .local, sourceDescription: "In-memory preview")
         )
         let welcome = WorkspaceNode(
-            reference: WorkspaceReference(tree: tree, path: "/welcome", pageID: "pg_welcome"),
+            reference: WorkspaceReference(tree: tree, path: "/welcome", stableKey: markdownStableKey("pg_welcome")),
             title: "Welcome",
             surface: .markdown(source: "# Welcome\n\nNative Arbor is ready for a provider.\n", contentRevision: "r1"),
             provenance: .init(authority: .local, sourceDescription: "In-memory preview", contentRevision: "r1")
@@ -59,7 +59,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             isWritable: false
         )
         let historical = WorkspaceNode(
-            reference: WorkspaceReference(tree: tree, path: "/welcome", pageID: "pg_welcome_history"),
+            reference: WorkspaceReference(tree: tree, path: "/welcome", stableKey: markdownStableKey("pg_welcome_history")),
             title: "Welcome · Earlier version",
             surface: .historical(source: "# Welcome\n", revision: "r0"),
             provenance: .init(authority: .historical, sourceDescription: "Local history", contentRevision: "r0"),
@@ -76,11 +76,11 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
 
     public func resolve(_ reference: WorkspaceReference) async throws -> WorkspaceNode {
         if let node = nodesByIdentity[reference.identity] { return node }
-        if let pageID = reference.pageID,
-           let node = nodesByIdentity.values.first(where: { $0.reference.tree == reference.tree && $0.reference.pageID == pageID }) {
+        if let stableKey = reference.stableKey,
+           let node = nodesByIdentity.values.first(where: { $0.reference.tree == reference.tree && $0.reference.stableKey == stableKey }) {
             return node
         }
-        if let node = nodesByIdentity.values.first(where: { $0.reference.tree == reference.tree && $0.reference.pathHint == reference.pathHint }) {
+        if let node = nodesByIdentity.values.first(where: { $0.reference.tree == reference.tree && $0.reference.path == reference.path }) {
             return node
         }
         throw WorkspaceProviderError.notFound(reference)
@@ -100,7 +100,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
     }
 
     public func backlinks(to reference: WorkspaceReference) async throws -> [WorkspaceSearchResult] {
-        let target = reference.pathHint
+        let target = reference.path
         return nodesByIdentity.values.compactMap { node in
             guard source(of: node).contains(target) else { return nil }
             return WorkspaceSearchResult(reference: node.reference, title: node.title, excerpt: target)
@@ -112,10 +112,10 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         case let .rename(reference, name):
             var node = try await resolve(reference)
             guard node.isWritable else { throw WorkspaceProviderError.readOnly(reference) }
-            let parent = node.reference.parent?.pathHint ?? "/"
+            let parent = node.reference.parent?.path ?? "/"
             let path = parent == "/" ? "/\(name)" : "\(parent)/\(name)"
             let oldIdentity = node.id
-            node.reference.pathHint = path
+            node.reference.path = path
             node.title = name
             nodesByIdentity.removeValue(forKey: oldIdentity)
             nodesByIdentity[node.id] = node
@@ -127,9 +127,9 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             return node
         case let .createMarkdown(parent, name, source):
             let parentNode = try await resolve(parent)
-            let path = parentNode.reference.pathHint == "/" ? "/\(name)" : "\(parentNode.reference.pathHint)/\(name)"
+            let path = parentNode.reference.path == "/" ? "/\(name)" : "\(parentNode.reference.path)/\(name)"
             let node = WorkspaceNode(
-                reference: WorkspaceReference(tree: parent.tree, path: path, pageID: PageID(rawValue: "pg_\(UUID().uuidString.lowercased())")),
+                reference: WorkspaceReference(tree: parent.tree, path: path, stableKey: markdownStableKey("pg_\(UUID().uuidString.lowercased())")),
                 title: name,
                 surface: .markdown(source: source, contentRevision: "r1"),
                 provenance: parentNode.provenance
@@ -139,7 +139,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             return node
         case let .createDirectory(parent, name):
             let parentNode = try await resolve(parent)
-            let path = parentNode.reference.pathHint == "/" ? "/\(name)" : "\(parentNode.reference.pathHint)/\(name)"
+            let path = parentNode.reference.path == "/" ? "/\(name)" : "\(parentNode.reference.path)/\(name)"
             let node = WorkspaceNode(
                 reference: WorkspaceReference(tree: parent.tree, path: path),
                 title: name,
@@ -152,26 +152,26 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         case let .move(reference, destination):
             let node = try await resolve(reference)
             let destinationNode = try await resolve(destination)
-            let name = node.reference.pathHint.split(separator: "/").last.map(String.init) ?? node.title
-            let path = destinationNode.reference.pathHint == "/" ? "/\(name)" : "\(destinationNode.reference.pathHint)/\(name)"
+            let name = node.reference.path.split(separator: "/").last.map(String.init) ?? node.title
+            let path = destinationNode.reference.path == "/" ? "/\(name)" : "\(destinationNode.reference.path)/\(name)"
             return try relocate(node, to: path, newTitle: nil)
         case let .copy(reference, destination):
             let node = try await resolve(reference)
             let destinationNode = try await resolve(destination)
-            let name = node.reference.pathHint.split(separator: "/").last.map(String.init) ?? node.title
-            let path = destinationNode.reference.pathHint == "/" ? "/\(name)" : "\(destinationNode.reference.pathHint)/\(name)"
+            let name = node.reference.path.split(separator: "/").last.map(String.init) ?? node.title
+            let path = destinationNode.reference.path == "/" ? "/\(name)" : "\(destinationNode.reference.path)/\(name)"
             return try copySubtree(node, to: path, parent: destinationNode)
         case let .trash(reference):
             let node = try await resolve(reference)
-            return try relocate(node, to: "/Trash\(node.reference.pathHint)", newTitle: nil)
+            return try relocate(node, to: "/Trash\(node.reference.path)", newTitle: nil)
         case let .restore(reference):
             let node = try await resolve(reference)
-            guard node.reference.pathHint.hasPrefix("/Trash/") else {
+            guard node.reference.path.hasPrefix("/Trash/") else {
                 throw WorkspaceProviderError.invalidAction("Only Trash nodes can be restored")
             }
             return try relocate(
                 node,
-                to: String(node.reference.pathHint.dropFirst("/Trash".count)),
+                to: String(node.reference.path.dropFirst("/Trash".count)),
                 newTitle: nil
             )
         }
@@ -179,7 +179,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
 
     public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset {
         let parentNode = try await resolve(parent)
-        let path = parentNode.reference.pathHint == "/" ? "/\(asset.name)" : "\(parentNode.reference.pathHint)/\(asset.name)"
+        let path = parentNode.reference.path == "/" ? "/\(asset.name)" : "\(parentNode.reference.path)/\(asset.name)"
         let node = WorkspaceNode(
             reference: WorkspaceReference(tree: parent.tree, path: path),
             title: asset.name,
@@ -189,7 +189,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         nodesByIdentity[node.id] = node
         fileBytesByIdentity[node.id] = asset.bytes
         childrenByIdentity[parentNode.id, default: []].append(node.id)
-        return WorkspaceStoredAsset(reference: node.reference, markdownSource: node.reference.pathHint)
+        return WorkspaceStoredAsset(reference: node.reference, markdownSource: node.reference.path)
     }
 
     public func readFile(_ reference: WorkspaceReference) async throws -> Data {
@@ -221,7 +221,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
 
     fileprivate func persist(_ snapshot: WorkspaceDocumentSnapshot) throws {
         guard var node = nodesByIdentity[snapshot.reference.identity]
-            ?? nodesByIdentity.values.first(where: { $0.reference.pathHint == snapshot.reference.pathHint }) else {
+            ?? nodesByIdentity.values.first(where: { $0.reference.path == snapshot.reference.path }) else {
             throw WorkspaceProviderError.notFound(snapshot.reference)
         }
         switch node.surface {
@@ -246,7 +246,7 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         baseContentRevision: String
     ) throws -> WorkspaceDocumentSnapshot {
         guard let node = nodesByIdentity[reference.identity]
-            ?? nodesByIdentity.values.first(where: { $0.reference.pathHint == reference.pathHint }) else {
+            ?? nodesByIdentity.values.first(where: { $0.reference.path == reference.path }) else {
             throw WorkspaceProviderError.notFound(reference)
         }
         let currentSource: String
@@ -280,20 +280,20 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
 
     private func relocate(_ node: WorkspaceNode, to path: String, newTitle: String?) throws -> WorkspaceNode {
         if nodesByIdentity.values.contains(where: {
-            $0.reference.tree == node.reference.tree && $0.reference.pathHint == path && $0.id != node.id
+            $0.reference.tree == node.reference.tree && $0.reference.path == path && $0.id != node.id
         }) {
             throw WorkspaceProviderError.invalidAction("Destination already exists")
         }
-        let oldPath = node.reference.pathHint
+        let oldPath = node.reference.path
         let rootIdentity = node.id
         var movedRoot: WorkspaceNode?
         let affected = nodesByIdentity.values
-            .filter { $0.reference.tree == node.reference.tree && ($0.reference.pathHint == oldPath || $0.reference.pathHint.hasPrefix(oldPath + "/")) }
-            .sorted { $0.reference.pathHint.count < $1.reference.pathHint.count }
+            .filter { $0.reference.tree == node.reference.tree && ($0.reference.path == oldPath || $0.reference.path.hasPrefix(oldPath + "/")) }
+            .sorted { $0.reference.path.count < $1.reference.path.count }
         for var value in affected {
             let oldID = value.id
-            let suffix = String(value.reference.pathHint.dropFirst(oldPath.count))
-            value.reference.pathHint = path + suffix
+            let suffix = String(value.reference.path.dropFirst(oldPath.count))
+            value.reference.path = path + suffix
             if suffix.isEmpty, let newTitle { value.title = newTitle }
             nodesByIdentity.removeValue(forKey: oldID)
             nodesByIdentity[value.id] = value
@@ -314,9 +314,9 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         for key in Array(childrenByIdentity.keys) {
             childrenByIdentity[key]?.removeAll { $0 == rootIdentity || $0 == movedRoot.id }
         }
-        let parentPath = movedRoot.reference.parent?.pathHint ?? "/"
+        let parentPath = movedRoot.reference.parent?.path ?? "/"
         if let parent = nodesByIdentity.values.first(where: {
-            $0.reference.tree == movedRoot.reference.tree && $0.reference.pathHint == parentPath
+            $0.reference.tree == movedRoot.reference.tree && $0.reference.path == parentPath
         }) {
             childrenByIdentity[parent.id, default: []].append(movedRoot.id)
         }
@@ -328,20 +328,20 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
         to path: String,
         parent: WorkspaceNode
     ) throws -> WorkspaceNode {
-        if nodesByIdentity.values.contains(where: { $0.reference.tree == node.reference.tree && $0.reference.pathHint == path }) {
+        if nodesByIdentity.values.contains(where: { $0.reference.tree == node.reference.tree && $0.reference.path == path }) {
             throw WorkspaceProviderError.invalidAction("Destination already exists")
         }
-        let sourcePath = node.reference.pathHint
+        let sourcePath = node.reference.path
         let affected = nodesByIdentity.values
-            .filter { $0.reference.tree == node.reference.tree && ($0.reference.pathHint == sourcePath || $0.reference.pathHint.hasPrefix(sourcePath + "/")) }
-            .sorted { $0.reference.pathHint.count < $1.reference.pathHint.count }
+            .filter { $0.reference.tree == node.reference.tree && ($0.reference.path == sourcePath || $0.reference.path.hasPrefix(sourcePath + "/")) }
+            .sorted { $0.reference.path.count < $1.reference.path.count }
         var copiedByOldID: [WorkspaceIdentity: WorkspaceIdentity] = [:]
         var copiedRoot: WorkspaceNode?
         for value in affected {
             var copied = value
-            let suffix = String(value.reference.pathHint.dropFirst(sourcePath.count))
-            copied.reference.pathHint = path + suffix
-            if value.reference.pageID != nil { copied.reference.pageID = PageID(rawValue: "pg_\(UUID().uuidString.lowercased())") }
+            let suffix = String(value.reference.path.dropFirst(sourcePath.count))
+            copied.reference.path = path + suffix
+            if value.reference.stableKey != nil { copied.reference.stableKey = markdownStableKey("pg_\(UUID().uuidString.lowercased())") }
             nodesByIdentity[copied.id] = copied
             if let bytes = fileBytesByIdentity[value.id] { fileBytesByIdentity[copied.id] = bytes }
             copiedByOldID[value.id] = copied.id

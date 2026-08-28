@@ -49,7 +49,7 @@ public final class ArborDocumentBinding {
         let document = Document(
             id: DocumentID(String(describing: snapshot.reference.identity)),
             children: opened.blocks,
-            fallbackTitle: snapshot.reference.pathHint.split(separator: "/").last.map(String.init)
+            fallbackTitle: snapshot.reference.path.split(separator: "/").last.map(String.init)
         )
         self.document = document
         self.acceptedTitle = document.title
@@ -86,12 +86,12 @@ public final class ArborDocumentBinding {
         return try await session.snapshot()
     }
 
-    /// Reconcile a provider-authored path change for this stable PageID
+    /// Reconcile a provider-authored path change for this stable identity
     /// without replacing the live editor tree.
     public func reconcileReference(_ reference: WorkspaceReference) {
         guard reference.identity == self.reference.identity else { return }
         self.reference = reference
-        document.fallbackTitle = reference.pathHint.split(separator: "/").last.map(String.init)
+        document.fallbackTitle = reference.path.split(separator: "/").last.map(String.init)
     }
 
     public func history() async throws -> [WorkspaceHistoryEntry] {

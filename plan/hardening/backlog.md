@@ -33,12 +33,13 @@ These are implementation violations of the aspirational specification. They are 
 
 1. **Remove the PageID-shaped compatibility bridge.** `pageIDStableKey`,
    `pageIDFromStableKey`, private PageID owner indexes, legacy event/effect
-   payload fields, and deprecated native source aliases temporarily translate
-   Markdown `id` into the uniform stable-key slot. Delete the bridge only after
-   events, backlinks, and native callers all
-   carry generic stable keys and the legacy-fragment uniqueness reader has
-   passed its retention window. Keep the owner index behavior behind the
-   generic identity rule; do not remove rename healing itself.
+   fixture rejection, and the legacy-fragment candidate temporarily translate
+   Markdown `id` into the uniform stable-key slot. Public events, backlinks,
+   native references, and mutation effects now carry generic stable keys.
+   Delete the remaining representation bridge only after the legacy-fragment
+   uniqueness reader has passed its retention window and Markdown identity has
+   a provider-owned codec. Keep the owner index behavior behind the generic
+   identity rule; do not remove rename healing itself.
 2. **Finish replacing private physical node records.** `CollectionPage`,
    `CollectionSummary`, `CollectionRow`, the `collection`/`postgres` node kinds,
    and duplicated managed/untracked row probes are gone. `TreeNode`/`TreeChild`

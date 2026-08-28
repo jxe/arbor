@@ -211,8 +211,16 @@
   fixtures contain no duplicated tree/path/PageID fields; a bounded legacy
   journal reader preserves crash recovery and has an explicit deletion
   condition in the hardening backlog.
-- **Next checkpoint:** remove the native compatibility aliases, then complete
-  provider snapshots/observation and Wire rollup synchronization/merge in this
+- **2026-08-28 — native presentation reference cleanup:** ArborKit now exposes
+  only `WorkspaceReference { tree, path, stableKey }`; its `PageID` wrapper,
+  `pageID` initializer/property, and `pathHint` alias are deleted. App,
+  Quagmire, provider, replica, and synchronization callers use stable keys
+  directly, including voice destinations and stale-path recovery. Internal
+  editor document references keep the readable path in the URL path and carry
+  the optional stable key as a query parameter, so they no longer invent a
+  PageID route namespace. Physical Markdown/replica `id` handling remains a
+  representation codec behind the generic reference.
+- **Next checkpoint:** complete provider snapshots/observation and Wire rollup synchronization/merge in this
   plan. Typed source declarations, activation-manifest generation, and
   editor integration moved intact to
   [Application 003](../applications/003-development-compiler-and-editor-tooling.md);

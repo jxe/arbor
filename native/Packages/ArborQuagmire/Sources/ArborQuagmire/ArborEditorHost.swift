@@ -52,23 +52,18 @@ public enum ArborDocumentReferenceCodec {
         var components = URLComponents()
         components.scheme = "arbor"
         components.host = reference.tree.rawValue
-        components.path = reference.pageID.map { "/page/\($0.rawValue)" } ?? "/path\(reference.pathHint)"
-        components.queryItems = [URLQueryItem(name: "path", value: reference.pathHint)]
+        components.path = "/node\(reference.path)"
+        components.queryItems = reference.stableKey.map { [URLQueryItem(name: "stableKey", value: $0)] }
         return DocumentReference(components.string ?? "arbor://invalid")
     }
 
     public static func decode(_ value: DocumentReference) -> WorkspaceReference? {
         guard let components = URLComponents(string: value.rawValue), components.scheme == "arbor",
               let tree = components.host else { return nil }
-        let hint = components.queryItems?.first(where: { $0.name == "path" })?.value ?? "/"
-        if components.path.hasPrefix("/page/") {
-            return WorkspaceReference(
-                tree: TreeID(rawValue: tree),
-                path: hint,
-                pageID: PageID(rawValue: String(components.path.dropFirst("/page/".count)))
-            )
-        }
-        return WorkspaceReference(tree: TreeID(rawValue: tree), path: hint)
+        guard components.path.hasPrefix("/node/") || components.path == "/node" else { return nil }
+        let path = String(components.path.dropFirst("/node".count))
+        let stableKey = components.queryItems?.first(where: { $0.name == "stableKey" })?.value
+        return WorkspaceReference(tree: TreeID(rawValue: tree), path: path.isEmpty ? "/" : path, stableKey: stableKey)
     }
 }
 
@@ -145,8 +140,8 @@ public final class ArborEditorHost: EditorHost {
                 ArborMoveDocument(
                     reference: ArborDocumentReferenceCodec.encode(node.reference),
                     title: node.title,
-                    subtitle: node.reference.pathHint,
-                    isHome: node.reference.pathHint == "/"
+                    subtitle: node.reference.path,
+                    isHome: node.reference.path == "/"
                 )
             }
             .sorted {
@@ -161,8 +156,8 @@ public final class ArborEditorHost: EditorHost {
             MentionItem(
                 id: ArborDocumentReferenceCodec.encode($0.reference),
                 title: $0.title,
-                subtitle: $0.reference.pathHint,
-                isHome: $0.reference.pathHint == "/"
+                subtitle: $0.reference.path,
+                isHome: $0.reference.path == "/"
             )
         }
     }
@@ -218,9 +213,9 @@ public final class ArborEditorHost: EditorHost {
         guard !raw.isEmpty else { return nil }
         let path = raw.hasPrefix("/")
             ? raw
-            : (relativeReferenceBase.pathHint == "/"
+            : (relativeReferenceBase.path == "/"
                 ? "/\(raw)"
-                : "\(relativeReferenceBase.pathHint)/\(raw)")
+                : "\(relativeReferenceBase.path)/\(raw)")
         let logical = path.lowercased().hasSuffix(".md") ? String(path.dropLast(3)) : path
         return WorkspaceReference(tree: binding.reference.tree, path: logical)
     }
@@ -236,7 +231,7 @@ public final class ArborEditorHost: EditorHost {
     ) async -> DocumentReference? {
         let requested = requestedReference.flatMap(workspaceReference(for:))
         let parent = requested?.parent ?? binding.reference.parent ?? WorkspaceReference(tree: binding.reference.tree, path: "/")
-        let requestedName = requested?.pathHint.split(separator: "/").last.map(String.init)
+        let requestedName = requested?.path.split(separator: "/").last.map(String.init)
         let name = requestedName ?? slug(title)
         let body = initialContent.map { ArborMarkdownCodec.serializeBlocks($0) } ?? ""
         let source = "# \(title)\n\n\(body)"
@@ -333,9 +328,9 @@ public final class ArborEditorHost: EditorHost {
             if let children = try? await provider.children(of: node.reference) {
                 queue.append(contentsOf: children.map(\.reference))
             }
-            let path = node.reference.pathHint
-            let containsTarget = path == reference.pathHint || path.hasPrefix(reference.pathHint + "/")
-            let sameParent = reference.parent?.pathHint == path
+            let path = node.reference.path
+            let containsTarget = path == reference.path || path.hasPrefix(reference.path + "/")
+            let sameParent = reference.parent?.path == path
             let matches = query.isEmpty
                 || node.title.localizedCaseInsensitiveContains(query)
                 || path.localizedCaseInsensitiveContains(query)
@@ -344,9 +339,9 @@ public final class ArborEditorHost: EditorHost {
             }
         }
         return result.sorted {
-            if $0.reference.pathHint == "/" { return true }
-            if $1.reference.pathHint == "/" { return false }
-            return $0.reference.pathHint.localizedStandardCompare($1.reference.pathHint) == .orderedAscending
+            if $0.reference.path == "/" { return true }
+            if $1.reference.path == "/" { return false }
+            return $0.reference.path.localizedStandardCompare($1.reference.path) == .orderedAscending
         }
     }
 
@@ -451,7 +446,7 @@ public final class ArborEditorHost: EditorHost {
         if withoutFragment.hasPrefix("/") {
             path = withoutFragment
         } else {
-            let base = relativeReferenceBase.pathHint
+            let base = relativeReferenceBase.path
             path = base == "/" ? "/\(withoutFragment)" : "\(base)/\(withoutFragment)"
         }
         return WorkspaceReference(tree: binding.reference.tree, path: path)
@@ -475,7 +470,7 @@ public final class ArborEditorHost: EditorHost {
 
     private func isEligibleLinkedChild(_ reference: WorkspaceReference) -> Bool {
         reference.tree == binding.reference.tree
-            && reference.parent?.pathHint == binding.reference.pathHint
+            && reference.parent?.path == binding.reference.path
             && reference.identity != binding.reference.identity
     }
 

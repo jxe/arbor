@@ -171,14 +171,14 @@ public extension WorkspaceProvider {
 
     func resolve(_ location: WorkspaceLocation) async throws -> WorkspaceNode {
         guard case let .reference(reference) = location else {
-            throw WorkspaceProviderError.invalidAction("This provider does not support \(location.pathHint)")
+            throw WorkspaceProviderError.invalidAction("This provider does not support \(location.path)")
         }
         return try await resolve(reference)
     }
 
     func children(of location: WorkspaceLocation) async throws -> [WorkspaceNode] {
         guard case let .reference(reference) = location else {
-            throw WorkspaceProviderError.invalidAction("This provider does not support \(location.pathHint)")
+            throw WorkspaceProviderError.invalidAction("This provider does not support \(location.path)")
         }
         return try await children(of: reference)
     }
