@@ -654,20 +654,9 @@ struct ArborRootView: View {
 #if os(iOS)
 private struct ArborPagesButton: View {
     let openPages: () -> Void
-    @FocusedValue(\.editorCommands) private var editorCommands
 
     var body: some View {
-        Menu("Pages", systemImage: "line.3.horizontal") {
-            Button("Fold All Headings", systemImage: "rectangle.compress.vertical") {
-                editorCommands?.perform(.foldAllHeadings)
-            }
-            .disabled(editorCommands?.can(.canFoldAllHeadings) != true)
-
-            Button("Unfold All Headings", systemImage: "rectangle.expand.vertical") {
-                editorCommands?.perform(.unfoldAllHeadings)
-            }
-            .disabled(editorCommands?.can(.canUnfoldAllHeadings) != true)
-        } primaryAction: {
+        Button("Pages", systemImage: "line.3.horizontal") {
             openPages()
         }
     }

@@ -36,10 +36,11 @@ session-local view state: it does not edit Markdown, create authored undo, or
 persist across reopening the page. A disclosure control beside each eligible
 heading folds or unfolds that section while preserving nested folded state.
 On macOS, **Fold All Headings** and **Unfold All Headings** live in the View menu
-with Command-Option-Left and Command-Option-Right. On iOS, the same commands are
-available by long-pressing the Pages button; tapping it continues to open the
-sidebar. An individual heading's block action menu also offers **Fold Section**
-or **Unfold Section**.
+with Command-Option-Left and Command-Option-Right. On iOS, long-press an expanded
+heading's trailing chevron to fold all headings, or long-press a collapsed
+heading's chevron to unfold all headings. Tapping the chevron still affects only
+that section. An individual heading's block action menu also offers **Fold
+Section** or **Unfold Section**.
 
 ## Profile control and Claim
 
