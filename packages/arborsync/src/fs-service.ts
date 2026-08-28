@@ -148,7 +148,7 @@ export class FilesystemService implements AsyncDisposable {
     return {
       path: resolved.path,
       name: resolved.path === "/" ? "/" : nodeDisplayName(resolved.path),
-      kind: collection ? "collection" : "directory",
+      kind: "directory",
       revision: collection?.revision ? revisionOf(`${read.byteRevision}\0${collection.revision}`) : read.byteRevision,
       contentRevision: read.byteRevision,
       propertiesRevision: read.byteRevision,
@@ -158,7 +158,7 @@ export class FilesystemService implements AsyncDisposable {
       bodyOrigin: resolved.bodySource ?? undefined,
       document: read.document,
       children: children.children,
-      collection: collection ?? undefined,
+      childSet: collection ?? undefined,
       diagnostics: [...resolved.diagnostics, ...(collection?.diagnostics ?? []), ...children.diagnostics],
     };
   }
@@ -171,16 +171,11 @@ export class FilesystemService implements AsyncDisposable {
     const children: TreeChild[] = [];
     const diagnostics: Diagnostic[] = [];
     for (const entry of entries) {
-      let kind: TreeChild["kind"] = entry.kind;
-      if (entry.kind === "directory") {
-        const resolved = await fs.resolve(entry.path);
-        if (resolved.directoryPath && await this.provider.summary(resolved.directoryPath).catch(() => null)) kind = "collection";
-      }
       children.push({
         tree: LOCAL_TREE,
         name: entry.name,
         path: entry.path,
-        kind,
+        kind: entry.kind,
         materialization: entry.materialization,
         ...(entry.pageID ? { pageID: entry.pageID } : {}),
       });
@@ -205,7 +200,7 @@ export class FilesystemService implements AsyncDisposable {
   ): Promise<ChildrenPage> {
     const path = this.refPath(ref);
     const node = await this.node(path);
-    if (node.kind !== "directory" && node.kind !== "collection") {
+    if (node.kind !== "directory") {
       throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
     }
     const physical = await Promise.all((node.children ?? []).map(async (child) => summarizeTreeNode(
@@ -333,7 +328,7 @@ export class FilesystemService implements AsyncDisposable {
         path: change.path,
         previousPath: change.previousPath,
         contentRevision: snapshot?.revision,
-        directoryRevision: snapshot && (snapshot.kind === "directory" || snapshot.kind === "collection")
+        directoryRevision: snapshot?.kind === "directory"
           ? snapshot.revision
           : undefined,
       };

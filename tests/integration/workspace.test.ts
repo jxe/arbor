@@ -77,7 +77,7 @@ describe("workspace service", () => {
     await writeFile(join(collection, "one.md"), "---\nid: abc123\ntitle: One\n---\nRow body.\n");
 
     const node = await workspace.node("/records");
-    expect(node.kind).toBe("collection");
+    expect(node.kind).toBe("directory");
     expect(nodeDocument(node)?.source).toBe("About the records.\n");
     expect(node.children?.some((child) => child.path === "/records/one")).toBe(true);
     const snapshot = await workspace.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });

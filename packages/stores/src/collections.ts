@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { parse } from "csv-parse";
 import { parseDocument } from "yaml";
 import type { ChildrenPage, Diagnostic, Hash, JSONValue, NodeRef, NodeSnapshot, NodeSummary, TreeRef } from "@arbor/core";
-import type { CollectionBacking, CollectionRow, CollectionSummary } from "@arbor/core/internal";
+import type { ChildSetBacking, ChildSetDescriptor, ProviderChildRecord } from "@arbor/core/internal";
 import { canonicalJSONString, parseCanonicalStableKey, revisionOf, rowPathSegment, sha256, stableKeyFromProperties } from "@arbor/core";
 import { introspectSQLiteDatabase, introspectStoreSchema, type FieldMetadata, type StoreSchema } from "@arbor/data";
 import { parseMarkdown } from "@arbor/editor";
@@ -16,7 +16,7 @@ import { replaceFileRollupRow, type WritableFileRollup } from "./file-rollup-wri
 import { SchemaSandbox, type SchemaDescription } from "./schema.ts";
 
 interface CollectionDefinition {
-  backing: CollectionBacking;
+  backing: ChildSetBacking;
   schemaPath?: string;
   storePath?: string;
   markdownPaths?: string[];
@@ -25,7 +25,7 @@ interface CollectionDefinition {
 
 interface LoadedCollection {
   description: SchemaDescription;
-  rows: CollectionRow[];
+  rows: ProviderChildRecord[];
   revision: string;
   sourceRevision: string;
   modelDigest: string;
@@ -36,13 +36,13 @@ interface LoadedCollection {
 
 interface LoadedCollectionSlice {
   path: string;
-  backing: CollectionBacking;
+  backing: ChildSetBacking;
   columns: string[];
   identityRule?: { properties: string[] };
   revision: string;
   sourceRevision?: string;
   schemaRevision: string;
-  rows: CollectionRow[];
+  rows: ProviderChildRecord[];
   nextCursor: string | null;
   diagnostics: Diagnostic[];
   editable: boolean;
@@ -58,7 +58,7 @@ export interface ChildProviderContext {
 export interface CollectionWriteTarget {
   directory: string;
   parentPath: string;
-  backing: CollectionBacking;
+  backing: ChildSetBacking;
   table?: string;
   path: string;
   stableKey: string | null;
@@ -90,7 +90,7 @@ export interface CollectionPropertyWriteResult {
 
 interface LoadedSQLiteTable {
   columns: string[];
-  rows: CollectionRow[];
+  rows: ProviderChildRecord[];
   revision: string;
   modelDigest: string;
   diagnostics: Diagnostic[];
@@ -117,7 +117,7 @@ interface StoredCursor {
 export class CollectionCursorError extends Error {}
 
 export class CollectionPropertyConflictError extends Error {
-  constructor(public current: CollectionRow) {
+  constructor(public current: ProviderChildRecord) {
     super("The row properties changed since they were read");
   }
 }
@@ -153,7 +153,7 @@ function digest(value: unknown): Hash {
 }
 
 function rowSummary(
-  row: CollectionRow,
+  row: ProviderChildRecord,
   page: LoadedCollectionSlice,
   parentPath: string,
   tree: TreeRef,
@@ -235,7 +235,7 @@ function sqliteRow(
   schema: StoreSchema,
   relation: StoreSchema["relations"][string],
   raw: Record<string, unknown>,
-): CollectionRow {
+): ProviderChildRecord {
   const columns = Object.keys(relation.fields);
   const values = Object.fromEntries(columns.map((column) => [column, sqlitePropertyValue(relation.fields[column]!, raw[column])])) as Record<string, JSONValue>;
   const stableKey = stableKeyFromProperties(relation.primaryKey, values);
@@ -298,7 +298,7 @@ export class CollectionStore {
     private connections = new ConnectionStore(),
   ) {}
 
-  async summary(directory: string): Promise<CollectionSummary | null> {
+  async summary(directory: string): Promise<ChildSetDescriptor | null> {
     const definition = await detectCollection(directory);
     if (!definition) return null;
     if (definition.diagnostics.some((item) => item.severity === "error")) {
@@ -350,7 +350,7 @@ export class CollectionStore {
     };
   }
 
-  async tableSummary(directory: string, table: string): Promise<CollectionSummary | null> {
+  async tableSummary(directory: string, table: string): Promise<ChildSetDescriptor | null> {
     const definition = await detectCollection(directory);
     if (!definition || definition.diagnostics.some((item) => item.severity === "error")) return null;
     if (definition.backing === "sqlite") {
@@ -619,7 +619,7 @@ export class CollectionStore {
     treePath: string,
     ref: { path: string; stableKey: string | null },
     tableName?: string,
-  ): Promise<{ row: CollectionRow; page: LoadedCollectionSlice } | null> {
+  ): Promise<{ row: ProviderChildRecord; page: LoadedCollectionSlice } | null> {
     const definition = await detectCollection(directory);
     if (!definition || definition.backing === "postgres" || definition.diagnostics.some((item) => item.severity === "error")) return null;
     if (definition.backing === "sqlite") {
@@ -823,7 +823,7 @@ export class CollectionStore {
     properties: Record<string, JSONValue>,
     tableName: string,
     mutation: { scope: string; id: string },
-  ): Promise<CollectionRow> {
+  ): Promise<ProviderChildRecord> {
     const definition = await detectCollection(directory);
     if (!definition || definition.backing !== "sqlite") {
       throw new CollectionPropertyWriteError(`${treePath} is not a writable SQLite table`);
@@ -868,7 +868,7 @@ export class CollectionStore {
       if (receipt) {
         if (receipt.request_hash !== requestHash) throw new CollectionMutationMismatchError("This mutation ID was already used for a different row write");
         database.exec("commit");
-        return JSON.parse(receipt.result_json) as CollectionRow;
+        return JSON.parse(receipt.result_json) as ProviderChildRecord;
       }
       const where = relation.primaryKey.map((name) => `${sqliteIdentifier(name)} = ?`).join(" and ");
       const keyValues = keyPairs.map(([name, value]) => sqliteWriteValue(relation.fields[name]!, value));
@@ -945,7 +945,7 @@ export class CollectionStore {
             revision: revisionOf(canonicalJSONString({ schema: schema.fingerprint, relation: relation.name, values })),
             values,
             diagnostics: rowDiagnostics,
-          } satisfies CollectionRow;
+          } satisfies ProviderChildRecord;
         });
         const logicalRows = [...rows]
           .sort((left, right) => (left.stableKey ?? left.path).localeCompare(right.stableKey ?? right.path))
@@ -1010,7 +1010,7 @@ export class CollectionStore {
         revision: row.revision ?? revisionOf(canonicalJSONString(values)),
         values,
         diagnostics,
-      } satisfies CollectionRow;
+      } satisfies ProviderChildRecord;
     }));
     const counts = new Map<string, number>();
     for (const row of validated) if (row.stableKey) counts.set(row.stableKey, (counts.get(row.stableKey) ?? 0) + 1);
@@ -1051,10 +1051,10 @@ export class CollectionStore {
     };
   }
 
-  private async csvRows(definition: CollectionDefinition): Promise<{ rows: CollectionRow[]; revision: string; diagnostics: Diagnostic[] }> {
+  private async csvRows(definition: CollectionDefinition): Promise<{ rows: ProviderChildRecord[]; revision: string; diagnostics: Diagnostic[] }> {
     const source = await readFile(definition.storePath!);
     const parser = createReadStream(definition.storePath!).pipe(parse({ columns: true, bom: true, relax_column_count: true }));
-    const rows: CollectionRow[] = [];
+    const rows: ProviderChildRecord[] = [];
     let index = 0;
     for await (const record of parser) {
       rows.push({ key: `row:${index + 2}`, path: `~row-${index + 1}`, stableKey: null, values: record as Record<string, unknown>, diagnostics: [] });
@@ -1063,7 +1063,7 @@ export class CollectionStore {
     return { rows, revision: revisionOf(source), diagnostics: [] };
   }
 
-  private async jsonRows(definition: CollectionDefinition): Promise<{ rows: CollectionRow[]; revision: string; diagnostics: Diagnostic[] }> {
+  private async jsonRows(definition: CollectionDefinition): Promise<{ rows: ProviderChildRecord[]; revision: string; diagnostics: Diagnostic[] }> {
     const source = await readFile(definition.storePath!, "utf8");
     try {
       const value = JSON.parse(source) as unknown;
@@ -1090,11 +1090,11 @@ export class CollectionStore {
     }
   }
 
-  private async jsonlRows(definition: CollectionDefinition): Promise<{ rows: CollectionRow[]; revision: string; diagnostics: Diagnostic[] }> {
+  private async jsonlRows(definition: CollectionDefinition): Promise<{ rows: ProviderChildRecord[]; revision: string; diagnostics: Diagnostic[] }> {
     const source = await readFile(definition.storePath!, "utf8");
     const input = createReadStream(definition.storePath!, "utf8");
     const reader = createInterface({ input, crlfDelay: Infinity });
-    const rows: CollectionRow[] = [];
+    const rows: ProviderChildRecord[] = [];
     let lineNumber = 0;
     for await (const line of reader) {
       lineNumber += 1;
@@ -1116,7 +1116,7 @@ export class CollectionStore {
     return { rows, revision: revisionOf(source), diagnostics: [] };
   }
 
-  private async markdownRows(definition: CollectionDefinition): Promise<{ rows: CollectionRow[]; revision: string; diagnostics: Diagnostic[] }> {
+  private async markdownRows(definition: CollectionDefinition): Promise<{ rows: ProviderChildRecord[]; revision: string; diagnostics: Diagnostic[] }> {
     const paths = (definition.markdownPaths ?? []).sort();
     const rows = await Promise.all(paths.map(async (path) => {
       const source = await readFile(path, "utf8");
@@ -1128,7 +1128,7 @@ export class CollectionStore {
         revision: revisionOf(source),
         values: document.frontmatter,
         diagnostics: [],
-      } satisfies CollectionRow;
+      } satisfies ProviderChildRecord;
     }));
     return {
       rows,
@@ -1143,7 +1143,7 @@ export class CollectionStore {
     return { connection: value.connection, schema: value.schema ?? "public" };
   }
 
-  private async postgresRows(definition: CollectionDefinition, table: string | undefined, cursor: number, limit: number): Promise<{ rows: CollectionRow[]; hasMore: boolean }> {
+  private async postgresRows(definition: CollectionDefinition, table: string | undefined, cursor: number, limit: number): Promise<{ rows: ProviderChildRecord[]; hasMore: boolean }> {
     if (!table || !/^[a-zA-Z_][a-zA-Z0-9_$]*$/.test(table)) throw new Error("A valid Postgres table is required");
     const reference = await this.postgresReference(definition.storePath!);
     const connection = await this.connections.get(connectionName(reference.connection));

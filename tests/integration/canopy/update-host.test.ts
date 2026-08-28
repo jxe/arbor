@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { generateArborID, sha256 } from "@arbor/core";
+import { buildNetworkLocator, generateArborID, pageIDStableKey, sha256 } from "@arbor/core";
 import { serveCanopy } from "@arbor/canopy";
 import { snapshotDirectory, WireClient } from "@arbor/wire";
 import {
@@ -113,7 +113,7 @@ describe("governed account-configuration Canopy server", () => {
     expect(running.canopy.get(treeID)).toBeNull();
 
     await mkdir(treePath);
-    await writeFile(join(treePath, "note.md"), "# Activated\n");
+    await writeFile(join(treePath, "note.md"), "---\nid: x7f3q2\n---\n\n# Activated\n");
     const initial = await snapshotDirectory(treePath);
     const activated = await client.activateTree(treeID, initial);
     expect(activated.snapshot).toMatchObject({
@@ -134,6 +134,27 @@ describe("governed account-configuration Canopy server", () => {
     const linkResponse = await fetch(refURL, { headers: { "Arbor-Access-Link": linkSecret } });
     expect(linkResponse.status).toBe(200);
     expect(await linkResponse.json()).toMatchObject({ snapshot: { id: treeID, access: "read" } });
+    const keyedOldPath = buildNetworkLocator("/~owner/new-shared-tree/note", {
+      stableKey: pageIDStableKey("x7f3q2"),
+    });
+    expect((await fetch(`${running.url}${keyedOldPath}`, {
+      headers: { "Arbor-Access-Link": linkSecret },
+    })).status).toBe(200);
+    await rename(join(treePath, "note.md"), join(treePath, "renamed.md"));
+    const beforeRename = await client.ref(treeID);
+    await client.submitUpdate(
+      treeID,
+      { root: beforeRename.snapshot.ref, update: beforeRename.snapshot.update },
+      await snapshotDirectory(treePath),
+    );
+    const healed = await fetch(`${running.url}${keyedOldPath}`, {
+      headers: { "Arbor-Access-Link": linkSecret },
+      redirect: "manual",
+    });
+    expect(healed.status).toBe(308);
+    expect(healed.headers.get("location")).toBe(buildNetworkLocator("/~owner/new-shared-tree/renamed", {
+      stableKey: pageIDStableKey("x7f3q2"),
+    }));
     const bootstrap = await fetch(`${running.url}/~owner/new-shared-tree`, {
       headers: { accept: "text/html" },
     });

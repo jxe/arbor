@@ -160,7 +160,7 @@ export interface NodeResponse extends NodeSnapshot {
 }
 
 export interface SearchPage {
-  results: Array<SearchResult & { pageID?: PageID }>;
+  results: SearchResult[];
   nextCursor: string | null;
   observedThrough: EventCursor;
 }

@@ -260,7 +260,14 @@ export class Workspace implements AsyncDisposable {
     const offset = this.decodePageCursor(cursor, `search:${query}`);
     const results = this.index.search(query, 30, offset).map((result) => {
       const pageID = this.pathPageIDs.get(result.path);
-      return { ...result, tree: this.tree, ...(pageID ? { pageID } : {}) };
+      return {
+        ...result,
+        ref: {
+          tree: this.tree,
+          path: result.path,
+          stableKey: pageID ? pageIDStableKey(pageID) : null,
+        },
+      };
     });
     return {
       results,
@@ -322,7 +329,7 @@ export class Workspace implements AsyncDisposable {
     const observedThrough = this.events.currentCursor();
     const path = await this.resolveRef(ref);
     const snapshot = await this.node(path);
-    if (recursive && snapshot.kind !== "directory" && snapshot.kind !== "collection") {
+    if (recursive && snapshot.kind !== "directory") {
       throw new ProtocolError("invalid-reference", "Recursive recovery requires a directory", 400, { path });
     }
     const key = `recovery:${path}:${recursive ? "subtree" : "node"}`;
@@ -601,7 +608,7 @@ export class Workspace implements AsyncDisposable {
     return {
       path: resolved.path,
       name: resolved.path === "/" ? basename(this.root) : nodeDisplayName(resolved.path),
-      kind: collection ? "collection" : "directory",
+      kind: "directory",
       revision: collection?.revision ? revisionOf(`${read.byteRevision}\0${collection.revision}`) : read.byteRevision,
       contentRevision: read.byteRevision,
       propertiesRevision: read.byteRevision,
@@ -611,7 +618,7 @@ export class Workspace implements AsyncDisposable {
       bodyOrigin: resolved.bodySource ?? undefined,
       document,
       children: children.children,
-      collection: collection ?? undefined,
+      childSet: collection ?? undefined,
       diagnostics: [
         ...resolved.diagnostics,
         ...this.pageIDDiagnostics(resolved.path, pageID),
@@ -621,7 +628,7 @@ export class Workspace implements AsyncDisposable {
     };
   }
 
-  search(query: string, limit = 30): SearchResult[] { return this.index.search(query, limit); }
+  search(query: string, limit = 30) { return this.index.search(query, limit); }
 
   async write(
     inputPath: string,
@@ -965,7 +972,7 @@ export class Workspace implements AsyncDisposable {
         pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
         contentRevision: saved.revision,
         propertiesRevision: saved.propertiesRevision ?? saved.revision,
-        directoryRevision: saved.kind === "directory" || saved.kind === "collection" ? saved.revision : undefined,
+        directoryRevision: saved.kind === "directory" ? saved.revision : undefined,
       };
     }
     if (operation.op === "ensureDocumentIdentity") {
@@ -979,7 +986,7 @@ export class Workspace implements AsyncDisposable {
           path: current.path,
           pageID: existingID,
           contentRevision: current.revision,
-          directoryRevision: current.kind === "directory" || current.kind === "collection" ? current.revision : undefined,
+          directoryRevision: current.kind === "directory" ? current.revision : undefined,
         };
       }
       if (!current.document) {
@@ -1021,7 +1028,7 @@ export class Workspace implements AsyncDisposable {
         path: saved.path,
         pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
         contentRevision: saved.revision,
-        directoryRevision: saved.kind === "directory" || saved.kind === "collection" ? saved.revision : undefined,
+        directoryRevision: saved.kind === "directory" ? saved.revision : undefined,
       };
     }
     let saved: TreeNode;
@@ -1097,7 +1104,7 @@ export class Workspace implements AsyncDisposable {
       path: saved.path,
       pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
       contentRevision: saved.revision,
-      directoryRevision: saved.kind === "directory" || saved.kind === "collection" ? saved.revision : undefined,
+      directoryRevision: saved.kind === "directory" ? saved.revision : undefined,
     };
   }
 
@@ -1145,7 +1152,7 @@ export class Workspace implements AsyncDisposable {
         pageID: change.pageID
           ?? (isPageID(snapshot?.document?.frontmatter.id) ? snapshot.document.frontmatter.id : undefined),
         contentRevision: snapshot?.revision,
-        directoryRevision: snapshot && (snapshot.kind === "directory" || snapshot.kind === "collection")
+        directoryRevision: snapshot?.kind === "directory"
           ? snapshot.revision
           : undefined,
       };
@@ -1312,7 +1319,7 @@ export class Workspace implements AsyncDisposable {
   ): Promise<ChildrenPage> {
     const path = await this.resolveRef(ref);
     const node = await this.node(path);
-    if (node.kind !== "directory" && node.kind !== "collection") {
+    if (node.kind !== "directory") {
       throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
     }
     const physical = await Promise.all((node.children ?? []).map(async (child) => summarizeTreeNode(
@@ -1474,17 +1481,12 @@ export class Workspace implements AsyncDisposable {
     const children: TreeChild[] = [];
     const diagnostics: TreeNode["diagnostics"] = [];
     for (const entry of entries) {
-      let kind: TreeChild["kind"] = entry.kind;
-      if (entry.kind === "directory") {
-        const resolved = await this.fs.resolve(entry.path);
-        if (resolved.directoryPath && await this.provider.summary(resolved.directoryPath).catch(() => null)) kind = "collection";
-      }
       const pageID = entry.pageID ?? this.pathPageIDs.get(entry.path);
       children.push({
         tree: this.tree,
         name: entry.name,
         path: entry.path,
-        kind,
+        kind: entry.kind,
         materialization: entry.materialization,
         ...(pageID ? { pageID } : {}),
       });

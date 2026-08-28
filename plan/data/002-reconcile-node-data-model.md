@@ -181,7 +181,18 @@
   and native reads no longer synthesize literal child lists or apply
   collection-specific exclusions, and the shared fixture freezes marker,
   stable-key healing, sorting, and diagnostics.
-- **Next checkpoint:** finish the generic stable-key locator cutover. Provider snapshots/observation, Wire
+- **2026-08-28 — locator authority and private-ontology cleanup:** search
+  results now carry one `ResolvedNodeRef`; ArborKit's stored presentation
+  reference is the generic `{ tree, path, stableKey }` triple; ArborReplica
+  consumes the shared Swift locator codec instead of parsing fragments; and
+  Canopy parses the identity suffix before boundary routing, proves Markdown
+  keys against the accepted Wire snapshot, and permanently redirects stale
+  readable paths while preserving the key and application query. The private
+  `collection`/`postgres` node kinds and `CollectionSummary`/`CollectionRow`
+  records are removed: expanded directories always remain physical
+  directories and carry provider child-set metadata separately. Legacy event
+  effects and deprecated native source aliases remain the last locator bridge.
+- **Next checkpoint:** finish generic event/effect refs and remove the native compatibility aliases. Provider snapshots/observation, Wire
   rollups/merge, the shared live broker, and tree-scoped execution routes follow
   in this plan. Typed source declarations, activation-manifest generation, and
   editor integration moved intact to

@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { encodeSSEFrame, sha256 } from "@arbor/core";
+import { buildNetworkLocator, encodeSSEFrame, pageIDStableKey, resolveLogicalURL, sha256 } from "@arbor/core";
 import type { AccessEntry, AccessLevel, LocatorResolution, ObservationEvent, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime, RemoteTreeDescriptor } from "@arbor/core";
 import {
   AlreadyClaimedError,
@@ -17,12 +17,50 @@ import {
   decodeUpdateRequestJSON,
   decodeWireObject,
   resolveWireLogicalNode,
+  type ResolvedWireLogicalNode,
   type AcceptedUpdate,
   type ObjectHash,
   type RemoteAccountDescriptor,
   type TreeAccess,
 } from "@arbor/wire";
 import { renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
+import { parseMarkdown } from "@arbor/editor";
+
+function logicalStableKey(node: ResolvedWireLogicalNode): string | null {
+  const file = node.object.type === "file" ? node.object : node.body;
+  if (!file) return null;
+  const id = parseMarkdown(new TextDecoder().decode(file.bytes)).frontmatter.id;
+  return typeof id === "string" ? pageIDStableKey(id) : null;
+}
+
+async function findWireNodeByStableKey(
+  root: ObjectHash,
+  stableKey: string,
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+): Promise<{ path: string; node: ResolvedWireLogicalNode } | null> {
+  const pending = ["/"];
+  const visited = new Set<string>();
+  while (pending.length) {
+    if (visited.size >= 10_000) throw new Error("Stable-key resolution exceeded the tree traversal limit");
+    const path = pending.shift()!;
+    if (visited.has(path)) continue;
+    visited.add(path);
+    const node = await resolveWireLogicalNode(root, path, load);
+    if (!node) continue;
+    if (logicalStableKey(node) === stableKey) return { path, node };
+    if (node.object.type !== "directory") continue;
+    const directories = new Set(node.object.entries
+      .filter((entry) => !entry.tree && entry.hash && entry.name !== "_index.md" && !entry.name.endsWith(".md"))
+      .map((entry) => entry.name));
+    for (const entry of node.object.entries) {
+      if (entry.tree || !entry.hash || entry.name === "_index.md") continue;
+      const name = entry.name.endsWith(".md") ? entry.name.slice(0, -3) : entry.name;
+      if (entry.name.endsWith(".md") && directories.has(name)) continue;
+      pending.push(path === "/" ? `/${name}` : `${path}/${name}`);
+    }
+  }
+  return null;
+}
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
@@ -558,12 +596,14 @@ export async function serveCanopy(options: {
           });
         }
         if (request.method === "GET" && !url.pathname.startsWith("/.")) {
-          const pendingProfile = /^\/~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(decodeURIComponent(url.pathname));
+          const requestLocator = resolveLogicalURL("/", `${url.pathname}${url.search}`);
+          if (!requestLocator || requestLocator.kind !== "local") return new Response("Not found", { status: 404 });
+          const pendingProfile = /^\/~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(requestLocator.path);
           if (pendingProfile && canopy.isReservedHandle(pendingProfile[1]!)) {
             const profileURL = `${publicOrigin}/~${pendingProfile[1]!}`;
             return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingProfile[1]!)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingProfile[1]!)}</h1><p>This is an empty profile reserved by the ${escapeHTML(canopy.communityHandle())} community. It has not been claimed.</p><p>Open it in Arbor to claim it:</p><code>arbor open ${escapeHTML(profileURL)}</code><p>The first successful claim wins.</p>`, 200, { "x-arbor-profile-state": "reserved" });
           }
-          const resolved = canopy.resolve(decodeURIComponent(url.pathname));
+          const resolved = canopy.resolve(requestLocator.path);
           if (!resolved) return new Response("Not found", { status: 404 });
           if (!canopy.canRead(account, resolved.tree.id, linkDigest(request))) {
             return request.headers.get("accept")?.includes("text/html")
@@ -571,7 +611,28 @@ export async function serveCanopy(options: {
               : new Response("Not found", { status: 404 });
           }
           let tree = resolved.tree;
-          const logical = await resolveWireLogicalNode(tree.ref, resolved.path, (hash) => canopy.object(hash));
+          const load = (hash: ObjectHash) => canopy.object(hash);
+          let logicalPath = resolved.path;
+          let logical = await resolveWireLogicalNode(tree.ref, logicalPath, load);
+          if (requestLocator.stableKey && (!logical || logicalStableKey(logical) !== requestLocator.stableKey)) {
+            const healed = await findWireNodeByStableKey(tree.ref, requestLocator.stableKey, load);
+            if (!healed) return new Response("Not found", { status: 404 });
+            logicalPath = healed.path;
+            logical = healed.node;
+            const publicPath = tree.canonicalPath === "/"
+              ? logicalPath
+              : `${tree.canonicalPath}${logicalPath === "/" ? "" : logicalPath}`;
+            const location = buildNetworkLocator(
+              publicPath,
+              {
+                stableKey: requestLocator.stableKey,
+                applicationQuery: requestLocator.applicationQuery,
+                contentFragment: requestLocator.contentFragment,
+              },
+            );
+            if (!location) return new Response("Not found", { status: 404 });
+            return new Response(null, { status: 308, headers: { location } });
+          }
           if (!logical) return new Response("Not found", { status: 404 });
           const objectValue = logical.object;
           const canonicalPath = tree.canonicalPath!;
@@ -590,7 +651,7 @@ export async function serveCanopy(options: {
                 fallbackTitle: objectName.slice(0, -3),
                 origin: publicOrigin,
                 treeCanonicalPath: canonicalPath,
-                documentPath: resolved.path,
+                documentPath: logicalPath,
               }));
             }
             return new Response(objectValue.bytes.buffer.slice(
@@ -598,7 +659,10 @@ export async function serveCanopy(options: {
               objectValue.bytes.byteOffset + objectValue.bytes.byteLength,
             ) as ArrayBuffer);
           }
-          const prefix = url.pathname.replace(/\/$/, "");
+          const prefix = (tree.canonicalPath === "/"
+            ? logicalPath
+            : `${tree.canonicalPath}${logicalPath === "/" ? "" : logicalPath}`)
+            .split("/").map((part) => encodeURIComponent(part)).join("/").replace(/\/$/, "");
           const source = logical.body ? new TextDecoder().decode(logical.body.bytes) : "";
           if (request.headers.get("accept")?.includes("text/markdown")) {
             return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
@@ -621,10 +685,10 @@ export async function serveCanopy(options: {
             }))).filter((child): child is PublicPageChild => child !== null);
           return html(renderPublicMarkdownPage({
             source,
-            fallbackTitle: resolved.path.split("/").filter(Boolean).at(-1) ?? canonicalPath.split("/").filter(Boolean).at(-1) ?? canopy.communityHandle(),
+            fallbackTitle: logicalPath.split("/").filter(Boolean).at(-1) ?? canonicalPath.split("/").filter(Boolean).at(-1) ?? canopy.communityHandle(),
             origin: publicOrigin,
             treeCanonicalPath: canonicalPath,
-            documentPath: resolved.path,
+            documentPath: logicalPath,
             children,
           }));
         }

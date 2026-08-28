@@ -2,13 +2,13 @@ import type { Diagnostic, MarkdownDocument, Materialization } from "./types.ts";
 import type { IdentityRule } from "./node-model.ts";
 
 /** Physical/provider dispatch types. Never serialize these as the node model. */
-export type NodeKind = "markdown" | "directory" | "collection" | "file" | "postgres";
+export type PhysicalNodeKind = "markdown" | "directory" | "file";
 
 export interface TreeChild {
   tree: string;
   name: string;
   path: string;
-  kind: NodeKind;
+  kind: PhysicalNodeKind;
   materialization: Materialization;
   pageID?: string;
 }
@@ -16,7 +16,7 @@ export interface TreeChild {
 export interface TreeNode {
   path: string;
   name: string;
-  kind: NodeKind;
+  kind: PhysicalNodeKind;
   revision: string;
   contentRevision?: string;
   propertiesRevision?: string;
@@ -26,14 +26,14 @@ export interface TreeNode {
   bodyOrigin?: "sibling" | "index";
   document?: MarkdownDocument;
   children?: TreeChild[];
-  collection?: CollectionSummary;
+  childSet?: ChildSetDescriptor;
   diagnostics: Diagnostic[];
 }
 
-export type CollectionBacking = "csv" | "json" | "jsonl" | "markdown" | "sqlite" | "postgres";
+export type ChildSetBacking = "csv" | "json" | "jsonl" | "markdown" | "sqlite" | "postgres";
 
-export interface CollectionSummary {
-  backing: CollectionBacking;
+export interface ChildSetDescriptor {
+  backing: ChildSetBacking;
   columns: string[];
   identityRule?: IdentityRule;
   revision?: string;
@@ -46,7 +46,7 @@ export interface CollectionSummary {
   tables?: string[];
 }
 
-export interface CollectionRow {
+export interface ProviderChildRecord {
   key: string;
   path: string;
   stableKey: string | null;

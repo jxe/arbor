@@ -260,9 +260,9 @@ public actor ArborReplica {
     func resolve(_ reference: WorkspaceReference) throws -> ReplicaNodeRecord {
         try requireOpen()
         guard reference.tree.rawValue == state.tree else { throw ReplicaError.notFound(reference) }
-        if let pageID = reference.pageID?.rawValue,
+        if let pageID = markdownID(fromStableKey: reference.stableKey),
            let node = state.nodes.first(where: { $0.pageID == pageID }) { return node }
-        let path = try ReplicaSemantics.normalizePath(reference.pathHint)
+        let path = try ReplicaSemantics.normalizePath(reference.path)
         guard let node = state.nodes.first(where: { $0.path == path }) else { throw ReplicaError.notFound(reference) }
         return node
     }
@@ -319,9 +319,14 @@ public actor ArborReplica {
 
     func backlinks(to reference: WorkspaceReference) throws -> [ReplicaSearchIndex.Entry] {
         let target = try resolve(reference)
+        let targetKey = target.pageID.map(markdownStableKey)
         if index.generation != control.generation { try rebuildIndex() }
         return index.entries.filter { entry in
-            entry.links.contains(target.path) || (target.pageID.map { entry.source.contains("#\($0)") } ?? false)
+            ReplicaSemantics.linkTargets(in: entry.source, relativeTo: entry.path).contains { link in
+                link.path == target.path
+                    || (targetKey != nil && link.stableKey == targetKey)
+                    || (target.pageID != nil && link.legacyKey == target.pageID)
+            }
         }
     }
 
@@ -622,7 +627,7 @@ public actor ArborReplica {
         WorkspaceReference(
             tree: TreeID(rawValue: state.tree),
             path: node.path,
-            pageID: node.pageID.map(PageID.init(rawValue:))
+            stableKey: node.pageID.map(markdownStableKey)
         )
     }
 

@@ -626,7 +626,7 @@ export function App() {
         if (searchScope === "root" && searchTree) {
           const found = await api.search(query, searchTree);
           const rootPath = node?.enclosingTree?.osPath ?? sidebar?.enclosingTree?.osPath ?? "";
-          setResults(found.map((result) => ({ ...result, url: `${rootPath}${result.path}` })));
+          setResults(found.map((result) => ({ ...result, url: `${rootPath}${result.ref.path}` })));
           return;
         }
         const tracked = trees.filter((tree) => tree.placement !== "remote" && tree.osPath && !tree.missing);
@@ -639,7 +639,7 @@ export function App() {
         }));
         setResults(
           pages
-            .flatMap(({ root, found }) => found.map((result) => ({ ...result, url: `${root.osPath!}${result.path}` })))
+            .flatMap(({ root, found }) => found.map((result) => ({ ...result, url: `${root.osPath!}${result.ref.path}` })))
             .sort((a, b) => b.score - a.score)
             .slice(0, 30),
         );

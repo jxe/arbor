@@ -72,26 +72,26 @@ function capabilities(node: TreeNode, writable: boolean): NodeCapabilities {
       writable,
     };
   }
-  if (node.kind === "directory" || node.kind === "collection" || node.kind === "postgres") {
-    const collection = node.collection;
-    const representation = collection?.backing === "postgres"
+  if (node.kind === "directory") {
+    const childSet = node.childSet;
+    const representation = childSet?.backing === "postgres"
       ? { type: "external" as const, driver: "postgres" }
-      : collection?.backing === "csv" || collection?.backing === "json" || collection?.backing === "jsonl" || collection?.backing === "sqlite"
+      : childSet?.backing === "csv" || childSet?.backing === "json" || childSet?.backing === "jsonl" || childSet?.backing === "sqlite"
         ? {
           type: "rollup" as const,
-          codec: collection.backing,
-          scope: collection.rollupScope ?? "children" as const,
-          modelDigest: (collection.modelDigest ?? digest({ columns: collection.columns, identityRule: collection.identityRule })) as Hash,
+          codec: childSet.backing,
+          scope: childSet.rollupScope ?? "children" as const,
+          modelDigest: (childSet.modelDigest ?? digest({ columns: childSet.columns, identityRule: childSet.identityRule })) as Hash,
         }
         : { type: "expanded" as const };
     result.children = {
-      revision: node.childrenRevision ?? collection?.revision ?? node.revision,
-      ...(collection ? { schema: (collection.schemaRevision ?? digest({ columns: collection.columns, identityRule: collection.identityRule })) as Hash } : {}),
+      revision: node.childrenRevision ?? childSet?.revision ?? node.revision,
+      ...(childSet ? { schema: (childSet.schemaRevision ?? digest({ columns: childSet.columns, identityRule: childSet.identityRule })) as Hash } : {}),
       representation,
-      ...(collection?.total !== undefined
-        ? { total: collection.total }
+      ...(childSet?.total !== undefined
+        ? { total: childSet.total }
         : node.children ? { total: node.children.length } : {}),
-      writable: collection ? collection.editable && writable : writable,
+      writable: childSet ? childSet.editable && writable : writable,
     };
   }
   return result;

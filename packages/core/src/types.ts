@@ -45,8 +45,7 @@ export interface MarkdownDocument {
 }
 
 export interface SearchResult {
-  tree: string;
-  path: string;
+  ref: import("./protocol.ts").ResolvedNodeRef;
   title: string;
   excerpt: string;
   score: number;

@@ -32,22 +32,20 @@ These are implementation violations of the aspirational specification. They are 
 ### Data 002 migration bridges
 
 1. **Remove the PageID-shaped compatibility bridge.** `pageIDStableKey`,
-   `pageIDFromStableKey`, private PageID owner indexes, legacy search/event
-   payload fields, and native presentation references temporarily translate
+   `pageIDFromStableKey`, private PageID owner indexes, legacy event/effect
+   payload fields, and deprecated native source aliases temporarily translate
    Markdown `id` into the uniform stable-key slot. Delete the bridge only after
-   search, events, backlinks, native healing, and Canopy boundary redirects all
+   events, backlinks, and native callers all
    carry generic stable keys and the legacy-fragment uniqueness reader has
    passed its retention window. Keep the owner index behavior behind the
    generic identity rule; do not remove rename healing itself.
-2. **Finish replacing private physical/store node records.** The shared
-   `ChildProvider` now emits canonical snapshots and child pages directly, and
-   `CollectionPage` plus the duplicated managed/untracked row probes are gone.
-   `TreeNode`/`TreeChild` remain the expanded-filesystem adapter's private read
-   model, while `CollectionSummary`/`CollectionRow` remain private loading
-   records inside the store provider. Remove those residual types as provider
-   `describe`, transaction preparation, and observation land; do not recreate
-   an adapter translation page or expose the records to REST, browser, native,
-   generated-type, or query consumers.
+2. **Finish replacing private physical node records.** `CollectionPage`,
+   `CollectionSummary`, `CollectionRow`, the `collection`/`postgres` node kinds,
+   and duplicated managed/untracked row probes are gone. `TreeNode`/`TreeChild`
+   remain only as the expanded-filesystem read model. Remove them as provider
+   `describe` and observation land; do not recreate an adapter translation page
+   or expose physical records to REST, browser, native, generated-type, or query
+   consumers.
 3. **Replace remote physical-child caching with Wire rollup projection.** The
    unplaced-tree adapter currently keeps an in-memory `remoteChildren` map and
    retains collection-aware physical child filtering because Wire cannot yet

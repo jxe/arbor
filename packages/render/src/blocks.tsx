@@ -395,13 +395,13 @@ const ChildPageBlock = createReactBlockSpec(
         onDrop={(event) => {
           const bounds = event.currentTarget.getBoundingClientRect();
           const ratio = (event.clientY - bounds.top) / Math.max(1, bounds.height);
-          const position = kind === "directory" || kind === "collection"
+          const position = kind === "directory"
             ? ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "inside"
             : ratio > 0.5 ? "after" : "before";
           controller.drop(path, position, event);
         }}
       >
-        <span className="child-page-kind"><ChildPageIcon folder={kind === "directory" || kind === "collection"} /></span>
+        <span className="child-page-kind"><ChildPageIcon folder={kind === "directory"} /></span>
         {renaming ? <>
           <span className="managed-hidden-content" ref={contentRef} />
           <input

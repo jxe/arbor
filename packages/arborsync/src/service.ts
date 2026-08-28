@@ -440,9 +440,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
           ...(pageID ? { pageID } : {}),
         } };
       }))).filter((child): child is NonNullable<typeof child> => child !== null);
-    const isCollectionDirectory = object.entries.some((entry) =>
-      entry.name === "schema.ts" || ["_store.csv", "_store.json", "_store.jsonl", "_store.sqlite3", "_store.postgres"].includes(entry.name)
-    );
     const document = parseMarkdown(source);
     const authoredTitle = document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
     const descriptors = children
@@ -453,7 +450,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return sampleTreeNode({
       path,
       name: authoredTitle || objectName,
-      kind: isCollectionDirectory ? "collection" : "directory",
+      kind: "directory",
       revision: revisionOf(`${source}\0${JSON.stringify(descriptors)}`),
       writable: false,
       materialization: "available",

@@ -296,7 +296,7 @@ public actor ArborSyncProcessSupervisor {
         let home = WorkspaceReference(
             tree: TreeID(rawValue: snapshot.ref.tree),
             path: snapshot.ref.path,
-            pageID: pageIDFromStableKey(snapshot.ref.stableKey).map(PageID.init(rawValue:))
+            stableKey: snapshot.ref.stableKey
         )
         return ArborSyncRuntime(
             origin: origin,

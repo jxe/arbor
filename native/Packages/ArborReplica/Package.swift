@@ -11,16 +11,24 @@ let package = Package(
         .library(name: "ArborReplica", targets: ["ArborReplica"])
     ],
     dependencies: [
-        .package(path: "../ArborKit")
+        .package(path: "../ArborKit"),
+        .package(path: "../ArborClient")
     ],
     targets: [
         .target(
             name: "ArborReplica",
-            dependencies: [.product(name: "ArborKit", package: "ArborKit")]
+            dependencies: [
+                .product(name: "ArborKit", package: "ArborKit"),
+                .product(name: "ArborClient", package: "ArborClient")
+            ]
         ),
         .testTarget(
             name: "ArborReplicaTests",
-            dependencies: ["ArborReplica", .product(name: "ArborKit", package: "ArborKit")]
+            dependencies: [
+                "ArborReplica",
+                .product(name: "ArborKit", package: "ArborKit"),
+                .product(name: "ArborClient", package: "ArborClient")
+            ]
         )
     ],
     swiftLanguageModes: [.v6]

@@ -1,3 +1,4 @@
+import ArborClient
 import ArborKit
 import Foundation
 import Testing
@@ -150,10 +151,15 @@ struct ReplicaProviderTests {
             let collection = try await provider.resolve(people.reference)
             #expect(collection.surface == .collection(kind: "CSV", rowCount: 2))
 
+            let restoredLink = try #require(buildCanonicalLink(
+                from: "/",
+                toPath: "/archive/renamed",
+                stableKey: restored.reference.stableKey
+            ))
             let linker = try #require(try await provider.perform(.createMarkdown(
                 parent: rootRef,
                 name: "linker",
-                source: "# Linker\n\n[Today](/archive/renamed#\(pageID.rawValue))\n"
+                source: "# Linker\n\n[Today](\(restoredLink))\n"
             )))
             #expect(try await provider.search("durable edit", in: tree).contains { $0.reference.pageID == pageID })
             #expect(try await provider.backlinks(to: restored.reference).contains { $0.reference == linker.reference })

@@ -64,7 +64,7 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(receipt.effects.first?.propertiesRevision, "sha256:properties")
         XCTAssertEqual(error.error, "future-error-code")
         XCTAssertEqual(children.items.first?.ref.path, "/notes/today")
-        XCTAssertEqual(search.results.first?.pageID, "abc123")
+        XCTAssertEqual(search.results.first?.ref.stableKey, pageIDStableKey("abc123"))
         XCTAssertEqual(backlinks.entries.first?.ref.stableKey, pageIDStableKey("week01"))
         XCTAssertEqual(recovery.entries.first?.status, "lost")
         XCTAssertEqual(recovery.entries.last?.kind, "trash")

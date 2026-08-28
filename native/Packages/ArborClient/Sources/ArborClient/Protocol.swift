@@ -310,9 +310,7 @@ public struct ChildrenPage: Codable, Sendable, Equatable {
 }
 
 public struct SearchResult: Codable, Sendable, Equatable {
-    public var tree: String
-    public var path: String
-    public var pageID: String?
+    public var ref: ResolvedNodeRef
     public var title: String
     public var excerpt: String
     public var score: Double

@@ -2,7 +2,12 @@ import { readFile, stat } from "node:fs/promises";
 import { readFileSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
-import type { SearchResult } from "@arbor/core";
+export interface SearchIndexResult {
+  path: string;
+  title: string;
+  excerpt: string;
+  score: number;
+}
 import { legacyPageIDCandidate, nodeDisplayName, nodePathFromPhysical, resolveLogicalURL, toTreePath } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { discoverWorkspace, type WorkspaceDiscovery } from "@arbor/fs";
@@ -141,13 +146,13 @@ export class WorkspaceIndex {
     }
   }
 
-  search(query: string, limit = 30, offset = 0): SearchResult[] {
+  search(query: string, limit = 30, offset = 0): SearchIndexResult[] {
     const escaped = query.trim().split(/\s+/).map((token) => `"${token.replaceAll('"', '""')}"*`).join(" ");
     if (!escaped) return [];
     const rows = this.database.query(
       "SELECT path, title, snippet(docs, 2, '<mark>', '</mark>', '…', 24) AS excerpt, bm25(docs) AS rank FROM docs WHERE docs MATCH ? ORDER BY rank LIMIT ? OFFSET ?",
     ).all(escaped, limit, offset) as Array<{ path: string; title: string; excerpt: string; rank: number }>;
-    return rows.map((row) => ({ tree: "local", path: row.path, title: row.title, excerpt: row.excerpt, score: -row.rank }));
+    return rows.map((row) => ({ path: row.path, title: row.title, excerpt: row.excerpt, score: -row.rank }));
   }
 
   backlinks(

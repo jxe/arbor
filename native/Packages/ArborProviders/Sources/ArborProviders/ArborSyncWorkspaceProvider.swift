@@ -51,7 +51,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
                 .reference(WorkspaceReference(
                     tree: TreeID(rawValue: child.ref.tree),
                     path: child.ref.path,
-                    pageID: pageIDFromStableKey(child.ref.stableKey).map(PageID.init(rawValue:))
+                    stableKey: child.ref.stableKey
                 ))
             })
         case let .remote(locator, rootLocator):
@@ -72,9 +72,9 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
             result.append(contentsOf: page.results.map { item in
                 WorkspaceSearchResult(
                     reference: WorkspaceReference(
-                        tree: TreeID(rawValue: item.tree),
-                        path: item.path,
-                        pageID: item.pageID.map(PageID.init(rawValue:))
+                        tree: TreeID(rawValue: item.ref.tree),
+                        path: item.ref.path,
+                        stableKey: item.ref.stableKey
                     ),
                     title: item.title,
                     excerpt: item.excerpt.isEmpty ? nil : item.excerpt
@@ -95,7 +95,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
                     reference: WorkspaceReference(
                         tree: TreeID(rawValue: entry.ref.tree),
                         path: entry.ref.path,
-                        pageID: pageIDFromStableKey(entry.ref.stableKey).map(PageID.init(rawValue:))
+                        stableKey: entry.ref.stableKey
                     ),
                     title: entry.title,
                     excerpt: entry.context.isEmpty ? nil : entry.context
@@ -111,48 +111,48 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
         let fallback: WorkspaceReference
         switch action {
         case let .createMarkdown(parent, name, source):
-            let path = Self.childPath(parent.pathHint, name: name)
+            let path = Self.childPath(parent.path, name: name)
             request = WorkspaceOperation(op: "createMarkdown", tree: parent.tree.rawValue, path: path, source: source)
             fallback = WorkspaceReference(tree: parent.tree, path: path)
         case let .createDirectory(parent, name):
-            let path = Self.childPath(parent.pathHint, name: name)
+            let path = Self.childPath(parent.path, name: name)
             request = WorkspaceOperation(op: "createDirectory", tree: parent.tree.rawValue, path: path)
             fallback = WorkspaceReference(tree: parent.tree, path: path)
         case let .rename(reference, name):
             request = WorkspaceOperation(op: "rename", ref: reference.nodeRef, name: name)
             fallback = WorkspaceReference(
                 tree: reference.tree,
-                path: Self.childPath(reference.parent?.pathHint ?? "/", name: name),
-                pageID: reference.pageID
+                path: Self.childPath(reference.parent?.path ?? "/", name: name),
+                stableKey: reference.stableKey
             )
         case let .move(reference, destination):
             request = WorkspaceOperation(op: "move", refs: [reference.nodeRef], destination: destination.nodeRef)
             fallback = WorkspaceReference(
                 tree: destination.tree,
-                path: Self.childPath(destination.pathHint, name: Self.name(of: reference.pathHint)),
-                pageID: reference.pageID
+                path: Self.childPath(destination.path, name: Self.name(of: reference.path)),
+                stableKey: reference.stableKey
             )
         case let .copy(reference, destination):
             request = WorkspaceOperation(op: "copy", refs: [reference.nodeRef], destination: destination.nodeRef)
             fallback = WorkspaceReference(
                 tree: destination.tree,
-                path: Self.childPath(destination.pathHint, name: Self.name(of: reference.pathHint))
+                path: Self.childPath(destination.path, name: Self.name(of: reference.path))
             )
         case let .trash(reference):
             request = WorkspaceOperation(op: "trash", refs: [reference.nodeRef])
-            fallback = WorkspaceReference(tree: reference.tree, path: "/Trash" + reference.pathHint, pageID: reference.pageID)
+            fallback = WorkspaceReference(tree: reference.tree, path: "/Trash" + reference.path, stableKey: reference.stableKey)
         case let .restore(reference):
             // Trash is deliberately outside the managed PageID owner index. A
             // restore therefore addresses the visible Trash path, then lets
             // arborsync surface the same identity again after materialization.
             request = WorkspaceOperation(
                 op: "restore",
-                refs: [NodeRef(tree: reference.tree.rawValue, path: reference.pathHint)]
+                refs: [NodeRef(tree: reference.tree.rawValue, path: reference.path)]
             )
-            let restored = reference.pathHint.hasPrefix("/Trash/")
-                ? String(reference.pathHint.dropFirst("/Trash".count))
-                : reference.pathHint
-            fallback = WorkspaceReference(tree: reference.tree, path: restored, pageID: reference.pageID)
+            let restored = reference.path.hasPrefix("/Trash/")
+                ? String(reference.path.dropFirst("/Trash".count))
+                : reference.path
+            fallback = WorkspaceReference(tree: reference.tree, path: restored, stableKey: reference.stableKey)
         }
 
         let receipt = try await client.mutateStructural([request])
@@ -161,7 +161,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
             WorkspaceReference(
                 tree: TreeID(rawValue: value.tree),
                 path: value.path,
-                pageID: value.pageID.map(PageID.init(rawValue:)) ?? fallback.pageID
+                stableKey: value.pageID.map(pageIDStableKey) ?? fallback.stableKey
             )
         } ?? fallback
         return try await resolveOrFallback(resolved, fallback: fallback)
@@ -214,7 +214,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
             // Structural receipts can retain an identity that is temporarily
             // outside arborsync's managed PageID index (notably Trash). The path
             // is still an exact postcondition supplied by the operation.
-            return try await resolve(WorkspaceReference(tree: fallback.tree, path: fallback.pathHint))
+            return try await resolve(WorkspaceReference(tree: fallback.tree, path: fallback.path))
         }
     }
 
@@ -239,7 +239,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
         let reference = WorkspaceReference(
             tree: tree,
             path: snapshot.ref.path,
-            pageID: pageIDFromStableKey(snapshot.ref.stableKey).map(PageID.init(rawValue:))
+            stableKey: snapshot.ref.stableKey
         )
         let treeRootURL = snapshot.enclosingTree?.osPath.map { URL(fileURLWithPath: $0) }
         let physicalURL = treeRootURL.map { root in
@@ -322,7 +322,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
     }
 
     static func requiresDocumentIdentity(_ node: WorkspaceNode) -> Bool {
-        node.reference.tree.rawValue != "local" && node.reference.pageID == nil
+        node.reference.tree.rawValue != "local" && node.reference.stableKey == nil
     }
 
     private static func materialization(_ value: String) -> WorkspaceMaterialization {
@@ -506,10 +506,10 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         reference: WorkspaceReference
     ) -> Bool {
         if event.tree != reference.tree.rawValue { return false }
-        if let pageID = reference.pageID?.rawValue, let eventPageID = event.change.pageID {
-            return pageID == eventPageID
+        if let stableKey = reference.stableKey, let eventPageID = event.change.pageID {
+            return stableKey == pageIDStableKey(eventPageID)
         }
-        return event.change.path == reference.pathHint || event.change.previousPath == reference.pathHint
+        return event.change.path == reference.path || event.change.previousPath == reference.path
     }
 
     private func requireOpen() throws {
@@ -527,7 +527,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
             reference: WorkspaceReference(
                 tree: TreeID(rawValue: node.ref.tree),
                 path: node.ref.path,
-                pageID: pageIDFromStableKey(node.ref.stableKey).map(PageID.init(rawValue:))
+                stableKey: node.ref.stableKey
             ),
             source: source,
             contentRevision: revision
@@ -546,8 +546,8 @@ private extension WorkspaceReference {
     var nodeRef: NodeRef {
         NodeRef(
             tree: tree.rawValue,
-            path: pathHint,
-            stableKey: pageID.map { pageIDStableKey($0.rawValue) }
+            path: path,
+            stableKey: stableKey
         )
     }
 }

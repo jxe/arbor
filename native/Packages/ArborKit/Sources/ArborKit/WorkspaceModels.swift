@@ -7,34 +7,51 @@ public struct TreeID: RawRepresentable, Hashable, Codable, Sendable, Expressible
     public init(stringLiteral value: String) { self.rawValue = value }
 }
 
+@available(*, deprecated, message: "Use WorkspaceReference.stableKey")
 public struct PageID: RawRepresentable, Hashable, Codable, Sendable, ExpressibleByStringLiteral {
     public var rawValue: String
-
     public init(rawValue: String) { self.rawValue = rawValue }
     public init(stringLiteral value: String) { self.rawValue = value }
 }
 
 public struct WorkspaceReference: Hashable, Codable, Sendable {
     public var tree: TreeID
-    public var pageID: PageID?
-    public var pathHint: String
+    public var path: String
+    public var stableKey: String?
 
-    public init(tree: TreeID, path: String, pageID: PageID? = nil) {
+    public init(tree: TreeID, path: String, stableKey: String? = nil) {
         self.tree = tree
-        self.pageID = pageID
-        self.pathHint = Self.normalized(path)
+        self.path = Self.normalized(path)
+        self.stableKey = stableKey
+    }
+
+    @available(*, deprecated, message: "Pass the canonical stable key")
+    public init(tree: TreeID, path: String, pageID: PageID?) {
+        self.init(tree: tree, path: path, stableKey: pageID.map { markdownStableKey($0.rawValue) })
+    }
+
+    @available(*, deprecated, message: "Use path")
+    public var pathHint: String {
+        get { path }
+        set { path = Self.normalized(newValue) }
+    }
+
+    @available(*, deprecated, message: "Use stableKey")
+    public var pageID: PageID? {
+        get { markdownID(fromStableKey: stableKey).map(PageID.init(rawValue:)) }
+        set { stableKey = newValue.map { markdownStableKey($0.rawValue) } }
     }
 
     public var parent: WorkspaceReference? {
-        guard pathHint != "/" else { return nil }
-        let components = pathHint.split(separator: "/")
+        guard path != "/" else { return nil }
+        let components = path.split(separator: "/")
         let path = components.dropLast().isEmpty ? "/" : "/" + components.dropLast().joined(separator: "/")
         return WorkspaceReference(tree: tree, path: path)
     }
 
     public var identity: WorkspaceIdentity {
-        if let pageID { return .page(tree: tree, pageID: pageID) }
-        return .path(tree: tree, path: pathHint)
+        if let stableKey { return .key(tree: tree, stableKey: stableKey) }
+        return .path(tree: tree, path: path)
     }
 
     private static func normalized(_ path: String) -> String {
@@ -91,7 +108,7 @@ public enum WorkspaceLocation: Hashable, Codable, Sendable {
     public var pathHint: String {
         switch self {
         case let .localPath(path): path
-        case let .reference(reference): reference.pathHint
+        case let .reference(reference): reference.path
         case let .remote(locator, _):
             URL(string: locator)?.path.removingPercentEncoding ?? locator
         }
@@ -112,8 +129,26 @@ private extension String {
 }
 
 public enum WorkspaceIdentity: Hashable, Codable, Sendable {
-    case page(tree: TreeID, pageID: PageID)
+    case key(tree: TreeID, stableKey: String)
     case path(tree: TreeID, path: String)
+}
+
+/// The current Markdown `id` representation projected into the generic node-key slot.
+public func markdownStableKey(_ id: String) -> String {
+    let data = try! JSONSerialization.data(withJSONObject: [["id", id]], options: [.sortedKeys])
+    return String(decoding: data, as: UTF8.self)
+}
+
+/// Bounded bridge used only where the physical Markdown representation stores `id`.
+public func markdownID(fromStableKey stableKey: String?) -> String? {
+    guard let stableKey,
+          let data = stableKey.data(using: .utf8),
+          let value = try? JSONSerialization.jsonObject(with: data) as? [[Any]],
+          value.count == 1,
+          value[0].count == 2,
+          value[0][0] as? String == "id"
+    else { return nil }
+    return value[0][1] as? String
 }
 
 public enum WorkspaceAuthority: String, Hashable, Codable, Sendable {

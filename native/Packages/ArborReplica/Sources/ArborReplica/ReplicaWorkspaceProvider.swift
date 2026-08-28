@@ -21,7 +21,7 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
 
     public func children(of reference: WorkspaceReference) async throws -> [WorkspaceNode] {
         var nodes = try await replica.children(of: reference).asyncMap { try await workspaceNode($0) }
-        if reference.pathHint == "/" {
+        if reference.path == "/" {
             nodes.append(contentsOf: try await replica.diagnostics().asyncMap { await diagnosticNode($0) })
         }
         return nodes
@@ -36,7 +36,7 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
                 reference: WorkspaceReference(
                     tree: tree,
                     path: entry.path,
-                    pageID: entry.pageID.map(PageID.init(rawValue:))
+                    stableKey: entry.pageID.map(markdownStableKey)
                 ),
                 title: entry.title,
                 excerpt: entry.source.isEmpty ? nil : entry.source
@@ -50,10 +50,10 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
                 reference: WorkspaceReference(
                     tree: reference.tree,
                     path: entry.path,
-                    pageID: entry.pageID.map(PageID.init(rawValue:))
+                    stableKey: entry.pageID.map(markdownStableKey)
                 ),
                 title: entry.title,
-                excerpt: reference.pathHint
+                excerpt: reference.path
             )
         }
     }
@@ -82,7 +82,7 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
     public func store(asset: WorkspaceAsset, in parent: WorkspaceReference) async throws -> WorkspaceStoredAsset {
         let node = try await replica.storeAsset(asset, in: parent)
         let reference = await replica.workspaceReference(node)
-        return WorkspaceStoredAsset(reference: reference, markdownSource: reference.pathHint)
+        return WorkspaceStoredAsset(reference: reference, markdownSource: reference.path)
     }
 
     public func readFile(_ reference: WorkspaceReference) async throws -> Data {
@@ -151,10 +151,10 @@ public struct ReplicaWorkspaceProvider: WorkspaceProvider, Sendable {
     }
 
     private func diagnostic(for reference: WorkspaceReference) async throws -> WorkspaceNode? {
-        guard reference.pathHint.hasPrefix("/.replica-diagnostic-") else { return nil }
+        guard reference.path.hasPrefix("/.replica-diagnostic-") else { return nil }
         let replicaTree = await replica.treeID()
         guard reference.tree == replicaTree else { return nil }
-        let expected = String(reference.pathHint.dropFirst("/.replica-diagnostic-".count))
+        let expected = String(reference.path.dropFirst("/.replica-diagnostic-".count))
         guard let diagnostic = try await replica.diagnostics().first(where: { safeDiagnosticID($0.id) == expected }) else { return nil }
         return await diagnosticNode(diagnostic)
     }

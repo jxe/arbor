@@ -1,6 +1,6 @@
 import type { ChildrenPage, JSONValue, LocalTreeDescriptor, NodeRef, NodeResponse, NodeSnapshot, NodeSummary, TreeRef } from "@arbor/core";
 import { canonicalNodePath } from "@arbor/core";
-import type { CollectionSummary } from "@arbor/core/internal";
+import type { ChildSetDescriptor } from "@arbor/core/internal";
 import {
   CollectionStore,
   type CollectionWriteTarget,
@@ -27,7 +27,7 @@ export interface PhysicalChildAdapter {
 interface CollectionLocation {
   directory: string;
   parentPath: string;
-  summary: CollectionSummary;
+  summary: ChildSetDescriptor;
   table?: string;
 }
 

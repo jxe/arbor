@@ -1,5 +1,6 @@
 import ArborKit
 import CryptoKit
+import ArborClient
 import Foundation
 
 enum ReplicaSemantics {
@@ -128,30 +129,24 @@ enum ReplicaSemantics {
     }
 
     static func links(in source: String, relativeTo directory: String) -> [String] {
+        linkTargets(in: source, relativeTo: directory).map(\.path)
+    }
+
+    static func linkTargets(in source: String, relativeTo directory: String) -> [(path: String, stableKey: String?, legacyKey: String?)] {
         let pattern = #"\[[^\]]*\]\(([^)]+)\)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         return regex.matches(in: source, range: NSRange(source.startIndex..., in: source)).compactMap { match in
             guard let range = Range(match.range(at: 1), in: source) else { return nil }
-            return resolve(reference: String(source[range]), relativeTo: directory).path
+            guard case let .local(path, locator) = resolveLogicalURL(
+                base: directory,
+                href: String(source[range])
+            ) else { return nil }
+            return (path, locator.stableKey, locator.legacyStableKeyCandidate)
         }
     }
 
     static func isStoreFile(_ node: ReplicaNodeRecord) -> Bool {
         node.kind == .file && ["_store.csv", "_store.json", "_store.jsonl", "_store.sqlite3", "_store.postgres"].contains(name(of: node.path))
-    }
-
-    private static func resolve(reference: String, relativeTo directory: String) -> (path: String, pageID: String?) {
-        let pieces = reference.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
-        let rawPath = String(pieces[0])
-        let pageID = pieces.count == 2 && !pieces[1].isEmpty ? String(pieces[1]) : nil
-        if rawPath.hasPrefix("/") { return ((try? normalizePath(rawPath)) ?? rawPath, pageID) }
-        var parts = directory.split(separator: "/").map(String.init)
-        for part in rawPath.split(separator: "/", omittingEmptySubsequences: true) {
-            if part == "." { continue }
-            if part == ".." { _ = parts.popLast() }
-            else { parts.append(String(part)) }
-        }
-        return (parts.isEmpty ? "/" : "/" + parts.joined(separator: "/"), pageID)
     }
 
     private static func frontmatterRange(in source: String) -> Range<String.Index>? {
