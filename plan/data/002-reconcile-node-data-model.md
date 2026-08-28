@@ -245,18 +245,21 @@
   physical-child cache and reopens them by stable key. Swift replicas preserve
   descriptors and their reachable objects exactly across materialization and
   unrelated offline edits. Server-grade application-code containment is one
-  deferred hardening boundary shared with SSR/query/mutation execution, while
-  native offline row projection remains explicit migration debt. The reference
+  deferred hardening boundary shared with SSR/query/mutation execution. Native
+  offline row projection is deliberately deferred to
+  [Data 006](006-native-offline-rollup-row-projection.md). The reference
   merge currently writes one canonical encoding after semantic reconciliation;
   preserving untouched source formatting is tracked as explicit continuation
   debt rather than weakening the logical merge contract.
-- **Next checkpoint:** finish private filesystem ontology cleanup and decide
-  whether native offline row projection belongs in this plan or the shared
-  compiler/runtime implementation. Typed source declarations, activation-manifest generation, and
+- **Next checkpoint:** finish private filesystem ontology cleanup, public
+  rollup-row locators, and provider-neutral live-query sensitivities. Typed
+  source declarations, activation-manifest generation, and
   editor integration moved intact to
   [Application 003](../applications/003-development-compiler-and-editor-tooling.md);
   representation-path conversion moved to [Data 003](003-representation-equivalence.md);
-  Postgres provider implementation moved to [Data 004](004-postgres-child-provider.md).
+  Postgres provider implementation moved to [Data 004](004-postgres-child-provider.md);
+  native offline rollup-row projection moved to
+  [Data 006](006-native-offline-rollup-row-projection.md).
 
 ## Target result
 

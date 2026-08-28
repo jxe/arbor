@@ -11,8 +11,9 @@ dependency column controls execution order.
 | [003](003-representation-equivalence.md) | Preserve stable refs, readable paths, links, queries, and mutations when one logical child set changes representation | P1 | PLANNED | 002 |
 | [004](004-postgres-child-provider.md) | Replace Postgres virtual nodes with the shared `ChildProvider` and transaction/observation contracts | P2 | PLANNED | 002; Applications 003 activation manifests |
 | [005](005-database-observation-and-semantic-sync.md) | Replace whole-database revision stand-ins with transaction snapshots, committed observation cursors, logical effects, and reviewed semantic synchronization | P1 | PLANNED — observation/checkpoint design requires review | 002; 004; 001 for bidirectional projection |
+| [006](006-native-offline-rollup-row-projection.md) | Present synchronized CSV/JSON/JSONL rows through native offline replicas | P2 | DEFERRED — preserve Wire rollups losslessly until native offline row browsing is required | 002; Applications 003 execution decisions |
 
-Plan 002 is the architectural prerequisite. Plans 001, 003, 004, and 005 must not
+Plan 002 is the architectural prerequisite. Plans 001, 003, 004, 005, and 006 must not
 introduce a second row protocol, collection endpoint, replication log, identity
 model, or query meaning. Representation-path conversion belongs to 003;
 Postgres driver/runtime details belong to 004. Cross-database observation and

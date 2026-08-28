@@ -47,7 +47,8 @@ These are implementation violations of the aspirational specification. They are 
    `describe` and observation land; do not recreate an adapter translation page
    or expose physical records to REST, browser, native, generated-type, or query
    consumers.
-3. **Finish native offline row projection from preserved Wire rollups.** The
+3. **Complete
+   [Data 006](../data/006-native-offline-rollup-row-projection.md).** The
    local daemon's unplaced remote-tree adapter now pages descriptor-derived rows directly and
    the old `remoteChildren` physical cache is deleted. Swift independently
    validates, retains, materializes, and re-encodes rollup descriptors so an
