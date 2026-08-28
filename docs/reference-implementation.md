@@ -21,7 +21,7 @@ Arbor web uses React and BlockNote. Markdown remains canonical: arborsync return
 The shared public data boundary is capability-based `NodeSnapshot`,
 `NodeSummary`, and `ChildrenPage`. Managed and untracked filesystem adapters
 delegate expanded directories, Markdown records, CSV/JSON/JSONL rollups, and
-SQLite table/row subtrees through one `ChildProvider`; there is no collection
+SQLite table/row subtrees through one `NodeProviderRouter`; there is no collection
 page or private parallel node ontology. Representation loaders remain private
 store records.
 

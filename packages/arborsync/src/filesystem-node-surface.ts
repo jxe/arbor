@@ -8,9 +8,8 @@ import type {
   NodeSummary,
   TreeRef,
 } from "@arbor/core";
-import { isPageID, nodeDisplayName, pageIDStableKey, revisionOf } from "@arbor/core";
+import { isPageID, nodeDisplayName, pageIDStableKey } from "@arbor/core";
 import type { WorkspaceFS } from "@arbor/fs";
-import { ChildProvider } from "./child-provider.ts";
 import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import {
   sampleExpandedNode,
@@ -40,27 +39,22 @@ export interface FilesystemNodeSurfaceOptions {
 }
 
 /** Shared physical-filesystem projection for managed trees and untracked paths. */
-export class FilesystemNodeSurface implements AsyncDisposable {
-  readonly provider: ChildProvider;
+export class FilesystemNodeSurface {
+  readonly tree: TreeRef;
 
-  constructor(private readonly options: FilesystemNodeSurfaceOptions) {
-    this.provider = new ChildProvider({
-      tree: options.tree,
-      ...(options.enclosingTree ? { enclosingTree: options.enclosingTree } : {}),
-      resolve: async (path) => {
-        const resolved = await (await options.fs()).resolve(path);
-        return {
-          ...(resolved.directoryPath ? { directoryPath: resolved.directoryPath } : {}),
-          writable: resolved.writable,
-        };
-      },
-      snapshot: (ref, observedThrough) => this.snapshot(ref, observedThrough),
-      children: (ref, cursor, observedThrough, additionalItems) =>
-        this.children(ref, cursor, observedThrough, additionalItems),
-      writable: async (path) => options.writable(path),
-    });
+  constructor(private readonly options: FilesystemNodeSurfaceOptions) { this.tree = options.tree; }
+
+  enclosingTree(): LocalTreeDescriptor | undefined { return this.options.enclosingTree?.(); }
+
+  async resolve(path: string): Promise<{ directoryPath?: string; writable: boolean }> {
+    const resolved = await (await this.options.fs()).resolve(path);
+    return {
+      ...(resolved.directoryPath ? { directoryPath: resolved.directoryPath } : {}),
+      writable: resolved.writable,
+    };
   }
 
+  async writable(path: string): Promise<boolean> { return this.options.writable(path); }
   async expandedNode(inputPath: string): Promise<ExpandedNode> {
     const read = await (await this.options.fs()).read(inputPath);
     const resolved = read.node;
@@ -97,26 +91,22 @@ export class FilesystemNodeSurface implements AsyncDisposable {
       };
     }
 
-    const collection = await this.provider.summary(resolved.directoryPath!).catch(() => null);
     const children = await this.directoryChildren(resolved.path);
     return {
       path: resolved.path,
       name: resolved.path === "/" ? this.options.rootName : nodeDisplayName(resolved.path),
       kind: "directory",
-      revision: collection?.revision ? revisionOf(`${read.byteRevision}\0${collection.revision}`) : read.byteRevision,
+      revision: read.byteRevision,
       contentRevision: read.byteRevision,
       propertiesRevision: read.byteRevision,
-      ...(collection?.revision ? { childrenRevision: collection.revision } : {}),
       writable: resolved.writable,
       materialization: resolved.materialization,
       bodyOrigin: resolved.bodySource ?? undefined,
       document,
       children: children.children,
-      childSet: collection ?? undefined,
       diagnostics: [
         ...resolved.diagnostics,
         ...documentDiagnostics,
-        ...(collection?.diagnostics ?? []),
         ...children.diagnostics,
       ],
     };
@@ -186,7 +176,4 @@ export class FilesystemNodeSurface implements AsyncDisposable {
     return { children: children.sort((left, right) => left.name.localeCompare(right.name)), diagnostics };
   }
 
-  async [Symbol.asyncDispose](): Promise<void> {
-    await this.provider[Symbol.asyncDispose]();
-  }
 }

@@ -1,4 +1,3 @@
-import { parse } from "csv-parse/sync";
 import {
   canonicalJSONString,
   revisionOf,
@@ -9,6 +8,7 @@ import {
   type RollupDescriptor,
 } from "@arbor/core";
 import { SchemaSandbox, type SchemaDescription } from "./schema.ts";
+import { decodeFileRollupSource } from "./providers/file-rollup-codec.ts";
 
 export interface WireFileRollupRow {
   stableKey: string;
@@ -33,13 +33,6 @@ export class WireFileRollupError extends Error {
   }
 }
 
-function record(value: unknown, index: number): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new WireFileRollupError("source", `Rollup row ${index + 1} must be an object`);
-  }
-  return value as Record<string, unknown>;
-}
-
 function jsonValue(value: unknown): JSONValue {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -52,20 +45,10 @@ function jsonValue(value: unknown): JSONValue {
 
 function sourceRows(codec: RollupDescriptor["codec"], source: string): Record<string, unknown>[] {
   try {
-    if (codec === "json") {
-      const value = JSON.parse(source) as unknown;
-      if (!Array.isArray(value)) throw new WireFileRollupError("source", "_store.json must contain one array");
-      return value.map(record);
-    }
-    if (codec === "jsonl") {
-      return source.split(/\r\n|\n|\r/).filter((line) => line.trim()).map((line, index) => record(JSON.parse(line), index));
-    }
-    return (parse(source, {
-      columns: true,
-      bom: true,
-      relax_column_count: true,
-      skip_empty_lines: true,
-    }) as unknown[]).map(record);
+    const decoded = decodeFileRollupSource(codec, source, `wire:_store.${codec}`);
+    const diagnostic = decoded.diagnostics[0] ?? decoded.rows.flatMap((row) => row.diagnostics)[0];
+    if (diagnostic) throw new WireFileRollupError("source", diagnostic.message);
+    return decoded.rows.map((row) => row.values);
   } catch (error) {
     if (error instanceof WireFileRollupError) throw error;
     throw new WireFileRollupError("source", `Invalid ${codec.toUpperCase()} rollup: ${String(error)}`);

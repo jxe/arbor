@@ -13,7 +13,7 @@ import {
   materializeTree,
   snapshotDirectory,
 } from "@arbor/wire";
-import { CollectionStore, decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
+import { ProjectionProviderHost, decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
 
 describe("canonical tree objects", () => {
   test("matches the language-neutral canonical object vectors", async () => {
@@ -160,7 +160,7 @@ describe("canonical tree objects", () => {
     } as const;
     for (const [codec, source] of Object.entries(fixtures) as Array<[keyof typeof fixtures, string]>) {
       const root = await mkdtemp(join(tmpdir(), `arbor-wire-${codec}-`));
-      const collections = new CollectionStore();
+      const collections = new ProjectionProviderHost();
       const schemas = new SchemaSandbox();
       try {
         await writeFile(join(root, "schema.ts"), [

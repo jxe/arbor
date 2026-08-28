@@ -1,6 +1,5 @@
 import type {
   Diagnostic,
-  Hash,
   JSONValue,
   LocalTreeDescriptor,
   MarkdownDocument,
@@ -10,8 +9,7 @@ import type {
   NodeSummary,
   TreeRef,
 } from "@arbor/core";
-import { canonicalJSONString, isPageID, pageIDStableKey, sha256 } from "@arbor/core";
-import type { ChildSetDescriptor } from "@arbor/stores";
+import { isPageID, pageIDStableKey } from "@arbor/core";
 
 /** Adapter-private expanded-filesystem record. Never crosses a node protocol boundary. */
 export interface ExpandedChild {
@@ -36,7 +34,6 @@ export interface ExpandedNode {
   bodyOrigin?: "sibling" | "index";
   document?: MarkdownDocument;
   children?: ExpandedChild[];
-  childSet?: ChildSetDescriptor;
   diagnostics: Diagnostic[];
 }
 
@@ -64,10 +61,6 @@ function jsonValue(value: unknown): JSONValue | undefined {
 
 export function expandedNodeProperties(node: ExpandedNode): Record<string, JSONValue> {
   return (jsonValue(node.document?.frontmatter ?? {}) ?? {}) as Record<string, JSONValue>;
-}
-
-function digest(value: unknown): Hash {
-  return `sha256:${sha256(canonicalJSONString(value))}`;
 }
 
 function mediaType(path: string): string {
@@ -103,25 +96,11 @@ function capabilities(node: ExpandedNode, writable: boolean): NodeCapabilities {
     };
   }
   if (node.kind === "directory") {
-    const childSet = node.childSet;
-    const representation = childSet?.backing === "postgres"
-      ? { type: "external" as const, driver: "postgres" }
-      : childSet?.backing === "csv" || childSet?.backing === "json" || childSet?.backing === "jsonl" || childSet?.backing === "sqlite"
-        ? {
-          type: "rollup" as const,
-          codec: childSet.backing,
-          scope: childSet.rollupScope ?? "children" as const,
-          modelDigest: (childSet.modelDigest ?? digest({ columns: childSet.columns, identityRule: childSet.identityRule })) as Hash,
-        }
-        : { type: "expanded" as const };
     result.children = {
-      revision: node.childrenRevision ?? childSet?.revision ?? node.revision,
-      ...(childSet ? { schema: (childSet.schemaRevision ?? digest({ columns: childSet.columns, identityRule: childSet.identityRule })) as Hash } : {}),
-      representation,
-      ...(childSet?.total !== undefined
-        ? { total: childSet.total }
-        : node.children ? { total: node.children.length } : {}),
-      writable: childSet ? childSet.editable && writable : writable,
+      revision: node.childrenRevision ?? node.revision,
+      representation: { type: "expanded" },
+      ...(node.children ? { total: node.children.length } : {}),
+      writable,
     };
   }
   return result;

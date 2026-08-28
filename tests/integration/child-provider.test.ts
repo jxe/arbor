@@ -32,6 +32,15 @@ beforeAll(async () => {
   await writeFile(join(root, "json", "_store.json"), '[{"id":"one","title":"One"}]\n');
   await writeFile(join(root, "jsonl", "_store.jsonl"), '{"id":"one","title":"One"}\n');
 
+  await mkdir(join(root, "outer", "deep", "nested"), { recursive: true });
+  await writeFile(join(root, "outer", "deep", "nested", "schema.ts"), schema);
+  await writeFile(join(root, "outer", "deep", "nested", "_store.json"), '[{"id":"one","title":"One"}]\n');
+
+  await mkdir(join(root, "mixed"));
+  await writeFile(join(root, "mixed", "schema.ts"), schema);
+  await writeFile(join(root, "mixed", "_store.json"), '[{"id":"rollup","title":"Rollup"}]\n');
+  await writeFile(join(root, "mixed", "one.md"), "---\nid: physical\ntitle: Physical\n---\nBody.\n");
+
   await mkdir(join(root, "sqlite"));
   const sql = "create table items (id text primary key, title text not null);";
   await writeFile(join(root, "sqlite", "schema.sql"), `${sql}\n`);
@@ -50,13 +59,14 @@ afterAll(async () => {
   await rm(state, { recursive: true, force: true });
 });
 
-describe("ChildProvider conformance", () => {
+describe("NodeProviderRouter conformance", () => {
   const cases = [
     { name: "expanded", parent: "/expanded", child: "/expanded/one", keyed: false, representation: { type: "expanded" } },
     { name: "Markdown records", parent: "/markdown", child: "/markdown/one", keyed: true, representation: { type: "expanded" } },
     { name: "CSV rollup", parent: "/csv", child: "/csv/one", keyed: true, representation: { type: "rollup", codec: "csv" } },
     { name: "JSON rollup", parent: "/json", child: "/json/one", keyed: true, representation: { type: "rollup", codec: "json" } },
     { name: "JSONL rollup", parent: "/jsonl", child: "/jsonl/one", keyed: true, representation: { type: "rollup", codec: "jsonl" } },
+    { name: "nested JSON mount", parent: "/outer/deep/nested", child: "/outer/deep/nested/one", keyed: true, representation: { type: "rollup", codec: "json" } },
     { name: "SQLite table", parent: "/sqlite/items", child: "/sqlite/items/one", keyed: true, representation: { type: "rollup", codec: "sqlite", scope: "children" } },
   ] as const;
 
@@ -94,6 +104,15 @@ describe("ChildProvider conformance", () => {
     expect(table).toBeDefined();
     expect("observedThrough" in table!).toBe(false);
     expect("enclosingTree" in table!).toBe(false);
+  });
+
+  test("ambiguous provider claims stay physical and report the existing diagnostic", async () => {
+    const parent = await workspace.snapshot({ tree: workspace.tree, path: "/mixed", stableKey: null });
+    expect(parent.capabilities.children?.representation).toEqual({ type: "expanded" });
+    expect(parent.diagnostics.some((item) => item.code === "mixed-collection-backing")).toBe(true);
+    const page = await workspace.children(parent.ref);
+    expect(page.items.some((item) => item.ref.path === "/mixed/one")).toBe(true);
+    expect((await workspace.snapshot({ tree: workspace.tree, path: "/mixed/one", stableKey: null })).properties.title).toBe("Physical");
   });
 
   test("file rollups mutate through one provider transaction contract", async () => {

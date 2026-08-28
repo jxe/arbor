@@ -1,4 +1,4 @@
-# Data 004: Expose Postgres through ChildProvider
+# Data 004: Complete the Postgres projection provider
 
 ## Status
 
@@ -6,14 +6,15 @@
 - **Effort:** L
 - **State:** PLANNED — extracted from Data 002; not a prerequisite for closing
   the common node model.
-- **Depends on:** Data 002 provider transactions, observations, Wire query and
-  mutation routes; Application 003 activation manifests.
+- **Depends on:** Data 002 common node model; Data 007 provider runtime;
+  reviewed observation and Wire query/mutation routes; Application 003
+  activation manifests.
 - **Related:** Data 001 placement-level SQLite projection and replication.
 
 ## Target result
 
 A `_store.yaml` placement using the Postgres driver exposes its database,
-relations, and rows through the same `ChildProvider`, `NodeSnapshot`,
+relations, and rows through the same `ProjectionProviderHost`, `NodeSnapshot`,
 `ChildrenPage`, stable-key, query, mutation, observation, and diagnostic
 contracts as expanded, file-rollup, and SQLite providers. Postgres is a
 placement/provider choice, never a parallel public node ontology.
@@ -78,5 +79,5 @@ and concurrent mutations.
 
 Delete all Postgres virtual-node and virtual-table branches only when managed,
 untracked/reference, Canopy, query, mutation, observation, and remote browsing
-all enter through `ChildProvider` and the new fixture passes. Do not expose
+all enter through `NodeProviderRouter` and the new fixture passes. Do not expose
 mutable Postgres rows before that gate.

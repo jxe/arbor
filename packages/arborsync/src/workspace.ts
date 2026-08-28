@@ -48,8 +48,8 @@ import {
 } from "@arbor/fs";
 import { mintPageID, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
 import {
-  CollectionCursorError,
-  type CollectionWriteTarget,
+  ProjectionProviderError,
+  type ProjectionWriteTarget,
   WorkspaceIndex,
   workspaceState,
 } from "@arbor/stores";
@@ -58,6 +58,7 @@ import { rootDisplayName } from "./root-title.ts";
 import type { ExpandedNode } from "./node-sampling.ts";
 import { FilesystemNodeSurface } from "./filesystem-node-surface.ts";
 import { writeFilesystemProperties } from "./filesystem-property-write.ts";
+import { NodeProviderRouter } from "./node-provider-router.ts";
 
 
 const EMPTY_REVISION = revisionOf("");
@@ -120,6 +121,7 @@ export class Workspace implements AsyncDisposable {
   private stateDirectory: string;
   private index: WorkspaceIndex;
   private surface: FilesystemNodeSurface;
+  private provider: NodeProviderRouter;
   private idOwners = new Map<string, string>();
   private idOwnerSets = new Map<string, readonly string[]>();
   private displayName: string;
@@ -167,9 +169,8 @@ export class Workspace implements AsyncDisposable {
       notFound: (path) => new ProtocolError("not-found", `Node not found: ${path}`, 404, { path }),
       invalidChildren: (path) => new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path }),
     });
+    this.provider = new NodeProviderRouter(this.surface);
   }
-
-  private get provider() { return this.surface.provider; }
 
   private mutationRef(path: string, pageID?: string, stableKey?: string | null): NodeRef {
     return {
@@ -258,7 +259,7 @@ export class Workspace implements AsyncDisposable {
     try {
       return await this.provider.children(ref, cursor ?? null, observedThrough);
     } catch (error) {
-      if (error instanceof CollectionCursorError) {
+      if (error instanceof ProjectionProviderError && error.code === "invalid-cursor") {
         throw new ProtocolError("invalid-reference", error.message, 400, { path: ref.path });
       }
       throw error;
@@ -716,7 +717,7 @@ export class Workspace implements AsyncDisposable {
           path: operation.ref.path,
         });
       }
-      const path = (target?.backing === "sqlite" ? target.parentPath : target?.path)
+      const path = (target?.storage === "physical" ? target.path : target?.parentPath)
         ?? await this.resolveRef(operation.ref);
       return [await this.performContentOperation(operation, path, target, onMaterialized, onExpected, mutationID)];
     }
@@ -739,7 +740,7 @@ export class Workspace implements AsyncDisposable {
   private async performContentOperation(
     operation: ContentWorkspaceOperation,
     path: string,
-    target?: CollectionWriteTarget | null,
+    target?: ProjectionWriteTarget | null,
     onMaterialized?: (effects: MutationEffect[]) => void | Promise<void>,
     onExpected?: (effects: MutationEffect[]) => void | Promise<void>,
     mutationID?: string,
@@ -1104,24 +1105,23 @@ export class Workspace implements AsyncDisposable {
       if (directory.absolutePath === this.root) continue;
       if (directory.childNames.has("schema.ts") || directory.childNames.has("_store.postgres")) {
         const absolute = directory.absolutePath;
-        const summary = await this.provider.summary(absolute).catch(() => { temporaryFailure = true; return null; });
-        if (summary) {
+        const shape = await this.provider.schemaTypes(absolute).catch(() => { temporaryFailure = true; return null; });
+        if (shape) {
           const treePath = directory.treePath;
           const schemaPath = join(absolute, "schema.ts");
-          if (summary.backing === "postgres") {
-            try {
-              const schema = await this.provider.postgresSchema(absolute);
+          if (shape.kind === "database") {
+            if (!shape.tables) {
+              temporaryFailure = true;
+              mappings.push(`    ${JSON.stringify(treePath)}: Database<Record<string, Record<string, unknown>>>;`);
+            } else {
               const name = `PostgresDatabase${databaseIndex++}`;
               declarations.push(`interface ${name} {`);
-              for (const [table, columns] of Object.entries(schema)) {
+              for (const [table, columns] of Object.entries(shape.tables)) {
                 declarations.push(`  ${JSON.stringify(table)}: { ${Object.entries(columns).map(([column, type]) => `${JSON.stringify(column)}: ${type}`).join("; ")} };`);
                 mappings.push(`    ${JSON.stringify(`${treePath}/${table}`)}: Collection<${name}[${JSON.stringify(table)}]>;`);
               }
               declarations.push("}");
               mappings.push(`    ${JSON.stringify(treePath)}: Database<${name}>;`);
-            } catch {
-              temporaryFailure = true;
-              mappings.push(`    ${JSON.stringify(treePath)}: Database<Record<string, Record<string, unknown>>>;`);
             }
           } else {
             try {
@@ -1196,7 +1196,7 @@ export class Workspace implements AsyncDisposable {
     for (const timer of this.healingTimers.values()) clearTimeout(timer);
     this.unsubscribeFS();
     this.index.close();
-    await this.surface[Symbol.asyncDispose]();
+    await this.provider[Symbol.asyncDispose]();
     await this.fs[Symbol.asyncDispose]();
   }
 

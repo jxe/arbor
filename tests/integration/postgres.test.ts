@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { CollectionStore, type ConnectionStore } from "@arbor/stores";
+import { ProjectionProviderHost, type ConnectionStore } from "@arbor/stores";
 
 const dsn = process.env.ARBOR_TEST_POSTGRES_DSN;
 
@@ -28,22 +28,23 @@ test("Postgres collections stay live without exposing credentials", async () => 
         dsn,
       }),
     } as unknown as ConnectionStore;
-    const collections = new CollectionStore(undefined, connections);
-    const summary = await collections.summary(directory);
-    const page = await collections.children(
-      directory,
+    const collections = new ProjectionProviderHost(undefined, connections);
+    const summary = await collections.descriptor(directory);
+    const session = (await collections.open(directory))!;
+    const page = await session.children(
       "/database/items",
       { tree: "tr_test", path: "/database/items", stableKey: null },
       { tree: "tr_test", observedThrough: "test:0", writable: false },
       null,
-      1,
       "items",
+      1,
     );
-    const catalog = await collections.postgresSchema(directory);
+    const shape = await collections.schemaTypes(directory);
+    const catalog = shape?.kind === "database" ? shape.tables ?? {} : {};
 
     expect(summary?.tables).toEqual(["items"]);
     expect(page.items[0]?.properties.title).toBe("First");
-    expect(page.nextCursor).toBe("1");
+    expect(page.nextCursor).not.toBeNull();
     expect(catalog.items).toEqual({ id: "number", title: "string", published: "boolean | null" });
     const publicPayload = JSON.stringify({ summary, page, catalog });
     expect(publicPayload).not.toContain(dsn);

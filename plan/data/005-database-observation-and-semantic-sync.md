@@ -7,8 +7,8 @@
 - **State:** PLANNED — extracted from Data 002 after rejecting whole-database
   exact revisions; the change-log/checkpoint design requires review before
   implementation.
-- **Depends on:** Data 002 common node/provider surface; Data 004 for the
-  Postgres provider; Data 001 for bidirectional SQLite projections.
+- **Depends on:** Data 002 common node model; Data 007 provider runtime; Data
+  004 for the Postgres provider; Data 001 for bidirectional SQLite projections.
 
 ## Architectural correction
 
@@ -124,7 +124,7 @@ from an ambiguous diff.
 ### 2. Shared committed-change broker
 
 - Generalize the existing SQLite store broker into the database
-  `ChildProvider` boundary rather than opening separate observer, mutation, and
+  `ProjectionProviderHost` boundary rather than opening separate observer, mutation, and
   browsing connections with unrelated state.
 - Publish row, collection, store, or schema precision after commit.
 - Map every database change to ordinary node refs and tree observation events.

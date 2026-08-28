@@ -10,13 +10,10 @@ import { canonicalJSONString, isPageID, parseCanonicalStableKey } from "@arbor/c
 import { replaceFrontmatter } from "@arbor/editor";
 import type { FsWriteResult, WorkspaceFS } from "@arbor/fs";
 import {
-  CollectionMutationMismatchError,
-  CollectionPropertyConflictError,
-  CollectionPropertyWriteError,
-  CollectionSourceConflictError,
-  type CollectionWriteTarget,
+  ProjectionProviderError,
+  type ProjectionWriteTarget,
 } from "@arbor/stores";
-import type { ChildProvider } from "./child-provider.ts";
+import type { NodeProviderRouter } from "./node-provider-router.ts";
 import { expandedNodeProperties, type ExpandedNode } from "./node-sampling.ts";
 import { changedPropertyNames } from "./property-changes.ts";
 
@@ -25,7 +22,7 @@ type PropertyWrite = Extract<ContentWorkspaceOperation, { op: "writeProperties" 
 export interface FilesystemPropertyWriteHost {
   tree: string;
   mutationID: string;
-  provider: ChildProvider;
+  provider: NodeProviderRouter;
   fs(): WorkspaceFS | Promise<WorkspaceFS>;
   expandedNode(path: string): Promise<ExpandedNode>;
   snapshot(ref: NodeRef): Promise<NodeResponse>;
@@ -52,74 +49,64 @@ export interface FilesystemPropertyWriteHost {
 export async function writeFilesystemProperties(
   operation: PropertyWrite,
   path: string,
-  target: CollectionWriteTarget | null | undefined,
+  target: ProjectionWriteTarget | null | undefined,
   host: FilesystemPropertyWriteHost,
 ): Promise<MutationEffect> {
   const fail = host.error;
-  if (target?.backing === "sqlite") {
+  let properties = operation.properties;
+  let identityProperties: readonly string[] = [];
+  if (target) {
     try {
-      const row = await host.provider.writeSQLiteProperties(
+      const prepared = await host.provider.preparePropertyWrite(
         target,
-        operation.ref,
         operation.basePropertiesRevision,
         operation.properties,
         { scope: host.tree, id: host.mutationID },
       );
-      const effect: MutationEffect = {
-        kind: "updated",
-        ref: host.mutationRef(`${target.parentPath}/${row.path}`, undefined, row.stableKey),
-        propertiesRevision: row.revision,
-        changedProperties: changedPropertyNames(target.properties, operation.properties),
-      };
-      await host.onMaterialized?.([effect]);
-      return effect;
+      if (prepared.storage === "physical") {
+        properties = prepared.properties;
+        identityProperties = prepared.identityRule?.properties ?? [];
+      } else {
+        const write = prepared.write;
+        const preview = write.revision ? {
+          kind: "updated" as const,
+          ref: host.mutationRef(write.path, undefined, write.stableKey),
+          propertiesRevision: write.revision,
+          changedProperties: changedPropertyNames(target.properties, write.properties),
+        } : null;
+        try {
+          if (write.durability === "host-journal" && preview) await host.onExpected?.([preview]);
+          const saved = await write.commit();
+          if (write.durability === "host-journal") await host.afterProviderCommit?.();
+          const effect: MutationEffect = {
+            kind: "updated",
+            ref: host.mutationRef(saved.path, undefined, saved.stableKey),
+            propertiesRevision: saved.revision,
+            changedProperties: changedPropertyNames(target.properties, saved.properties),
+          };
+          await host.onMaterialized?.([effect]);
+          return effect;
+        } finally {
+          await write.abort();
+        }
+      }
     } catch (error) {
-      if (error instanceof CollectionPropertyConflictError) {
+      if (error instanceof ProjectionProviderError && (error.code === "stale-properties" || error.code === "stale-source")) {
         throw fail("stale-properties-revision", error.message, 409, {
           path: operation.ref.path,
           current: await host.snapshot(operation.ref).catch(() => undefined),
         });
       }
-      if (error instanceof CollectionMutationMismatchError) {
+      if (error instanceof ProjectionProviderError && error.code === "mutation-mismatch") {
         throw fail("mutation-mismatch", error.message, 409, { mutationID: host.mutationID });
       }
-      if (error instanceof CollectionPropertyWriteError) {
-        throw fail("unsupported-operation", error.message, 422, { path: operation.ref.path });
-      }
-      if (error instanceof Error && /constraint/i.test(error.message)) {
+      if (error instanceof ProjectionProviderError && error.code === "constraint") {
         throw fail("conflict", error.message, 409, { path: operation.ref.path });
       }
-      throw error;
-    }
-  }
-
-  if (target && (target.backing === "csv" || target.backing === "json" || target.backing === "jsonl")) {
-    try {
-      const prepared = await host.provider.prepareFileProperties(
-        target,
-        operation.ref,
-        operation.basePropertiesRevision,
-        operation.properties,
-      );
-      const effect: MutationEffect = {
-        kind: "updated",
-        ref: host.mutationRef(prepared.path, undefined, operation.ref.stableKey),
-        propertiesRevision: prepared.revision,
-        changedProperties: changedPropertyNames(target.properties, prepared.properties),
-      };
-      await host.onExpected?.([effect]);
-      await host.provider.commitFileProperties(prepared);
-      await host.afterProviderCommit?.();
-      await host.onMaterialized?.([effect]);
-      return effect;
-    } catch (error) {
-      if (error instanceof CollectionPropertyConflictError || error instanceof CollectionSourceConflictError) {
-        throw fail("stale-properties-revision", error.message, 409, {
-          path: operation.ref.path,
-          current: await host.snapshot(operation.ref).catch(() => undefined),
-        });
+      if (error instanceof ProjectionProviderError && error.code === "read-only") {
+        throw fail("read-only", error.message, 422, { path: operation.ref.path });
       }
-      if (error instanceof CollectionPropertyWriteError) {
+      if (error instanceof ProjectionProviderError && error.code === "invalid-write") {
         throw fail("unsupported-operation", error.message, 422, { path: operation.ref.path });
       }
       throw error;
@@ -127,11 +114,6 @@ export async function writeFilesystemProperties(
   }
 
   await host.assertWritableProperties?.(operation.ref);
-  if (target && target.backing !== "markdown") {
-    throw fail("read-only", `${target.backing} rollup rows are not directly writable yet`, 422, {
-      path: operation.ref.path,
-    });
-  }
   const current = await host.expandedNode(path);
   if (!current.document) throw fail("unsupported-operation", `${path} has no editable properties`, 422, { path });
   const currentRevision = target?.revision ?? current.propertiesRevision ?? current.revision;
@@ -142,19 +124,7 @@ export async function writeFilesystemProperties(
     });
   }
 
-  let properties = operation.properties;
-  let identityProperties: readonly string[] = [];
   if (target) {
-    try {
-      const prepared = await host.provider.prepareMarkdownProperties(target.directory, operation.properties);
-      properties = prepared.properties;
-      identityProperties = prepared.identityRule?.properties ?? [];
-    } catch (error) {
-      if (error instanceof CollectionPropertyWriteError) {
-        throw fail("unsupported-operation", error.message, 422, { path });
-      }
-      throw error;
-    }
     for (const name of identityProperties) {
       if (canonicalJSONString(properties[name]) !== canonicalJSONString(target.properties[name])) {
         throw fail("invalid-reference", `Identity property ${name} is immutable`, 422, { path });

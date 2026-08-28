@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mergeWireTrees } from "@arbor/canopy";
-import { CollectionStore, decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
+import { ProjectionProviderHost, decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
 import {
   decodeWireObject,
   encodeWireObject,
@@ -79,7 +79,7 @@ function namedMarkdownSnapshot(name: string, source: string, objects: Map<string
 
 async function jsonRollupSnapshot(rows: unknown[]): Promise<TreeSnapshot> {
   const directory = await mkdtemp(join(tmpdir(), "arbor-rollup-merge-"));
-  const collections = new CollectionStore();
+  const collections = new ProjectionProviderHost();
   try {
     await writeFile(join(directory, "schema.ts"), `
       import { z } from "zod";

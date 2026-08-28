@@ -1,7 +1,7 @@
 # Correctness and reliability 003: Make untracked rollup mutations restart-safe
 
 > **Drift check:** inspect `FilesystemService.executeMutation`,
-> `CollectionStore.prepareFileProperties`/`commitFileProperties`,
+> `ProjectionProviderHost` prepared property writes,
 > `MutationJournal`, and the managed `Workspace` mutation path. Stop if
 > untracked file-rollup receipts and prepared-file recovery are already durable
 > across process restart.

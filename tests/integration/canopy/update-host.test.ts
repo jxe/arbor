@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableKey, rowPathSegment, sha256 } from "@arbor/core";
 import { serveCanopy } from "@arbor/canopy";
-import { CollectionStore } from "@arbor/stores";
+import { ProjectionProviderHost } from "@arbor/stores";
 import { snapshotDirectory, WireClient } from "@arbor/wire";
 import {
   readAccountConfigGraph,
@@ -57,7 +57,7 @@ async function submitConfiguration(
 }
 
 async function snapshotWithRollups(path: string) {
-  const stores = new CollectionStore();
+  const stores = new ProjectionProviderHost();
   try {
     return await snapshotDirectory(path, new Map(), [], (directory, sourceName) =>
       stores.fileRollupDescriptor(directory, sourceName));

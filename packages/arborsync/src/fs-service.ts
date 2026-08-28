@@ -20,7 +20,7 @@ import {
 } from "@arbor/core";
 import { FsConflictError, type FsMutation, WorkspaceFS } from "@arbor/fs";
 import {
-  CollectionCursorError,
+  ProjectionProviderError,
   arborPrivateRoot,
 } from "@arbor/stores";
 import type { EventBus } from "./events.ts";
@@ -29,6 +29,7 @@ import { ProtocolError } from "./workspace.ts";
 import type { ExpandedNode } from "./node-sampling.ts";
 import { FilesystemNodeSurface } from "./filesystem-node-surface.ts";
 import { writeFilesystemProperties } from "./filesystem-property-write.ts";
+import { NodeProviderRouter } from "./node-provider-router.ts";
 
 
 function isSystemError(error: unknown): error is NodeJS.ErrnoException {
@@ -78,6 +79,7 @@ export async function realOsPath(inputPath: string): Promise<string> {
  */
 export class FilesystemService implements AsyncDisposable {
   private surface: FilesystemNodeSurface;
+  private provider: NodeProviderRouter;
   private receipts = new Map<string, { requestHash: string; receipt: MutationReceipt }>();
   private engine = WorkspaceFS.open("/", {
     stateDirectory: join(arborPrivateRoot(), "system", "untracked-fs"),
@@ -96,9 +98,8 @@ export class FilesystemService implements AsyncDisposable {
       notFound: (path) => new ProtocolError("not-found", `Node not found: ${path}`, 404, { path }),
       invalidChildren: (path) => new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path }),
     });
+    this.provider = new NodeProviderRouter(this.surface);
   }
-
-  private get provider() { return this.surface.provider; }
 
   private async expandedNode(inputPath: string): Promise<ExpandedNode> {
     return this.surface.expandedNode(inputPath);
@@ -138,7 +139,7 @@ export class FilesystemService implements AsyncDisposable {
       try {
         return await this.provider.children({ tree: LOCAL_TREE, path, stableKey: null }, cursor ?? null, observedThrough);
       } catch (error) {
-        if (error instanceof CollectionCursorError) {
+        if (error instanceof ProjectionProviderError && error.code === "invalid-cursor") {
           throw new ProtocolError("invalid-reference", error.message, 400, { path });
         }
         throw error;
@@ -171,7 +172,7 @@ export class FilesystemService implements AsyncDisposable {
     if (target && !target.writable) {
       throw new ProtocolError("read-only", "This collection row is read-only", 422, { path: ref.path });
     }
-    return target?.backing === "markdown" ? target.path : this.refPath(ref);
+    return target?.storage === "physical" ? target.path : this.refPath(ref);
   }
 
   private unsupported(what: string): never {
@@ -260,7 +261,7 @@ export class FilesystemService implements AsyncDisposable {
           if (target && !target.writable) {
             throw new ProtocolError("read-only", "This collection row is read-only", 422, { path: write.ref.path });
           }
-          const path = target?.backing === "sqlite" ? target.parentPath : target?.path ?? this.refPath(write.ref);
+          const path = target?.storage === "physical" ? target.path : target?.parentPath ?? this.refPath(write.ref);
           return [await writeFilesystemProperties(write, path, target, {
             tree: LOCAL_TREE,
             mutationID: request.mutationID,
@@ -324,7 +325,7 @@ export class FilesystemService implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
-    await this.surface[Symbol.asyncDispose]();
+    await this.provider[Symbol.asyncDispose]();
     await (await this.engine)[Symbol.asyncDispose]();
   }
 }
