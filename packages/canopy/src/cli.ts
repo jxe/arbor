@@ -58,9 +58,7 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
     ?? `http://127.0.0.1:${requestedPort}`;
   const dataRoot = resolve(positional[0] ?? process.env.ARBOR_CANOPY_DATA ?? process.env.RAILWAY_VOLUME_MOUNT_PATH ?? ".arbor-canopy");
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
-  const existingCanopy = await Promise.all(["canopy.sqlite3", "authority.sqlite3"].map((name) =>
-    stat(resolve(dataRoot, name)).then(() => true).catch(() => false)
-  )).then((values) => values.some(Boolean));
+  const existingCanopy = await stat(resolve(dataRoot, "canopy.sqlite3")).then(() => true).catch(() => false);
   const configuredAccounts = process.env.ARBOR_ACCOUNTS_JSON
     ? JSON.parse(process.env.ARBOR_ACCOUNTS_JSON) as CanopyBootstrapAccount[]
     : null;

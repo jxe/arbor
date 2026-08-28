@@ -1,4 +1,4 @@
-import { copyFile, link, mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { link, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -402,43 +402,6 @@ export class TreeIDConflictError extends Error {
   }
 }
 
-async function prepareCanopyDatabase(dataRoot: string): Promise<{ path: string; existed: boolean }> {
-  const path = join(dataRoot, "canopy.sqlite3");
-  const legacyPath = join(dataRoot, "authority.sqlite3");
-  const backupPath = join(dataRoot, "authority.sqlite3.pre-canopyd");
-  const [exists, legacyExists] = await Promise.all([
-    stat(path).then(() => true).catch(() => false),
-    stat(legacyPath).then(() => true).catch(() => false),
-  ]);
-  if (exists && legacyExists) {
-    throw new Error("Both canopy.sqlite3 and legacy authority.sqlite3 exist; resolve the ambiguous Canopy database before startup");
-  }
-  if (!legacyExists) return { path, existed: exists };
-
-  const legacy = new Database(legacyPath);
-  try {
-    const checkpoint = legacy.query("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy?: number } | null;
-    if (checkpoint?.busy) throw new Error("Legacy Canopy database WAL is busy");
-    const integrity = legacy.query("PRAGMA integrity_check").all() as Array<Record<string, string>>;
-    if (integrity.length !== 1 || Object.values(integrity[0] ?? {})[0] !== "ok") {
-      throw new Error("Legacy Canopy database failed SQLite integrity_check");
-    }
-  } finally {
-    legacy.close();
-  }
-  const backupExists = await stat(backupPath).then(() => true).catch(() => false);
-  if (!backupExists) {
-    await copyFile(legacyPath, backupPath);
-  } else {
-    const [legacyBytes, backupBytes] = await Promise.all([readFile(legacyPath), readFile(backupPath)]);
-    if (legacyBytes.byteLength !== backupBytes.byteLength || !timingSafeEqual(legacyBytes, backupBytes)) {
-      throw new Error("Existing pre-canopyd backup does not match the legacy database; preserve both files and resolve the interrupted migration manually");
-    }
-  }
-  await rename(legacyPath, path);
-  return { path, existed: true };
-}
-
 export class CanopyDaemon implements AsyncDisposable {
   private readonly wireSchemas = new SchemaSandbox();
   private db: Database;
@@ -454,7 +417,8 @@ export class CanopyDaemon implements AsyncDisposable {
 
   static async open(dataRoot: string, bootstrap?: CanopyBootstrap): Promise<CanopyDaemon> {
     await mkdir(join(dataRoot, "objects"), { recursive: true });
-    const { path: databasePath, existed: databaseExists } = await prepareCanopyDatabase(dataRoot);
+    const databasePath = join(dataRoot, "canopy.sqlite3");
+    const databaseExists = await stat(databasePath).then(() => true).catch(() => false);
     const db = new Database(databasePath, { create: true });
     try {
       if (databaseExists) {

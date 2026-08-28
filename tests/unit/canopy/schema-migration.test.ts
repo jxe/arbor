@@ -12,10 +12,10 @@ afterEach(async () => {
 });
 
 describe("Canopy database migration", () => {
-  test("backs up, renames, and upgrades a deployed authority database", async () => {
+  test("upgrades a deployed Canopy database", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-canopy-schema-"));
     roots.push(root);
-    const database = join(root, "authority.sqlite3");
+    const database = join(root, "canopy.sqlite3");
     const db = new Database(database, { create: true });
     db.run("PRAGMA journal_mode=WAL");
     db.run("PRAGMA wal_autocheckpoint=0");
@@ -38,9 +38,8 @@ describe("Canopy database migration", () => {
     await canopy[Symbol.asyncDispose]();
     db.close();
 
-    expect(await stat(database).then(() => true).catch(() => false)).toBe(false);
-    expect(await stat(join(root, "authority.sqlite3.pre-canopyd")).then(() => true).catch(() => false)).toBe(true);
-    const migrated = new Database(join(root, "canopy.sqlite3"), { readonly: true });
+    expect(await stat(database).then(() => true).catch(() => false)).toBe(true);
+    const migrated = new Database(database, { readonly: true });
     const columns = (table: string) => (migrated.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(({ name }) => name);
     expect(columns("accounts")).toEqual([
       "id", "handle", "profile_tree", "token_digest", "enabled", "config_tree", "claim_digest",
@@ -53,21 +52,4 @@ describe("Canopy database migration", () => {
     migrated.close();
   });
 
-  test("resumes after an interrupted backup step", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-canopy-interrupted-"));
-    roots.push(root);
-    const database = join(root, "authority.sqlite3");
-    const db = new Database(database, { create: true });
-    db.run("CREATE TABLE trees (id TEXT PRIMARY KEY, ref TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-    db.close();
-    await Bun.write(join(root, "authority.sqlite3.pre-canopyd"), Bun.file(database));
-
-    await expect(CanopyDaemon.open(root, {
-      handle: "community",
-      name: "Community",
-      accounts: [{ handle: "owner", token: "test-token", communityWriter: true }],
-    })).rejects.toThrow();
-    expect(await stat(database).then(() => true).catch(() => false)).toBe(false);
-    expect(await stat(join(root, "canopy.sqlite3")).then(() => true).catch(() => false)).toBe(true);
-  });
 });
