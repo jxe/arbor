@@ -1,37 +1,50 @@
 {
   "cases": [
     {
-      "name": "preserve-source-and-append-unmatched",
+      "name": "implicit-marker-preserves-source",
       "directory": "/notes",
       "source": "Intro with [inline](alpha).\r\n\r\n[Beta label](beta)\r\n\r\n",
       "children": [
         { "name": "alpha", "path": "/notes/alpha" },
         { "name": "beta", "path": "/notes/beta" }
       ],
-      "expectedSource": "Intro with [inline](alpha).\r\n\r\n[Beta label](beta)\r\n\r\n[alpha](alpha)\r\n",
-      "expectedAddedChildren": ["/notes/alpha"]
+      "expectedBlockPaths": ["beta", "alpha"],
+      "expectedGeneratedChildren": ["/notes/alpha"],
+      "expectedDiagnosticCodes": []
     },
     {
-      "name": "page-id-survives-stale-path",
+      "name": "explicit-marker-places-unmatched",
       "directory": "/dir",
-      "source": "[Moved](old#page-opaque)\n",
-      "children": [
-        { "name": "Moved", "path": "/dir/new", "pageID": "page-opaque" }
-      ],
-      "expectedSource": "[Moved](old#page-opaque)\n",
-      "expectedAddedChildren": []
-    },
-    {
-      "name": "unsigned-utf8-order",
-      "directory": "/dir",
-      "source": "",
+      "source": "# Directory\n\n<!-- arbor:children -->\n\nTail.\n",
       "children": [
         { "name": "z", "path": "/dir/z" },
-        { "name": "ä", "path": "/dir/ä" },
         { "name": "A", "path": "/dir/A" }
       ],
-      "expectedSource": "[A](A)\n\n[z](z)\n\n[ä](ä)\n",
-      "expectedAddedChildren": ["/dir/A", "/dir/z", "/dir/ä"]
+      "expectedBlockPaths": ["A", "z"],
+      "expectedGeneratedChildren": ["/dir/A", "/dir/z"],
+      "expectedDiagnosticCodes": []
+    },
+    {
+      "name": "stable-key-survives-stale-path",
+      "directory": "/dir",
+      "source": "[Moved](old#arbor-key=W1siaWQiLCJwYWdlLW9wYXF1ZSJdXQ)\n",
+      "children": [
+        { "name": "Moved", "path": "/dir/new", "stableKey": "[[\"id\",\"page-opaque\"]]" }
+      ],
+      "expectedBlockPaths": ["old#arbor-key=W1siaWQiLCJwYWdlLW9wYXF1ZSJdXQ"],
+      "expectedGeneratedChildren": [],
+      "expectedDiagnosticCodes": []
+    },
+    {
+      "name": "duplicate-marker-blocks-generation",
+      "directory": "/dir",
+      "source": "<!-- arbor:children -->\n\nText\n\n<!-- arbor:children -->\n",
+      "children": [
+        { "name": "child", "path": "/dir/child" }
+      ],
+      "expectedBlockPaths": [],
+      "expectedGeneratedChildren": [],
+      "expectedDiagnosticCodes": ["duplicate-children-marker"]
     }
   ]
 }

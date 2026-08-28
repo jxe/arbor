@@ -16,7 +16,7 @@ import type {
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { legacyPageIDCandidate, resolveLogicalURL } from "@arbor/core/logical-url";
 import { pageIDFromStableKey, pageIDStableKey } from "@arbor/core/node-key";
-import { reorderChildLinks, resolveChildLinkPath, serializeMarkdown } from "@arbor/editor";
+import { placeDirectoryChildren, reorderChildLinks, resolveChildLinkPath, serializeMarkdown } from "@arbor/editor";
 import { api, type BrowserMutationResult } from "./api.ts";
 import {
   EditorCoordinator,
@@ -360,9 +360,17 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
   const physicalChildren = children;
   const childrenRevision = physicalChildren.map((child) => `${child.ref.path}:${presentationKind(child)}:${child.materialization}`).join("\0");
   const childrenByPath = useMemo(() => new Map(physicalChildren.map((child) => [child.ref.path, child])), [childrenRevision]);
-  const initial = authored;
+  const placedDocument = useMemo(() => markdownDocument && isDirectory
+    ? placeDirectoryChildren(node.ref.path, markdownDocument, physicalChildren.map((child) => ({
+      name: child.name,
+      path: child.ref.path,
+      stableKey: child.ref.stableKey,
+    }))).document
+    : markdownDocument,
+  [node.capabilities.content?.revision, childrenRevision, isDirectory]);
+  const initial = placedDocument?.blocks ?? authored;
   const childRows = useMemo(
-    () => childDocumentRows(node.ref.path, authored, physicalChildren),
+    () => childDocumentRows(node.ref.path, initial, physicalChildren),
     [node.capabilities.content?.revision, childrenRevision],
   );
   const managedOrder = childRows.map((row) => row.ref.path);

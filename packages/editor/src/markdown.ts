@@ -365,6 +365,7 @@ function indentSource(source: string, depth: number): string {
 }
 
 function serializeBlockAtDepth(block: ArborBlock, depth: number): string {
+  if (block.props?.arborGenerated === true) return "";
   if (block.source && block.sourceHash === blockFingerprint(block)) return indentSource(block.source, depth);
   return serializeCanonical(block, depth);
 }

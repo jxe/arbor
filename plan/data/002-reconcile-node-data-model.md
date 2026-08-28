@@ -172,9 +172,16 @@
   sampled boundary. SQLite-only relationships, aggregates, authored ordering,
   and SQL planning remain explicit capability extensions rather than leaking
   back into the common engine.
-- **Next checkpoint:** implement bounded `<!-- arbor:children -->` placement
-  and remove the remaining collection-specific child filters, then finish the
-  generic stable-key locator cutover. Provider snapshots/observation, Wire
+- **2026-08-28 — bounded child placement complete:** directory source is now
+  exact authored Markdown. One shared projection recognizes the first authored
+  standalone link for each physical child, places all remaining children at a
+  single explicit `<!-- arbor:children -->` marker or implicit end marker, and
+  blocks ambiguous multiple markers. Generated child blocks are visible and
+  reorderable in the editor but never serialized. Managed, untracked, remote,
+  and native reads no longer synthesize literal child lists or apply
+  collection-specific exclusions, and the shared fixture freezes marker,
+  stable-key healing, sorting, and diagnostics.
+- **Next checkpoint:** finish the generic stable-key locator cutover. Provider snapshots/observation, Wire
   rollups/merge, the shared live broker, and tree-scoped execution routes follow
   in this plan. Typed source declarations, activation-manifest generation, and
   editor integration moved intact to
@@ -229,9 +236,9 @@ items continue to define migration scope rather than current public contracts:
 - `Workspace.node`, `FilesystemService.node`, and remote snapshot code classify
   directories as collections and synthesize Postgres table children through
   special cases.
-- `Workspace.directoryDocumentOptions`, `WorkspaceFS`'s
-  `includeDirectoryChild`, and remote `isCollectionDirectory` filtering remove
-  rows from the otherwise uniform directory-document contract.
+- Directory reads formerly synthesized every unmatched child link into authored
+  Markdown and filtered collection rows through provider-specific exceptions;
+  bounded editor projection has removed those paths.
 - `packages/client` drains every children page for directory/collection nodes
   and separately calls `/v1/collection`.
 - `packages/render/CollectionView.tsx` renders/edit rows through the separate
@@ -448,12 +455,9 @@ Replace literal unmatched-child expansion with the specified standalone
 - local filesystem, managed tree, offline replica, remote wire, collection,
   table, and public rendering use the same conformance corpus.
 
-Delete collection-specific child filtering rather than adapting it:
-
-- `Workspace.directoryDocumentOptions`
-- `WorkspaceFS` `includeDirectoryChild` parameters
-- remote `isCollectionDirectory`/`operationalChildren`
-- tests asserting rows are excluded.
+Collection-specific child filtering is deleted. Directory source remains exact;
+the editor projects physical children through the shared bounded-placement
+contract without serializing generated links.
 
 ## Mutations and constraints
 

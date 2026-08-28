@@ -37,10 +37,11 @@ describe("@arbor/fs logical nodes", () => {
     });
 
     expect((await fs.resolve("/sibling")).bodySource).toBe("sibling");
-    expect(new TextDecoder().decode((await fs.read("/sibling")).bytes!)).toBe("Sibling\n\n[child](child)\n");
+    expect(new TextDecoder().decode((await fs.read("/sibling")).bytes!)).toBe("Sibling\n");
     expect((await fs.resolve("/index")).bodySource).toBe("index");
     expect((await fs.resolve("/implicit")).bodyPath).toBeNull();
-    expect((await fs.read("/implicit")).document?.bodySource).toBe("[child.txt](child.txt)\n");
+    expect((await fs.read("/implicit")).document?.bodySource).toBe("");
+    expect((await fs.list("/implicit")).map((entry) => entry.path)).toEqual(["/implicit/child.txt"]);
     expect((await fs.resolve("/duplicate")).diagnostics[0]?.code).toBe("duplicate-body-representation");
     expect((await fs.list("/")).filter((entry) => entry.path === "/sibling")).toHaveLength(1);
   });
@@ -194,7 +195,8 @@ describe("@arbor/fs logical nodes", () => {
     const recovered = await WorkspaceFS.open(root, { stateDirectory: state });
     opened.push(recovered);
     expect(await readFile(join(root, "folder", "page.md"), "utf8")).toContain("Page\n");
-    expect((await recovered.read("/folder")).document?.blocks.some((block) => block.type === "standaloneLink" && block.content === "page")).toBe(true);
+    expect((await recovered.read("/folder")).document?.blocks.some((block) => block.type === "standaloneLink" && block.content === "page")).toBe(false);
+    expect((await recovered.list("/folder")).map((entry) => entry.path)).toContain("/folder/page");
     expect(await readFile(join(root, "_index.md"), "utf8")).toBe("[page](page)\n");
   });
 
@@ -226,13 +228,14 @@ describe("@arbor/fs logical nodes", () => {
     await expect(stat(join(root, "folder", "_index.md"))).rejects.toThrow();
   });
 
-  test("completes missing child links on read and persists the accepted source on write", async () => {
+  test("keeps missing child placement virtual across an exact-source write", async () => {
     const { root, fs } = await workspace({ "folder/_index.md": "Intro\n", "folder/b.md": "B\n", "folder/a.md": "A\n" });
     const projected = await fs.read("/folder");
-    expect(projected.document?.source).toBe("Intro\n\n[a](a)\n\n[b](b)\n");
+    expect(projected.document?.source).toBe("Intro\n");
+    expect((await fs.list("/folder")).map((entry) => entry.path).sort()).toEqual(["/folder/a", "/folder/b"]);
     expect(await readFile(join(root, "folder", "_index.md"), "utf8")).toBe("Intro\n");
     await fs.writeMarkdown("/folder", { baseRevision: projected.byteRevision, source: projected.document!.source });
-    expect(await readFile(join(root, "folder", "_index.md"), "utf8")).toBe("Intro\n\n[a](a)\n\n[b](b)\n");
+    expect(await readFile(join(root, "folder", "_index.md"), "utf8")).toBe("Intro\n");
   });
 
   test("reasserts only unsettled authored stomps and observes settled rewrites", async () => {

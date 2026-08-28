@@ -1,13 +1,24 @@
-import type { MarkdownDocument } from "@arbor/core";
-import type { TreeChild } from "@arbor/core/internal";
+import type { ArborBlock, Diagnostic, MarkdownDocument } from "@arbor/core";
+import { sha256 } from "@arbor/core/hash";
 import { canonicalNodePath } from "@arbor/core/logical-path";
-import { legacyPageIDCandidate, relativeLogicalReference, resolveLogicalURL } from "@arbor/core/logical-url";
-import { parseMarkdown } from "./markdown.ts";
+import { buildCanonicalLink, legacyPageIDCandidate, resolveLogicalURL } from "@arbor/core/logical-url";
+import { pageIDStableKey } from "@arbor/core/node-key";
 
-export interface CompleteDirectoryDocument {
-  source: string;
+export const CHILDREN_MARKER = "<!-- arbor:children -->";
+
+export interface DirectoryPlacementChild {
+  name: string;
+  path: string;
+  stableKey?: string | null;
+  /** Bounded compatibility input while Markdown PageIDs become generic keys. */
+  pageID?: string;
+}
+
+export interface DirectoryPlacementResult {
   document: MarkdownDocument;
-  addedChildren: string[];
+  placedChildren: string[];
+  generatedChildren: string[];
+  diagnostics: Diagnostic[];
 }
 
 function compareUTF8(left: string, right: string): number {
@@ -21,45 +32,63 @@ function compareUTF8(left: string, right: string): number {
   return a.length - b.length;
 }
 
-function escapeLabel(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("[", "\\[").replaceAll("]", "\\]");
+function stableKey(child: DirectoryPlacementChild): string | null {
+  return child.stableKey ?? (child.pageID ? pageIDStableKey(child.pageID) : null);
 }
 
-function appendSeparator(source: string): string {
-  if (!source) return "";
-  if (source.endsWith("\n\n") || source.endsWith("\r\n\r\n")) return "";
-  if (source.endsWith("\n") || source.endsWith("\r")) return source.endsWith("\r\n") ? "\r\n" : "\n";
-  return source.includes("\r\n") ? "\r\n\r\n" : "\n\n";
+function isChildrenMarker(block: ArborBlock): boolean {
+  return block.type === "rawMarkdown" && String(block.content ?? block.source ?? "").trim() === CHILDREN_MARKER;
+}
+
+export function directoryPlacementDiagnostics(
+  directoryInput: string,
+  document: MarkdownDocument,
+): Diagnostic[] {
+  const directory = canonicalNodePath(directoryInput);
+  const markers = document.blocks.filter(isChildrenMarker);
+  return markers.length <= 1 ? [] : [{
+    code: "duplicate-children-marker",
+    message: `${directory} contains ${markers.length} standalone ${CHILDREN_MARKER} markers; keep at most one.`,
+    path: directory,
+    severity: "error",
+  }];
 }
 
 /**
- * Return the complete operational Markdown for a physical directory.
- * Existing source is never rewritten. The first standalone link resolving to
- * each immediate child claims it; one ordinary link is appended for every
- * unmatched child in unsigned UTF-8 logical-path order.
+ * Project a directory's current child generation into its parsed document.
+ *
+ * Authored standalone links claim their first matching child. Unclaimed
+ * children are virtual blocks at the explicit marker, or after authored source
+ * when the marker is absent. Virtual blocks carry `arborGenerated` and the
+ * Markdown serializer omits them, so paging a large rollup never expands its
+ * `_index.md`. Moving a virtual block through the managed-row operation clears
+ * that flag and makes the link an authored placement.
  */
-export function completeDirectoryDocument(
+export function placeDirectoryChildren(
   directoryInput: string,
-  source: string,
-  children: readonly TreeChild[],
-): CompleteDirectoryDocument {
+  document: MarkdownDocument,
+  inputChildren: readonly DirectoryPlacementChild[],
+): DirectoryPlacementResult {
   const directory = canonicalNodePath(directoryInput);
-  const document = parseMarkdown(source);
-  const childByPath = new Map<string, TreeChild>();
-  const childByPageID = new Map<string, TreeChild>();
-  for (const child of children) {
-    childByPath.set(canonicalNodePath(child.path), child);
-    if (child.pageID) childByPageID.set(child.pageID, child);
-  }
+  const children = [...inputChildren].sort((left, right) =>
+    compareUTF8(canonicalNodePath(left.path), canonicalNodePath(right.path))
+  );
+  const childByPath = new Map(children.map((child) => [canonicalNodePath(child.path), child]));
+  const childByStableKey = new Map(children.flatMap((child) => {
+    const key = stableKey(child);
+    return key ? [[key, child] as const] : [];
+  }));
+  const matched = new Set<DirectoryPlacementChild>();
 
-  const matched = new Set<TreeChild>();
-  const walk = (blocks: MarkdownDocument["blocks"]): void => {
+  const walk = (blocks: readonly ArborBlock[]): void => {
     for (const block of blocks) {
       if (block.type === "standaloneLink") {
         const resolved = resolveLogicalURL(directory, String(block.props?.path ?? ""));
         if (resolved?.kind === "local") {
-          const pageID = legacyPageIDCandidate(resolved);
-          const child = (pageID && childByPageID.get(pageID)) ?? childByPath.get(resolved.path);
+          const legacy = legacyPageIDCandidate(resolved);
+          const child = (resolved.stableKey && childByStableKey.get(resolved.stableKey))
+            || (legacy && childByStableKey.get(pageIDStableKey(legacy)))
+            || childByPath.get(resolved.path);
           if (child) matched.add(child);
         }
       }
@@ -68,19 +97,43 @@ export function completeDirectoryDocument(
   };
   walk(document.blocks);
 
-  const missing = children
-    .filter((child) => !matched.has(child))
-    .sort((left, right) => compareUTF8(canonicalNodePath(left.path), canonicalNodePath(right.path)));
-  if (!missing.length) return { source, document, addedChildren: [] };
+  const diagnostics = directoryPlacementDiagnostics(directory, document);
+  if (diagnostics.length) {
+    return {
+      document,
+      placedChildren: [...matched].map((child) => canonicalNodePath(child.path)),
+      generatedChildren: [],
+      diagnostics,
+    };
+  }
 
-  const newline = source.includes("\r\n") ? "\r\n" : "\n";
-  const appended = missing
-    .map((child) => `[${escapeLabel(child.name)}](${relativeLogicalReference(directory, child.path)})`)
-    .join(`${newline}${newline}`) + newline;
-  const complete = `${source}${appendSeparator(source)}${appended}`;
+  const missing = children.filter((child) => !matched.has(child));
+  const generated = missing.map((child): ArborBlock => {
+    const path = canonicalNodePath(child.path);
+    const key = stableKey(child);
+    return {
+      id: `arbor-child-${sha256(`${path}\0${key ?? ""}`).slice(0, 16)}`,
+      type: "standaloneLink",
+      content: child.name,
+      props: {
+        path: buildCanonicalLink(directory, { path, stableKey: key }),
+        arborGenerated: true,
+      },
+      children: [],
+    };
+  });
+
+  const markerIndex = document.blocks.findIndex(isChildrenMarker);
+  const blocks = document.blocks.map((block) => isChildrenMarker(block)
+    ? { ...block, props: { ...block.props, arborChildrenMarker: true } }
+    : block
+  );
+  if (generated.length) blocks.splice(markerIndex === -1 ? blocks.length : markerIndex + 1, 0, ...generated);
+
   return {
-    source: complete,
-    document: parseMarkdown(complete),
-    addedChildren: missing.map((child) => canonicalNodePath(child.path)),
+    document: { ...document, blocks },
+    placedChildren: children.map((child) => canonicalNodePath(child.path)),
+    generatedChildren: missing.map((child) => canonicalNodePath(child.path)),
+    diagnostics,
   };
 }

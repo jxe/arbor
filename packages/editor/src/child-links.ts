@@ -77,6 +77,7 @@ export function reorderChildLinks(
       content: existing.content === oldName ? newName : existing.content,
       props: {
         ...existing.props,
+        arborGenerated: false,
         path: rewriteLocalLinkPath(directory, String(existing.props?.path ?? ""), newPath)
           ?? relativeLogicalReference(directory, newPath),
       },

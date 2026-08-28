@@ -30,9 +30,18 @@ import type { ArborBlock } from "@arbor/core";
 import "katex/dist/katex.min.css";
 
 const RawMarkdownBlock = createReactBlockSpec(
-  { type: "rawMarkdown", propSchema: { blank: { default: false } }, content: "inline" },
   {
-    render: ({ block, contentRef }) => block.props.blank
+    type: "rawMarkdown",
+    propSchema: {
+      blank: { default: false },
+      arborChildrenMarker: { default: false },
+    },
+    content: "inline",
+  },
+  {
+    render: ({ block, contentRef }) => block.props.arborChildrenMarker
+      ? <div className="arbor-children-marker" contentEditable={false}><span>Children</span><span className="managed-hidden-content" ref={contentRef} /></div>
+      : block.props.blank
       ? <div className="raw-blank" ref={contentRef} />
       : <div className="raw-markdown"><span className="raw-label">Markdown</span><pre ref={contentRef} /></div>,
     toExternalHTML: ({ contentRef }) => <pre data-arbor-raw="true" ref={contentRef} />,
@@ -353,7 +362,14 @@ export function ArborSideMenu() {
 }
 
 const ChildPageBlock = createReactBlockSpec(
-  { type: "standaloneLink", propSchema: { path: { default: "" } }, content: "inline" },
+  {
+    type: "standaloneLink",
+    propSchema: {
+      path: { default: "" },
+      arborGenerated: { default: false },
+    },
+    content: "inline",
+  },
   {
     render: ({ block, contentRef }) => {
       const controller = useContext(ManagedRowsContext);
@@ -780,8 +796,24 @@ export function toBlockNote(block: ArborBlock, editor: ArborBlockNoteEditor): Pa
       children,
     };
     case "image": return { id: block.id, type: "image", props: { url: String(block.props?.url ?? ""), caption: String(block.props?.caption ?? "") } };
-    case "standaloneLink": return { id: block.id, type: "standaloneLink", props: { path: String(block.props?.path ?? "") }, content: inlineMarkdown(editor, block.content ?? "") };
-    case "rawMarkdown": return { id: block.id, type: "rawMarkdown", props: { blank: Boolean(block.props?.blank) }, content: block.content ?? "" };
+    case "standaloneLink": return {
+      id: block.id,
+      type: "standaloneLink",
+      props: {
+        path: String(block.props?.path ?? ""),
+        arborGenerated: Boolean(block.props?.arborGenerated),
+      },
+      content: inlineMarkdown(editor, block.content ?? ""),
+    };
+    case "rawMarkdown": return {
+      id: block.id,
+      type: "rawMarkdown",
+      props: {
+        blank: Boolean(block.props?.blank),
+        arborChildrenMarker: Boolean(block.props?.arborChildrenMarker),
+      },
+      content: block.content ?? "",
+    };
     default: return { id: block.id, type: "paragraph", content: inlineMarkdown(editor, block.content ?? ""), children };
   }
 }
@@ -812,8 +844,14 @@ export function fromBlockNote(block: ArborEditorBlock, originals: Map<string, Ar
   if (block.type === "codeBlock") props.language = block.props.language;
   if (block.type === "footnoteDefinition") props.label = block.props.label;
   if (block.type === "image") { props.url = block.props.url; props.caption = block.props.caption; }
-  if (block.type === "rawMarkdown") props.blank = block.props.blank;
-  if (block.type === "standaloneLink") props.path = block.props.path;
+  if (block.type === "rawMarkdown") {
+    props.blank = block.props.blank;
+    props.arborChildrenMarker = block.props.arborChildrenMarker;
+  }
+  if (block.type === "standaloneLink") {
+    props.path = block.props.path;
+    props.arborGenerated = block.props.arborGenerated;
+  }
   return {
     id: block.id,
     type,

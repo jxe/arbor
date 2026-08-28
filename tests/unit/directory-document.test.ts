@@ -1,79 +1,53 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { TreeChild } from "@arbor/core/internal";
-import { completeDirectoryDocument } from "@arbor/editor";
+import { parseMarkdown, placeDirectoryChildren, reorderChildLinks, serializeMarkdown } from "@arbor/editor";
 
-const child = (name: string, path: string, pageID?: string): TreeChild => ({
-  tree: "local",
-  name,
-  path,
-  kind: "markdown",
-  materialization: "available",
-  ...(pageID ? { pageID } : {}),
-});
-
-describe("complete directory Markdown", () => {
-  test("matches the language-neutral completion fixtures", async () => {
+describe("bounded directory child placement", () => {
+  test("matches the language-neutral placement fixtures", async () => {
     const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../conformance/directory-documents.json"), "utf8")) as {
       cases: Array<{
         directory: string;
         source: string;
-        children: Array<{ name: string; path: string; pageID?: string }>;
-        expectedSource: string;
-        expectedAddedChildren: string[];
+        children: Array<{ name: string; path: string; stableKey?: string }>;
+        expectedBlockPaths: string[];
+        expectedGeneratedChildren: string[];
+        expectedDiagnosticCodes: string[];
       }>;
     };
     for (const item of fixture.cases) {
-      const result = completeDirectoryDocument(
-        item.directory,
-        item.source,
-        item.children.map(({ name, path, pageID }) => child(name, path, pageID)),
-      );
-      expect(result.source).toBe(item.expectedSource);
-      expect(result.addedChildren).toEqual(item.expectedAddedChildren);
+      const authored = parseMarkdown(item.source);
+      const result = placeDirectoryChildren(item.directory, authored, item.children);
+      expect(result.document.blocks.filter((block) => block.type === "standaloneLink").map((block) => block.props?.path)).toEqual(item.expectedBlockPaths);
+      expect(result.generatedChildren).toEqual(item.expectedGeneratedChildren);
+      expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(item.expectedDiagnosticCodes);
+      expect(serializeMarkdown(result.document, result.document.blocks)).toBe(item.source);
     }
   });
 
-  test("preserves authored source and appends only unmatched children", () => {
-    const source = "Intro with [inline](alpha).\r\n\r\n[Beta label](beta)\r\n\r\n";
-    const result = completeDirectoryDocument("/notes", source, [
-      child("alpha", "/notes/alpha"),
-      child("beta", "/notes/beta"),
-    ]);
-    expect(result.source).toBe(`${source}[alpha](alpha)\r\n`);
-    expect(result.addedChildren).toEqual(["/notes/alpha"]);
-    expect(result.document.source).toBe(result.source);
+  test("implicit placement remains bounded with more than one protocol page", () => {
+    const source = "# Directory\n";
+    const children = Array.from({ length: 125 }, (_, index) => ({
+      name: `child-${String(index).padStart(3, "0")}`,
+      path: `/dir/child-${String(index).padStart(3, "0")}`,
+    })).reverse();
+    const result = placeDirectoryChildren("/dir", parseMarkdown(source), children);
+    expect(result.generatedChildren).toHaveLength(125);
+    expect(result.generatedChildren[0]).toBe("/dir/child-000");
+    expect(result.generatedChildren.at(-1)).toBe("/dir/child-124");
+    expect(serializeMarkdown(result.document, result.document.blocks)).toBe(source);
   });
 
-  test("the first standalone link owns placement and later duplicates remain ordinary", () => {
-    const source = "[First](child)\n\nText\n\n[Second](child)\n";
-    expect(completeDirectoryDocument("/dir", source, [child("child", "/dir/child")]).source).toBe(source);
-  });
-
-  test("durable identity matches despite a stale path", () => {
-    const source = "[Moved](old#page-opaque)\n";
-    const result = completeDirectoryDocument("/dir", source, [child("Moved", "/dir/new", "page-opaque")]);
-    expect(result.source).toBe(source);
-  });
-
-  test("unmatched children use unsigned UTF-8 path order", () => {
-    const result = completeDirectoryDocument("/dir", "", [
-      child("z", "/dir/z"),
-      child("ä", "/dir/ä"),
-      child("A", "/dir/A"),
-    ]);
-    expect(result.addedChildren).toEqual(["/dir/A", "/dir/z", "/dir/ä"]);
-    expect(result.source).not.toContain("managed:");
-  });
-
-  test("completes more than one protocol page of children in one provider snapshot", () => {
-    const children = Array.from({ length: 125 }, (_, index) =>
-      child(`child-${String(index).padStart(3, "0")}`, `/dir/child-${String(index).padStart(3, "0")}`)
-    ).reverse();
-    const result = completeDirectoryDocument("/dir", "", children);
-    expect(result.addedChildren).toHaveLength(125);
-    expect(result.addedChildren[0]).toBe("/dir/child-000");
-    expect(result.addedChildren.at(-1)).toBe("/dir/child-124");
+  test("moving a generated child makes it an authored placement", () => {
+    const source = "# Directory\n\n<!-- arbor:children -->\n";
+    const placed = placeDirectoryChildren("/dir", parseMarkdown(source), [{ name: "child", path: "/dir/child" }]);
+    const moved = reorderChildLinks(placed.document.blocks, {
+      directory: "/dir",
+      removePaths: ["/dir/child"],
+      insertMoves: [{ oldPath: "/dir/child", newPath: "/dir/child" }],
+      beforeBlockId: placed.document.blocks[0]!.id,
+    });
+    expect(moved.anchor).toBe("found");
+    expect(serializeMarkdown(placed.document, moved.blocks)).toStartWith("[child](child)\n\n# Directory");
   });
 });

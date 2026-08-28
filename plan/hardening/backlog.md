@@ -148,13 +148,11 @@ These are implementation violations of the aspirational specification. They are 
 2. **Give protocol mutations first-class inverse metadata.** The UI currently derives inverse move, create, import, and trash operations from `MutationReceipt.effects` and the `/Trash` path convention. Have arborsync return a validated inverse token or accept an explicit receipt/transaction undo operation so recovery, conflicts, and future sync causality remain inside the workspace authority.
 3. **Preserve exact non-contiguous document-link reorder undo.** A batch of non-contiguous selected links is moved as a contiguous group. Its current inverse restores the group near its former trailing anchor but cannot recreate intervening blocks exactly. Store the complete before/after editor snapshot for this source edit.
 
-4. **Implement bounded child placement uniformly.** The accepted
-   `<!-- arbor:children -->` contract in the directory-format spec replaces the
-   collection-aware exclusion and literal unmatched-child expansion. Data 002
-   owns deletion of `directoryDocumentOptions`, `includeDirectoryChild`, and
-   remote collection filtering, plus one conformance corpus across filesystem,
-   rollup, SQLite, Postgres, native, and remote providers. Do not leave the old
-   exception active in any provider after that migration.
+4. **Extend bounded-placement conformance to deferred providers.** Data 002 now
+   projects local, managed, and native directory children without persisting
+   generated links. Reuse the same corpus when remote rollups, SQLite, and
+   Postgres gain direct `ChildProvider` implementations; do not add a second
+   placement algorithm at those boundaries.
 
 ## Autosave, conflicts, and history
 

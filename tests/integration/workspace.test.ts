@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { Workspace, RevisionConflictError } from "@arbor/arborsync";
 import { canonicalStableKey } from "@arbor/core";
+import { parseMarkdown } from "@arbor/editor";
 
 let root: string;
 let state: string;
@@ -209,7 +210,8 @@ describe("workspace service", () => {
     await workspace.write("/folder", { baseRevision: node.revision, source: "About this folder\n" });
     const stored = await readFile(join(root, "folder", "_index.md"), "utf8");
     expect(stored).toContain("About this folder");
-    expect(stored).toContain("[child](child)");
+    expect(stored).not.toContain("[child](child)");
+    expect((await workspace.children({ tree: workspace.tree, path: "/folder", stableKey: null })).items.map((child) => child.ref.path)).toContain("/folder/child");
     expect((await workspace.node("/folder/_index.md")).path).toBe("/folder");
   });
 
@@ -253,7 +255,7 @@ describe("workspace service", () => {
     const effect = receipt.effects[0]!;
     expect(effect.pageID).toMatch(/^[a-z0-9]{6}$/);
     const materialized = await readFile(join(root, "bodyless", "_index.md"), "utf8");
-    expect(materialized).toContain(`id: ${effect.pageID}`);
+    expect(parseMarkdown(materialized).frontmatter.id).toBe(effect.pageID);
     expect(materialized.trim().endsWith("---")).toBe(true);
 
     const replayed = await workspace.executeMutation(request as never);
@@ -329,7 +331,7 @@ describe("workspace service", () => {
       expect(rootNode.children?.filter((child) => child.path === "/same")).toHaveLength(1);
       const same = await duplicateWorkspace.node("/same");
       expect(same.kind).toBe("directory");
-      expect(nodeDocument(same)?.bodySource).toBe("Leaf\n\n[child](child)\n");
+      expect(nodeDocument(same)?.bodySource).toBe("Leaf\n");
       await duplicateWorkspace[Symbol.asyncDispose]();
       duplicateWorkspace = null;
 

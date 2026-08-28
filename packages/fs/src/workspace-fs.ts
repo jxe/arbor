@@ -19,7 +19,7 @@ import {
   siblingMarkdownTreePath,
   toTreePath,
 } from "@arbor/core";
-import { completeDirectoryDocument, mintPageID, parseMarkdown, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
+import { directoryPlacementDiagnostics, mintPageID, parseMarkdown, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
 import { commitPrepared, pathExists, prepareAtomic, removeIfExists, syncDirectory, transactionTemporaryPath, writeAtomic } from "./file-ops.ts";
 import {
   discoverWorkspace,
@@ -393,11 +393,19 @@ export class WorkspaceFS implements AsyncDisposable {
     };
   }
 
-  async read(
-    inputPath: string,
-    options: { includeDirectoryChild?: (entry: FsDirectoryEntry) => boolean } = {},
-  ): Promise<FsReadResult> {
-    const node = await this.resolve(inputPath);
+  async read(inputPath: string): Promise<FsReadResult> {
+    const resolvedNode = await this.resolve(inputPath);
+    const node = resolvedNode.kind === "directory" && resolvedNode.materialization === "available"
+      ? {
+        ...resolvedNode,
+        diagnostics: [
+          ...resolvedNode.diagnostics,
+          ...directoryPlacementDiagnostics(resolvedNode.path, parseMarkdown(
+            resolvedNode.bodyPath ? await readFile(resolvedNode.bodyPath, "utf8").catch(() => "") : "",
+          )),
+        ],
+      }
+      : resolvedNode;
     if (node.kind === "missing") return { node, bytes: null, byteRevision: EMPTY_REVISION };
     if (node.materialization === "placeholder") {
       return { node, bytes: null, byteRevision: revisionOf(`placeholder:${node.path}`) };
@@ -437,7 +445,7 @@ export class WorkspaceFS implements AsyncDisposable {
         document,
       };
     }
-    const entries = (await this.list(node.path)).filter((entry) => options.includeDirectoryChild?.(entry) ?? true);
+    const entries = await this.list(node.path);
     const children: TreeChild[] = entries.map((entry) => ({
       tree: "local",
       name: entry.name,
@@ -446,16 +454,14 @@ export class WorkspaceFS implements AsyncDisposable {
       materialization: entry.materialization,
       ...(entry.pageID ? { pageID: entry.pageID } : {}),
     }));
-    const complete = completeDirectoryDocument(node.path, storedSource, children);
-    const bytes = new TextEncoder().encode(complete.source);
     return {
       node,
-      bytes,
+      bytes: storedBytes,
       storedBytes,
       byteRevision: directoryContentRevision(storedSource, children),
       storedByteRevision,
-      bodyRevision: bodyRevision(complete.document),
-      document: complete.document,
+      bodyRevision: bodyRevision(document),
+      document,
     };
   }
 
@@ -511,10 +517,9 @@ export class WorkspaceFS implements AsyncDisposable {
     options: {
       onPrepared?: (result: FsWriteResult) => void | Promise<void>;
       onMaterialized?: (result: FsWriteResult) => void | Promise<void>;
-      includeDirectoryChild?: (entry: FsDirectoryEntry) => boolean;
     } = {},
   ): Promise<FsWriteResult> {
-    return this.writeMarkdownInternal(inputPath, request, undefined, options.onMaterialized, options.onPrepared, options.includeDirectoryChild);
+    return this.writeMarkdownInternal(inputPath, request, undefined, options.onMaterialized, options.onPrepared);
   }
 
   private async writeMarkdownInternal(
@@ -523,7 +528,6 @@ export class WorkspaceFS implements AsyncDisposable {
     transactionId?: string,
     onMaterialized?: (result: FsWriteResult) => void | Promise<void>,
     onPrepared?: (result: FsWriteResult) => void | Promise<void>,
-    includeDirectoryChild?: (entry: FsDirectoryEntry) => boolean,
   ): Promise<FsWriteResult> {
     const path = canonicalNodePath(inputPath);
     const coordinator = this.coordinator(path);
@@ -536,17 +540,16 @@ export class WorkspaceFS implements AsyncDisposable {
         : resolved.kind === "markdown"
           ? resolved.bodyPath!
           : resolveTreePath(this.root, siblingMarkdownTreePath(path));
-      const readOptions = { includeDirectoryChild };
-      const current = await this.read(path, readOptions);
+      const current = await this.read(path);
       if (request.baseRevision !== current.byteRevision) {
-        throw new FsConflictError({ code: "stale-revision", path, current: await this.read(path, readOptions) }, "The file changed since it was opened");
+        throw new FsConflictError({ code: "stale-revision", path, current: await this.read(path) }, "The file changed since it was opened");
       }
       const previousDocument = current.document ?? parseMarkdown("");
       let output = request.source;
       let parsed = parseMarkdown(output);
       let children: TreeChild[] = [];
       if (resolved.kind === "directory") {
-        children = (await this.list(path)).filter((child) => includeDirectoryChild?.(child) ?? true).map((child) => ({
+        children = (await this.list(path)).map((child) => ({
           tree: "local",
           name: child.name,
           path: child.path,
@@ -554,9 +557,6 @@ export class WorkspaceFS implements AsyncDisposable {
           materialization: child.materialization,
           ...(child.pageID ? { pageID: child.pageID } : {}),
         }));
-        const complete = completeDirectoryDocument(path, output, children);
-        output = complete.source;
-        parsed = complete.document;
       }
       const pageID = isPageID(parsed.frontmatter.id) ? parsed.frontmatter.id : undefined;
       if (pageID && this.durableIdentity) this.pagePathsByID.set(pageID, path);
@@ -582,10 +582,10 @@ export class WorkspaceFS implements AsyncDisposable {
       await onPrepared?.(preview);
       const temporary = await prepareAtomic(target, bytes);
       await this.fault("write:prepared");
-      const justBefore = await this.read(path, readOptions);
+      const justBefore = await this.read(path);
       if (justBefore.byteRevision !== current.byteRevision) {
         await removeIfExists(temporary);
-        throw new FsConflictError({ code: "stale-revision", path, current: await this.read(path, readOptions) }, "The file changed while the write was being prepared");
+        throw new FsConflictError({ code: "stale-revision", path, current: await this.read(path) }, "The file changed while the write was being prepared");
       }
       // Journal after the final source CAS check but before materialization.
       // Reading after an add record is durable intentionally performs crash
@@ -595,7 +595,7 @@ export class WorkspaceFS implements AsyncDisposable {
       await commitPrepared(temporary, target);
       await this.fault("write:replaced");
       if (pageID && this.durableIdentity) await this.journal.markMaterialized(pageID);
-      const accepted = await this.read(path, readOptions);
+      const accepted = await this.read(path);
       const result = { ...accepted, pageID, generation };
       await onMaterialized?.(result);
       coordinator.remember({ revision: result.byteRevision, bytes: result.bytes ?? bytes, bodyPath: target, generation }, this.settleDelayMs, transactionId

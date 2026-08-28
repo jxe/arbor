@@ -21,7 +21,7 @@ import type {
 } from "@arbor/core";
 import type { TreeNode } from "@arbor/core/internal";
 import { LOCAL_TREE, SYSTEM_TREE, canonicalNodePath, generateArborID, pageIDFromStableKey, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
-import { completeDirectoryDocument, parseMarkdown } from "@arbor/editor";
+import { directoryPlacementDiagnostics, parseMarkdown } from "@arbor/editor";
 import { FsConflictError } from "@arbor/fs";
 import { CommunityConfigStore, VisitedTreeStore, arborDataRoot, arborPrivateRoot, saveCurrentDeviceID } from "@arbor/stores";
 import { WireClient, WireUpdateConflict, decodeWireObject, encodeWireObject, hashObject, materializeTree, resolveWireLogicalNode, snapshotDirectory, type FilePatch, type ObjectHash, type RemoteTreeDescriptor } from "@arbor/wire";
@@ -443,12 +443,9 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const isCollectionDirectory = object.entries.some((entry) =>
       entry.name === "schema.ts" || ["_store.csv", "_store.json", "_store.jsonl", "_store.sqlite3", "_store.postgres"].includes(entry.name)
     );
-    const operationalChildren = isCollectionDirectory
-      ? children.filter((child) => child.treeChild.kind !== "markdown")
-      : children;
-    const complete = completeDirectoryDocument(remotePath!, source, operationalChildren.map((child) => child.treeChild));
-    const authoredTitle = complete.document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
-    const descriptors = operationalChildren
+    const document = parseMarkdown(source);
+    const authoredTitle = document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
+    const descriptors = children
       .map(({ treeChild: child }) => ({ path: canonicalNodePath(child.path), kind: child.kind, pageID: child.pageID ?? null }))
       .sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
     const path = canonicalNodePath(remotePath!);
@@ -461,9 +458,9 @@ export class ArborSyncDaemon implements AsyncDisposable {
       writable: false,
       materialization: "available",
       ...(logical.bodyOrigin ? { bodyOrigin: logical.bodyOrigin } : {}),
-      document: complete.document,
-      children: operationalChildren.map((child) => child.treeChild),
-      diagnostics,
+      document,
+      children: children.map((child) => child.treeChild),
+      diagnostics: [...diagnostics, ...directoryPlacementDiagnostics(path, document)],
     }, context);
   }
 

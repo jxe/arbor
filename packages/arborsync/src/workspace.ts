@@ -58,7 +58,6 @@ import {
   CollectionPropertyWriteError,
   CollectionSourceConflictError,
   type CollectionWriteTarget,
-  detectCollection,
   WorkspaceIndex,
   workspaceState,
 } from "@arbor/stores";
@@ -542,7 +541,7 @@ export class Workspace implements AsyncDisposable {
   }
 
   async node(inputPath: string): Promise<TreeNode> {
-    const read = await this.fs.read(inputPath, await this.directoryDocumentOptions(inputPath));
+    const read = await this.fs.read(inputPath);
     const resolved = read.node;
     if (resolved.kind === "missing") {
       throw new ProtocolError("not-found", `Node not found: ${resolved.path}`, 404, {
@@ -630,10 +629,7 @@ export class Workspace implements AsyncDisposable {
     options: Parameters<WorkspaceFS["writeMarkdown"]>[2] = {},
   ): Promise<TreeNode> {
     try {
-      await this.fs.writeMarkdown(inputPath, request, {
-        ...options,
-        ...await this.directoryDocumentOptions(inputPath),
-      });
+      await this.fs.writeMarkdown(inputPath, request, options);
       return this.node(inputPath);
     } catch (error) {
       if (error instanceof FsConflictError && error.details.code === "stale-revision") {
@@ -684,7 +680,7 @@ export class Workspace implements AsyncDisposable {
    * browsing surface instead.
    */
   async fileSurface(inputPath: string, raw: boolean): Promise<{ bytes: Uint8Array; revision: string; path: string } | null> {
-    const read = await this.fs.read(inputPath, await this.directoryDocumentOptions(inputPath));
+    const read = await this.fs.read(inputPath);
     if (read.node.kind === "file") {
       return read.bytes ? { bytes: read.bytes, revision: read.byteRevision, path: read.node.path } : null;
     }
@@ -695,20 +691,6 @@ export class Workspace implements AsyncDisposable {
   }
 
   recovery(inputPath: string) { return this.fs.recovery(inputPath); }
-
-  private async directoryDocumentOptions(
-    inputPath: string,
-  ): Promise<Parameters<WorkspaceFS["read"]>[1]> {
-    const resolved = await this.fs.resolve(inputPath);
-    if (resolved.kind !== "directory" || !resolved.directoryPath) return {};
-    const definition = await detectCollection(resolved.directoryPath).catch(() => null);
-    const rows = new Set((definition?.markdownPaths ?? []).map((path) =>
-      canonicalNodePath(`${resolved.path === "/" ? "" : resolved.path}/${basename(path, ".md")}`)
-    ));
-    return rows.size
-      ? { includeDirectoryChild: (entry) => !rows.has(entry.path) }
-      : {};
-  }
 
   private async blockRecoveryEntries(path: string): Promise<RecoveryEntry[]> {
     const pageID = this.pathPageIDs.get(path);

@@ -278,7 +278,7 @@ public actor ArborReplica {
     func completeSource(for node: ReplicaNodeRecord) -> String? {
         switch node.kind {
         case .markdown: node.source ?? ""
-        case .directory: ReplicaSemantics.completeDirectorySource(node: node, state: state)
+        case .directory: node.source ?? ""
         case .file, .boundary: nil
         }
     }
@@ -770,9 +770,7 @@ public actor ArborReplica {
             entries: state.nodes.compactMap { node in
                 guard node.kind != .file, node.kind != .boundary,
                       node.path != "/Trash", !node.path.hasPrefix("/Trash/") else { return nil }
-                let source = node.kind == .directory
-                    ? ReplicaSemantics.completeDirectorySource(node: node, state: state)
-                    : node.source ?? ""
+                let source = node.source ?? ""
                 return ReplicaSearchIndex.Entry(
                     path: node.path,
                     pageID: node.pageID,

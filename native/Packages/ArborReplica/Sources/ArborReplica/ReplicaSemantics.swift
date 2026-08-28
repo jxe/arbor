@@ -127,32 +127,6 @@ enum ReplicaSemantics {
         }
     }
 
-    static func completeDirectorySource(node: ReplicaNodeRecord, state: ReplicaState) -> String {
-        let source = node.source ?? ""
-        let children = state.nodes.filter {
-            parent(of: $0.path) == node.path && $0.path != "/Trash" && !$0.path.hasPrefix("/Trash/") && !isStoreFile($0)
-        }
-        let links = standaloneLinks(in: source, relativeTo: node.path)
-        let linkedPaths = Set(links.paths)
-        let linkedIDs = Set(links.pageIDs)
-        let missing = children.filter { child in
-            !linkedPaths.contains(child.path) && (child.pageID == nil || !linkedIDs.contains(child.pageID!))
-        }.sorted { compareUTF8($0.path, $1.path) }
-        guard !missing.isEmpty else { return source }
-        let newline = source.contains("\r\n") ? "\r\n" : "\n"
-        let separator: String
-        if source.isEmpty || source.hasSuffix("\n\n") || source.hasSuffix("\r\n\r\n") { separator = "" }
-        else if source.hasSuffix("\n") || source.hasSuffix("\r") { separator = newline }
-        else { separator = newline + newline }
-        let appended = missing.map { child in
-            let label = name(of: child.path).replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "[", with: "\\[")
-                .replacingOccurrences(of: "]", with: "\\]")
-            return "[\(label)](\(relativeReference(from: node.path, to: child.path)))"
-        }.joined(separator: newline + newline) + newline
-        return source + separator + appended
-    }
-
     static func links(in source: String, relativeTo directory: String) -> [String] {
         let pattern = #"\[[^\]]*\]\(([^)]+)\)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
@@ -164,20 +138,6 @@ enum ReplicaSemantics {
 
     static func isStoreFile(_ node: ReplicaNodeRecord) -> Bool {
         node.kind == .file && ["_store.csv", "_store.json", "_store.jsonl", "_store.sqlite3", "_store.postgres"].contains(name(of: node.path))
-    }
-
-    private static func standaloneLinks(in source: String, relativeTo directory: String) -> (paths: [String], pageIDs: [String]) {
-        let pattern = #"(?m)^[ \t]*\[[^\]]*\]\(([^)]+)\)[ \t]*\r?$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return ([], []) }
-        var paths: [String] = []
-        var pageIDs: [String] = []
-        for match in regex.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
-            guard let range = Range(match.range(at: 1), in: source) else { continue }
-            let resolved = resolve(reference: String(source[range]), relativeTo: directory)
-            paths.append(resolved.path)
-            if let id = resolved.pageID { pageIDs.append(id) }
-        }
-        return (paths, pageIDs)
     }
 
     private static func resolve(reference: String, relativeTo directory: String) -> (path: String, pageID: String?) {
@@ -192,15 +152,6 @@ enum ReplicaSemantics {
             else { parts.append(String(part)) }
         }
         return (parts.isEmpty ? "/" : "/" + parts.joined(separator: "/"), pageID)
-    }
-
-    private static func relativeReference(from directory: String, to target: String) -> String {
-        let base = directory.split(separator: "/").map(String.init)
-        let destination = target.split(separator: "/").map(String.init)
-        var common = 0
-        while common < base.count, common < destination.count, base[common] == destination[common] { common += 1 }
-        let parts = Array(repeating: "..", count: base.count - common) + destination.dropFirst(common)
-        return parts.isEmpty ? "." : parts.joined(separator: "/")
     }
 
     private static func frontmatterRange(in source: String) -> Range<String.Index>? {

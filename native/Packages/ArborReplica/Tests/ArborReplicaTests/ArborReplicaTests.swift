@@ -5,19 +5,15 @@ import Testing
 
 @Suite("Shared replica semantics")
 struct ReplicaFixtureTests {
-    @Test("Directory completion matches the shared TypeScript fixture")
-    func directoryCompletion() throws {
+    @Test("Directory projection never materializes generated child links")
+    func directorySourceIsExact() throws {
         let fixture = try JSONDecoder().decode(
             DirectoryFixture.self,
             from: Data(contentsOf: fixtureDirectory().appending(path: "directory-documents.json"))
         )
         for item in fixture.cases {
             let root = ReplicaNodeRecord(path: item.directory, kind: .directory, source: item.source.isEmpty ? nil : item.source)
-            let children = item.children.map {
-                ReplicaNodeRecord(path: $0.path, pageID: $0.pageID, kind: .markdown, source: $0.pageID.map { "---\nid: \($0)\n---\n" })
-            }
-            let state = ReplicaState(tree: "tr_fixture", nodes: [root] + children)
-            #expect(ReplicaSemantics.completeDirectorySource(node: root, state: state) == item.expectedSource, Comment(rawValue: item.name))
+            #expect((root.source ?? "") == item.source, Comment(rawValue: item.name))
         }
     }
 
@@ -85,7 +81,7 @@ struct ReplicaProviderTests {
                 Issue.record("Expected a complete directory document")
                 return
             }
-            #expect(notesSource.hasSuffix("[today](today)\n"))
+            #expect(notesSource.isEmpty)
             #expect(!notesStored)
             let notesSession = try await provider.openDocument(notes.reference)
             let notesSnapshot = try await notesSession.snapshot()
@@ -327,8 +323,12 @@ struct ReplicaProviderTests {
                 Issue.record("Expected directory document")
                 return
             }
-            #expect(source.firstIndex(of: "A")! < source.firstIndex(of: "z")!)
-            #expect(source.firstIndex(of: "z")! < source.firstIndex(of: "ä")!)
+            #expect(source.isEmpty)
+            let orderedNames = try await provider.children(of: directory.reference).map {
+                String($0.reference.pathHint.split(separator: "/").last ?? "")
+            }
+            #expect(try #require(orderedNames.firstIndex(of: "A")) < #require(orderedNames.firstIndex(of: "z")))
+            #expect(try #require(orderedNames.firstIndex(of: "z")) < #require(orderedNames.firstIndex(of: "ä")))
 
             let selected = try await provider.resolve(.init(tree: tree, path: "/many/node-00"))
             let session = try await provider.openDocument(selected.reference)
@@ -483,13 +483,13 @@ private struct DirectoryFixture: Decodable {
         struct Child: Decodable {
             var name: String
             var path: String
-            var pageID: String?
+            var stableKey: String?
         }
         var name: String
         var directory: String
         var source: String
         var children: [Child]
-        var expectedSource: String
+        var expectedGeneratedChildren: [String]
     }
     var cases: [Case]
 }
