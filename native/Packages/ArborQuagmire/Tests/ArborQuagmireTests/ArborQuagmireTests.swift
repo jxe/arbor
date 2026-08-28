@@ -518,7 +518,92 @@ struct ArborQuagmireTests {
         #expect(snapshot.source.contains(
             "Captured through the workspace."
         ))
+        #expect(snapshot.source.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(
+            "Captured through the workspace."
+        ))
         await workspace.release(lease)
+    }
+
+    @MainActor
+    @Test("Active transcript delivery uses the first microphone heading")
+    func activeTranscriptTargetsFirstVoiceHeading() async throws {
+        let tree: TreeID = "tr_voice"
+        let reference = WorkspaceReference(
+            tree: tree,
+            path: "/voice",
+            stableKey: markdownStableKey("pg_voice")
+        )
+        let source = "# 🎙 Notes\n\nExisting.\n\n## Nested 🎙️\n\nNested body.\n\n# 🎙️ Later\n\nLater body.\n"
+        let node = WorkspaceNode(
+            reference: reference,
+            title: "Voice",
+            surface: .markdown(source: source, contentRevision: "r1"),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let provider = InMemoryWorkspaceProvider(nodes: [node])
+        let workspace = ArborEditorWorkspace(provider: provider)
+        let lease = try await workspace.lease(reference)
+
+        try await workspace.appendTranscript(
+            "Captured in the first section.",
+            to: markdownStableKey("pg_voice"),
+            in: tree
+        )
+
+        let first = try #require(lease.binding.document.children.first)
+        var firstSectionContainsTranscript = false
+        func inspect(_ block: Block) {
+            if String(block.text.characters) == "Captured in the first section." {
+                firstSectionContainsTranscript = true
+            }
+            block.children.forEach(inspect)
+        }
+        inspect(first)
+        #expect(firstSectionContainsTranscript)
+        let later = try #require(lease.binding.document.children.last)
+        #expect(!later.children.contains { String($0.text.characters) == "Captured in the first section." })
+        let saved = try await lease.binding.snapshot()
+        let transcriptRange = try #require(saved.source.range(of: "Captured in the first section."))
+        let laterRange = try #require(saved.source.range(of: "# 🎙️ Later"))
+        #expect(transcriptRange.lowerBound < laterRange.lowerBound)
+        await workspace.release(lease)
+    }
+
+    @MainActor
+    @Test("Recovered transcript delivery routes by PageID into a microphone section")
+    func recoveredTranscriptTargetsVoiceHeading() async throws {
+        let tree: TreeID = "tr_recovered_voice"
+        let reference = WorkspaceReference(
+            tree: tree,
+            path: "/voice",
+            stableKey: markdownStableKey("pg_recovered_voice")
+        )
+        let node = WorkspaceNode(
+            reference: reference,
+            title: "Voice",
+            surface: .markdown(
+                source: "# Inbox\n\nBefore.\n\n## 🎙 Recordings\n\nExisting recording.\n\n# After\n\nAfter body.\n",
+                contentRevision: "r1"
+            ),
+            provenance: .init(authority: .local, sourceDescription: "Test", contentRevision: "r1")
+        )
+        let provider = InMemoryWorkspaceProvider(nodes: [node])
+        let workspace = ArborEditorWorkspace(provider: provider)
+
+        try await workspace.appendTranscript(
+            "Recovered into recordings.",
+            to: markdownStableKey("pg_recovered_voice"),
+            in: tree
+        )
+
+        let saved = try await provider.resolve(reference)
+        guard case let .markdown(result, _) = saved.surface else {
+            Issue.record("Voice destination was no longer Markdown")
+            return
+        }
+        let transcriptRange = try #require(result.range(of: "Recovered into recordings."))
+        let afterRange = try #require(result.range(of: "# After"))
+        #expect(transcriptRange.lowerBound < afterRange.lowerBound)
     }
 
     @MainActor

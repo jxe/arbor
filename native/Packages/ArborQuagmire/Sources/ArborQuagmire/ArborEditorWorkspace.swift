@@ -67,9 +67,10 @@ public final class ArborEditorWorkspace {
         }) {
             let priorGeneration = binding.generation
             binding.document.transaction(name: "Insert Transcript") {
+                let target = Self.transcriptInsertionPath(in: binding.document)
                 _ = binding.document.insertSubtree(
                     block,
-                    at: DropPath(parent: nil, position: binding.document.children.count)
+                    at: target
                 )
             }
             // A mounted EditorView forwards the transaction synchronously.
@@ -93,10 +94,9 @@ public final class ArborEditorWorkspace {
                 revision: snapshot.contentRevision,
                 identitySeed: String(describing: snapshot.reference.identity)
             )
-            let (admission, _) = ArborMarkdownCodec.admission(
-                blocks: opened.blocks + [block],
-                ledger: opened.ledger
-            )
+            var blocks = opened.blocks
+            Self.appendTranscript(block, to: &blocks)
+            let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
             let confirmed = try await lease.session.admit(patch: admission.patch)
             try await lease.session.flush()
             if let binding = entries.values.lazy.map(\.binding).first(where: {
@@ -118,5 +118,43 @@ public final class ArborEditorWorkspace {
             for lease in entry.workspaceLeases.values { await coordinator.release(lease) }
         }
         entries.removeAll()
+    }
+
+    private static func transcriptInsertionPath(in document: Document) -> DropPath {
+        var target: BlockID?
+        document.walk { block, _, _ in
+            guard target == nil, isVoiceHeading(block) else { return }
+            target = block.id
+        }
+        guard let target, let heading = document.find(target) else {
+            return DropPath(parent: nil, position: document.children.count)
+        }
+        return DropPath(parent: target, position: heading.children.count)
+    }
+
+    private static func appendTranscript(_ transcript: Block, to blocks: inout [Block]) {
+        if appendTranscriptToFirstVoiceHeading(transcript, in: &blocks) { return }
+        blocks.append(transcript)
+    }
+
+    private static func appendTranscriptToFirstVoiceHeading(
+        _ transcript: Block,
+        in blocks: inout [Block]
+    ) -> Bool {
+        for index in blocks.indices {
+            if isVoiceHeading(blocks[index]) {
+                blocks[index].children.append(transcript)
+                return true
+            }
+            if appendTranscriptToFirstVoiceHeading(transcript, in: &blocks[index].children) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func isVoiceHeading(_ block: Block) -> Bool {
+        guard case let .heading(_, text) = block.kind else { return false }
+        return String(text.characters).unicodeScalars.contains { $0.value == 0x1F399 }
     }
 }
