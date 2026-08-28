@@ -30,6 +30,11 @@ const noCoercion = query.many(keyed, (row: any) => ({
   where: row.rank.eq("2"),
   select: row.pick("rank", "id"),
 }));
+const liveRecords = arbor("./live-records").children;
+const liveMatching = query.many(liveRecords, (record: any) => ({
+  where: record.title.contains("a"),
+  select: record.pick("id", "title"),
+}));
 
 function ordinaryNodes(): NodeQueryEngine {
   return new NodeQueryEngine({
@@ -59,6 +64,10 @@ beforeAll(async () => {
   await writeFile(join(expandedKeys, "one.md"), "---\nrank: 2\nid: é\ntitle: Accent\n---\n");
   await writeFile(join(expandedKeys, "two.md"), "---\nrank: 10\nid: a\ntitle: Ten\n---\n");
   await writeFile(join(expandedKeys, "three.md"), "---\nrank: 2\nid: 😀\ntitle: Emoji\n---\n");
+  const liveDirectory = join(root, "live-records");
+  await mkdir(liveDirectory);
+  await writeFile(join(liveDirectory, "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), note: z.string().optional() }); export const primaryKey = ["id"] as const;\n');
+  await writeFile(join(liveDirectory, "a.md"), "---\nid: a\ntitle: Alpha\nnote: first\n---\n");
   workspace = await Workspace.open(root);
 
   const databaseDirectory = join(root, "sqlite");
@@ -188,6 +197,83 @@ describe("portable arbor() node queries", () => {
     const changed = (await reader.read()).value!;
     expect(changed.type).toBe("result");
     if (changed.type === "result" && "value" in changed) expect(changed.value).toHaveLength(3);
+    abort.abort();
+  });
+
+  test("evaluates once initially and narrows live invalidation by source and property field", async () => {
+    const base = ordinaryNodes();
+    let executions = 0;
+    const counted = {
+      async execute<Result, Input>(handle: Parameters<NodeQueryEngine["execute"]>[0], options: { input?: Input; user?: any } = {}) {
+        executions += 1;
+        return base.execute(handle as any, options as any) as Promise<any>;
+      },
+    } as unknown as NodeQueryEngine;
+    const broker = new NodeLiveQueryBroker(counted, workspace.events);
+    const handleRef = { tree: workspace.tree, module: "/queries.ts", export: "liveMatching", version: "query-v1" };
+    const runtime = new RegisteredQueryRuntime(
+      { tree: workspace.tree, path: "/live", version: "document-v1" },
+      broker,
+      [{ ref: handleRef, handle: liveMatching }],
+    );
+    const abort = new AbortController();
+    const reader = runtime.stream({
+      document: runtime.document,
+      queries: [{ id: "live", handle: handleRef }],
+    }, { signal: abort.signal, user: null }).getReader();
+    expect((await reader.read()).value?.type).toBe("result");
+    expect((await reader.read()).value?.type).toBe("ready");
+    expect(executions).toBe(1);
+
+    workspace.events.emit({ tree: workspace.tree, kind: "updated", ref: { tree: workspace.tree, path: "/elsewhere/x", stableKey: null }, origin: "external" });
+    workspace.events.emit({ tree: workspace.tree, kind: "updated", ref: { tree: workspace.tree, path: "/live-records/a", stableKey: null }, changedProperties: ["note"], origin: "external" });
+    await Bun.sleep(20);
+    expect(executions).toBe(1);
+
+    await writeFile(join(root, "live-records", "a.md"), "---\nid: a\ntitle: Other\nnote: first\n---\n");
+    workspace.events.emit({ tree: workspace.tree, kind: "updated", ref: { tree: workspace.tree, path: "/live-records/a", stableKey: null }, changedProperties: ["title"], origin: "external" });
+    const changed = (await reader.read()).value!;
+    expect(changed.type).toBe("result");
+    if (changed.type === "result" && "value" in changed) expect(changed.value).toEqual([]);
+    expect(executions).toBe(2);
+    abort.abort();
+  });
+
+  test("re-evaluates a racing child event before publishing the first live result", async () => {
+    const raceDirectory = join(root, "race-live");
+    await mkdir(raceDirectory);
+    await writeFile(join(raceDirectory, "one.md"), "---\nid: one\ntitle: Alpha\n---\n");
+    const raceSource = arbor("./race-live").children;
+    const raceQuery = query.many(raceSource, (record: any) => record.pick("id", "title"));
+    let executions = 0;
+    let injected = false;
+    const engine = new NodeQueryEngine({
+      async snapshot() {
+        executions += 1;
+        const source = await workspace.snapshot({ tree: workspace.tree, path: "/race-live", stableKey: null });
+        if (!injected) {
+          injected = true;
+          await writeFile(join(raceDirectory, "two.md"), "---\nid: two\ntitle: Beta\n---\n");
+          workspace.events.emit({ tree: workspace.tree, kind: "created", ref: { tree: workspace.tree, path: "/race-live/two", stableKey: null }, origin: "external" });
+        }
+        return source;
+      },
+      async children(source, cursor) { return workspace.children(source, cursor); },
+    });
+    const broker = new NodeLiveQueryBroker(engine, workspace.events);
+    const handleRef = { tree: workspace.tree, module: "/queries.ts", export: "raceQuery", version: "query-v1" };
+    const runtime = new RegisteredQueryRuntime(
+      { tree: workspace.tree, path: "/race", version: "document-v1" },
+      broker,
+      [{ ref: handleRef, handle: raceQuery }],
+    );
+    const abort = new AbortController();
+    const reader = runtime.stream({ document: runtime.document, queries: [{ id: "race", handle: handleRef }] }, { signal: abort.signal, user: null }).getReader();
+    const initial = (await reader.read()).value!;
+    expect(initial.type).toBe("result");
+    if (initial.type === "result" && "value" in initial) expect(initial.value).toHaveLength(2);
+    expect((await reader.read()).value?.type).toBe("ready");
+    expect(executions).toBe(2);
     abort.abort();
   });
 

@@ -70,6 +70,7 @@ import {
   type ExpandedNode,
 } from "./node-sampling.ts";
 import { ChildProvider } from "./child-provider.ts";
+import { changedPropertyNames } from "./property-changes.ts";
 
 
 const EMPTY_REVISION = revisionOf("");
@@ -842,6 +843,7 @@ export class Workspace implements AsyncDisposable {
             kind: "updated",
             ref: this.mutationRef(`${target.parentPath}/${row.path}`, undefined, row.stableKey),
             propertiesRevision: row.revision,
+            changedProperties: changedPropertyNames(target.properties, operation.properties),
           };
           await onMaterialized?.([effect]);
           return effect;
@@ -876,6 +878,7 @@ export class Workspace implements AsyncDisposable {
             kind: "updated",
             ref: this.mutationRef(prepared.path, undefined, operation.ref.stableKey),
             propertiesRevision: prepared.revision,
+            changedProperties: changedPropertyNames(target.properties, prepared.properties),
           };
           await onExpected?.([effect]);
           await this.provider.commitFileProperties(prepared);
@@ -924,11 +927,13 @@ export class Workspace implements AsyncDisposable {
           }
         }
         const source = `${replaceFrontmatter(current.document.frontmatterSource, prepared.properties) ?? ""}${current.document.bodySource}`;
+        const changedProperties = changedPropertyNames(target.properties, prepared.properties);
         const propertyEffect = (result: FsWriteResult): MutationEffect => ({
           kind: "updated",
           ref: this.mutationRef(result.node.path, result.pageID),
           contentRevision: result.byteRevision,
           propertiesRevision: result.byteRevision,
+          changedProperties,
         });
         const saved = await this.write(path, { baseRevision: current.revision, source }, {
           onPrepared: onExpected ? async (result) => onExpected([propertyEffect(result)]) : undefined,
@@ -939,6 +944,7 @@ export class Workspace implements AsyncDisposable {
           ref: this.mutationRef(saved.path, isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined),
           contentRevision: saved.revision,
           propertiesRevision: saved.propertiesRevision ?? saved.revision,
+          changedProperties,
         };
       }
       const current = await this.expandedNode(path);
@@ -961,11 +967,13 @@ export class Workspace implements AsyncDisposable {
         throw new ProtocolError("invalid-reference", "Identity property id is immutable", 422, { path });
       }
       const source = `${replaceFrontmatter(current.document.frontmatterSource, operation.properties) ?? ""}${current.document.bodySource}`;
+      const changedProperties = changedPropertyNames(currentProperties, operation.properties);
       const propertyEffect = (result: FsWriteResult): MutationEffect => ({
         kind: "updated",
         ref: this.mutationRef(result.node.path, result.pageID),
         contentRevision: result.byteRevision,
         propertiesRevision: result.byteRevision,
+        changedProperties,
         directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
       });
       const saved = await this.write(path, { baseRevision: current.revision, source }, {
@@ -977,6 +985,7 @@ export class Workspace implements AsyncDisposable {
         ref: this.mutationRef(saved.path, isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined),
         contentRevision: saved.revision,
         propertiesRevision: saved.propertiesRevision ?? saved.revision,
+        changedProperties,
         directoryRevision: saved.kind === "directory" ? saved.revision : undefined,
       };
     }
@@ -1195,6 +1204,7 @@ export class Workspace implements AsyncDisposable {
         previousPath: effect.previousPath,
         contentRevision: effect.contentRevision,
         propertiesRevision: effect.propertiesRevision,
+        changedProperties: effect.changedProperties,
         directoryRevision: effect.directoryRevision,
         origin,
         mutationID,

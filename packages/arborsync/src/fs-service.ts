@@ -45,6 +45,7 @@ import {
   type ExpandedNode,
 } from "./node-sampling.ts";
 import { ChildProvider } from "./child-provider.ts";
+import { changedPropertyNames } from "./property-changes.ts";
 
 
 function isSystemError(error: unknown): error is NodeJS.ErrnoException {
@@ -395,6 +396,7 @@ export class FilesystemService implements AsyncDisposable {
                 kind: "updated" as const,
                 ref: { tree: LOCAL_TREE, path: `${target.parentPath}/${row.path}`, stableKey: row.stableKey },
                 propertiesRevision: row.revision,
+                changedProperties: changedPropertyNames(target.properties, write.properties),
               }];
             } catch (error) {
               if (error instanceof CollectionPropertyConflictError) {
@@ -428,6 +430,7 @@ export class FilesystemService implements AsyncDisposable {
                 kind: "updated" as const,
                 ref: { tree: LOCAL_TREE, path: saved.path, stableKey: write.ref.stableKey },
                 propertiesRevision: saved.revision,
+                changedProperties: changedPropertyNames(target.properties, prepared.properties),
               }];
             } catch (error) {
               if (error instanceof CollectionPropertyConflictError || error instanceof CollectionSourceConflictError) {
@@ -491,12 +494,14 @@ export class FilesystemService implements AsyncDisposable {
             throw new ProtocolError("invalid-reference", "Identity property id is immutable", 422, { path });
           }
           const source = `${replaceFrontmatter(current.document.frontmatterSource, properties) ?? ""}${current.document.bodySource}`;
+          const changedProperties = changedPropertyNames(target?.properties ?? currentProperties, properties);
           const result = await (await this.engine).writeMarkdown(path, { baseRevision: current.revision, source });
           return [{
             kind: "updated" as const,
             ref: { tree: LOCAL_TREE, path: result.node.path, stableKey: write.ref.stableKey },
             contentRevision: result.byteRevision,
             propertiesRevision: result.byteRevision,
+            changedProperties,
             directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
           }];
         }
@@ -525,6 +530,7 @@ export class FilesystemService implements AsyncDisposable {
         previousPath: effect.previousPath,
         contentRevision: effect.contentRevision,
         propertiesRevision: effect.propertiesRevision,
+        changedProperties: effect.changedProperties,
         directoryRevision: effect.directoryRevision,
         origin: "api",
         mutationID: request.mutationID,

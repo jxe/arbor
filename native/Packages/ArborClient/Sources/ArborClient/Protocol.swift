@@ -436,6 +436,8 @@ public struct MutationEffect: Codable, Sendable, Equatable {
     public var previousPath: String?
     public var contentRevision: String?
     public var propertiesRevision: String?
+    /// Exact top-level property names when the provider can prove them.
+    public var changedProperties: [String]?
     public var directoryRevision: String?
 }
 
@@ -450,6 +452,8 @@ public struct WorkspaceChange: Codable, Sendable, Equatable {
     public var previousPath: String?
     public var contentRevision: String?
     public var propertiesRevision: String?
+    /// Exact top-level property names when the provider can prove them.
+    public var changedProperties: [String]?
     public var directoryRevision: String?
     public var origin: String
     public var mutationID: String?

@@ -160,6 +160,24 @@ export function shapeQueryRow(
   ]));
 }
 
+/** Property fields whose changes can affect one portable node-query result. */
+export function portableQueryFields(plan: QueryPlan): ReadonlySet<string> {
+  const fields = new Set<string>();
+  const visitValue = (value: ValueExpression) => {
+    if (value.kind === "field") fields.add(value.field);
+  };
+  const visitPredicate = (predicate: PredicateExpression) => {
+    if (predicate.kind === "logical") predicate.operands.forEach(visitPredicate);
+    else {
+      visitValue(predicate.left);
+      visitValue(predicate.right);
+    }
+  };
+  if (plan.where) visitPredicate(plan.where);
+  for (const selected of Object.values(plan.select)) visitValue(selected as ValueExpression);
+  return fields;
+}
+
 /** Validate the deliberately small provider-neutral query algebra. */
 export function validatePortableNodePlan(plan: QueryPlan): void {
   if (plan.orderBy.length) throw new QueryCompileError("The portable node-query subset does not support authored ordering");

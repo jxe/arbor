@@ -350,6 +350,8 @@ export interface MutationEffect {
   previousPath?: LogicalPath;
   contentRevision?: ContentRevision;
   propertiesRevision?: string;
+  /** Exact property names changed when the provider can prove them; omission widens invalidation. */
+  changedProperties?: string[];
   directoryRevision?: DirectoryRevision;
 }
 
@@ -366,6 +368,8 @@ export interface WorkspaceChange {
   previousPath?: LogicalPath;
   contentRevision?: ContentRevision;
   propertiesRevision?: string;
+  /** Exact property names changed when the provider can prove them; omission widens invalidation. */
+  changedProperties?: string[];
   directoryRevision?: DirectoryRevision;
   origin: WorkspaceEventOrigin;
   mutationID?: string;

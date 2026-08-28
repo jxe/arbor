@@ -50,7 +50,7 @@ describe("REST v1 protocol fault recovery", () => {
 
       const recovered = await Workspace.open(root);
       const receipt = await recovered.executeMutation(request);
-      expect(receipt.effects[0]).toMatchObject({ kind: "created", path: "/once" });
+      expect(receipt.effects[0]).toMatchObject({ kind: "created", ref: { path: "/once" } });
       expect((await recovered.snapshot({ tree, path: "/once", stableKey: null })).ref.path).toBe("/once");
       expect(await recovered.executeMutation(request)).toEqual(receipt);
       await recovered[Symbol.asyncDispose]();
@@ -76,7 +76,7 @@ describe("REST v1 protocol fault recovery", () => {
         [{ op: "createDirectory", tree: running.workspace.tree, path: "/after-response-loss" }],
         "response-delivery",
       );
-      expect(receipt.effects[0]).toMatchObject({ kind: "created", path: "/after-response-loss" });
+      expect(receipt.effects[0]).toMatchObject({ kind: "created", ref: { path: "/after-response-loss" } });
       expect((await client.node({ tree: running.workspace.tree, path: "/after-response-loss", stableKey: null })).ref.path).toBe("/after-response-loss");
     } finally {
       running.server.stop(true);
@@ -119,7 +119,7 @@ describe("REST v1 protocol fault recovery", () => {
 
     const recovered = await Workspace.open(root);
     const receipt = await recovered.executeMutation(request);
-    expect(receipt.effects[0]).toMatchObject({ path: "/records/one", propertiesRevision: expect.stringMatching(/^sha256:/) });
+    expect(receipt.effects[0]).toMatchObject({ ref: { path: "/records/one" }, propertiesRevision: expect.stringMatching(/^sha256:/) });
     expect((await recovered.snapshot({ tree, path: "/records/stale", stableKey: key })).properties.title).toBe("Changed");
     expect(await recovered.executeMutation(request)).toEqual(receipt);
     await recovered[Symbol.asyncDispose]();

@@ -9,6 +9,7 @@ import {
   containsRequiredUser,
   evaluateQueryPredicate,
   finishCardinality,
+  portableQueryFields,
   QueryCompileError,
   QueryUserRequiredError,
   shapeQueryRow,
@@ -120,7 +121,65 @@ function safeNodeQueryError(error: unknown) {
   return { code: "invalid-request", message, retryable: false } as const;
 }
 
-/** Race-free conservative live execution for any provider that exposes ordinary nodes. */
+interface NodeQuerySensitivity {
+  source: NodeRef;
+  rows: ReadonlySet<string>;
+  fields: ReadonlySet<string>;
+}
+
+function parentPath(path: string): string {
+  const separator = path.lastIndexOf("/");
+  return separator <= 0 ? "/" : path.slice(0, separator);
+}
+
+function refIdentity(ref: NodeRef): string {
+  return `${ref.tree}\0${ref.stableKey ?? ref.path}`;
+}
+
+function containsPath(ancestor: string, path: string): boolean {
+  return ancestor === "/" || path === ancestor || path.startsWith(`${ancestor}/`);
+}
+
+function nodeSensitivity(
+  handle: QueryHandle<unknown, unknown>,
+  execution: NodeQueryExecution<unknown>,
+): NodeQuerySensitivity {
+  return {
+    source: execution.dependencies.membership.ref,
+    rows: new Set(execution.dependencies.rows.map((row) => refIdentity(row.ref))),
+    fields: portableQueryFields(handle.plan),
+  };
+}
+
+/**
+ * Provider-neutral invalidation for an ordinary child query. Membership changes
+ * are structural; row updates can be narrowed to the fields the query reads.
+ * Missing precision is deliberately conservative.
+ */
+function nodeEventRelevant(event: WorkspaceEvent, sensitivity?: NodeQuerySensitivity): boolean {
+  if (!sensitivity) return true;
+  if (event.tree !== sensitivity.source.tree) return false;
+  if (event.kind === "diagnostic") return true;
+  const change = event.change;
+  const currentPath = change.ref.path;
+  const previousPath = change.previousPath;
+  if (currentPath === sensitivity.source.path || previousPath === sensitivity.source.path) return true;
+  if (
+    (event.kind === "moved" || event.kind === "deleted")
+    && (containsPath(currentPath, sensitivity.source.path)
+      || (previousPath ? containsPath(previousPath, sensitivity.source.path) : false))
+  ) return true;
+  const currentChild = parentPath(currentPath) === sensitivity.source.path;
+  const previousChild = previousPath ? parentPath(previousPath) === sensitivity.source.path : false;
+  if (event.kind === "created" || event.kind === "deleted" || event.kind === "moved") {
+    return currentChild || previousChild;
+  }
+  if (!currentChild && !sensitivity.rows.has(refIdentity(change.ref))) return false;
+  if (change.changedProperties && !change.changedProperties.some((field) => sensitivity.fields.has(field))) return false;
+  return true;
+}
+
+/** Race-free sensitivity-aware live execution for any ordinary-node provider. */
 export class NodeLiveQueryBroker {
   constructor(
     readonly engine: NodeQueryEngine,
@@ -142,41 +201,51 @@ export class NodeLiveQueryBroker {
         const states = mounts.map((mount) => ({
           mount,
           cursor: observations.currentCursor(),
+          execution: undefined as NodeQueryExecution<unknown> | undefined,
+          sensitivity: undefined as NodeQuerySensitivity | undefined,
+          pending: [] as WorkspaceEvent[],
           hash: undefined as Hash | undefined,
           running: undefined as Promise<void> | undefined,
-          dirty: false,
         }));
         const emit = (event: QueryStreamEvent) => { if (!closed) controller.enqueue(event); };
         const evaluate = (state: typeof states[number], publish: boolean): Promise<void> => {
-          if (state.running) { state.dirty = true; return state.running; }
+          if (state.running) return state.running;
           state.running = (async () => {
-            do {
-              state.dirty = false;
-              const boundary = observations.currentCursor();
+            while (!closed) {
+              const oldSensitivity = state.sensitivity;
+              state.pending = [];
               try {
                 const execution = await engine.execute(state.mount.handle, {
                   input: state.mount.input,
                   user: context.user,
                 });
+                const sensitivity = nodeSensitivity(state.mount.handle, execution);
+                if (state.pending.some((event) =>
+                  nodeEventRelevant(event, oldSensitivity) || nodeEventRelevant(event, sensitivity))) continue;
+                state.execution = execution;
+                state.sensitivity = sensitivity;
                 const hash = nodeOutputHash(execution.result);
-                state.cursor = execution.dependencies.membership.observedThrough || boundary;
+                state.cursor = observations.currentCursor();
                 if (publish && hash !== state.hash) {
                   emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, outputHash: hash, value: execution.result });
                 }
                 state.hash = hash;
+                return;
               } catch (error) {
-                state.cursor = boundary;
-                if (publish) emit({ type: "result", id: state.mount.id, observedThrough: boundary, error: safeNodeQueryError(error) });
+                state.cursor = observations.currentCursor();
+                if (publish) emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, error: safeNodeQueryError(error) });
+                return;
               }
-            } while (state.dirty && !closed);
+            }
           })().finally(() => { state.running = undefined; });
           return state.running;
         };
         const stop = observations.subscribe((event) => {
           for (const state of states) {
             if (state.mount.tree && event.tree !== state.mount.tree) continue;
-            state.dirty = true;
-            if (ready) void evaluate(state, true);
+            if (!nodeEventRelevant(event, state.sensitivity)) continue;
+            state.pending.push(event);
+            if (ready && !state.running) void evaluate(state, true);
           }
         });
         const close = () => {
@@ -190,11 +259,8 @@ export class NodeLiveQueryBroker {
           await Promise.all(states.map((state) => evaluate(state, false)));
           if (closed) return;
           for (const state of states) {
-            if (state.hash !== state.mount.knownOutputHash && state.hash) {
-              const execution = await engine.execute(state.mount.handle, { input: state.mount.input, user: context.user });
-              state.hash = nodeOutputHash(execution.result);
-              state.cursor = execution.dependencies.membership.observedThrough;
-              emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, outputHash: state.hash, value: execution.result });
+            if (state.execution && state.hash !== state.mount.knownOutputHash && state.hash) {
+              emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, outputHash: state.hash, value: state.execution.result });
             }
           }
           ready = true;
@@ -203,7 +269,7 @@ export class NodeLiveQueryBroker {
             observedThrough: state.cursor,
             ...(state.hash ? { outputHash: state.hash } : {}),
           })) });
-          for (const state of states) if (state.dirty) void evaluate(state, true);
+          for (const state of states) if (state.pending.length && !state.running) void evaluate(state, true);
         })().catch((error) => {
           if (!closed) controller.error(error);
           stop();

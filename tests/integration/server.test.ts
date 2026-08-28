@@ -131,6 +131,7 @@ describe("arborsync REST v1", () => {
     expect(savedPage.properties).toEqual({ title: "Property title", optional: null });
     expect(nodeDocument(savedPage)?.bodySource).toBe(body);
     expect(pageReceipt.effects[0]?.propertiesRevision).toBe(savedPage.capabilities.properties?.revision);
+    expect(pageReceipt.effects[0]?.changedProperties).toEqual(["optional", "title"]);
 
     const rows = await client.children({ tree: scope, path: "/data/items", stableKey: null });
     const row = rows.items[0]!;
@@ -146,6 +147,7 @@ describe("arborsync REST v1", () => {
     expect(savedRow.properties.title).toBe("One updated");
     expect(rowReceipt.effects[0]?.ref.path).toBe("/data/items/one");
     expect(rowReceipt.effects[0]?.propertiesRevision).toBe(savedRow.capabilities.properties?.revision);
+    expect(rowReceipt.effects[0]?.changedProperties).toEqual(["title"]);
   });
 
   test("rejects mutation ID reuse with changed intent", async () => {
