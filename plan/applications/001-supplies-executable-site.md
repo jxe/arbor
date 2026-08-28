@@ -7,7 +7,8 @@
   recorded in [`history/applications`](../history/applications/README.md), plus
   the provider-neutral node/query contract and core/provider phases in
   [Data 002](../data/002-reconcile-node-data-model.md)
-- **Progress**: IN PROGRESS — compiler and development typechecking are next
+- **Progress**: IN PROGRESS — compiler and development typechecking are owned
+  by [Application 003](003-development-compiler-and-editor-tooling.md)
 - **Reference corpus**: [`sites/supplies`](../../sites/supplies)
 
 ## Target result
@@ -86,36 +87,12 @@ because that historical implementation passed.
 
 ## Remaining milestone 1 — compiler and development typechecking
 
-1. Recognize `.mdx` and default-exporting `.tsx` as extensionless executable
-   surfaces while retaining exact readable/editable source. Keep supporting
-   `.tsx` and `.ts` modules import-only.
-2. Build the addressed document's explicit MDX/TSX/TS graph and split public
-   React code from server-only query/mutation code. Reject ambient filesystem,
-   process, network, credential, and undeclared-tree access.
-3. Generate declarations for generic node sources, database relation
-   capabilities, symbolic fields, reviewed relationships, queries, mutations,
-   `NodeOf`, `RowOf`, `ResultOf`, `useQuery`, and `useMutationAction`. Resolve
-   literal paths and schema fingerprints at development time and report
-   diagnostics at authored spans.
-4. Typecheck public and server graphs in watch mode when source, schema,
-   imported profile shapes, or compiler versions change. Add
-   `arbor check sites/supplies` with a nonzero failure status.
-5. Produce one coherent document version keyed by source TreeID/ref, path,
-   import graph, schema fingerprint, and pinned compiler versions. Store
-   reproducible generated artifacts privately, outside the authored tree.
-6. Compile statically discoverable Tailwind classes without requiring an
-   authored import, stylesheet, config, or content glob.
-7. Emit a reviewed manifest of public bundles/assets, handles and schemas,
-   tree/node/store capabilities, sensitivity plans, backing requirements, and
-   runtime features.
-   Never put server implementations or private paths in client output.
-8. Exercise every Supplies document plus negative fixtures for forbidden
-   imports, undeclared paths, invalid query fields, dynamic Tailwind fragments,
-   and server-handle leakage.
+Complete [Application 003](003-development-compiler-and-editor-tooling.md)
+against the unchanged Supplies corpus. This application plan consumes its
+coherent compiled document and activation manifest; it does not maintain a
+second compiler checklist or choose editor-specific typing semantics.
 
-Gate: `arbor check sites/supplies` typechecks the unchanged tree, diagnostics
-identify authored lines, result types are inferred at component call sites, and
-inspection proves server implementations are absent from public bundles.
+Gate: Application 003's completion gate passes for `sites/supplies`.
 
 ## Remaining milestone 2 — local and Canopy execution
 

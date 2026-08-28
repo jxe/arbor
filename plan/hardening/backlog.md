@@ -54,20 +54,12 @@ These are implementation violations of the aspirational specification. They are 
    resolve rollup rows. Delete both when rollup descriptors, remote row paging,
    bounded marker placement, and schema/model-digest validation are live on
    Canopy; remote results must then match placed and offline providers.
-4. **Remove Postgres virtual nodes and provisional offset cursors.** Postgres
-   tables still use virtual-node special cases and an opaque cursor bound to the
-   placeholder revision `external:postgres`, not a proved transaction snapshot.
-   Replace this path when `_store.yaml` is driver-dispatched through the shared
-   provider, introspected primary keys produce stable row refs, and paging uses
-   a real revision-bound keyset cursor. Do not expose mutable Postgres rows
-   before those conditions hold.
-5. **Reconcile expanded Markdown row paths with key-derived rollup paths.**
-   Existing Markdown records retain their authored filename as the readable
-   path while CSV/JSON/JSONL rows derive it from the declared primary key. Add a
-   reviewed migration/converter or a provider-neutral logical-path map before
-   claiming representation migration preserves paths automatically. Delete
-   this exception only when the same fixture has identical refs as Markdown,
-   CSV, JSON, JSONL, and SQLite and relative Markdown links remain ordinary.
+4. **Complete [Data 004](../data/004-postgres-child-provider.md).** That plan now
+   owns removal of Postgres virtual nodes, `external:postgres`, provisional
+   offset cursors, and all associated deletion conditions.
+5. **Complete [Data 003](../data/003-representation-equivalence.md).** That plan
+   now owns the reviewed logical-path rule/converter and the proof that expanded
+   Markdown and key-derived rollups preserve refs and ordinary relative links.
 6. **Cache bounded provider snapshots instead of rebuilding complete views.**
    File-backed summary, paging, and stable-key resolution currently reparse and
    revalidate the complete backing to establish duplicate-key safety. The first
@@ -107,18 +99,11 @@ These are implementation violations of the aspirational specification. They are 
     rollup provider must carry an exact accepted source/object revision and a
     separate scoped model digest so vacuuming, indexes, and representation-only
     changes participate in synchronization without changing logical equality.
-11. **Generate source schemas before ordinary-tree query activation.** The
-    development compiler must bind every literal `arbor(path).children` handle
-    to declared property types and a schema fingerprint, including an empty
-    child set. The current ordinary-node engine validates returned JSON values
-    but cannot reject an unknown selected/filter field when no sample exposes
-    it. SQLite now rejects handles unless an activation caller supplies the
-    resolved authored path, TreeID, logical path, and schema fingerprint, but
-    that caller-side binding array is a temporary manifest/compiler seam rather
-    than the final generated activation artifact. Delete the manual binding
-    assembly and sample-derived fallback typing once generated source
-    declarations and activation-time fingerprint checks cover expanded and
-    rolled-up sources, imported helper modules, and computed-locator bounds.
+11. **Complete
+    [Application 003](../applications/003-development-compiler-and-editor-tooling.md).**
+    It now owns generated source schemas, ordinary-tree activation manifests,
+    empty-source typing, imported helpers, computed-locator bounds, and removal
+    of the current manual binding/sample-derived fallback seam.
 12. **Replace temporary whole-source portable query evaluation.** Ordinary-node
     queries currently page up to 10,000 children before filtering and picking,
     and the SQLite reference driver reads the complete root relation before

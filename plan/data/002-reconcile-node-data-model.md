@@ -17,7 +17,8 @@
 - **Depends on:** accepted specification in `spec/01-data-model.md`,
   `spec/02-directory-format.md`, `spec/03-locators.md`, `spec/04-wire.md`, and
   `spec/06-stores.md`
-- **Blocks:** Data 001 and the Supplies compiler/runtime binding
+- **Blocks:** Data 001, Data 003 representation migration, Data 004 Postgres,
+  and Application 003 compiler/runtime binding
 
 ### Implementation checkpoints
 
@@ -171,11 +172,15 @@
   sampled boundary. SQLite-only relationships, aggregates, authored ordering,
   and SQL planning remain explicit capability extensions rather than leaking
   back into the common engine.
-- **Next checkpoint:** generate typed source declarations and the activation
-  manifest for ordinary and rolled-up paths, including empty child sets and
-  schema fingerprints. Then build the provider-neutral live broker that can
-  route those activated handles through Wire `/queries`. No authored query
-  syntax change is assumed by this checkpoint; discuss one before adopting it.
+- **Next checkpoint:** implement bounded `<!-- arbor:children -->` placement
+  and remove the remaining collection-specific child filters, then finish the
+  generic stable-key locator cutover. Provider snapshots/observation, Wire
+  rollups/merge, the shared live broker, and tree-scoped execution routes follow
+  in this plan. Typed source declarations, activation-manifest generation, and
+  editor integration moved intact to
+  [Application 003](../applications/003-development-compiler-and-editor-tooling.md);
+  representation-path conversion moved to [Data 003](003-representation-equivalence.md);
+  Postgres provider implementation moved to [Data 004](004-postgres-child-provider.md).
 
 ## Target result
 
@@ -187,7 +192,8 @@ directories, collections, database containers, tables, and rows:
 - identity, location, properties, content, children, schema, and capabilities
   are independent dimensions;
 - `document` and `collection` are capabilities/projections, while file,
-  Markdown, CSV, JSON, JSONL, SQLite, and Postgres are representations/providers;
+  Markdown, CSV, JSON, JSONL, and SQLite are representations/providers in this
+  plan; Postgres uses the same frozen contract in Data 004;
 - every table or record is browsed through ordinary `node` and paginated
   `children` operations;
 - frontmatter and row columns project through the same node-properties field;
@@ -415,7 +421,8 @@ Provider variants:
 - Markdown-record children;
 - `_store.csv`, `_store.json`, and `_store.jsonl` immediate-child rollups;
 - `_store.sqlite3` provider-owned table/row subtree rollup;
-- `_store.yaml` driver-dispatched external providers, initially Postgres; and
+- `_store.yaml` driver-dispatched external providers supplied later by Data 004;
+  and
 - later Data 001 replicated materializations using the same logical objects.
 
 The exact rollup bytes/source revision and schema-normalized, store-scoped model
@@ -538,16 +545,10 @@ Generic children preserve node identity. A future relational driver's named
 relationship must be an optimized/proved edge over those same nodes, not a
 second result ontology or a separately authored node facet.
 
-Make this statically useful in the authored TypeScript workflow. The development
-compiler resolves literal Arbor locators against the checked source/tree graph,
-loads declared node/child/property/content/edge schemas, and emits private
-generated declarations for each source handle. Homogeneous children get one
-item type; heterogeneous children get a declared discriminated union and narrow
-only through proved schema predicates. Computed paths require an explicit
-schema/capability bound. The compiled manifest pins every contributing tree
-root and schema fingerprint; activation and execution reject a stale binding
-or retain the last-known-good compiled version. Runtime data never determines
-TypeScript types and the compiler never guesses a property type from samples.
+Application 003 makes this contract statically useful in authored TypeScript and
+MDX. Data 002 supplies the provider-neutral schema, source, selection,
+sensitivity, and activation inputs it consumes; Data 002 does not choose an
+editor adapter or generated declaration layout.
 
 Replace database-only dependency tracking with scoped logical dependencies:
 exact node revisions, child-membership generations, property/content fields,
@@ -629,9 +630,8 @@ snapshots/transactions and language-neutral vectors.
 - Freeze generic node-source, selection-graph, edge, value-query, capability,
   and sensitivity-plan fixtures. Prove the same handle over expanded Markdown
   children, CSV/JSON/JSONL rollups, SQLite, and a fake remote provider.
-- Freeze development-type fixtures for homogeneous children, discriminated
-  unions, optional content, references, relational capability refinement, computed
-  path declarations, and stale schema fingerprints.
+- Freeze the language-neutral schema/source/capability fixtures consumed by
+  Application 003. TypeScript declaration and editor fixtures live in that plan.
 - Replace pre-release REST v1 atomically across the daemon, TypeScript client,
   Swift client, fixtures, and docs. Do not add REST v2, a compatibility adapter,
   or support two ontologies indefinitely.
@@ -669,7 +669,8 @@ snapshots/transactions and language-neutral vectors.
 - Implement the marker placement model and remove child exclusion hooks.
 - Refactor `Workspace.node`, `Workspace.children`, `FilesystemService`, and
   `ArborService` to delegate row/table resolution to `ChildProvider`.
-- Remove Postgres virtual-node and virtual-table special cases.
+- Keep the shared provider boundary free of new Postgres special cases. Removal
+  of the existing Postgres virtual-node bridge is Data 004's deletion gate.
 - Ensure structural actions, search, backlinks, recovery, Trash, assets,
   placeholders, mounted boundaries, and historical reads consume generic refs.
 - Keep local path-only nodes identity-less until promoted/materialized exactly as
@@ -755,8 +756,8 @@ snapshots/transactions and language-neutral vectors.
 
 ### Phase 8 — delete the old ontology and reconcile documentation
 
-- Delete obsolete enums, adapters, collection endpoints/methods, fixtures,
-  special directory filtering, and stale generated declarations.
+- Delete obsolete enums, adapters, collection endpoints/methods, fixtures, and
+  special directory filtering. Application 003 owns generated declarations.
 - Update README, local-system/CLI/API/reference docs, active plans, historical
   implementation notes where they describe current behavior, and hardening
   backlog items superseded by this work.
@@ -769,12 +770,14 @@ snapshots/transactions and language-neutral vectors.
 
 At minimum, prove:
 
-- one logical fixture has identical refs, properties, children, schema,
-  model-state equivalence, and scoped store digests through Markdown, CSV, JSON,
-  JSONL, SQLite, and a fake Postgres
-  provider;
+- one logical fixture has identical stable identities, properties, children,
+  schema, model-state equivalence, and scoped store digests through Markdown,
+  CSV, JSON, JSONL, and SQLite; Data 003 owns readable-path-preserving
+  representation conversion and Data 004 adds the same provider fixture for
+  Postgres;
 - primary and compound schema identity survive reorder, formatting, restart,
-  paging, representation migration, and readable-path healing;
+  paging, and readable-path healing within a representation; Data 003 owns the
+  cross-representation migration proof;
 - duplicate/missing keys disable mutation and durable references;
 - generic children render tables without `/v1/collection` or N+1 reads;
 - content-only, property-only, children-only, combined Markdown+children,
