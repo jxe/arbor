@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { buildNetworkLocator, encodeSSEFrame, pageIDStableKey, resolveLogicalURL, sha256 } from "@arbor/core";
-import type { AccessEntry, AccessLevel, LocatorResolution, MutationCallRequest, MutationCallRuntime, ObservationEvent, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime, RemoteTreeDescriptor } from "@arbor/core";
+import type { AccessEntry, AccessLevel, LocatorResolution, MutationCallRequest, MutationCallRuntime, ObservationEvent, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime, RemoteTreeDescriptor, RollupDescriptor } from "@arbor/core";
 import {
   AlreadyClaimedError,
   RefConflictError,
@@ -23,7 +23,8 @@ import {
   type RemoteAccountDescriptor,
   type TreeAccess,
 } from "@arbor/wire";
-import { renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
+import { decodeWireFileRollup, SchemaSandbox, type DecodedWireFileRollup, type WireFileRollupRow } from "@arbor/stores";
+import { renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
 import { parseMarkdown } from "@arbor/editor";
 
 function logicalStableKey(node: ResolvedWireLogicalNode): string | null {
@@ -31,6 +32,63 @@ function logicalStableKey(node: ResolvedWireLogicalNode): string | null {
   if (!file) return null;
   const id = parseMarkdown(new TextDecoder().decode(file.bytes)).frontmatter.id;
   return typeof id === "string" ? pageIDStableKey(id) : null;
+}
+
+interface ResolvedWireRollupRow {
+  path: string;
+  row: WireFileRollupRow;
+}
+
+async function decodeRollup(
+  descriptor: RollupDescriptor,
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+): Promise<DecodedWireFileRollup> {
+  const [source, schema] = await Promise.all([
+    load(descriptor.source).then(decodeWireObject),
+    load(descriptor.schemaSource).then(decodeWireObject),
+  ]);
+  if (source.type !== "file" || schema.type !== "file") throw new Error("Wire rollup targets must be file objects");
+  const sandbox = new SchemaSandbox();
+  try { return await decodeWireFileRollup(descriptor, source.bytes, schema.bytes, sandbox); }
+  finally { await sandbox[Symbol.asyncDispose](); }
+}
+
+async function findWireRollupRow(
+  root: ObjectHash,
+  requestedPath: string,
+  stableKey: string | null,
+  load: (hash: ObjectHash) => Promise<Uint8Array>,
+): Promise<ResolvedWireRollupRow | null> {
+  if (requestedPath === "/") return null;
+  const parentPath = requestedPath.slice(0, requestedPath.lastIndexOf("/")) || "/";
+  const parent = await resolveWireLogicalNode(root, parentPath, load);
+  if (parent?.object.type !== "directory") return null;
+  const descriptor = parent.object.entries.find((entry) => entry.rollup)?.rollup;
+  if (!descriptor) return null;
+  const projection = await decodeRollup(descriptor, load);
+  const segment = requestedPath.split("/").at(-1)!;
+  const row = projection.rows.find((candidate) => stableKey
+    ? candidate.stableKey === stableKey
+    : candidate.path === segment);
+  if (!row) return null;
+  return {
+    path: parentPath === "/" ? `/${row.path}` : `${parentPath}/${row.path}`,
+    row,
+  };
+}
+
+function rollupRowTitle(row: WireFileRollupRow): string {
+  return typeof row.properties.title === "string" ? row.properties.title
+    : typeof row.properties.name === "string" ? row.properties.name
+    : typeof row.properties.slug === "string" ? row.properties.slug
+    : row.path;
+}
+
+function rollupRowMarkdown(row: WireFileRollupRow): string {
+  const json = JSON.stringify(row.properties, null, 2);
+  const longest = Math.max(2, ...[...json.matchAll(/`+/g)].map((match) => match[0].length));
+  const fence = "`".repeat(longest + 1);
+  return `# ${rollupRowTitle(row).replaceAll(/\r?\n/g, " ")}\n\n${fence}json\n${json}\n${fence}\n`;
 }
 
 async function findWireNodeByStableKey(
@@ -639,28 +697,55 @@ export async function serveCanopy(options: {
           const load = (hash: ObjectHash) => canopy.object(hash);
           let logicalPath = resolved.path;
           let logical = await resolveWireLogicalNode(tree.ref, logicalPath, load);
-          if (requestLocator.stableKey && (!logical || logicalStableKey(logical) !== requestLocator.stableKey)) {
-            const healed = await findWireNodeByStableKey(tree.ref, requestLocator.stableKey, load);
-            if (!healed) return new Response("Not found", { status: 404 });
-            logicalPath = healed.path;
-            logical = healed.node;
-            const publicPath = tree.canonicalPath === "/"
-              ? logicalPath
-              : `${tree.canonicalPath}${logicalPath === "/" ? "" : logicalPath}`;
-            const location = buildNetworkLocator(
-              publicPath,
-              {
-                stableKey: requestLocator.stableKey,
-                applicationQuery: requestLocator.applicationQuery,
-                contentFragment: requestLocator.contentFragment,
-              },
-            );
-            if (!location) return new Response("Not found", { status: 404 });
-            return new Response(null, { status: 308, headers: { location } });
+          const logicalKey = logical ? logicalStableKey(logical) : null;
+          const rollupRow = (!logical || (requestLocator.stableKey && logicalKey !== requestLocator.stableKey))
+            ? await findWireRollupRow(tree.ref, logicalPath, requestLocator.stableKey, load)
+            : null;
+          if (requestLocator.stableKey && (!logical || logicalKey !== requestLocator.stableKey)) {
+            if (rollupRow) {
+              logicalPath = rollupRow.path;
+              if (resolved.path !== logicalPath) {
+                const publicPath = tree.canonicalPath === "/"
+                  ? logicalPath
+                  : `${tree.canonicalPath}${logicalPath === "/" ? "" : logicalPath}`;
+                return new Response(null, { status: 308, headers: { location: buildNetworkLocator(publicPath, {
+                  stableKey: requestLocator.stableKey,
+                  applicationQuery: requestLocator.applicationQuery,
+                  contentFragment: requestLocator.contentFragment,
+                }) } });
+              }
+            } else {
+              const healed = await findWireNodeByStableKey(tree.ref, requestLocator.stableKey, load);
+              if (!healed) return new Response("Not found", { status: 404 });
+              logicalPath = healed.path;
+              logical = healed.node;
+              const publicPath = tree.canonicalPath === "/"
+                ? logicalPath
+                : `${tree.canonicalPath}${logicalPath === "/" ? "" : logicalPath}`;
+              const location = buildNetworkLocator(
+                publicPath,
+                {
+                  stableKey: requestLocator.stableKey,
+                  applicationQuery: requestLocator.applicationQuery,
+                  contentFragment: requestLocator.contentFragment,
+                },
+              );
+              if (!location) return new Response("Not found", { status: 404 });
+              return new Response(null, { status: 308, headers: { location } });
+            }
+          }
+          const canonicalPath = tree.canonicalPath!;
+          if (rollupRow) {
+            const title = rollupRowTitle(rollupRow.row);
+            if (request.headers.get("accept")?.includes("text/markdown")) {
+              return new Response(rollupRowMarkdown(rollupRow.row), {
+                headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" },
+              });
+            }
+            return html(renderPublicDataPage(title, rollupRow.row.properties));
           }
           if (!logical) return new Response("Not found", { status: 404 });
           const objectValue = logical.object;
-          const canonicalPath = tree.canonicalPath!;
           const objectName = logical.objectName || canonicalPath.split("/").at(-1) || "Arbor";
           if (objectValue.type === "file") {
             const body = new TextDecoder().decode(objectValue.bytes);
@@ -692,8 +777,10 @@ export async function serveCanopy(options: {
           if (request.headers.get("accept")?.includes("text/markdown")) {
             return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
           }
-          const children = (await Promise.all(objectValue.entries
-            .filter((entry) => entry.name !== "_index.md")
+          const rollupDescriptor = objectValue.entries.find((entry) => entry.rollup)?.rollup;
+          const rollup = rollupDescriptor ? await decodeRollup(rollupDescriptor, load) : null;
+          const physicalChildren = (await Promise.all(objectValue.entries
+            .filter((entry) => entry.name !== "_index.md" && !entry.rollup && !(rollupDescriptor && entry.name === "schema.ts"))
             .map(async (entry): Promise<PublicPageChild | null> => {
               if (entry.tree) {
                 const nested = canopy.get(entry.tree);
@@ -708,6 +795,16 @@ export async function serveCanopy(options: {
                 kind: entry.tree || object?.type === "directory" ? "folder" : markdown ? "document" : "file",
               };
             }))).filter((child): child is PublicPageChild => child !== null);
+          const rollupChildren: PublicPageChild[] = (rollup?.rows ?? []).map((row) => ({
+            name: rollupRowTitle(row),
+            href: buildNetworkLocator(`${prefix}/${encodeURIComponent(row.path)}`, {
+              stableKey: row.stableKey,
+              applicationQuery: requestLocator.applicationQuery,
+            }),
+            kind: "document",
+          }));
+          const children = [...physicalChildren, ...rollupChildren]
+            .sort((left, right) => left.name.localeCompare(right.name));
           return html(renderPublicMarkdownPage({
             source,
             fallbackTitle: logicalPath.split("/").filter(Boolean).at(-1) ?? canonicalPath.split("/").filter(Boolean).at(-1) ?? canopy.communityHandle(),

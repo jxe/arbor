@@ -2,8 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildNetworkLocator, generateArborID, pageIDStableKey, sha256 } from "@arbor/core";
+import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableKey, rowPathSegment, sha256 } from "@arbor/core";
 import { serveCanopy } from "@arbor/canopy";
+import { CollectionStore } from "@arbor/stores";
 import { snapshotDirectory, WireClient } from "@arbor/wire";
 import {
   readAccountConfigGraph,
@@ -53,6 +54,16 @@ async function submitConfiguration(
     { root: current.tree.ref, update: current.tree.update },
     snapshot,
   );
+}
+
+async function snapshotWithRollups(path: string) {
+  const stores = new CollectionStore();
+  try {
+    return await snapshotDirectory(path, new Map(), [], (directory, sourceName) =>
+      stores.fileRollupDescriptor(directory, sourceName));
+  } finally {
+    await stores[Symbol.asyncDispose]();
+  }
 }
 
 describe("governed account-configuration Canopy server", () => {
@@ -155,6 +166,56 @@ describe("governed account-configuration Canopy server", () => {
     expect(healed.headers.get("location")).toBe(buildNetworkLocator("/~owner/new-shared-tree/renamed", {
       stableKey: pageIDStableKey("x7f3q2"),
     }));
+    const peoplePath = join(treePath, "people");
+    await mkdir(peoplePath);
+    await writeFile(join(peoplePath, "schema.ts"), `
+      import { z } from "zod";
+      export const schema = z.object({ id: z.string(), name: z.string(), email: z.string() });
+      export const primaryKey = ["id"];
+    `);
+    await writeFile(join(peoplePath, "_store.json"), '[{"id":"alice","name":"Alice","email":"alice@example.test"}]\n');
+    const beforeRollup = await client.ref(treeID);
+    await client.submitUpdate(
+      treeID,
+      { root: beforeRollup.snapshot.ref, update: beforeRollup.snapshot.update },
+      await snapshotWithRollups(treePath),
+    );
+    const rowKey = canonicalStableKey([["id", "alice"]]);
+    const rowPath = rowPathSegment(rowKey);
+    const people = await fetch(`${running.url}/~owner/new-shared-tree/people`, {
+      headers: { "Arbor-Access-Link": linkSecret, accept: "text/html" },
+    });
+    const peopleHTML = await people.text();
+    expect(people.status).toBe(200);
+    expect(peopleHTML).toContain("Alice");
+    expect(peopleHTML).toContain(`people/${rowPath};arbor-key=`);
+    expect(peopleHTML).not.toContain("_store.json");
+    expect(peopleHTML).not.toContain("schema.ts");
+    const staleRow = buildNetworkLocator("/~owner/new-shared-tree/people/stale", {
+      stableKey: rowKey,
+      applicationQuery: "view=card",
+    });
+    const healedRow = await fetch(`${running.url}${staleRow}`, {
+      headers: { "Arbor-Access-Link": linkSecret },
+      redirect: "manual",
+    });
+    expect(healedRow.status).toBe(308);
+    expect(healedRow.headers.get("location")).toBe(buildNetworkLocator(`/~owner/new-shared-tree/people/${rowPath}`, {
+      stableKey: rowKey,
+      applicationQuery: "view=card",
+    }));
+    const rowResponse = await fetch(`${running.url}${healedRow.headers.get("location")}`, {
+      headers: { "Arbor-Access-Link": linkSecret, accept: "text/html" },
+    });
+    const rowHTML = await rowResponse.text();
+    expect(rowResponse.status).toBe(200);
+    expect(rowHTML).toContain("Alice");
+    expect(rowHTML).toContain("alice@example.test");
+    const rowMarkdown = await fetch(`${running.url}/~owner/new-shared-tree/people/${rowPath}`, {
+      headers: { "Arbor-Access-Link": linkSecret, accept: "text/markdown" },
+    });
+    expect(rowMarkdown.status).toBe(200);
+    expect(await rowMarkdown.text()).toContain('"email": "alice@example.test"');
     const bootstrap = await fetch(`${running.url}/~owner/new-shared-tree`, {
       headers: { accept: "text/html" },
     });
