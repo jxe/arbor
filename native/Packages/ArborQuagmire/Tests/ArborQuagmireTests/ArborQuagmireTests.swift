@@ -232,6 +232,100 @@ struct ArborQuagmireTests {
         #expect(admission.source == source)
     }
 
+    @Test("Toggles and indented bodies round-trip without touching source bytes")
+    func toggleNoOpRoundTrip() throws {
+        let source = "---\r\nid: pg_toggles\r\n---\r\n\r\n▸ **Outer**\r\n  Intro.\r\n  ▸ Inner\r\n    - child\r\n  ## Inside\r\n  body\r\n- list\r\n  ▸ Nested\r\n    ```text\r\n    ▸ literal, not a toggle\r\n    ```\r\n"
+        let opened = ArborMarkdownCodec.open(
+            source: source,
+            revision: "r1",
+            identitySeed: "pg_toggles"
+        )
+        let outer = try #require(opened.blocks.first)
+        guard case .toggle = outer.kind else {
+            Issue.record("Expected the outer toggle, got \(outer.kind)")
+            return
+        }
+        #expect(outer.children.contains { if case .toggle = $0.kind { true } else { false } })
+        #expect(outer.children.contains { if case .heading(.h2, _) = $0.kind { true } else { false } })
+        let list = try #require(opened.blocks.last)
+        guard case .bullet = list.kind else {
+            Issue.record("Expected the root list item")
+            return
+        }
+        let nested = try #require(list.children.first)
+        guard case .toggle = nested.kind else {
+            Issue.record("Expected a toggle nested below the list item")
+            return
+        }
+        guard case let .code(code, _) = nested.children.first?.kind else {
+            Issue.record("Expected an opaque fenced-code child")
+            return
+        }
+        #expect(code.contains("▸ literal, not a toggle"))
+
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        #expect(admission.source == source)
+        #expect(admission.patch.edits.isEmpty)
+    }
+
+    @Test("New and edited toggles serialize with the disclosure marker and reopen as toggles")
+    func toggleCreateEditAndReopen() throws {
+        var title = AttributedString("Details")
+        title[title.startIndex..<title.endIndex][InlineAttributes.BoldAttribute.self] = true
+        let blocks: [Block] = [
+            .toggle(title: title, children: [
+                .paragraph(text: AttributedString("Body")),
+                .toggle(title: AttributedString("Nested"), children: [
+                    .bullet(text: AttributedString("Child")),
+                ]),
+            ]),
+        ]
+        let source = ArborMarkdownCodec.serializeBlocks(blocks)
+        #expect(source.hasPrefix("▸ **Details**\n  Body"))
+        #expect(source.contains("  ▸ Nested\n    - Child"))
+        #expect(!source.hasPrefix("- Details"))
+
+        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "created-toggle")
+        guard case .toggle = opened.blocks.first?.kind else {
+            Issue.record("Created toggle reopened as a different block kind")
+            return
+        }
+        #expect(opened.blocks.first?.children.count == 2)
+
+        var edited = opened.blocks
+        edited[0] = edited[0].withText(AttributedString("Changed"))
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: edited, ledger: opened.ledger)
+        #expect(admission.patch.edits.count == 1)
+        #expect(admission.source.contains("▸ Changed"))
+        #expect(admission.source.contains("  Body"))
+        #expect(try admission.patch.applying(to: source) == admission.source)
+
+        let confirmed = ArborMarkdownCodec.open(
+            source: admission.source,
+            revision: "r2",
+            identitySeed: "created-toggle"
+        )
+        guard case .toggle = confirmed.blocks.first?.kind else {
+            Issue.record("Edited toggle did not survive provider acknowledgement")
+            return
+        }
+    }
+
+    @Test("Blank paragraphs inside a toggle remain inside its indented body")
+    func toggleBlankParagraph() throws {
+        let source = "▸ Notes\n  before\n  \n  \n  after\n"
+        let opened = ArborMarkdownCodec.open(source: source, revision: "r1", identitySeed: "toggle-blank")
+        let toggle = try #require(opened.blocks.first)
+        guard case .toggle = toggle.kind else {
+            Issue.record("Expected toggle")
+            return
+        }
+        #expect(toggle.children.count == 3)
+        #expect(toggle.children[1].text.characters.isEmpty)
+        let (admission, _) = ArborMarkdownCodec.admission(blocks: opened.blocks, ledger: opened.ledger)
+        #expect(admission.source == source)
+    }
+
     @Test("A linked list item is a bullet rather than a task checkbox")
     func linkedBullet() throws {
         let source = "- [https://example.com](https://example.com) -> destination\n"
@@ -787,6 +881,38 @@ struct ArborQuagmireTests {
         #expect(binding.document.children.first?.id == originalHeadingID)
         #expect(binding.lastError == nil)
         #expect(!binding.isSaving)
+        await binding.close()
+    }
+
+    @MainActor
+    @Test("A watched authoritative toggle remains a toggle after replacement")
+    func liveToggleUpdate() async throws {
+        let reference = WorkspaceReference(
+            tree: "tr_live_toggle",
+            path: "/",
+            stableKey: markdownStableKey("pg_live_toggle")
+        )
+        let initial = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "▸ Details\n  Original body.\n",
+            contentRevision: "r1"
+        )
+        let session = LiveUpdateSession(snapshot: initial)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        await Task.yield()
+        await session.publish(source: "▸ Updated details\n  Original body.\n", revision: "r2")
+
+        var updated = false
+        for _ in 0..<100 where !updated {
+            if case let .toggle(title) = binding.document.children.first?.kind {
+                updated = String(title.characters) == "Updated details"
+            }
+            if !updated { try await Task.sleep(for: .milliseconds(10)) }
+        }
+
+        #expect(updated)
+        #expect(binding.document.children.first?.children.first.map { String($0.text.characters) } == "Original body.")
+        #expect(binding.lastError == nil)
         await binding.close()
     }
 }
