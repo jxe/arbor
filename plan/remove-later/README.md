@@ -11,14 +11,14 @@ not a general technical-debt queue.
 
 ## Active plans
 
-There are no executor-ready removal plans. The remaining bridge is still inside
-its declared compatibility window.
+[001 — Retire the PageID-shaped stable-key bridge](001-pageid-stable-key-cutoff.md)
+is a deferred executor plan. It remains **WAITING** until its read-only data
+audit is complete, the compatibility window is explicitly closed, and Joe
+resumes it.
 
 ## Smaller items
 
-| Item | State | Delete when |
-|---|---|---|
-| PageID-shaped stable-key bridge | WAITING | The legacy-fragment uniqueness reader has passed its retention window and Markdown identity has a provider-owned codec. Remove `pageIDStableKey`, `pageIDFromStableKey`, private PageID owner indexes, and legacy candidate translation without removing generic rename healing. |
+There are no smaller unplanned removal items.
 
 Private SQLite property receipts, whole-table revision stand-ins, and temporary
 whole-source query evaluation are not duplicated here: their replacement and
