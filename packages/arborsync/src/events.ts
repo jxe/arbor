@@ -31,6 +31,11 @@ export class EventBus {
     return cursorOf(this.epoch, this.sequence);
   }
 
+  subscribe(listener: (event: WorkspaceEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
   emit(event: { tree: WorkspaceEvent["tree"]; kind: WorkspaceEvent["kind"] } & WorkspaceChange): WorkspaceEvent {
     const { tree, kind, ...change } = event;
     const sequenced: WorkspaceEvent = { tree, kind, change, cursor: cursorOf(this.epoch, ++this.sequence) };

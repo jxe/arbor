@@ -23,8 +23,9 @@ interface QuerySensitivity {
   user: ArborUser | null;
 }
 
-interface MountedQuery {
+export interface MountedQuery {
   id: string;
+  tree?: string;
   handle: QueryHandle<unknown, unknown>;
   input?: unknown;
   knownOutputHash?: Hash;
@@ -277,7 +278,8 @@ export class LiveQueryBroker implements AsyncDisposable {
   private nextCursor(): string { this.sequence += 1; return this.currentCursor(); }
   private publish(event: Invalidation): void { for (const listener of [...this.listeners]) listener(event); }
 
-  bind(handle: QueryHandle<unknown, unknown>, source: ResolvedArborSource): void {
+  bind(handle: QueryHandle<unknown, unknown>, source?: ResolvedArborSource): void {
+    if (!source) throw new Error("SQLite query handles require a resolved source binding");
     this.engine.bind(handle, source);
   }
 
@@ -293,8 +295,8 @@ export class RegisteredQueryRuntime implements QueryStreamRuntime {
 
   constructor(
     readonly document: QueryStreamRequest["document"],
-    readonly broker: LiveQueryBroker,
-    entries: readonly { ref: QueryHandleRef; handle: QueryHandle<unknown, unknown>; source: ResolvedArborSource }[],
+    readonly broker: Pick<LiveQueryBroker, "bind" | "stream">,
+    entries: readonly { ref: QueryHandleRef; handle: QueryHandle<unknown, unknown>; source?: ResolvedArborSource }[],
   ) {
     for (const entry of entries) {
       this.broker.bind(entry.handle, entry.source);
@@ -311,7 +313,7 @@ export class RegisteredQueryRuntime implements QueryStreamRuntime {
       ids.add(mount.id);
       const handle = this.handles.get(refKey(mount.handle));
       if (!handle) throw new Error("A mounted query handle or version is not active");
-      return { id: mount.id, handle, input: mount.input, knownOutputHash: mount.knownOutputHash };
+      return { id: mount.id, tree: mount.handle.tree, handle, input: mount.input, knownOutputHash: mount.knownOutputHash };
     });
     return this.broker.stream(mounts, context);
   }

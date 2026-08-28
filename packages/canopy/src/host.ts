@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { buildNetworkLocator, encodeSSEFrame, pageIDStableKey, resolveLogicalURL, sha256 } from "@arbor/core";
-import type { AccessEntry, AccessLevel, LocatorResolution, ObservationEvent, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime, RemoteTreeDescriptor } from "@arbor/core";
+import type { AccessEntry, AccessLevel, LocatorResolution, MutationCallRequest, MutationCallRuntime, ObservationEvent, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime, RemoteTreeDescriptor } from "@arbor/core";
 import {
   AlreadyClaimedError,
   RefConflictError,
@@ -251,6 +251,7 @@ export async function serveCanopy(options: {
   port?: number;
   hostname?: string;
   queryRuntime?: QueryStreamRuntime;
+  mutationRuntime?: MutationCallRuntime;
 }) {
   const bootstrapAccounts = options.accounts ?? [];
   let publicOrigin = options.publicOrigin.replace(/\/$/, "");
@@ -272,17 +273,41 @@ export async function serveCanopy(options: {
       const authentication = canopy.authenticateToken(bearer(request));
       const account = authentication?.account ?? null;
       try {
-        if (request.method === "POST" && url.pathname === "/.arbor/query-stream") {
+        const queryRoute = /^\/\.arbor\/trees\/([^/]+)\/queries$/.exec(url.pathname);
+        if (request.method === "QUERY" && queryRoute) {
           if (!options.queryRuntime) return wireError("unsupported-operation", "No query runtime is active", 422);
+          const treeID = decodeURIComponent(queryRoute[1]!);
+          const tree = canopy.get(treeID);
+          if (!tree || !canopy.canRead(account, treeID, linkDigest(request))) return wireError("not-found", "Tree not found", 404);
           try {
+            const input = await request.json() as QueryStreamRequest;
+            if (input.document.tree !== treeID || input.queries.some((query) => query.handle.tree !== treeID)) {
+              return wireError("invalid-request", "The route tree must own the document and every query handle", 400, false, {}, { tree: treeID });
+            }
             return await queryStreamResponse(
               options.queryRuntime,
-              await request.json() as QueryStreamRequest,
+              input,
               request.signal,
               account?.profileTree ? { profile: account.profileTree } : null,
             );
           } catch (error) {
             return wireError("invalid-request", error instanceof Error ? error.message : "Invalid query stream request", 400);
+          }
+        }
+        const mutateRoute = /^\/\.arbor\/trees\/([^/]+)\/mutate$/.exec(url.pathname);
+        if (request.method === "POST" && mutateRoute) {
+          if (!options.mutationRuntime) return wireError("unsupported-operation", "No mutation runtime is active", 422);
+          const treeID = decodeURIComponent(mutateRoute[1]!);
+          const tree = canopy.get(treeID);
+          if (!tree || !account || !canopy.canWrite(account, treeID, linkDigest(request))) return wireError("not-found", "Tree not found", 404);
+          try {
+            const input = await request.json() as MutationCallRequest;
+            if (input.document.tree !== treeID || input.handle.tree !== treeID) {
+              return wireError("invalid-request", "The route tree must own the document and mutation handle", 400, false, {}, { tree: treeID });
+            }
+            return json(await options.mutationRuntime.call(input, { user: account.profileTree ? { profile: account.profileTree } : null }));
+          } catch (error) {
+            return wireError("invalid-request", error instanceof Error ? error.message : "Invalid mutation request", 400);
           }
         }
         if (request.method === "GET" && url.pathname === "/.arbor/health") {

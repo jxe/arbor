@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { Workspace } from "@arbor/arborsync";
-import { arbor, NodeQueryEngine, query, SQLiteQueryEngine, type ProfileResolver } from "arbor/data";
+import { arbor, NodeLiveQueryBroker, NodeQueryEngine, query, RegisteredQueryRuntime, SQLiteQueryEngine, type ProfileResolver } from "arbor/data";
 
 let root: string;
 let state: string;
@@ -164,6 +164,31 @@ describe("portable arbor() node queries", () => {
     expect(execution.dependencies.membership.observedThrough).toBe(sourceCursor);
     expect(() => workspace.events.validate(sourceCursor)).not.toThrow();
     expect(workspace.events.currentCursor()).not.toBe(sourceCursor);
+  });
+
+  test("streams ordinary-tree queries through the provider-neutral live broker", async () => {
+    const broker = new NodeLiveQueryBroker(ordinaryNodes(), workspace.events);
+    const handleRef = { tree: workspace.tree, module: "/queries.ts", export: "matching", version: "query-v1" };
+    const runtime = new RegisteredQueryRuntime(
+      { tree: workspace.tree, path: "/index", version: "document-v1" },
+      broker,
+      [{ ref: handleRef, handle: matching }],
+    );
+    const abort = new AbortController();
+    const reader = runtime.stream({
+      document: runtime.document,
+      queries: [{ id: "matching", handle: handleRef }],
+    }, { signal: abort.signal, user: null }).getReader();
+    const initial = (await reader.read()).value!;
+    expect(initial.type).toBe("result");
+    if (initial.type === "result" && "value" in initial) expect(initial.value).toHaveLength(2);
+    expect((await reader.read()).value?.type).toBe("ready");
+    await writeFile(join(root, "records", "d.md"), "---\nid: d\ntitle: Delta\n---\n");
+    workspace.events.emit({ tree: workspace.tree, kind: "created", path: "/records/d", origin: "external" });
+    const changed = (await reader.read()).value!;
+    expect(changed.type).toBe("result");
+    if (changed.type === "result" && "value" in changed) expect(changed.value).toHaveLength(3);
+    abort.abort();
   });
 
   test("rejects an expanded-directory page cursor after membership changes", async () => {

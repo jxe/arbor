@@ -1,4 +1,5 @@
-import type { ChildrenPage, NodeRef, NodeSnapshot, NodeSummary } from "@arbor/core";
+import { canonicalJSONString, sha256, type ChildrenPage, type Hash, type NodeRef, type NodeSnapshot, type NodeSummary, type QueryStreamEvent, type WorkspaceEvent } from "@arbor/core";
+import type { MountedQuery } from "./live.ts";
 import type {
   ArborUser,
   QueryHandle,
@@ -100,5 +101,114 @@ export class NodeQueryEngine {
         rows: rows.map((row) => ({ ref: row.ref, revision: row.revision })),
       },
     };
+  }
+}
+
+export interface NodeQueryObservationSource {
+  currentCursor(): string;
+  subscribe(listener: (event: WorkspaceEvent) => void): () => void;
+}
+
+function nodeOutputHash(value: unknown): Hash {
+  return `sha256:${sha256(canonicalJSONString(value))}`;
+}
+
+function safeNodeQueryError(error: unknown) {
+  const message = error instanceof Error && /input|required|not found|missing|children|bound/i.test(error.message)
+    ? error.message
+    : "The query could not be evaluated";
+  return { code: "invalid-request", message, retryable: false } as const;
+}
+
+/** Race-free conservative live execution for any provider that exposes ordinary nodes. */
+export class NodeLiveQueryBroker {
+  constructor(
+    readonly engine: NodeQueryEngine,
+    readonly observations: NodeQueryObservationSource,
+  ) {}
+
+  bind(_handle: QueryHandle<unknown, unknown>): void {}
+
+  stream(
+    mounts: readonly MountedQuery[],
+    context: { signal: AbortSignal; user: ArborUser | null },
+  ): ReadableStream<QueryStreamEvent> {
+    const engine = this.engine;
+    const observations = this.observations;
+    return new ReadableStream<QueryStreamEvent>({
+      start(controller) {
+        let closed = false;
+        let ready = false;
+        const states = mounts.map((mount) => ({
+          mount,
+          cursor: observations.currentCursor(),
+          hash: undefined as Hash | undefined,
+          running: undefined as Promise<void> | undefined,
+          dirty: false,
+        }));
+        const emit = (event: QueryStreamEvent) => { if (!closed) controller.enqueue(event); };
+        const evaluate = (state: typeof states[number], publish: boolean): Promise<void> => {
+          if (state.running) { state.dirty = true; return state.running; }
+          state.running = (async () => {
+            do {
+              state.dirty = false;
+              const boundary = observations.currentCursor();
+              try {
+                const execution = await engine.execute(state.mount.handle, {
+                  input: state.mount.input,
+                  user: context.user,
+                });
+                const hash = nodeOutputHash(execution.result);
+                state.cursor = execution.dependencies.membership.observedThrough || boundary;
+                if (publish && hash !== state.hash) {
+                  emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, outputHash: hash, value: execution.result });
+                }
+                state.hash = hash;
+              } catch (error) {
+                state.cursor = boundary;
+                if (publish) emit({ type: "result", id: state.mount.id, observedThrough: boundary, error: safeNodeQueryError(error) });
+              }
+            } while (state.dirty && !closed);
+          })().finally(() => { state.running = undefined; });
+          return state.running;
+        };
+        const stop = observations.subscribe((event) => {
+          for (const state of states) {
+            if (state.mount.tree && event.tree !== state.mount.tree) continue;
+            state.dirty = true;
+            if (ready) void evaluate(state, true);
+          }
+        });
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          stop();
+          try { controller.close(); } catch {}
+        };
+        context.signal.addEventListener("abort", close, { once: true });
+        void (async () => {
+          await Promise.all(states.map((state) => evaluate(state, false)));
+          if (closed) return;
+          for (const state of states) {
+            if (state.hash !== state.mount.knownOutputHash && state.hash) {
+              const execution = await engine.execute(state.mount.handle, { input: state.mount.input, user: context.user });
+              state.hash = nodeOutputHash(execution.result);
+              state.cursor = execution.dependencies.membership.observedThrough;
+              emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, outputHash: state.hash, value: execution.result });
+            }
+          }
+          ready = true;
+          emit({ type: "ready", queries: states.map((state) => ({
+            id: state.mount.id,
+            observedThrough: state.cursor,
+            ...(state.hash ? { outputHash: state.hash } : {}),
+          })) });
+          for (const state of states) if (state.dirty) void evaluate(state, true);
+        })().catch((error) => {
+          if (!closed) controller.error(error);
+          stop();
+        });
+      },
+    });
   }
 }

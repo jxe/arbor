@@ -57,7 +57,7 @@ export type QueryStreamEvent =
   | { type: "ready"; queries: Array<{ id: string; observedThrough: EventCursor; outputHash?: Hash }> }
   | { type: "reload"; reason: "source-changed" | "access-changed" };
 
-/** Server-side adapter shared by Local REST and Arbor Wire query-stream routes. */
+/** Server-side adapter shared by Local REST and tree-scoped Arbor Wire queries. */
 export interface QueryStreamRuntime {
   stream(
     request: QueryStreamRequest,

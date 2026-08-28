@@ -192,6 +192,17 @@
   records are removed: expanded directories always remain physical
   directories and carry provider child-set metadata separately. Legacy event
   effects and deprecated native source aliases remain the last locator bridge.
+- **2026-08-28 — provider-neutral live queries and final execution routes:**
+  `NodeLiveQueryBroker` runs the portable filter/field/cardinality algebra over
+  any ordinary `NodeQueryProvider`, subscribes before sampling, queues racing
+  tree events, and conservatively reruns without a snapshot/watch gap. The
+  registered runtime accepts either that broker or the relational broker. Wire
+  now serves only `QUERY /.arbor/trees/{TreeID}/queries` and
+  `POST /.arbor/trees/{TreeID}/mutate`, validates that route/document/handle
+  tree scopes agree, authorizes the Canopy tree, and preserves local
+  `/v1/query-stream` as the explicitly local adapter. The old unscoped Wire
+  alias is removed; route tests cover queries, named mutation receipts, user
+  context, and scope rejection.
 - **Next checkpoint:** finish generic event/effect refs and remove the native compatibility aliases. Provider snapshots/observation, Wire
   rollups/merge, the shared live broker, and tree-scoped execution routes follow
   in this plan. Typed source declarations, activation-manifest generation, and
