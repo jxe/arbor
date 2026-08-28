@@ -1,14 +1,44 @@
 import type {
+  Diagnostic,
   Hash,
   JSONValue,
   LocalTreeDescriptor,
+  MarkdownDocument,
+  Materialization,
   NodeCapabilities,
   NodeResponse,
   NodeSummary,
   TreeRef,
 } from "@arbor/core";
-import type { TreeNode } from "@arbor/core/internal";
 import { canonicalJSONString, isPageID, pageIDStableKey, sha256 } from "@arbor/core";
+import type { ChildSetDescriptor } from "@arbor/stores";
+
+/** Adapter-private expanded-filesystem record. Never crosses a node protocol boundary. */
+export interface ExpandedChild {
+  name: string;
+  path: string;
+  kind: "markdown" | "directory" | "file";
+  materialization: Materialization;
+  pageID?: string;
+}
+
+/** Exact filesystem read state used to construct the generic public node model. */
+export interface ExpandedNode {
+  path: string;
+  name: string;
+  kind: "markdown" | "directory" | "file";
+  revision: string;
+  contentRevision?: string;
+  propertiesRevision?: string;
+  childrenRevision?: string;
+  writable: boolean;
+  materialization: Materialization;
+  bodyOrigin?: "sibling" | "index";
+  document?: MarkdownDocument;
+  children?: ExpandedChild[];
+  childSet?: ChildSetDescriptor;
+  diagnostics: Diagnostic[];
+}
 
 function jsonValue(value: unknown): JSONValue | undefined {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
@@ -32,7 +62,7 @@ function jsonValue(value: unknown): JSONValue | undefined {
   return undefined;
 }
 
-export function nodeProperties(node: TreeNode): Record<string, JSONValue> {
+export function expandedNodeProperties(node: ExpandedNode): Record<string, JSONValue> {
   return (jsonValue(node.document?.frontmatter ?? {}) ?? {}) as Record<string, JSONValue>;
 }
 
@@ -52,7 +82,7 @@ function mediaType(path: string): string {
   return "application/octet-stream";
 }
 
-function capabilities(node: TreeNode, writable: boolean): NodeCapabilities {
+function capabilities(node: ExpandedNode, writable: boolean): NodeCapabilities {
   const result: NodeCapabilities = {};
   if (node.document) {
     result.properties = {
@@ -104,7 +134,7 @@ export interface NodeSamplingContext {
   enclosingTree?: LocalTreeDescriptor;
 }
 
-export function sampleTreeNode(node: TreeNode, context: NodeSamplingContext): NodeResponse {
+export function sampleExpandedNode(node: ExpandedNode, context: NodeSamplingContext): NodeResponse {
   const writable = context.writable ?? node.writable;
   const pageID = isPageID(node.document?.frontmatter.id) ? node.document.frontmatter.id : null;
   return {
@@ -115,7 +145,7 @@ export function sampleTreeNode(node: TreeNode, context: NodeSamplingContext): No
     },
     name: node.name,
     revision: node.revision,
-    properties: nodeProperties(node),
+    properties: expandedNodeProperties(node),
     capabilities: capabilities(node, writable),
     ...(node.document ? {
       content: {
@@ -132,8 +162,8 @@ export function sampleTreeNode(node: TreeNode, context: NodeSamplingContext): No
   };
 }
 
-export function summarizeTreeNode(node: TreeNode, tree: TreeRef, writable = node.writable): NodeSummary {
-  const { observedThrough: _observedThrough, content: _content, enclosingTree: _enclosingTree, ...summary } = sampleTreeNode(node, {
+export function summarizeExpandedNode(node: ExpandedNode, tree: TreeRef, writable = node.writable): NodeSummary {
+  const { observedThrough: _observedThrough, content: _content, enclosingTree: _enclosingTree, ...summary } = sampleExpandedNode(node, {
     tree,
     observedThrough: "summary",
     writable,

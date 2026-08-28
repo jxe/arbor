@@ -3,7 +3,6 @@ import { access, cp, mkdir, readFile, readdir, realpath, rename, rm, stat } from
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import * as watcher from "@parcel/watcher";
 import type { Diagnostic, MarkdownDocument } from "@arbor/core";
-import type { TreeChild } from "@arbor/core/internal";
 import {
   canonicalNodePath,
   isPageID,
@@ -138,7 +137,7 @@ function compareUTF8(left: string, right: string): number {
   return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
 }
 
-function directoryContentRevision(storedSource: string, children: readonly TreeChild[]): string {
+function directoryContentRevision(storedSource: string, children: readonly FsDirectoryEntry[]): string {
   const descriptors = children
     .map((child) => ({
       path: canonicalNodePath(child.path),
@@ -446,19 +445,11 @@ export class WorkspaceFS implements AsyncDisposable {
       };
     }
     const entries = await this.list(node.path);
-    const children: TreeChild[] = entries.map((entry) => ({
-      tree: "local",
-      name: entry.name,
-      path: entry.path,
-      kind: entry.kind,
-      materialization: entry.materialization,
-      ...(entry.pageID ? { pageID: entry.pageID } : {}),
-    }));
     return {
       node,
       bytes: storedBytes,
       storedBytes,
-      byteRevision: directoryContentRevision(storedSource, children),
+      byteRevision: directoryContentRevision(storedSource, entries),
       storedByteRevision,
       bodyRevision: bodyRevision(document),
       document,
@@ -547,16 +538,9 @@ export class WorkspaceFS implements AsyncDisposable {
       const previousDocument = current.document ?? parseMarkdown("");
       let output = request.source;
       let parsed = parseMarkdown(output);
-      let children: TreeChild[] = [];
+      let children: FsDirectoryEntry[] = [];
       if (resolved.kind === "directory") {
-        children = (await this.list(path)).map((child) => ({
-          tree: "local",
-          name: child.name,
-          path: child.path,
-          kind: child.kind,
-          materialization: child.materialization,
-          ...(child.pageID ? { pageID: child.pageID } : {}),
-        }));
+        children = await this.list(path);
       }
       const pageID = isPageID(parsed.frontmatter.id) ? parsed.frontmatter.id : undefined;
       if (pageID && this.durableIdentity) this.pagePathsByID.set(pageID, path);

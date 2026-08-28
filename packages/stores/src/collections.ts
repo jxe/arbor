@@ -5,8 +5,7 @@ import { createInterface } from "node:readline";
 import { Database } from "bun:sqlite";
 import { parse } from "csv-parse";
 import { parseDocument } from "yaml";
-import type { ChildrenPage, Diagnostic, Hash, JSONValue, NodeRef, NodeSnapshot, NodeSummary, TreeRef } from "@arbor/core";
-import type { ChildSetBacking, ChildSetDescriptor, ProviderChildRecord } from "@arbor/core/internal";
+import type { ChildrenPage, Diagnostic, Hash, IdentityRule, JSONValue, NodeRef, NodeSnapshot, NodeSummary, TreeRef } from "@arbor/core";
 import { canonicalJSONString, parseCanonicalStableKey, revisionOf, rowPathSegment, sha256, stableKeyFromProperties } from "@arbor/core";
 import { introspectSQLiteDatabase, introspectStoreSchema, type FieldMetadata, type StoreSchema } from "@arbor/data";
 import { parseMarkdown } from "@arbor/editor";
@@ -14,6 +13,33 @@ import { commitPrepared, prepareAtomic, readRevision, removeIfExists } from "@ar
 import { ConnectionStore, connectionName } from "./connections.ts";
 import { replaceFileRollupRow, type WritableFileRollup } from "./file-rollup-writes.ts";
 import { SchemaSandbox, type SchemaDescription } from "./schema.ts";
+
+export type ChildSetBacking = "csv" | "json" | "jsonl" | "markdown" | "sqlite" | "postgres";
+
+/** Provider discovery metadata; converted to public node capabilities at the adapter boundary. */
+export interface ChildSetDescriptor {
+  backing: ChildSetBacking;
+  columns: string[];
+  identityRule?: IdentityRule;
+  revision?: string;
+  schemaRevision?: string;
+  modelDigest?: string;
+  diagnostics?: Diagnostic[];
+  editable: boolean;
+  rollupScope?: "children" | "subtree";
+  total?: number;
+  tables?: string[];
+}
+
+/** A validated backing record before it is projected as a public NodeSnapshot. */
+export interface ProviderChildRecord {
+  key: string;
+  path: string;
+  stableKey: string | null;
+  revision?: string;
+  values: Record<string, unknown>;
+  diagnostics: Diagnostic[];
+}
 
 interface CollectionDefinition {
   backing: ChildSetBacking;

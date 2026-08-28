@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
-import { Workspace, RevisionConflictError } from "@arbor/arborsync";
+import { RevisionConflictError, Workspace } from "@arbor/arborsync";
 import { canonicalStableKey } from "@arbor/core";
 import { pageIDFromStableKey } from "@arbor/core/node-key";
 import { parseMarkdown } from "@arbor/editor";
@@ -35,13 +35,14 @@ afterAll(async () => {
 
 describe("workspace service", () => {
   test("browses pages and directories", async () => {
-    const rootNode = await workspace.node("/");
-    expect(rootNode.children?.map((item) => item.name)).toContain("notes");
-    expect(rootNode.children?.map((item) => item.name)).toContain(".claude");
-    expect(rootNode.children?.map((item) => item.name)).not.toContain(".build");
-    const leaf = await workspace.node("/notes");
+    const rootNode = await workspace.snapshot({ tree: workspace.tree, path: "/", stableKey: null });
+    const rootChildren = await workspace.children(rootNode.ref);
+    expect(rootChildren.items.map((item) => item.name)).toContain("notes");
+    expect(rootChildren.items.map((item) => item.name)).toContain(".claude");
+    expect(rootChildren.items.map((item) => item.name)).not.toContain(".build");
+    const leaf = await workspace.snapshot({ tree: workspace.tree, path: "/notes", stableKey: null });
     expect(nodeDocument(leaf)?.blocks[0]?.type).toBe("toggle");
-    expect((await workspace.node("/notes.md")).path).toBe("/notes");
+    expect((await workspace.snapshot({ tree: workspace.tree, path: "/notes.md", stableKey: null })).ref.path).toBe("/notes");
   });
 
   test("keeps generated collection types in private workspace state", async () => {
@@ -77,10 +78,10 @@ describe("workspace service", () => {
     await writeFile(join(collection, "_index.md"), "About the records.\n");
     await writeFile(join(collection, "one.md"), "---\nid: abc123\ntitle: One\n---\nRow body.\n");
 
-    const node = await workspace.node("/records");
-    expect(node.kind).toBe("directory");
+    const node = await workspace.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
+    expect(nodeKind(node)).toBe("directory");
     expect(nodeDocument(node)?.source).toBe("About the records.\n");
-    expect(node.children?.some((child) => child.path === "/records/one")).toBe(true);
+    expect((await workspace.children(node.ref)).items.some((child) => child.ref.path === "/records/one")).toBe(true);
     const snapshot = await workspace.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
     expect(snapshot.capabilities.children?.schema).toStartWith("sha256:");
     const children = await workspace.children(snapshot.ref);
@@ -197,23 +198,39 @@ describe("workspace service", () => {
   });
 
   test("writes exact source and enforces revision CAS", async () => {
-    const node = await workspace.node("/notes");
+    const node = await workspace.snapshot({ tree: workspace.tree, path: "/notes", stableKey: null });
     const source = "---\ntitle: Notes\n---\n▸ Changed\n  First\n";
-    const saved = await workspace.write("/notes", { baseRevision: node.revision, source });
+    await workspace.executeMutation({ mutationID: "workspace-write-source", operations: [{
+      op: "writeMarkdown",
+      ref: node.ref,
+      baseContentRevision: node.capabilities.content!.revision,
+      source,
+    }] });
+    const saved = await workspace.snapshot(node.ref);
     expect(nodeDocument(saved)?.frontmatter.id).toBeUndefined();
     expect(nodeDocument(saved)?.source).toBe(source);
     expect(await readFile(join(root, "notes.md"), "utf8")).toContain("▸ Changed");
-    await expect(workspace.write("/notes", { baseRevision: node.revision, source })).rejects.toBeInstanceOf(RevisionConflictError);
+    await expect(workspace.executeMutation({ mutationID: "workspace-write-stale", operations: [{
+      op: "writeMarkdown",
+      ref: node.ref,
+      baseContentRevision: node.capabilities.content!.revision,
+      source,
+    }] })).rejects.toBeInstanceOf(RevisionConflictError);
   });
 
   test("materializes a directory page on first write", async () => {
-    const node = await workspace.node("/folder");
-    await workspace.write("/folder", { baseRevision: node.revision, source: "About this folder\n" });
+    const node = await workspace.snapshot({ tree: workspace.tree, path: "/folder", stableKey: null });
+    await workspace.executeMutation({ mutationID: "workspace-write-directory", operations: [{
+      op: "writeMarkdown",
+      ref: node.ref,
+      baseContentRevision: node.capabilities.content!.revision,
+      source: "About this folder\n",
+    }] });
     const stored = await readFile(join(root, "folder", "_index.md"), "utf8");
     expect(stored).toContain("About this folder");
     expect(stored).not.toContain("[child](child)");
     expect((await workspace.children({ tree: workspace.tree, path: "/folder", stableKey: null })).items.map((child) => child.ref.path)).toContain("/folder/child");
-    expect((await workspace.node("/folder/_index.md")).path).toBe("/folder");
+    expect((await workspace.snapshot({ tree: workspace.tree, path: "/folder/_index.md", stableKey: null })).ref.path).toBe("/folder");
   });
 
   test("reports body state and unambiguous child identity", async () => {
@@ -330,19 +347,24 @@ describe("workspace service", () => {
       await mkdir(join(duplicateRoot, "same"));
       await writeFile(join(duplicateRoot, "same", "child.md"), "Child\n");
       duplicateWorkspace = await Workspace.open(duplicateRoot);
-      const rootNode = await duplicateWorkspace.node("/");
-      expect(rootNode.children?.filter((child) => child.path === "/same")).toHaveLength(1);
-      const same = await duplicateWorkspace.node("/same");
-      expect(same.kind).toBe("directory");
+      const rootNode = await duplicateWorkspace.snapshot({ tree: duplicateWorkspace.tree, path: "/", stableKey: null });
+      expect((await duplicateWorkspace.children(rootNode.ref)).items.filter((child) => child.ref.path === "/same")).toHaveLength(1);
+      const same = await duplicateWorkspace.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
+      expect(nodeKind(same)).toBe("directory");
       expect(nodeDocument(same)?.bodySource).toBe("Leaf\n");
       await duplicateWorkspace[Symbol.asyncDispose]();
       duplicateWorkspace = null;
 
       await writeFile(join(duplicateRoot, "same", "_index.md"), "Directory\n");
       duplicateWorkspace = await Workspace.open(duplicateRoot);
-      const duplicate = await duplicateWorkspace.node("/same");
+      const duplicate = await duplicateWorkspace.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
       expect(duplicate.diagnostics.some((item) => item.code === "duplicate-body-representation")).toBe(true);
-      await expect(duplicateWorkspace.write("/same", { baseRevision: duplicate.revision, source: nodeDocument(duplicate)?.source ?? "" })).rejects.toThrow("competing bodies");
+      await expect(duplicateWorkspace.executeMutation({ mutationID: "duplicate-body-write", operations: [{
+        op: "writeMarkdown",
+        ref: duplicate.ref,
+        baseContentRevision: duplicate.capabilities.content!.revision,
+        source: nodeDocument(duplicate)?.source ?? "",
+      }] })).rejects.toThrow("competing bodies");
     } finally {
       await duplicateWorkspace?.[Symbol.asyncDispose]();
       process.env.ARBOR_DATA_HOME = state;

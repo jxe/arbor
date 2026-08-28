@@ -1,8 +1,7 @@
 import type { MarkdownDocument, NodeSummary } from "@arbor/core";
-import type { TreeNode } from "@arbor/core/internal";
 import { parseMarkdown } from "@arbor/editor";
 
-export function nodeDocument(node: (NodeSummary & { content?: { source: string } }) | TreeNode): MarkdownDocument | undefined {
+export function nodeDocument(node: (NodeSummary & { content?: { source: string } }) | { document?: MarkdownDocument }): MarkdownDocument | undefined {
   if (!("capabilities" in node)) return node.document;
   return node.capabilities.content?.format === "markdown" && node.content
     ? parseMarkdown(node.content.source)

@@ -23,7 +23,6 @@ import type {
   StructuralWorkspaceOperation,
   WorkspaceOperation,
 } from "@arbor/core";
-import type { TreeChild, TreeNode } from "@arbor/core/internal";
 import {
   canonicalJSONString,
   canonicalNodePath,
@@ -63,7 +62,13 @@ import {
 } from "@arbor/stores";
 import { EventBus } from "./events.ts";
 import { rootDisplayName } from "./root-title.ts";
-import { nodeProperties, sampleTreeNode, summarizeTreeNode } from "./node-sampling.ts";
+import {
+  expandedNodeProperties,
+  sampleExpandedNode,
+  summarizeExpandedNode,
+  type ExpandedChild,
+  type ExpandedNode,
+} from "./node-sampling.ts";
 import { ChildProvider } from "./child-provider.ts";
 
 
@@ -93,7 +98,7 @@ export interface ConfirmedSourcePatch {
 }
 
 export class RevisionConflictError extends Error {
-  constructor(public current: TreeNode) { super("The file changed since it was opened"); }
+  constructor(public current: ExpandedNode) { super("The file changed since it was opened"); }
 }
 
 export class ProtocolError extends Error {
@@ -291,7 +296,7 @@ export class Workspace implements AsyncDisposable {
   async backlinksPage(ref: NodeRef, cursor?: string | null): Promise<BacklinksPage> {
     const observedThrough = this.events.currentCursor();
     const path = await this.resolveRef(ref);
-    const target = await this.node(path);
+    const target = await this.expandedNode(path);
     const pageID = isPageID(target.document?.frontmatter.id)
       ? target.document.frontmatter.id
       : this.pathPageIDs.get(path);
@@ -340,7 +345,7 @@ export class Workspace implements AsyncDisposable {
   ): Promise<RecoveryPage> {
     const observedThrough = this.events.currentCursor();
     const path = await this.resolveRef(ref);
-    const snapshot = await this.node(path);
+    const snapshot = await this.expandedNode(path);
     if (recursive && snapshot.kind !== "directory") {
       throw new ProtocolError("invalid-reference", "Recursive recovery requires a directory", 400, { path });
     }
@@ -418,7 +423,7 @@ export class Workspace implements AsyncDisposable {
     const operation = operations.find((candidate) => candidate.op === "writeMarkdown");
     if (!operation || !operation.sourceEdits) return undefined;
     const path = await this.resolveRef(operation.ref);
-    const current = await this.node(path);
+    const current = await this.expandedNode(path);
     if (!current.document) {
       throw new ProtocolError("unsupported-operation", `${current.path} is not a document`, 422);
     }
@@ -557,7 +562,7 @@ export class Workspace implements AsyncDisposable {
     return { receipt, ...output };
   }
 
-  async node(inputPath: string): Promise<TreeNode> {
+  private async expandedNode(inputPath: string): Promise<ExpandedNode> {
     const read = await this.fs.read(inputPath);
     const resolved = read.node;
     if (resolved.kind === "missing") {
@@ -640,17 +645,17 @@ export class Workspace implements AsyncDisposable {
 
   search(query: string, limit = 30) { return this.index.search(query, limit); }
 
-  async write(
+  private async write(
     inputPath: string,
     request: NodeWriteRequest,
     options: Parameters<WorkspaceFS["writeMarkdown"]>[2] = {},
-  ): Promise<TreeNode> {
+  ): Promise<ExpandedNode> {
     try {
       await this.fs.writeMarkdown(inputPath, request, options);
-      return this.node(inputPath);
+      return this.expandedNode(inputPath);
     } catch (error) {
       if (error instanceof FsConflictError && error.details.code === "stale-revision") {
-        throw new RevisionConflictError(await this.node(inputPath));
+        throw new RevisionConflictError(await this.expandedNode(inputPath));
       }
       throw error;
     }
@@ -762,16 +767,16 @@ export class Workspace implements AsyncDisposable {
     return entries;
   }
 
-  async restoreBlock(
+  private async restoreBlock(
     inputPath: string,
     hash: string,
     options: {
       onPrepared?: (result: FsWriteResult) => void | Promise<void>;
       onMaterialized?: (result: FsWriteResult) => void | Promise<void>;
     } = {},
-  ): Promise<TreeNode> {
+  ): Promise<ExpandedNode> {
     await this.fs.restoreBlock(inputPath, hash, options);
-    return this.node(inputPath);
+    return this.expandedNode(inputPath);
   }
 
   private async performProtocolOperations(
@@ -896,7 +901,7 @@ export class Workspace implements AsyncDisposable {
             path: operation.ref.path,
           });
         }
-        const current = await this.node(path);
+        const current = await this.expandedNode(path);
         if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });
         if (target.revision !== operation.basePropertiesRevision) {
           throw new ProtocolError("stale-properties-revision", "The node properties changed since they were read", 409, {
@@ -936,13 +941,13 @@ export class Workspace implements AsyncDisposable {
           propertiesRevision: saved.propertiesRevision ?? saved.revision,
         };
       }
-      const current = await this.node(path);
+      const current = await this.expandedNode(path);
       if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });
       const currentRevision = current.propertiesRevision ?? current.revision;
       if (currentRevision !== operation.basePropertiesRevision) {
         throw new ProtocolError("stale-properties-revision", "The node properties changed since they were read", 409, {
           path,
-          current: this.snapshotFromTree(current, this.events.currentCursor()),
+          current: this.snapshotFromExpanded(current, this.events.currentCursor()),
         });
       }
       const identity = operation.ref.stableKey ? parseCanonicalStableKey(operation.ref.stableKey) : null;
@@ -951,7 +956,7 @@ export class Workspace implements AsyncDisposable {
           throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
         }
       }
-      const currentProperties = nodeProperties(current);
+      const currentProperties = expandedNodeProperties(current);
       if (isPageID(currentProperties.id) && operation.properties.id !== currentProperties.id) {
         throw new ProtocolError("invalid-reference", "Identity property id is immutable", 422, { path });
       }
@@ -976,7 +981,7 @@ export class Workspace implements AsyncDisposable {
       };
     }
     if (operation.op === "ensureDocumentIdentity") {
-      const current = await this.node(path);
+      const current = await this.expandedNode(path);
       const existingID = isPageID(current.document?.frontmatter.id) ? current.document.frontmatter.id : undefined;
       if (existingID) {
         // Identity already exists: no write, the receipt echoes current state.
@@ -1023,7 +1028,7 @@ export class Workspace implements AsyncDisposable {
         directoryRevision: saved.kind === "directory" ? saved.revision : undefined,
       };
     }
-    let saved: TreeNode;
+    let saved: ExpandedNode;
     if (operation.op === "writeText") {
       const current = await this.fs.read(path);
       if (current.node.kind !== "file") {
@@ -1058,7 +1063,7 @@ export class Workspace implements AsyncDisposable {
           : undefined,
       });
     } else {
-      const current = await this.node(path);
+      const current = await this.expandedNode(path);
       if (operation.baseContentRevision && current.revision !== operation.baseContentRevision) {
         throw new RevisionConflictError(current);
       }
@@ -1123,8 +1128,8 @@ export class Workspace implements AsyncDisposable {
     const discovery = await this.fs.discoverRecursively();
     this.adoptIDMaps(discovery.pagePathsByID, discovery.pageIDOwners);
     return Promise.all(result.changes.map(async (change) => {
-      let snapshot: TreeNode | null = null;
-      try { snapshot = await this.node(change.path); } catch {}
+      let snapshot: ExpandedNode | null = null;
+      try { snapshot = await this.expandedNode(change.path); } catch {}
       return {
         kind: change.kind,
         ref: this.mutationRef(
@@ -1278,8 +1283,8 @@ export class Workspace implements AsyncDisposable {
     return owner;
   }
 
-  private snapshotFromTree(node: TreeNode, observedThrough: string): NodeResponse {
-    return sampleTreeNode(node, {
+  private snapshotFromExpanded(node: ExpandedNode, observedThrough: string): NodeResponse {
+    return sampleExpandedNode(node, {
       tree: this.tree,
       observedThrough,
       writable: node.writable && this.treeDescriptor.access !== "read",
@@ -1289,7 +1294,7 @@ export class Workspace implements AsyncDisposable {
 
   private async snapshotExpanded(ref: NodeRef, observedThrough: string): Promise<NodeResponse> {
     const path = await this.resolveRef(ref);
-    return this.snapshotFromTree(await this.node(path), observedThrough);
+    return this.snapshotFromExpanded(await this.expandedNode(path), observedThrough);
   }
 
   private async childrenExpanded(
@@ -1299,12 +1304,12 @@ export class Workspace implements AsyncDisposable {
     additionalItems: readonly NodeSummary[] = [],
   ): Promise<ChildrenPage> {
     const path = await this.resolveRef(ref);
-    const node = await this.node(path);
+    const node = await this.expandedNode(path);
     if (node.kind !== "directory") {
       throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
     }
-    const physical = await Promise.all((node.children ?? []).map(async (child) => summarizeTreeNode(
-      await this.node(child.path),
+    const physical = await Promise.all((node.children ?? []).map(async (child) => summarizeExpandedNode(
+      await this.expandedNode(child.path),
       this.tree,
       child.materialization === "available" && node.writable && this.treeDescriptor.access !== "read",
     )));
@@ -1457,14 +1462,13 @@ export class Workspace implements AsyncDisposable {
     await this.fs[Symbol.asyncDispose]();
   }
 
-  private async directoryChildren(treePath: string): Promise<{ children: TreeChild[]; diagnostics: TreeNode["diagnostics"] }> {
+  private async directoryChildren(treePath: string): Promise<{ children: ExpandedChild[]; diagnostics: ExpandedNode["diagnostics"] }> {
     const entries = await this.fs.list(treePath);
-    const children: TreeChild[] = [];
-    const diagnostics: TreeNode["diagnostics"] = [];
+    const children: ExpandedChild[] = [];
+    const diagnostics: ExpandedNode["diagnostics"] = [];
     for (const entry of entries) {
       const pageID = entry.pageID ?? this.pathPageIDs.get(entry.path);
       children.push({
-        tree: this.tree,
         name: entry.name,
         path: entry.path,
         kind: entry.kind,
@@ -1497,7 +1501,7 @@ export class Workspace implements AsyncDisposable {
     }
   }
 
-  private pageIDDiagnostics(path: string, pageID: string | null): TreeNode["diagnostics"] {
+  private pageIDDiagnostics(path: string, pageID: string | null): ExpandedNode["diagnostics"] {
     return pageID && this.idOwners.get(pageID) !== path
       ? [{ code: "duplicate-page-id", message: `Page ID ${pageID} is also used by ${this.idOwners.get(pageID)}`, path, severity: "error" }]
       : [];
@@ -1549,7 +1553,7 @@ export class Workspace implements AsyncDisposable {
     });
   }
 
-  private scheduleLinkHealing(treePath: string, revision: string, document: NonNullable<TreeNode["document"]>): void {
+  private scheduleLinkHealing(treePath: string, revision: string, document: NonNullable<ExpandedNode["document"]>): void {
     if (this.healingTimers.has(treePath)) return;
     const healBlock = (block: ArborBlock): ArborBlock => {
       if (block.type === "rawMarkdown") return block;

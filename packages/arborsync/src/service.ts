@@ -19,7 +19,6 @@ import type {
   TreeRef,
   WorkspaceOperation,
 } from "@arbor/core";
-import type { TreeNode } from "@arbor/core/internal";
 import { LOCAL_TREE, SYSTEM_TREE, canonicalJSONString, canonicalNodePath, generateArborID, pageIDFromStableKey, revisionOf, sha256, siblingMarkdownTreePath, type Hash } from "@arbor/core";
 import { directoryPlacementDiagnostics, parseMarkdown } from "@arbor/editor";
 import { FsConflictError } from "@arbor/fs";
@@ -76,7 +75,12 @@ import {
   withFilePatch,
 } from "./sync-state.ts";
 import type { ConfirmedSourcePatch } from "./workspace.ts";
-import { sampleTreeNode, summarizeSample, summarizeTreeNode } from "./node-sampling.ts";
+import {
+  sampleExpandedNode,
+  summarizeExpandedNode,
+  summarizeSample,
+  type ExpandedNode,
+} from "./node-sampling.ts";
 
 
 const SYSTEM_REMOTE_TIMEOUT_MS = 1_000;
@@ -442,7 +446,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       const source = new TextDecoder().decode(object.bytes);
       const document = markdown ? parseMarkdown(source) : undefined;
       const authoredTitle = document?.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
-      return { snapshot: sampleTreeNode({
+      return { snapshot: sampleExpandedNode({
         path: canonicalNodePath(remotePath!),
         name: authoredTitle || (markdown ? objectName.slice(0, -3) : objectName),
         kind: markdown ? "markdown" : "file",
@@ -473,7 +477,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
           ? parseMarkdown(new TextDecoder().decode(childObject.bytes))
           : null;
         const pageID = childDocument && typeof childDocument.frontmatter.id === "string" ? childDocument.frontmatter.id : undefined;
-        const node: TreeNode = {
+        const node: ExpandedNode = {
           name,
           path,
           kind: entry.tree || childObject?.type === "directory" ? "directory" as const : markdown ? "markdown" as const : "file" as const,
@@ -483,7 +487,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
           ...(childDocument ? { document: childDocument, bodyOrigin: "sibling" as const } : {}),
           diagnostics: [],
         };
-        const summary = summarizeTreeNode(node, remote.id, false);
+        const summary = summarizeExpandedNode(node, remote.id, false);
         if (pageID) summary.ref.stableKey = `[["id",${JSON.stringify(pageID)}]]`;
         return { summary, treeChild: {
           tree: remote.id,
@@ -515,7 +519,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       .map(({ treeChild: child }) => ({ path: canonicalNodePath(child.path), kind: child.kind, pageID: child.pageID ?? null }))
       .sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
     const path = canonicalNodePath(remotePath!);
-    const snapshot = sampleTreeNode({
+    const snapshot = sampleExpandedNode({
       path,
       name: authoredTitle || objectName,
       kind: "directory",
@@ -585,7 +589,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
         ...page,
         items: [
           ...page.items,
-          ...mounted.filter((item) => !existing.has(item.path)).map((item) => summarizeTreeNode({
+          ...mounted.filter((item) => !existing.has(item.path)).map((item) => summarizeExpandedNode({
             name: item.name,
             path: item.path,
             kind: "directory" as const,
@@ -803,7 +807,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     await this.trees.descriptors();
     const observedThrough = this.events.currentCursor();
     if (path === "/") {
-      return sampleTreeNode({
+      return sampleExpandedNode({
         path: "/",
         name: "system",
         kind: "directory",
@@ -817,7 +821,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (path === "/visited") {
       const listing = (await this.visitedTrees.list()).map((visit) => visit.id);
       const revision = revisionOf(listing.join("\n"));
-      return sampleTreeNode({
+      return sampleExpandedNode({
         path,
         name: path.slice(1),
         kind: "directory",
@@ -832,7 +836,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (!record) {
       throw new ProtocolError("not-found", `Node not found: system:${path.slice(1)}`, 404, { path });
     }
-    return sampleTreeNode({
+    return sampleExpandedNode({
       path,
       name: record.segment,
       kind: "markdown",

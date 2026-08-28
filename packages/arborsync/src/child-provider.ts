@@ -1,8 +1,8 @@
 import type { ChildrenPage, JSONValue, LocalTreeDescriptor, NodeRef, NodeResponse, NodeSnapshot, NodeSummary, TreeRef } from "@arbor/core";
 import { canonicalNodePath } from "@arbor/core";
-import type { ChildSetDescriptor } from "@arbor/core/internal";
 import {
   CollectionStore,
+  type ChildSetDescriptor,
   type CollectionWriteTarget,
   type PreparedFilePropertyWrite,
 } from "@arbor/stores";

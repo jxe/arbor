@@ -11,7 +11,6 @@ import type {
   NodeSummary,
   WorkspaceOperation,
 } from "@arbor/core";
-import type { TreeChild, TreeNode } from "@arbor/core/internal";
 import {
   LOCAL_TREE,
   applySourceEdits,
@@ -38,7 +37,13 @@ import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import type { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { ProtocolError } from "./workspace.ts";
-import { nodeProperties, sampleTreeNode, summarizeTreeNode } from "./node-sampling.ts";
+import {
+  expandedNodeProperties,
+  sampleExpandedNode,
+  summarizeExpandedNode,
+  type ExpandedChild,
+  type ExpandedNode,
+} from "./node-sampling.ts";
 import { ChildProvider } from "./child-provider.ts";
 
 
@@ -112,7 +117,7 @@ export class FilesystemService implements AsyncDisposable {
     });
   }
 
-  private async node(inputPath: string): Promise<TreeNode> {
+  private async expandedNode(inputPath: string): Promise<ExpandedNode> {
     const fs = await this.engine;
     const read = await fs.read(inputPath);
     const resolved = read.node;
@@ -165,14 +170,13 @@ export class FilesystemService implements AsyncDisposable {
 
   private async directoryChildren(
     path: string,
-  ): Promise<{ children: TreeChild[]; diagnostics: Diagnostic[] }> {
+  ): Promise<{ children: ExpandedChild[]; diagnostics: Diagnostic[] }> {
     const fs = await this.engine;
     const entries = await fs.list(path);
-    const children: TreeChild[] = [];
+    const children: ExpandedChild[] = [];
     const diagnostics: Diagnostic[] = [];
     for (const entry of entries) {
       children.push({
-        tree: LOCAL_TREE,
         name: entry.name,
         path: entry.path,
         kind: entry.kind,
@@ -184,12 +188,12 @@ export class FilesystemService implements AsyncDisposable {
     return { children: children.sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
   }
 
-  private snapshotFromTree(node: TreeNode, observedThrough: string): NodeResponse {
-    return sampleTreeNode(node, { tree: LOCAL_TREE, observedThrough });
+  private snapshotFromExpanded(node: ExpandedNode, observedThrough: string): NodeResponse {
+    return sampleExpandedNode(node, { tree: LOCAL_TREE, observedThrough });
   }
 
   private async snapshotExpanded(ref: NodeRef, observedThrough: string): Promise<NodeResponse> {
-    return this.snapshotFromTree(await this.node(this.refPath(ref)), observedThrough);
+    return this.snapshotFromExpanded(await this.expandedNode(this.refPath(ref)), observedThrough);
   }
 
   private async childrenExpanded(
@@ -199,12 +203,12 @@ export class FilesystemService implements AsyncDisposable {
     additionalItems: readonly NodeSummary[] = [],
   ): Promise<ChildrenPage> {
     const path = this.refPath(ref);
-    const node = await this.node(path);
+    const node = await this.expandedNode(path);
     if (node.kind !== "directory") {
       throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
     }
-    const physical = await Promise.all((node.children ?? []).map(async (child) => summarizeTreeNode(
-      await this.node(child.path),
+    const physical = await Promise.all((node.children ?? []).map(async (child) => summarizeExpandedNode(
+      await this.expandedNode(child.path),
       LOCAL_TREE,
       child.materialization === "available" && node.writable,
     )));
@@ -321,7 +325,7 @@ export class FilesystemService implements AsyncDisposable {
 
   private async effectsFromChanges(changes: Awaited<ReturnType<WorkspaceFS["mutate"]>>["changes"]): Promise<MutationEffect[]> {
     return Promise.all(changes.map(async (change) => {
-      const snapshot = await this.node(change.path).catch(() => null);
+      const snapshot = await this.expandedNode(change.path).catch(() => null);
       return {
         kind: change.kind,
         ref: { tree: LOCAL_TREE, path: change.path, stableKey: null },
@@ -337,7 +341,7 @@ export class FilesystemService implements AsyncDisposable {
   async executeMutation(request: MutationRequest): Promise<MutationReceipt> {
     const patchWrite = request.operations.find((operation) => operation.op === "writeMarkdown");
     if (patchWrite?.sourceEdits) {
-      const current = await this.node(await this.writableContentPath(patchWrite.ref));
+      const current = await this.expandedNode(await this.writableContentPath(patchWrite.ref));
       if (current.revision !== patchWrite.baseContentRevision) {
         throw new ProtocolError("stale-content-revision", "The file changed since it was opened", 409, { path: current.path });
       }
@@ -448,13 +452,13 @@ export class FilesystemService implements AsyncDisposable {
             });
           }
           const path = target?.path ?? this.refPath(write.ref);
-          const current = await this.node(path);
+          const current = await this.expandedNode(path);
           if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });
           const currentRevision = target?.revision ?? current.propertiesRevision ?? current.revision;
           if (currentRevision !== write.basePropertiesRevision) {
             throw new ProtocolError("stale-properties-revision", "The node properties changed since they were read", 409, {
               path,
-              current: this.snapshotFromTree(current, this.events.currentCursor()),
+              current: this.snapshotFromExpanded(current, this.events.currentCursor()),
             });
           }
           let properties = write.properties;
@@ -482,7 +486,7 @@ export class FilesystemService implements AsyncDisposable {
               throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
             }
           }
-          const currentProperties = nodeProperties(current);
+          const currentProperties = expandedNodeProperties(current);
           if (isPageID(currentProperties.id) && properties.id !== currentProperties.id) {
             throw new ProtocolError("invalid-reference", "Identity property id is immutable", 422, { path });
           }
