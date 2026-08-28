@@ -19,11 +19,12 @@ import type {
   TreeRef,
   WorkspaceOperation,
 } from "@arbor/core";
-import { LOCAL_TREE, SYSTEM_TREE, canonicalJSONString, canonicalNodePath, generateArborID, pageIDFromStableKey, revisionOf, sha256, siblingMarkdownTreePath, type Hash } from "@arbor/core";
-import { directoryPlacementDiagnostics, parseMarkdown } from "@arbor/editor";
+import { LOCAL_TREE, SYSTEM_TREE, canonicalNodePath, generateArborID, pageIDFromStableKey, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
+import { parseMarkdown } from "@arbor/editor";
 import { FsConflictError } from "@arbor/fs";
-import { CommunityConfigStore, VisitedTreeStore, arborDataRoot, arborPrivateRoot, decodeWireFileRollup, saveCurrentDeviceID, SchemaSandbox } from "@arbor/stores";
-import { WireClient, WireUpdateConflict, decodeWireObject, encodeWireObject, hashObject, materializeTree, resolveWireLogicalNode, snapshotDirectory, type FilePatch, type ObjectHash, type RemoteTreeDescriptor } from "@arbor/wire";
+import { CommunityConfigStore, VisitedTreeStore, arborDataRoot, arborPrivateRoot, saveCurrentDeviceID } from "@arbor/stores";
+import { WireClient, WireUpdateConflict, decodeWireObject, encodeWireObject, hashObject, materializeTree, snapshotDirectory, type FilePatch, type ObjectHash, type RemoteTreeDescriptor } from "@arbor/wire";
+import { WireProjection } from "@arbor/wire-projection";
 import { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
@@ -381,171 +382,20 @@ export class ArborSyncDaemon implements AsyncDisposable {
       placement: "remote",
       sync: "idle",
     };
-    const loadObject = (hash: ObjectHash) => client.object(remote.id, hash);
-    const readRollup = async (descriptor: import("@arbor/core").RollupDescriptor) => {
-      const source = decodeWireObject(await loadObject(descriptor.source));
-      const schema = decodeWireObject(await loadObject(descriptor.schemaSource));
-      if (source.type !== "file" || schema.type !== "file") throw new ProtocolError("invalid-tree", "Remote rollup targets must be files", 422);
-      const sandbox = new SchemaSandbox();
-      try { return await decodeWireFileRollup(descriptor, source.bytes, schema.bytes, sandbox); }
-      finally { await sandbox[Symbol.asyncDispose](); }
-    };
-    const summarizeRollupRow = (
-      parentPath: string,
-      schema: Hash,
-      row: import("@arbor/stores").WireFileRollupRow,
-    ): NodeSummary => {
-      const revision = revisionOf(canonicalJSONString({ schema, properties: row.properties }));
-      return {
-        ref: {
-          tree: remote.id,
-          path: canonicalNodePath(`${parentPath === "/" ? "" : parentPath}/${row.path}`),
-          stableKey: row.stableKey,
-        },
-        name: typeof row.properties.title === "string" ? row.properties.title
-          : typeof row.properties.name === "string" ? row.properties.name
-          : typeof row.properties.slug === "string" ? row.properties.slug
-          : row.path,
-        revision,
-        properties: row.properties,
-        capabilities: { properties: { revision, schema, writable: false } },
-        materialization: "available",
-        diagnostics: [],
-      };
-    };
-    let logical = await resolveWireLogicalNode(remote.ref, remotePath!, loadObject);
-    if (!logical) {
-      const requested = canonicalNodePath(remotePath!);
-      const parentPath = requested.slice(0, requested.lastIndexOf("/")) || "/";
-      const parent = await resolveWireLogicalNode(remote.ref, parentPath, loadObject);
-      const descriptor = parent?.object.type === "directory"
-        ? parent.object.entries.find((entry) => entry.rollup)?.rollup
-        : undefined;
-      if (descriptor) {
-        const decoded = await readRollup(descriptor);
-        const segment = requested.split("/").at(-1);
-        const row = decoded.rows.find((item) => stableKey ? item.stableKey === stableKey : item.path === segment);
-        if (row) {
-          const snapshot = summarizeRollupRow(parentPath, descriptor.schema, row);
-          return { snapshot: { ...snapshot, enclosingTree, observedThrough }, children: [] };
-        }
-      }
-      throw new ProtocolError("not-found", "The remote path is unavailable", 404);
-    }
-    const object = logical.object;
-    const objectName = logical.objectName || canonical.path.split("/").filter(Boolean).at(-1) || "community";
-    const diagnostics = logical.duplicateBody ? [{
-        code: "duplicate-body-representation",
-        message: `${canonicalNodePath(remotePath!)} has both a sibling Markdown body and _index.md; keep only one.`,
-        path: canonicalNodePath(remotePath!),
-        severity: "error" as const,
-      }] : [];
-    const context = { tree: remote.id, enclosingTree, observedThrough, writable: false };
-    if (object.type === "file") {
-      const markdown = objectName.endsWith(".md");
-      const source = new TextDecoder().decode(object.bytes);
-      const document = markdown ? parseMarkdown(source) : undefined;
-      const authoredTitle = document?.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
-      return { snapshot: sampleExpandedNode({
-        path: canonicalNodePath(remotePath!),
-        name: authoredTitle || (markdown ? objectName.slice(0, -3) : objectName),
-        kind: markdown ? "markdown" : "file",
-        revision: revisionOf(object.bytes),
-        writable: false,
-        materialization: "available",
-        ...(document ? { document, bodyOrigin: "sibling" as const } : {}),
-        diagnostics,
-      }, context), children: [] };
-    }
-
-    const source = logical.body ? new TextDecoder().decode(logical.body.bytes) : "";
-    const currentCanonicalPath = `${canonical.path === "/" ? "" : canonical.path}${remotePath! === "/" ? "" : remotePath!}` || "/";
-    const rollupDescriptor = object.entries.find((entry) => entry.rollup)?.rollup;
-    const rollup = rollupDescriptor ? await readRollup(rollupDescriptor) : null;
-    const children = (await Promise.all(object.entries
-      .filter((entry) => entry.name !== "_index.md" && !entry.rollup && !(rollupDescriptor && entry.name === "schema.ts"))
-      .map(async (entry) => {
-        const childObject = entry.hash ? decodeWireObject(await client.object(remote.id, entry.hash)) : null;
-        const markdown = childObject?.type === "file" && entry.name.endsWith(".md");
-        const name = markdown ? entry.name.slice(0, -3) : entry.name;
-        if (entry.tree) {
-          const accessible = await client.resolve(`${currentCanonicalPath.replace(/\/$/, "")}/${name}`).then(() => true).catch(() => false);
-          if (!accessible) return null;
-        }
-        const path = canonicalNodePath(`${remotePath! === "/" ? "" : remotePath!}/${name}`);
-        const childDocument = markdown && childObject?.type === "file"
-          ? parseMarkdown(new TextDecoder().decode(childObject.bytes))
-          : null;
-        const pageID = childDocument && typeof childDocument.frontmatter.id === "string" ? childDocument.frontmatter.id : undefined;
-        const node: ExpandedNode = {
-          name,
-          path,
-          kind: entry.tree || childObject?.type === "directory" ? "directory" as const : markdown ? "markdown" as const : "file" as const,
-          revision: entry.hash ?? entry.tree ?? revisionOf(path),
-          writable: false,
-          materialization: "available" as const,
-          ...(childDocument ? { document: childDocument, bodyOrigin: "sibling" as const } : {}),
-          diagnostics: [],
-        };
-        const summary = summarizeExpandedNode(node, remote.id, false);
-        if (pageID) summary.ref.stableKey = `[["id",${JSON.stringify(pageID)}]]`;
-        return { summary, treeChild: {
-          tree: remote.id,
-          name,
-          path,
-          kind: node.kind,
-          materialization: "available" as const,
-          ...(pageID ? { pageID } : {}),
-        } };
-      }))).filter((child): child is NonNullable<typeof child> => child !== null);
-    if (rollup && rollupDescriptor) {
-      for (const row of rollup.rows) {
-        const summary = summarizeRollupRow(canonicalNodePath(remotePath!), rollupDescriptor.schema, row);
-        children.push({
-          summary,
-          treeChild: {
-            tree: remote.id,
-            name: summary.name,
-            path: summary.ref.path,
-            kind: "file",
-            materialization: "available",
-          },
-        });
-      }
-    }
-    const document = parseMarkdown(source);
-    const authoredTitle = document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
-    const descriptors = children
-      .map(({ treeChild: child }) => ({ path: canonicalNodePath(child.path), kind: child.kind, pageID: child.pageID ?? null }))
-      .sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
-    const path = canonicalNodePath(remotePath!);
-    const snapshot = sampleExpandedNode({
-      path,
-      name: authoredTitle || objectName,
-      kind: "directory",
-      revision: revisionOf(`${source}\0${JSON.stringify(descriptors)}`),
-      writable: false,
-      materialization: "available",
-      ...(logical.bodyOrigin ? { bodyOrigin: logical.bodyOrigin } : {}),
-      document,
-      children: children.map((child) => child.treeChild),
-      diagnostics: [...diagnostics, ...directoryPlacementDiagnostics(path, document)],
-    }, context);
-    if (rollup && rollupDescriptor) {
-      snapshot.capabilities.children = {
-        revision: rollupDescriptor.source,
-        schema: rollupDescriptor.schema,
-        representation: {
-          type: "rollup",
-          codec: rollupDescriptor.codec,
-          scope: rollupDescriptor.scope,
-          modelDigest: rollupDescriptor.modelDigest,
-        },
-        total: rollup.rows.length,
-        writable: false,
-      };
-    }
-    return { snapshot, children: children.map((child) => child.summary) };
+    const projection = await new WireProjection({
+      tree: remote.id,
+      root: remote.ref,
+      load: (hash) => client.object(remote.id, hash),
+      rootName: canonical.path.split("/").filter(Boolean).at(-1) ?? "community",
+      observedThrough,
+      enclosingTree,
+      includeBoundary: async (path) => {
+        const currentCanonicalPath = `${canonical.path === "/" ? "" : canonical.path}${path === "/" ? "" : path}` || "/";
+        return client.resolve(currentCanonicalPath).then(() => true).catch(() => false);
+      },
+    }).project(remotePath!, stableKey);
+    if (!projection) throw new ProtocolError("not-found", "The remote path is unavailable", 404);
+    return projection;
   }
 
   async children(ref: NodeRef, cursor?: string | null): Promise<ChildrenPage> {

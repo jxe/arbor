@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
-import { buildNetworkLocator, encodeSSEFrame, pageIDStableKey, resolveLogicalURL, sha256 } from "@arbor/core";
-import type { AccessEntry, AccessLevel, LocatorResolution, MutationCallRequest, MutationCallRuntime, ObservationEvent, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime, RemoteTreeDescriptor, RollupDescriptor } from "@arbor/core";
+import { buildNetworkLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@arbor/core";
+import type { AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, RemoteTreeDescriptor } from "@arbor/core";
+import { treeMutationResponse, treeQueryResponse } from "@arbor/data";
 import {
   AlreadyClaimedError,
   RefConflictError,
@@ -16,129 +17,17 @@ import {
   decodeObjectEnvelopes,
   decodeUpdateRequestJSON,
   decodeWireObject,
-  resolveWireLogicalNode,
-  type ResolvedWireLogicalNode,
   type AcceptedUpdate,
   type ObjectHash,
   type RemoteAccountDescriptor,
   type TreeAccess,
 } from "@arbor/wire";
-import { decodeWireFileRollup, SchemaSandbox, type DecodedWireFileRollup, type WireFileRollupRow } from "@arbor/stores";
 import { renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
-import { parseMarkdown } from "@arbor/editor";
+import { WireProjection, wireRollupRowMarkdown, wireRollupRowTitle } from "@arbor/wire-projection";
 
-function logicalStableKey(node: ResolvedWireLogicalNode): string | null {
-  const file = node.object.type === "file" ? node.object : node.body;
-  if (!file) return null;
-  const id = parseMarkdown(new TextDecoder().decode(file.bytes)).frontmatter.id;
-  return typeof id === "string" ? pageIDStableKey(id) : null;
-}
-
-interface ResolvedWireRollupRow {
-  path: string;
-  row: WireFileRollupRow;
-}
-
-async function decodeRollup(
-  descriptor: RollupDescriptor,
-  load: (hash: ObjectHash) => Promise<Uint8Array>,
-): Promise<DecodedWireFileRollup> {
-  const [source, schema] = await Promise.all([
-    load(descriptor.source).then(decodeWireObject),
-    load(descriptor.schemaSource).then(decodeWireObject),
-  ]);
-  if (source.type !== "file" || schema.type !== "file") throw new Error("Wire rollup targets must be file objects");
-  const sandbox = new SchemaSandbox();
-  try { return await decodeWireFileRollup(descriptor, source.bytes, schema.bytes, sandbox); }
-  finally { await sandbox[Symbol.asyncDispose](); }
-}
-
-async function findWireRollupRow(
-  root: ObjectHash,
-  requestedPath: string,
-  stableKey: string | null,
-  load: (hash: ObjectHash) => Promise<Uint8Array>,
-): Promise<ResolvedWireRollupRow | null> {
-  if (requestedPath === "/") return null;
-  const parentPath = requestedPath.slice(0, requestedPath.lastIndexOf("/")) || "/";
-  const parent = await resolveWireLogicalNode(root, parentPath, load);
-  if (parent?.object.type !== "directory") return null;
-  const descriptor = parent.object.entries.find((entry) => entry.rollup)?.rollup;
-  if (!descriptor) return null;
-  const projection = await decodeRollup(descriptor, load);
-  const segment = requestedPath.split("/").at(-1)!;
-  const row = projection.rows.find((candidate) => stableKey
-    ? candidate.stableKey === stableKey
-    : candidate.path === segment);
-  if (!row) return null;
-  return {
-    path: parentPath === "/" ? `/${row.path}` : `${parentPath}/${row.path}`,
-    row,
-  };
-}
-
-function rollupRowTitle(row: WireFileRollupRow): string {
-  return typeof row.properties.title === "string" ? row.properties.title
-    : typeof row.properties.name === "string" ? row.properties.name
-    : typeof row.properties.slug === "string" ? row.properties.slug
-    : row.path;
-}
-
-function rollupRowMarkdown(row: WireFileRollupRow): string {
-  const json = JSON.stringify(row.properties, null, 2);
-  const longest = Math.max(2, ...[...json.matchAll(/`+/g)].map((match) => match[0].length));
-  const fence = "`".repeat(longest + 1);
-  return `# ${rollupRowTitle(row).replaceAll(/\r?\n/g, " ")}\n\n${fence}json\n${json}\n${fence}\n`;
-}
-
-async function findWireNodeByStableKey(
-  root: ObjectHash,
-  stableKey: string,
-  load: (hash: ObjectHash) => Promise<Uint8Array>,
-): Promise<{ path: string; node: ResolvedWireLogicalNode } | null> {
-  const pending = ["/"];
-  const visited = new Set<string>();
-  while (pending.length) {
-    if (visited.size >= 10_000) throw new Error("Stable-key resolution exceeded the tree traversal limit");
-    const path = pending.shift()!;
-    if (visited.has(path)) continue;
-    visited.add(path);
-    const node = await resolveWireLogicalNode(root, path, load);
-    if (!node) continue;
-    if (logicalStableKey(node) === stableKey) return { path, node };
-    if (node.object.type !== "directory") continue;
-    const directories = new Set(node.object.entries
-      .filter((entry) => !entry.tree && entry.hash && entry.name !== "_index.md" && !entry.name.endsWith(".md"))
-      .map((entry) => entry.name));
-    for (const entry of node.object.entries) {
-      if (entry.tree || !entry.hash || entry.name === "_index.md") continue;
-      const name = entry.name.endsWith(".md") ? entry.name.slice(0, -3) : entry.name;
-      if (entry.name.endsWith(".md") && directories.has(name)) continue;
-      pending.push(path === "/" ? `/${name}` : `${path}/${name}`);
-    }
-  }
-  return null;
-}
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
-}
-
-function queryStreamResponse(
-  runtime: QueryStreamRuntime,
-  input: QueryStreamRequest,
-  signal: AbortSignal,
-  user: { profile: string } | null,
-): Promise<Response> | Response {
-  const encoder = new TextEncoder();
-  const response = (events: ReadableStream<QueryStreamEvent>) => new Response(events.pipeThrough(new TransformStream({
-    transform(event, controller) {
-      const { type, ...data } = event;
-      controller.enqueue(encoder.encode(encodeSSEFrame({ event: type, data })));
-    },
-  })), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" } });
-  const events = runtime.stream(input, { signal, user });
-  return events instanceof Promise ? events.then(response) : response(events);
 }
 
 function wireError(
@@ -337,20 +226,12 @@ export async function serveCanopy(options: {
           const treeID = decodeURIComponent(queryRoute[1]!);
           const tree = canopy.get(treeID);
           if (!tree || !canopy.canRead(account, treeID, linkDigest(request))) return wireError("not-found", "Tree not found", 404);
-          try {
-            const input = await request.json() as QueryStreamRequest;
-            if (input.document.tree !== treeID || input.queries.some((query) => query.handle.tree !== treeID)) {
-              return wireError("invalid-request", "The route tree must own the document and every query handle", 400, false, {}, { tree: treeID });
-            }
-            return await queryStreamResponse(
-              options.queryRuntime,
-              input,
-              request.signal,
-              account?.profileTree ? { profile: account.profileTree } : null,
-            );
-          } catch (error) {
-            return wireError("invalid-request", error instanceof Error ? error.message : "Invalid query stream request", 400);
-          }
+          return treeQueryResponse(
+            options.queryRuntime,
+            request,
+            treeID,
+            account?.profileTree ? { profile: account.profileTree } : null,
+          );
         }
         const mutateRoute = /^\/\.arbor\/trees\/([^/]+)\/mutate$/.exec(url.pathname);
         if (request.method === "POST" && mutateRoute) {
@@ -358,15 +239,12 @@ export async function serveCanopy(options: {
           const treeID = decodeURIComponent(mutateRoute[1]!);
           const tree = canopy.get(treeID);
           if (!tree || !account || !canopy.canWrite(account, treeID, linkDigest(request))) return wireError("not-found", "Tree not found", 404);
-          try {
-            const input = await request.json() as MutationCallRequest;
-            if (input.document.tree !== treeID || input.handle.tree !== treeID) {
-              return wireError("invalid-request", "The route tree must own the document and mutation handle", 400, false, {}, { tree: treeID });
-            }
-            return json(await options.mutationRuntime.call(input, { user: account.profileTree ? { profile: account.profileTree } : null }));
-          } catch (error) {
-            return wireError("invalid-request", error instanceof Error ? error.message : "Invalid mutation request", 400);
-          }
+          return treeMutationResponse(
+            options.mutationRuntime,
+            request,
+            treeID,
+            account.profileTree ? { profile: account.profileTree } : null,
+          );
         }
         if (request.method === "GET" && url.pathname === "/.arbor/health") {
           try {
@@ -693,52 +571,37 @@ export async function serveCanopy(options: {
               ? linkBootstrap()
               : new Response("Not found", { status: 404 });
           }
-          let tree = resolved.tree;
+          const tree = resolved.tree;
           const load = (hash: ObjectHash) => canopy.object(hash);
-          let logicalPath = resolved.path;
-          let logical = await resolveWireLogicalNode(tree.ref, logicalPath, load);
-          const logicalKey = logical ? logicalStableKey(logical) : null;
-          const rollupRow = (!logical || (requestLocator.stableKey && logicalKey !== requestLocator.stableKey))
-            ? await findWireRollupRow(tree.ref, logicalPath, requestLocator.stableKey, load)
-            : null;
-          if (requestLocator.stableKey && (!logical || logicalKey !== requestLocator.stableKey)) {
-            if (rollupRow) {
-              logicalPath = rollupRow.path;
-              if (resolved.path !== logicalPath) {
-                const publicPath = tree.canonicalPath === "/"
-                  ? logicalPath
-                  : `${tree.canonicalPath}${logicalPath === "/" ? "" : logicalPath}`;
-                return new Response(null, { status: 308, headers: { location: buildNetworkLocator(publicPath, {
-                  stableKey: requestLocator.stableKey,
-                  applicationQuery: requestLocator.applicationQuery,
-                  contentFragment: requestLocator.contentFragment,
-                }) } });
-              }
-            } else {
-              const healed = await findWireNodeByStableKey(tree.ref, requestLocator.stableKey, load);
-              if (!healed) return new Response("Not found", { status: 404 });
-              logicalPath = healed.path;
-              logical = healed.node;
-              const publicPath = tree.canonicalPath === "/"
-                ? logicalPath
-                : `${tree.canonicalPath}${logicalPath === "/" ? "" : logicalPath}`;
-              const location = buildNetworkLocator(
-                publicPath,
-                {
-                  stableKey: requestLocator.stableKey,
-                  applicationQuery: requestLocator.applicationQuery,
-                  contentFragment: requestLocator.contentFragment,
-                },
-              );
-              if (!location) return new Response("Not found", { status: 404 });
-              return new Response(null, { status: 308, headers: { location } });
-            }
+          const wireProjection = new WireProjection({
+            tree: tree.id,
+            root: tree.ref,
+            load,
+            rootName: tree.canonicalPath?.split("/").filter(Boolean).at(-1) ?? canopy.communityHandle(),
+            observedThrough: "public",
+          });
+          const resolution = await wireProjection.resolve(resolved.path, requestLocator.stableKey);
+          if (resolution.kind === "missing") return new Response("Not found", { status: 404 });
+          const logicalPath = resolution.path;
+          if (requestLocator.stableKey && resolved.path !== logicalPath) {
+            const publicPath = tree.canonicalPath === "/"
+              ? logicalPath
+              : `${tree.canonicalPath}${logicalPath === "/" ? "" : logicalPath}`;
+            const location = buildNetworkLocator(publicPath, {
+              stableKey: requestLocator.stableKey,
+              applicationQuery: requestLocator.applicationQuery,
+              contentFragment: requestLocator.contentFragment,
+            });
+            if (!location) return new Response("Not found", { status: 404 });
+            return new Response(null, { status: 308, headers: { location } });
           }
+          const rollupRow = resolution.kind === "rollup-row" ? resolution : null;
+          const logical = resolution.kind === "node" ? resolution.node : null;
           const canonicalPath = tree.canonicalPath!;
           if (rollupRow) {
-            const title = rollupRowTitle(rollupRow.row);
+            const title = wireRollupRowTitle(rollupRow.row);
             if (request.headers.get("accept")?.includes("text/markdown")) {
-              return new Response(rollupRowMarkdown(rollupRow.row), {
+              return new Response(wireRollupRowMarkdown(rollupRow.row), {
                 headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" },
               });
             }
@@ -778,7 +641,7 @@ export async function serveCanopy(options: {
             return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
           }
           const rollupDescriptor = objectValue.entries.find((entry) => entry.rollup)?.rollup;
-          const rollup = rollupDescriptor ? await decodeRollup(rollupDescriptor, load) : null;
+          const rollup = rollupDescriptor ? await wireProjection.rollup(rollupDescriptor) : null;
           const physicalChildren = (await Promise.all(objectValue.entries
             .filter((entry) => entry.name !== "_index.md" && !entry.rollup && !(rollupDescriptor && entry.name === "schema.ts"))
             .map(async (entry): Promise<PublicPageChild | null> => {
@@ -796,7 +659,7 @@ export async function serveCanopy(options: {
               };
             }))).filter((child): child is PublicPageChild => child !== null);
           const rollupChildren: PublicPageChild[] = (rollup?.rows ?? []).map((row) => ({
-            name: rollupRowTitle(row),
+            name: wireRollupRowTitle(row),
             href: buildNetworkLocator(`${prefix}/${encodeURIComponent(row.path)}`, {
               stableKey: row.stableKey,
               applicationQuery: requestLocator.applicationQuery,

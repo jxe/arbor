@@ -26,7 +26,8 @@
       "@arbor/arborsync": ["packages/arborsync/src/index.ts"],
       "@arbor/client": ["packages/client/src/index.ts"],
       "@arbor/canopy": ["packages/canopy/src/index.ts"],
-      "@arbor/wire": ["packages/wire/src/index.ts"]
+      "@arbor/wire": ["packages/wire/src/index.ts"],
+      "@arbor/wire-projection": ["packages/wire-projection/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts", "packages/**/*.tsx", "tests/**/*.ts", "tools/hunch-rehearsal/**/*.ts"]

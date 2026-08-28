@@ -9,9 +9,9 @@ import type {
   QueryStreamRequest,
   QueryStreamRuntime,
   MutationCallRuntime,
-  MutationCallRequest,
 } from "@arbor/core";
 import { PathEscapeError, encodeSSEFrame, generateArborID } from "@arbor/core";
+import { queryStreamResponse, treeMutationResponse, treeQueryResponse } from "@arbor/data";
 import { decodeNodeRef } from "@arbor/core/node-model";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
 import { currentDeviceID } from "@arbor/stores";
@@ -36,23 +36,6 @@ const MIME: Record<string, string> = {
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
-}
-
-function queryStreamResponse(
-  runtime: QueryStreamRuntime,
-  input: QueryStreamRequest,
-  signal: AbortSignal,
-  user: { profile: string } | null,
-): Promise<Response> | Response {
-  const encoder = new TextEncoder();
-  const response = (events: ReadableStream<import("@arbor/core").QueryStreamEvent>) => new Response(events.pipeThrough(new TransformStream({
-    transform(event, controller) {
-      const { type, ...data } = event;
-      controller.enqueue(encoder.encode(encodeSSEFrame({ event: type, data })));
-    },
-  })), { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" } });
-  const events = runtime.stream(input, { signal, user });
-  return events instanceof Promise ? events.then(response) : response(events);
 }
 
 function fileResponse(
@@ -548,29 +531,13 @@ function startArborSyncServer(
         if (request.method === "QUERY" && queryRoute) {
           if (!options.queryRuntime) return errorResponse("unsupported-operation", "No query runtime is active", 422);
           const treeID = decodeURIComponent(queryRoute[1]!);
-          try {
-            const input = await request.json() as QueryStreamRequest;
-            if (input.document.tree !== treeID || input.queries.some((query) => query.handle.tree !== treeID)) {
-              return errorResponse("invalid-request", "The route tree must own the document and every query handle", 400, { tree: treeID });
-            }
-            return await queryStreamResponse(options.queryRuntime, input, request.signal, options.queryUser ?? null);
-          } catch (error) {
-            return errorResponse("invalid-request", error instanceof Error ? error.message : "Invalid query stream request", 400);
-          }
+          return treeQueryResponse(options.queryRuntime, request, treeID, options.queryUser ?? null);
         }
         const mutateRoute = /^\/\.arbor\/trees\/([^/]+)\/mutate$/.exec(url.pathname);
         if (request.method === "POST" && mutateRoute) {
           if (!options.mutationRuntime) return errorResponse("unsupported-operation", "No mutation runtime is active", 422);
           const treeID = decodeURIComponent(mutateRoute[1]!);
-          try {
-            const input = await request.json() as MutationCallRequest;
-            if (input.document.tree !== treeID || input.handle.tree !== treeID) {
-              return errorResponse("invalid-request", "The route tree must own the document and mutation handle", 400, { tree: treeID });
-            }
-            return json(await options.mutationRuntime.call(input, { user: options.queryUser ?? null }));
-          } catch (error) {
-            return errorResponse("invalid-request", error instanceof Error ? error.message : "Invalid mutation request", 400);
-          }
+          return treeMutationResponse(options.mutationRuntime, request, treeID, options.queryUser ?? null);
         }
         if (request.method === "POST" && url.pathname === "/v1/mutations") {
           return json(await service.executeMutation(decodeMutation(await request.json())));

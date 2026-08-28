@@ -1,18 +1,12 @@
 {
-  "name": "@arbor/canopy",
+  "name": "@arbor/wire-projection",
   "version": "0.1.0",
   "type": "module",
   "exports": "./src/index.ts",
-  "bin": {
-    "canopyd": "./src/cli.ts"
-  },
   "dependencies": {
     "@arbor/core": "workspace:*",
-    "@arbor/data": "workspace:*",
     "@arbor/editor": "workspace:*",
     "@arbor/stores": "workspace:*",
-    "@arbor/wire": "workspace:*",
-    "@arbor/wire-projection": "workspace:*",
-    "yaml": "2.8.2"
+    "@arbor/wire": "workspace:*"
   }
 }

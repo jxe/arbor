@@ -8,10 +8,12 @@
   },
   "dependencies": {
     "@arbor/core": "workspace:*",
+    "@arbor/data": "workspace:*",
     "@arbor/editor": "workspace:*",
     "@arbor/fs": "workspace:*",
     "@arbor/stores": "workspace:*",
     "@arbor/wire": "workspace:*",
+    "@arbor/wire-projection": "workspace:*",
     "zod": "4.3.6"
   }
 }
