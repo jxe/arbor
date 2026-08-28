@@ -11,8 +11,6 @@ export interface NodeRef {
   stableKey: string | null;
 }
 
-export type ResolvedNodeRef = NodeRef;
-
 export interface IdentityRule {
   properties: string[];
 }
@@ -57,7 +55,7 @@ export interface NodeContent {
 }
 
 export interface NodeSummary {
-  ref: ResolvedNodeRef;
+  ref: NodeRef;
   name: string;
   revision: string;
   properties: Record<string, JSONValue>;
@@ -72,7 +70,7 @@ export interface NodeSnapshot extends NodeSummary {
 }
 
 export interface ChildrenPage {
-  parent: ResolvedNodeRef;
+  parent: NodeRef;
   items: NodeSummary[];
   nextCursor: string | null;
   observedThrough: EventCursor;

@@ -43,7 +43,6 @@ export type {
   MutationReceipt,
   MutationRequest,
   NodeRef,
-  PageID,
   RecoveryEntry,
   RecoveryPage,
   SearchPage,

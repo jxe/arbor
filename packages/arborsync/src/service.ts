@@ -282,7 +282,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       const scope = await this.resolveScope({ tree: LOCAL_TREE, path: absolute, stableKey: null });
       if (scope.kind === "root") {
         const enclosingTree = (await this.trees.descriptors()).find((tree) => tree.id === scope.workspace.tree);
-        return { ref: scope.ref as import("@arbor/core").ResolvedNodeRef, ...(enclosingTree ? { enclosingTree } : {}), historical: false, observedThrough: this.events.currentCursor() };
+        return { ref: scope.ref as import("@arbor/core").NodeRef, ...(enclosingTree ? { enclosingTree } : {}), historical: false, observedThrough: this.events.currentCursor() };
       }
       return { ref: { tree: LOCAL_TREE, path: absolute, stableKey: null }, historical: false, observedThrough: this.events.currentCursor() };
     }

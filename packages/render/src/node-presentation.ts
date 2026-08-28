@@ -20,7 +20,3 @@ export function presentationKind(node: NodeSummary): "directory" | "markdown" | 
   if (hasChildren(node)) return "directory";
   return hasMarkdownContent(node) ? "markdown" : "file";
 }
-
-export function canWriteContent(node: NodeSummary): boolean {
-  return node.capabilities.content?.writable === true;
-}

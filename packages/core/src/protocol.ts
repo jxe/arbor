@@ -1,6 +1,6 @@
 import type { Diagnostic, SearchResult } from "./types.ts";
 import { sha256 } from "./hash.ts";
-import type { JSONValue, NodeRef, NodeSnapshot, ResolvedNodeRef } from "./node-model.ts";
+import type { JSONValue, NodeRef, NodeSnapshot } from "./node-model.ts";
 
 export type {
   ChildRepresentationSummary,
@@ -13,12 +13,10 @@ export type {
   NodeRef,
   NodeSnapshot,
   NodeSummary,
-  ResolvedNodeRef,
   RollupDescriptor,
 } from "./node-model.ts";
 
 export type LogicalPath = string;
-export type PageID = string;
 export type ContentRevision = string;
 export type DirectoryRevision = string;
 export type EventCursor = string;
@@ -166,13 +164,13 @@ export interface SearchPage {
 }
 
 export interface BacklinkEntry {
-  ref: ResolvedNodeRef;
+  ref: NodeRef;
   title: string;
   context: string;
 }
 
 export interface BacklinksPage {
-  target: ResolvedNodeRef;
+  target: NodeRef;
   entries: BacklinkEntry[];
   nextCursor: string | null;
   observedThrough: EventCursor;
@@ -180,7 +178,7 @@ export interface BacklinksPage {
 
 export interface BlockRecoveryEntry {
   kind: "block";
-  ref: ResolvedNodeRef;
+  ref: NodeRef;
   hash: string;
   markdown: string;
   parent: string | null;
@@ -190,7 +188,7 @@ export interface BlockRecoveryEntry {
 
 export interface TrashRecoveryEntry {
   kind: "trash";
-  ref: ResolvedNodeRef;
+  ref: NodeRef;
   originalPath: LogicalPath;
   /** Physical recovery classification, not a logical node kind. */
   nodeKind: "markdown" | "directory" | "file";
@@ -200,14 +198,14 @@ export interface TrashRecoveryEntry {
 export type RecoveryEntry = BlockRecoveryEntry | TrashRecoveryEntry;
 
 export interface RecoveryPage {
-  ref: ResolvedNodeRef;
+  ref: NodeRef;
   entries: RecoveryEntry[];
   nextCursor: string | null;
   observedThrough: EventCursor;
 }
 
 export interface LocatorResolution {
-  ref: ResolvedNodeRef;
+  ref: NodeRef;
   enclosingTree?: TreeDescriptor;
   historical: boolean;
   observedThrough: EventCursor;
@@ -346,7 +344,7 @@ export type MutationEffectKind = "created" | "updated" | "moved" | "deleted";
 
 export interface MutationEffect {
   kind: MutationEffectKind;
-  ref: ResolvedNodeRef;
+  ref: NodeRef;
   previousPath?: LogicalPath;
   contentRevision?: ContentRevision;
   propertiesRevision?: string;
@@ -364,7 +362,7 @@ export interface MutationReceipt {
 export type WorkspaceEventOrigin = "api" | "external" | "recovery" | "sync";
 
 export interface WorkspaceChange {
-  ref: ResolvedNodeRef;
+  ref: NodeRef;
   previousPath?: LogicalPath;
   contentRevision?: ContentRevision;
   propertiesRevision?: string;

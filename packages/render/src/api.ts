@@ -1,7 +1,6 @@
 import {
   ArborSyncRESTClient,
   type BacklinkEntry,
-  type MutationEffect,
   type MutationReceipt,
   type NodeRef,
   type NodeSnapshot,
@@ -38,9 +37,6 @@ function result(receipt: MutationReceipt): BrowserMutationResult {
 }
 
 const client = new ArborSyncRESTClient();
-
-export type BrowserOperation = StructuralWorkspaceOperation;
-export type BrowserEffect = MutationEffect;
 
 /**
  * The api surface, scoped to one tree. Every reference or path-literal
@@ -97,6 +93,11 @@ function makeApi(tree: TreeRef = "local") {
       });
       return client.node(refOf(ref));
     },
+    writeProperties: (
+      ref: string | NodeRef,
+      basePropertiesRevision: string,
+      properties: Record<string, import("@arbor/core").JSONValue>,
+    ) => client.writeProperties(refOf(ref), basePropertiesRevision, properties),
     mutate: async (body: { operations: StructuralWorkspaceOperation[] }) =>
       result(await client.mutateStructural(body.operations.map(scopeOperation))),
     import: async (destination: string, entries: BrowserImportEntry[]) =>

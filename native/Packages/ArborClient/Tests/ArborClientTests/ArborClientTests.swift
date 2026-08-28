@@ -49,7 +49,7 @@ final class ArborClientTests: XCTestCase {
         let intentFixtureData = try Data(contentsOf: conformanceFixtures.appending(path: "wire-update-intent.json"))
         let intentFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: intentFixtureData) as? [String: Any])
 
-        XCTAssertEqual(node.ref, ResolvedNodeRef(tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: pageIDStableKey("abc123")))
+        XCTAssertEqual(node.ref, NodeRef(tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: pageIDStableKey("abc123")))
         XCTAssertEqual(node.content?.source, "---\nid: abc123\ntitle: Today\n---\nHello\n")
         XCTAssertEqual(node.ref.tree, "tr_notes7f3q2ab7c")
         XCTAssertEqual(node.enclosingTree?.osPath, "/Users/joe/notes")

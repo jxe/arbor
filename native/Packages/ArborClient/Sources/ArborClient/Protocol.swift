@@ -90,8 +90,6 @@ public struct NodeRef: Codable, Sendable, Equatable {
     }
 }
 
-public typealias ResolvedNodeRef = NodeRef
-
 public struct CanonicalTreeDescriptor: Codable, Sendable, Equatable {
     public var locator: String
     public var path: String
@@ -106,7 +104,7 @@ public struct SnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, 
 }
 
 public struct LocatorResolution: Codable, Sendable, Equatable {
-    public var ref: ResolvedNodeRef
+    public var ref: NodeRef
     public var enclosingTree: TreeDescriptor?
     public var historical: Bool
     public var observedThrough: String
@@ -244,7 +242,7 @@ private func rejectLegacyNodeFields(_ decoder: Decoder) throws {
 }
 
 public struct NodeSummary: Codable, Sendable, Equatable {
-    public var ref: ResolvedNodeRef
+    public var ref: NodeRef
     public var name: String
     public var revision: String
     public var properties: [String: JSONValue]
@@ -259,7 +257,7 @@ public struct NodeSummary: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         try rejectLegacyNodeFields(decoder)
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        ref = try container.decode(ResolvedNodeRef.self, forKey: .ref)
+        ref = try container.decode(NodeRef.self, forKey: .ref)
         name = try container.decode(String.self, forKey: .name)
         revision = try container.decode(String.self, forKey: .revision)
         properties = try container.decode([String: JSONValue].self, forKey: .properties)
@@ -270,7 +268,7 @@ public struct NodeSummary: Codable, Sendable, Equatable {
 }
 
 public struct NodeSnapshot: Codable, Sendable, Equatable {
-    public var ref: ResolvedNodeRef
+    public var ref: NodeRef
     /// Placement context supplied by local/Canopy response adapters.
     public var enclosingTree: LocalTreeDescriptor?
     public var name: String
@@ -289,7 +287,7 @@ public struct NodeSnapshot: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         try rejectLegacyNodeFields(decoder)
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        ref = try container.decode(ResolvedNodeRef.self, forKey: .ref)
+        ref = try container.decode(NodeRef.self, forKey: .ref)
         enclosingTree = try container.decodeIfPresent(LocalTreeDescriptor.self, forKey: .enclosingTree)
         name = try container.decode(String.self, forKey: .name)
         revision = try container.decode(String.self, forKey: .revision)
@@ -303,14 +301,14 @@ public struct NodeSnapshot: Codable, Sendable, Equatable {
 }
 
 public struct ChildrenPage: Codable, Sendable, Equatable {
-    public var parent: ResolvedNodeRef
+    public var parent: NodeRef
     public var items: [NodeSummary]
     public var nextCursor: String?
     public var observedThrough: String
 }
 
 public struct SearchResult: Codable, Sendable, Equatable {
-    public var ref: ResolvedNodeRef
+    public var ref: NodeRef
     public var title: String
     public var excerpt: String
     public var score: Double
@@ -323,13 +321,13 @@ public struct SearchPage: Codable, Sendable, Equatable {
 }
 
 public struct BacklinkEntry: Codable, Sendable, Equatable {
-    public var ref: ResolvedNodeRef
+    public var ref: NodeRef
     public var title: String
     public var context: String
 }
 
 public struct BacklinksPage: Codable, Sendable, Equatable {
-    public var target: ResolvedNodeRef
+    public var target: NodeRef
     public var entries: [BacklinkEntry]
     public var nextCursor: String?
     public var observedThrough: String
@@ -338,7 +336,7 @@ public struct BacklinksPage: Codable, Sendable, Equatable {
 public struct RecoveryEntry: Codable, Sendable, Equatable {
     /// "block" or "trash".
     public var kind: String
-    public var ref: ResolvedNodeRef
+    public var ref: NodeRef
     public var hash: String?
     public var markdown: String?
     public var parent: String?
@@ -349,7 +347,7 @@ public struct RecoveryEntry: Codable, Sendable, Equatable {
 }
 
 public struct RecoveryPage: Codable, Sendable, Equatable {
-    public var ref: ResolvedNodeRef
+    public var ref: NodeRef
     public var entries: [RecoveryEntry]
     public var nextCursor: String?
     public var observedThrough: String

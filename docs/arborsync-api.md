@@ -69,10 +69,8 @@ type NodeRef = {
   stableKey: string | null;
 };
 
-type ResolvedNodeRef = NodeRef;
-
 type LocatorResolution = {
-  ref: ResolvedNodeRef;
+  ref: NodeRef;
   enclosingTree?: TreeDescriptor;
   historical: boolean;
   observedThrough: EventCursor;
