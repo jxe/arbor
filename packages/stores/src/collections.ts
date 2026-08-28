@@ -293,10 +293,54 @@ export async function detectCollection(directory: string): Promise<CollectionDef
 
 export class CollectionStore {
   private fileCommitTails = new Map<string, Promise<void>>();
+  private fileSnapshots = new Map<string, Promise<LoadedCollection>>();
   constructor(
     private schemas = new SchemaSandbox(),
     private connections = new ConnectionStore(),
   ) {}
+
+  private definitionRoot(definition: CollectionDefinition): string {
+    return dirname(definition.storePath ?? definition.schemaPath ?? definition.markdownPaths?.[0] ?? "/");
+  }
+
+  private async snapshotKey(definition: CollectionDefinition): Promise<string> {
+    const paths = [
+      definition.schemaPath,
+      definition.storePath,
+      ...(definition.markdownPaths ?? []),
+    ].filter((path): path is string => Boolean(path));
+    const states = await Promise.all([...new Set(paths)].sort().map(async (path) => {
+      try {
+        return { path, revision: revisionOf(await readFile(path)) };
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+          return { path, missing: true };
+        }
+        throw error;
+      }
+    }));
+    return `${this.definitionRoot(definition)}\0${revisionOf(canonicalJSONString(states))}`;
+  }
+
+  private remember<T>(cache: Map<string, Promise<T>>, key: string, load: () => Promise<T>): Promise<T> {
+    const existing = cache.get(key);
+    if (existing) {
+      cache.delete(key);
+      cache.set(key, existing);
+      return existing;
+    }
+    const value = load();
+    cache.set(key, value);
+    while (cache.size > 32) cache.delete(cache.keys().next().value!);
+    void value.catch(() => {
+      if (cache.get(key) === value) cache.delete(key);
+    });
+    return value;
+  }
+
+  private invalidateSnapshots(directory: string): void {
+    for (const key of this.fileSnapshots.keys()) if (key.startsWith(`${directory}\0`)) this.fileSnapshots.delete(key);
+  }
 
   async summary(directory: string): Promise<ChildSetDescriptor | null> {
     const definition = await detectCollection(directory);
@@ -795,6 +839,7 @@ export class CollectionStore {
           throw new CollectionSourceConflictError("The exact rollup source changed before the prepared write could commit");
         }
         await commitPrepared(prepared.temporaryPath, prepared.storePath);
+        this.invalidateSnapshots(dirname(prepared.storePath));
         return {
           path: prepared.path,
           stableKey: prepared.stableKey,
@@ -889,6 +934,7 @@ export class CollectionStore {
       database.query("insert into __arbor_property_receipts (scope, mutation_id, request_hash, result_json) values (?, ?, ?, ?)")
         .run(mutation.scope, mutation.id, requestHash, canonicalJSONString(saved));
       database.exec("commit");
+      this.invalidateSnapshots(directory);
       return saved;
     } catch (error) {
       try { database.exec("rollback"); } catch {}
@@ -900,20 +946,20 @@ export class CollectionStore {
 
   private async loadSQLiteStore(definition: CollectionDefinition): Promise<LoadedSQLiteStore> {
     const directory = dirname(definition.storePath!);
-    let schema: StoreSchema;
-    try {
-      schema = await introspectStoreSchema({
-        databasePath: definition.storePath!,
-        schemaPath: join(directory, "schema.sql"),
-        relationshipsPath: join(directory, "relationships.json"),
-      });
-    } catch (error) {
-      if (!(error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT")) throw error;
-      schema = introspectSQLiteDatabase(definition.storePath!);
-    }
     const database = new Database(definition.storePath!, { readonly: true, strict: true });
     database.exec("begin");
     try {
+      let schema: StoreSchema;
+      try {
+        schema = await introspectStoreSchema({
+          databasePath: definition.storePath!,
+          schemaPath: join(directory, "schema.sql"),
+          relationshipsPath: join(directory, "relationships.json"),
+        }, database);
+      } catch (error) {
+        if (!(error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT")) throw error;
+        schema = introspectSQLiteDatabase(database);
+      }
       const schemaVersion = (database.query("pragma schema_version").get() as { schema_version: number }).schema_version;
       const tables: Record<string, LoadedSQLiteTable> = {};
       for (const relation of Object.values(schema.relations).filter((candidate) => candidate.source === "sqlite")) {
@@ -977,6 +1023,11 @@ export class CollectionStore {
   }
 
   private async loadFileCollection(definition: CollectionDefinition): Promise<LoadedCollection> {
+    const key = await this.snapshotKey(definition);
+    return this.remember(this.fileSnapshots, key, () => this.loadFileCollectionUncached(definition));
+  }
+
+  private async loadFileCollectionUncached(definition: CollectionDefinition): Promise<LoadedCollection> {
     const description = definition.schemaPath
       ? await this.schemas.compile(definition.schemaPath)
       : { jsonSchema: {}, columns: [], primaryKey: null, revision: revisionOf("") };

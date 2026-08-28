@@ -220,7 +220,15 @@
   the optional stable key as a query parameter, so they no longer invent a
   PageID route namespace. Physical Markdown/replica `id` handling remains a
   representation codec behind the generic reference.
-- **Next checkpoint:** complete provider snapshots/observation and Wire rollup synchronization/merge in this
+- **2026-08-28 — database revision correction:** exact revision-keyed snapshots
+  remain valid for expanded/file rollups, while SQLite/Postgres use short-lived
+  transaction snapshots, schema fingerprints, row CAS tokens, and committed
+  observation cursors. Schema validation and SQLite row sampling now share one
+  read transaction. The unresolved durable observation/checkpoint and semantic
+  synchronization design moved intact to
+  [Data 005](005-database-observation-and-semantic-sync.md); Data 002 will not
+  invent whole-database hashes or merge database storage bytes.
+- **Next checkpoint:** complete bounded file-provider snapshots and Wire file-rollup synchronization/merge in this
   plan. Typed source declarations, activation-manifest generation, and
   editor integration moved intact to
   [Application 003](../applications/003-development-compiler-and-editor-tooling.md);
@@ -237,8 +245,9 @@ directories, collections, database containers, tables, and rows:
 - identity, location, properties, content, children, schema, and capabilities
   are independent dimensions;
 - `document` and `collection` are capabilities/projections, while file,
-  Markdown, CSV, JSON, JSONL, and SQLite are representations/providers in this
-  plan; Postgres uses the same frozen contract in Data 004;
+  Markdown, CSV, JSON, and JSONL are exact-source representations in this plan;
+  SQLite is a database provider, while Postgres uses the same frozen contract
+  in Data 004 and database observation/synchronization belongs to Data 005;
 - every table or record is browsed through ordinary `node` and paginated
   `children` operations;
 - frontmatter and row columns project through the same node-properties field;
@@ -417,8 +426,11 @@ The precise serialized form is decided in Phase 0. Preserve these invariants:
   relations/materialized subcollections may be `children`.
 - `children` returns enough projected properties and schema metadata for table
   rendering without N+1 node fetches.
-- Children cursors are revision-bound keyset cursors. Positional/offset cursors
-  are allowed only for explicitly read-only, identity-less sources.
+- Children cursors are provider-bound keyset cursors. File cursors bind to an
+  exact source revision; database cursors bind to schema and a committed
+  observation boundary without claiming a whole-database revision.
+  Positional/offset cursors are allowed only for explicitly read-only,
+  identity-less sources.
 - `revision` represents the coherent node state; capability revisions provide
   narrower concurrency/invalidation boundaries where the provider can prove
   them.
@@ -465,12 +477,12 @@ Provider variants:
 - expanded filesystem children;
 - Markdown-record children;
 - `_store.csv`, `_store.json`, and `_store.jsonl` immediate-child rollups;
-- `_store.sqlite3` provider-owned table/row subtree rollup;
+- `_store.sqlite3` provider-owned database table/row subtree;
 - `_store.yaml` driver-dispatched external providers supplied later by Data 004;
   and
 - later Data 001 replicated materializations using the same logical objects.
 
-The exact rollup bytes/source revision and schema-normalized, store-scoped model
+For file rollups, the exact bytes/source revision and schema-normalized, store-scoped model
 digest are separate. The digest is not a universal serialization/hash of the
 Arbor data model. A formatting-only JSON/CSV change advances authored tree state
 but does not change row identities or query dependencies. A backing migration
@@ -615,7 +627,7 @@ and model-state revisions into one coherent execution state before `ready`.
 ## Wire representation and semantic merge
 
 Evolve the wire directory/object graph so an enclosing node can carry a
-versioned rollup descriptor referencing:
+versioned file-rollup descriptor referencing:
 
 - codec/format version;
 - exact source object hash;
@@ -638,10 +650,10 @@ Extend three-way merge:
 5. encode the authority's accepted representation; and
 6. report row/schema/constraint conflicts with stable node references.
 
-SQLite may initially conflict as one physical database when semantic merge
-cannot be proved, but it must still expose row nodes and logical changes. Never
-byte-merge SQLite pages. Add semantic SQLite merging only from consistent
-snapshots/transactions and language-neutral vectors.
+SQLite must still expose row nodes and logical changes, but it does not enter
+this exact-source merge. Never byte-merge SQLite pages or hash every row to
+manufacture an ordinary read revision. Data 005 owns the reviewed transaction,
+observation, checkpoint, and semantic synchronization protocol.
 
 ## Implementation phases
 
@@ -685,7 +697,7 @@ snapshots/transactions and language-neutral vectors.
 - Add canonical schema-key encoding, child path generation, path-attached
   `arbor-key` parsing/emission, application-query/content-fragment preservation,
   the Markdown relative-link alias, schema-scoped row/subtree digesting, and
-  revision-bound cursor helpers.
+  file-revision and provider-observation-bound cursor helpers.
 - Keep physical `FsNodeKind` private to `@arbor/fs`.
 - Port the new types and decoders to `ArborClient/Protocol.swift` before server
   adapters emit them.

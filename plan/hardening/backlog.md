@@ -59,23 +59,21 @@ These are implementation violations of the aspirational specification. They are 
 5. **Complete [Data 003](../data/003-representation-equivalence.md).** That plan
    now owns the reviewed logical-path rule/converter and the proof that expanded
    Markdown and key-derived rollups preserve refs and ordinary relative links.
-6. **Cache bounded provider snapshots instead of rebuilding complete views.**
-   File-backed summary, paging, and stable-key resolution currently reparse and
-   revalidate the complete backing to establish duplicate-key safety. The first
-   SQLite node adapter likewise re-introspects and reads every user row for
-   describe, page, and resolve. Replace both retrofits with a size-bounded,
-   exact-revision-keyed provider snapshot shared by describe/page/resolve, with
-   filesystem/database invalidation and no stale schema reuse. Preserve
-   full-key-set validation; do not optimize by checking only the returned page.
-7. **Join SQLite schema validation, row sampling, and observation at one
-   snapshot boundary.** Generic SQLite browsing currently validates authored
-   `schema.sql` and `relationships.json` on one read connection, then samples
-   rows in a second read transaction. A concurrent schema commit can therefore
-   make that pair inconsistent even though each operation is individually
-   database-safe. Have `ChildProvider` obtain schema, rows, model digest, and
-   observation cursor through the shared SQLite broker/snapshot owner, retain
-   the last usable schema with an actionable diagnostic, and invalidate the
-   exact snapshot after external WAL commits.
+6. **Finish bounded exact-source snapshots for file providers.** File-backed
+   summary, paging, and stable-key resolution now share a size-bounded cache
+   keyed by exact schema/store/Markdown bytes and invalidated after Arbor
+   writes. Add filesystem-driven invalidation/metrics and avoid duplicate source
+   reads while preserving complete-key-set validation. Do not extend this cache
+   to SQLite/Postgres: Data 005 owns their transaction read sessions and
+   committed observation cursors.
+7. **Finish Data 005's shared SQLite read/observation boundary.** Generic
+   SQLite browsing now validates authored `schema.sql`/`relationships.json` and
+   samples rows on one read connection and transaction. It still opens that
+   boundary independently from the SQLite change broker and still computes
+   complete logical table digests. Route browsing, mutation, query, and
+   observation through the reviewed provider cursor/session owner, retain the
+   last usable schema with an actionable stale diagnostic, and remove the
+   whole-table revision stand-in.
 8. **Specify lossless SQLite property scalar projection.** The generic adapter
    currently follows existing observer conventions by normalizing booleans and
    representing BLOBs as a tagged base64 object; integers outside JavaScript's
@@ -91,13 +89,13 @@ These are implementation violations of the aspirational specification. They are 
     retain the authored relation name for query and mutation handles. Freeze
     fixtures for spaces, slashes, Unicode, reserved `~row-` prefixes, and a
     same-named physical child before removing the virtual-table bridge.
-10. **Expose exact SQLite representation state separately from its model
-    digest.** The generic child revision currently hashes a coherent logical
-    row snapshot and schema fingerprint, which is sufficient for stable paging
-    but does not identify formatting-equivalent SQLite page/WAL bytes. The Wire
-    rollup provider must carry an exact accepted source/object revision and a
-    separate scoped model digest so vacuuming, indexes, and representation-only
-    changes participate in synchronization without changing logical equality.
+10. **Remove the whole-table SQLite revision stand-in under Data 005.** The
+    generic child adapter currently hashes every logical row plus schema to
+    populate table/children revisions. This is not an exact database revision
+    and is unbounded. Replace it with schema fingerprint, row CAS revisions,
+    provider observation/sensitivity boundaries, and explicit synchronization
+    checkpoints only when needed. Vacuuming and SQLite page/WAL bytes are
+    placement-private and do not participate in logical synchronization.
 11. **Complete
     [Application 003](../applications/003-development-compiler-and-editor-tooling.md).**
     It now owns generated source schemas, ordinary-tree activation manifests,

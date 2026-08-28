@@ -237,7 +237,7 @@ replay returns the original result and creates no duplicate accepted update.
 Clients durably retain the base, candidate, required content, and any conflict
 draft until the result has been applied.
 
-When a candidate changes a recognized child rollup, the submitted root names
+When a candidate changes a recognized file child rollup, the submitted root names
 the exact candidate representation. The authority decodes coherent base,
 current, and candidate representations under schema and resource bounds,
 recomputes logical row identities and the store codec's scoped model digest,
@@ -245,8 +245,9 @@ merges disjoint changes by stable row identity, validates all keys, foreign
 keys, and constraints, and encodes the
 accepted representation. It never trusts a client-supplied model digest.
 Formatting-only changes may advance exact tree state without changing logical
-query dependencies. SQLite database bytes are never page-merged; an authority
-that cannot prove semantic SQLite reconciliation conflicts the whole rollup.
+query dependencies. SQLite and Postgres changes use the database transaction,
+observation, and semantic-checkpoint protocol specified separately; live
+database storage bytes are never submitted or merged as a rollup object.
 
 ### 1.3 Patch push and watch roundtrip
 
@@ -772,7 +773,7 @@ scope, and authority-derived logical child/subtree root:
 ```ts
 type RollupDescriptor = {
   version: 1;
-  codec: "csv" | "json" | "jsonl" | "sqlite";
+  codec: "csv" | "json" | "jsonl";
   source: Hash;
   schema: Hash;
   scope: "children" | "subtree";
@@ -789,6 +790,14 @@ model-state equivalence remain distinct. Names reject NUL,
 slashes, backslashes, dot segments, non-NFC text, and reserved ambiguity.
 Directory entries are canonically ordered; decoders reject noncanonical
 encodings and hash mismatches.
+
+Database placements may expose the same logical subtree, but they do not use
+this exact-source descriptor. Wire database synchronization names committed
+logical changes and, when required for resync, a content-addressed canonical
+logical checkpoint produced at one database snapshot. Such a checkpoint is an
+explicit synchronization artifact, not an ordinary database revision, and
+contains no SQLite pages/WAL bytes or Postgres storage representation. Its
+change-log/checkpoint format is deferred to Data 005.
 
 Possession of a hash is not authorization. The server checks reachability from
 the named tree's current readable root; retained accepted history does not

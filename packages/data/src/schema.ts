@@ -234,8 +234,11 @@ export function inspectSQLite(database: Database): Record<string, RelationMetada
  * files; executable-document databases normally use introspectStoreSchema so
  * schema.sql and relationships.json are validated as well.
  */
-export function introspectSQLiteDatabase(databasePath: string): StoreSchema {
-  const database = new Database(databasePath, { readonly: true, strict: true });
+export function introspectSQLiteDatabase(source: string | Database): StoreSchema {
+  const database = typeof source === "string"
+    ? new Database(source, { readonly: true, strict: true })
+    : source;
+  const owned = typeof source === "string";
   try {
     const relations = inspectSQLite(database);
     const definitions = sqliteDefinitions(database);
@@ -247,7 +250,7 @@ export function introspectSQLiteDatabase(databasePath: string): StoreSchema {
       fingerprint: `sha256:${sha256(canonicalJSONString(fingerprintInput))}`,
     };
   } finally {
-    database.close();
+    if (owned) database.close();
   }
 }
 
@@ -323,7 +326,10 @@ function validateRelationship(relation: RelationshipMetadata, relations: Record<
   }
 }
 
-export async function introspectStoreSchema(location: Pick<ResolvedDatabaseLocation, "databasePath" | "schemaPath" | "relationshipsPath">): Promise<StoreSchema> {
+export async function introspectStoreSchema(
+  location: Pick<ResolvedDatabaseLocation, "databasePath" | "schemaPath" | "relationshipsPath">,
+  fixtureDatabase?: Database,
+): Promise<StoreSchema> {
   const [schemaSQL, declarationSource] = await Promise.all([
     readFile(location.schemaPath, "utf8"),
     readFile(location.relationshipsPath, "utf8"),
@@ -338,10 +344,10 @@ export async function introspectStoreSchema(location: Pick<ResolvedDatabaseLocat
   const authoredDefinitions = sqliteDefinitions(authored);
   authored.close();
 
-  const fixture = new Database(location.databasePath, { readonly: true, strict: true });
+  const fixture = fixtureDatabase ?? new Database(location.databasePath, { readonly: true, strict: true });
   const fixtureRelations = inspectSQLite(fixture);
   const fixtureDefinitions = sqliteDefinitions(fixture);
-  fixture.close();
+  if (!fixtureDatabase) fixture.close();
   if (!sameSQLiteShape(authoredRelations, fixtureRelations)
     || canonicalJSONString(authoredDefinitions) !== canonicalJSONString(fixtureDefinitions)) {
     throw new Error("_store.sqlite3 does not match schema.sql");

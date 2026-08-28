@@ -38,9 +38,10 @@ master tree.
    cursors. Remove `external:postgres`, virtual nodes/tables, and unqualified
    offset cursors. Keyless or invalid-key relations remain explicit read-only
    projections with no durable row refs.
-5. Produce coherent snapshots containing schema fingerprint, exact provider
-   revision/checkpoint where available, scoped model digest, observation
-   cursor, capabilities, and actionable diagnostics. Retain the last usable
+5. Produce coherent transaction snapshots containing schema fingerprint,
+   provider observation cursor, row CAS tokens, capabilities, and actionable
+   diagnostics. Do not invent a whole-database exact revision or require a
+   complete model digest for ordinary reads. Retain the last usable
    schema without serving it as current after incompatible change.
 6. Implement `writeProperties` only where immutable identity, full candidate
    validation, property CAS, transaction ownership, retry identity, and
@@ -79,4 +80,3 @@ Delete all Postgres virtual-node and virtual-table branches only when managed,
 untracked/reference, Canopy, query, mutation, observation, and remote browsing
 all enter through `ChildProvider` and the new fixture passes. Do not expose
 mutable Postgres rows before that gate.
-

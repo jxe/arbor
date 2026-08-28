@@ -25,7 +25,7 @@ A conforming store supplies:
 - ordered reads and stable row identity appropriate to the backing;
 - atomic row mutations within that backing's transaction boundary;
 - change observation without treating partial writes as commits;
-- a consistent revision or snapshot representation;
+- a consistent read snapshot and ordered committed-observation boundary;
 - actionable diagnostics while preserving the last fully usable schema/view.
 
 Portable collection queries and mutations have the same meaning across backings. Backing-specific relational operations may exist only where the addressed database provides them and must be identified as backing-coupled.
@@ -39,8 +39,9 @@ represent a table's immediate rows or a database container's table/row subtree.
 The provider exposes those children through ordinary node and children APIs;
 reserved store files are not themselves row children.
 
-The exact representation revision and the schema-normalized, store-scoped model
-digest are separate. This digest is defined for the collection/subtree schema;
+For expanded files and CSV/JSON/JSONL rollups, the exact representation
+revision and the schema-normalized, store-scoped model digest are separate.
+This digest is defined for the collection/subtree schema;
 it is not a universal serialization or hash for all Arbor trees. Reformatting
 JSON or CSV advances exact authored tree state without changing row identity or
 the scoped digest. A representation migration may preserve the digest while
@@ -49,6 +50,14 @@ compact patches to representation bytes, but the authority decodes
 base/current/candidate under quotas, merges by stable node identity where safe,
 validates the complete schema and constraints, and computes the accepted model
 digest itself.
+
+A live SQLite or Postgres database has no corresponding exact representation
+revision. Database reads instead carry a schema fingerprint, a provider-local
+transaction snapshot for the duration of the read, per-row CAS revisions, and
+an ordered committed-observation cursor. A database may export a canonical
+logical checkpoint for synchronization or recovery, but that checkpoint is not
+the revision of ordinary reads and never consists of database page, WAL, or
+provider storage bytes.
 
 ### Relational capability of the node query language
 
@@ -102,7 +111,10 @@ backing-default comparison or collation is not an acceptable substitute.
 
 Where a relational extension supplies explicit ordering, a proved stable key is
 the deterministic final tie-breaker. Live or mutable pagination uses a
-revision-bound keyset cursor rather than an unqualified offset.
+provider-bound keyset cursor rather than an unqualified offset. A file rollup
+binds that cursor to its exact source revision; a database binds it to schema,
+ordering, last stable key, and an observation boundary that can detect expiry
+or relevant committed change. It does not hash the complete database.
 
 Relational node-set queries use ordinary TypeScript to construct the same closed
 declarative selection graph as other node queries rather than imperative CRUD
@@ -190,7 +202,7 @@ export const popularLists = query.many(
 
 `query.one` requires exactly one result and fails with a declared not-found/cardinality error otherwise. `query.maybe` yields zero or one value and rejects a plan that could silently choose among several rows. `query.many` yields an ordered collection. Every observably ordered repeated result has deterministic ordering. The compiler infers its stable key from the root primary key or relationship metadata and appends missing key fields as ascending final tie-breakers. If uniqueness cannot be proved, the author must supply `keyBy`; an unstable, nullable, or duplicate key is a compilation error.
 
-Merely selecting a child relationship does not filter away a parent with no matching children. Filtering by child presence uses explicit `.exists()` or `.notExists()`. Flattening joins use explicit inner, left, semi, or anti plan operations. The relational plan may use reusable virtual relations, grouping, specified aggregates, explicit null handling, deterministic ordering, and revision-bound keyset pagination.
+Merely selecting a child relationship does not filter away a parent with no matching children. Filtering by child presence uses explicit `.exists()` or `.notExists()`. Flattening joins use explicit inner, left, semi, or anti plan operations. The relational plan may use reusable virtual relations, grouping, specified aggregates, explicit null handling, deterministic ordering, and provider-bound keyset pagination.
 
 Compilation validates all addressed paths and fields, infers `ResultOf` for the handle and `RowOf` for its relations, and produces a backing-independent query meaning. A driver must preserve Arbor's specified null, comparison, collation, aggregate, and ordering semantics or reject the expression; it never silently substitutes backing-default behavior that changes a portable result. Unsupported operations fail before data access rather than loading an unbounded collection into executable memory.
 
@@ -209,11 +221,13 @@ tree and one transaction domain. A cross-tree Arbor reference is a typed
 authored property value, not a transactional foreign key.
 
 A named mutation's accepted transaction contains all direct and cascading row
-effects. A candidate update decoded from externally edited CSV, JSON, JSONL, or
-SQLite is merged by stable row identity and then checked against the complete
-schema. Arbor never invents cascade intent for an ambiguous concurrent file
-edit; it reports a constraint conflict. Cross-file foreign-key atomicity is not
-implied.
+effects. A candidate update decoded from externally edited CSV, JSON, or JSONL
+is merged by stable row identity and then checked against the complete schema.
+Database mutations and external database commits enter through the committed
+change/transaction contract rather than by diffing storage bytes. Arbor never
+invents cascade intent for an ambiguous concurrent file edit or imprecise
+database invalidation; it reports a constraint conflict or requires resync.
+Cross-file foreign-key atomicity is not implied.
 
 Ordered membership is a portable transaction concern rather than an application calculation based on row count. A transaction may open an ordered relation partition by naming its stable membership key and order field:
 
@@ -233,7 +247,13 @@ The driver serializes concurrent changes to that partition, verifies replacement
 
 ### Revisions and committed change observation
 
-Every store read is associated with an opaque store revision. A store observer yields changes only after the corresponding transaction commits and supplies an ordered cursor from which the runtime can establish a snapshot-then-follow boundary. Rollbacks and partial statements produce no visible change.
+Every store read is associated with a coherent read boundary. File stores name
+an exact source revision. Database stores hold a provider-local transaction
+snapshot only for the read and return an ordered observation cursor; they do
+not expose a whole-database revision. A store observer yields changes only
+after the corresponding transaction commits and supplies a cursor from which
+the runtime can establish a snapshot-then-follow boundary. Rollbacks and
+partial statements produce no visible change.
 
 An observation has the narrowest precision the driver can prove:
 
@@ -324,7 +344,13 @@ The schema evaluator accepts the authored schema and its declared schema-library
 
 `_store.sqlite3` makes the enclosing folder SQLite-backed. If `schema.ts` selects a collection/table, the folder is that collection; otherwise each introspected user table appears as a child collection of a database container. An ordinarily named `.sqlite3` file remains browsable as a database node but does not absorb its enclosing folder.
 
-SQLite remains canonical and usable by ordinary SQLite tools. Row mutations run in SQLite transactions. Observation occurs at committed boundaries and snapshots are database-consistent; a live main database and WAL are never treated as unrelated files. Concurrent database revisions may conflict as whole-database units.
+SQLite remains canonical and usable by ordinary SQLite tools. Row mutations
+run in SQLite transactions. Observation occurs at committed boundaries and
+snapshots are database-consistent; a live main database and WAL are never
+treated as unrelated files or assigned an exact source revision. A provider
+may widen an imprecise concurrent change to collection/store invalidation, but
+must not manufacture a whole-database revision by hashing all rows or storage
+bytes.
 
 External-write observation must detect committed changes made through other processes or connections. When affected rows cannot be recovered precisely, the driver emits a whole-store invalidation after the external commit. A wakeup alone is never treated as proof of a committed row change.
 
