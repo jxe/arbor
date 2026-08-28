@@ -11,38 +11,41 @@ workspace or UI.
 
 Wire transports observations and changes of the [Arbor data model](01-data-model.md).
 Its envelopes may include access, capabilities, materialization state,
-diagnostics, cursors, exact projection revisions, and transport hints that are
+diagnostics, cursors, exact encoding revisions, and transport hints that are
 not stored model properties.
 
 The operations have distinct relationships to the model:
 
-- `ref`, `snapshot`, and `objects` sample or transfer the exact synchronized projection
-  from which a model snapshot can be decoded;
-- `updates` proposes a complete candidate projection/model state;
-- `watch` monitors ordered accepted projection/model transitions with replay;
+- `ref` observes the current accepted tree state, while `snapshot` and
+  `objects` transfer its deterministic lossless Wire encoding;
+- `updates` proposes a complete candidate tree state through that encoding;
+- `watch` monitors ordered accepted tree-state transitions with replay;
 - `queries` derives current typed values from any reviewed logical nodes; and
 - `mutate` executes reviewed transactional model intent.
 
-The synchronized root identifies exact Wire representation state. Equivalence
-of different directory/store/materialization projections is defined by the data
-model and their projection specs; Wire does not require one universal logical
-serialization or logical hash.
+The synchronized root identifies the exact Wire encoding of one accepted tree
+state and serves as its compare-and-swap key. It is not a universal logical
+hash: different roots may decode to model-state-equivalent trees when authored
+representation details differ. Equivalence of directory, store, and
+materialization projections is defined by the data model and their projection
+specs; Wire does not require one universal logical serialization or hash.
 
 ## 1. Core data API
 
 The core wire API has two data paths:
 
-1. **Exact tree projection state** is read as immutable objects and changed by
-   submitting a complete candidate graph.
-2. **Derived model state** is sampled and followed through stateless named
-   query streams.
+1. **Accepted tree state** is read through immutable Wire objects and changed
+   by submitting a complete candidate graph.
+2. **Derived logical model values** are sampled and followed through stateless
+   named query streams.
 
-Exact projection state is the synchronization/roundtrip substrate. Queries let
-executable documents sample live permissioned model values without exposing raw stores.
-Identity, bootstrap, governed configuration, activation, and access management
-use these same primitives but are described after the core paths.
+The deterministic lossless graph is the synchronization and faithful-roundtrip
+encoding of accepted tree state. Queries let executable documents sample live
+permissioned model values without exposing raw stores. Identity, bootstrap,
+governed configuration, activation, and access management use these same
+primitives but are described after the core paths.
 
-### 1.1 Read exact projection state
+### 1.1 Read accepted tree state
 
 ```text
 GET /.arbor/trees/{TreeID}/ref
@@ -59,11 +62,12 @@ type CurrentTreeRef = {
 };
 ```
 
-The descriptor's `ref` is the current exact Wire projection root and `update`
-is the accepted-update ID that produced it. `observedThrough` is the cursor
-after which a client can begin watching without a read/watch race.
+The descriptor's `ref` is the exact Wire encoding root of the current accepted
+tree state and `update` is the accepted-update ID that produced it.
+`observedThrough` is the cursor after which a client can begin watching without
+a read/watch race.
 
-`GET .../snapshot` is the self-contained current-state read:
+`GET .../snapshot` is the self-contained accepted-tree-state read:
 
 ```ts
 type TreeSnapshot = {
@@ -84,13 +88,14 @@ update is accepted while the response is being encoded. The response therefore
 satisfies `tree.ref === snapshot.root`; it is an atomic current-state read, not
 an accepted-history query.
 
-`GET .../objects/{hash}` returns the exact canonical CBOR bytes for one object.
-It uses `application/vnd.ipld.dag-cbor`, an ETag equal to the quoted hash, and
-immutable cache headers. Possession of a hash is not authorization: the object
-must be reachable from the current readable root of the named tree. Retained
-accepted history does not create historical-object access. A snapshot is the
-ordinary bootstrap and resynchronization read; the object endpoint is useful
-for incremental graph traversal.
+`GET .../objects/{hash}` returns the exact canonical CBOR bytes for one
+immutable component of the lossless Wire encoding. It uses
+`application/vnd.ipld.dag-cbor`, an ETag equal to the quoted hash, and immutable
+cache headers. Possession of a hash is not authorization: the object must be
+reachable from the current readable root of the named tree. Retained accepted
+history does not create historical-object access. A snapshot is the ordinary
+bootstrap and resynchronization read; the object endpoint is useful for
+incremental graph traversal.
 
 All three routes require read access. The ref and snapshot responses are
 mutable observations and therefore carry `observedThrough`; immutable object
@@ -134,12 +139,13 @@ type UpdateRequest = {
 
 `base.root` and `base.update` bind reconciliation to one retained accepted
 event, including the case where the same root appears again later. `candidate`
-names the desired complete exact Wire projection root. The authority decodes
-and validates the modeled state represented by that projection. `objects`
-supplies canonical CBOR objects the
-server does not already retain; a client normally walks base and candidate
-together and omits unchanged objects. The candidate must still be complete and
-provable from retained base objects, supplied objects, and valid `filePatches`.
+names the exact Wire root encoding the desired complete candidate tree state.
+The authority decodes and validates its modeled state and all
+projection-specific fidelity required by that encoding. `objects` supplies
+canonical CBOR objects the server does not already retain; a client normally
+walks base and candidate together and omits unchanged objects. The candidate
+must still be complete and provable from retained base objects, supplied
+objects, and valid `filePatches`.
 
 The optional file-patch representation reconstructs a changed UTF-8 file
 without retransmitting its complete file object. Each edit addresses bytes in
@@ -237,14 +243,14 @@ replay returns the original result and creates no duplicate accepted update.
 Clients durably retain the base, candidate, required content, and any conflict
 draft until the result has been applied.
 
-When a candidate changes a recognized file child rollup, the submitted root names
-the exact candidate representation. The authority decodes coherent base,
-current, and candidate representations under schema and resource bounds,
-recomputes logical row identities and the store codec's scoped model digest,
-merges disjoint changes by stable row identity, validates all keys, foreign
-keys, and constraints, and encodes the
-accepted representation. It never trusts a client-supplied model digest.
-Formatting-only changes may advance exact tree state without changing logical
+When a candidate changes a recognized file child rollup, the submitted root
+names the exact lossless encoding of that candidate tree state. The authority
+decodes coherent base, current, and candidate representations under schema and
+resource bounds, recomputes logical row identities and the store codec's scoped
+model digest, merges disjoint changes by stable row identity, validates all
+keys, foreign keys, and constraints, and encodes the accepted representation.
+It never trusts a client-supplied model digest. Formatting-only changes may
+advance the accepted root without changing model-state equivalence or logical
 query dependencies. SQLite and Postgres changes use the database transaction,
 observation, and semantic-checkpoint protocol specified separately; live
 database storage bytes are never submitted or merged as a rollup object.
@@ -774,14 +780,18 @@ and `canonical: null`.
 
 Every tree operation, result, event, effect, and relevant error names its `TreeID`. `local` and `system` are not wire values. Writability is derived from effective access and historical state.
 
-### 2.2 Deterministic objects and tree-scoped authorization
+### 2.2 Deterministic lossless encoding and tree-scoped authorization
 
-An immutable tree snapshot names a root directory object and all objects are
-canonical CBOR addressed by `sha256:<lowercase-hex>` of their exact bytes.
-Directories map normalized UTF-8 names to file, directory, nested-tree, or
-versioned rollup entries. Files contain exact bytes and media metadata. A
-rollup entry references its exact source object, schema fingerprint, provider
-scope, and authority-derived logical child/subtree root:
+The current canonical lossless Wire encoding of an immutable tree snapshot
+names a root directory object. This directory-shaped object graph is a
+synchronization encoding of accepted tree state, not Arbor's logical node
+ontology and not a requirement that every backing be physically directory
+shaped. All objects are canonical CBOR addressed by
+`sha256:<lowercase-hex>` of their exact bytes. Directories map normalized UTF-8
+names to file, directory, nested-tree, or versioned rollup entries. Files
+contain exact bytes and media metadata. A rollup entry references its exact
+source object, schema fingerprint, provider scope, and authority-derived
+logical child/subtree root:
 
 ```ts
 type RollupDescriptor = {
