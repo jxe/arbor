@@ -12,7 +12,6 @@ import type {
   MutationRequest,
   NodeRef,
   NodeResponse,
-  NodeSummary,
   NodeWriteRequest,
   RecoveryEntry,
   RecoveryPage,
@@ -28,8 +27,6 @@ import {
   canonicalNodePath,
   applySourceEdits,
   isPageID,
-  nodeDisplayName,
-  parseCanonicalStableKey,
   pageIDFromStableKey,
   pageIDStableKey,
   resolveTreePath,
@@ -49,28 +46,18 @@ import {
   WorkspaceFS,
   writeAtomic,
 } from "@arbor/fs";
-import { mintPageID, patchFrontmatter, replaceFrontmatter, serializeMarkdown } from "@arbor/editor";
+import { mintPageID, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
 import {
   CollectionCursorError,
-  CollectionMutationMismatchError,
-  CollectionPropertyConflictError,
-  CollectionPropertyWriteError,
-  CollectionSourceConflictError,
   type CollectionWriteTarget,
   WorkspaceIndex,
   workspaceState,
 } from "@arbor/stores";
 import { EventBus } from "./events.ts";
 import { rootDisplayName } from "./root-title.ts";
-import {
-  expandedNodeProperties,
-  sampleExpandedNode,
-  summarizeExpandedNode,
-  type ExpandedChild,
-  type ExpandedNode,
-} from "./node-sampling.ts";
-import { ChildProvider } from "./child-provider.ts";
-import { changedPropertyNames } from "./property-changes.ts";
+import type { ExpandedNode } from "./node-sampling.ts";
+import { FilesystemNodeSurface } from "./filesystem-node-surface.ts";
+import { writeFilesystemProperties } from "./filesystem-property-write.ts";
 
 
 const EMPTY_REVISION = revisionOf("");
@@ -132,7 +119,7 @@ export class Workspace implements AsyncDisposable {
   readonly mutations: MutationJournal;
   private stateDirectory: string;
   private index: WorkspaceIndex;
-  private provider: ChildProvider;
+  private surface: FilesystemNodeSurface;
   private idOwners = new Map<string, string>();
   private idOwnerSets = new Map<string, readonly string[]>();
   private displayName: string;
@@ -160,24 +147,29 @@ export class Workspace implements AsyncDisposable {
     this.index = index;
     this.faultInjector = options.faultInjector;
     this.unsubscribeFS = fs.subscribe((event) => { void this.handleFsEvent(event); });
-    this.provider = new ChildProvider({
+    this.surface = new FilesystemNodeSurface({
       tree: this.tree,
       enclosingTree: () => this.descriptor(),
-      resolve: async (path) => {
-        const resolved = await this.fs.resolve(path);
-        return {
-          ...(resolved.directoryPath ? { directoryPath: resolved.directoryPath } : {}),
-          writable: resolved.writable,
-        };
-      },
-      snapshot: (ref, observedThrough) => this.snapshotExpanded(ref, observedThrough),
-      children: (ref, cursor, observedThrough, additionalItems) => this.childrenExpanded(ref, cursor, observedThrough, additionalItems),
+      fs: () => this.fs,
+      resolveRef: (ref) => this.resolveRef(ref),
+      rootName: basename(this.root),
       writable: async (path) => {
         const resolved = await this.fs.resolve(path);
         return resolved.writable && this.treeDescriptor.access !== "read";
       },
+      writableNode: (node) => node.writable && this.treeDescriptor.access !== "read",
+      inspectDocument: ({ path, revision, document }) => {
+        const pageID = this.registerPageID(path, document.frontmatter.id);
+        if (pageID) this.scheduleLinkHealing(path, revision, document);
+        return this.pageIDDiagnostics(path, pageID);
+      },
+      childPageID: (path, discovered) => discovered ?? this.pathPageIDs.get(path),
+      notFound: (path) => new ProtocolError("not-found", `Node not found: ${path}`, 404, { path }),
+      invalidChildren: (path) => new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path }),
     });
   }
+
+  private get provider() { return this.surface.provider; }
 
   private mutationRef(path: string, pageID?: string, stableKey?: string | null): NodeRef {
     return {
@@ -564,84 +556,7 @@ export class Workspace implements AsyncDisposable {
   }
 
   private async expandedNode(inputPath: string): Promise<ExpandedNode> {
-    const read = await this.fs.read(inputPath);
-    const resolved = read.node;
-    if (resolved.kind === "missing") {
-      throw new ProtocolError("not-found", `Node not found: ${resolved.path}`, 404, {
-        path: resolved.path,
-      });
-    }
-
-    if (resolved.kind === "file") {
-      return {
-        path: resolved.path,
-        name: nodeDisplayName(resolved.path),
-        kind: "file",
-        revision: read.byteRevision,
-        writable: resolved.writable,
-        materialization: resolved.materialization,
-        diagnostics: resolved.diagnostics,
-      };
-    }
-
-    if (resolved.materialization === "placeholder") {
-      return {
-        path: resolved.path,
-        name: nodeDisplayName(resolved.path),
-        kind: resolved.kind,
-        revision: read.byteRevision,
-        writable: false,
-        materialization: "placeholder",
-        diagnostics: resolved.diagnostics,
-      };
-    }
-
-    if (resolved.kind === "markdown") {
-      const document = read.document!;
-      const pageID = this.registerPageID(resolved.path, document.frontmatter.id);
-      if (pageID) this.scheduleLinkHealing(resolved.path, read.byteRevision, document);
-      return {
-        path: resolved.path,
-        name: nodeDisplayName(resolved.path),
-        kind: "markdown",
-        revision: read.byteRevision,
-        writable: resolved.writable,
-        materialization: resolved.materialization,
-        bodyOrigin: resolved.bodySource ?? undefined,
-        document,
-        diagnostics: [
-          ...resolved.diagnostics,
-          ...this.pageIDDiagnostics(resolved.path, pageID),
-        ],
-      };
-    }
-
-    const collection = await this.provider.summary(resolved.directoryPath!).catch(() => null);
-    const children = await this.directoryChildren(resolved.path);
-    const document = read.document!;
-    const pageID = this.registerPageID(resolved.path, document.frontmatter.id);
-    if (pageID) this.scheduleLinkHealing(resolved.path, read.byteRevision, document);
-    return {
-      path: resolved.path,
-      name: resolved.path === "/" ? basename(this.root) : nodeDisplayName(resolved.path),
-      kind: "directory",
-      revision: collection?.revision ? revisionOf(`${read.byteRevision}\0${collection.revision}`) : read.byteRevision,
-      contentRevision: read.byteRevision,
-      propertiesRevision: read.byteRevision,
-      ...(collection?.revision ? { childrenRevision: collection.revision } : {}),
-      writable: resolved.writable,
-      materialization: resolved.materialization,
-      bodyOrigin: resolved.bodySource ?? undefined,
-      document,
-      children: children.children,
-      childSet: collection ?? undefined,
-      diagnostics: [
-        ...resolved.diagnostics,
-        ...this.pageIDDiagnostics(resolved.path, pageID),
-        ...(collection?.diagnostics ?? []),
-        ...children.diagnostics,
-      ],
-    };
+    return this.surface.expandedNode(inputPath);
   }
 
   search(query: string, limit = 30) { return this.index.search(query, limit); }
@@ -830,164 +745,21 @@ export class Workspace implements AsyncDisposable {
     mutationID?: string,
   ): Promise<MutationEffect> {
     if (operation.op === "writeProperties") {
-      if (target?.backing === "sqlite") {
-        try {
-          const row = await this.provider.writeSQLiteProperties(
-            target,
-            operation.ref,
-            operation.basePropertiesRevision,
-            operation.properties,
-            { scope: this.tree, id: mutationID! },
-          );
-          const effect: MutationEffect = {
-            kind: "updated",
-            ref: this.mutationRef(`${target.parentPath}/${row.path}`, undefined, row.stableKey),
-            propertiesRevision: row.revision,
-            changedProperties: changedPropertyNames(target.properties, operation.properties),
-          };
-          await onMaterialized?.([effect]);
-          return effect;
-        } catch (error) {
-          if (error instanceof CollectionPropertyConflictError) {
-            throw new ProtocolError("stale-properties-revision", error.message, 409, {
-              path: operation.ref.path,
-              current: await this.snapshot(operation.ref).catch(() => undefined),
-            });
-          }
-          if (error instanceof CollectionMutationMismatchError) {
-            throw new ProtocolError("mutation-mismatch", error.message, 409, { mutationID });
-          }
-          if (error instanceof CollectionPropertyWriteError) {
-            throw new ProtocolError("unsupported-operation", error.message, 422, { path: operation.ref.path });
-          }
-          if (error instanceof Error && /constraint/i.test(error.message)) {
-            throw new ProtocolError("conflict", error.message, 409, { path: operation.ref.path });
-          }
-          throw error;
-        }
-      }
-      if (target && (target.backing === "csv" || target.backing === "json" || target.backing === "jsonl")) {
-        try {
-          const prepared = await this.provider.prepareFileProperties(
-            target,
-            operation.ref,
-            operation.basePropertiesRevision,
-            operation.properties,
-          );
-          const effect: MutationEffect = {
-            kind: "updated",
-            ref: this.mutationRef(prepared.path, undefined, operation.ref.stableKey),
-            propertiesRevision: prepared.revision,
-            changedProperties: changedPropertyNames(target.properties, prepared.properties),
-          };
-          await onExpected?.([effect]);
-          await this.provider.commitFileProperties(prepared);
-          await this.protocolFault("protocol:provider-committed");
-          await onMaterialized?.([effect]);
-          return effect;
-        } catch (error) {
-          if (error instanceof CollectionPropertyConflictError || error instanceof CollectionSourceConflictError) {
-            throw new ProtocolError("stale-properties-revision", error.message, 409, {
-              path: operation.ref.path,
-              current: await this.snapshot(operation.ref).catch(() => undefined),
-            });
-          }
-          if (error instanceof CollectionPropertyWriteError) {
-            throw new ProtocolError("unsupported-operation", error.message, 422, { path: operation.ref.path });
-          }
-          throw error;
-        }
-      }
-      if (target) {
-        if (target.backing !== "markdown") {
-          throw new ProtocolError("read-only", `${target.backing} rollup rows are not directly writable yet`, 422, {
-            path: operation.ref.path,
-          });
-        }
-        const current = await this.expandedNode(path);
-        if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });
-        if (target.revision !== operation.basePropertiesRevision) {
-          throw new ProtocolError("stale-properties-revision", "The node properties changed since they were read", 409, {
-            path,
-            current: await this.snapshot(operation.ref),
-          });
-        }
-        let prepared;
-        try {
-          prepared = await this.provider.prepareMarkdownProperties(target.directory, operation.properties);
-        } catch (error) {
-          if (error instanceof CollectionPropertyWriteError) {
-            throw new ProtocolError("unsupported-operation", error.message, 422, { path });
-          }
-          throw error;
-        }
-        for (const name of prepared.identityRule?.properties ?? []) {
-          if (canonicalJSONString(prepared.properties[name]) !== canonicalJSONString(target.properties[name])) {
-            throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
-          }
-        }
-        const source = `${replaceFrontmatter(current.document.frontmatterSource, prepared.properties) ?? ""}${current.document.bodySource}`;
-        const changedProperties = changedPropertyNames(target.properties, prepared.properties);
-        const propertyEffect = (result: FsWriteResult): MutationEffect => ({
-          kind: "updated",
-          ref: this.mutationRef(result.node.path, result.pageID),
-          contentRevision: result.byteRevision,
-          propertiesRevision: result.byteRevision,
-          changedProperties,
-        });
-        const saved = await this.write(path, { baseRevision: current.revision, source }, {
-          onPrepared: onExpected ? async (result) => onExpected([propertyEffect(result)]) : undefined,
-          onMaterialized: onMaterialized ? async (result) => onMaterialized([propertyEffect(result)]) : undefined,
-        });
-        return {
-          kind: "updated",
-          ref: this.mutationRef(saved.path, isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined),
-          contentRevision: saved.revision,
-          propertiesRevision: saved.propertiesRevision ?? saved.revision,
-          changedProperties,
-        };
-      }
-      const current = await this.expandedNode(path);
-      if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });
-      const currentRevision = current.propertiesRevision ?? current.revision;
-      if (currentRevision !== operation.basePropertiesRevision) {
-        throw new ProtocolError("stale-properties-revision", "The node properties changed since they were read", 409, {
-          path,
-          current: this.snapshotFromExpanded(current, this.events.currentCursor()),
-        });
-      }
-      const identity = operation.ref.stableKey ? parseCanonicalStableKey(operation.ref.stableKey) : null;
-      for (const [name, value] of identity ?? []) {
-        if (operation.properties[name] !== value) {
-          throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
-        }
-      }
-      const currentProperties = expandedNodeProperties(current);
-      if (isPageID(currentProperties.id) && operation.properties.id !== currentProperties.id) {
-        throw new ProtocolError("invalid-reference", "Identity property id is immutable", 422, { path });
-      }
-      const source = `${replaceFrontmatter(current.document.frontmatterSource, operation.properties) ?? ""}${current.document.bodySource}`;
-      const changedProperties = changedPropertyNames(currentProperties, operation.properties);
-      const propertyEffect = (result: FsWriteResult): MutationEffect => ({
-        kind: "updated",
-        ref: this.mutationRef(result.node.path, result.pageID),
-        contentRevision: result.byteRevision,
-        propertiesRevision: result.byteRevision,
-        changedProperties,
-        directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
+      return writeFilesystemProperties(operation, path, target, {
+        tree: this.tree,
+        mutationID: mutationID!,
+        provider: this.provider,
+        fs: () => this.fs,
+        expandedNode: (nodePath) => this.expandedNode(nodePath),
+        snapshot: (ref) => this.snapshot(ref),
+        snapshotCurrent: (node) => this.snapshotFromExpanded(node, this.events.currentCursor()),
+        mutationRef: (nodePath, pageID, stableKey) => this.mutationRef(nodePath, pageID, stableKey),
+        writeMarkdown: (nodePath, request, options) => this.write(nodePath, request, options),
+        error: (code, message, status, details = {}) => new ProtocolError(code, message, status, details),
+        onExpected,
+        onMaterialized,
+        afterProviderCommit: () => this.protocolFault("protocol:provider-committed"),
       });
-      const saved = await this.write(path, { baseRevision: current.revision, source }, {
-        onPrepared: onExpected ? async (result) => onExpected([propertyEffect(result)]) : undefined,
-        onMaterialized: onMaterialized ? async (result) => onMaterialized([propertyEffect(result)]) : undefined,
-      });
-      return {
-        kind: "updated",
-        ref: this.mutationRef(saved.path, isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined),
-        contentRevision: saved.revision,
-        propertiesRevision: saved.propertiesRevision ?? saved.revision,
-        changedProperties,
-        directoryRevision: saved.kind === "directory" ? saved.revision : undefined,
-      };
     }
     if (operation.op === "ensureDocumentIdentity") {
       const current = await this.expandedNode(path);
@@ -1294,51 +1066,7 @@ export class Workspace implements AsyncDisposable {
   }
 
   private snapshotFromExpanded(node: ExpandedNode, observedThrough: string): NodeResponse {
-    return sampleExpandedNode(node, {
-      tree: this.tree,
-      observedThrough,
-      writable: node.writable && this.treeDescriptor.access !== "read",
-      enclosingTree: this.descriptor(),
-    });
-  }
-
-  private async snapshotExpanded(ref: NodeRef, observedThrough: string): Promise<NodeResponse> {
-    const path = await this.resolveRef(ref);
-    return this.snapshotFromExpanded(await this.expandedNode(path), observedThrough);
-  }
-
-  private async childrenExpanded(
-    ref: NodeRef,
-    cursor: string | null,
-    observedThrough: string,
-    additionalItems: readonly NodeSummary[] = [],
-  ): Promise<ChildrenPage> {
-    const path = await this.resolveRef(ref);
-    const node = await this.expandedNode(path);
-    if (node.kind !== "directory") {
-      throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
-    }
-    const physical = await Promise.all((node.children ?? []).map(async (child) => summarizeExpandedNode(
-      await this.expandedNode(child.path),
-      this.tree,
-      child.materialization === "available" && node.writable && this.treeDescriptor.access !== "read",
-    )));
-    const all = [...physical, ...additionalItems].sort((left, right) => left.name.localeCompare(right.name));
-    const childrenRevision = node.childrenRevision ?? node.revision;
-    const cursorKey = `children:${path}:${childrenRevision}`;
-    const offset = this.decodePageCursor(cursor, cursorKey);
-    const items = all.slice(offset, offset + 100);
-    const nextOffset = offset + items.length;
-    return {
-      parent: {
-        tree: this.tree,
-        path,
-        stableKey: isPageID(node.document?.frontmatter.id) ? pageIDStableKey(node.document.frontmatter.id) : null,
-      },
-      items,
-      nextCursor: nextOffset < all.length ? this.encodePageCursor(cursorKey, nextOffset) : null,
-      observedThrough,
-    };
+    return this.surface.snapshotFromExpanded(node, observedThrough);
   }
 
   private requireWriteAccess(): void {
@@ -1468,26 +1196,8 @@ export class Workspace implements AsyncDisposable {
     for (const timer of this.healingTimers.values()) clearTimeout(timer);
     this.unsubscribeFS();
     this.index.close();
-    await this.provider[Symbol.asyncDispose]();
+    await this.surface[Symbol.asyncDispose]();
     await this.fs[Symbol.asyncDispose]();
-  }
-
-  private async directoryChildren(treePath: string): Promise<{ children: ExpandedChild[]; diagnostics: ExpandedNode["diagnostics"] }> {
-    const entries = await this.fs.list(treePath);
-    const children: ExpandedChild[] = [];
-    const diagnostics: ExpandedNode["diagnostics"] = [];
-    for (const entry of entries) {
-      const pageID = entry.pageID ?? this.pathPageIDs.get(entry.path);
-      children.push({
-        name: entry.name,
-        path: entry.path,
-        kind: entry.kind,
-        materialization: entry.materialization,
-        ...(pageID ? { pageID } : {}),
-      });
-      diagnostics.push(...entry.diagnostics);
-    }
-    return { children: children.sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
   }
 
   private registerPageID(path: string, candidate: unknown): string | null {

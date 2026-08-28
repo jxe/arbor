@@ -2,13 +2,11 @@ import { realpath } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type {
   ChildrenPage,
-  Diagnostic,
   MutationEffect,
   MutationReceipt,
   MutationRequest,
   NodeRef,
   NodeResponse,
-  NodeSummary,
   WorkspaceOperation,
 } from "@arbor/core";
 import {
@@ -17,35 +15,20 @@ import {
   canonicalJSONString,
   canonicalNodePath,
   isPageID,
-  nodeDisplayName,
   normalizeTreePath,
-  parseCanonicalStableKey,
-  revisionOf,
   sha256,
 } from "@arbor/core";
-import { replaceFrontmatter } from "@arbor/editor";
 import { FsConflictError, type FsMutation, WorkspaceFS } from "@arbor/fs";
 import {
   CollectionCursorError,
-  CollectionMutationMismatchError,
-  CollectionPropertyConflictError,
-  CollectionPropertyWriteError,
-  CollectionSourceConflictError,
   arborPrivateRoot,
 } from "@arbor/stores";
-import { decodePageCursor, encodePageCursor } from "./cursors.ts";
 import type { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { ProtocolError } from "./workspace.ts";
-import {
-  expandedNodeProperties,
-  sampleExpandedNode,
-  summarizeExpandedNode,
-  type ExpandedChild,
-  type ExpandedNode,
-} from "./node-sampling.ts";
-import { ChildProvider } from "./child-provider.ts";
-import { changedPropertyNames } from "./property-changes.ts";
+import type { ExpandedNode } from "./node-sampling.ts";
+import { FilesystemNodeSurface } from "./filesystem-node-surface.ts";
+import { writeFilesystemProperties } from "./filesystem-property-write.ts";
 
 
 function isSystemError(error: unknown): error is NodeJS.ErrnoException {
@@ -94,7 +77,7 @@ export async function realOsPath(inputPath: string): Promise<string> {
  * scope, protocol receipts/events, pagination, and collection projection.
  */
 export class FilesystemService implements AsyncDisposable {
-  private provider: ChildProvider;
+  private surface: FilesystemNodeSurface;
   private receipts = new Map<string, { requestHash: string; receipt: MutationReceipt }>();
   private engine = WorkspaceFS.open("/", {
     stateDirectory: join(arborPrivateRoot(), "system", "untracked-fs"),
@@ -103,128 +86,22 @@ export class FilesystemService implements AsyncDisposable {
   });
 
   constructor(private events: EventBus) {
-    this.provider = new ChildProvider({
+    this.surface = new FilesystemNodeSurface({
       tree: LOCAL_TREE,
-      resolve: async (path) => {
-        const resolved = await (await this.engine).resolve(path);
-        return {
-          ...(resolved.directoryPath ? { directoryPath: resolved.directoryPath } : {}),
-          writable: resolved.writable,
-        };
-      },
-      snapshot: (ref, observedThrough) => this.snapshotExpanded(ref, observedThrough),
-      children: (ref, cursor, observedThrough, additionalItems) => this.childrenExpanded(ref, cursor, observedThrough, additionalItems),
+      fs: () => this.engine,
+      resolveRef: (ref) => this.refPath(ref),
+      rootName: "/",
       writable: async (path) => (await (await this.engine).resolve(path)).writable,
+      writableNode: (node) => node.writable,
+      notFound: (path) => new ProtocolError("not-found", `Node not found: ${path}`, 404, { path }),
+      invalidChildren: (path) => new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path }),
     });
   }
 
+  private get provider() { return this.surface.provider; }
+
   private async expandedNode(inputPath: string): Promise<ExpandedNode> {
-    const fs = await this.engine;
-    const read = await fs.read(inputPath);
-    const resolved = read.node;
-    if (resolved.kind === "missing") {
-      throw new ProtocolError("not-found", `Node not found: ${resolved.path}`, 404, { path: resolved.path });
-    }
-    if (resolved.kind === "file" || resolved.materialization === "placeholder") {
-      return {
-        path: resolved.path,
-        name: nodeDisplayName(resolved.path),
-        kind: resolved.kind,
-        revision: read.byteRevision,
-        writable: resolved.materialization === "placeholder" ? false : resolved.writable,
-        materialization: resolved.materialization,
-        diagnostics: resolved.diagnostics,
-      };
-    }
-    if (resolved.kind === "markdown") {
-      return {
-        path: resolved.path,
-        name: nodeDisplayName(resolved.path),
-        kind: "markdown",
-        revision: read.byteRevision,
-        writable: resolved.writable,
-        materialization: resolved.materialization,
-        bodyOrigin: resolved.bodySource ?? undefined,
-        document: read.document,
-        diagnostics: resolved.diagnostics,
-      };
-    }
-    const collection = await this.provider.summary(resolved.directoryPath!).catch(() => null);
-    const children = await this.directoryChildren(resolved.path);
-    return {
-      path: resolved.path,
-      name: resolved.path === "/" ? "/" : nodeDisplayName(resolved.path),
-      kind: "directory",
-      revision: collection?.revision ? revisionOf(`${read.byteRevision}\0${collection.revision}`) : read.byteRevision,
-      contentRevision: read.byteRevision,
-      propertiesRevision: read.byteRevision,
-      ...(collection?.revision ? { childrenRevision: collection.revision } : {}),
-      writable: resolved.writable,
-      materialization: resolved.materialization,
-      bodyOrigin: resolved.bodySource ?? undefined,
-      document: read.document,
-      children: children.children,
-      childSet: collection ?? undefined,
-      diagnostics: [...resolved.diagnostics, ...(collection?.diagnostics ?? []), ...children.diagnostics],
-    };
-  }
-
-  private async directoryChildren(
-    path: string,
-  ): Promise<{ children: ExpandedChild[]; diagnostics: Diagnostic[] }> {
-    const fs = await this.engine;
-    const entries = await fs.list(path);
-    const children: ExpandedChild[] = [];
-    const diagnostics: Diagnostic[] = [];
-    for (const entry of entries) {
-      children.push({
-        name: entry.name,
-        path: entry.path,
-        kind: entry.kind,
-        materialization: entry.materialization,
-        ...(entry.pageID ? { pageID: entry.pageID } : {}),
-      });
-      diagnostics.push(...entry.diagnostics);
-    }
-    return { children: children.sort((a, b) => a.name.localeCompare(b.name)), diagnostics };
-  }
-
-  private snapshotFromExpanded(node: ExpandedNode, observedThrough: string): NodeResponse {
-    return sampleExpandedNode(node, { tree: LOCAL_TREE, observedThrough });
-  }
-
-  private async snapshotExpanded(ref: NodeRef, observedThrough: string): Promise<NodeResponse> {
-    return this.snapshotFromExpanded(await this.expandedNode(this.refPath(ref)), observedThrough);
-  }
-
-  private async childrenExpanded(
-    ref: NodeRef,
-    cursor: string | null,
-    observedThrough: string,
-    additionalItems: readonly NodeSummary[] = [],
-  ): Promise<ChildrenPage> {
-    const path = this.refPath(ref);
-    const node = await this.expandedNode(path);
-    if (node.kind !== "directory") {
-      throw new ProtocolError("invalid-reference", `${path} does not have children`, 400, { path });
-    }
-    const physical = await Promise.all((node.children ?? []).map(async (child) => summarizeExpandedNode(
-      await this.expandedNode(child.path),
-      LOCAL_TREE,
-      child.materialization === "available" && node.writable,
-    )));
-    const all = [...physical, ...additionalItems].sort((left, right) => left.name.localeCompare(right.name));
-    const childrenRevision = node.childrenRevision ?? node.revision;
-    const cursorKey = `children:local:${path}:${childrenRevision}`;
-    const offset = decodePageCursor(cursor, cursorKey);
-    const items = all.slice(offset, offset + 100);
-    const nextOffset = offset + items.length;
-    return {
-      parent: { tree: LOCAL_TREE, path, stableKey: null },
-      items,
-      nextCursor: nextOffset < all.length ? encodePageCursor(cursorKey, nextOffset) : null,
-      observedThrough,
-    };
+    return this.surface.expandedNode(inputPath);
   }
 
   private async withErrors<T>(run: () => Promise<T>, operation?: WorkspaceOperation): Promise<T> {
@@ -383,127 +260,32 @@ export class FilesystemService implements AsyncDisposable {
           if (target && !target.writable) {
             throw new ProtocolError("read-only", "This collection row is read-only", 422, { path: write.ref.path });
           }
-          if (target?.backing === "sqlite") {
-            try {
-              const row = await this.provider.writeSQLiteProperties(
-                target,
-                write.ref,
-                write.basePropertiesRevision,
-                write.properties,
-                { scope: LOCAL_TREE, id: request.mutationID },
-              );
-              return [{
-                kind: "updated" as const,
-                ref: { tree: LOCAL_TREE, path: `${target.parentPath}/${row.path}`, stableKey: row.stableKey },
-                propertiesRevision: row.revision,
-                changedProperties: changedPropertyNames(target.properties, write.properties),
-              }];
-            } catch (error) {
-              if (error instanceof CollectionPropertyConflictError) {
-                throw new ProtocolError("stale-properties-revision", error.message, 409, {
-                  path: write.ref.path,
-                  current: await this.snapshot(write.ref).catch(() => undefined),
-                });
+          const path = target?.backing === "sqlite" ? target.parentPath : target?.path ?? this.refPath(write.ref);
+          return [await writeFilesystemProperties(write, path, target, {
+            tree: LOCAL_TREE,
+            mutationID: request.mutationID,
+            provider: this.provider,
+            fs: () => this.engine,
+            expandedNode: (nodePath) => this.expandedNode(nodePath),
+            snapshot: (ref) => this.snapshot(ref),
+            snapshotCurrent: (node) => this.surface.snapshotFromExpanded(node, this.events.currentCursor()),
+            mutationRef: (nodePath, _pageID, stableKey) => ({
+              tree: LOCAL_TREE,
+              path: nodePath,
+              stableKey: stableKey ?? write.ref.stableKey,
+            }),
+            writeMarkdown: async (nodePath, writeRequest, options) => {
+              await (await this.engine).writeMarkdown(nodePath, writeRequest, options);
+              return this.expandedNode(nodePath);
+            },
+            error: (code, message, status, details = {}) => new ProtocolError(code, message, status, details),
+            assertWritableProperties: async (ref) => {
+              const sampled = await this.snapshot(ref).catch(() => null);
+              if (sampled?.capabilities.properties && !sampled.capabilities.properties.writable) {
+                throw new ProtocolError("read-only", "This node\'s properties are read-only", 422, { path: sampled.ref.path });
               }
-              if (error instanceof CollectionMutationMismatchError) {
-                throw new ProtocolError("mutation-mismatch", error.message, 409, { mutationID: request.mutationID });
-              }
-              if (error instanceof CollectionPropertyWriteError) {
-                throw new ProtocolError("unsupported-operation", error.message, 422, { path: write.ref.path });
-              }
-              if (error instanceof Error && /constraint/i.test(error.message)) {
-                throw new ProtocolError("conflict", error.message, 409, { path: write.ref.path });
-              }
-              throw error;
-            }
-          }
-          if (target && (target.backing === "csv" || target.backing === "json" || target.backing === "jsonl")) {
-            try {
-              const prepared = await this.provider.prepareFileProperties(
-                target,
-                write.ref,
-                write.basePropertiesRevision,
-                write.properties,
-              );
-              const saved = await this.provider.commitFileProperties(prepared);
-              return [{
-                kind: "updated" as const,
-                ref: { tree: LOCAL_TREE, path: saved.path, stableKey: write.ref.stableKey },
-                propertiesRevision: saved.revision,
-                changedProperties: changedPropertyNames(target.properties, prepared.properties),
-              }];
-            } catch (error) {
-              if (error instanceof CollectionPropertyConflictError || error instanceof CollectionSourceConflictError) {
-                throw new ProtocolError("stale-properties-revision", error.message, 409, {
-                  path: write.ref.path,
-                  current: await this.snapshot(write.ref).catch(() => undefined),
-                });
-              }
-              if (error instanceof CollectionPropertyWriteError) {
-                throw new ProtocolError("unsupported-operation", error.message, 422, { path: write.ref.path });
-              }
-              throw error;
-            }
-          }
-          const sampled = await this.snapshot(write.ref).catch(() => null);
-          if (sampled?.capabilities.properties && !sampled.capabilities.properties.writable) {
-            throw new ProtocolError("read-only", "This node's properties are read-only", 422, { path: sampled.ref.path });
-          }
-          if (target && target.backing !== "markdown") {
-            throw new ProtocolError("read-only", `${target.backing} rollup rows are not directly writable yet`, 422, {
-              path: write.ref.path,
-            });
-          }
-          const path = target?.path ?? this.refPath(write.ref);
-          const current = await this.expandedNode(path);
-          if (!current.document) throw new ProtocolError("unsupported-operation", `${path} has no editable properties`, 422, { path });
-          const currentRevision = target?.revision ?? current.propertiesRevision ?? current.revision;
-          if (currentRevision !== write.basePropertiesRevision) {
-            throw new ProtocolError("stale-properties-revision", "The node properties changed since they were read", 409, {
-              path,
-              current: this.snapshotFromExpanded(current, this.events.currentCursor()),
-            });
-          }
-          let properties = write.properties;
-          let identityProperties: readonly string[] = [];
-          if (target) {
-            try {
-              const prepared = await this.provider.prepareMarkdownProperties(target.directory, write.properties);
-              properties = prepared.properties;
-              identityProperties = prepared.identityRule?.properties ?? [];
-            } catch (error) {
-              if (error instanceof CollectionPropertyWriteError) {
-                throw new ProtocolError("unsupported-operation", error.message, 422, { path });
-              }
-              throw error;
-            }
-            for (const name of identityProperties) {
-              if (canonicalJSONString(properties[name]) !== canonicalJSONString(target.properties[name])) {
-                throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
-              }
-            }
-          }
-          const identity = write.ref.stableKey ? parseCanonicalStableKey(write.ref.stableKey) : null;
-          for (const [name, value] of identity ?? []) {
-            if (canonicalJSONString(properties[name]) !== canonicalJSONString(value)) {
-              throw new ProtocolError("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
-            }
-          }
-          const currentProperties = expandedNodeProperties(current);
-          if (isPageID(currentProperties.id) && properties.id !== currentProperties.id) {
-            throw new ProtocolError("invalid-reference", "Identity property id is immutable", 422, { path });
-          }
-          const source = `${replaceFrontmatter(current.document.frontmatterSource, properties) ?? ""}${current.document.bodySource}`;
-          const changedProperties = changedPropertyNames(target?.properties ?? currentProperties, properties);
-          const result = await (await this.engine).writeMarkdown(path, { baseRevision: current.revision, source });
-          return [{
-            kind: "updated" as const,
-            ref: { tree: LOCAL_TREE, path: result.node.path, stableKey: write.ref.stableKey },
-            contentRevision: result.byteRevision,
-            propertiesRevision: result.byteRevision,
-            changedProperties,
-            directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
-          }];
+            },
+          })];
         }
         const result = write.op === "writeText"
           ? await (await this.engine).writeFile(this.refPath(write.ref), new TextEncoder().encode(write.source), write.baseContentRevision)
@@ -542,7 +324,7 @@ export class FilesystemService implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
-    await this.provider[Symbol.asyncDispose]();
+    await this.surface[Symbol.asyncDispose]();
     await (await this.engine)[Symbol.asyncDispose]();
   }
 }
