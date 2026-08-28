@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { Workspace, RevisionConflictError } from "@arbor/arborsync";
 import { canonicalStableKey } from "@arbor/core";
+import { pageIDFromStableKey } from "@arbor/core/node-key";
 import { parseMarkdown } from "@arbor/editor";
 
 let root: string;
@@ -253,9 +254,10 @@ describe("workspace service", () => {
     };
     const receipt = await workspace.executeMutation(request as never);
     const effect = receipt.effects[0]!;
-    expect(effect.pageID).toMatch(/^[a-z0-9]{6}$/);
+    const pageID = pageIDFromStableKey(effect.ref.stableKey);
+    expect(pageID).toMatch(/^[a-z0-9]{6}$/);
     const materialized = await readFile(join(root, "bodyless", "_index.md"), "utf8");
-    expect(parseMarkdown(materialized).frontmatter.id).toBe(effect.pageID);
+    expect(parseMarkdown(materialized).frontmatter.id).toBe(pageID);
     expect(materialized.trim().endsWith("---")).toBe(true);
 
     const replayed = await workspace.executeMutation(request as never);
@@ -270,7 +272,7 @@ describe("workspace service", () => {
         baseContentRevision: "sha256:stale-is-fine-for-a-no-op",
       }],
     } as never);
-    expect(again.effects[0]?.pageID).toBe(effect.pageID);
+    expect(again.effects[0]?.ref.stableKey).toBe(effect.ref.stableKey);
     expect(again.effects[0]?.contentRevision).toBe(after.capabilities.content?.revision!);
   });
 
@@ -280,15 +282,16 @@ describe("workspace service", () => {
       mutationID: "identity-rename-0001",
       operations: [{ op: "rename", ref: { tree: "local", path: "/unnamed", stableKey: null }, name: "named" }],
     } as never);
-    const moved = receipt.effects.find((item) => item.path === "/named");
-    expect(moved?.pageID).toMatch(/^[a-z0-9]{6}$/);
-    expect(await readFile(join(root, "named.md"), "utf8")).toContain(`id: ${moved!.pageID}`);
+    const moved = receipt.effects.find((item) => item.ref.path === "/named");
+    const movedPageID = pageIDFromStableKey(moved!.ref.stableKey);
+    expect(movedPageID).toMatch(/^[a-z0-9]{6}$/);
+    expect(await readFile(join(root, "named.md"), "utf8")).toContain(`id: ${movedPageID}`);
 
     const trashed = await workspace.executeMutation({
       mutationID: "identity-trash-0001",
       operations: [{ op: "trash", refs: [{ tree: "local", path: "/named", stableKey: null }] }],
     } as never);
-    expect(trashed.effects.some((item) => item.pageID === moved!.pageID)).toBe(true);
+    expect(trashed.effects.some((item) => item.ref.stableKey === moved!.ref.stableKey)).toBe(true);
   });
 
   test("soft deletes and restores", async () => {

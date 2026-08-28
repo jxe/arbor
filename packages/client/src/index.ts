@@ -16,7 +16,6 @@ import type {
   NodeRef,
   NodeResponse,
   NodeSummary,
-  PageID,
   RecoveryPage,
   SearchPage,
   SnapshotEnvelope,
@@ -368,13 +367,13 @@ export class ArborSyncRESTClient {
   async ensureDocumentIdentity(
     ref: NodeRef,
     baseContentRevision: ContentRevision,
-  ): Promise<{ pageID: PageID; contentRevision: ContentRevision }> {
+  ): Promise<{ ref: NodeRef; contentRevision: ContentRevision }> {
     const receipt = await this.mutateContent({ op: "ensureDocumentIdentity", ref, baseContentRevision });
     const effect = receipt.effects[0];
-    if (!effect?.pageID || !effect.contentRevision) {
+    if (!effect?.ref.stableKey || !effect.contentRevision) {
       throw new TypeError("ensureDocumentIdentity receipt is missing the resulting identity");
     }
-    return { pageID: effect.pageID, contentRevision: effect.contentRevision };
+    return { ref: effect.ref, contentRevision: effect.contentRevision };
   }
 
   move(refs: NodeRef[], destination: NodeRef, mutationID?: string): Promise<MutationReceipt> {
@@ -526,7 +525,7 @@ export class ArborSyncRESTClient {
       });
     }
     const event = decoded as WorkspaceEvent;
-    if (typeof event.change.path !== "string" || typeof event.change.origin !== "string") {
+    if (typeof event.change.ref?.path !== "string" || typeof event.change.origin !== "string") {
       throw new TypeError("Malformed Arbor workspace change");
     }
     return event;

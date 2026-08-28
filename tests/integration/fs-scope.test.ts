@@ -94,7 +94,7 @@ describe("the local filesystem scope", () => {
       }],
     };
     const receipt = await client.mutate(noop);
-    expect(receipt.effects[0]?.tree).toBe("local");
+    expect(receipt.effects[0]?.ref.tree).toBe("local");
     const after = await client.node({ tree: "local", path, stableKey: null });
     expect(after.capabilities.content?.revision).toBe(node.capabilities.content?.revision);
     expect(nodeDocument(after)?.frontmatter.id).toBeUndefined();
@@ -382,7 +382,7 @@ describe("the local filesystem scope", () => {
         { op: "createMarkdown", tree: "local", path: join(dir, "draft") },
       ],
     });
-    expect(created.effects.filter((effect) => effect.kind === "created").map((effect) => effect.path)).toEqual([
+    expect(created.effects.filter((effect) => effect.kind === "created").map((effect) => effect.ref.path)).toEqual([
       dir,
       join(dir, "draft"),
     ]);
@@ -390,7 +390,10 @@ describe("the local filesystem scope", () => {
       mutationID: "fs-rename-1",
       operations: [{ op: "rename", ref: { tree: "local", path: join(dir, "draft"), stableKey: null }, name: "final" }],
     });
-    expect(renamed.effects[0]).toMatchObject({ kind: "moved", path: join(dir, "final"), tree: "local" });
+    expect(renamed.effects[0]).toMatchObject({
+      kind: "moved",
+      ref: { path: join(dir, "final"), tree: "local", stableKey: null },
+    });
     const listing = await client.children({ tree: "local", path: dir, stableKey: null });
     expect(listing.items.map((item) => item.name)).toEqual(["final"]);
   });

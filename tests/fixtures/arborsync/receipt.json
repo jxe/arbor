@@ -4,10 +4,12 @@
   "effects": [
     {
       "kind": "moved",
-      "tree": "tr_notes7f3q2ab7c",
-      "path": "/archive/today",
+      "ref": {
+        "tree": "tr_notes7f3q2ab7c",
+        "path": "/archive/today",
+        "stableKey": "[[\"id\",\"abc123\"]]"
+      },
       "previousPath": "/notes/today",
-      "pageID": "abc123",
       "contentRevision": "sha256:content",
       "propertiesRevision": "sha256:properties"
     }

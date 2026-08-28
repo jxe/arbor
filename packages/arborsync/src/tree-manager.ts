@@ -236,7 +236,7 @@ export class TreeManager implements AsyncDisposable {
       });
     }
     if (publish) {
-      this.events.emit({ tree: "system", kind: "updated", path: "/diagnostics", origin: "external" });
+      this.events.emit({ tree: "system", kind: "updated", ref: { tree: "system", path: "/diagnostics", stableKey: null }, origin: "external" });
     }
     this.invalidateDescriptors();
     return true;
@@ -246,7 +246,7 @@ export class TreeManager implements AsyncDisposable {
     const snapshot = await loadTreeRegistry();
     if (snapshot.diagnostics.length) {
       this.recordDiagnostics = [...arborDataHomeDiagnostics(), ...snapshot.diagnostics];
-      this.events.emit({ tree: "system", kind: "diagnostic", path: "/diagnostics", origin: "external" });
+      this.events.emit({ tree: "system", kind: "diagnostic", ref: { tree: "system", path: "/diagnostics", stableKey: null }, origin: "external" });
       return;
     }
     await this.applyPlacements(snapshot.placements, true);

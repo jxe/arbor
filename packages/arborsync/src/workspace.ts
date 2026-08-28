@@ -173,6 +173,14 @@ export class Workspace implements AsyncDisposable {
     });
   }
 
+  private mutationRef(path: string, pageID?: string, stableKey?: string | null): NodeRef {
+    return {
+      tree: this.tree,
+      path,
+      stableKey: stableKey ?? (pageID ? pageIDStableKey(pageID) : this.pathPageIDs.get(path) ? pageIDStableKey(this.pathPageIDs.get(path)!) : null),
+    };
+  }
+
   static async open(path: string, options: WorkspaceOptions = {}): Promise<Workspace> {
     const state = await workspaceState(path);
     const stateDirectory = state.directory;
@@ -460,7 +468,7 @@ export class Workspace implements AsyncDisposable {
     );
     if (contentOnly) {
       for (const effect of effects) {
-        const resolved = await this.fs.resolve(effect.path);
+        const resolved = await this.fs.resolve(effect.ref.path);
         if (resolved.kind === "missing") continue;
         const absolute = resolved.kind === "directory" || resolved.kind === "markdown"
           ? resolved.bodyPath
@@ -516,15 +524,13 @@ export class Workspace implements AsyncDisposable {
         const expectedEffects: MutationEffect[] = [
           ...(assetsDirectory.kind === "missing" ? [{
             kind: "created" as const,
-            tree: this.tree,
-            path: "/Assets",
+            ref: this.mutationRef("/Assets"),
             contentRevision: EMPTY_REVISION,
             directoryRevision: EMPTY_REVISION,
           }] : []),
           {
             kind: existingAsset.kind === "missing" ? "created" : "updated",
-            tree: this.tree,
-            path: assetPath,
+            ref: this.mutationRef(assetPath),
             contentRevision: revisionOf(bytes),
           },
         ];
@@ -534,7 +540,7 @@ export class Workspace implements AsyncDisposable {
       },
     );
     if (!output) {
-      const path = receipt.effects.find((effect) => effect.path !== "/Assets")?.path;
+      const path = receipt.effects.find((effect) => effect.ref.path !== "/Assets")?.ref.path;
       if (!path) throw new ProtocolError("internal-error", "Stored asset receipt has no path", 500);
       const directory = await this.resolveRef(directoryRef).catch(() => canonicalNodePath(directoryRef.path));
       const resolved = await this.fs.resolve(directory);
@@ -825,8 +831,7 @@ export class Workspace implements AsyncDisposable {
           );
           const effect: MutationEffect = {
             kind: "updated",
-            tree: this.tree,
-            path: `${target.parentPath}/${row.path}`,
+            ref: this.mutationRef(`${target.parentPath}/${row.path}`, undefined, row.stableKey),
             propertiesRevision: row.revision,
           };
           await onMaterialized?.([effect]);
@@ -860,8 +865,7 @@ export class Workspace implements AsyncDisposable {
           );
           const effect: MutationEffect = {
             kind: "updated",
-            tree: this.tree,
-            path: prepared.path,
+            ref: this.mutationRef(prepared.path, undefined, operation.ref.stableKey),
             propertiesRevision: prepared.revision,
           };
           await onExpected?.([effect]);
@@ -913,9 +917,7 @@ export class Workspace implements AsyncDisposable {
         const source = `${replaceFrontmatter(current.document.frontmatterSource, prepared.properties) ?? ""}${current.document.bodySource}`;
         const propertyEffect = (result: FsWriteResult): MutationEffect => ({
           kind: "updated",
-          tree: this.tree,
-          path: result.node.path,
-          pageID: result.pageID,
+          ref: this.mutationRef(result.node.path, result.pageID),
           contentRevision: result.byteRevision,
           propertiesRevision: result.byteRevision,
         });
@@ -925,9 +927,7 @@ export class Workspace implements AsyncDisposable {
         });
         return {
           kind: "updated",
-          tree: this.tree,
-          path: saved.path,
-          pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
+          ref: this.mutationRef(saved.path, isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined),
           contentRevision: saved.revision,
           propertiesRevision: saved.propertiesRevision ?? saved.revision,
         };
@@ -954,9 +954,7 @@ export class Workspace implements AsyncDisposable {
       const source = `${replaceFrontmatter(current.document.frontmatterSource, operation.properties) ?? ""}${current.document.bodySource}`;
       const propertyEffect = (result: FsWriteResult): MutationEffect => ({
         kind: "updated",
-        tree: this.tree,
-        path: result.node.path,
-        pageID: result.pageID,
+        ref: this.mutationRef(result.node.path, result.pageID),
         contentRevision: result.byteRevision,
         propertiesRevision: result.byteRevision,
         directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
@@ -967,9 +965,7 @@ export class Workspace implements AsyncDisposable {
       });
       return {
         kind: "updated",
-        tree: this.tree,
-        path: saved.path,
-        pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
+        ref: this.mutationRef(saved.path, isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined),
         contentRevision: saved.revision,
         propertiesRevision: saved.propertiesRevision ?? saved.revision,
         directoryRevision: saved.kind === "directory" ? saved.revision : undefined,
@@ -982,9 +978,7 @@ export class Workspace implements AsyncDisposable {
         // Identity already exists: no write, the receipt echoes current state.
         return {
           kind: "updated",
-          tree: this.tree,
-          path: current.path,
-          pageID: existingID,
+          ref: this.mutationRef(current.path, existingID),
           contentRevision: current.revision,
           directoryRevision: current.kind === "directory" ? current.revision : undefined,
         };
@@ -1004,9 +998,7 @@ export class Workspace implements AsyncDisposable {
         onPrepared: onExpected
           ? async (result) => onExpected([{
             kind: "updated",
-            tree: this.tree,
-            path: result.node.path,
-            pageID: result.pageID,
+            ref: this.mutationRef(result.node.path, result.pageID),
             contentRevision: result.byteRevision,
             directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
           }])
@@ -1014,9 +1006,7 @@ export class Workspace implements AsyncDisposable {
         onMaterialized: onMaterialized
           ? async (result) => onMaterialized([{
             kind: "updated",
-            tree: this.tree,
-            path: result.node.path,
-            pageID: result.pageID,
+            ref: this.mutationRef(result.node.path, result.pageID),
             contentRevision: result.byteRevision,
             directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
           }])
@@ -1024,9 +1014,7 @@ export class Workspace implements AsyncDisposable {
       });
       return {
         kind: "updated",
-        tree: this.tree,
-        path: saved.path,
-        pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
+        ref: this.mutationRef(saved.path, isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined),
         contentRevision: saved.revision,
         directoryRevision: saved.kind === "directory" ? saved.revision : undefined,
       };
@@ -1040,8 +1028,7 @@ export class Workspace implements AsyncDisposable {
       const result = await this.fs.writeFile(path, new TextEncoder().encode(operation.source), operation.baseContentRevision);
       return {
         kind: "updated",
-        tree: this.tree,
-        path: result.node.path,
+        ref: this.mutationRef(result.node.path),
         contentRevision: result.byteRevision,
       };
     } else if (operation.op === "writeMarkdown") {
@@ -1052,9 +1039,7 @@ export class Workspace implements AsyncDisposable {
         onPrepared: onExpected
           ? async (result) => onExpected([{
             kind: "updated",
-            tree: this.tree,
-            path: result.node.path,
-            pageID: result.pageID,
+            ref: this.mutationRef(result.node.path, result.pageID),
             contentRevision: result.byteRevision,
             directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
           }])
@@ -1062,9 +1047,7 @@ export class Workspace implements AsyncDisposable {
         onMaterialized: onMaterialized
           ? async (result) => onMaterialized([{
             kind: "updated",
-            tree: this.tree,
-            path: result.node.path,
-            pageID: result.pageID,
+            ref: this.mutationRef(result.node.path, result.pageID),
             contentRevision: result.byteRevision,
             directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
           }])
@@ -1079,9 +1062,7 @@ export class Workspace implements AsyncDisposable {
         onPrepared: onExpected
           ? async (result) => onExpected([{
             kind: "updated",
-            tree: this.tree,
-            path: result.node.path,
-            pageID: result.pageID,
+            ref: this.mutationRef(result.node.path, result.pageID),
             contentRevision: result.byteRevision,
             directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
           }])
@@ -1089,9 +1070,7 @@ export class Workspace implements AsyncDisposable {
         onMaterialized: onMaterialized
           ? async (result) => onMaterialized([{
             kind: "updated",
-            tree: this.tree,
-            path: result.node.path,
-            pageID: result.pageID,
+            ref: this.mutationRef(result.node.path, result.pageID),
             contentRevision: result.byteRevision,
             directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
           }])
@@ -1100,9 +1079,7 @@ export class Workspace implements AsyncDisposable {
     }
     return {
       kind: "updated",
-      tree: this.tree,
-      path: saved.path,
-      pageID: isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined,
+      ref: this.mutationRef(saved.path, isPageID(saved.document?.frontmatter.id) ? saved.document.frontmatter.id : undefined),
       contentRevision: saved.revision,
       directoryRevision: saved.kind === "directory" ? saved.revision : undefined,
     };
@@ -1146,11 +1123,12 @@ export class Workspace implements AsyncDisposable {
       try { snapshot = await this.node(change.path); } catch {}
       return {
         kind: change.kind,
-        tree: this.tree,
-        path: change.path,
+        ref: this.mutationRef(
+          change.path,
+          change.pageID
+            ?? (isPageID(snapshot?.document?.frontmatter.id) ? snapshot.document.frontmatter.id : undefined),
+        ),
         previousPath: change.previousPath,
-        pageID: change.pageID
-          ?? (isPageID(snapshot?.document?.frontmatter.id) ? snapshot.document.frontmatter.id : undefined),
         contentRevision: snapshot?.revision,
         directoryRevision: snapshot?.kind === "directory"
           ? snapshot.revision
@@ -1198,15 +1176,14 @@ export class Workspace implements AsyncDisposable {
     rawEffects: MutationEffect[],
     origin: "api" | "recovery",
   ): Promise<MutationReceipt> {
-    const effects = rawEffects.map((effect) => ({ ...effect, tree: effect.tree ?? this.tree }));
+    const effects = rawEffects;
     let observedThrough = this.events.currentCursor();
     for (const effect of effects) {
       observedThrough = this.events.emit({
-        tree: this.tree,
+        tree: effect.ref.tree,
         kind: effect.kind,
-        path: effect.path,
+        ref: effect.ref,
         previousPath: effect.previousPath,
-        pageID: effect.pageID,
         contentRevision: effect.contentRevision,
         propertiesRevision: effect.propertiesRevision,
         directoryRevision: effect.directoryRevision,
@@ -1238,12 +1215,12 @@ export class Workspace implements AsyncDisposable {
         const matches = await Promise.all(record.expectedEffects.map(async (effect) => {
           try {
             const operationRefs = request.operations?.flatMap((operation) => operation.ref ? [operation.ref] : []) ?? [];
-            const operationRef = operationRefs.find((ref) => ref.path === effect.path)
+            const operationRef = operationRefs.find((ref) => ref.path === effect.ref.path)
               ?? (operationRefs.length === 1 ? operationRefs[0] : undefined);
             const current = await this.snapshot({
-              tree: effect.tree ?? this.tree,
-              path: effect.path,
-              stableKey: operationRef?.stableKey ?? null,
+              tree: effect.ref.tree,
+              path: effect.ref.path,
+              stableKey: effect.ref.stableKey ?? operationRef?.stableKey ?? null,
             });
             return (!effect.contentRevision
                 || current.capabilities.content?.revision === effect.contentRevision
@@ -1551,7 +1528,7 @@ export class Workspace implements AsyncDisposable {
         this.events.emit({
           tree: this.tree,
           kind: change.kind,
-          path: change.path,
+          ref: this.mutationRef(change.path),
           previousPath: change.previousPath,
           origin: event.origin === "sync" ? "sync" : "external",
         });
@@ -1561,7 +1538,7 @@ export class Workspace implements AsyncDisposable {
     this.events.emit({
       tree: this.tree,
       kind: event.type,
-      path: event.path,
+      ref: this.mutationRef(event.path),
       previousPath: event.previousPath,
       contentRevision: event.byteRevision,
       origin: event.origin === "sync" ? "sync" : "external",

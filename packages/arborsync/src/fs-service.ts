@@ -324,8 +324,7 @@ export class FilesystemService implements AsyncDisposable {
       const snapshot = await this.node(change.path).catch(() => null);
       return {
         kind: change.kind,
-        tree: LOCAL_TREE,
-        path: change.path,
+        ref: { tree: LOCAL_TREE, path: change.path, stableKey: null },
         previousPath: change.previousPath,
         contentRevision: snapshot?.revision,
         directoryRevision: snapshot?.kind === "directory"
@@ -390,8 +389,7 @@ export class FilesystemService implements AsyncDisposable {
               );
               return [{
                 kind: "updated" as const,
-                tree: LOCAL_TREE,
-                path: `${target.parentPath}/${row.path}`,
+                ref: { tree: LOCAL_TREE, path: `${target.parentPath}/${row.path}`, stableKey: row.stableKey },
                 propertiesRevision: row.revision,
               }];
             } catch (error) {
@@ -424,8 +422,7 @@ export class FilesystemService implements AsyncDisposable {
               const saved = await this.provider.commitFileProperties(prepared);
               return [{
                 kind: "updated" as const,
-                tree: LOCAL_TREE,
-                path: saved.path,
+                ref: { tree: LOCAL_TREE, path: saved.path, stableKey: write.ref.stableKey },
                 propertiesRevision: saved.revision,
               }];
             } catch (error) {
@@ -493,8 +490,7 @@ export class FilesystemService implements AsyncDisposable {
           const result = await (await this.engine).writeMarkdown(path, { baseRevision: current.revision, source });
           return [{
             kind: "updated" as const,
-            tree: LOCAL_TREE,
-            path: result.node.path,
+            ref: { tree: LOCAL_TREE, path: result.node.path, stableKey: write.ref.stableKey },
             contentRevision: result.byteRevision,
             propertiesRevision: result.byteRevision,
             directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
@@ -508,8 +504,7 @@ export class FilesystemService implements AsyncDisposable {
             });
         return [{
           kind: "updated" as const,
-          tree: LOCAL_TREE,
-          path: result.node.path,
+          ref: { tree: LOCAL_TREE, path: result.node.path, stableKey: write.ref.stableKey },
           contentRevision: result.byteRevision,
           directoryRevision: result.node.kind === "directory" ? result.byteRevision : undefined,
         }];
@@ -522,7 +517,7 @@ export class FilesystemService implements AsyncDisposable {
       observedThrough = this.events.emit({
         tree: LOCAL_TREE,
         kind: effect.kind,
-        path: effect.path,
+        ref: effect.ref,
         previousPath: effect.previousPath,
         contentRevision: effect.contentRevision,
         propertiesRevision: effect.propertiesRevision,

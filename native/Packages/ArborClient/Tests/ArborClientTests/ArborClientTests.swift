@@ -281,7 +281,7 @@ final class ArborClientTests: XCTestCase {
             guard case let .event(event) = update, event.change.mutationID == "swift-live-mutation" else {
                 continue
             }
-            XCTAssertEqual(event.change.path, "/from-swift")
+            XCTAssertEqual(event.change.ref.path, "/from-swift")
             break
         }
     }

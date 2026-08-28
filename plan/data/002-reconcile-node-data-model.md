@@ -190,8 +190,8 @@
   readable paths while preserving the key and application query. The private
   `collection`/`postgres` node kinds and `CollectionSummary`/`CollectionRow`
   records are removed: expanded directories always remain physical
-  directories and carry provider child-set metadata separately. Legacy event
-  effects and deprecated native source aliases remain the last locator bridge.
+  directories and carry provider child-set metadata separately. Deprecated
+  native source aliases remain the last locator bridge.
 - **2026-08-28 — provider-neutral live queries and final execution routes:**
   `NodeLiveQueryBroker` runs the portable filter/field/cardinality algebra over
   any ordinary `NodeQueryProvider`, subscribes before sampling, queues racing
@@ -203,9 +203,17 @@
   `/v1/query-stream` as the explicitly local adapter. The old unscoped Wire
   alias is removed; route tests cover queries, named mutation receipts, user
   context, and scope rejection.
-- **Next checkpoint:** finish generic event/effect refs and remove the native compatibility aliases. Provider snapshots/observation, Wire
-  rollups/merge, the shared live broker, and tree-scoped execution routes follow
-  in this plan. Typed source declarations, activation-manifest generation, and
+- **2026-08-28 — generic mutation and observation references:** TypeScript and
+  Swift mutation effects and workspace changes now carry the same complete
+  `ref` triple as snapshots, children, search, and navigation. Browser/native
+  consumers match stable keys directly rather than reconstructing PageIDs, and
+  identity materialization returns the resulting ref. New journals and Wire
+  fixtures contain no duplicated tree/path/PageID fields; a bounded legacy
+  journal reader preserves crash recovery and has an explicit deletion
+  condition in the hardening backlog.
+- **Next checkpoint:** remove the native compatibility aliases, then complete
+  provider snapshots/observation and Wire rollup synchronization/merge in this
+  plan. Typed source declarations, activation-manifest generation, and
   editor integration moved intact to
   [Application 003](../applications/003-development-compiler-and-editor-tooling.md);
   representation-path conversion moved to [Data 003](003-representation-equivalence.md);

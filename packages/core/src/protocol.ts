@@ -346,11 +346,8 @@ export type MutationEffectKind = "created" | "updated" | "moved" | "deleted";
 
 export interface MutationEffect {
   kind: MutationEffectKind;
-  /** Scope the effect landed in. Present from milestone 3 on. */
-  tree: TreeRef;
-  path: LogicalPath;
+  ref: ResolvedNodeRef;
   previousPath?: LogicalPath;
-  pageID?: PageID;
   contentRevision?: ContentRevision;
   propertiesRevision?: string;
   directoryRevision?: DirectoryRevision;
@@ -365,9 +362,8 @@ export interface MutationReceipt {
 export type WorkspaceEventOrigin = "api" | "external" | "recovery" | "sync";
 
 export interface WorkspaceChange {
-  path: LogicalPath;
+  ref: ResolvedNodeRef;
   previousPath?: LogicalPath;
-  pageID?: PageID;
   contentRevision?: ContentRevision;
   propertiesRevision?: string;
   directoryRevision?: DirectoryRevision;

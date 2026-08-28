@@ -28,12 +28,12 @@ export interface BrowserMutationResult {
 function result(receipt: MutationReceipt): BrowserMutationResult {
   return {
     receipt,
-    created: receipt.effects.filter((effect) => effect.kind === "created").map((effect) => effect.path),
-    updated: receipt.effects.filter((effect) => effect.kind === "updated").map((effect) => effect.path),
+    created: receipt.effects.filter((effect) => effect.kind === "created").map((effect) => effect.ref.path),
+    updated: receipt.effects.filter((effect) => effect.kind === "updated").map((effect) => effect.ref.path),
     moved: receipt.effects.flatMap((effect) =>
-      effect.kind === "moved" && effect.previousPath ? [{ from: effect.previousPath, to: effect.path }] : []
+      effect.kind === "moved" && effect.previousPath ? [{ from: effect.previousPath, to: effect.ref.path }] : []
     ),
-    deleted: receipt.effects.filter((effect) => effect.kind === "deleted").map((effect) => effect.path),
+    deleted: receipt.effects.filter((effect) => effect.kind === "deleted").map((effect) => effect.ref.path),
   };
 }
 

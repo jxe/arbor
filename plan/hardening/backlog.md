@@ -139,6 +139,12 @@ These are implementation violations of the aspirational specification. They are 
     broker before serving ordinary-tree handles through Wire `/queries`, then
     remove the temporary complete row-list dependency where a narrower proved
     sensitivity is available.
+16. **Remove the legacy mutation-journal effect decoder.** New durable records
+    write only `effect.ref`; the reader temporarily upgrades pre-Data-002
+    `{ tree, path, pageID }` effects so an interrupted mutation can still be
+    recovered after upgrade. Delete this decoder after the supported recovery
+    window has elapsed and deployed journal directories have been observed with
+    no legacy pending records. Do not restore legacy fields to Wire receipts.
 
 ## Filesystem and structural editing
 

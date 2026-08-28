@@ -432,11 +432,8 @@ public struct MutationRequest: Codable, Sendable, Equatable {
 
 public struct MutationEffect: Codable, Sendable, Equatable {
     public var kind: String
-    /// Scope the effect landed in.
-    public var tree: String
-    public var path: String
+    public var ref: NodeRef
     public var previousPath: String?
-    public var pageID: String?
     public var contentRevision: String?
     public var propertiesRevision: String?
     public var directoryRevision: String?
@@ -449,9 +446,8 @@ public struct MutationReceipt: Codable, Sendable, Equatable {
 }
 
 public struct WorkspaceChange: Codable, Sendable, Equatable {
-    public var path: String
+    public var ref: NodeRef
     public var previousPath: String?
-    public var pageID: String?
     public var contentRevision: String?
     public var propertiesRevision: String?
     public var directoryRevision: String?

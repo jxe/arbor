@@ -34,7 +34,7 @@ describe("REST v1 protocol fixtures", () => {
     expect(node.enclosingTree?.osPath).toBe("/Users/joe/notes");
     expect(mutation.operations[0]?.op).toBe("move");
     expect(receipt.effects[0]?.previousPath).toBe("/notes/today");
-    expect(receipt.effects[0]?.tree).toBe("tr_notes7f3q2ab7c");
+    expect(receipt.effects[0]?.ref.tree).toBe("tr_notes7f3q2ab7c");
     expect(receipt.effects[0]?.propertiesRevision).toBe("sha256:properties");
     expect(error.error).toBe("future-error-code");
   });

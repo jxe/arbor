@@ -312,7 +312,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     try {
       const snapshot = await this.fetchRemoteSnapshot(locatorInput);
       await this.visitedTrees.remember(locator, snapshot);
-      this.events.emit({ tree: SYSTEM_TREE, kind: "updated", path: "/visited", origin: "external" });
+      this.events.emit({ tree: SYSTEM_TREE, kind: "updated", ref: { tree: SYSTEM_TREE, path: "/visited", stableKey: null }, origin: "external" });
       return snapshot;
     } catch (error) {
       const cached = await this.visitedTrees.get(locator);
@@ -1089,16 +1089,16 @@ export class ArborSyncDaemon implements AsyncDisposable {
     await rm(pendingPath, { force: true });
     await this.trees.refreshConfiguration();
     return [
-      { kind: "updated", tree: result.configuration.id, path: "/account.yaml" },
-      { kind: "created", tree: result.configuration.id, path: "/trees.yaml" },
-      { kind: "created", tree: result.tree.id, path: "/" },
+      { kind: "updated", ref: { tree: result.configuration.id, path: "/account.yaml", stableKey: null } },
+      { kind: "created", ref: { tree: result.configuration.id, path: "/trees.yaml", stableKey: null } },
+      { kind: "created", ref: { tree: result.tree.id, path: "/", stableKey: null } },
     ];
   }
 
   async forgetLocalAccount(): Promise<void> {
     await this.communityConfig.remove();
     this.trees.invalidateDescriptors();
-    this.events.emit({ tree: SYSTEM_TREE, kind: "updated", path: "/credentials", origin: "api" });
+    this.events.emit({ tree: SYSTEM_TREE, kind: "updated", ref: { tree: SYSTEM_TREE, path: "/credentials", stableKey: null }, origin: "api" });
   }
 
   /** Flush a valid file-edited configuration and its resulting tree work before a CLI process exits. */
@@ -1151,7 +1151,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       await clearTreeConflict(tree);
       this.trees.setSyncState(tree, "idle");
       this.syncConflicts.delete(tree);
-      return [{ kind: "updated", tree: SYSTEM_TREE, path: `/conflicts/${tree}` }];
+      return [{ kind: "updated", ref: { tree: SYSTEM_TREE, path: `/conflicts/${tree}`, stableKey: null } }];
     }
 
     let candidate: import("@arbor/wire").TreeSnapshot;
@@ -1190,7 +1190,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     await clearTreeConflict(tree);
     this.syncConflicts.delete(tree);
     await this.updateWorkspace(workspace, placement, client, (await client.list()).snapshot);
-    return [{ kind: "updated", tree: SYSTEM_TREE, path: `/trees/${tree}` }];
+    return [{ kind: "updated", ref: { tree: SYSTEM_TREE, path: `/trees/${tree}`, stableKey: null } }];
   }
 
   private canonicalBoundariesFor(
@@ -1438,7 +1438,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
           const firstConflict = !this.syncConflicts.has(workspace.tree);
           this.syncConflicts.add(workspace.tree);
           if (firstConflict) {
-            this.events.emit({ tree: workspace.tree, kind: "diagnostic", path: "/", origin: "sync" });
+            this.events.emit({ tree: workspace.tree, kind: "diagnostic", ref: { tree: workspace.tree, path: "/", stableKey: null }, origin: "sync" });
           }
           return;
         }

@@ -144,7 +144,7 @@ describe("arborsync REST v1", () => {
     );
     const savedRow = await client.node(row.ref);
     expect(savedRow.properties.title).toBe("One updated");
-    expect(rowReceipt.effects[0]?.path).toBe("/data/items/one");
+    expect(rowReceipt.effects[0]?.ref.path).toBe("/data/items/one");
     expect(rowReceipt.effects[0]?.propertiesRevision).toBe(savedRow.capabilities.properties?.revision);
   });
 
@@ -252,7 +252,7 @@ describe("arborsync REST v1", () => {
       { op: "createDirectory", tree: scope, path: "/folder" },
       { op: "createMarkdown", tree: scope, path: "/other" },
     ], "create-batch");
-    expect(receipt.effects.filter((effect) => effect.kind === "created").map((effect) => effect.path)).toEqual(["/folder", "/other"]);
+    expect(receipt.effects.filter((effect) => effect.kind === "created").map((effect) => effect.ref.path)).toEqual(["/folder", "/other"]);
 
     const response = await fetch(`${base}/v1/mutations`, {
       method: "POST",
@@ -346,7 +346,7 @@ describe("arborsync REST v1", () => {
         break;
       }
     }
-    expect(replayed?.change.path).toBe("/eventful");
+    expect(replayed?.change.ref.path).toBe("/eventful");
 
     const terminal = await fetch(`${base}/v1/events?after=${encodeURIComponent(`another-epoch:0`)}`);
     expect(terminal.status).toBe(200);
@@ -369,7 +369,7 @@ describe("arborsync REST v1", () => {
     try {
       for await (const update of view.updates) {
         if (update.kind === "event" && update.event.change.mutationID === "during-view-load") {
-          expect(update.event.change.path).toBe("/during-view-load");
+          expect(update.event.change.ref.path).toBe("/during-view-load");
           break;
         }
       }
@@ -414,7 +414,7 @@ describe("arborsync REST v1", () => {
       { path: "drop", kind: "directory" },
       { path: "drop/readme.md", kind: "file", file: new File(["Imported\n"], "readme.md", { type: "text/markdown" }) },
     ], "import-drop");
-    expect(receipt.effects.some((effect) => effect.path === "/folder/drop")).toBe(true);
+    expect(receipt.effects.some((effect) => effect.ref.path === "/folder/drop")).toBe(true);
     expect(nodeDocument(await client.node({ tree: scope, path: "/folder/drop/readme", stableKey: null }))?.bodySource).toBe("Imported\n");
   });
 
@@ -446,17 +446,17 @@ describe("arborsync REST v1", () => {
       refs: [{ tree: scope, path: "/renamed", stableKey: null }],
       destination: { tree: scope, path: "/folder", stableKey: null },
     }], "copy-page");
-    const copyPath = copied.effects.find((effect) => effect.kind === "created")!.path;
+    const copyPath = copied.effects.find((effect) => effect.kind === "created")!.ref.path;
     const copiedNode = await client.node({ tree: scope, path: copyPath, stableKey: null });
     expect(nodeKind(copiedNode)).toBe("markdown");
     expect(copiedNode.ref.stableKey).not.toBe((await client.node({ tree: scope, path: "/renamed", stableKey: null })).ref.stableKey);
 
     const trashed = await client.mutateStructural([{ op: "trash", refs: [{ tree: scope, path: copyPath, stableKey: null }] }], "trash-copy");
     const trashPath = `/Trash${copyPath}`;
-    expect(trashed.effects).toContainEqual(expect.objectContaining({ kind: "deleted", path: copyPath }));
+    expect(trashed.effects).toContainEqual(expect.objectContaining({ kind: "deleted", ref: expect.objectContaining({ path: copyPath }) }));
     await expect(client.node({ tree: scope, path: copyPath, stableKey: null })).rejects.toMatchObject({ status: 404 });
     const restored = await client.mutateStructural([{ op: "restore", refs: [{ tree: scope, path: trashPath, stableKey: null }] }], "restore-copy");
-    expect(nodeKind(await client.node({ tree: scope, path: restored.effects[0]!.path, stableKey: null }))).toBe("markdown");
+    expect(nodeKind(await client.node({ tree: scope, path: restored.effects[0]!.ref.path, stableKey: null }))).toBe("markdown");
 
     const before = await client.node({ tree: scope, path: "/renamed", stableKey: null });
     const pageRef = before.ref;
@@ -587,9 +587,8 @@ describe("arborsync REST v1", () => {
     const recoveredHash = sha256(canonicalJSONString(recoveredRequest));
     await activeWorkspace.mutations.prepare(recoveredRequest.mutationID, recoveredHash, recoveredRequest);
     await activeWorkspace.mutations.markMaterialized(recoveredRequest.mutationID, recoveredHash, [{
-      tree: scope,
       kind: "created",
-      path: "/recovered-effect",
+      ref: { tree: scope, path: "/recovered-effect", stableKey: null },
     }]);
     const written = await client.node({ tree: scope, path: "/renamed", stableKey: null });
     const recoveredWriteRequest: MutationRequest = {
@@ -604,10 +603,8 @@ describe("arborsync REST v1", () => {
     const recoveredWriteHash = sha256(canonicalJSONString(recoveredWriteRequest));
     await activeWorkspace.mutations.prepare(recoveredWriteRequest.mutationID, recoveredWriteHash, recoveredWriteRequest);
     await activeWorkspace.mutations.markExpected(recoveredWriteRequest.mutationID, recoveredWriteHash, [{
-      tree: scope,
       kind: "updated",
-      path: "/renamed",
-      pageID: pageIDFromStableKey(written.ref.stableKey) ?? undefined,
+      ref: written.ref,
       contentRevision: written.capabilities.content?.revision,
     }]);
 
@@ -623,10 +620,10 @@ describe("arborsync REST v1", () => {
     };
 
     expect(await client.mutate(durableWriteRequest)).toEqual(durableWriteReceipt);
-    expect((await client.mutate(recoveredRequest)).effects).toEqual([{ kind: "created", path: "/recovered-effect", tree: activeWorkspace.tree }]);
+    expect((await client.mutate(recoveredRequest)).effects).toEqual([{ kind: "created", ref: { tree: activeWorkspace.tree, path: "/recovered-effect", stableKey: null } }]);
     expect((await client.mutate(recoveredWriteRequest)).effects).toMatchObject([{
       kind: "updated",
-      path: "/renamed",
+      ref: expect.objectContaining({ path: "/renamed" }),
       contentRevision: written.capabilities.content?.revision,
     }]);
     const oldCursor = durableWriteReceipt.observedThrough;

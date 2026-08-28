@@ -599,18 +599,17 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
           const event = update.event;
           if (event.change.mutationID && api.client.isOwnMutation(event.change.mutationID)) continue;
           if (event.tree !== undefined && event.tree !== currentNode.ref.tree) continue;
-          const currentPageID = pageIDFromStableKey(currentNode.ref.stableKey);
-          const affectsNode = event.change.path === currentNode.ref.path
+          const affectsNode = event.change.ref.path === currentNode.ref.path
             || event.change.previousPath === currentNode.ref.path
-            || Boolean(currentPageID && event.change.pageID === currentPageID);
+            || Boolean(currentNode.ref.stableKey && event.change.ref.stableKey === currentNode.ref.stableKey);
           const currentIsDirectory = hasChildren(currentNode);
           const affectsChildren = currentIsDirectory && (
-            parentPath(event.change.path) === currentNode.ref.path
+            parentPath(event.change.ref.path) === currentNode.ref.path
             || (event.change.previousPath !== undefined && parentPath(event.change.previousPath) === currentNode.ref.path)
           );
           if (!affectsNode && !affectsChildren) continue;
           const ref = !currentNode.ref.stableKey && event.change.previousPath === currentNode.ref.path && event.kind === "moved"
-            ? { tree: currentNode.ref.tree, path: event.change.path, stableKey: null } satisfies NodeRef
+            ? { tree: currentNode.ref.tree, path: event.change.ref.path, stableKey: null } satisfies NodeRef
             : currentNode.ref;
           const loaded = await sapiRef.current.node(ref);
           if (affectsNode) coordinator.observeExternal(loaded);

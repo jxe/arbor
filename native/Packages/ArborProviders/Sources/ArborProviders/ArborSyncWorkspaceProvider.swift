@@ -159,9 +159,9 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
         let effect = receipt.effects.last(where: { $0.kind != "deleted" }) ?? receipt.effects.last
         let resolved = effect.map { value in
             WorkspaceReference(
-                tree: TreeID(rawValue: value.tree),
-                path: value.path,
-                stableKey: value.pageID.map(pageIDStableKey) ?? fallback.stableKey
+                tree: TreeID(rawValue: value.ref.tree),
+                path: value.ref.path,
+                stableKey: value.ref.stableKey ?? fallback.stableKey
             )
         } ?? fallback
         return try await resolveOrFallback(resolved, fallback: fallback)
@@ -506,10 +506,10 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         reference: WorkspaceReference
     ) -> Bool {
         if event.tree != reference.tree.rawValue { return false }
-        if let stableKey = reference.stableKey, let eventPageID = event.change.pageID {
-            return stableKey == pageIDStableKey(eventPageID)
+        if let stableKey = reference.stableKey, let eventStableKey = event.change.ref.stableKey {
+            return stableKey == eventStableKey
         }
-        return event.change.path == reference.path || event.change.previousPath == reference.path
+        return event.change.ref.path == reference.path || event.change.previousPath == reference.path
     }
 
     private func requireOpen() throws {

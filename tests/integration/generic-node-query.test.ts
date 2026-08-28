@@ -155,7 +155,7 @@ describe("portable arbor() node queries", () => {
       async snapshot() {
         const source = await workspace.snapshot({ tree: workspace.tree, path: "/records", stableKey: null });
         sourceCursor = source.observedThrough;
-        workspace.events.emit({ tree: workspace.tree, kind: "created", path: "/records/new.md", origin: "external" });
+        workspace.events.emit({ tree: workspace.tree, kind: "created", ref: { tree: workspace.tree, path: "/records/new.md", stableKey: null }, origin: "external" });
         return source;
       },
       async children(source, cursor) { return workspace.children(source, cursor); },
@@ -184,7 +184,7 @@ describe("portable arbor() node queries", () => {
     if (initial.type === "result" && "value" in initial) expect(initial.value).toHaveLength(2);
     expect((await reader.read()).value?.type).toBe("ready");
     await writeFile(join(root, "records", "d.md"), "---\nid: d\ntitle: Delta\n---\n");
-    workspace.events.emit({ tree: workspace.tree, kind: "created", path: "/records/d", origin: "external" });
+    workspace.events.emit({ tree: workspace.tree, kind: "created", ref: { tree: workspace.tree, path: "/records/d", stableKey: null }, origin: "external" });
     const changed = (await reader.read()).value!;
     expect(changed.type).toBe("result");
     if (changed.type === "result" && "value" in changed) expect(changed.value).toHaveLength(3);
