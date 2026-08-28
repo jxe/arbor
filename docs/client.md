@@ -42,6 +42,16 @@ heading's chevron to unfold all headings. Tapping the chevron still affects only
 that section. An individual heading's block action menu also offers **Fold
 Section** or **Unfold Section**.
 
+On iOS, the smaller pinch-to-insert gesture also starts Arbor's on-device voice
+recorder after crossing the insertion threshold. Hold the gap open while
+speaking and release to transcribe into the inferred paragraph or list row; the
+completed row remains selected in navigation mode. If no speech is detected—or
+recording could not start—the empty row enters edit mode and opens the keyboard.
+The larger heading gesture and a cancelled pinch discard their temporary audio.
+Toolbar recording prefers the block being edited when recording starts and
+inserts the transcript at its caret. Page-level routing, including a `🎙`
+heading, applies only when recording starts outside edit mode.
+
 ## Profile control and Claim
 
 The persistent profile control shows the active safe community/profile identity, connected or credential-unavailable state, and every writable community, person-profile, and group-profile namespace. Selecting an unplaced namespace asks where it should live locally; selecting an existing placement opens it. The control never displays or copies stored credentials.

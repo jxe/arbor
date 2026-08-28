@@ -16,11 +16,45 @@ import UIKit
 import VisionKit
 #endif
 
+/// Keep the focused editor-command dependency at the toolbar leaf. Reading it
+/// from `ArborRootView` makes every focus-preference update invalidate the
+/// entire navigation hierarchy, which can form an iOS render loop before the
+/// launch screen is replaced.
+private struct ArborVoiceRecordingToolbarButton: View {
+    let session: VoiceRecordingSession<String>
+    let model: ArborAppModel
+    let workspace: ArborWorkspaceState
+    @FocusedValue(\.editorCommands) private var editorCommands
+
+    var body: some View {
+        VoiceRecordingButton(session: session) {
+            await startRecording()
+        }
+    }
+
+    /// Editing at the moment recording starts takes precedence over the page's
+    /// ordinary voice destination. Capture both the command bridge and block id
+    /// now so delayed transcription cannot drift into a different row.
+    private func startRecording() async {
+        let commands = editorCommands
+        let target = commands?.activeEditingBlock()
+        var inlineDelivery: VoiceTranscriptDelivery<String>?
+        if let target {
+            inlineDelivery = { transcript, destination in
+                if commands?.insertText(transcript, target) == true { return }
+                try await workspace.deliverVoiceTranscript(transcript, to: destination)
+            }
+        }
+        await model.startVoiceRecording(session, delivery: inlineDelivery)
+    }
+}
+
 struct ArborRootView: View {
     let workspace: ArborWorkspaceState
     let onDisconnect: @MainActor () -> Void
     @State private var model: ArborAppModel
     @State private var recordingSession: VoiceRecordingSession<String>
+    @State private var pinchDictation: EditorPinchDictation
     @State private var accountPresented = false
     @State private var pairingPresented = false
     @State private var presentedSheet: ArborPresentedSheet?
@@ -41,14 +75,33 @@ struct ArborRootView: View {
     ) {
         self.workspace = workspace
         self.onDisconnect = onDisconnect
-        _model = State(initialValue: ArborAppModel(workspace: workspace))
-        _recordingSession = State(initialValue: VoiceRecordingSession(
+        let model = ArborAppModel(workspace: workspace)
+        let recordingSession = VoiceRecordingSession(
             recoveryStore: PendingVoiceRecordingStore(
                 directoryURL: ArborSupportDirectories.pendingVoiceRecordings
             ),
             loggingSubsystem: "org.nxhx.Arbor",
             recoveryDelivery: { transcript, pageID in
                 try await workspace.deliverVoiceTranscript(transcript, to: pageID)
+            }
+        )
+        _model = State(initialValue: model)
+        _recordingSession = State(initialValue: recordingSession)
+        _pinchDictation = State(initialValue: EditorPinchDictation(
+            begin: { [weak model, weak recordingSession] in
+                guard let model, let recordingSession else { return false }
+                return await model.startPinchVoiceRecording(recordingSession)
+            },
+            finish: { [weak recordingSession] in
+                guard let recordingSession else { return .failed }
+                return switch await recordingSession.stopAndReturnTranscript() {
+                case .transcript(let text): EditorPinchDictation.Completion.transcript(text)
+                case .noSpeech: EditorPinchDictation.Completion.noSpeech
+                case .failed: EditorPinchDictation.Completion.failed
+                }
+            },
+            cancel: { [weak recordingSession] in
+                recordingSession?.cancel()
             }
         ))
     }
@@ -441,9 +494,11 @@ struct ArborRootView: View {
                 if location == model.currentLocation,
                    model.node?.isWritable == true,
                    model.binding != nil {
-                    VoiceRecordingButton(session: recordingSession) {
-                        await model.startVoiceRecording(recordingSession)
-                    }
+                    ArborVoiceRecordingToolbarButton(
+                        session: recordingSession,
+                        model: model,
+                        workspace: workspace
+                    )
                 }
                 Button("Account", systemImage: "person.crop.circle") {
                     accountPresented = true
@@ -465,7 +520,8 @@ struct ArborRootView: View {
                     ArborEditorSurface(
                         binding: lease.binding,
                         host: host,
-                        configuration: ArborStyle.editorConfiguration
+                        configuration: ArborStyle.editorConfiguration,
+                        pinchDictation: pinchDictation
                     ) {
                         ArborDocumentFooter(
                             provider: workspace.providerDetail,

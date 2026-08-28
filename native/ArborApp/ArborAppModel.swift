@@ -1066,12 +1066,23 @@ final class ArborAppModel {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    func startVoiceRecording(_ session: VoiceRecordingSession<String>) async {
+    func startVoiceRecording(
+        _ session: VoiceRecordingSession<String>,
+        delivery: VoiceTranscriptDelivery<String>? = nil
+    ) async {
         guard let node, node.isWritable, let stableKey = binding?.reference.stableKey else {
             session.reportError("Open a writable Arbor page before starting a recording.")
             return
         }
+        await session.start(destination: stableKey, delivery: delivery)
+    }
+
+    func startPinchVoiceRecording(_ session: VoiceRecordingSession<String>) async -> Bool {
+        guard let node, node.isWritable, let stableKey = binding?.reference.stableKey else {
+            return false
+        }
         await session.start(destination: stableKey)
+        return session.state == .recording
     }
 
     func toggleVoiceRecordingFromShortcut(_ session: VoiceRecordingSession<String>) async {
