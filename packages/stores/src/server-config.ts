@@ -4,8 +4,6 @@ import { sha256 } from "@arbor/core";
 import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
 const SERVICE = "org.arbor.community-account";
-const LEGACY_SERVICE = "org.arbor.personal-server";
-const LEGACY_NAME = "owner";
 
 export function communityCredentialName(dataRoot = arborDataRoot()): string {
   return `active-${sha256(dataRoot).slice(0, 16)}`;
@@ -38,7 +36,6 @@ export interface SafeCommunityRecord extends CommunityAccountMetadata {
 
 export class CommunityConfigStore {
   private path = join(arborPrivateRoot(), "system", "community.md");
-  private legacyPath = join(arborPrivateRoot(), "system", "server.md");
   private credentialName = communityCredentialName();
 
   private credentialReference(): string {
@@ -174,22 +171,4 @@ export class CommunityConfigStore {
     await rm(this.path, { force: true });
   }
 
-  async legacy(): Promise<{ origin: string; accountToken: string } | null> {
-    try {
-      const source = await readFile(this.legacyPath, "utf8");
-      const origin = source.match(/^origin:\s+"([^"]+)"/m)?.[1];
-      const accountToken = await Bun.secrets.get({ service: LEGACY_SERVICE, name: LEGACY_NAME });
-      return origin && accountToken ? { origin, accountToken } : null;
-    } catch {
-      return null;
-    }
-  }
-
-  async finishLegacyMigration(): Promise<void> {
-    await Bun.secrets.delete({ service: LEGACY_SERVICE, name: LEGACY_NAME });
-    await rm(this.legacyPath, { force: true });
-  }
 }
-
-/** Transitional source alias for callers that have not yet renamed their field. */
-export { CommunityConfigStore as ServerConfigStore };

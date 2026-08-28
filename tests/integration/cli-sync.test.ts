@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ServerConfigStore } from "@arbor/stores";
+import { CommunityConfigStore } from "@arbor/stores";
 import { serveCanopy } from "@arbor/canopy";
 import { decodeWireObject, WireClient } from "@arbor/wire";
 import { ArborSyncDaemon } from "@arbor/arborsync";
@@ -94,7 +94,7 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const state of [stateA, stateB]) {
     process.env.ARBOR_DATA_HOME = state;
-    await new ServerConfigStore().remove();
+    await new CommunityConfigStore().remove();
   }
   host.server.stop(true);
   await host.canopy[Symbol.asyncDispose]();

@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   arborPrivateRoot,
   loadAccountConfiguration,
   loadTreeRegistry,
-  migrateLegacyDeviceConfiguration,
   parseAccountConfiguration,
   parseDeviceConfiguration,
   parseTreesConfiguration,
@@ -112,39 +111,11 @@ describe("account configuration YAML", () => {
     ].join("\n"), device, `devices/${device}.yaml`)).toThrow("canonical and absolute");
   });
 
-  test("accepts and source-preservingly migrates the legacy authority placement key", async () => {
-    const legacy = [
-      "# device comment",
-      "version: 1",
-      "label: 'Joe Laptop' # label comment",
-      "placements:",
-      `  ${shared}:`,
-      "    authority: \"https://community.example\" # endpoint comment",
-      "    path: '/Users/joe/Notes'",
-      "",
-    ].join("\n");
-    const migrated = migrateLegacyDeviceConfiguration(legacy);
-    expect(migrated.changed).toBe(true);
-    expect(migrated.source).toContain("# device comment");
-    expect(migrated.source).toContain("label: 'Joe Laptop' # label comment");
-    expect(migrated.source).toContain('server: "https://community.example" # endpoint comment');
-    expect(migrated.source).toContain("path: '/Users/joe/Notes'");
-    expect(parseDeviceConfiguration(migrated.source, device, `devices/${device}.yaml`).placements[shared]?.server)
-      .toBe("https://community.example");
-
-    const home = await dataHome();
-    await writeConfiguration(home);
-    const path = join(home, "devices", `${device}.yaml`);
-    await writeFile(path, legacy);
-    expect((await loadAccountConfiguration()).diagnostics).toEqual([]);
-    expect(await readFile(path, "utf8")).toContain('server: "https://community.example" # endpoint comment');
-  });
-
-  test("rejects ambiguous placement files containing server and authority", () => {
+  test("rejects the retired authority placement key", () => {
     expect(() => parseDeviceConfiguration([
       "version: 1", "label: Laptop", "placements:", `  ${profile}:`,
-      "    server: https://community.example", "    authority: https://legacy.example",
-    ].join("\n"), device, `devices/${device}.yaml`)).toThrow("cannot contain both");
+      "    authority: https://legacy.example",
+    ].join("\n"), device, `devices/${device}.yaml`)).toThrow("unknown fields: authority");
   });
 
   test("reports invalid candidates without inventing active configuration", async () => {

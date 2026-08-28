@@ -164,7 +164,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
     await trees.init();
     await trees.openSession(sessionPath, options);
     const service = new ArborSyncDaemon(events, trees);
-    await service.migrateLegacyCommunityConfig();
     await trees.refreshConfiguration();
     return service;
   }
@@ -175,7 +174,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const trees = new TreeManager(events);
     await trees.init();
     const service = new ArborSyncDaemon(events, trees, { ...options, autoSync: options.autoSync ?? false });
-    await service.migrateLegacyCommunityConfig();
     await trees.refreshConfiguration();
     return service;
   }
@@ -928,19 +926,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
       configurationRef: account.configuration.ref,
       configurationUpdate: account.configuration.update,
     };
-  }
-
-  private async migrateLegacyCommunityConfig(): Promise<void> {
-    if (await this.communityConfig.safe()) return;
-    const legacy = await this.communityConfig.legacy();
-    if (!legacy) return;
-    try {
-      const { account } = await new WireClient(legacy.origin, legacy.accountToken).account();
-      await this.communityConfig.set(legacy.origin, legacy.accountToken, this.accountMetadata(account));
-      await this.communityConfig.finishLegacyMigration();
-    } catch {
-      // Keep the recoverable legacy record and credential until its server is reachable.
-    }
   }
 
   async claimProfileBootstrap(
