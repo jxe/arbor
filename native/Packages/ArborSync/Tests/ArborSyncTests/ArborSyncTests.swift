@@ -59,6 +59,37 @@ struct ArborSyncTests {
         #expect(try payload.validated() == payload)
     }
 
+    @Test("Native materialization preserves exact Wire rollup descriptors")
+    func rollupDescriptorRoundTrip() async throws {
+        try await withTemporaryRoot { root in
+            let source = try WireObjectCodec.object(.file(Data(#"[{"id":"one"}]"#.utf8)))
+            let schema = try WireObjectCodec.object(.file(Data("export const schema = value\n".utf8)))
+            let descriptor = WireRollupDescriptor(
+                codec: "json",
+                source: source.hash,
+                schemaSource: schema.hash,
+                schema: "sha256:" + String(repeating: "3", count: 64),
+                scope: "children",
+                modelDigest: "sha256:" + String(repeating: "4", count: 64)
+            )
+            let directory = try WireObjectCodec.object(.directory([
+                .init(name: "_store.json", rollup: descriptor),
+                .init(name: "schema.ts", hash: schema.hash),
+            ]))
+            let snapshot = WireSnapshot(root: directory.hash, objects: [directory, schema, source])
+            let replacement = try SnapshotBridge.replacement(
+                snapshot: snapshot,
+                tree: TreeID(rawValue: "tr_rollup"),
+                update: "up_rollup"
+            )
+            let replica = try await ArborReplica.open(at: root.appending(path: "rollup"), tree: TreeID(rawValue: "tr_rollup"))
+            try await replica.initializeFromSystem(replacement)
+            let rebuilt = try await replica.currentSnapshot()
+            #expect(rebuilt.root == snapshot.root)
+            #expect(Set(rebuilt.objects.map(\.hash)) == Set(snapshot.objects.map(\.hash)))
+        }
+    }
+
     @Test("One-sided synchronization accepts its candidate without a returned snapshot")
     func placementAndSync() async throws {
         try await withTemporaryRoot { root in
@@ -559,7 +590,13 @@ private func completeCandidate(_ request: WireUpdateRequest, retained: WireSnaps
         let envelope = try #require(envelopes[hash])
         objects.append(envelope)
         if case let .directory(entries) = try WireObjectCodec.decode(envelope.bytes) {
-            pending.append(contentsOf: entries.compactMap(\.hash))
+            for entry in entries {
+                if let hash = entry.hash { pending.append(hash) }
+                if let rollup = entry.rollup {
+                    pending.append(rollup.source)
+                    pending.append(rollup.schemaSource)
+                }
+            }
         }
     }
     return WireSnapshot(root: request.candidate, objects: objects.sorted { $0.hash < $1.hash })

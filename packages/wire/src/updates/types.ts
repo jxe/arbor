@@ -18,6 +18,9 @@ export interface UpdateConflict {
     | "nested-boundary-conflict"
     | "page-id-move-conflict"
     | "binary-conflict"
+    | "rollup-row-conflict"
+    | "rollup-schema-conflict"
+    | "rollup-constraint-conflict"
     | "frontmatter-conflict"
     | "invalid-markdown-fence"
     | "account-configuration";

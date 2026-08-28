@@ -394,6 +394,30 @@ export class CollectionStore {
     };
   }
 
+  async fileRollupDescriptor(directory: string, sourceName: string): Promise<{
+    codec: "csv" | "json" | "jsonl";
+    schema: Hash;
+    scope: "children";
+    modelDigest: Hash;
+  } | null> {
+    const definition = await detectCollection(directory);
+    if (
+      !definition?.storePath
+      || !definition.schemaPath
+      || basename(definition.storePath) !== sourceName
+      || !(["csv", "json", "jsonl"] as string[]).includes(definition.backing)
+      || definition.diagnostics.some((item) => item.severity === "error")
+    ) return null;
+    const loaded = await this.loadFileCollection(definition);
+    if (loaded.diagnostics.some((item) => item.severity === "error")) return null;
+    return {
+      codec: definition.backing as "csv" | "json" | "jsonl",
+      schema: loaded.description.revision as Hash,
+      scope: "children",
+      modelDigest: loaded.modelDigest as Hash,
+    };
+  }
+
   async tableSummary(directory: string, table: string): Promise<ChildSetDescriptor | null> {
     const definition = await detectCollection(directory);
     if (!definition || definition.diagnostics.some((item) => item.severity === "error")) return null;

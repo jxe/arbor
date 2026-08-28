@@ -235,9 +235,24 @@
   not a file hash. Swift Wire locator resolutions now require the same explicit
   `{ tree, path, stableKey }` shape as every other node boundary, and both
   languages recognize the reserved `rollup-rows-v1` merge summary.
-- **Next checkpoint:** review the portable, non-executable schema artifact that
-  Canopy will use to validate file-rollup descriptors, then complete Wire
-  file-rollup synchronization/merge in this plan. Typed source declarations, activation-manifest generation, and
+- **2026-08-28 — Wire file-rollup synchronization and merge:** canonical
+  TypeScript and Swift directory objects now carry CSV/JSON/JSONL descriptors
+  whose exact source and exact `schema.ts` are reachable objects. Arbor Sync
+  emits descriptors from coherent provider snapshots; Canopy executes the
+  synchronized schema, recomputes schema/model digests under explicit byte/row
+  bounds, rejects malformed graphs, and merges disjoint changes by stable row
+  identity. The local daemon's unplaced remote-tree adapter pages the same row summaries without a
+  physical-child cache and reopens them by stable key. Swift replicas preserve
+  descriptors and their reachable objects exactly across materialization and
+  unrelated offline edits. Server-grade application-code containment is one
+  deferred hardening boundary shared with SSR/query/mutation execution, while
+  native offline row projection remains explicit migration debt. The reference
+  merge currently writes one canonical encoding after semantic reconciliation;
+  preserving untouched source formatting is tracked as explicit continuation
+  debt rather than weakening the logical merge contract.
+- **Next checkpoint:** finish private filesystem ontology cleanup and decide
+  whether native offline row projection belongs in this plan or the shared
+  compiler/runtime implementation. Typed source declarations, activation-manifest generation, and
   editor integration moved intact to
   [Application 003](../applications/003-development-compiler-and-editor-tooling.md);
   representation-path conversion moved to [Data 003](003-representation-equivalence.md);
@@ -639,6 +654,7 @@ versioned file-rollup descriptor referencing:
 
 - codec/format version;
 - exact source object hash;
+- exact `schema.ts` source object hash;
 - schema fingerprint;
 - derived schema/codec-scoped model digest; and
 - declared provider scope (immediate children versus codec-defined subtree).

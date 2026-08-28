@@ -775,13 +775,19 @@ type RollupDescriptor = {
   version: 1;
   codec: "csv" | "json" | "jsonl";
   source: Hash;
+  schemaSource: Hash;
   schema: Hash;
   scope: "children" | "subtree";
   modelDigest: Hash;
 };
 ```
 
-The descriptor lets remote resolution, paging, querying, search, and semantic
+`schemaSource` references the exact `schema.ts` file object. The authority
+executes that source through the same restricted application-code runtime used
+locally, recomputes `schema`, and never trusts client-asserted compiled
+metadata. Schema execution shares the future isolation boundary with SSR,
+queries, mutations, and executable documents; it does not require a second
+authored schema. The descriptor lets remote resolution, paging, querying, search, and semantic
 merge address rolled-up children without converting them into Markdown files
 or making the reserved source file a visible row. A decoder recomputes schema
 and the codec/schema-scoped `modelDigest` from `source`; a mismatch is invalid.
@@ -790,6 +796,13 @@ model-state equivalence remain distinct. Names reject NUL,
 slashes, backslashes, dot segments, non-NFC text, and reserved ambiguity.
 Directory entries are canonically ordered; decoders reject noncanonical
 encodings and hash mismatches.
+
+The reference validation profile bounds one exact file rollup to 16 MiB,
+`schema.ts` to 1 MiB, and the normalized row set to 100,000 rows. Authorities
+may advertise smaller quotas but never accept a rollup they cannot validate
+completely. Semantic merge reports `rollup-row-conflict`,
+`rollup-schema-conflict`, or `rollup-constraint-conflict`; a row conflict path
+uses the parent logical path plus its `arbor-key` identity suffix.
 
 Database placements may expose the same logical subtree, but they do not use
 this exact-source descriptor. Wire database synchronization names committed

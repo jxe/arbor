@@ -47,12 +47,15 @@ These are implementation violations of the aspirational specification. They are 
    `describe` and observation land; do not recreate an adapter translation page
    or expose physical records to REST, browser, native, generated-type, or query
    consumers.
-3. **Replace remote physical-child caching with Wire rollup projection.** The
-   unplaced-tree adapter currently keeps an in-memory `remoteChildren` map and
-   retains collection-aware physical child filtering because Wire cannot yet
-   resolve rollup rows. Delete both when rollup descriptors, remote row paging,
-   bounded marker placement, and schema/model-digest validation are live on
-   Canopy; remote results must then match placed and offline providers.
+3. **Finish native offline row projection from preserved Wire rollups.** The
+   local daemon's unplaced remote-tree adapter now pages descriptor-derived rows directly and
+   the old `remoteChildren` physical cache is deleted. Swift independently
+   validates, retains, materializes, and re-encodes rollup descriptors so an
+   unrelated offline edit cannot erase them, but `ArborReplica` still presents
+   only its legacy collection summary because it cannot yet execute the shared
+   TypeScript schema runtime. Add provider-neutral native row snapshots behind
+   the common application compiler/runtime; do not parse `primaryKey` from
+   source text or create a second Swift-only schema language.
 4. **Complete [Data 004](../data/004-postgres-child-provider.md).** That plan now
    owns removal of Postgres virtual nodes, `external:postgres`, provisional
    offset cursors, and all associated deletion conditions.
@@ -144,6 +147,32 @@ These are implementation violations of the aspirational specification. They are 
     recovered after upgrade. Delete this decoder after the supported recovery
     window has elapsed and deployed journal directories have been observed with
     no legacy pending records. Do not restore legacy fields to Wire receipts.
+
+17. **Harden Canopy application-code execution as one boundary.** Canopy will
+    execute synchronized `schema.ts` using the current restricted schema
+    runtime so Wire rollups can be validated without a second authored schema.
+    Treat that as the same future isolation problem as SSR, executable
+    documents, queries, and mutations: move compilation/execution behind a
+    separately contained worker, freeze runtime/compiler versions and
+    deterministic APIs, enforce CPU/memory/output quotas, cache only by exact
+    source and runtime version, and add hostile-code and cross-tenant tests.
+    Do not invent a schema-only artifact format merely as a security retrofit.
+18. **Preserve exact rollup formatting through semantic merge.** Canopy now
+    reconciles CSV/JSON/JSONL rows by stable identity and emits a valid canonical
+    encoding, so accepted logical data is correct but whitespace, CSV quoting,
+    property ordering, and trailing-newline choices may change. Apply updates
+    to spans in the authority's current exact source where possible, retain all
+    untouched bytes, and use canonical encoding only for changes whose source
+    form cannot be retained. Keep logical validation and `modelDigest`
+    independent of those formatting choices.
+19. **Resolve rollup rows in Canopy's public locator path.** The unplaced Arbor
+    Sync adapter can page and reopen Wire-rollup rows by stable key, but the
+    ordinary Canopy HTML/Markdown route still traverses only physical Wire
+    directories and Markdown IDs. Route public stable-key healing, rendering,
+    and application-query lookup through the same provider-neutral logical-node
+    resolver so normal relative Markdown links can reach rolled-up rows without
+    exposing `_store.*` or `schema.ts` as children. Data 003 owns the final
+    cross-representation link proof.
 
 ## Filesystem and structural editing
 

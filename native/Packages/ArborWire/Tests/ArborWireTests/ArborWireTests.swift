@@ -29,7 +29,23 @@ struct WireObjectTests {
             } else {
                 let entries = try #require(model["entries"] as? [[String: Any]])
                 object = .directory(entries.map {
-                    WireDirectoryEntry(name: $0["name"] as! String, hash: $0["hash"] as? String, tree: $0["tree"] as? String)
+                    let rollup = ($0["rollup"] as? [String: Any]).map { value in
+                        WireRollupDescriptor(
+                            version: value["version"] as! Int,
+                            codec: value["codec"] as! String,
+                            source: value["source"] as! String,
+                            schemaSource: value["schemaSource"] as! String,
+                            schema: value["schema"] as! String,
+                            scope: value["scope"] as! String,
+                            modelDigest: value["modelDigest"] as! String
+                        )
+                    }
+                    return WireDirectoryEntry(
+                        name: $0["name"] as! String,
+                        hash: $0["hash"] as? String,
+                        tree: $0["tree"] as? String,
+                        rollup: rollup
+                    )
                 })
             }
             let bytes = try WireObjectCodec.encode(object)

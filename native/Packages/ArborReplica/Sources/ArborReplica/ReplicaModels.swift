@@ -53,6 +53,34 @@ public struct ReplicaStoredObject: Codable, Equatable, Sendable {
     }
 }
 
+public struct ReplicaRollupDescriptor: Codable, Equatable, Sendable {
+    public var version: Int
+    public var codec: String
+    public var source: String
+    public var schemaSource: String
+    public var schema: String
+    public var scope: String
+    public var modelDigest: String
+
+    public init(
+        version: Int = 1,
+        codec: String,
+        source: String,
+        schemaSource: String,
+        schema: String,
+        scope: String,
+        modelDigest: String
+    ) {
+        self.version = version
+        self.codec = codec
+        self.source = source
+        self.schemaSource = schemaSource
+        self.schema = schema
+        self.scope = scope
+        self.modelDigest = modelDigest
+    }
+}
+
 public struct ReplicaSnapshot: Codable, Equatable, Sendable {
     public var root: String
     public var objects: [ReplicaStoredObject]
@@ -118,11 +146,13 @@ public struct ReplicaSystemNode: Sendable, Equatable {
     public var path: String
     public var pageID: String?
     public var content: ReplicaSystemNodeContent
+    public var rollup: ReplicaRollupDescriptor?
 
-    public init(path: String, pageID: String? = nil, content: ReplicaSystemNodeContent) {
+    public init(path: String, pageID: String? = nil, content: ReplicaSystemNodeContent, rollup: ReplicaRollupDescriptor? = nil) {
         self.path = path
         self.pageID = pageID
         self.content = content
+        self.rollup = rollup
     }
 }
 
@@ -156,6 +186,7 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
     var mediaType: String?
     var trashedFrom: String?
     var boundaryTree: String?
+    var rollup: ReplicaRollupDescriptor?
 
     init(
         path: String,
@@ -165,7 +196,8 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
         bytes: Data? = nil,
         mediaType: String? = nil,
         trashedFrom: String? = nil,
-        boundaryTree: String? = nil
+        boundaryTree: String? = nil,
+        rollup: ReplicaRollupDescriptor? = nil
     ) {
         self.path = path
         self.pageID = pageID
@@ -175,6 +207,7 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
         self.mediaType = mediaType
         self.trashedFrom = trashedFrom
         self.boundaryTree = boundaryTree
+        self.rollup = rollup
     }
 }
 

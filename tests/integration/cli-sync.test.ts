@@ -102,6 +102,45 @@ afterAll(async () => {
 });
 
 describe("primary CLI sync forms", () => {
+  test("unplaced remote browsing projects synchronized JSON rollup rows", async () => {
+    const rollupState = join(sandbox, "remote-rollup-state");
+    const browserState = join(sandbox, "remote-rollup-browser-state");
+    await Promise.all([mkdir(rollupState), mkdir(browserState)]);
+    await arbor(["connect", host.url], rollupState);
+    await arbor(["connect", host.url], browserState);
+    const rollupSource = join(sandbox, "remote-rollup-source");
+    await mkdir(rollupSource);
+    await writeFile(join(rollupSource, "schema.ts"), [
+      'import { z } from "zod";',
+      'export const schema = z.object({ id: z.string(), title: z.string() });',
+      'export const primaryKey = ["id"];',
+      "",
+    ].join("\n"));
+    await writeFile(join(rollupSource, "_store.json"), `${JSON.stringify([
+      { id: "one", title: "Remote one" },
+      { id: "two", title: "Remote two" },
+    ], null, 2)}\n`);
+    const canonical = `${host.url}/~owner/remote-rollup`;
+    expect(await arbor(["sync", "--access", "public=read", rollupSource, canonical], rollupState)).toContain("remote-rollup");
+
+    process.env.ARBOR_DATA_HOME = browserState;
+    const browserRoot = join(sandbox, "remote-browser-root");
+    await mkdir(browserRoot);
+    const service = await ArborSyncDaemon.open(browserRoot);
+    try {
+      const parent = await service.remoteSnapshot(canonical);
+      expect(parent.capabilities.children?.representation).toMatchObject({ type: "rollup", codec: "json" });
+      const children = await service.children(parent.ref);
+      expect(children.items.map((item) => item.name)).toEqual(["Remote one", "Remote two"]);
+      expect(children.items.every((item) => item.ref.stableKey !== null)).toBe(true);
+      const row = await service.snapshot(children.items[0]!.ref);
+      expect(row.properties).toEqual({ id: "one", title: "Remote one" });
+      expect(row.capabilities.properties?.writable).toBe(false);
+    } finally {
+      await service[Symbol.asyncDispose]();
+    }
+  });
+
   test("refuses an ephemeral or unnamed Railway Canopy", async () => {
     const noDomain = await canopyFailure([], {
       RAILWAY_PROJECT_ID: "test-project",

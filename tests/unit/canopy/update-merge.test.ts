@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { mergeWireTrees } from "@arbor/canopy";
+import { CollectionStore, decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
 import {
   decodeWireObject,
   encodeWireObject,
   hashObject,
+  snapshotDirectory,
   type ObjectHash,
   type TreeSnapshot,
   type UpdateConflict,
@@ -72,6 +75,23 @@ function markdownSnapshot(source: string, objects: Map<string, Uint8Array>): Tre
 function namedMarkdownSnapshot(name: string, source: string, objects: Map<string, Uint8Array>): TreeSnapshot {
   const file = stored({ type: "file", bytes: new TextEncoder().encode(source) }, objects);
   return { root: root([{ name, hash: file }], objects), objects };
+}
+
+async function jsonRollupSnapshot(rows: unknown[]): Promise<TreeSnapshot> {
+  const directory = await mkdtemp(join(tmpdir(), "arbor-rollup-merge-"));
+  const collections = new CollectionStore();
+  try {
+    await writeFile(join(directory, "schema.ts"), `
+      import { z } from "zod";
+      export const schema = z.object({ id: z.string(), title: z.string() });
+      export const primaryKey = ["id"];
+    `);
+    await writeFile(join(directory, "_store.json"), `${JSON.stringify(rows, null, 2)}\n`);
+    return await snapshotDirectory(directory, new Map(), [], (root, name) => collections.fileRollupDescriptor(root, name));
+  } finally {
+    await collections[Symbol.asyncDispose]();
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 async function mergedSource(
@@ -157,6 +177,48 @@ const fixtures = JSON.parse(
 ) as MergeFixtures;
 
 describe("reference Canopy merge fixtures", () => {
+  test("disjoint stable-row changes merge semantically", async () => {
+    const [base, candidate, remote] = await Promise.all([
+      jsonRollupSnapshot([{ id: "a", title: "A" }, { id: "b", title: "B" }]),
+      jsonRollupSnapshot([{ id: "a", title: "Candidate A" }, { id: "b", title: "B" }]),
+      jsonRollupSnapshot([{ id: "a", title: "A" }, { id: "b", title: "Remote B" }]),
+    ]);
+    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
+    const result = await mergeWireTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    expect(result.conflicts).toEqual([]);
+    expect(result.summary).toEqual({ version: "rollup-rows-v1", mergedRows: 1 });
+    const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
+    const rootObject = decodeWireObject(load(result.root));
+    if (rootObject.type !== "directory") throw new Error("Expected rollup root");
+    const descriptor = rootObject.entries.find((entry) => entry.rollup)?.rollup!;
+    const source = decodeWireObject(load(descriptor.source));
+    const schema = decodeWireObject(load(descriptor.schemaSource));
+    if (source.type !== "file" || schema.type !== "file") throw new Error("Expected rollup files");
+    const sandbox = new SchemaSandbox();
+    try {
+      const decoded = await decodeWireFileRollup(descriptor, source.bytes, schema.bytes, sandbox);
+      expect(decoded.rows.map((row) => row.properties)).toEqual([
+        { id: "a", title: "Candidate A" },
+        { id: "b", title: "Remote B" },
+      ]);
+    } finally {
+      await sandbox[Symbol.asyncDispose]();
+    }
+  });
+
+  test("divergent changes to one stable row conflict", async () => {
+    const [base, candidate, remote] = await Promise.all([
+      jsonRollupSnapshot([{ id: "a", title: "A" }]),
+      jsonRollupSnapshot([{ id: "a", title: "Candidate" }]),
+      jsonRollupSnapshot([{ id: "a", title: "Remote" }]),
+    ]);
+    const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
+    const result = await mergeWireTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
+    expect(result.conflicts).toEqual([
+      expect.objectContaining({ reason: "rollup-row-conflict" }),
+    ]);
+  });
+
   for (const fixture of fixtures.markdownCases) {
     test(fixture.name, async () => {
       const objects = new Map<string, Uint8Array>();

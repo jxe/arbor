@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, normalize, relative, resolve, sep } from "node:path";
-import { sha256 } from "@arbor/core";
+import { decodeRollupDescriptor, sha256, type Hash, type RollupDescriptor } from "@arbor/core";
 import { IGNORED_WORKSPACE_DIRECTORIES } from "@arbor/fs";
 import { decodeCBOR, encodeCanonicalCBOR } from "./cbor.ts";
 
@@ -15,11 +15,18 @@ export interface WireDirectoryEntry {
   name: string;
   hash?: ObjectHash;
   tree?: string;
+  rollup?: RollupDescriptor;
 }
 
 export interface WireDirectory {
   type: "directory";
   entries: WireDirectoryEntry[];
+}
+
+export function wireEntryObjectHashes(entry: WireDirectoryEntry): ObjectHash[] {
+  if (entry.hash) return [entry.hash];
+  if (entry.rollup) return [entry.rollup.source, entry.rollup.schemaSource];
+  return [];
 }
 
 export type WireObject = WireFile | WireDirectory;
@@ -36,6 +43,18 @@ export interface TreeSnapshot {
   root: ObjectHash;
   objects: Map<ObjectHash, Uint8Array>;
 }
+
+export interface SnapshotRollupDescription {
+  codec: RollupDescriptor["codec"];
+  schema: Hash;
+  scope: RollupDescriptor["scope"];
+  modelDigest: Hash;
+}
+
+export type DescribeSnapshotRollup = (
+  directory: string,
+  sourceName: string,
+) => Promise<SnapshotRollupDescription | null>;
 
 export class UnavailableCloudContentError extends Error {
   constructor(readonly path: string) {
@@ -76,12 +95,13 @@ export function decodeWireObject(
         || item.name === "."
         || item.name === ".."
         || /[\\/\0]/.test(item.name)
-        || (typeof item.hash !== "string" && typeof item.tree !== "string")
-        || (item.hash !== undefined && item.tree !== undefined)
+        || (typeof item.hash !== "string" && typeof item.tree !== "string" && item.rollup === undefined)
+        || [item.hash, item.tree, item.rollup].filter((target) => target !== undefined).length !== 1
         || itemKeys.length !== 2
       ) throw new Error("Invalid directory entry");
       if (typeof item.hash === "string" && !/^sha256:[a-f0-9]{64}$/.test(item.hash)) throw new Error("Invalid directory entry hash");
       if (typeof item.tree === "string" && item.tree.length === 0) throw new Error("Invalid directory entry tree");
+      const rollup = item.rollup === undefined ? undefined : decodeRollupDescriptor(item.rollup);
       if (names.has(item.name)) throw new Error("Duplicate directory entry name");
       names.add(item.name);
       const encodedName = new TextEncoder().encode(item.name);
@@ -95,6 +115,7 @@ export function decodeWireObject(
         name: item.name,
         ...(typeof item.hash === "string" ? { hash: item.hash } : {}),
         ...(typeof item.tree === "string" ? { tree: item.tree } : {}),
+        ...(rollup ? { rollup } : {}),
       };
     });
     return { type: "directory", entries };
@@ -209,6 +230,7 @@ export async function snapshotDirectory(
   inputRoot: string,
   boundaries: ReadonlyMap<string, string> = new Map(),
   excludedRoots: readonly string[] = [],
+  describeRollup?: DescribeSnapshotRollup,
 ): Promise<TreeSnapshot> {
   const resolvedInputRoot = resolve(inputRoot);
   const root = await realpath(inputRoot);
@@ -251,7 +273,20 @@ export async function snapshotDirectory(
         entries.push({ name: entry.name, hash: await walk(absolute) });
         seen.add(entry.name);
       } else if (entry.isFile()) {
-        entries.push({ name: entry.name, hash: store({ type: "file", bytes: await readFile(absolute) }) });
+        const source = store({ type: "file", bytes: await readFile(absolute) });
+        const description = describeRollup && ["_store.csv", "_store.json", "_store.jsonl"].includes(entry.name)
+          ? await describeRollup(directory, entry.name)
+          : null;
+        if (description) {
+          const schemaPath = join(directory, "schema.ts");
+          const schemaSource = store({ type: "file", bytes: await readFile(schemaPath) });
+          entries.push({
+            name: entry.name,
+            rollup: { version: 1, source: source as Hash, schemaSource: schemaSource as Hash, ...description },
+          });
+        } else {
+          entries.push({ name: entry.name, hash: source });
+        }
         seen.add(entry.name);
       }
     }
@@ -339,6 +374,7 @@ export async function materializeTree(
       const target = contained(canonicalDestination, join(path, entry.name));
       if (isExcluded(target)) continue;
       if (entry.tree) await onBoundary?.(target, entry.tree);
+      else if (entry.rollup) await visit(target, entry.rollup.source);
       else if (entry.hash) await visit(target, entry.hash);
     }
   };
@@ -368,8 +404,12 @@ export async function changedPaths(
       const leftEntry = leftEntries.get(name);
       const rightEntry = rightEntries.get(name);
       const childPath = `${path === "/" ? "" : path}/${name}`;
-      if (!rightEntry || rightEntry.tree || leftEntry?.tree) {
-        if (leftEntry?.tree !== rightEntry?.tree || leftEntry?.hash !== rightEntry?.hash) changes.push(childPath);
+      if (!rightEntry || rightEntry.tree || leftEntry?.tree || rightEntry.rollup || leftEntry?.rollup) {
+        if (
+          leftEntry?.tree !== rightEntry?.tree
+          || leftEntry?.hash !== rightEntry?.hash
+          || JSON.stringify(leftEntry?.rollup) !== JSON.stringify(rightEntry?.rollup)
+        ) changes.push(childPath);
       } else {
         await compare(childPath, leftEntry?.hash ?? null, rightEntry.hash!);
       }

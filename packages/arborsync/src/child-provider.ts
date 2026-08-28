@@ -195,6 +195,9 @@ export class ChildProvider {
   }
 
   summary(directory: string) { return this.collections.summary(directory); }
+  fileRollupDescriptor(directory: string, sourceName: string) {
+    return this.collections.fileRollupDescriptor(directory, sourceName);
+  }
   postgresSchema(directory: string) { return this.collections.postgresSchema(directory); }
 
   async [Symbol.asyncDispose](): Promise<void> {

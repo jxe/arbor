@@ -20,10 +20,10 @@ import type {
   WorkspaceOperation,
 } from "@arbor/core";
 import type { TreeNode } from "@arbor/core/internal";
-import { LOCAL_TREE, SYSTEM_TREE, canonicalNodePath, generateArborID, pageIDFromStableKey, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
+import { LOCAL_TREE, SYSTEM_TREE, canonicalJSONString, canonicalNodePath, generateArborID, pageIDFromStableKey, revisionOf, sha256, siblingMarkdownTreePath, type Hash } from "@arbor/core";
 import { directoryPlacementDiagnostics, parseMarkdown } from "@arbor/editor";
 import { FsConflictError } from "@arbor/fs";
-import { CommunityConfigStore, VisitedTreeStore, arborDataRoot, arborPrivateRoot, saveCurrentDeviceID } from "@arbor/stores";
+import { CommunityConfigStore, VisitedTreeStore, arborDataRoot, arborPrivateRoot, decodeWireFileRollup, saveCurrentDeviceID, SchemaSandbox } from "@arbor/stores";
 import { WireClient, WireUpdateConflict, decodeWireObject, encodeWireObject, hashObject, materializeTree, resolveWireLogicalNode, snapshotDirectory, type FilePatch, type ObjectHash, type RemoteTreeDescriptor } from "@arbor/wire";
 import { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
@@ -128,7 +128,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
   readonly localFs: FilesystemService;
   readonly communityConfig = new CommunityConfigStore();
   readonly visitedTrees = new VisitedTreeStore();
-  private remoteChildren = new Map<string, NodeSummary[]>();
   private syncTimer?: ReturnType<typeof setInterval>;
   private syncing = false;
   private syncRequested = false;
@@ -258,7 +257,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (ref.tree !== LOCAL_TREE && ref.tree !== SYSTEM_TREE && this.remoteAuthorities.has(ref.tree) && !await this.trees.workspaceByTree(ref.tree)) {
       const remote = this.remoteAuthorities.get(ref.tree)!;
       const locator = `${remote.locator.replace(/\/$/, "")}${ref.path === "/" ? "" : ref.path}`;
-      return this.remoteSnapshot(locator);
+      return (await this.fetchRemoteProjection(locator, ref.stableKey)).snapshot;
     }
     const scope = await this.resolveScope(ref);
     if (scope.kind === "root") return scope.workspace.snapshot(scope.ref);
@@ -310,7 +309,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       catch { return locatorInput; }
     })();
     try {
-      const snapshot = await this.fetchRemoteSnapshot(locatorInput);
+      const { snapshot } = await this.fetchRemoteProjection(locatorInput, null);
       await this.visitedTrees.remember(locator, snapshot);
       this.events.emit({ tree: SYSTEM_TREE, kind: "updated", ref: { tree: SYSTEM_TREE, path: "/visited", stableKey: null }, origin: "external" });
       return snapshot;
@@ -335,7 +334,10 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   /** Resolve one unplaced canonical URL into a read-only, in-memory node. */
-  private async fetchRemoteSnapshot(locatorInput: string): Promise<NodeResponse> {
+  private async fetchRemoteProjection(
+    locatorInput: string,
+    stableKey: string | null,
+  ): Promise<{ snapshot: NodeResponse; children: NodeSummary[] }> {
     let locator: URL;
     try { locator = new URL(locatorInput); }
     catch { throw new ProtocolError("invalid-reference", "Remote browsing requires an HTTP or Arbor URL", 400); }
@@ -357,17 +359,14 @@ export class ArborSyncDaemon implements AsyncDisposable {
       }
       remote = resolution.enclosingTree as RemoteTreeDescriptor;
       remotePath = resolution.ref.path;
+      this.remoteAuthorities.set(remote.id, { locator: remote.canonical!.locator, endpoint: origin });
     }
     catch (error) {
       if (error instanceof TypeError) throw error;
       throw new ProtocolError("not-found", `The Arbor page is unavailable: ${origin}${canonicalPath}`, 404);
     }
 
-    const logical = await resolveWireLogicalNode(remote.ref, remotePath!, (hash) => client.object(remote.id, hash));
-    if (!logical) throw new ProtocolError("not-found", "The remote path is unavailable", 404);
-    const object = logical.object;
     const canonical = remote.canonical!;
-    const objectName = logical.objectName || canonical.path.split("/").filter(Boolean).at(-1) || "community";
     const observedThrough = this.events.currentCursor();
     const enclosingTree: LocalTreeDescriptor = {
       id: remote.id,
@@ -378,6 +377,59 @@ export class ArborSyncDaemon implements AsyncDisposable {
       placement: "remote",
       sync: "idle",
     };
+    const loadObject = (hash: ObjectHash) => client.object(remote.id, hash);
+    const readRollup = async (descriptor: import("@arbor/core").RollupDescriptor) => {
+      const source = decodeWireObject(await loadObject(descriptor.source));
+      const schema = decodeWireObject(await loadObject(descriptor.schemaSource));
+      if (source.type !== "file" || schema.type !== "file") throw new ProtocolError("invalid-tree", "Remote rollup targets must be files", 422);
+      const sandbox = new SchemaSandbox();
+      try { return await decodeWireFileRollup(descriptor, source.bytes, schema.bytes, sandbox); }
+      finally { await sandbox[Symbol.asyncDispose](); }
+    };
+    const summarizeRollupRow = (
+      parentPath: string,
+      schema: Hash,
+      row: import("@arbor/stores").WireFileRollupRow,
+    ): NodeSummary => {
+      const revision = revisionOf(canonicalJSONString({ schema, properties: row.properties }));
+      return {
+        ref: {
+          tree: remote.id,
+          path: canonicalNodePath(`${parentPath === "/" ? "" : parentPath}/${row.path}`),
+          stableKey: row.stableKey,
+        },
+        name: typeof row.properties.title === "string" ? row.properties.title
+          : typeof row.properties.name === "string" ? row.properties.name
+          : typeof row.properties.slug === "string" ? row.properties.slug
+          : row.path,
+        revision,
+        properties: row.properties,
+        capabilities: { properties: { revision, schema, writable: false } },
+        materialization: "available",
+        diagnostics: [],
+      };
+    };
+    let logical = await resolveWireLogicalNode(remote.ref, remotePath!, loadObject);
+    if (!logical) {
+      const requested = canonicalNodePath(remotePath!);
+      const parentPath = requested.slice(0, requested.lastIndexOf("/")) || "/";
+      const parent = await resolveWireLogicalNode(remote.ref, parentPath, loadObject);
+      const descriptor = parent?.object.type === "directory"
+        ? parent.object.entries.find((entry) => entry.rollup)?.rollup
+        : undefined;
+      if (descriptor) {
+        const decoded = await readRollup(descriptor);
+        const segment = requested.split("/").at(-1);
+        const row = decoded.rows.find((item) => stableKey ? item.stableKey === stableKey : item.path === segment);
+        if (row) {
+          const snapshot = summarizeRollupRow(parentPath, descriptor.schema, row);
+          return { snapshot: { ...snapshot, enclosingTree, observedThrough }, children: [] };
+        }
+      }
+      throw new ProtocolError("not-found", "The remote path is unavailable", 404);
+    }
+    const object = logical.object;
+    const objectName = logical.objectName || canonical.path.split("/").filter(Boolean).at(-1) || "community";
     const diagnostics = logical.duplicateBody ? [{
         code: "duplicate-body-representation",
         message: `${canonicalNodePath(remotePath!)} has both a sibling Markdown body and _index.md; keep only one.`,
@@ -390,7 +442,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       const source = new TextDecoder().decode(object.bytes);
       const document = markdown ? parseMarkdown(source) : undefined;
       const authoredTitle = document?.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
-      return sampleTreeNode({
+      return { snapshot: sampleTreeNode({
         path: canonicalNodePath(remotePath!),
         name: authoredTitle || (markdown ? objectName.slice(0, -3) : objectName),
         kind: markdown ? "markdown" : "file",
@@ -399,13 +451,15 @@ export class ArborSyncDaemon implements AsyncDisposable {
         materialization: "available",
         ...(document ? { document, bodyOrigin: "sibling" as const } : {}),
         diagnostics,
-      }, context);
+      }, context), children: [] };
     }
 
     const source = logical.body ? new TextDecoder().decode(logical.body.bytes) : "";
     const currentCanonicalPath = `${canonical.path === "/" ? "" : canonical.path}${remotePath! === "/" ? "" : remotePath!}` || "/";
+    const rollupDescriptor = object.entries.find((entry) => entry.rollup)?.rollup;
+    const rollup = rollupDescriptor ? await readRollup(rollupDescriptor) : null;
     const children = (await Promise.all(object.entries
-      .filter((entry) => entry.name !== "_index.md")
+      .filter((entry) => entry.name !== "_index.md" && !entry.rollup && !(rollupDescriptor && entry.name === "schema.ts"))
       .map(async (entry) => {
         const childObject = entry.hash ? decodeWireObject(await client.object(remote.id, entry.hash)) : null;
         const markdown = childObject?.type === "file" && entry.name.endsWith(".md");
@@ -440,14 +494,28 @@ export class ArborSyncDaemon implements AsyncDisposable {
           ...(pageID ? { pageID } : {}),
         } };
       }))).filter((child): child is NonNullable<typeof child> => child !== null);
+    if (rollup && rollupDescriptor) {
+      for (const row of rollup.rows) {
+        const summary = summarizeRollupRow(canonicalNodePath(remotePath!), rollupDescriptor.schema, row);
+        children.push({
+          summary,
+          treeChild: {
+            tree: remote.id,
+            name: summary.name,
+            path: summary.ref.path,
+            kind: "file",
+            materialization: "available",
+          },
+        });
+      }
+    }
     const document = parseMarkdown(source);
     const authoredTitle = document.blocks.find((block) => block.type === "heading" && Number(block.props?.level ?? 1) === 1)?.content;
     const descriptors = children
       .map(({ treeChild: child }) => ({ path: canonicalNodePath(child.path), kind: child.kind, pageID: child.pageID ?? null }))
       .sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
     const path = canonicalNodePath(remotePath!);
-    this.remoteChildren.set(`${remote.id}\0${path}`, children.map((child) => child.summary));
-    return sampleTreeNode({
+    const snapshot = sampleTreeNode({
       path,
       name: authoredTitle || objectName,
       kind: "directory",
@@ -459,16 +527,48 @@ export class ArborSyncDaemon implements AsyncDisposable {
       children: children.map((child) => child.treeChild),
       diagnostics: [...diagnostics, ...directoryPlacementDiagnostics(path, document)],
     }, context);
+    if (rollup && rollupDescriptor) {
+      snapshot.capabilities.children = {
+        revision: rollupDescriptor.source,
+        schema: rollupDescriptor.schema,
+        representation: {
+          type: "rollup",
+          codec: rollupDescriptor.codec,
+          scope: rollupDescriptor.scope,
+          modelDigest: rollupDescriptor.modelDigest,
+        },
+        total: rollup.rows.length,
+        writable: false,
+      };
+    }
+    return { snapshot, children: children.map((child) => child.summary) };
   }
 
   async children(ref: NodeRef, cursor?: string | null): Promise<ChildrenPage> {
     if (ref.tree !== LOCAL_TREE && ref.tree !== SYSTEM_TREE && this.remoteAuthorities.has(ref.tree) && !await this.trees.workspaceByTree(ref.tree)) {
-      const snapshot = await this.snapshot(ref);
+      const remote = this.remoteAuthorities.get(ref.tree)!;
+      const locator = `${remote.locator.replace(/\/$/, "")}${ref.path === "/" ? "" : ref.path}`;
+      const projection = await this.fetchRemoteProjection(locator, ref.stableKey);
+      const sourceRevision = projection.snapshot.capabilities.children?.revision ?? projection.snapshot.revision;
+      let offset = 0;
+      if (cursor) {
+        try {
+          const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { version?: unknown; source?: unknown; offset?: unknown };
+          if (value.version !== 1 || value.source !== sourceRevision || !Number.isSafeInteger(value.offset) || (value.offset as number) < 0) throw new Error();
+          offset = value.offset as number;
+        } catch {
+          throw new ProtocolError("invalid-cursor", "Remote child cursor is invalid or belongs to another rollup revision", 400);
+        }
+      }
+      const items = projection.children.slice(offset, offset + 100);
+      const nextOffset = offset + items.length;
       return {
-        parent: snapshot.ref,
-        items: this.remoteChildren.get(`${snapshot.ref.tree}\0${snapshot.ref.path}`) ?? [],
-        nextCursor: null,
-        observedThrough: snapshot.observedThrough,
+        parent: projection.snapshot.ref,
+        items,
+        nextCursor: nextOffset < projection.children.length
+          ? Buffer.from(JSON.stringify({ version: 1, source: sourceRevision, offset: nextOffset })).toString("base64url")
+          : null,
+        observedThrough: projection.snapshot.observedThrough,
       };
     }
     const scope = await this.resolveScope(ref);
@@ -1222,6 +1322,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       workspace.root,
       this.canonicalBoundariesFor(workspace, listed),
       this.trees.excludedMountsWithin(workspace.root),
+      (directory, sourceName) => workspace.describeWireRollup(directory, sourceName),
     );
   }
 
@@ -1237,6 +1338,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       workspace.root,
       this.trees.sharedBoundariesWithin(workspace.root),
       this.trees.excludedMountsWithin(workspace.root),
+      (directory, sourceName) => workspace.describeWireRollup(directory, sourceName),
     );
     if (snapshot.root === placement.ref) return;
     const retainedHashes = new Set(retained.hashes);

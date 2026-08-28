@@ -82,6 +82,7 @@ export interface RollupDescriptor {
   version: 1;
   codec: "csv" | "json" | "jsonl";
   source: Hash;
+  schemaSource: Hash;
   schema: Hash;
   scope: "children" | "subtree";
   modelDigest: Hash;
@@ -317,6 +318,7 @@ export function decodeRollupDescriptor(value: unknown): RollupDescriptor {
     version: 1,
     codec: source.codec as "csv" | "json" | "jsonl",
     source: hash(source.source, "rollup.source"),
+    schemaSource: hash(source.schemaSource, "rollup.schemaSource"),
     schema: hash(source.schema, "rollup.schema"),
     scope: source.scope,
     modelDigest: hash(source.modelDigest, "rollup.modelDigest"),

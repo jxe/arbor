@@ -410,7 +410,13 @@ public actor ReplicaSyncCoordinator {
             let bytes = try await replica.storedObjectBytes(hash: hash)
             let object = try WireObjectCodec.decode(bytes)
             if case let .directory(entries) = object {
-                pending.append(contentsOf: entries.compactMap(\.hash))
+                for entry in entries {
+                    if let hash = entry.hash { pending.append(hash) }
+                    if let rollup = entry.rollup {
+                        pending.append(rollup.source)
+                        pending.append(rollup.schemaSource)
+                    }
+                }
             }
         }
         return visited

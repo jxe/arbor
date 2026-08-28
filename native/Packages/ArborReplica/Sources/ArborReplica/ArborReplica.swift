@@ -203,7 +203,7 @@ public actor ArborReplica {
             case let .markdown(source):
                 return ReplicaNodeRecord(path: node.path, pageID: node.pageID ?? ReplicaSemantics.pageID(in: source), kind: .markdown, source: source)
             case let .file(bytes, mediaType):
-                return ReplicaNodeRecord(path: node.path, pageID: node.pageID, kind: .file, bytes: bytes, mediaType: mediaType)
+                return ReplicaNodeRecord(path: node.path, pageID: node.pageID, kind: .file, bytes: bytes, mediaType: mediaType, rollup: node.rollup)
             case let .boundary(tree):
                 return ReplicaNodeRecord(path: node.path, kind: .boundary, boundaryTree: tree.rawValue)
             }
@@ -818,6 +818,9 @@ public actor ArborReplica {
             }
             if node.kind == .file, ReplicaSemantics.name(of: node.path) == "_index.md" {
                 throw ReplicaError.corruptState("Reserved directory body appears as an ordinary file")
+            }
+            if node.rollup != nil && node.kind != .file {
+                throw ReplicaError.corruptState("Rollup descriptor is attached to a non-file node")
             }
             if (node.kind == .file || node.kind == .boundary), node.pageID != nil {
                 throw ReplicaError.corruptState("Non-document node has a PageID")

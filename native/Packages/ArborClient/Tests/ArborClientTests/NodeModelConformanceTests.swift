@@ -173,6 +173,7 @@ private struct FrozenRollup: Decodable {
     var version: Int
     var codec: String
     var source: String
+    var schemaSource: String
     var schema: String
     var scope: String
     var modelDigest: String

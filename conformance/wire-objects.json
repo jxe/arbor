@@ -22,6 +22,28 @@
       },
       "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzg6JkbmFtZWFBZHRyZWVodHJfY2hpbGSiZGhhc2h4R3NoYTI1NjowMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwZG5hbWVheqJkaGFzaHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFkbmFtZWLDpA==",
       "hash": "sha256:2c33ed526ed3f73ddc93a0107e374c5a69cb9c5588cbe3b4d0576527135efb2a"
+    },
+    {
+      "name": "directory-file-rollup",
+      "model": {
+        "type": "directory",
+        "entries": [
+          {
+            "name": "_store.json",
+            "rollup": {
+              "version": 1,
+              "codec": "json",
+              "source": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+              "schemaSource": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+              "schema": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "scope": "children",
+              "modelDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+            }
+          }
+        ]
+      },
+      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWtfc3RvcmUuanNvbmZyb2xsdXCnZWNvZGVjZGpzb25lc2NvcGVoY2hpbGRyZW5mc2NoZW1heEdzaGEyNTY6MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM2Zzb3VyY2V4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExZ3ZlcnNpb24Ba21vZGVsRGlnZXN0eEdzaGEyNTY6NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NGxzY2hlbWFTb3VyY2V4R3NoYTI1NjoyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIy",
+      "hash": "sha256:b28cc5388d30ee5dbffc91ea16b849e927cff7e915acc922b727015aeb8db2b2"
     }
   ],
   "invalid": [

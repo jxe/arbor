@@ -3,11 +3,13 @@ import { timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { canonicalJSONString, generateArborID, isGeneratedArborID, sha256, type AccessRule, type TreeKind } from "@arbor/core";
+import { decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
 import {
   decodeWireObject,
   encodeWireObject,
   hashObject,
   compareWireNames,
+  wireEntryObjectHashes,
   updateRequestDigest,
   type AcceptedUpdate,
   type ServerDevice,
@@ -438,6 +440,7 @@ async function prepareCanopyDatabase(dataRoot: string): Promise<{ path: string; 
 }
 
 export class CanopyDaemon implements AsyncDisposable {
+  private readonly wireSchemas = new SchemaSandbox();
   private db: Database;
   private acceptedStore: AcceptedUpdateStore;
   private listeners = new Map<string, Set<(tree: CanopyTree, update: AcceptedUpdate, requestDigest?: ObjectHash) => void>>();
@@ -1707,7 +1710,7 @@ export class CanopyDaemon implements AsyncDisposable {
       objects.set(hash, bytes);
       const object = decodeWireObject(bytes);
       if (object.type === "directory") {
-        for (const entry of object.entries) if (entry.hash) pending.push(entry.hash);
+        for (const entry of object.entries) pending.push(...wireEntryObjectHashes(entry));
       }
     }
     return { root, objects };
@@ -1732,7 +1735,7 @@ export class CanopyDaemon implements AsyncDisposable {
       // immutable history objects must stay traversable for integrity checks.
       const object = decodeWireObject(await this.object(hash), { allowLegacyDirectoryOrder: true });
       if (object.type === "directory") {
-        for (const entry of object.entries) if (entry.hash) pending.push(entry.hash);
+        for (const entry of object.entries) pending.push(...wireEntryObjectHashes(entry));
       }
     }
   }
@@ -2090,7 +2093,7 @@ export class CanopyDaemon implements AsyncDisposable {
       seen.add(hash);
       const object = decodeWireObject(await this.object(hash));
       if (object.type === "directory") {
-        for (const entry of object.entries) if (entry.hash) pending.push(entry.hash);
+        for (const entry of object.entries) pending.push(...wireEntryObjectHashes(entry));
       }
     }
     return false;
@@ -2112,7 +2115,7 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!bytes) return false;
       const object = decodeWireObject(bytes);
       if (object.type === "directory") {
-        for (const entry of object.entries) if (entry.hash) pending.push(entry.hash);
+        for (const entry of object.entries) pending.push(...wireEntryObjectHashes(entry));
       }
     }
     return false;
@@ -2205,7 +2208,22 @@ export class CanopyDaemon implements AsyncDisposable {
           || names.has(entry.name)
         ) throw new Error(`Invalid or duplicate directory entry: ${entry.name}`);
         names.add(entry.name);
-        if (entry.hash) pending.push(entry.hash);
+        pending.push(...wireEntryObjectHashes(entry));
+        if (entry.rollup) {
+          const loadFile = async (target: ObjectHash): Promise<Uint8Array> => {
+            const targetBytes = proposed.get(target) ?? (await this.hasObject(target) ? await this.object(target) : null);
+            if (!targetBytes || hashObject(targetBytes) !== target) throw new Error(`Missing rollup object: ${target}`);
+            const targetObject = decodeWireObject(targetBytes);
+            if (targetObject.type !== "file") throw new Error(`Rollup target is not a file: ${target}`);
+            return targetObject.bytes;
+          };
+          await decodeWireFileRollup(
+            entry.rollup,
+            await loadFile(entry.rollup.source),
+            await loadFile(entry.rollup.schemaSource),
+            this.wireSchemas,
+          );
+        }
       }
     }
     await this.cacheMembers(root, proposed);
@@ -2251,6 +2269,7 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
+    await this.wireSchemas[Symbol.asyncDispose]();
     this.db.close();
     this.listeners.clear();
   }

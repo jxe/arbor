@@ -13,12 +13,16 @@ import {
   materializeTree,
   snapshotDirectory,
 } from "@arbor/wire";
+import { CollectionStore, decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
 
 describe("canonical tree objects", () => {
   test("matches the language-neutral canonical object vectors", async () => {
     const fixture = JSON.parse(await readFile(join(import.meta.dir, "../../conformance/wire-objects.json"), "utf8")) as {
       objects: Array<{
-        model: { type: "file"; bytesBase64: string } | { type: "directory"; entries: Array<{ name: string; hash?: string; tree?: string }> };
+        model: { type: "file"; bytesBase64: string } | {
+          type: "directory";
+          entries: Array<{ name: string; hash?: string; tree?: string; rollup?: import("@arbor/core").RollupDescriptor }>;
+        };
         canonicalCborBase64: string;
         hash: string;
       }>;
@@ -108,6 +112,82 @@ describe("canonical tree objects", () => {
       expect(snapshot.objects.size).toBe(2);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("snapshots exact file rollups as source-and-schema reachable targets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-wire-rollup-"));
+    const destination = await mkdtemp(join(tmpdir(), "arbor-wire-rollup-materialized-"));
+    try {
+      const schemaSource = "export const schema = z.object({ id: z.string() });\nexport const primaryKey = [\"id\"];\n";
+      const storeSource = "[{\"id\":\"one\"}]\n";
+      await writeFile(join(root, "schema.ts"), schemaSource);
+      await writeFile(join(root, "_store.json"), storeSource);
+      const snapshot = await snapshotDirectory(root, new Map(), [], async (_directory, sourceName) => ({
+        codec: sourceName === "_store.json" ? "json" : "csv",
+        schema: `sha256:${"3".repeat(64)}`,
+        scope: "children",
+        modelDigest: `sha256:${"4".repeat(64)}`,
+      }));
+      const object = decodeWireObject(snapshot.objects.get(snapshot.root)!);
+      if (object.type !== "directory") throw new Error("Expected a directory");
+      const descriptor = object.entries.find((entry) => entry.name === "_store.json")?.rollup;
+      expect(descriptor).toEqual(expect.objectContaining({ codec: "json", scope: "children" }));
+      expect(descriptor?.source).not.toBe(descriptor?.schemaSource);
+      expect(decodeWireObject(snapshot.objects.get(descriptor!.source)!)).toEqual({
+        type: "file",
+        bytes: new TextEncoder().encode(storeSource),
+      });
+      expect(decodeWireObject(snapshot.objects.get(descriptor!.schemaSource)!)).toEqual({
+        type: "file",
+        bytes: new TextEncoder().encode(schemaSource),
+      });
+
+      await materializeTree(destination, snapshot.root, async (hash) => snapshot.objects.get(hash)!);
+      expect(await readFile(join(destination, "_store.json"), "utf8")).toBe(storeSource);
+      expect(await readFile(join(destination, "schema.ts"), "utf8")).toBe(schemaSource);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(destination, { recursive: true, force: true });
+    }
+  });
+
+  test("executes schema.ts and verifies CSV, JSON, and JSONL Wire descriptors", async () => {
+    const fixtures = {
+      csv: "id,title\none,One\ntwo,Two\n",
+      json: '[{"id":"one","title":"One"},{"id":"two","title":"Two"}]\n',
+      jsonl: '{"id":"one","title":"One"}\n{"id":"two","title":"Two"}\n',
+    } as const;
+    for (const [codec, source] of Object.entries(fixtures) as Array<[keyof typeof fixtures, string]>) {
+      const root = await mkdtemp(join(tmpdir(), `arbor-wire-${codec}-`));
+      const collections = new CollectionStore();
+      const schemas = new SchemaSandbox();
+      try {
+        await writeFile(join(root, "schema.ts"), [
+          'import { z } from "zod";',
+          'export const schema = z.object({ id: z.string(), title: z.string() });',
+          'export const primaryKey = ["id"];',
+          "",
+        ].join("\n"));
+        await writeFile(join(root, `_store.${codec}`), source);
+        const snapshot = await snapshotDirectory(root, new Map(), [], (directory, name) =>
+          collections.fileRollupDescriptor(directory, name));
+        const object = decodeWireObject(snapshot.objects.get(snapshot.root)!);
+        if (object.type !== "directory") throw new Error("Expected a rollup directory");
+        const descriptor = object.entries.find((entry) => entry.rollup)?.rollup!;
+        const sourceObject = decodeWireObject(snapshot.objects.get(descriptor.source)!);
+        const schemaObject = decodeWireObject(snapshot.objects.get(descriptor.schemaSource)!);
+        if (sourceObject.type !== "file" || schemaObject.type !== "file") throw new Error("Expected rollup files");
+        const decoded = await decodeWireFileRollup(descriptor, sourceObject.bytes, schemaObject.bytes, schemas);
+        expect(decoded.rows.map((row) => row.properties), codec).toEqual([
+          { id: "one", title: "One" },
+          { id: "two", title: "Two" },
+        ]);
+      } finally {
+        await schemas[Symbol.asyncDispose]();
+        await collections[Symbol.asyncDispose]();
+        await rm(root, { recursive: true, force: true });
+      }
     }
   });
 

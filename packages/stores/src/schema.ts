@@ -16,6 +16,7 @@ interface CompiledSchema {
   runtime: QuickJSRuntime;
   source: string;
   description: SchemaDescription;
+  deadline: { value: number };
 }
 
 export class SchemaSandbox implements AsyncDisposable {
@@ -23,7 +24,11 @@ export class SchemaSandbox implements AsyncDisposable {
 
   async compile(path: string): Promise<SchemaDescription> {
     const source = await readFile(path, "utf8");
-    const cached = this.compiled.get(path);
+    return this.compileSource(source, path);
+  }
+
+  async compileSource(source: string, cacheKey = revisionOf(source)): Promise<SchemaDescription> {
+    const cached = this.compiled.get(cacheKey);
     if (cached?.source === source) return cached.description;
     if (/\b(?:node:|bun:|https?:|fs|child_process|process\.|fetch\s*\(|import\s*\()/.test(source.replace(/from\s+["']zod["']/g, ""))) {
       throw new Error("schema.ts may import only zod and cannot use I/O globals");
@@ -58,10 +63,11 @@ export class SchemaSandbox implements AsyncDisposable {
     const runtime = quickJS.newRuntime();
     runtime.setMemoryLimit(32 * 1024 * 1024);
     runtime.setMaxStackSize(512 * 1024);
-    const started = performance.now();
-    runtime.setInterruptHandler(() => performance.now() - started > 1_000);
+    const deadline = { value: performance.now() + 1_000 };
+    runtime.setInterruptHandler(() => performance.now() > deadline.value);
     const context = runtime.newContext();
     const evaluated = context.evalCode(bundled, "schema.js");
+    deadline.value = Number.POSITIVE_INFINITY;
     if (evaluated.error) {
       const error = context.dump(evaluated.error);
       evaluated.error.dispose();
@@ -98,19 +104,38 @@ export class SchemaSandbox implements AsyncDisposable {
     };
     cached?.context.dispose();
     cached?.runtime.dispose();
-    this.compiled.set(path, { context, runtime, source, description });
+    this.compiled.set(cacheKey, { context, runtime, source, description, deadline });
     return description;
   }
 
   async validate(path: string, value: unknown): Promise<{ value?: unknown; diagnostics: Diagnostic[] }> {
     if (!this.compiled.has(path)) await this.compile(path);
-    const compiled = this.compiled.get(path)!;
+    return this.validateCompiled(path, value, path);
+  }
+
+  async validateSource(
+    source: string,
+    value: unknown,
+    cacheKey = revisionOf(source),
+  ): Promise<{ value?: unknown; diagnostics: Diagnostic[] }> {
+    if (!this.compiled.has(cacheKey)) await this.compileSource(source, cacheKey);
+    return this.validateCompiled(cacheKey, value, "schema.ts");
+  }
+
+  private validateCompiled(
+    cacheKey: string,
+    value: unknown,
+    diagnosticPath: string,
+  ): { value?: unknown; diagnostics: Diagnostic[] } {
+    const compiled = this.compiled.get(cacheKey)!;
     const input = JSON.stringify(JSON.stringify(value));
+    compiled.deadline.value = performance.now() + 1_000;
     const result = compiled.context.evalCode(`__ARBOR_VALIDATE(${input})`, "validate.js");
+    compiled.deadline.value = Number.POSITIVE_INFINITY;
     if (result.error) {
       const error = compiled.context.dump(result.error);
       result.error.dispose();
-      return { diagnostics: [{ code: "schema-runtime", message: JSON.stringify(error), path, severity: "error" }] };
+      return { diagnostics: [{ code: "schema-runtime", message: JSON.stringify(error), path: diagnosticPath, severity: "error" }] };
     }
     const payload = JSON.parse(compiled.context.dump(result.value) as string) as {
       ok: boolean;
@@ -123,7 +148,7 @@ export class SchemaSandbox implements AsyncDisposable {
       diagnostics: (payload.issues ?? []).map((issue) => ({
         code: "schema-validation",
         message: issue.message,
-        path,
+        path: diagnosticPath,
         field: issue.path.join("."),
         severity: "error",
       })),

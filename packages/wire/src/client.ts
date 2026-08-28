@@ -20,6 +20,7 @@ import {
   decodeWireObject,
   encodeWireObject,
   hashObject,
+  wireEntryObjectHashes,
   type ObjectHash,
   type TreeSnapshot,
 } from "./objects.ts";
@@ -124,7 +125,7 @@ function decodedSnapshot(snapshot: { root: ObjectHash; objects: Array<{ hash: Ob
     }
     visited.add(hash);
     if (object.type === "directory") {
-      for (const entry of object.entries) if (entry.hash) visit(entry.hash);
+      for (const entry of object.entries) for (const child of wireEntryObjectHashes(entry)) visit(child);
     }
   };
   visit(snapshot.root);

@@ -44,6 +44,22 @@ enum SnapshotBridge {
                     nodes.append(ReplicaSystemNode(path: destination, content: .boundary(tree: TreeID(rawValue: nestedTree))))
                     continue
                 }
+                if let rollup = entry.rollup {
+                    nodes.append(ReplicaSystemNode(
+                        path: destination,
+                        content: .file(bytes: try fileBytes(rollup.source)),
+                        rollup: ReplicaRollupDescriptor(
+                            version: rollup.version,
+                            codec: rollup.codec,
+                            source: rollup.source,
+                            schemaSource: rollup.schemaSource,
+                            schema: rollup.schema,
+                            scope: rollup.scope,
+                            modelDigest: rollup.modelDigest
+                        )
+                    ))
+                    continue
+                }
                 guard let childHash = entry.hash, let object = objects[childHash] else {
                     throw ArborWireValidationError.incompleteGraph(entry.hash ?? entry.name)
                 }

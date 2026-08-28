@@ -1,6 +1,7 @@
 import Foundation
 
 indirect enum CanonicalCBORValue: Equatable {
+    case unsigned(Int)
     case bytes(Data)
     case text(String)
     case array([CanonicalCBORValue])
@@ -8,6 +9,7 @@ indirect enum CanonicalCBORValue: Equatable {
 
     static func == (left: CanonicalCBORValue, right: CanonicalCBORValue) -> Bool {
         switch (left, right) {
+        case let (.unsigned(a), .unsigned(b)): a == b
         case let (.bytes(a), .bytes(b)): a == b
         case let (.text(a), .text(b)): a == b
         case let (.array(a), .array(b)): a == b
@@ -21,6 +23,7 @@ indirect enum CanonicalCBORValue: Equatable {
 enum CanonicalCBOR {
     static func encode(_ value: CanonicalCBORValue) -> Data {
         switch value {
+        case let .unsigned(value): head(major: 0, value: value)
         case let .bytes(bytes): head(major: 2, value: bytes.count) + bytes
         case let .text(string):
             head(major: 3, value: string.utf8.count) + Data(string.utf8)
@@ -79,11 +82,13 @@ enum CanonicalCBOR {
             let first = try byte()
             let major = first >> 5
             let additional = first & 31
-            guard major == 2 || major == 3 || major == 4 || major == 5 else {
+            guard major == 0 || major == 2 || major == 3 || major == 4 || major == 5 else {
                 throw ArborWireValidationError.invalidCBOR("Unsupported CBOR major type")
             }
             let length = try readLength(additional)
             switch major {
+            case 0:
+                return .unsigned(length)
             case 2:
                 return .bytes(try take(length))
             case 3:
