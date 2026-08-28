@@ -113,13 +113,13 @@ Working documents:
 
 - **[intro.md](intro.md)** — narrative introduction and pitch: from the agent-playground problems (sharing/syncing, human interface, containment) to a universal dynamic material that supersedes the web.
 - **[spec.md](spec.md)** — aspirational spec overview, v0.8, split into portable contracts for authored format, locators, synchronized configuration, stores, executable documents, agents, and the cross-server wire.
-- **[plan/](plan/README.md)** — active application, interface, and hardening milestones plus preserved planning history.
+- **[plan/](plan/README.md)** — active outcome and cross-cutting workstreams plus preserved planning history.
 - **[docs/client.md](docs/client.md)** — non-normative Arbor client interaction design.
 - **[docs/reference-implementation.md](docs/reference-implementation.md)** — replaceable Bun/TypeScript/Swift architecture, private-state mechanics, and verification details.
 - **[plan/roadmap.md](plan/roadmap.md)** — the forward roadmap, now led by the checked-in Supplies executable-site milestone.
 - **[plan/applications/](plan/applications/README.md)** — active authored-application and hosted-execution milestones.
 - **[plan/interfaces/](plan/interfaces/README.md)** — active native, web, CLI, and browser-facing milestones.
-- **[plan/hardening/](plan/hardening/README.md)** — active correctness, security, performance, and delivery handoffs.
+- **[plan/insecure/](plan/insecure/README.md)**, **[plan/correctness-and-reliability/](plan/correctness-and-reliability/README.md)**, **[plan/slow/](plan/slow/README.md)**, and the other [cross-cutting indexes](plan/README.md#cross-cutting-workstreams) — focused quality and maintenance handoffs.
 - **[plan/history/](plan/history/README.md)** — completed, rejected, and superseded plans plus implementation evidence.
 - **[docs/notes/social-networking.md](docs/notes/social-networking.md)** — a thought experiment: with Arbor ubiquitous and the wire lowered to the transport layer, what remains of atproto, and how relays, AppViews, feeds, and labelers collapse into trees, watches, and queries.
 - **[docs/archive/](docs/archive/arbord-projection-outline.md)** — completed implementation outlines kept for reference.

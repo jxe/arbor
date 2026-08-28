@@ -130,9 +130,11 @@ These are not required for mounting distinct trees together, visits, aggregate w
 
 Historical revisions may still be browsed transiently when revision locators are implemented. A nested mount is path composition, not a reader-local overlay: longest-prefix resolution enters the mounted child tree instead of merging two versions of the same file.
 
-## Continuous hardening
+## Continuous quality work
 
-Hardening is not a numbered product dependency:
+Cross-cutting quality work is tracked by reason in the
+[plan indexes](README.md#cross-cutting-workstreams), not as a numbered product
+dependency:
 
 - expand browser coverage for group creation, access revocation, disconnect, and restoration flows;
 - perform focused accessibility and responsive audits;

@@ -1,10 +1,10 @@
-# Hardening 003: Serialize write-journal appends so counters cannot collide
+# Correctness and reliability 002: Serialize write-journal appends so counters cannot collide
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
 > report — do not improvise. When done, update the status row for this plan
-> in `plan/hardening/README.md`.
+> in `plan/correctness-and-reliability/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/fs/src/journal.ts packages/fs/src/workspace-fs.ts`
 > Also run `git status --short` on those paths. If the excerpts under "Current
@@ -140,7 +140,7 @@ Repo conventions:
 
 ## Git workflow
 
-- Branch: `hardening/003-journal-append`
+- Branch: `correctness-and-reliability/002-journal-append`
 - Commit message style from `git log`: short imperative sentence, no prefix.
   Example: `Serialize journal appends per page`.
 - Do NOT push or open a PR.
@@ -278,7 +278,7 @@ ALL must hold:
 - [ ] `grep -n "private tails" packages/fs/src/journal.ts` returns a match
 - [ ] `packages/fs/src/workspace-fs.ts` is unmodified (`git status --short`)
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plan/hardening/README.md` status row for 004 updated
+- [ ] `plan/correctness-and-reliability/README.md` status row for 002 updated
 
 ## STOP conditions
 

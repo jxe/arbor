@@ -17,6 +17,26 @@ This list starts after the logical filesystem, source-preserving BlockNote adapt
 10. **Persistent hierarchical sidebar, then sidebar drag/drop — Hard.** Replace the contextual flat listing with lazy hierarchy while preserving expansion and selection state across navigation; only then reuse the filesystem mutation API for sidebar moves. Do not fork a second mutation or selection model.
 11. **Voice recording and transcript support — Very hard / later.** Add explicit recorder ownership, permissions and interruption handling, incremental transcription, optional transcript polishing, durable media placement, and recovery. This remains independent of the core editor.
 
+## Structural and lifecycle constraints
+
+- Specify copied-subtree identity before presenting folder/project duplication:
+  copy remints PageIDs, and links between copied pages must deliberately remap
+  to the new subtree or deliberately retain their original targets.
+- Own structural undo above individual page editors so sidebar and body-view
+  mutations share one workspace transaction history. Prefer authority-validated
+  inverse metadata or an explicit receipt/transaction undo operation over UI
+  closures derived from `/Trash` conventions.
+- Preserve exact undo for non-contiguous document-link reorder by retaining the
+  complete relevant before/after source state.
+- Define bounded history retention and whether reload/crash recovery exposes
+  recent local history; do not leave session-local stacks unbounded.
+- Complete pointer capture, touch/pen cancellation, autoscroll, keyboard
+  pickup/move/cancel, viewport clamping, and focus restoration before calling
+  custom drag handles and context menus accessible.
+- Use anchor-and-offset scroll restoration when content above the viewport can
+  change. Exact window coordinates across animation frames are only a current
+  implementation fallback.
+
 ## Smaller Hunch-like wins
 
 - **Page-menu utilities — Small.** Add Copy Markdown, Copy Arbor path, and Reveal in Finder without introducing another action strip.

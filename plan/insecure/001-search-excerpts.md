@@ -1,10 +1,10 @@
-# Hardening 001: Stop rendering search excerpts as raw HTML
+# Insecure 001: Stop rendering search excerpts as raw HTML
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
 > report — do not improvise. When done, update the status row for this plan
-> in `plan/hardening/README.md`.
+> in `plan/insecure/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/stores/src/indexer.ts packages/render/src/App.tsx packages/core/src/protocol.ts`
 > Note the working tree was already dirty when this plan was written, so also
@@ -107,7 +107,7 @@ long-lived server.
 - `packages/arborsync/src/service.ts` — the `searchPage` method only forwards
   results; it needs no change and touching it widens the diff.
 - The FTS5 schema and the `rebuild`/`indexFile` methods — indexing behavior is
-  the subject of a separate plan ([`005-index-updates.md`](005-index-updates.md)). Changing the schema here will
+  the subject of a separate plan ([Slow 001](../slow/001-index-updates.md)). Changing the schema here will
   collide with it.
 - `packages/render/src/PageEditor.tsx` and `blocks.tsx` — unrelated rendering
   surfaces.
@@ -116,7 +116,7 @@ long-lived server.
 
 ## Git workflow
 
-- Branch: `hardening/001-search-excerpts`
+- Branch: `insecure/001-search-excerpts`
 - Commit message style matches `git log`: a short imperative sentence with no
   prefix or scope, e.g. `Escape search excerpts before rendering them`.
 - Do NOT push or open a PR.
@@ -239,7 +239,7 @@ ALL must hold:
 - [ ] `grep -rn "dangerouslySetInnerHTML" packages/` returns no matches
 - [ ] `grep -n "<mark>" packages/stores/src/indexer.ts` returns no matches
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plan/hardening/README.md` status row for 001 updated
+- [ ] `plan/insecure/README.md` status row for 001 updated
 
 ## STOP conditions
 

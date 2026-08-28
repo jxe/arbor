@@ -4,7 +4,7 @@
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
 > report — do not improvise. When done, update the status row for this plan
-> in `plan/hardening/README.md`.
+> in `plan/history/hardening/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/wire/src/cbor.ts packages/wire/src/objects.ts`
 > Also run `git status --short` on those paths — the working tree was already
@@ -142,7 +142,7 @@ Repo conventions:
 - The **encoder** functions in `cbor.ts`. Changing encoding changes every
   object hash in existence. This plan is decode-side only.
 - `packages/wire/src/host.ts` — rate limiting and response headers are
-  `plan/hardening/007-*`.
+  `plan/unverified/001-ci.md`.
 
 ## Git workflow
 
@@ -279,7 +279,7 @@ ALL must hold:
       (`git diff packages/wire/src/cbor.ts` touches only the decode path)
 - [x] The broader files are the explicitly reconciled Plan 013 implementation,
       which also closes the deferred strict wire-object gap.
-- [x] `plan/hardening/README.md` status row for 003 updated
+- [x] `plan/history/hardening/README.md` records completed historical plan 003
 
 ## STOP conditions
 

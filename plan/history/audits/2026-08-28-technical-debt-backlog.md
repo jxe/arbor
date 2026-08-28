@@ -3,6 +3,11 @@ id: d9x485
 ---
 # Arbor technical debt
 
+> **Historical backlog snapshot.** On 2026-08-28 its live items were moved into
+> the category indexes and owning Data, Application, and Interface plans linked
+> from [`plan/README.md`](../../README.md). This file preserves the previous
+> wording and is not an active queue.
+
 This file tracks implementation debt and incomplete invariants, not product features. Product-facing editor work belongs in `editor-todo.md`.
 
 ## REST protocol and reference clients
@@ -35,7 +40,7 @@ These are implementation violations of the aspirational specification. They are 
    a provider-owned codec. Keep the owner index behavior behind the generic
    identity rule; do not remove rename healing itself.
 2. **Complete
-   [Data 006](../data/006-native-offline-rollup-row-projection.md).** The
+   [Data 006](../../data/006-native-offline-rollup-row-projection.md).** The
    local daemon's unplaced remote-tree adapter now pages descriptor-derived rows directly and
    the old `remoteChildren` physical cache is deleted. Swift independently
    validates, retains, materializes, and re-encodes rollup descriptors so an
@@ -43,10 +48,10 @@ These are implementation violations of the aspirational specification. They are 
    project those descriptors as ordinary row snapshots and child pages. Data
    006 deliberately leaves the implementation mechanism open; do not parse
    `primaryKey` from source text or create a second Swift-only schema language.
-3. **Complete [Data 004](../data/004-postgres-child-provider.md).** That plan now
+3. **Complete [Data 004](../../data/004-postgres-child-provider.md).** That plan now
    owns removal of Postgres virtual nodes, `external:postgres`, provisional
    offset cursors, and all associated deletion conditions.
-4. **Complete [Data 003](../data/003-representation-equivalence.md).** That plan
+4. **Complete [Data 003](../../data/003-representation-equivalence.md).** That plan
    now owns the reviewed logical-path rule/converter and the proof that expanded
    Markdown and key-derived rollups preserve refs and ordinary relative links.
 5. **Finish bounded exact-source snapshots for file providers.** File-backed
@@ -87,7 +92,7 @@ These are implementation violations of the aspirational specification. They are 
     checkpoints only when needed. Vacuuming and SQLite page/WAL bytes are
     placement-private and do not participate in logical synchronization.
 10. **Complete
-    [Application 003](../applications/003-development-compiler-and-editor-tooling.md).**
+    [Application 003](../../applications/003-development-compiler-and-editor-tooling.md).**
     It now owns generated source schemas, ordinary-tree activation manifests,
     empty-source typing, imported helpers, computed-locator bounds, and removal
     of the current manual binding/sample-derived fallback seam.

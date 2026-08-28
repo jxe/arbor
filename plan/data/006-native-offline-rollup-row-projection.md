@@ -6,8 +6,10 @@
 - **Effort:** UNKNOWN
 - **State:** DEFERRED — specification and implementation begin only when native
   offline browsing of rolled-up children becomes a product requirement.
-- **Depends on:** Data 002 exact-source Wire rollups and the shared authored-code
-  execution decisions made by Application 003.
+- **Depends on:** historical
+  [Data 002](../history/data/002-reconcile-node-data-model.md) exact-source Wire
+  rollups and the shared authored-code execution decisions made by Application
+  003.
 
 ## Target result
 
@@ -40,7 +42,7 @@ visible row children.
 Use the shared Data 002 rollup corpus to prove that native offline snapshots and
 child pages match local Arbor Sync and Canopy for CSV, JSON, and JSONL,
 including invalid inputs, pagination, stale readable paths, and stable-key
-reopening. Then remove the temporary native capability limitation from the
-hardening backlog.
+reopening. Then remove the temporary native capability limitation recorded by
+this plan and the [remove-later inventory](../remove-later/README.md).
 
 This plan deliberately does not choose an implementation mechanism.

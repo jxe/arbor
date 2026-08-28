@@ -7,10 +7,13 @@ leaving them in the active queues.
   intentional limits, and verification evidence.
 - [`native/`](native/README.md) preserves the original native plan identifiers,
   execution history, superseded TreeHopper direction, and completed migration.
+- [`data/`](data/README.md) preserves completed node-model and data plans.
 - [`hardening/`](hardening/README.md) preserves completed cross-cutting
-  hardening handoffs.
+  handoffs under their historical taxonomy and identifiers.
 - [`applications/`](applications/README.md) points from completed application
   phases to their durable outcome records.
+- [`audits/`](audits/README.md) preserves dated audit and backlog snapshots after
+  their live items have been reconciled into current workstreams.
 
 Historical files keep their original numbers so old commits, discussions, and
 completion evidence remain intelligible. Active work receives identifiers only

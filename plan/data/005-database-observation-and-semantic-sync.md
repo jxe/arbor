@@ -64,6 +64,10 @@ prove.
    row changes.
 8. SQLite and Postgres use the same public node/change/query semantics even
    when their private observation mechanisms differ.
+9. One language-neutral scalar projection covers booleans, nulls, byte values,
+   safe and unsafe-width integers, decimals, and timestamps across node
+   properties, queries, mutations, observation records, TypeScript, and Swift.
+   Provider storage values never leak as ad hoc JSON shapes.
 
 ## Decisions still requiring review
 

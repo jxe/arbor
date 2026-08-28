@@ -6,8 +6,10 @@
 - **Effort:** XL
 - **State:** PLANNED — deliberately separated from Data 002 so the logical node
   protocol can close without choosing an editor integration architecture.
-- **Depends on:** Data 002's provider-neutral node/query contracts and
-  Application 001's checked-in Supplies corpus.
+- **Depends on:** historical
+  [Data 002](../history/data/002-reconcile-node-data-model.md)'s
+  provider-neutral node/query contracts and Application 001's checked-in
+  Supplies corpus.
 - **Blocks:** Application 001 local/Canopy execution and Application 002 hosted
   agents.
 
@@ -87,6 +89,23 @@ semantics unavailable to `arbor check` and ordinary generated declarations.
 Cache the last known good declarations for offline editing and clearly mark
 them stale rather than silently discarding type information.
 
+## Bounded portable execution
+
+The current provider-neutral reference evaluator may page a complete ordinary
+child source, with an emergency ceiling, before applying the common predicate
+and field projection. That fallback is not public query semantics.
+
+- Every activation manifest declares a finite source bound or a provider plan
+  whose pushdown and cursor preserve the portable query meaning exactly.
+- Reject activation when neither mechanism proves bounded execution.
+- SQLite/Postgres collation, coercion, ordering, or null behavior must not
+  silently change a portable result; push down only reviewed equivalent
+  operations and evaluate the remainder through the shared query core.
+- The emergency ceiling remains a diagnostic safety limit, not an authored
+  cardinality contract.
+- Add cross-provider fixtures comparing full reference evaluation with every
+  accepted pushdown and cursor plan.
+
 ## Conformance and gates
 
 Add fixtures for homogeneous children, discriminated unions, optional content,
@@ -113,4 +132,3 @@ Completion gate:
 - Do not infer property types from currently sampled rows.
 - Do not require one editor, one workspace layout, or a running Canopy.
 - Do not absorb Application 001 rendering/hosting or Data 001 replication.
-

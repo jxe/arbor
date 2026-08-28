@@ -1,10 +1,10 @@
-# Hardening 002: Fix the escaped-backslash bug in the link-healing regex
+# Correctness and reliability 001: Fix the escaped-backslash bug in the link-healing regex
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
 > report — do not improvise. When done, update the status row for this plan
-> in `plan/hardening/README.md`.
+> in `plan/correctness-and-reliability/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/arborsync/src/workspace.ts`
 > The working tree was already dirty when this plan was written; also run
@@ -111,7 +111,7 @@ Repo conventions:
 
 ## Git workflow
 
-- Branch: `hardening/002-link-healing`
+- Branch: `correctness-and-reliability/001-link-healing`
 - Commit message style from `git log`: short imperative sentence, no prefix.
   Example: `Match whitespace, not the letter s, when healing links`.
 - Do NOT push or open a PR.
@@ -198,7 +198,7 @@ ALL must hold:
 - [ ] `grep -c '\[^)\\\\s\]' packages/arborsync/src/workspace.ts` returns 0
 - [ ] The new test fails when the fix is reverted (verified in step 3)
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plan/hardening/README.md` status row for 002 updated
+- [ ] `plan/correctness-and-reliability/README.md` status row for 001 updated
 
 ## STOP conditions
 

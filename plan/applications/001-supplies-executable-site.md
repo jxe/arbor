@@ -6,7 +6,7 @@
 - **Depends on**: completed SQLite query, streaming, and mutation runtimes
   recorded in [`history/applications`](../history/applications/README.md), plus
   the provider-neutral node/query contract and core/provider phases in
-  [Data 002](../data/002-reconcile-node-data-model.md)
+  [Data 002](../history/data/002-reconcile-node-data-model.md)
 - **Progress**: IN PROGRESS — compiler and development typechecking are owned
   by [Application 003](003-development-compiler-and-editor-tooling.md)
 - **Reference corpus**: [`sites/supplies`](../../sites/supplies)

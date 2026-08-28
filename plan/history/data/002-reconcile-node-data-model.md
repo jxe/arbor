@@ -84,7 +84,8 @@
   fall back to durable positional identity. Rolled-up rows resolve through
   ordinary node reads by path or stable key, including stale readable paths in
   managed and untracked scopes. The deliberate compatibility/retrofit layers
-  and their deletion conditions are recorded in the hardening backlog.
+  and their deletion conditions are recorded in
+  [remove-later](../../remove-later/README.md).
 - **2026-08-27 — SQLite node read path complete:** `_store.sqlite3` detection,
   executable-store validation, and standalone SQLite introspection now share
   the relational metadata in `@arbor/data`. A SQLite-backed directory samples
@@ -113,7 +114,7 @@
   transaction with a durable same-transaction retry receipt. CSV, JSON, and
   JSONL remain explicitly read-only. TypeScript and Swift protocol fixtures,
   local and managed adapters, the client, Supplies authored handles, specs, and
-  hardening debt are aligned. The obsolete authored `database()`/`.relations`
+  cross-cutting follow-ups are aligned. The obsolete authored `database()`/`.relations`
   namespace was removed without an adapter. Identity rules now contain only
   `properties`; the declaration site supplies the tree or sibling keyspace, and
   decoders reject the temporary scoped form introduced at the first checkpoint.
@@ -210,7 +211,7 @@
   identity materialization returns the resulting ref. New journals and Wire
   fixtures contain no duplicated tree/path/PageID fields; a bounded legacy
   journal reader preserves crash recovery and has an explicit deletion
-  condition in the hardening backlog.
+  condition in [remove-later](../../remove-later/README.md).
 - **2026-08-28 — native presentation reference cleanup:** ArborKit now exposes
   only `WorkspaceReference { tree, path, stableKey }`; its `PageID` wrapper,
   `pageID` initializer/property, and `pathHint` alias are deleted. App,
@@ -226,7 +227,7 @@
   observation cursors. Schema validation and SQLite row sampling now share one
   read transaction. The unresolved durable observation/checkpoint and semantic
   synchronization design moved intact to
-  [Data 005](005-database-observation-and-semantic-sync.md); Data 002 will not
+  [Data 005](../../data/005-database-observation-and-semantic-sync.md); Data 002 will not
   invent whole-database hashes or merge database storage bytes.
 - **2026-08-28 — exact-source Wire boundary correction:** the frozen
   `RollupDescriptor` and independent TypeScript/Swift conformance now admit
@@ -245,9 +246,10 @@
   physical-child cache and reopens them by stable key. Swift replicas preserve
   descriptors and their reachable objects exactly across materialization and
   unrelated offline edits. Server-grade application-code containment is one
-  deferred hardening boundary shared with SSR/query/mutation execution. Native
+  deferred [security boundary](../../insecure/README.md) shared with
+  SSR/query/mutation execution. Native
   offline row projection is deliberately deferred to
-  [Data 006](006-native-offline-rollup-row-projection.md). The reference
+  [Data 006](../../data/006-native-offline-rollup-row-projection.md). The reference
   merge currently writes one canonical encoding after semantic reconciliation;
   preserving untouched source formatting is tracked as explicit continuation
   debt rather than weakening the logical merge contract.
@@ -263,14 +265,14 @@
   the provider can prove it; imprecise external events remain conservative.
   Typed source declarations, activation-manifest generation, and editor
   integration continue in
-  [Application 003](../applications/003-development-compiler-and-editor-tooling.md);
+  [Application 003](../../applications/003-development-compiler-and-editor-tooling.md);
   representation-path conversion, including cross-representation search and
-  backlink proof, continues in [Data 003](003-representation-equivalence.md);
-  Postgres continues in [Data 004](004-postgres-child-provider.md); database
+  backlink proof, continues in [Data 003](../../data/003-representation-equivalence.md);
+  Postgres continues in [Data 004](../../data/004-postgres-child-provider.md); database
   observation/synchronization continues in
-  [Data 005](005-database-observation-and-semantic-sync.md); and native offline
+  [Data 005](../../data/005-database-observation-and-semantic-sync.md); and native offline
   rollup-row projection is deliberately deferred to
-  [Data 006](006-native-offline-rollup-row-projection.md). The closure gate
+  [Data 006](../../data/006-native-offline-rollup-row-projection.md). The closure gate
   passed TypeScript checking, the production build, 313 Bun tests, the live
   TypeScript/Swift protocol harness, all seven Swift package suites, and the
   macOS 27 Arbor application build.
@@ -867,7 +869,7 @@ from this plan's completion gate.
 - Delete obsolete enums, adapters, collection endpoints/methods, fixtures, and
   special directory filtering. Application 003 owns generated declarations.
 - Update README, local-system/CLI/API/reference docs, active plans, historical
-  implementation notes where they describe current behavior, and hardening
+  implementation notes where they describe current behavior, and cross-cutting
   backlog items superseded by this work.
 - Keep historical outcome evidence truthful: describe its old POST/collection
   implementation as historical rather than rewriting what previously shipped.
@@ -911,8 +913,8 @@ to Data 003; Postgres conformance belongs to Data 004; restart-safe database
 observation, foreign-key races, cascades, and semantic checkpoints belong to
 Data 005; native offline row pages belong to Data 006; generated typing and
 editor/compiler checks belong to Application 003. Formatting-preserving
-semantic merge and very-large placement performance remain explicit hardening
-items rather than hidden completion claims.
+semantic merge and very-large placement performance remain explicit
+cross-cutting items rather than hidden completion claims.
 
 Closure runs focused tests after every checkpoint, then `bun run typecheck`,
 `bun run build`, the complete Bun suite, `bun run test:protocol`, all Swift

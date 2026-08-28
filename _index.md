@@ -9,7 +9,7 @@ id: 6r6ov1
 
 [README](README)
 
-[technical-debt](plan/hardening/backlog)
+[cross-cutting-work](plan/README)
 
 [plan-native-history](plan/history/native/overview)
 

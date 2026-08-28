@@ -1,4 +1,4 @@
-# Hardening 006: Harden Canopy responses and rate limiting
+# Insecure 003: Harden Canopy responses and rate limiting
 
 > **Drift check**: inspect `packages/canopy/src/host.ts`,
 > `tests/integration/canopy`, and `deploy/` before editing. This plan was

@@ -73,6 +73,19 @@ only changes. Materialize it through every supported representation and prove:
 - round-trip migration returns to semantically identical Markdown without
   claiming byte identity where formatting was intentionally changed.
 
+## Provider and exact-source continuations
+
+- Separate authored relational names from reversible, collision-safe logical
+  child segments. Cover spaces, slashes, Unicode normalization, reserved
+  `~row-` prefixes, and same-named physical children without changing the
+  relation name used by query and mutation handles.
+- Preserve exact CSV/JSON/JSONL formatting through semantic merge where the
+  authority's current source span remains identifiable. Canonical encoding is a
+  fallback only for changed material whose exact form cannot be retained.
+- Reuse the bounded-placement corpus when SQLite, Postgres, remote rollups, and
+  native offline projection gain direct providers. Include a 100k-row case
+  proving generated placement does not grow authored Markdown source.
+
 ## Completion gate
 
 Ship the reviewed path rule, converter, dry-run report, rollback receipt,
