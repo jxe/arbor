@@ -41,10 +41,12 @@
       },
       "dependencies": {
         "@arbor/core": "workspace:*",
+        "@arbor/data": "workspace:*",
         "@arbor/editor": "workspace:*",
         "@arbor/fs": "workspace:*",
         "@arbor/stores": "workspace:*",
         "@arbor/wire": "workspace:*",
+        "@arbor/wire-projection": "workspace:*",
         "zod": "4.3.6",
       },
     },
@@ -56,9 +58,11 @@
       },
       "dependencies": {
         "@arbor/core": "workspace:*",
+        "@arbor/data": "workspace:*",
         "@arbor/editor": "workspace:*",
         "@arbor/stores": "workspace:*",
         "@arbor/wire": "workspace:*",
+        "@arbor/wire-projection": "workspace:*",
         "yaml": "2.8.2",
       },
     },
@@ -139,6 +143,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@arbor/core": "workspace:*",
+        "@arbor/data": "workspace:*",
         "@arbor/editor": "workspace:*",
         "@arbor/fs": "workspace:*",
         "csv-parse": "6.1.0",
@@ -153,6 +158,16 @@
       "dependencies": {
         "@arbor/core": "workspace:*",
         "@arbor/fs": "workspace:*",
+      },
+    },
+    "packages/wire-projection": {
+      "name": "@arbor/wire-projection",
+      "version": "0.1.0",
+      "dependencies": {
+        "@arbor/core": "workspace:*",
+        "@arbor/editor": "workspace:*",
+        "@arbor/stores": "workspace:*",
+        "@arbor/wire": "workspace:*",
       },
     },
   },
@@ -178,6 +193,8 @@
     "@arbor/stores": ["@arbor/stores@workspace:packages/stores"],
 
     "@arbor/wire": ["@arbor/wire@workspace:packages/wire"],
+
+    "@arbor/wire-projection": ["@arbor/wire-projection@workspace:packages/wire-projection"],
 
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
 
