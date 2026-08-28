@@ -73,6 +73,23 @@ private struct ArborNavigationCommands: Commands {
             Button("Source and Properties…") { commands?.showSource() }
                 .keyboardShortcut("i", modifiers: .command)
                 .disabled(commands?.hasNode != true)
+#if os(macOS)
+            Divider()
+            ArborEditorCommandButton(
+                title: "Fold All Headings",
+                key: .leftArrow,
+                modifiers: [.command, .option],
+                requires: .canFoldAllHeadings,
+                action: .foldAllHeadings
+            )
+            ArborEditorCommandButton(
+                title: "Unfold All Headings",
+                key: .rightArrow,
+                modifiers: [.command, .option],
+                requires: .canUnfoldAllHeadings,
+                action: .unfoldAllHeadings
+            )
+#endif
         }
 #if os(macOS)
         CommandMenu("Page") {

@@ -30,6 +30,17 @@ Web currently uses BlockNote as the interactive layer. This is a reference choic
 
 The leading emoji grapheme of the first H1 is Arbor's document icon. Setting or clearing it edits that H1; setting an icon on a document without an H1 prepends a heading using the display name. `Assets` is Arbor's conventional destination for imported binary assets. These are client conventions rather than portable authored-format requirements.
 
+Native Arbor makes every Markdown heading except the leading page-title H1 a
+collapsible section. Sections start expanded when a page opens, and folding is
+session-local view state: it does not edit Markdown, create authored undo, or
+persist across reopening the page. A disclosure control beside each eligible
+heading folds or unfolds that section while preserving nested folded state.
+On macOS, **Fold All Headings** and **Unfold All Headings** live in the View menu
+with Command-Option-Left and Command-Option-Right. On iOS, the same commands are
+available by long-pressing the Pages button; tapping it continues to open the
+sidebar. An individual heading's block action menu also offers **Fold Section**
+or **Unfold Section**.
+
 ## Profile control and Claim
 
 The persistent profile control shows the active safe community/profile identity, connected or credential-unavailable state, and every writable community, person-profile, and group-profile namespace. Selecting an unplaced namespace asks where it should live locally; selecting an existing placement opens it. The control never displays or copies stored credentials.

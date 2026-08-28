@@ -431,7 +431,7 @@ struct ArborRootView: View {
         .toolbar {
 #if os(iOS)
             ToolbarItem(placement: .topBarLeading) {
-                Button("Pages", systemImage: "line.3.horizontal") { sidebarPresented = true }
+                ArborPagesButton { sidebarPresented = true }
             }
 #endif
             ToolbarItemGroup(placement: .primaryAction) {
@@ -652,6 +652,27 @@ struct ArborRootView: View {
 }
 
 #if os(iOS)
+private struct ArborPagesButton: View {
+    let openPages: () -> Void
+    @FocusedValue(\.editorCommands) private var editorCommands
+
+    var body: some View {
+        Menu("Pages", systemImage: "line.3.horizontal") {
+            Button("Fold All Headings", systemImage: "rectangle.compress.vertical") {
+                editorCommands?.perform(.foldAllHeadings)
+            }
+            .disabled(editorCommands?.can(.canFoldAllHeadings) != true)
+
+            Button("Unfold All Headings", systemImage: "rectangle.expand.vertical") {
+                editorCommands?.perform(.unfoldAllHeadings)
+            }
+            .disabled(editorCommands?.can(.canUnfoldAllHeadings) != true)
+        } primaryAction: {
+            openPages()
+        }
+    }
+}
+
 private struct ArborEditorUndoButtons: View {
     @FocusedValue(\.documentUndoController) private var undoController
     @State private var undoRevision = 0
