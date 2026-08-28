@@ -251,19 +251,23 @@ type WriteProperties = {
 The submitted map is complete: omitted keys are deletions and explicit `null`
 is a value. Identity properties cannot change. Markdown rewrites only
 frontmatter while retaining the exact body; a primary-key SQLite row is updated
-in one foreign-key-checked transaction. Identity-less rows and CSV/JSON/JSONL
-rollups remain read-only until their providers implement prepared exact-source
-writes. Named executable mutations remain the surface for authorization,
-multi-row work, cascades, and business invariants.
+in one foreign-key-checked transaction. Stable-key CSV/JSON/JSONL rows use an
+exact-source compare, complete schema validation, fsynced prepared replacement,
+and atomic rename while preserving untouched source spans. Identity-less rows
+and file-rollup membership remain read-only. Named executable mutations remain
+the surface for authorization, multi-row work, cascades, and business
+invariants.
 Structural operations guard the relevant directory revisions. Multipart assets
 and imports contain explicit destination `NodeRef`s and are idempotent under the
 same mutation identity rules.
 
 A successful receipt includes the mutation identity, committed tree-scoped
-result/effects, and `observedThrough`. Acknowledgement means the authored intent
-and eventual receipt are crash-recoverable. An exact replay returns the same
-receipt. Reusing an ID for different bytes is `conflict`; ambiguous transport
-failure permits only exact replay.
+result/effects, and `observedThrough`. A property effect includes the exact
+`changedProperties` names when the provider can prove them; omission requires
+observers to invalidate conservatively. Acknowledgement means the authored
+intent and eventual receipt are crash-recoverable. An exact replay returns the
+same receipt. Reusing an ID for different bytes is `conflict`; ambiguous
+transport failure permits only exact replay.
 
 Steady-state placement, ACL, canonical-boundary, profile/community,
 administrator, and device-revocation changes are not special arborsync mutations.

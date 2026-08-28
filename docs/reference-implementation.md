@@ -18,6 +18,13 @@ The Apple reference client is a Foundation-only Swift 6 package under `native/Pa
 
 Arbor web uses React and BlockNote. Markdown remains canonical: arborsync returns complete operational directory source, BlockNote edits a server-derived block view, and the browser serializes exact/block-granular source for every content write. Child-link reorder is a source write; physical moves remain structural.
 
+The shared public data boundary is capability-based `NodeSnapshot`,
+`NodeSummary`, and `ChildrenPage`. Managed and untracked filesystem adapters
+delegate expanded directories, Markdown records, CSV/JSON/JSONL rollups, and
+SQLite table/row subtrees through one `ChildProvider`; there is no collection
+page or private parallel node ontology. Representation loaders remain private
+store records.
+
 Compiler isolation, generated declarations, store observation, and hosting mechanics are documented in [the executable runtime](executable-runtime.md).
 
 ## Durability and observation
@@ -35,6 +42,13 @@ The synchronized [`trees.yaml`](../spec/05-configuration.md#configuration-yaml) 
 The TypeScript wire package implements deterministic CBOR objects, SHA-256 addressing, filesystem snapshots, strict update JSON/base64, canonical semantic request identity, shared result types, and the Wire client. Any use of JavaScript `localeCompare`, platform enumeration order, or noncanonical CBOR would be a conformance bug; the wire requires lexicographic UTF-8 entry ordering.
 
 The server-only Canopy package implements access and claims, public HTTP projection, graph validation, accepted-update reconciliation, the sole three-way merge engine, and private storage. Update handling is separated into small decision, reconciliation, merge, and transactional store modules even though they run in one process. Canopy retains every accepted root and its reachable objects indefinitely. Accepted history is internal: the HTTP surface exposes neither an accepted-history collection nor non-current objects, including to writers.
+
+Wire directory objects can reference exact CSV/JSON/JSONL rollup and schema
+objects. Canopy validates those graphs, merges disjoint rows by stable identity,
+and projects logical rows at ordinary public HTML/Markdown locators while
+keeping `_store.*` and `schema.ts` out of child navigation. The Swift replica
+currently preserves these objects losslessly but does not project their rows
+while fully offline.
 
 For a state-changing update, Canopy canonicalizes the all-string semantic value `{ base, candidate, tree, version: "updates-v1" }` and hashes its UTF-8 JSON with SHA-256. The successful accepted row stores that digest for replay. Supplied object envelopes are transport aids and do not change identity; `current` and conflict outcomes remain stateless. Rejected candidates and complete conflict drafts are returned to and retained by the client, not stored as Canopy history.
 

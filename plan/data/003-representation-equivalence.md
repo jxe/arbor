@@ -48,7 +48,8 @@ the selected rule has been reviewed with the user.
 4. Rewrite only relative links whose resolved target is proven to be a migrated
    node; retain application queries, content fragments, and stable-key aliases.
 5. Compare the complete pre/post logical fixture, scoped model digest, query
-   results, mutation validation, and child generation.
+   results, mutation validation, child generation, search results, backlinks,
+   and derived reference indexes.
 6. Commit the representation and link changes as one accepted candidate tree
    update, or leave the source untouched.
 7. Retain a reversible migration receipt naming exact source/target revisions,
@@ -66,7 +67,9 @@ only changes. Materialize it through every supported representation and prove:
 - ordinary Markdown links open in non-Arbor editors;
 - locator healing preserves key, query, and content-fragment components;
 - portable queries and named mutations produce the same public results and
-  accepted logical effects; and
+  accepted logical effects;
+- search, backlinks, and locator healing continue to address the same stable
+  nodes without exposing representation files; and
 - round-trip migration returns to semantically identical Markdown without
   claiming byte identity where formatting was intentionally changed.
 
@@ -77,4 +80,3 @@ language-neutral fixtures, and at least Markdown ↔ JSON, Markdown ↔ CSV,
 Markdown ↔ JSONL, and Markdown ↔ SQLite round trips. Then remove Data 002's
 temporary statement that representation migration may preserve identity while
 readable paths differ.
-

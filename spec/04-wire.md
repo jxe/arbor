@@ -389,6 +389,15 @@ authorization and reevaluation; it is neither
 authorization nor evidence of current state. Output hashes are SHA-256 of RFC
 8785 canonical JSON for the complete public result.
 
+Every provider translates the reviewed query into conservative logical
+sensitivities. An ordinary `.children` query depends on its resolved parent's
+membership and schema, the sampled child identities/revisions, and every
+property field used by filtering or selection. A provider-owned mutation may
+publish the exact changed property names; an external or imprecise observation
+omits them and therefore widens invalidation. Relational providers may prove
+narrower row/edge sensitivities, but missing precision never permits a skipped
+reevaluation.
+
 The UTF-8 SSE response has these semantic events:
 
 ```ts
@@ -435,6 +444,10 @@ a raw driver event or patch. `ready` is sent only after every query has
 established a race-free snapshot-then-follow boundary. Before `ready`, changed
 hashes produce complete `result` values and an unchanged retained value may be
 confirmed by its hash in `ready`. Identical output hashes produce no payload.
+The observation listener is active before sampling. Events racing evaluation
+are checked against both the former and newly sampled dependencies; a relevant
+event forces another complete evaluation before that result is published. This
+is the no-gap guarantee. It does not require a retained query-event replay log.
 
 `QUERY` has the safe and idempotent semantics defined by
 [RFC 10008](https://www.rfc-editor.org/rfc/rfc10008.html). Evaluating or
@@ -982,6 +995,15 @@ Readable canonical paths have safe HTTP and `arbor://` projections. HTML,
 Markdown, files, and redirects retain canonical tree/path provenance and never
 broaden access. Historical roots remain immutable and read-only. The server
 does not publish or resolve the account-configuration tree.
+
+Rows in a recognized synchronized CSV/JSON/JSONL child rollup have the same
+ordinary public path and stable-key locator projection as expanded children.
+The parent page lists those logical rows rather than `_store.*` or `schema.ts`.
+A path lookup or stable-key lookup may render a row as an HTML property page or
+a Markdown data projection; a stale readable path redirects permanently to the
+current row path while preserving the key, application query, and content
+fragment. Public projection never materializes a row as a Markdown file and
+never exposes the reserved representation objects as children.
 
 ## 7. Conformance
 

@@ -8,11 +8,26 @@ The reference direction uses isolated JavaScript workers, with QuickJS/Wasm avai
 
 Generated TypeScript declarations live in private workspace state. Arbor-owned compiler and language-service hosts include them as extra root files, so authored trees do not name machine-local paths or require generated content. Bundles, code hashes, validators, manifests, caches, and generated database declarations are reproducible output. If a schema or connection is temporarily invalid, the reference tooling retains the last valid declarations, marks them stale, and reports a diagnostic.
 
-The compiler currently normalizes callable relations, predicates, selections, and aggregates into a backing-independent relational IR, produces SQLite plans, and derives change-sensitivity plans. A Postgres driver is intended to consume the same IR. Concrete bundlers, worker topology, IR representation, generated-file paths, and compiler package structure are replaceable.
+The runtime normalizes every source through `arbor(path)`. Its implemented
+portable subset is ordinary child filtering, explicit field picking, shared
+cardinality, and deterministic stable-key/path ordering over expanded and
+SQLite providers. SQLite retains explicit relational extensions for callable
+relations, aggregates, ordering, and correlated selections. Generated typing,
+activation manifests, and editor language-service integration remain planned;
+a Postgres driver is also future work. Concrete bundlers, worker topology, IR
+representation, generated-file paths, and compiler package structure are
+replaceable.
 
 ## Store observation
 
 The initial runtime builds a sensitivity plan over base and virtual relations, projected and predicate fields, correlation and join keys, existence tests, group membership, aggregates, ordering, result windows, and shaped-result keys. It uses that plan to decide whether a committed change may affect a query, reruns the complete database query when needed, and publishes a complete replacement only when its canonical output hash changes. During a rerun it intersects invalidations with the union of the old and newly collected dependencies. These are implementation techniques for satisfying the portable no-gap and no-known-stale-result requirements.
+
+Ordinary child queries use the same coordination rule with provider-neutral
+dependencies: source membership/schema, sampled rows, and fields used by the
+predicate or selection. Local property mutations publish exact changed fields;
+external events without that precision invalidate conservatively. The listener
+is attached before the first sample, and a relevant event racing that sample is
+checked against both old and new dependencies and rerun before publication.
 
 SQLite observation may combine connection-local hooks for Arbor-owned writes with filesystem notifications and database revision checks for external writers. Consistent snapshots use SQLite backup/checkpoint facilities rather than unrelated copies of the main file and WAL. A Canopy-hosted SQLite tree serializes store writes with accepted updates and journals mutation intent before acknowledgement.
 

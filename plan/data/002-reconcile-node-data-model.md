@@ -13,12 +13,17 @@
 - **Effort:** XL
 - **Risk:** HIGH — node identity, editing, paging, sync, rendering, and native
   protocol parity all change together.
-- **State:** IN PROGRESS
+- **State:** COMPLETE — the common local/Wire node, locator, rollup, query,
+  mutation, and presentation contracts are implemented. Representation
+  conversion, Postgres, durable database observation/synchronization, native
+  offline rollup-row projection, and compiler/editor tooling continue in their
+  dedicated plans.
 - **Depends on:** accepted specification in `spec/01-data-model.md`,
   `spec/02-directory-format.md`, `spec/03-locators.md`, `spec/04-wire.md`, and
   `spec/06-stores.md`
-- **Blocks:** Data 001, Data 003 representation migration, Data 004 Postgres,
-  and Application 003 compiler/runtime binding
+- **Unblocks:** Data 001, Data 003 representation migration, Data 004 Postgres,
+  Data 005 database observation/synchronization, Data 006 native offline row
+  projection, and Application 003 compiler/runtime binding
 
 ### Implementation checkpoints
 
@@ -32,12 +37,6 @@
   rewrites the Markdown alias to the server-visible suffix. The owner index,
   rather than the locator parser, remains responsible for proving that a legacy
   bare fragment uniquely names an old PageID.
-- **Locator integration still open:** migrate the remaining native presentation
-  references, `ArborReplica`'s private Markdown-link parser, PageID-shaped
-  search/event payloads, and Canopy boundary resolution/redirects to the
-  stable-key slot. Remove the temporary stable-key-to-PageID bridges only with
-  that coordinated node-model cutover. These items remain owned by Phases 3–6
-  below rather than being mistaken for completed codec work.
 - **2026-08-27 — node sampling contract complete:**
   `conformance/node-model.json` freezes the three-part ref, identity rules,
   capabilities, exact-source content, summaries, snapshots, children pages,
@@ -60,8 +59,9 @@
   wire reference.
 - **2026-08-27 — snapshot, children, and collection protocol cutover complete:**
   core exposes the frozen capability-based `NodeSnapshot`, `NodeSummary`, and
-  `ChildrenPage`; physical `TreeNode`/`TreeChild` and collection backing records
-  are provider-internal. Local, managed, system, mounted, and remote adapters
+  `ChildrenPage`; collection backing records remain provider-internal and the
+  temporary private `TreeNode`/`TreeChild` ontology is deleted. Local, managed,
+  system, mounted, and remote adapters
   emit properties, exact-source content, capabilities, and generic paginated
   summaries. `/v1/collection` and its TypeScript/Swift clients are removed, the
   browser renders tables from `NodeSummary.properties`, and neither client
@@ -129,9 +129,9 @@
   path or stable key: snapshots include projected properties and exact Markdown
   content, `writeProperties` schema-validates complete frontmatter while
   preserving the body, path-only writes cannot change declared identity, and
-  exact content writes accept the same stable row reference. The remaining
-  provider-probe and activation-manifest retrofits, plus portable query semantic
-  equivalence not completed in this slice, are explicit hardening debt.
+  exact content writes accept the same stable row reference. Later checkpoints
+  remove the remaining provider probes and complete portable query semantics;
+  generated activation manifests remain Application 003 work.
 - **2026-08-27 — shared child-provider adapter cutover complete:** expanded
   directories, schema-governed Markdown records, CSV/JSON/JSONL rollups, and
   SQLite table/row subtrees now cross the managed and untracked adapter boundary
@@ -142,9 +142,8 @@
   SQLite-grandparent, or virtual-table probes; the internal `CollectionPage`
   type and adapter translation helper are deleted. Provider conformance tests
   freeze the same snapshot/children contract for expanded, Markdown, CSV, JSON,
-  JSONL, and SQLite children. Private physical `TreeNode`/`TreeChild` and store
-  loading records remain implementation details pending the broader filesystem
-  and observation phases.
+  JSONL, and SQLite children. Store loading records remain provider details;
+  adapters no longer translate through a second private node ontology.
 - **2026-08-27 — exact-source file-rollup property writes complete:** CSV,
   JSON, and JSONL rows with declared stable keys now expose writable properties
   through the same `ChildProvider` transaction boundary as Markdown and
@@ -190,8 +189,9 @@
   readable paths while preserving the key and application query. The private
   `collection`/`postgres` node kinds and `CollectionSummary`/`CollectionRow`
   records are removed: expanded directories always remain physical
-  directories and carry provider child-set metadata separately. Deprecated
-  native source aliases remain the last locator bridge.
+  directories and carry provider child-set metadata separately. The retained
+  PageID owner index is a Markdown representation codec and bounded legacy-link
+  reader, not a presentation or locator reference type.
 - **2026-08-28 — provider-neutral live queries and final execution routes:**
   `NodeLiveQueryBroker` runs the portable filter/field/cardinality algebra over
   any ordinary `NodeQueryProvider`, subscribes before sampling, queues racing
@@ -251,15 +251,29 @@
   merge currently writes one canonical encoding after semantic reconciliation;
   preserving untouched source formatting is tracked as explicit continuation
   debt rather than weakening the logical merge contract.
-- **Next checkpoint:** finish private filesystem ontology cleanup, public
-  rollup-row locators, and provider-neutral live-query sensitivities. Typed
-  source declarations, activation-manifest generation, and
-  editor integration moved intact to
+- **2026-08-28 — final common-model closure:** `@arbor/core/internal` and the
+  private `TreeNode`/`TreeChild` adapter graph are deleted; expanded children
+  are sampled directly into the public node contract. Canopy's ordinary public
+  resolver lists, opens, and stable-key-heals Wire CSV/JSON/JSONL rows as HTML
+  or Markdown while keeping representation files hidden. Ordinary live queries
+  now derive source, membership, row, schema, and property-field sensitivities,
+  subscribe before sampling, check racing changes against old and new
+  dependencies, and publish the first result only after any relevant race has
+  been rerun. Direct property writes carry exact changed-field metadata when
+  the provider can prove it; imprecise external events remain conservative.
+  Typed source declarations, activation-manifest generation, and editor
+  integration continue in
   [Application 003](../applications/003-development-compiler-and-editor-tooling.md);
-  representation-path conversion moved to [Data 003](003-representation-equivalence.md);
-  Postgres provider implementation moved to [Data 004](004-postgres-child-provider.md);
-  native offline rollup-row projection moved to
-  [Data 006](006-native-offline-rollup-row-projection.md).
+  representation-path conversion, including cross-representation search and
+  backlink proof, continues in [Data 003](003-representation-equivalence.md);
+  Postgres continues in [Data 004](004-postgres-child-provider.md); database
+  observation/synchronization continues in
+  [Data 005](005-database-observation-and-semantic-sync.md); and native offline
+  rollup-row projection is deliberately deferred to
+  [Data 006](006-native-offline-rollup-row-projection.md). The closure gate
+  passed TypeScript checking, the production build, 313 Bun tests, the live
+  TypeScript/Swift protocol harness, all seven Swift package suites, and the
+  macOS 27 Arbor application build.
 
 ## Target result
 
@@ -282,8 +296,9 @@ directories, collections, database containers, tables, and rows:
 - every reference carries tree, current path, and one nullable stable-key slot;
   PageIDs and collection-scoped row keys populate that same slot;
 - rolled-up children participate in tree snapshots, accepted updates,
-  semantic merge, watch, search, derived references/backlinks, and directory
-  placement; and
+  semantic merge, watch invalidation, queries, public resolution, and directory
+  placement; cross-representation search/backlink equivalence belongs to Data
+  003; and
 - TypeScript, Swift, local, managed, offline, and remote providers consume the
   same conformance fixtures.
 
@@ -486,17 +501,22 @@ The precise serialized form is decided in Phase 0. Preserve these invariants:
 
 ## Child representations and rollups
 
-Implement one provider interface for logical child sets:
+Implement one provider boundary for logical child sets. The completed local
+boundary is equivalent to:
 
 ```ts
 interface ChildProvider {
-  describe(node: ResolvedNodeRef, snapshot: ProviderSnapshot): Promise<ChildrenCapability>;
-  page(node: ResolvedNodeRef, cursor: string | null, projection: Projection): Promise<ChildrenPage>;
-  resolve(ref: NodeRef, snapshot: ProviderSnapshot): Promise<NodeSnapshot | null>;
-  prepare(candidate: LogicalTransaction, base: ProviderSnapshot): Promise<PreparedProviderCommit>;
-  observe(after: ProviderCursor): AsyncIterable<ProviderChange>;
+  snapshot(ref: NodeRef, observedThrough: EventCursor): Promise<NodeSnapshot>;
+  children(ref: NodeRef, cursor: string | null, observedThrough: EventCursor): Promise<ChildrenPage>;
+  writeTarget(ref: NodeRef): Promise<PropertyWriteTarget | null>;
 }
 ```
+
+The boundary also owns provider-specific preparation/commit helpers behind
+`writeTarget`; those helpers are not a second public mutation API. Filesystem
+observation is supplied separately. Data 005 owns the database read-session and
+committed-observation interface rather than forcing an exact-revision-shaped
+`observe` method into this file-provider boundary.
 
 Provider variants:
 
@@ -682,7 +702,14 @@ this exact-source merge. Never byte-merge SQLite pages or hash every row to
 manufacture an ordinary read revision. Data 005 owns the reviewed transaction,
 observation, checkpoint, and semantic synchronization protocol.
 
-## Implementation phases
+## Original implementation phases — completed or reassigned
+
+The phase list records the migration decomposition used during implementation.
+The checkpoint log and closure matrix above are authoritative about delivered
+behavior. Compiler/editor activation, representation conversion, Postgres,
+database observation/synchronization, and native offline rollup rows were
+reassigned intact to the linked follow-on plans rather than silently omitted
+from this plan's completion gate.
 
 ### Phase 0 — freeze protocol and conformance
 
@@ -844,54 +871,52 @@ observation, checkpoint, and semantic synchronization protocol.
   backlog items superseded by this work.
 - Keep historical outcome evidence truthful: describe its old POST/collection
   implementation as historical rather than rewriting what previously shipped.
-- Add an architecture decision note explaining capabilities versus provider
-  representations and rollup semantics.
+- Use the normative `spec/01-data-model.md` projection/equivalence sections as
+  the architecture decision for capabilities versus provider representations
+  and rollup semantics; do not create a competing implementation-only model.
 
 ## Verification matrix
 
-At minimum, prove:
+Data 002 closure proves the common contract rather than claiming the deferred
+placement work:
 
-- one logical fixture has identical stable identities, properties, children,
-  schema, model-state equivalence, and scoped store digests through Markdown,
-  CSV, JSON, JSONL, and SQLite; Data 003 owns readable-path-preserving
-  representation conversion and Data 004 adds the same provider fixture for
-  Postgres;
-- primary and compound schema identity survive reorder, formatting, restart,
-  paging, and readable-path healing within a representation; Data 003 owns the
-  cross-representation migration proof;
-- duplicate/missing keys disable mutation and durable references;
-- generic children render tables without `/v1/collection` or N+1 reads;
-- content-only, property-only, children-only, combined Markdown+children,
-  row-only, row+content, binary-content, executable, placeholder, historical,
-  mounted, and diagnostic nodes decode in TypeScript and Swift;
-- bounded marker absence/presence/order/duplicates/promotion/demotion and over
-  100k virtual children without O(n) Markdown source;
-- exact JSON/CSV formatting-only edits round-trip and avoid false query reruns;
-- one provider-neutral query returns the same public value and dependency
-  meaning across expanded nodes and each rollup/database representation;
-- non-database queries stream through `/queries`, react to content, properties,
-  membership, extracted references, mounted roots, and access changes, and never expose raw
-  provider details;
-- file patches and complete rollup objects produce the same candidate intent;
-- disjoint row merge, same-row conflict, key change, schema conflict, foreign-key
-  race, and constraint validation;
-- local filesystem, managed tree, offline replica, remote Canopy, public HTTP,
-  browser, and native presentations agree;
-- renamed Markdown, row, and executable-document links resolve identically in
-  native and authority HTTP; server rendering receives the stable key;
-  application query parameters survive redirects and authored-link healing;
-  ordinary Markdown tools still open the relative target path; content
-  fragments remain distinct from stable-key aliases;
-- snapshot-then-follow has no read/watch gap, expired cursors resync, and a
-  matching mutation/update digest is a causal acknowledgement;
-- malformed rollup/source/schema/model-digest inputs are rejected under quotas;
-  and
-- search/backlinks/recovery never lose tree scope or confuse stable-key scopes.
+- primary and compound schema identity survive formatting, restart, paging,
+  and stale readable-path healing within each implemented representation;
+- duplicate, missing, nullable, and invalid keys fail closed for durable
+  identity and mutation;
+- generic snapshots and children cover expanded directories, Markdown records,
+  CSV/JSON/JSONL rollups, SQLite database/table/rows, remote Wire rows,
+  placeholders, ordinary files, and diagnostics without `/v1/collection` or
+  an N+1 hydration contract;
+- TypeScript and Swift independently decode the same capability, locator,
+  reference, rollup-descriptor, update, merge, and SSE fixtures;
+- bounded directory placement has one shared authored-link/marker meaning and
+  never serializes generated virtual children;
+- one portable query has the same filtering, field-picking, cardinality,
+  ordering, and dependency meaning over expanded and SQLite children;
+- an ordinary live query attaches before sampling, narrows exact property
+  changes, reruns a racing membership change before the first result, and
+  widens safely when observation precision is absent;
+- exact file patches and complete rollup objects name the same candidate state;
+  Canopy validates bounded rollups and handles disjoint merge, row conflict,
+  schema conflict, and malformed graphs;
+- local managed/untracked providers, the remote Arbor Sync adapter, Canopy
+  public HTTP, browser integration, TypeScript clients, and native clients use
+  the same node and locator contracts; and
+- accepted tree watch remains replayable and gap-free, with a matching update
+  digest as causal acknowledgement distinct from stateless query streaming.
 
-Run focused tests after every phase, then `bun run typecheck`, `bun run build`,
-the complete Bun suite, `bun run test:protocol`, Swift package suites, required
-macOS/iOS builds, browser E2E for incremental collection presentation, and
-`git diff --check`.
+The larger cross-representation corpus and link/search/backlink proof belongs
+to Data 003; Postgres conformance belongs to Data 004; restart-safe database
+observation, foreign-key races, cascades, and semantic checkpoints belong to
+Data 005; native offline row pages belong to Data 006; generated typing and
+editor/compiler checks belong to Application 003. Formatting-preserving
+semantic merge and very-large placement performance remain explicit hardening
+items rather than hidden completion claims.
+
+Closure runs focused tests after every checkpoint, then `bun run typecheck`,
+`bun run build`, the complete Bun suite, `bun run test:protocol`, all Swift
+package suites, a macOS application build, and `git diff --check`.
 
 ## Migration and compatibility rules
 
@@ -932,12 +957,19 @@ Stop and ask for design review if:
 
 ## Completion gate
 
-One fixture tree containing ordinary files, Markdown with frontmatter and
-children, CSV/JSON/JSONL/SQLite rollups, tables, rows, an executable document,
-and a mounted boundary is navigated and edited through only generic node,
-children, content/property mutation, query, and mutate contracts. Local web,
-remote Canopy, offline replica, TypeScript client, and native clients agree on
-identity, revisions, properties, capabilities, pagination, and placement.
-There is no public collection endpoint or kind-based ontology, accepted updates
-understand rolled-up children, and every retained conformance and end-to-end
-test passes.
+The implemented fixtures containing ordinary files, Markdown with frontmatter
+and children, CSV/JSON/JSONL/SQLite child sets, tables, rows, executable query
+and mutation handles, and mounted boundaries are navigated and edited through
+only generic node, children, content/property mutation, query, and mutate
+contracts. Local web, remote Arbor Sync, Canopy, TypeScript clients, and native
+clients agree on the common identity, locator, capability, pagination,
+placement, Wire-object, and exact-update shapes. Native replicas preserve every
+rollup object losslessly; presenting those rows while fully offline is the
+explicit Data 006 capability extension rather than a Data 002 claim.
+
+There is no public or private collection-page ontology, no public physical kind
+taxonomy, accepted updates understand and semantically merge file-rollup
+children, Canopy publicly resolves those rows, and provider-neutral ordinary
+queries have selective gap-free snapshot-then-follow behavior. Every retained
+Data 002 conformance and integration test passes; the follow-on plans above own
+their separate completion gates.
