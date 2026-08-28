@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseMarkdown } from "@arbor/editor";
@@ -74,26 +74,5 @@ describe("durable mutation journal", () => {
     };
     await reopened.complete("mutation-1", "request-hash", receipt);
     expect((await new MutationJournal(directory).get("mutation-1"))?.receipt).toEqual(receipt);
-  });
-
-  test("upgrades legacy effect locations only while reading durable records", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "arbor-mutations-")); directories.push(directory);
-    const journal = new MutationJournal(directory);
-    await journal.prepare("legacy-mutation", "request-hash", { operations: [] });
-    const [recordPath] = await readdir(directory);
-    await writeFile(join(directory, recordPath!), JSON.stringify({
-      mutationID: "legacy-mutation",
-      requestHash: "request-hash",
-      request: { operations: [] },
-      state: "materialized",
-      effects: [{ tree: "local", kind: "updated", path: "/old", pageID: "abc123" }],
-    }));
-
-    expect(await journal.get("legacy-mutation")).toMatchObject({
-      effects: [{
-        kind: "updated",
-        ref: { tree: "local", path: "/old", stableKey: '[["id","abc123"]]' },
-      }],
-    });
   });
 });

@@ -1,7 +1,6 @@
 import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { sha256, type ArborBlock, type MutationEffect, type MutationReceipt } from "@arbor/core";
-import { pageIDStableKey } from "@arbor/core/node-key";
 import { blockFingerprint, parseMarkdown, serializeBlocks } from "@arbor/editor";
 import { writeAtomic } from "./file-ops.ts";
 
@@ -32,37 +31,6 @@ export interface DurableMutationRecord {
   expectedEffects?: MutationEffect[];
   effects?: MutationEffect[];
   receipt?: MutationReceipt;
-}
-
-type LegacyMutationEffect = Omit<MutationEffect, "ref"> & {
-  tree?: string;
-  path?: string;
-  pageID?: string;
-  ref?: MutationEffect["ref"];
-};
-
-function normalizeMutationEffect(value: LegacyMutationEffect): MutationEffect {
-  if (value.ref && typeof value.ref.tree === "string" && typeof value.ref.path === "string") {
-    const { tree: _tree, path: _path, pageID: _pageID, ...effect } = value;
-    return effect as MutationEffect;
-  }
-  if (typeof value.tree !== "string" || typeof value.path !== "string") {
-    throw new TypeError("Mutation journal effect has no node reference");
-  }
-  const { tree, path, pageID, ...effect } = value;
-  return {
-    ...effect,
-    ref: { tree, path, stableKey: pageID ? pageIDStableKey(pageID) : null },
-  } as MutationEffect;
-}
-
-function normalizeMutationRecord(value: DurableMutationRecord): DurableMutationRecord {
-  const effects = value.effects?.map((effect) => normalizeMutationEffect(effect as LegacyMutationEffect));
-  const expectedEffects = value.expectedEffects?.map((effect) => normalizeMutationEffect(effect as LegacyMutationEffect));
-  const receipt = value.receipt
-    ? { ...value.receipt, effects: value.receipt.effects.map((effect) => normalizeMutationEffect(effect as LegacyMutationEffect)) }
-    : undefined;
-  return { ...value, effects, expectedEffects, receipt };
 }
 
 interface FlatBlock {
@@ -255,7 +223,7 @@ export class MutationJournal {
 
   async get(mutationID: string): Promise<DurableMutationRecord | null> {
     try {
-      return normalizeMutationRecord(JSON.parse(await readFile(this.path(mutationID), "utf8")) as DurableMutationRecord);
+      return JSON.parse(await readFile(this.path(mutationID), "utf8")) as DurableMutationRecord;
     } catch {
       return null;
     }
@@ -266,7 +234,7 @@ export class MutationJournal {
     try {
       const entries = await readdir(this.directory);
       const records = await Promise.all(entries.filter((entry) => entry.endsWith(".json")).map(async (entry) => {
-        try { return normalizeMutationRecord(JSON.parse(await readFile(join(this.directory, entry), "utf8")) as DurableMutationRecord); }
+        try { return JSON.parse(await readFile(join(this.directory, entry), "utf8")) as DurableMutationRecord; }
         catch { return null; }
       }));
       return records.filter((record): record is DurableMutationRecord => Boolean(record && record.state !== "completed"));
