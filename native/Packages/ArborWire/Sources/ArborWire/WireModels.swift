@@ -111,7 +111,44 @@ public struct WireAccountSnapshot: Codable, Sendable, Equatable {
 public struct WireResolvedNodeRef: Codable, Sendable, Equatable {
     public var tree: String
     public var path: String
-    public var pageID: String?
+    public var stableKey: String?
+
+    public init(tree: String, path: String, stableKey: String? = nil) {
+        self.tree = tree
+        self.path = path
+        self.stableKey = stableKey
+    }
+
+    private enum CodingKeys: String, CodingKey { case tree, path, stableKey, pageID, pathHint }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        guard values.contains(.stableKey), !values.contains(.pageID), !values.contains(.pathHint) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .stableKey,
+                in: values,
+                debugDescription: "Wire node refs require explicit stableKey and reject PageID references"
+            )
+        }
+        tree = try values.decode(String.self, forKey: .tree)
+        path = try values.decode(String.self, forKey: .path)
+        stableKey = try values.decodeIfPresent(String.self, forKey: .stableKey)
+        guard !tree.isEmpty, path.hasPrefix("/"), stableKey?.isEmpty != true else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .stableKey,
+                in: values,
+                debugDescription: "Wire node refs require a tree, absolute path, and nonempty stable key"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(tree, forKey: .tree)
+        try values.encode(path, forKey: .path)
+        if let stableKey { try values.encode(stableKey, forKey: .stableKey) }
+        else { try values.encodeNil(forKey: .stableKey) }
+    }
 }
 
 public struct WireLocatorResolution: Codable, Sendable, Equatable {
@@ -125,11 +162,13 @@ public struct WireMergeSummary: Codable, Sendable, Equatable {
     public var version: String
     public var approximatePlacements: Int?
     public var mergedFields: Int?
+    public var mergedRows: Int?
 
-    public init(version: String, approximatePlacements: Int? = nil, mergedFields: Int? = nil) {
+    public init(version: String, approximatePlacements: Int? = nil, mergedFields: Int? = nil, mergedRows: Int? = nil) {
         self.version = version
         self.approximatePlacements = approximatePlacements
         self.mergedFields = mergedFields
+        self.mergedRows = mergedRows
     }
 
     public func validated() throws -> Self {
@@ -140,6 +179,10 @@ public struct WireMergeSummary: Codable, Sendable, Equatable {
         } else if version == "account-config-v1" {
             guard let mergedFields, mergedFields >= 0 else {
                 throw ArborWireValidationError.invalidValue("Malformed account configuration merge summary")
+            }
+        } else if version == "rollup-rows-v1" {
+            guard let mergedRows, mergedRows >= 0 else {
+                throw ArborWireValidationError.invalidValue("Malformed rollup merge summary")
             }
         } else { throw ArborWireValidationError.invalidValue("Unknown merge summary") }
         return self

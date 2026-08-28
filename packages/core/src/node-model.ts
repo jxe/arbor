@@ -80,7 +80,7 @@ export interface ChildrenPage {
 
 export interface RollupDescriptor {
   version: 1;
-  codec: "csv" | "json" | "jsonl" | "sqlite";
+  codec: "csv" | "json" | "jsonl";
   source: Hash;
   schema: Hash;
   scope: "children" | "subtree";
@@ -311,11 +311,11 @@ export function decodeChildrenPage(value: unknown): ChildrenPage {
 export function decodeRollupDescriptor(value: unknown): RollupDescriptor {
   const source = object(value, "rollup");
   if (source.version !== 1) throw new TypeError("rollup.version must be 1");
-  if (!["csv", "json", "jsonl", "sqlite"].includes(source.codec as string)) throw new TypeError("rollup.codec is invalid");
+  if (!["csv", "json", "jsonl"].includes(source.codec as string)) throw new TypeError("rollup.codec is invalid");
   if (source.scope !== "children" && source.scope !== "subtree") throw new TypeError("rollup.scope is invalid");
   return {
     version: 1,
-    codec: source.codec as "csv" | "json" | "jsonl" | "sqlite",
+    codec: source.codec as "csv" | "json" | "jsonl",
     source: hash(source.source, "rollup.source"),
     schema: hash(source.schema, "rollup.schema"),
     scope: source.scope,

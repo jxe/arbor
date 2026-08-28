@@ -70,6 +70,37 @@ struct WireObjectTests {
 
 @Suite("Update and observation protocol")
 struct UpdateProtocolTests {
+    @Test("Wire node refs require the unified explicit stable-key shape")
+    func nodeReferenceShape() throws {
+        let decoder = JSONDecoder()
+        let ref = try decoder.decode(
+            WireResolvedNodeRef.self,
+            from: Data(#"{"tree":"tr_notes","path":"/notes/today","stableKey":null}"#.utf8)
+        )
+        #expect(ref == WireResolvedNodeRef(tree: "tr_notes", path: "/notes/today"))
+        #expect(throws: (any Error).self) {
+            _ = try decoder.decode(
+                WireResolvedNodeRef.self,
+                from: Data(#"{"tree":"tr_notes","path":"/notes/today","pageID":"old"}"#.utf8)
+            )
+        }
+        #expect(throws: (any Error).self) {
+            _ = try decoder.decode(
+                WireResolvedNodeRef.self,
+                from: Data(#"{"tree":"tr_notes","path":"/notes/today"}"#.utf8)
+            )
+        }
+    }
+
+    @Test("Merge summaries recognize semantic rollup row merges")
+    func rollupMergeSummary() throws {
+        let value = WireMergeSummary(version: "rollup-rows-v1", mergedRows: 3)
+        #expect(try value.validated() == value)
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireMergeSummary(version: "rollup-rows-v1").validated()
+        }
+    }
+
     @Test("Canonical semantic intent matches the shared RFC 8785 fixture")
     func requestIdentity() throws {
         let data = try Data(contentsOf: fixtures.appending(path: "wire-update-intent.json"))

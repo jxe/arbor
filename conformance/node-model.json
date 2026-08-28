@@ -180,14 +180,6 @@
       "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "scope": "children",
       "modelDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-    },
-    {
-      "version": 1,
-      "codec": "sqlite",
-      "source": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
-      "schema": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
-      "scope": "subtree",
-      "modelDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
     }
   ],
   "forwardCompatibleSnapshot": {

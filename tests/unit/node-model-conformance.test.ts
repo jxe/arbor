@@ -72,9 +72,12 @@ describe("unified node-model conformance", () => {
     expect(snapshots[2]?.materialization).toBe("placeholder");
     expect(pages[0]?.items.every((item) => item.ref.stableKey !== null)).toBe(true);
     expect(pages[0]?.items.every((item) => !("kind" in item))).toBe(true);
-    expect(rollups.map((item) => item.codec)).toEqual(["csv", "json", "jsonl", "sqlite"]);
-    expect(new Set(rollups.slice(0, 3).map((item) => item.modelDigest)).size).toBe(1);
-    expect(rollups.at(-1)?.scope).toBe("subtree");
+    expect(rollups.map((item) => item.codec)).toEqual(["csv", "json", "jsonl"]);
+    expect(new Set(rollups.map((item) => item.modelDigest)).size).toBe(1);
+    expect(() => decodeRollupDescriptor({
+      ...rollups[0],
+      codec: "sqlite",
+    })).toThrow();
   });
 
   test("ignores unknown capabilities without granting behavior", async () => {

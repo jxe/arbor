@@ -8,7 +8,8 @@ export type BoundaryKind = TreeKind;
 
 export type MergeSummary =
   | { version: "markdown-additive-v1"; approximatePlacements: number }
-  | { version: "account-config-v1"; mergedFields: number };
+  | { version: "account-config-v1"; mergedFields: number }
+  | { version: "rollup-rows-v1"; mergedRows: number };
 
 export interface UpdateConflict {
   path: string;

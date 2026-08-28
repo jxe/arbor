@@ -47,7 +47,7 @@
       "details": { "kind": "account-configuration", "fields": ["/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa/canonicalPath"] }
     },
     "resolution": {
-      "ref": { "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "path": "/notes", "pageID": "page-1" },
+      "ref": { "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "path": "/notes", "stableKey": "[[\"id\",\"page-1\"]]" },
       "enclosingTree": {
         "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "kind": "person-profile",

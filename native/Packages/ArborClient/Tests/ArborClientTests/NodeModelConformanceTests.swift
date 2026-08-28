@@ -212,9 +212,8 @@ final class NodeModelConformanceTests: XCTestCase {
         XCTAssertEqual(value.snapshots.map(\.value.ref.path), ["/practices", "/data", "/assets/portrait.png"])
         XCTAssertEqual(value.childrenPages.first?.value.items.count, 2)
         XCTAssertTrue(value.childrenPages.first?.value.items.allSatisfy { $0.ref.stableKey != nil } ?? false)
-        XCTAssertEqual(value.rollups.map(\.codec), ["csv", "json", "jsonl", "sqlite"])
-        XCTAssertEqual(Set(value.rollups.prefix(3).map(\.modelDigest)).count, 1)
-        XCTAssertEqual(value.rollups.last?.scope, "subtree")
+        XCTAssertEqual(value.rollups.map(\.codec), ["csv", "json", "jsonl"])
+        XCTAssertEqual(Set(value.rollups.map(\.modelDigest)).count, 1)
 
         for item in value.identityRules {
             let pairs = try item.rule.properties.map { property in

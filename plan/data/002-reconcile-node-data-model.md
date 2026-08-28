@@ -41,7 +41,7 @@
 - **2026-08-27 — node sampling contract complete:**
   `conformance/node-model.json` freezes the three-part ref, identity rules,
   capabilities, exact-source content, summaries, snapshots, children pages,
-  fail-closed forward compatibility, and all four Wire rollup descriptors.
+  fail-closed forward compatibility, and all three exact-source Wire file-rollup descriptors.
   Independent TypeScript and Swift decoders accept the shared positive vectors
   and reject missing nullable keys, the old PageID union, duplicated location,
   public kinds, and write authority inferred from omission. Wire endpoint
@@ -228,8 +228,16 @@
   synchronization design moved intact to
   [Data 005](005-database-observation-and-semantic-sync.md); Data 002 will not
   invent whole-database hashes or merge database storage bytes.
-- **Next checkpoint:** complete bounded file-provider snapshots and Wire file-rollup synchronization/merge in this
-  plan. Typed source declarations, activation-manifest generation, and
+- **2026-08-28 — exact-source Wire boundary correction:** the frozen
+  `RollupDescriptor` and independent TypeScript/Swift conformance now admit
+  only CSV, JSON, and JSONL exact-source placements. SQLite remains a valid
+  child-representation summary but must use Data 005 observations/checkpoints,
+  not a file hash. Swift Wire locator resolutions now require the same explicit
+  `{ tree, path, stableKey }` shape as every other node boundary, and both
+  languages recognize the reserved `rollup-rows-v1` merge summary.
+- **Next checkpoint:** review the portable, non-executable schema artifact that
+  Canopy will use to validate file-rollup descriptors, then complete Wire
+  file-rollup synchronization/merge in this plan. Typed source declarations, activation-manifest generation, and
   editor integration moved intact to
   [Application 003](../applications/003-development-compiler-and-editor-tooling.md);
   representation-path conversion moved to [Data 003](003-representation-equivalence.md);
