@@ -123,8 +123,8 @@ function queryRef(url: URL): NodeRef {
   const tree = url.searchParams.get("tree");
   if (!tree) throw new ProtocolError("invalid-request", "An explicit tree scope is required", 400);
   if (path === null) throw new ProtocolError("invalid-reference", "A node reference requires path", 400);
-  if (!url.searchParams.has("stableKey")) {
-    throw new ProtocolError("invalid-reference", "A node reference requires explicit stableKey", 400);
+  if (url.searchParams.has("pageID") || url.searchParams.has("pathHint")) {
+    throw new ProtocolError("invalid-reference", "PageID and pathHint node references are no longer supported", 400);
   }
   try {
     return decodeNodeRef({ tree, path, stableKey: url.searchParams.get("stableKey") || null });

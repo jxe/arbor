@@ -163,19 +163,20 @@ tree, placement, or directory.
 ## 4. Node reads
 
 ```text
-GET /v1/node?tree={TreeRef}&path={path}&stableKey={key-or-empty}[&revision={hash}]
-GET /v1/file?tree={TreeRef}&path={path}&stableKey={key-or-empty}[&revision={hash}]
-GET /v1/children?tree={TreeRef}&path={path}&stableKey={key-or-empty}[&revision={hash}][&cursor={cursor}]
+GET /v1/node?tree={TreeRef}&path={path}[&stableKey={key}][&revision={hash}]
+GET /v1/file?tree={TreeRef}&path={path}[&stableKey={key}][&revision={hash}]
+GET /v1/children?tree={TreeRef}&path={path}[&stableKey={key}][&revision={hash}][&cursor={cursor}]
 GET /v1/search?tree={TreeRef}&q={query}[&cursor={cursor}]
-GET /v1/backlinks?tree={TreeRef}&path={path}&stableKey={key-or-empty}[&cursor={cursor}]
-GET /v1/recovery?tree={TreeRef}&path={path}&stableKey={key-or-empty}[&recursive=true][&cursor={cursor}]
+GET /v1/backlinks?tree={TreeRef}&path={path}[&stableKey={key}][&cursor={cursor}]
+GET /v1/recovery?tree={TreeRef}&path={path}[&stableKey={key}][&recursive=true][&cursor={cursor}]
 ```
 
-Every node-addressed route requires the complete `tree`, `path`, and
-`stableKey` reference, even where `tree` is `local` or `system`. An empty
-`stableKey` means explicit JSON `null`; a non-empty value is canonical
-identity-key JSON percent-encoded by the client. The removed PageID/path-hint
-union is invalid. Logical paths are decoded exactly once. Revision reads are immutable and read-only.
+Every node-addressed route requires `tree` and `path`, even where `tree` is
+`local` or `system`. An omitted or empty `stableKey` means JSON `null`; a
+non-empty value is canonical identity-key JSON percent-encoded by the client.
+The removed PageID/path-hint union is invalid. JSON `NodeRef` values still
+require an explicit `stableKey` field, including `null`. Logical paths are
+decoded exactly once. Revision reads are immutable and read-only.
 Mutable JSON reads include `observedThrough`; lists and bare arrays use explicit
 snapshot/page envelopes. `GET /v1/file` returns exact bytes and does not need an
 independent cursor because its guarding content revision is obtained from the

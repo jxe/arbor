@@ -93,9 +93,13 @@ describe("arborsync REST v1", () => {
   });
 
   test("reads and idempotently writes a Markdown node", async () => {
-    const legacy = await fetch(`${base}/v1/node?tree=${encodeURIComponent(scope)}&path=%2Fpage`);
+    const pathOnly = await fetch(`${base}/v1/node?tree=${encodeURIComponent(scope)}&path=%2Fpage`);
+    expect(pathOnly.status).toBe(200);
+    expect(await pathOnly.json()).toMatchObject({ ref: { tree: scope, path: "/page", stableKey: null } });
+
+    const legacy = await fetch(`${base}/v1/node?tree=${encodeURIComponent(scope)}&path=%2Fpage&pageID=page`);
     expect(legacy.status).toBe(400);
-    expect(await legacy.json()).toMatchObject({ error: "invalid-request", message: expect.stringContaining("stableKey") });
+    expect(await legacy.json()).toMatchObject({ error: "invalid-request", message: expect.stringContaining("PageID") });
 
     const node = await client.node({ tree: scope, path: "/page", stableKey: null });
     const source = nodeDocument(node)!.source.replace("Hello API", "Changed through REST v1");
