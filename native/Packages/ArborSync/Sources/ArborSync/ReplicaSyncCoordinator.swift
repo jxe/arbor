@@ -30,7 +30,7 @@ public actor ReplicaSyncCoordinator {
         try requireOpen()
         let heads = try await replica.heads()
         var value = control.presentation
-        value.acceptedRoot = heads.acceptedRoot
+        value.acceptedRoot = control.nextBase?.root ?? heads.acceptedRoot
         value.localRoot = heads.materializedRoot
         if control.conflict != nil { value.state = .conflict }
         else if control.attempt != nil { value.state = .requestPending }
@@ -360,14 +360,25 @@ public actor ReplicaSyncCoordinator {
                 try files.write(control)
                 return
             }
-            // New local work was acknowledged after this request was frozen. Keep
-            // the prior accepted base so the next request performs the server's
-            // three-way reconciliation against both this response and the tail.
+            // New local work was acknowledged after this request was frozen. If
+            // the server accepted the frozen candidate exactly, the local tail
+            // already descends from that root, so advance the next request's
+            // base to it. Reusing the older base would present the accepted
+            // candidate and its local successor as independent additions during
+            // three-way merge (for example, an empty inserted paragraph and the
+            // transcript that immediately replaced it), duplicating both.
+            //
+            // A genuinely merged response is different: the local tail has not
+            // seen its remote additions, so retain the prior base and let the
+            // next server merge reconcile both branches.
+            if accepted.root == attempt.candidate {
+                control.nextBase = WireUpdateBase(root: accepted.root, update: accepted.id)
+            }
             control.attempt = nil
             control.presentation = WorkspaceSyncPresentation(
                 state: .locallyPending,
                 detail: "Accepted response retained; newer local work is the next root intent",
-                acceptedRoot: attempt.base.root,
+                acceptedRoot: control.nextBase?.root ?? attempt.base.root,
                 localRoot: heads.materializedRoot,
                 localAdditions: true,
                 remoteAdditions: accepted.root != attempt.candidate,

@@ -324,7 +324,7 @@ struct ArborSyncTests {
         }
     }
 
-    @Test("A frozen request never absorbs newer admitted local work")
+    @Test("A frozen request advances the base beneath newer admitted local work")
     func localTail() async throws {
         try await withTemporaryRoot { root in
             let tree = "tr_tail"
@@ -354,7 +354,7 @@ struct ArborSyncTests {
             let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)
             let first = try await coordinator.syncOnce()
             #expect(first.state == .locallyPending)
-            #expect(first.acceptedRoot == initial.root)
+            #expect(first.acceptedRoot != initial.root)
             #expect((try await session.snapshot()).source.hasSuffix("Candidate\nTail\n"))
             #expect(try await replica.heads().acceptedRoot == initial.root)
 
@@ -365,8 +365,10 @@ struct ArborSyncTests {
             #expect(requests.count == 2)
             let firstRequest = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
             let secondRequest = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
+            #expect(first.acceptedRoot == firstRequest.candidate)
             #expect(firstRequest.candidate != secondRequest.candidate)
-            #expect(firstRequest.base == secondRequest.base)
+            #expect(secondRequest.base.root == firstRequest.candidate)
+            #expect(secondRequest.base.update == "up_1")
             #expect(candidate.contentRevision != (try await session.snapshot()).contentRevision)
         }
     }
