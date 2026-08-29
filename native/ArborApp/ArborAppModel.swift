@@ -1077,12 +1077,12 @@ final class ArborAppModel {
         await session.start(destination: stableKey, delivery: delivery)
     }
 
-    func startPinchVoiceRecording(_ session: VoiceRecordingSession<String>) async -> Bool {
-        guard let node, node.isWritable, let stableKey = binding?.reference.stableKey else {
-            return false
-        }
-        await session.start(destination: stableKey)
-        return session.state == .recording
+    func startPinchVoiceRecording(
+        _ session: VoiceRecordingSession<String>,
+        onDraft: @escaping @MainActor @Sendable (String) -> Void
+    ) async -> Bool {
+        guard let node, node.isWritable, binding != nil else { return false }
+        return await session.startLiveTranscription(onDraft: onDraft)
     }
 
     func toggleVoiceRecordingFromShortcut(_ session: VoiceRecordingSession<String>) async {

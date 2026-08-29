@@ -88,9 +88,12 @@ struct ArborRootView: View {
         _model = State(initialValue: model)
         _recordingSession = State(initialValue: recordingSession)
         _pinchDictation = State(initialValue: EditorPinchDictation(
-            begin: { [weak model, weak recordingSession] in
+            beginWithDrafts: { [weak model, weak recordingSession] onDraft in
                 guard let model, let recordingSession else { return false }
-                return await model.startPinchVoiceRecording(recordingSession)
+                return await model.startPinchVoiceRecording(
+                    recordingSession,
+                    onDraft: onDraft
+                )
             },
             finish: { [weak recordingSession] in
                 guard let recordingSession else { return .failed }

@@ -44,13 +44,17 @@ Section** or **Unfold Section**.
 
 On iOS, the smaller pinch-to-insert gesture also starts Arbor's on-device voice
 recorder after crossing the insertion threshold. Hold the gap open while
-speaking and release to transcribe into the inferred paragraph or list row; the
-completed row remains selected in navigation mode. If no speech is detected—or
-recording could not start—the empty row enters edit mode and opens the keyboard.
-The larger heading gesture and a cancelled pinch discard their temporary audio.
+speaking: Apple's changing live draft appears in a provisional paragraph or
+list row with the same wrapping and spacing as the eventual block. Release to
+commit only the finalized transcript; the completed row remains selected in
+navigation mode. Pinch audio and partial drafts are ephemeral and never enter
+voice recovery. If no speech is detected—or recording could not start—the empty
+row enters edit mode and opens the keyboard. The larger heading gesture and a
+cancelled pinch discard their temporary audio.
 Toolbar recording prefers the block being edited when recording starts and
 inserts the transcript at its caret. Page-level routing, including a `🎙`
-heading, applies only when recording starts outside edit mode.
+heading, applies only when recording starts outside edit mode. Toolbar recording
+remains host-controlled and durable, including recovery after failed delivery.
 
 ## Profile control and Claim
 
