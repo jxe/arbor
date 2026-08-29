@@ -199,6 +199,24 @@ struct ArborRootView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .confirmationDialog(
+            "Move linked page to Trash?",
+            isPresented: linkedPageTrashPromptPresented,
+            titleVisibility: .visible
+        ) {
+            if model.linkedPageTrashPrompt != nil {
+                Button("Move to Trash", role: .destructive) {
+                    Task { await model.trashPromptedLinkedPageIfStillOrphaned() }
+                }
+            }
+            Button("Keep Page", role: .cancel) {
+                model.dismissLinkedPageTrashPrompt()
+            }
+        } message: {
+            if let prompt = model.linkedPageTrashPrompt {
+                Text("\"\(prompt.title)\" no longer has any links pointing to it.")
+            }
+        }
 #if os(macOS)
         .fileImporter(isPresented: $workspaceImporterPresented, allowedContentTypes: [.folder]) { result in
             if case let .success(url) = result {
@@ -403,6 +421,13 @@ struct ArborRootView: View {
             set: { request in
                 if request == nil { model.editorHost?.resolveStructuralMoveRequest(with: nil) }
             }
+        )
+    }
+
+    private var linkedPageTrashPromptPresented: Binding<Bool> {
+        Binding(
+            get: { model.linkedPageTrashPrompt != nil },
+            set: { if !$0 { model.dismissLinkedPageTrashPrompt() } }
         )
     }
 

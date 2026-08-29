@@ -483,6 +483,43 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("A deleted full-row link only offers to trash a now-unlinked writable page")
+    func deletedDocumentLinkTrashDecision() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let source = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        )
+        let session = try await provider.openDocument(source)
+        let binding = try await ArborDocumentBinding.open(reference: source, session: session)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+        let target = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "Target",
+            source: "# Target\n"
+        )))
+
+        let orphan = await host.orphanedDocumentAfterDeletingLink(target.reference, from: source)
+        #expect(orphan?.reference == target.reference)
+        #expect(await host.orphanedDocumentAfterDeletingLink(source, from: source) == nil)
+
+        _ = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "Other",
+            source: "# Other\n\n[Target](/Target)\n"
+        )))
+        let stillLinked = await host.orphanedDocumentAfterDeletingLink(target.reference, from: source)
+        #expect(stillLinked == nil)
+        await session.close()
+    }
+
+    @MainActor
     @Test("An exact self-confirmation does not replace the live editor tree")
     func exactSaveDoesNotReload() async throws {
         let reference = WorkspaceReference(tree: "tr_sample", path: "/blank", stableKey: markdownStableKey("pg_blank"))

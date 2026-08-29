@@ -223,6 +223,50 @@ struct ArborAppTests {
         #expect(model.children.contains { $0.reference.path == "/Receipt-Page" })
     }
 
+    @Test("Linked-page trash confirmation rechecks backlinks and preserves the editor lease")
+    func linkedPageTrashConfirmation() async throws {
+        let workspace = ArborWorkspaceState(provider: .sample())
+        let model = ArborAppModel(workspace: workspace)
+        await model.load()
+        await model.navigate(to: .init(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        ))
+        let lease = try #require(model.editorLease)
+        let source = try #require(model.binding?.reference)
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+        let orphan = try #require(try await workspace.perform(.createMarkdown(
+            parent: root,
+            name: "Orphan",
+            source: "# Orphan\n"
+        )))
+
+        model.offerToTrashLinkedPage(orphan, from: source)
+        #expect(model.linkedPageTrashPrompt?.target == orphan.reference)
+        await model.trashPromptedLinkedPageIfStillOrphaned()
+
+        #expect(model.linkedPageTrashPrompt == nil)
+        #expect(model.editorLease?.id == lease.id)
+        #expect(try await workspace.provider.resolve(orphan.reference).reference.path == "/Trash/Orphan")
+
+        let retained = try #require(try await workspace.perform(.createMarkdown(
+            parent: root,
+            name: "Retained",
+            source: "# Retained\n"
+        )))
+        model.offerToTrashLinkedPage(retained, from: source)
+        _ = try #require(try await workspace.perform(.createMarkdown(
+            parent: root,
+            name: "Other",
+            source: "# Other\n\n[Retained](/Retained)\n"
+        )))
+        await model.trashPromptedLinkedPageIfStillOrphaned()
+
+        #expect(try await workspace.provider.resolve(retained.reference).reference.path == "/Retained")
+        #expect(model.editorLease?.id == lease.id)
+    }
+
     @Test("A final editor commit is durable before navigation completes")
     func navigationDrainsEditorTail() async throws {
         let workspace = ArborWorkspaceState(provider: .sample())

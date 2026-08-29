@@ -754,6 +754,13 @@ final class ArborAppModel {
         var id: String { "\(reference.identity)|\(proposedName)" }
     }
 
+    struct LinkedPageTrashPrompt: Identifiable {
+        let id = UUID()
+        let target: WorkspaceReference
+        let source: WorkspaceReference
+        let title: String
+    }
+
     let workspace: ArborWorkspaceState
     private(set) var tabs: BrowserTabController
     private(set) var node: WorkspaceNode?
@@ -769,6 +776,7 @@ final class ArborAppModel {
     private(set) var tabVersion = 0
     private(set) var isLoading = false
     private(set) var titleRenameProposal: TitleRenameProposal?
+    private(set) var linkedPageTrashPrompt: LinkedPageTrashPrompt?
     private var observedWorkspaceGeneration: Int
     private var loadRequestID = 0
     private var searchRequestID = 0
@@ -830,6 +838,7 @@ final class ArborAppModel {
         loadRequestID += 1
         let requestID = loadRequestID
         isLoading = true
+        linkedPageTrashPrompt = nil
         if let editorLease {
             editorHost?.resolveMoveRequest(with: nil)
             editorHost?.resolveStructuralMoveRequest(with: nil)
@@ -877,6 +886,9 @@ final class ArborAppModel {
                     reportError: { [weak self] message in self?.errorMessage = message },
                     performStructuralAction: { [weak workspace] action in
                         try await workspace?.perform(action)
+                    },
+                    offerTrashAfterDeletingLink: { [weak self] target, source in
+                        self?.offerToTrashLinkedPage(target, from: source)
                     }
                 )
             }
@@ -1082,6 +1094,35 @@ final class ArborAppModel {
             if navigateToResult, let result { await navigate(to: result.reference) }
             else if let receipt = workspace.latestStructuralReceipt { await reconcile(receipt) }
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    func offerToTrashLinkedPage(_ target: WorkspaceNode, from source: WorkspaceReference) {
+        guard binding?.reference.identity == source.identity,
+              target.reference.identity != source.identity else { return }
+        linkedPageTrashPrompt = LinkedPageTrashPrompt(
+            target: target.reference,
+            source: source,
+            title: target.title
+        )
+    }
+
+    func dismissLinkedPageTrashPrompt() {
+        linkedPageTrashPrompt = nil
+    }
+
+    func trashPromptedLinkedPageIfStillOrphaned() async {
+        guard let prompt = linkedPageTrashPrompt else { return }
+        linkedPageTrashPrompt = nil
+        await workspace.flush()
+        do {
+            guard binding?.reference.identity == prompt.source.identity,
+                  let target = try? await workspace.provider.resolve(prompt.target),
+                  target.isWritable, target.surface.supportsDocumentSession,
+                  try await workspace.provider.backlinks(to: target.reference).isEmpty else { return }
+            await perform(.trash(reference: target.reference), navigateToResult: false)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     /// Applies a structural receipt to the visible workspace chrome without

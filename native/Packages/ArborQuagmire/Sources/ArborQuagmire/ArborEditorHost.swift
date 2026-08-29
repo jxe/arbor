@@ -80,6 +80,7 @@ public final class ArborEditorHost: EditorHost {
     private let backAction: @MainActor () -> Void
     private let errorAction: @MainActor (String) -> Void
     private let performStructuralAction: @MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?
+    private let offerTrashAfterDeletingLink: @MainActor (WorkspaceNode, WorkspaceReference) -> Void
     private var lookups: [DocumentReference: DocumentLookup] = [:]
     private var lookupTasks: [DocumentReference: Task<Void, Never>] = [:]
 
@@ -91,7 +92,8 @@ public final class ArborEditorHost: EditorHost {
         open: @escaping @MainActor (WorkspaceReference) -> Void = { _ in },
         navigateBack: @escaping @MainActor () -> Void = {},
         reportError: @escaping @MainActor (String) -> Void = { _ in },
-        performStructuralAction: (@MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?)? = nil
+        performStructuralAction: (@MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?)? = nil,
+        offerTrashAfterDeletingLink: @escaping @MainActor (WorkspaceNode, WorkspaceReference) -> Void = { _, _ in }
     ) {
         self.binding = binding
         self.provider = provider
@@ -105,6 +107,7 @@ public final class ArborEditorHost: EditorHost {
         self.performStructuralAction = performStructuralAction ?? { action in
             try await provider.perform(action)
         }
+        self.offerTrashAfterDeletingLink = offerTrashAfterDeletingLink
     }
 
     public var supportsDocumentCreation: Bool { true }
@@ -198,7 +201,29 @@ public final class ArborEditorHost: EditorHost {
         return .pending
     }
 
-    public func didDeleteDocumentLink(reference _: DocumentReference, label _: String, from _: Document) {}
+    public func didDeleteDocumentLink(reference: DocumentReference, label _: String, from _: Document) {
+        guard let target = workspaceReference(for: reference) else { return }
+        let source = binding.reference
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let node = await orphanedDocumentAfterDeletingLink(target, from: source) else { return }
+            offerTrashAfterDeletingLink(node, source)
+        }
+    }
+
+    func orphanedDocumentAfterDeletingLink(
+        _ target: WorkspaceReference,
+        from source: WorkspaceReference
+    ) async -> WorkspaceNode? {
+        guard target.identity != source.identity else { return nil }
+        await binding.flush()
+        guard binding.lastError == nil, binding.conflict == nil,
+              let node = try? await provider.resolve(target),
+              node.isWritable, node.surface.supportsDocumentSession,
+              let backlinks = try? await provider.backlinks(to: node.reference),
+              backlinks.isEmpty else { return nil }
+        return node
+    }
 
     public func resolveReference(from url: URL, in _: Document) -> DocumentReference? {
         if url.scheme == "arbor" { return DocumentReference(url.absoluteString) }
