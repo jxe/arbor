@@ -631,7 +631,9 @@ struct ArborSyncStatusView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
+#if os(macOS)
         .frame(minWidth: 560, minHeight: 430)
+#endif
     }
 
     private var saveStatus: String {
