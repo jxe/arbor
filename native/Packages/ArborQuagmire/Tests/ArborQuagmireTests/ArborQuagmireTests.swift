@@ -413,6 +413,76 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("Page creation links exact titles, recovers retries, and disambiguates filename collisions")
+    func pageCreationRecovery() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = try await provider.openDocument(reference)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        var errors: [String] = []
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService(),
+            reportError: { errors.append($0) }
+        )
+
+        let first = try #require(await host.createDocument(
+            title: "Arbor demo",
+            requestedReference: nil,
+            initialContent: nil
+        ))
+        let firstReference = try #require(ArborDocumentReferenceCodec.decode(first))
+        let createdSession = try await provider.openDocument(firstReference)
+        let createdSnapshot = try await createdSession.snapshot()
+        _ = try await createdSession.admit(
+            source: "---\nid: pg_created\n---\n\n" + createdSnapshot.source,
+            baseContentRevision: createdSnapshot.contentRevision
+        )
+        await createdSession.close()
+        let retry = try #require(await host.createDocument(
+            title: "Arbor demo",
+            requestedReference: nil,
+            initialContent: nil
+        ))
+        let existing = try #require(await host.createDocument(
+            title: "Welcome",
+            requestedReference: nil,
+            initialContent: nil
+        ))
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+        let nested = try #require(await provider.perform(.createDirectory(parent: root, name: "Nested")))
+        let remoteMatch = try #require(await provider.perform(.createMarkdown(
+            parent: nested.reference,
+            name: "Remote-match",
+            source: "# Remote match\n"
+        )))
+        let remote = try #require(await host.createDocument(
+            title: "Remote match",
+            requestedReference: nil,
+            initialContent: nil
+        ))
+        _ = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "Collision",
+            source: "# Different title\n"
+        )))
+        let disambiguated = try #require(await host.createDocument(
+            title: "Collision",
+            requestedReference: nil,
+            initialContent: nil
+        ))
+
+        #expect(firstReference.path == "/Arbor-demo")
+        #expect(retry == first, "a retry should recover the page materialized by the first attempt")
+        #expect(ArborDocumentReferenceCodec.decode(existing)?.path == "/welcome")
+        #expect(ArborDocumentReferenceCodec.decode(remote)?.path == remoteMatch.reference.path)
+        #expect(ArborDocumentReferenceCodec.decode(disambiguated)?.path == "/Collision-2")
+        #expect(errors.isEmpty)
+        await session.close()
+    }
+
+    @MainActor
     @Test("An exact self-confirmation does not replace the live editor tree")
     func exactSaveDoesNotReload() async throws {
         let reference = WorkspaceReference(tree: "tr_sample", path: "/blank", stableKey: markdownStableKey("pg_blank"))

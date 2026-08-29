@@ -184,6 +184,45 @@ struct ArborAppTests {
         #expect(second.tabItems.count == 1)
     }
 
+    @Test("Structural receipts refresh workspace chrome without replacing the editor lease")
+    func structuralReceiptReconciliation() async throws {
+        let workspace = ArborWorkspaceState(provider: .sample())
+        let model = ArborAppModel(workspace: workspace)
+        await model.load()
+        await model.navigate(to: .init(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        ))
+        let lease = try #require(model.editorLease)
+        let binding = lease.binding
+        let host = try #require(model.editorHost)
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+
+        await model.perform(
+            .createDirectory(parent: root, name: "Receipt Folder"),
+            navigateToResult: false
+        )
+
+        #expect(model.editorLease?.id == lease.id)
+        #expect(model.binding === binding)
+        #expect(model.editorHost === host)
+        #expect(model.children.contains { $0.reference.path == "/Receipt Folder" })
+
+        _ = try #require(await host.createDocument(
+            title: "Receipt Page",
+            requestedReference: nil,
+            initialContent: nil
+        ))
+        let receipt = try #require(workspace.latestStructuralReceipt)
+        await model.reconcile(receipt)
+
+        #expect(model.editorLease?.id == lease.id)
+        #expect(model.binding === binding)
+        #expect(model.editorHost === host)
+        #expect(model.children.contains { $0.reference.path == "/Receipt-Page" })
+    }
+
     @Test("A final editor commit is durable before navigation completes")
     func navigationDrainsEditorTail() async throws {
         let workspace = ArborWorkspaceState(provider: .sample())

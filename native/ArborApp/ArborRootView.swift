@@ -112,6 +112,10 @@ struct ArborRootView: View {
     var body: some View {
         platformNavigation
         .task(id: workspace.generation) { await model.resetForWorkspace() }
+        .task(id: workspace.latestStructuralReceipt?.id) {
+            guard let receipt = workspace.latestStructuralReceipt else { return }
+            await model.reconcile(receipt)
+        }
         .task(id: model.binding?.acceptedTitle) {
             guard model.binding != nil else { return }
             try? await Task.sleep(for: .seconds(2))

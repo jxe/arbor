@@ -61,6 +61,12 @@ struct LocalArborSyncPairingPresentation: Sendable, Equatable {
 }
 #endif
 
+struct WorkspaceStructuralReceipt: Identifiable {
+    let id = UUID()
+    let action: WorkspaceStructuralAction
+    let result: WorkspaceNode?
+}
+
 @MainActor
 @Observable
 final class ArborWorkspaceState {
@@ -77,6 +83,7 @@ final class ArborWorkspaceState {
     )
     private(set) var syncConflict: ReplicaConflictPresentation?
     private(set) var arborsyncProcessKind: ArborSyncProcessKind?
+    private(set) var latestStructuralReceipt: WorkspaceStructuralReceipt?
     let linkPreviewService: LinkPreviewService
     var errorMessage: String?
 
@@ -654,6 +661,13 @@ final class ArborWorkspaceState {
 #endif
     }
 
+    @discardableResult
+    func perform(_ action: WorkspaceStructuralAction) async throws -> WorkspaceNode? {
+        let result = try await provider.perform(action)
+        latestStructuralReceipt = WorkspaceStructuralReceipt(action: action, result: result)
+        return result
+    }
+
     private func switchProvider(
         _ nextProvider: any WorkspaceProvider,
         home nextHome: WorkspaceReference,
@@ -667,6 +681,7 @@ final class ArborWorkspaceState {
         launchLocation = nextLaunchLocation ?? .reference(nextHome)
         providerDetail = detail
         capabilities = await nextProvider.capabilities()
+        latestStructuralReceipt = nil
         generation += 1
         errorMessage = nil
     }
@@ -859,7 +874,10 @@ final class ArborAppModel {
                     relativeReferenceBase: relativeReferenceBase,
                     open: { [weak self] reference in Task { await self?.navigate(to: reference) } },
                     navigateBack: { [weak self] in Task { await self?.goBack() } },
-                    reportError: { [weak self] message in self?.errorMessage = message }
+                    reportError: { [weak self] message in self?.errorMessage = message },
+                    performStructuralAction: { [weak workspace] action in
+                        try await workspace?.perform(action)
+                    }
                 )
             }
             errorMessage = nil
@@ -1031,7 +1049,7 @@ final class ArborAppModel {
         await binding.flush()
         guard binding.lastError == nil, binding.conflict == nil else { return }
         do {
-            guard let renamed = try await workspace.provider.perform(.rename(
+            guard let renamed = try await workspace.perform(.rename(
                 reference: binding.reference,
                 name: proposal.proposedName
             )) else { return }
@@ -1060,10 +1078,34 @@ final class ArborAppModel {
     func perform(_ action: WorkspaceStructuralAction, navigateToResult: Bool = true) async {
         await workspace.flush()
         do {
-            let result = try await workspace.provider.perform(action)
+            let result = try await workspace.perform(action)
             if navigateToResult, let result { await navigate(to: result.reference) }
-            else { await load() }
+            else if let receipt = workspace.latestStructuralReceipt { await reconcile(receipt) }
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    /// Applies a structural receipt to the visible workspace chrome without
+    /// releasing the open document lease. Navigation remains the one operation
+    /// that deliberately tears down and reacquires an editor surface.
+    func reconcile(_ receipt: WorkspaceStructuralReceipt) async {
+        guard observedWorkspaceGeneration == workspace.generation else { return }
+        if let result = receipt.result, result.reference.identity == node?.reference.identity {
+            node = result
+            binding?.reconcileReference(result.reference)
+            tabs.reconcileReference(result.reference)
+            tabVersion += 1
+            switch result.surface {
+            case .directory, .directoryDocument, .collection:
+                sidebarLocation = result.location
+            default:
+                sidebarLocation = result.location.parent ?? workspace.launchLocation
+            }
+        }
+        do {
+            children = try await workspace.provider.children(of: sidebarLocation)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func startVoiceRecording(

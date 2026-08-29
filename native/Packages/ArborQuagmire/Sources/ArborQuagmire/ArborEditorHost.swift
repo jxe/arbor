@@ -79,6 +79,7 @@ public final class ArborEditorHost: EditorHost {
     private let openAction: @MainActor (WorkspaceReference) -> Void
     private let backAction: @MainActor () -> Void
     private let errorAction: @MainActor (String) -> Void
+    private let performStructuralAction: @MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?
     private var lookups: [DocumentReference: DocumentLookup] = [:]
     private var lookupTasks: [DocumentReference: Task<Void, Never>] = [:]
 
@@ -89,7 +90,8 @@ public final class ArborEditorHost: EditorHost {
         relativeReferenceBase: WorkspaceReference? = nil,
         open: @escaping @MainActor (WorkspaceReference) -> Void = { _ in },
         navigateBack: @escaping @MainActor () -> Void = {},
-        reportError: @escaping @MainActor (String) -> Void = { _ in }
+        reportError: @escaping @MainActor (String) -> Void = { _ in },
+        performStructuralAction: (@MainActor (WorkspaceStructuralAction) async throws -> WorkspaceNode?)? = nil
     ) {
         self.binding = binding
         self.provider = provider
@@ -100,6 +102,9 @@ public final class ArborEditorHost: EditorHost {
         self.openAction = open
         self.backAction = navigateBack
         self.errorAction = reportError
+        self.performStructuralAction = performStructuralAction ?? { action in
+            try await provider.perform(action)
+        }
     }
 
     public var supportsDocumentCreation: Bool { true }
@@ -231,12 +236,133 @@ public final class ArborEditorHost: EditorHost {
     ) async -> DocumentReference? {
         let requested = requestedReference.flatMap(workspaceReference(for:))
         let parent = requested?.parent ?? binding.reference.parent ?? WorkspaceReference(tree: binding.reference.tree, path: "/")
-        let requestedName = requested?.path.split(separator: "/").last.map(String.init)
-        let name = requestedName ?? slug(title)
         let body = initialContent.map { ArborMarkdownCodec.serializeBlocks($0) } ?? ""
         let source = "# \(title)\n\n\(body)"
-        guard let created = try? await provider.perform(.createMarkdown(parent: parent, name: name, source: source)) else { return nil }
-        return ArborDocumentReferenceCodec.encode(created.reference)
+
+        if let requested {
+            if let existing = try? await provider.resolve(requested), existing.surface.supportsDocumentSession {
+                return ArborDocumentReferenceCodec.encode(existing.reference)
+            }
+            let name = requested.path.split(separator: "/").last.map(String.init) ?? WorkspaceTitleSlug.name(for: title)
+            return await createDocument(
+                parent: parent,
+                name: name,
+                title: title,
+                source: source,
+                acceptAnyExisting: true
+            )
+        }
+
+        let baseName = WorkspaceTitleSlug.name(for: title)
+        let siblings = (try? await provider.children(of: parent)) ?? []
+        if let existing = siblings.first(where: { page($0, hasExactTitle: title) }) {
+            return ArborDocumentReferenceCodec.encode(existing.reference)
+        }
+        if let existing = await documentElsewhere(in: parent.tree, titled: title) {
+            return ArborDocumentReferenceCodec.encode(existing.reference)
+        }
+        var siblingsByName: [String: WorkspaceNode] = [:]
+        for node in siblings {
+            guard let name = node.reference.path.split(separator: "/").last.map(String.init) else { continue }
+            siblingsByName[name.lowercased()] = node
+        }
+        for suffix in 1...1_000 {
+            let name = suffix == 1 ? baseName : "\(baseName)-\(suffix)"
+            if let existing = siblingsByName[name.lowercased()] {
+                if page(existing, hasExactTitle: title) {
+                    return ArborDocumentReferenceCodec.encode(existing.reference)
+                }
+                continue
+            }
+            if let created = await createDocument(
+                parent: parent,
+                name: name,
+                title: title,
+                source: source,
+                acceptAnyExisting: false
+            ) {
+                return created
+            }
+            if let materialized = try? await provider.resolve(childReference(parent: parent, name: name)) {
+                siblingsByName[name.lowercased()] = materialized
+                if page(materialized, hasExactTitle: title) {
+                    return ArborDocumentReferenceCodec.encode(materialized.reference)
+                }
+                continue
+            }
+            return nil
+        }
+        errorAction("Failed to create page: no available filename for \(title)")
+        return nil
+    }
+
+    private func createDocument(
+        parent: WorkspaceReference,
+        name: String,
+        title: String,
+        source: String,
+        acceptAnyExisting: Bool
+    ) async -> DocumentReference? {
+        do {
+            if let created = try await performStructuralAction(.createMarkdown(parent: parent, name: name, source: source)) {
+                return ArborDocumentReferenceCodec.encode(created.reference)
+            }
+        } catch {
+            // A structural write may be durable before the provider can resolve
+            // its receipt. Recover that exact postcondition instead of leaving
+            // the source block unchanged and making every retry collide.
+            if let materialized = try? await provider.resolve(childReference(parent: parent, name: name)),
+               materialized.surface.supportsDocumentSession,
+               (acceptAnyExisting || page(materialized, hasExactTitle: title)) {
+                return ArborDocumentReferenceCodec.encode(materialized.reference)
+            }
+            if !acceptAnyExisting,
+               (try? await provider.resolve(childReference(parent: parent, name: name))) != nil {
+                return nil
+            }
+            errorAction("Failed to create page: \(error.localizedDescription)")
+            return nil
+        }
+
+        if let materialized = try? await provider.resolve(childReference(parent: parent, name: name)),
+           materialized.surface.supportsDocumentSession,
+           (acceptAnyExisting || page(materialized, hasExactTitle: title)) {
+            return ArborDocumentReferenceCodec.encode(materialized.reference)
+        }
+        errorAction("Failed to create page: the workspace returned no created page")
+        return nil
+    }
+
+    private func childReference(parent: WorkspaceReference, name: String) -> WorkspaceReference {
+        let path = parent.path == "/" ? "/\(name)" : "\(parent.path)/\(name)"
+        return WorkspaceReference(tree: parent.tree, path: path)
+    }
+
+    private func page(_ node: WorkspaceNode, hasExactTitle title: String) -> Bool {
+        guard node.surface.supportsDocumentSession else { return false }
+        let source: String
+        switch node.surface {
+        case let .markdown(value, _), let .directoryDocument(value, _, _):
+            source = value
+        default:
+            return node.title == title
+        }
+        if let first = ArborMarkdownCodec.parseBlocks(source).first,
+           case let .heading(level, text) = first.kind,
+           level == .h1 {
+            return String(text.characters) == title
+        }
+        return node.title == title
+    }
+
+    private func documentElsewhere(in tree: TreeID, titled title: String) async -> WorkspaceNode? {
+        guard let matches = try? await provider.search(title, in: tree) else { return nil }
+        for match in matches {
+            guard let node = try? await provider.resolve(match.reference),
+                  page(node, hasExactTitle: title) else { continue }
+            return node
+        }
+        return nil
     }
 
     public func loadDocumentBlocks(_ reference: DocumentReference) async -> [Block]? {
@@ -250,7 +376,7 @@ public final class ArborEditorHost: EditorHost {
     public func inlineAndRetireDocument(_ reference: DocumentReference, parent _: Document) async -> Bool {
         guard let decoded = workspaceReference(for: reference) else { return false }
         await binding.flush()
-        return (try? await provider.perform(.trash(reference: decoded))) != nil
+        return (try? await performStructuralAction(.trash(reference: decoded))) != nil
     }
 
     public func appendToDocument(_ reference: DocumentReference, _ blocks: [Block]) async -> Bool {
@@ -294,7 +420,7 @@ public final class ArborEditorHost: EditorHost {
         await binding.flush()
         guard binding.lastError == nil, binding.conflict == nil else { return false }
         do {
-            guard let moved = try await provider.perform(.move(reference: currentReference, destination: destination)) else {
+            guard let moved = try await performStructuralAction(.move(reference: currentReference, destination: destination)) else {
                 return false
             }
             lookups[reference] = .present(.init(
@@ -423,7 +549,7 @@ public final class ArborEditorHost: EditorHost {
         if let node = try? await provider.resolve(reference), node.surface.isDirectory {
             return node.reference
         }
-        if let created = try await provider.perform(.createDirectory(
+        if let created = try await performStructuralAction(.createDirectory(
             parent: WorkspaceReference(tree: binding.reference.tree, path: "/"),
             name: "Assets"
         )) {
@@ -472,11 +598,6 @@ public final class ArborEditorHost: EditorHost {
         reference.tree == binding.reference.tree
             && reference.parent?.path == binding.reference.path
             && reference.identity != binding.reference.identity
-    }
-
-    private func slug(_ value: String) -> String {
-        let result = value.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
-        return String(result).split(separator: "-").filter { !$0.isEmpty }.joined(separator: "-")
     }
 
     private func resolveDocumentNodes(_ references: [WorkspaceReference]) async -> [WorkspaceNode] {
