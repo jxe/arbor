@@ -45,6 +45,7 @@ export interface PairingOffer {
 export interface AcceptedUpdate {
   id: string;
   tree: string;
+  sequence: number;
   root: ObjectHash;
   previousRoot: ObjectHash | null;
   kind: "initial" | "accepted" | "merged" | "restored";
@@ -66,6 +67,27 @@ export interface FilePatch {
   base: ObjectHash;
   result: ObjectHash;
   edits: FilePatchEdit[];
+}
+
+export type FileDeltaInstruction =
+  | { copy: { offset: number; length: number } }
+  | { insert: Uint8Array };
+
+export interface FileDelta {
+  base: ObjectHash;
+  result: ObjectHash;
+  instructions: FileDeltaInstruction[];
+}
+
+export interface AcceptedTransitionPayload {
+  objects: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
+  filePatches?: FilePatch[];
+  fileDeltas?: FileDelta[];
+}
+
+export interface AcceptedTransition extends AcceptedTransitionPayload {
+  update: AcceptedUpdate;
+  requestDigest?: ObjectHash;
 }
 
 export interface UpdateRequest {

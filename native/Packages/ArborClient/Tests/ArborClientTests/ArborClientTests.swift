@@ -412,7 +412,7 @@ final class ArborClientTests: XCTestCase {
             candidate: wireSnapshot.root
         )
         let response = Data("""
-        {"outcome":"current","requestDigest":"\(requestDigest)","current":{"id":"up_atlas1","tree":"tr_atlas","root":"\(wireSnapshot.root)","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null},"observedThrough":"up_atlas1"}
+        {"outcome":"current","requestDigest":"\(requestDigest)","current":{"id":"up_atlas1","tree":"tr_atlas","sequence":1,"root":"\(wireSnapshot.root)","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null},"observedThrough":"up_atlas1"}
         """.utf8)
         await URLProtocolStub.state.install { _, attempt in
             attempt == 1
@@ -448,7 +448,7 @@ final class ArborClientTests: XCTestCase {
         let remote = "sha256:" + String(repeating: "1", count: 64)
         let draftObjects = draft.objects.map { "{\"hash\":\"\($0.hash)\",\"bytes\":\"\($0.bytes.base64EncodedString())\"}" }.joined(separator: ",")
         let response = Data("""
-        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previousRoot":"\(base)","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
+        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","current":{"id":"up_remote","tree":"tr_atlas","sequence":2,"root":"\(remote)","previousRoot":"\(base)","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
         """.utf8)
         await URLProtocolStub.state.install { _, _ in (409, response) }
         let client = ArborWireClient(

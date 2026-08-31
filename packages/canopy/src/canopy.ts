@@ -7,10 +7,13 @@ import { decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
 import {
   decodeWireObject,
   encodeWireObject,
+  applyFilePatch,
   hashObject,
   compareWireNames,
   wireEntryObjectHashes,
   updateRequestDigest,
+  type AcceptedTransition,
+  type AcceptedTransitionPayload,
   type AcceptedUpdate,
   type ServerDevice,
   type BoundaryKind,
@@ -36,6 +39,7 @@ import {
 } from "./account-policy.ts";
 import { reconcileUpdate } from "./updates/reconcile.ts";
 import { AcceptedUpdateStore, type AcceptedUpdateInput } from "./updates/store.ts";
+import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
 
 export interface CanonicalBoundary {
   path: string;
@@ -188,8 +192,8 @@ const AUTHORITY_SCHEMA = {
   boundaries: ["path", "tree_id", "parent_tree", "kind"],
   reflog: ["tree_id", "ref", "previous_ref", "changed_at"],
   accepted_updates: [
-    "id", "tree_id", "root", "previous_root", "kind", "accepted_at", "subject",
-    "base_root", "candidate_root", "remote_root", "merge_summary", "request_digest",
+    "id", "tree_id", "sequence", "root", "previous_root", "kind", "accepted_at", "subject",
+    "base_root", "candidate_root", "remote_root", "merge_summary", "request_digest", "transition_json",
   ],
   accounts: ["id", "handle", "profile_tree", "config_tree", "token_digest", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
@@ -309,6 +313,19 @@ function migrateCanopySchema(db: Database): void {
   if (!columns("accounts").has("config_tree")) db.run("ALTER TABLE accounts ADD COLUMN config_tree TEXT");
   if (!columns("accounts").has("claim_digest")) db.run("ALTER TABLE accounts ADD COLUMN claim_digest TEXT");
   if (!columns("pairings").has("claimed_device")) db.run("ALTER TABLE pairings ADD COLUMN claimed_device TEXT");
+  if (!columns("accepted_updates").has("sequence")) db.run("ALTER TABLE accepted_updates ADD COLUMN sequence INTEGER");
+  if (!columns("accepted_updates").has("transition_json")) db.run("ALTER TABLE accepted_updates ADD COLUMN transition_json TEXT");
+  db.run(`
+    WITH ranked AS (
+      SELECT rowid, ROW_NUMBER() OVER (PARTITION BY tree_id ORDER BY accepted_at, rowid) AS sequence
+      FROM accepted_updates
+    )
+    UPDATE accepted_updates
+    SET sequence = (SELECT ranked.sequence FROM ranked WHERE ranked.rowid = accepted_updates.rowid)
+    WHERE sequence IS NULL
+  `);
+  db.run("DROP INDEX IF EXISTS accepted_updates_tree_order");
+  db.run("CREATE UNIQUE INDEX accepted_updates_tree_order ON accepted_updates(tree_id, sequence)");
   db.run(`CREATE TABLE IF NOT EXISTS tree_reservations (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL REFERENCES accounts(id),
@@ -569,6 +586,18 @@ export class CanopyDaemon implements AsyncDisposable {
     return credentialSubject ? this.acceptedStore.matchingRequestDigest(updateID, credentialSubject) : null;
   }
 
+  acceptedTransition(updateID: string, credentialSubject?: string): AcceptedTransition | null {
+    const update = this.update(updateID);
+    let payload: AcceptedTransitionPayload | null;
+    try { payload = this.acceptedStore.transition(updateID); }
+    catch { return null; }
+    if (!update || !payload) return null;
+    const requestDigest = credentialSubject && update.subject === credentialSubject
+      ? this.matchingRequestDigest(updateID, credentialSubject)
+      : null;
+    return { update, ...payload, ...(requestDigest ? { requestDigest } : {}) };
+  }
+
   /** Complete graph for one retained update. Wire hosts expose it only as an
    * opt-in response to the exact update request, never as history browsing. */
   async snapshotForUpdate(treeID: string, updateID: string): Promise<TreeSnapshot> {
@@ -717,6 +746,7 @@ export class CanopyDaemon implements AsyncDisposable {
     readAccountConfigGraph(nextSnapshot, account.configTree!);
     await this.storeObjects([...nextSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const configTree = this.get(account.configTree!)!;
+    const transition = await this.acceptedTransitionPayload(configTree.ref, nextSnapshot.root);
     const now = Date.now();
     const accepted = this.acceptedStore.commit(generateArborID("up"), {
       tree: configTree.id,
@@ -729,6 +759,7 @@ export class CanopyDaemon implements AsyncDisposable {
       baseRoot: configTree.ref,
       candidateRoot: nextSnapshot.root,
       remoteRoot: configTree.ref,
+      transition,
     }, () => {
       const claimed = this.db.run("UPDATE pairings SET claimed_at = ?, claimed_device = ? WHERE id = ? AND claimed_at IS NULL AND expires_at > ?", [
         now,
@@ -1352,6 +1383,10 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.acceptedStore.insert(opaqueID("up"), input);
   }
 
+  private acceptedTransitionPayload(previousRoot: ObjectHash, root: ObjectHash): Promise<AcceptedTransitionPayload> {
+    return buildAcceptedTransitionPayload(previousRoot, root, (hash) => this.object(hash));
+  }
+
   private acceptedRequest(tree: string, subject: string, digest: string): StoredUpdateResponse | null {
     return this.acceptedStore.acceptedRequest(tree, subject, digest);
   }
@@ -1464,6 +1499,7 @@ export class CanopyDaemon implements AsyncDisposable {
       await this.storeObjects(request.objects);
       await this.storeObjects(reconstructed);
       await this.storeObjects([...generated].map(([hash, bytes]) => ({ hash, bytes })));
+      const transition = await this.acceptedTransitionPayload(remoteTree.ref, nextRoot);
       const now = Date.now();
       const accepted = this.acceptedStore.commit(opaqueID("up"), {
         tree: treeID,
@@ -1478,6 +1514,7 @@ export class CanopyDaemon implements AsyncDisposable {
         remoteRoot: remoteTree.ref,
         ...(merge ? { merge } : {}),
         requestDigest,
+        transition,
       });
       if (!accepted) continue;
       if (remoteTree.kind === "community-profile") this.reconcileCommunityAccounts();
@@ -1563,6 +1600,11 @@ export class CanopyDaemon implements AsyncDisposable {
       await this.cacheMembers(rewrite.nextRoot, rewrite.generated);
       await this.storeObjects([...rewrite.generated].map(([hash, bytes]) => ({ hash, bytes })));
     }
+    const transition = await this.acceptedTransitionPayload(currentUpdate.root, nextSnapshot.root);
+    const boundaryTransitions = new Map<string, AcceptedTransitionPayload>();
+    for (const rewrite of boundaryRewrites) {
+      boundaryTransitions.set(rewrite.parent.id, await this.acceptedTransitionPayload(rewrite.parent.ref, rewrite.nextRoot));
+    }
     const now = Date.now();
     const boundaryUpdates: AcceptedUpdate[] = [];
     const accepted = this.acceptedStore.commit(generateArborID("up"), {
@@ -1578,6 +1620,7 @@ export class CanopyDaemon implements AsyncDisposable {
       remoteRoot: currentUpdate.root,
       ...(merge ? { merge } : {}),
       requestDigest,
+      transition,
     }, () => {
       this.applyAccountConfigDerived(account.id, currentGraph, nextGraph);
       for (const rewrite of boundaryRewrites) {
@@ -1595,6 +1638,7 @@ export class CanopyDaemon implements AsyncDisposable {
           kind: "accepted",
           acceptedAt: now,
           subject,
+          transition: boundaryTransitions.get(rewrite.parent.id),
         }));
       }
     });
@@ -1730,6 +1774,9 @@ export class CanopyDaemon implements AsyncDisposable {
       await this.cacheMembers(attachment.nextRoot, attachment.generated);
       await this.storeObjects([...attachment.generated].map(([hash, bytes]) => ({ hash, bytes })));
     }
+    const attachmentTransition = attachment
+      ? await this.acceptedTransitionPayload(attachment.parent.ref, attachment.nextRoot)
+      : null;
     const now = Date.now();
     this.db.transaction(() => {
       this.db.run("INSERT INTO trees (id, ref, updated_at, account_id) VALUES (?, ?, ?, ?)", [id, snapshot.root, now, accountID ?? null]);
@@ -1770,6 +1817,7 @@ export class CanopyDaemon implements AsyncDisposable {
           kind: "accepted",
           acceptedAt: now,
           subject: credentialSubject ?? null,
+          ...(attachmentTransition ? { transition: attachmentTransition } : {}),
         });
       }
     })();
@@ -2107,36 +2155,7 @@ export class CanopyDaemon implements AsyncDisposable {
       const baseObject = decodeWireObject(await this.object(patch.base));
       if (baseObject.type !== "file") throw new Error("File patch base is not a file object");
 
-      let previousEnd = 0;
-      let resultLength = baseObject.bytes.byteLength;
-      for (const edit of patch.edits) {
-        if (!Number.isSafeInteger(edit.offset) || edit.offset < previousEnd
-          || !Number.isSafeInteger(edit.length) || edit.length < 0) {
-          throw new Error("Invalid or overlapping file patch edit");
-        }
-        const end = edit.offset + edit.length;
-        if (!Number.isSafeInteger(end) || end > baseObject.bytes.byteLength) {
-          throw new Error("File patch edit is out of bounds");
-        }
-        resultLength += edit.bytes.byteLength - edit.length;
-        if (!Number.isSafeInteger(resultLength) || resultLength < 0 || resultLength > 1_000_000_000) {
-          throw new Error("File patch result exceeds the storage quota");
-        }
-        previousEnd = end;
-      }
-
-      const payload = new Uint8Array(resultLength);
-      let sourceOffset = 0;
-      let resultOffset = 0;
-      for (const edit of patch.edits) {
-        const unchanged = baseObject.bytes.subarray(sourceOffset, edit.offset);
-        payload.set(unchanged, resultOffset);
-        resultOffset += unchanged.byteLength;
-        payload.set(edit.bytes, resultOffset);
-        resultOffset += edit.bytes.byteLength;
-        sourceOffset = edit.offset + edit.length;
-      }
-      payload.set(baseObject.bytes.subarray(sourceOffset), resultOffset);
+      const payload = applyFilePatch(baseObject.bytes, patch);
       const bytes = encodeWireObject({ type: "file", bytes: payload });
       if (hashObject(bytes) !== patch.result) throw new Error(`File patch result hash mismatch: ${patch.result}`);
       proposed.set(patch.result, bytes);

@@ -76,29 +76,33 @@ public struct WireWatchEvent: Equatable, Sendable {
     public var treeID: String
     public var tree: WireTreeDescriptor
     public var requestDigest: String?
+    public var transitions: [WireAcceptedTransition]
 
-    public init(id: String, tree: WireTreeDescriptor, requestDigest: String? = nil) {
+    public init(id: String, tree: WireTreeDescriptor, requestDigest: String? = nil, transitions: [WireAcceptedTransition] = []) {
         self.id = id
         self.cursor = id
         self.kind = "tree.ref"
         self.treeID = tree.id
         self.tree = tree
         self.requestDigest = requestDigest
+        self.transitions = transitions
     }
 
-    public init(cursor: String, treeID: String, kind: String, tree: WireTreeDescriptor, requestDigest: String? = nil) {
+    public init(cursor: String, treeID: String, kind: String, tree: WireTreeDescriptor, requestDigest: String? = nil, transitions: [WireAcceptedTransition] = []) {
         self.id = cursor
         self.cursor = cursor
         self.kind = kind
         self.treeID = treeID
         self.tree = tree
         self.requestDigest = requestDigest
+        self.transitions = transitions
     }
 }
 
 public struct WireTreeRefChange: Codable, Sendable, Equatable {
     public var descriptor: WireTreeDescriptor
     public var requestDigest: String?
+    public var transitions: [WireAcceptedTransition]
 }
 
 public struct WireTreeRefObservation: Codable, Sendable, Equatable {

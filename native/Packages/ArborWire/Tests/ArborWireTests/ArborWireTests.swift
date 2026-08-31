@@ -182,6 +182,55 @@ struct UpdateProtocolTests {
         #expect(update.id == "up_atlas1")
     }
 
+    @Test("Ordered accepted transitions apply splices and copy-insert deltas through a merge")
+    func acceptedTransitionReplay() throws {
+        let baseFile = try WireObjectCodec.object(.file(Data("abcdef".utf8)))
+        let baseRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: baseFile.hash)]))
+        let firstFile = try WireObjectCodec.object(.file(Data("abXYef".utf8)))
+        let firstRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: firstFile.hash)]))
+        let finalFile = try WireObjectCodec.object(.file(Data("abXYef!".utf8)))
+        let finalRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: finalFile.hash)]))
+        let firstUpdate = WireAcceptedUpdate(
+            id: "up_first", tree: "tr_notes", sequence: 2, root: firstRoot.hash,
+            previousRoot: baseRoot.hash, kind: "accepted", acceptedAt: 1
+        )
+        let finalUpdate = WireAcceptedUpdate(
+            id: "up_merge", tree: "tr_notes", sequence: 3, root: finalRoot.hash,
+            previousRoot: firstRoot.hash, kind: "merged", acceptedAt: 2,
+            merge: .init(version: "markdown-additive-v1", approximatePlacements: 0)
+        )
+        let transitions = [
+            WireAcceptedTransition(
+                update: firstUpdate,
+                objects: [firstRoot],
+                filePatches: [.init(
+                    base: baseFile.hash,
+                    result: firstFile.hash,
+                    edits: [.init(offset: 2, length: 2, bytes: Data("XY".utf8))]
+                )]
+            ),
+            WireAcceptedTransition(
+                update: finalUpdate,
+                objects: [finalRoot],
+                fileDeltas: [.init(
+                    base: firstFile.hash,
+                    result: finalFile.hash,
+                    instructions: [.copy(offset: 0, length: 6), .insert(Data("!".utf8))]
+                )]
+            ),
+        ]
+
+        let result = try WireTransitionReplay.applying(
+            transitions,
+            to: WireSnapshot(root: baseRoot.hash, objects: [baseRoot, baseFile])
+        )
+        #expect(result.root == finalRoot.hash)
+        #expect(Set(result.objects.map(\.hash)) == Set([finalRoot.hash, finalFile.hash]))
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireTransitionReplay.applying([transitions[1], transitions[0]], to: result)
+        }
+    }
+
     @Test("Byte-level parser handles fragmented LF and CRLF frames")
     func sseFraming() throws {
         var parser = ArborSSEParser()
@@ -219,7 +268,7 @@ struct UpdateProtocolTests {
             candidate: root.hash
         )
         let response = Data("""
-        {"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"},"observedThrough":"up_retry"}
+        {"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","sequence":2,"root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"},"observedThrough":"up_retry"}
         """.utf8)
         await WireURLProtocolStub.state.install { _, attempt in
             attempt == 1

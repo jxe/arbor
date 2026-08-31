@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableKey, rowPathSegment, sha256 } from "@arbor/core";
@@ -84,6 +84,64 @@ describe("governed account-configuration Canopy server", () => {
     const unrelated = account.account.community.ref;
     await expect(client.object(account.account.configuration.id, unrelated)).rejects.toThrow("not-found");
     expect((await client.ref(account.account.configuration.id)).observedThrough).toBeTruthy();
+  });
+
+  test("replays consecutive accepted updates as one ordered transition batch", async () => {
+    const baseline = await currentConfig();
+    const administrator = baseline.graph.account.admins[0]!;
+    const firstGraph = {
+      account: baseline.graph.account,
+      trees: baseline.graph.trees,
+      devices: {
+        ...baseline.graph.devices,
+        [administrator]: { ...baseline.graph.devices[administrator]!, label: "Watch replay one" },
+      },
+    };
+    const first = await submitConfiguration(baseline.current, firstGraph);
+    if (first.outcome !== "accepted" && first.outcome !== "merged") throw new Error("Expected an accepted update");
+
+    const afterFirst = await currentConfig();
+    const secondGraph = {
+      account: afterFirst.graph.account,
+      trees: afterFirst.graph.trees,
+      devices: {
+        ...afterFirst.graph.devices,
+        [administrator]: { ...afterFirst.graph.devices[administrator]!, label: "Watch replay two" },
+      },
+    };
+    const second = await submitConfiguration(afterFirst.current, secondGraph);
+    if (second.outcome !== "accepted" && second.outcome !== "merged") throw new Error("Expected an accepted update");
+
+    const abort = new AbortController();
+    const response = await fetch(
+      `${running.url}/.arbor/trees/${baseline.current.tree.id}/watch?after=${baseline.current.tree.update}`,
+      { headers: { authorization: `Bearer ${token}` }, signal: abort.signal },
+    );
+    expect(response.status).toBe(200);
+    const reader = response.body!.getReader();
+    let source = "";
+    while (!source.includes("\n\n")) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      source += new TextDecoder().decode(chunk.value, { stream: true });
+    }
+    abort.abort();
+    const data = source.split("\n\n", 1)[0]!.split("\n")
+      .filter((line) => line.startsWith("data: "))
+      .map((line) => line.slice(6))
+      .join("\n");
+    const event = JSON.parse(data) as {
+      id?: string;
+      cursor: string;
+      change: { descriptor: { update: string; ref: string }; transitions: Array<{
+        update: { id: string; sequence: number; previousRoot: string; root: string };
+      }> };
+    };
+    expect(event.change.transitions.map(({ update }) => update.id)).toEqual([first.update.id, second.update.id]);
+    expect(event.change.transitions[1]!.update.sequence).toBe(event.change.transitions[0]!.update.sequence + 1);
+    expect(event.change.transitions[1]!.update.previousRoot).toBe(event.change.transitions[0]!.update.root);
+    expect(event.cursor).toBe(second.update.id);
+    expect(event.change.descriptor).toMatchObject({ update: second.update.id, ref: second.update.root });
   });
 
   test("reserves a client-generated tree through YAML, then activates it idempotently", async () => {
@@ -222,6 +280,32 @@ describe("governed account-configuration Canopy server", () => {
     const bootstrapSource = await bootstrap.text();
     expect(bootstrapSource).toContain('"Arbor-Access-Link": secret');
     expect(bootstrapSource).not.toContain("X-Arbor-Access");
+
+    const mergeBase = await client.currentSnapshot(treeID);
+    const renamedPath = join(treePath, "renamed.md");
+    const mergeBaseSource = await readFile(renamedPath, "utf8");
+    await writeFile(renamedPath, `${mergeBaseSource}\nRemote line\n`);
+    const remoteAccepted = await client.submitUpdate(
+      treeID,
+      { root: mergeBase.tree.ref, update: mergeBase.tree.update },
+      await snapshotWithRollups(treePath),
+    );
+    expect(remoteAccepted.outcome).toBe("accepted");
+    if (remoteAccepted.outcome !== "accepted") throw new Error("Expected an accepted update");
+    await writeFile(renamedPath, `${mergeBaseSource}\nCandidate line\n`);
+    const merged = await client.submitUpdate(
+      treeID,
+      { root: mergeBase.tree.ref, update: mergeBase.tree.update },
+      await snapshotWithRollups(treePath),
+    );
+    expect(merged.outcome).toBe("merged");
+    if (merged.outcome !== "merged") throw new Error("Expected a merged update");
+    expect(running.canopy.acceptedTransition(merged.update.id)?.update).toMatchObject({
+      id: merged.update.id,
+      kind: "merged",
+      previousRoot: remoteAccepted.update.root,
+    });
+
     const changedPath = join(dataRoot, "incompatible-tree");
     await mkdir(changedPath);
     await writeFile(join(changedPath, "note.md"), "Different\n");

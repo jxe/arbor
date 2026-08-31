@@ -67,6 +67,7 @@
           "current": {
             "id": "up_atlas1",
             "tree": "tr_atlas",
+            "sequence": 1,
             "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
             "previousRoot": null,
             "kind": "initial",

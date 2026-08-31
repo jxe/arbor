@@ -1,5 +1,13 @@
 import { Database } from "bun:sqlite";
-import type { AcceptedUpdate, MergeSummary, ObjectHash, UpdateResult } from "@arbor/wire";
+import {
+  decodeTransitionPayloadJSON,
+  encodeTransitionPayloadJSON,
+  type AcceptedTransitionPayload,
+  type AcceptedUpdate,
+  type MergeSummary,
+  type ObjectHash,
+  type UpdateResult,
+} from "@arbor/wire";
 
 export interface StoredAcceptedResponse {
   status: number;
@@ -18,6 +26,7 @@ export interface AcceptedUpdateInput {
   remoteRoot?: ObjectHash;
   merge?: MergeSummary;
   requestDigest?: string;
+  transition?: AcceptedTransitionPayload;
 }
 
 export interface AcceptedCommitInput extends AcceptedUpdateInput {
@@ -32,6 +41,7 @@ export class AcceptedUpdateStore {
       CREATE TABLE IF NOT EXISTS accepted_updates (
         id TEXT PRIMARY KEY,
         tree_id TEXT NOT NULL REFERENCES trees(id),
+        sequence INTEGER NOT NULL,
         root TEXT NOT NULL,
         previous_root TEXT,
         kind TEXT NOT NULL,
@@ -41,10 +51,11 @@ export class AcceptedUpdateStore {
         candidate_root TEXT,
         remote_root TEXT,
         merge_summary TEXT,
-        request_digest TEXT
+        request_digest TEXT,
+        transition_json TEXT
       )
     `);
-    db.run("CREATE INDEX IF NOT EXISTS accepted_updates_tree_order ON accepted_updates(tree_id, accepted_at, id)");
+    db.run("CREATE UNIQUE INDEX IF NOT EXISTS accepted_updates_tree_order ON accepted_updates(tree_id, sequence)");
     db.run(`
       CREATE UNIQUE INDEX IF NOT EXISTS accepted_updates_request
       ON accepted_updates(tree_id, subject, request_digest)
@@ -57,6 +68,7 @@ export class AcceptedUpdateStore {
     const record = value as {
       id: string;
       tree_id: string;
+      sequence: number;
       root: ObjectHash;
       previous_root: ObjectHash | null;
       kind: AcceptedUpdate["kind"];
@@ -70,6 +82,7 @@ export class AcceptedUpdateStore {
     return {
       id: record.id,
       tree: record.tree_id,
+      sequence: record.sequence,
       root: record.root,
       previousRoot: record.previous_root,
       kind: record.kind,
@@ -84,7 +97,7 @@ export class AcceptedUpdateStore {
 
   current(tree: string): AcceptedUpdate | null {
     return this.row(this.db.query(
-      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY accepted_at DESC, rowid DESC LIMIT 1",
+      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY sequence DESC LIMIT 1",
     ).get(tree));
   }
 
@@ -94,7 +107,7 @@ export class AcceptedUpdateStore {
 
   list(tree: string): AcceptedUpdate[] {
     return (this.db.query(
-      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY accepted_at, rowid",
+      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY sequence",
     ).all(tree) as unknown[]).map((row) => this.row(row)!);
   }
 
@@ -118,14 +131,23 @@ export class AcceptedUpdateStore {
     return row?.request_digest ?? null;
   }
 
+  transition(id: string): AcceptedTransitionPayload | null {
+    const row = this.db.query("SELECT transition_json FROM accepted_updates WHERE id = ?").get(id) as { transition_json: string | null } | null;
+    return row?.transition_json ? decodeTransitionPayloadJSON(JSON.parse(row.transition_json)) : null;
+  }
+
   insert(id: string, input: AcceptedUpdateInput): AcceptedUpdate {
+    const sequence = (this.db.query(
+      "SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM accepted_updates WHERE tree_id = ?",
+    ).get(input.tree) as { sequence: number }).sequence;
     this.db.run(`
       INSERT INTO accepted_updates
-        (id, tree_id, root, previous_root, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary, request_digest)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, tree_id, sequence, root, previous_root, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary, request_digest, transition_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       id,
       input.tree,
+      sequence,
       input.root,
       input.previousRoot,
       input.kind,
@@ -136,6 +158,7 @@ export class AcceptedUpdateStore {
       input.remoteRoot ?? null,
       input.merge ? JSON.stringify(input.merge) : null,
       input.requestDigest ?? null,
+      input.transition ? JSON.stringify(encodeTransitionPayloadJSON(input.transition)) : null,
     ]);
     return this.get(id)!;
   }

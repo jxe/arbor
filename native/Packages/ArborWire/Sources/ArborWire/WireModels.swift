@@ -192,6 +192,7 @@ public struct WireMergeSummary: Codable, Sendable, Equatable {
 public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
     public var id: String
     public var tree: String
+    public var sequence: Int
     public var root: String
     public var previousRoot: String?
     public var kind: String
@@ -205,6 +206,7 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
     public init(
         id: String,
         tree: String,
+        sequence: Int = 1,
         root: String,
         previousRoot: String? = nil,
         kind: String,
@@ -217,6 +219,7 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
     ) {
         self.id = id
         self.tree = tree
+        self.sequence = sequence
         self.root = root
         self.previousRoot = previousRoot
         self.kind = kind
@@ -229,7 +232,7 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
     }
 
     public func validated() throws -> Self {
-        guard !id.isEmpty, !tree.isEmpty, acceptedAt.isFinite else {
+        guard !id.isEmpty, !tree.isEmpty, sequence > 0, acceptedAt.isFinite else {
             throw ArborWireValidationError.invalidValue("Malformed accepted update identity")
         }
         try validateObjectHash(root)
@@ -363,6 +366,151 @@ public struct WireFilePatch: Codable, Sendable, Equatable {
         result = try values.decode(String.self, forKey: .result)
         edits = try values.decode([WireFilePatchEdit].self, forKey: .edits)
         _ = try validated()
+    }
+}
+
+public enum WireFileDeltaInstruction: Sendable, Equatable, Codable {
+    case copy(offset: Int, length: Int)
+    case insert(Data)
+
+    private enum CodingKeys: String, CodingKey { case copy, insert }
+    private enum CopyKeys: String, CodingKey { case offset, length }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        guard values.contains(.copy) != values.contains(.insert) else {
+            throw ArborWireValidationError.invalidValue("File delta instruction requires exactly one operation")
+        }
+        if values.contains(.copy) {
+            let copy = try values.nestedContainer(keyedBy: CopyKeys.self, forKey: .copy)
+            let offset = try copy.decode(Int.self, forKey: .offset)
+            let length = try copy.decode(Int.self, forKey: .length)
+            guard offset >= 0, length > 0, offset <= Int.max - length else {
+                throw ArborWireValidationError.invalidValue("Invalid file delta copy")
+            }
+            self = .copy(offset: offset, length: length)
+        } else {
+            let encoded = try values.decode(String.self, forKey: .insert)
+            guard let bytes = Data(base64Encoded: encoded), !bytes.isEmpty,
+                  bytes.base64EncodedString() == encoded else {
+                throw ArborWireValidationError.invalidValue("Invalid file delta insert")
+            }
+            self = .insert(bytes)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .copy(offset, length):
+            var copy = values.nestedContainer(keyedBy: CopyKeys.self, forKey: .copy)
+            try copy.encode(offset, forKey: .offset)
+            try copy.encode(length, forKey: .length)
+        case let .insert(bytes):
+            try values.encode(bytes.base64EncodedString(), forKey: .insert)
+        }
+    }
+}
+
+public struct WireFileDelta: Codable, Sendable, Equatable {
+    public var base: String
+    public var result: String
+    public var instructions: [WireFileDeltaInstruction]
+
+    public init(base: String, result: String, instructions: [WireFileDeltaInstruction]) {
+        self.base = base
+        self.result = result
+        self.instructions = instructions
+    }
+
+    public func validated() throws -> Self {
+        try validateObjectHash(base)
+        try validateObjectHash(result)
+        guard !instructions.isEmpty else { throw ArborWireValidationError.invalidValue("File delta instructions are empty") }
+        for instruction in instructions {
+            if case let .copy(offset, length) = instruction {
+                guard offset >= 0, length > 0, offset <= Int.max - length else {
+                    throw ArborWireValidationError.invalidValue("Invalid file delta copy")
+                }
+            } else if case let .insert(bytes) = instruction, bytes.isEmpty {
+                throw ArborWireValidationError.invalidValue("File delta insert is empty")
+            }
+        }
+        return self
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        base = try values.decode(String.self, forKey: .base)
+        result = try values.decode(String.self, forKey: .result)
+        instructions = try values.decode([WireFileDeltaInstruction].self, forKey: .instructions)
+        _ = try validated()
+    }
+}
+
+public struct WireAcceptedTransition: Codable, Sendable, Equatable {
+    public var update: WireAcceptedUpdate
+    public var objects: [WireObjectEnvelope]
+    public var filePatches: [WireFilePatch]
+    public var fileDeltas: [WireFileDelta]
+    public var requestDigest: String?
+
+    public init(
+        update: WireAcceptedUpdate,
+        objects: [WireObjectEnvelope],
+        filePatches: [WireFilePatch] = [],
+        fileDeltas: [WireFileDelta] = [],
+        requestDigest: String? = nil
+    ) {
+        self.update = update
+        self.objects = objects
+        self.filePatches = filePatches
+        self.fileDeltas = fileDeltas
+        self.requestDigest = requestDigest
+    }
+
+    private enum CodingKeys: String, CodingKey { case update, objects, filePatches, fileDeltas, requestDigest }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        update = try values.decode(WireAcceptedUpdate.self, forKey: .update)
+        objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
+        filePatches = try values.decodeIfPresent([WireFilePatch].self, forKey: .filePatches) ?? []
+        fileDeltas = try values.decodeIfPresent([WireFileDelta].self, forKey: .fileDeltas) ?? []
+        requestDigest = try values.decodeIfPresent(String.self, forKey: .requestDigest)
+        _ = try validated()
+    }
+
+    public func validated() throws -> Self {
+        _ = try update.validated()
+        guard update.previousRoot != nil else {
+            throw ArborWireValidationError.invalidValue("Initial accepted update cannot be replayed as a transition")
+        }
+        if let requestDigest { try validateObjectHash(requestDigest) }
+        var results = Set<String>()
+        for envelope in objects {
+            try validateObjectHash(envelope.hash)
+            guard WireObjectCodec.hash(envelope.bytes) == envelope.hash else {
+                throw ArborWireValidationError.objectHashMismatch(expected: envelope.hash, actual: WireObjectCodec.hash(envelope.bytes))
+            }
+            _ = try WireObjectCodec.decode(envelope.bytes)
+            guard results.insert(envelope.hash).inserted else {
+                throw ArborWireValidationError.invalidValue("Duplicate transition result")
+            }
+        }
+        for patch in filePatches {
+            _ = try patch.validated()
+            guard results.insert(patch.result).inserted else {
+                throw ArborWireValidationError.invalidValue("Transition result supplied more than once")
+            }
+        }
+        for delta in fileDeltas {
+            _ = try delta.validated()
+            guard results.insert(delta.result).inserted else {
+                throw ArborWireValidationError.invalidValue("Transition result supplied more than once")
+            }
+        }
+        return self
     }
 }
 

@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { AcceptedUpdateStore, CanopyDaemon } from "@arbor/canopy";
+import { CanopyDaemon } from "@arbor/canopy";
 
 const roots: string[] = [];
 
@@ -22,7 +22,23 @@ describe("Canopy database migration", () => {
     db.run("CREATE TABLE trees (id TEXT PRIMARY KEY, ref TEXT NOT NULL, updated_at INTEGER NOT NULL)");
     db.run("CREATE TABLE boundaries (path TEXT PRIMARY KEY, tree_id TEXT NOT NULL UNIQUE REFERENCES trees(id), parent_tree TEXT, kind TEXT NOT NULL)");
     db.run("CREATE TABLE reflog (tree_id TEXT NOT NULL, ref TEXT NOT NULL, previous_ref TEXT, changed_at INTEGER NOT NULL)");
-    AcceptedUpdateStore.createSchema(db);
+    db.run(`CREATE TABLE accepted_updates (
+      id TEXT PRIMARY KEY,
+      tree_id TEXT NOT NULL REFERENCES trees(id),
+      root TEXT NOT NULL,
+      previous_root TEXT,
+      kind TEXT NOT NULL,
+      accepted_at INTEGER NOT NULL,
+      subject TEXT,
+      base_root TEXT,
+      candidate_root TEXT,
+      remote_root TEXT,
+      merge_summary TEXT,
+      request_digest TEXT
+    )`);
+    db.run(`CREATE UNIQUE INDEX accepted_updates_request
+      ON accepted_updates(tree_id, subject, request_digest)
+      WHERE request_digest IS NOT NULL`);
     db.run("CREATE TABLE accounts (id TEXT PRIMARY KEY, handle TEXT NOT NULL UNIQUE, profile_tree TEXT, token_digest TEXT NOT NULL UNIQUE, enabled INTEGER NOT NULL DEFAULT 1)");
     db.run("CREATE TABLE devices (id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), label TEXT NOT NULL, token_digest TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, last_used_at INTEGER, revoked_at INTEGER)");
     db.run("CREATE TABLE pairings (id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), secret_digest TEXT NOT NULL, confirmation_code TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, claimed_at INTEGER)");
@@ -47,6 +63,10 @@ describe("Canopy database migration", () => {
     expect(columns("trees")).toEqual(["id", "ref", "updated_at", "policy", "status", "account_id"]);
     expect(columns("pairings")).toEqual([
       "id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device",
+    ]);
+    expect(columns("accepted_updates")).toEqual([
+      "id", "tree_id", "root", "previous_root", "kind", "accepted_at", "subject", "base_root",
+      "candidate_root", "remote_root", "merge_summary", "request_digest", "sequence", "transition_json",
     ]);
     expect(migrated.query("PRAGMA quick_check").get()).toEqual({ quick_check: "ok" });
     migrated.close();

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "@arbor/canopy";
-import type { ObjectHash } from "@arbor/wire";
+import { encodeWireObject, type ObjectHash } from "@arbor/wire";
 
 const A = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as ObjectHash;
 const B = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as ObjectHash;
@@ -31,6 +31,7 @@ describe("accepted-update transaction store", () => {
   afterEach(() => db.close());
 
   test("commits the ref, reflog, accepted row, and digest as one result", () => {
+    const bytes = encodeWireObject({ type: "directory", entries: [] });
     const accepted = store.commit("up_next", {
       tree: "tr_test",
       root: B,
@@ -43,11 +44,15 @@ describe("accepted-update transaction store", () => {
       candidateRoot: B,
       remoteRoot: A,
       requestDigest: "sha256:request",
+      transition: { objects: [{ hash: B, bytes }] },
     });
     expect(accepted?.id).toBe("up_next");
+    expect(accepted?.sequence).toBe(2);
     expect((db.query("SELECT ref FROM trees WHERE id = 'tr_test'").get() as { ref: string }).ref).toBe(B);
     expect(db.query("SELECT * FROM reflog").all()).toHaveLength(1);
     expect(store.list("tr_test")).toHaveLength(2);
+    expect(store.list("tr_test").map((update) => update.sequence)).toEqual([1, 2]);
+    expect(store.transition("up_next")).toEqual({ objects: [{ hash: B, bytes }] });
     expect(store.acceptedRequest("tr_test", "device:one", "sha256:request")).toEqual({
       status: 201,
       result: { outcome: "accepted", update: accepted!, requestDigest: "sha256:request", observedThrough: "up_next" },

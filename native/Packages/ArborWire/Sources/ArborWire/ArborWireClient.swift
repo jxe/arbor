@@ -272,12 +272,37 @@ public actor ArborWireClient {
                                 throw ArborWireValidationError.malformedSSE("Observation frame fields disagree")
                             }
                             let descriptor = try event.change.descriptor.validated()
+                            let transitions = event.change.transitions
+                            guard !transitions.isEmpty,
+                                  transitions.last?.update.id == descriptor.update,
+                                  transitions.last?.update.root == descriptor.ref else {
+                                throw ArborWireValidationError.malformedSSE("Tree ref transition batch does not end at its descriptor")
+                            }
+                            for (index, transition) in transitions.enumerated() {
+                                _ = try transition.validated()
+                                guard transition.update.tree == tree else {
+                                    throw ArborWireValidationError.malformedSSE("Tree ref transition belongs to another tree")
+                                }
+                                if index > 0 {
+                                    let previous = transitions[index - 1].update
+                                    guard transition.update.sequence == previous.sequence + 1,
+                                          transition.update.previousRoot == previous.root else {
+                                        throw ArborWireValidationError.malformedSSE("Tree ref transition batch is not contiguous")
+                                    }
+                                }
+                            }
+                            if let outerDigest = event.change.requestDigest,
+                               let finalDigest = transitions.last?.requestDigest,
+                               outerDigest != finalDigest {
+                                throw ArborWireValidationError.malformedSSE("Tree ref request digests disagree")
+                            }
                             continuation.yield(WireWatchEvent(
                                 cursor: event.cursor,
                                 treeID: event.tree,
                                 kind: event.kind,
                                 tree: descriptor,
-                                requestDigest: event.change.requestDigest
+                                requestDigest: event.change.requestDigest ?? transitions.last?.requestDigest,
+                                transitions: transitions
                             ))
                         }
                     }

@@ -17,6 +17,8 @@ import {
   decodeObjectEnvelopes,
   decodeUpdateRequestJSON,
   decodeWireObject,
+  encodeAcceptedTransitionJSON,
+  type AcceptedTransition,
   type AcceptedUpdate,
   type ObjectHash,
   type RemoteAccountDescriptor,
@@ -76,20 +78,25 @@ function descriptorWithUpdate(
 function watchDescriptor(
   origin: string,
   tree: CanopyTree,
-  update: AcceptedUpdate,
+  transitions: AcceptedTransition[],
   access: TreeAccess,
-  requestDigest?: ObjectHash | null,
-): ObservationEvent<"tree.ref", { descriptor: RemoteTreeDescriptor; requestDigest?: ObjectHash }> {
+): ObservationEvent<"tree.ref", { descriptor: RemoteTreeDescriptor; transitions: unknown[]; requestDigest?: ObjectHash }> {
+  const final = transitions.at(-1);
+  if (!final) throw new Error("Tree ref frame requires at least one accepted transition");
   return {
-    cursor: update.id,
+    cursor: final.update.id,
     tree: tree.id,
     kind: "tree.ref",
     change: {
-      descriptor: { ...descriptor(origin, { ...tree, ref: update.root }, access), update: update.id },
-      ...(requestDigest ? { requestDigest } : {}),
+      descriptor: { ...descriptor(origin, { ...tree, ref: final.update.root }, access), update: final.update.id },
+      transitions: transitions.map(encodeAcceptedTransitionJSON),
+      ...(final.requestDigest ? { requestDigest: final.requestDigest } : {}),
     },
   };
 }
+
+const MAX_WATCH_TRANSITIONS_PER_FRAME = 64;
+const MAX_WATCH_TRANSITION_FRAME_BYTES = 1024 * 1024;
 
 function updateJSON(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
@@ -487,54 +494,131 @@ export async function serveCanopy(options: {
             return wireError("invalid-request", "after and Last-Event-ID disagree", 400);
           }
           const lastEventID = queryCursor ?? headerCursor;
-          const refFrame = (updated: CanopyTree, accepted: AcceptedUpdate, digest?: ObjectHash | null) =>
-            encodeSSEFrame({ id: accepted.id, event: "tree.ref", data: watchDescriptor(publicOrigin, updated, accepted, access, digest) });
+          const refFrames = (updated: CanopyTree, accepted: AcceptedUpdate[]): string[] | null => {
+            const transitions = accepted.map((update) => canopy.acceptedTransition(update.id, credentialSubject));
+            if (transitions.some((transition) => transition === null)) return null;
+            const frames: string[] = [];
+            let batch: AcceptedTransition[] = [];
+            const flush = () => {
+              if (!batch.length) return;
+              const final = batch.at(-1)!;
+              frames.push(encodeSSEFrame({ id: final.update.id, event: "tree.ref", data: watchDescriptor(publicOrigin, updated, batch, access) }));
+              batch = [];
+            };
+            for (const transition of transitions as AcceptedTransition[]) {
+              const candidate = [...batch, transition];
+              const frame = encodeSSEFrame({
+                id: transition.update.id,
+                event: "tree.ref",
+                data: watchDescriptor(publicOrigin, updated, candidate, access),
+              });
+              if (batch.length && (candidate.length > MAX_WATCH_TRANSITIONS_PER_FRAME || Buffer.byteLength(frame) > MAX_WATCH_TRANSITION_FRAME_BYTES)) {
+                flush();
+              }
+              batch.push(transition);
+              const single = encodeSSEFrame({
+                id: transition.update.id,
+                event: "tree.ref",
+                data: watchDescriptor(publicOrigin, updated, batch, access),
+              });
+              if (Buffer.byteLength(single) > MAX_WATCH_TRANSITION_FRAME_BYTES) return null;
+            }
+            flush();
+            return frames;
+          };
           const observationFrame = (event: { cursor: string; tree: string; kind: string; change: unknown }) =>
             encodeSSEFrame({ id: event.cursor, event: event.kind, data: event });
           return new Response(new ReadableStream({
             start(controller) {
-              const stopRefs = canopy.subscribe(tree.id, (updated, accepted, digest) => {
-                const visibleDigest = credentialSubject && accepted.subject === credentialSubject ? digest : undefined;
-                controller.enqueue(encoder.encode(refFrame(updated, accepted, visibleDigest)));
+              let closed = false;
+              let replaying = true;
+              const pending: Array<
+                | { kind: "ref"; tree: CanopyTree; update: AcceptedUpdate }
+                | { kind: "observation"; event: { cursor: string; tree: string; kind: string; change: unknown } }
+              > = [];
+              let stopRefs = () => {};
+              let stopObservations = () => {};
+              const resync = (reason: string) => {
+                if (closed) return;
+                closed = true;
+                const cursor = canopy.observedThrough(tree.id);
+                const event: ObservationEvent<"resync-required", { reason: string }> = {
+                  cursor,
+                  tree: tree.id,
+                  kind: "resync-required",
+                  change: { reason },
+                };
+                controller.enqueue(encoder.encode(encodeSSEFrame({ id: cursor, event: "resync-required", data: event })));
+                stopRefs();
+                stopObservations();
+                controller.close();
+              };
+              const deliverRef = (updated: CanopyTree, accepted: AcceptedUpdate) => {
+                if (closed) return;
+                const frames = refFrames(updated, [accepted]);
+                if (!frames) return resync("The accepted transition is unavailable or exceeds the watch frame limit");
+                for (const frame of frames) controller.enqueue(encoder.encode(frame));
+              };
+              const deliverObservation = (event: { cursor: string; tree: string; kind: string; change: unknown }) => {
+                if (!closed) controller.enqueue(encoder.encode(observationFrame(event)));
+              };
+              stopRefs = canopy.subscribe(tree.id, (updated, accepted) => {
+                if (replaying) pending.push({ kind: "ref", tree: updated, update: accepted });
+                else deliverRef(updated, accepted);
               });
-              const stopObservations = canopy.subscribeObservations(tree.id, (event) => {
-                controller.enqueue(encoder.encode(observationFrame(event)));
+              stopObservations = canopy.subscribeObservations(tree.id, (event) => {
+                if (replaying) pending.push({ kind: "observation", event });
+                else deliverObservation(event);
               });
               const accepted = canopy.acceptedUpdates(tree.id);
               const observations = canopy.observationEvents(tree.id);
               const timeline = [
                 ...accepted.map((update) => ({ cursor: update.id, at: update.acceptedAt, update })),
                 ...observations.map((event) => ({ cursor: event.cursor, at: event.createdAt, event })),
-              ].sort((a, b) => a.at - b.at || a.cursor.localeCompare(b.cursor));
+              ].sort((a, b) => {
+                if (a.at !== b.at) return a.at - b.at;
+                if ("update" in a && a.update && "update" in b && b.update) {
+                  return a.update.sequence - b.update.sequence;
+                }
+                if ("update" in a && a.update) return -1;
+                if ("update" in b && b.update) return 1;
+                return a.cursor.localeCompare(b.cursor);
+              });
               const cursorIndex = lastEventID ? timeline.findIndex((event) => event.cursor === lastEventID) : -1;
               if (lastEventID && cursorIndex < 0) {
-                const cursor = canopy.observedThrough(tree.id);
-                const event: ObservationEvent<"resync-required", { reason: string }> = {
-                  cursor,
-                  tree: tree.id,
-                  kind: "resync-required",
-                  change: { reason: "The requested cursor is no longer retained" },
-                };
-                controller.enqueue(encoder.encode(encodeSSEFrame({ id: cursor, event: "resync-required", data: event })));
-                stopRefs();
-                stopObservations();
-                controller.close();
-                return;
+                return resync("The requested cursor is no longer retained");
               }
               const replay = lastEventID === null
                 ? []
                 : cursorIndex >= 0
                   ? timeline.slice(cursorIndex + 1)
                   : [];
+              let acceptedBatch: AcceptedUpdate[] = [];
+              const flushAccepted = () => {
+                if (!acceptedBatch.length || closed) return;
+                const frames = refFrames(tree, acceptedBatch);
+                acceptedBatch = [];
+                if (!frames) return resync("Retained accepted history has no replayable transition batch");
+                for (const frame of frames) controller.enqueue(encoder.encode(frame));
+              };
               for (const item of replay) {
-                if ("update" in item && item.update) {
-                  const digest = canopy.matchingRequestDigest(item.update.id, credentialSubject);
-                  controller.enqueue(encoder.encode(refFrame(tree, item.update, digest)));
-                } else if ("event" in item && item.event) {
-                  controller.enqueue(encoder.encode(observationFrame(item.event)));
+                if ("update" in item && item.update) acceptedBatch.push(item.update);
+                else if ("event" in item && item.event) {
+                  flushAccepted();
+                  if (!closed) controller.enqueue(encoder.encode(observationFrame(item.event)));
                 }
               }
+              flushAccepted();
+              const retainedCursors = new Set(timeline.map((item) => item.cursor));
+              replaying = false;
+              for (const item of pending) {
+                const cursor = item.kind === "ref" ? item.update.id : item.event.cursor;
+                if (retainedCursors.has(cursor)) continue;
+                if (item.kind === "ref") deliverRef(item.tree, item.update);
+                else deliverObservation(item.event);
+              }
               request.signal.addEventListener("abort", () => {
+                closed = true;
                 stopRefs();
                 stopObservations();
                 try { controller.close(); } catch {}

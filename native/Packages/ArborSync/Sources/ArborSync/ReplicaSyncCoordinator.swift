@@ -83,7 +83,56 @@ public actor ReplicaSyncCoordinator {
         if control.attempt != nil || heads.pendingRoot != nil || control.nextBase != nil {
             return try await synchronize(admission: nil)
         }
-        return try await pullCurrentSnapshot(treeID: event.tree.id, priorHeads: heads)
+        guard !event.transitions.isEmpty else {
+            return try await pullCurrentSnapshot(treeID: event.tree.id, priorHeads: heads)
+        }
+        do {
+            return try await applyAcceptedTransitions(event, priorHeads: heads)
+        } catch is ArborWireValidationError {
+            return try await pullCurrentSnapshot(treeID: event.tree.id, priorHeads: heads)
+        }
+    }
+
+    private func applyAcceptedTransitions(
+        _ event: WireWatchEvent,
+        priorHeads heads: ReplicaHeads
+    ) async throws -> WorkspaceSyncPresentation {
+        guard let final = event.transitions.last,
+              final.update.id == event.tree.update,
+              final.update.root == event.tree.ref else {
+            throw ArborWireValidationError.invalidValue("Watch transition batch does not match its descriptor")
+        }
+        let local = try await replica.currentSnapshot()
+        let basis = WireSnapshot(
+            root: local.root,
+            objects: local.objects.map { WireObjectEnvelope(hash: $0.hash, bytes: $0.bytes) }
+        )
+        let accepted = try WireTransitionReplay.applying(event.transitions, to: basis)
+        let latestHeads = try await replica.heads()
+        if latestHeads.pendingRoot != nil || latestHeads.materializedRoot != heads.materializedRoot {
+            return try await synchronize(admission: nil)
+        }
+        if accepted.root == latestHeads.materializedRoot {
+            try await replica.recordAccepted(root: accepted.root, update: final.update.id, cursor: event.id)
+        } else {
+            let replacement = try SnapshotBridge.replacement(
+                snapshot: accepted,
+                tree: await replica.treeID(),
+                update: final.update.id,
+                cursor: event.id
+            )
+            try await replica.replaceFromSystem(replacement)
+        }
+        control.presentation = WorkspaceSyncPresentation(
+            state: final.update.merge == nil ? .current : .autoMerged,
+            detail: "Applied \(event.transitions.count) ordered accepted transition\(event.transitions.count == 1 ? "" : "s")",
+            acceptedRoot: final.update.root,
+            localRoot: final.update.root,
+            remoteAdditions: true,
+            approximatePlacements: final.update.merge?.approximatePlacements ?? 0
+        )
+        try files.write(control)
+        return control.presentation
     }
 
     private func pullCurrentSnapshot(

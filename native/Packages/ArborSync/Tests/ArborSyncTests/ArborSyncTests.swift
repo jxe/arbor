@@ -12,6 +12,7 @@ private actor ClosureTransport: ReplicaWireTransport {
     let currentObservedThrough: String
     let submitter: Submit
     private(set) var requests: [PreparedWireUpdate] = []
+    private(set) var snapshotRequests = 0
 
     init(
         initial: WireSnapshot,
@@ -31,6 +32,7 @@ private actor ClosureTransport: ReplicaWireTransport {
     }
 
     func currentSnapshot(tree: String) async throws -> WireCurrentSnapshot {
+        snapshotRequests += 1
         return WireCurrentSnapshot(
             tree: descriptor(tree: tree, snapshot: initial, update: currentUpdate),
             snapshot: initial,
@@ -228,6 +230,61 @@ struct ArborSyncTests {
             #expect(result.acceptedRoot == remote.root)
             #expect(try await replica.heads().acceptedCursor == "up_remote")
             #expect(await remoteTransport.requests.isEmpty)
+        }
+    }
+
+    @Test("A clean watch applies an accepted transition without fetching a snapshot")
+    func cleanWatchTransition() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_watch_transition"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOne\n")
+            let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nTwo\n")
+            let transport = ClosureTransport(initial: initial) { _, _ in
+                throw ArborWireValidationError.invalidValue("A clean watch transition must not submit")
+            }
+            let replica = try await ReplicaPlacementService.place(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"),
+                transport: transport
+            )
+            let snapshotRequestsBefore = await transport.snapshotRequests
+            let initialFile = try #require(initial.objects.first { $0.hash != initial.root })
+            let remoteFile = try #require(remote.objects.first { $0.hash != remote.root })
+            guard case let .file(initialPayload) = try WireObjectCodec.decode(initialFile.bytes),
+                  case let .file(remotePayload) = try WireObjectCodec.decode(remoteFile.bytes) else {
+                Issue.record("Expected Markdown file objects")
+                return
+            }
+            let update = WireAcceptedUpdate(
+                id: "up_remote",
+                tree: tree,
+                sequence: 2,
+                root: remote.root,
+                previousRoot: initial.root,
+                kind: "accepted",
+                acceptedAt: 1_800_000_000_000
+            )
+            let transition = WireAcceptedTransition(
+                update: update,
+                objects: [try #require(remote.objects.first { $0.hash == remote.root })],
+                filePatches: [WireFilePatch(
+                    base: initialFile.hash,
+                    result: remoteFile.hash,
+                    edits: [.init(offset: 0, length: initialPayload.count, bytes: remotePayload)]
+                )]
+            )
+            let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)
+            let result = try await coordinator.observe(WireWatchEvent(
+                id: update.id,
+                tree: descriptor(tree: tree, snapshot: remote, update: update.id),
+                transitions: [transition]
+            ))
+
+            #expect(result.state == .current)
+            #expect(result.acceptedRoot == remote.root)
+            #expect(await transport.snapshotRequests == snapshotRequestsBefore)
+            #expect(await transport.requests.isEmpty)
+            #expect(try await replica.heads().acceptedCursor == update.id)
         }
     }
 

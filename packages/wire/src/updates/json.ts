@@ -1,5 +1,11 @@
 import type { ObjectHash } from "../objects.ts";
-import type { FilePatch, UpdateRequest } from "./types.ts";
+import type {
+  AcceptedTransition,
+  AcceptedTransitionPayload,
+  FileDelta,
+  FilePatch,
+  UpdateRequest,
+} from "./types.ts";
 
 export interface ObjectEnvelopeJSON {
   hash: ObjectHash;
@@ -18,10 +24,27 @@ export interface UpdateRequestJSON {
   returnSnapshot?: true | "if-result-differs";
 }
 
+export interface TransitionPayloadJSON {
+  objects: ObjectEnvelopeJSON[];
+  filePatches?: UpdateRequestJSON["filePatches"];
+  fileDeltas?: Array<{
+    base: ObjectHash;
+    result: ObjectHash;
+    instructions: Array<{ copy: { offset: number; length: number } } | { insert: string }>;
+  }>;
+}
+
+export interface AcceptedTransitionJSON extends TransitionPayloadJSON {
+  update: AcceptedTransition["update"];
+  requestDigest?: ObjectHash;
+}
+
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const MAX_FILE_PATCHES = 10_000;
 const MAX_FILE_PATCH_EDITS = 100_000;
 const MAX_FILE_PATCH_REPLACEMENT_BYTES = 64 * 1024 * 1024;
+const MAX_FILE_DELTA_INSTRUCTIONS = 100_000;
+const MAX_FILE_DELTA_INSERT_BYTES = 64 * 1024 * 1024;
 
 export function encodeBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64");
@@ -100,6 +123,94 @@ export function decodeFilePatches(value: unknown): FilePatch[] {
     });
     return { base: record.base as ObjectHash, result, edits };
   });
+}
+
+export function decodeFileDeltas(value: unknown): FileDelta[] {
+  if (!Array.isArray(value)) throw new Error("fileDeltas must be an array");
+  if (value.length > MAX_FILE_PATCHES) throw new Error("fileDeltas exceeds the delta quota");
+  const results = new Set<ObjectHash>();
+  let instructionCount = 0;
+  let insertedBytes = 0;
+  return value.map((item) => {
+    if (!item || typeof item !== "object") throw new Error("Invalid file delta");
+    const record = item as { base?: unknown; result?: unknown; instructions?: unknown };
+    if (typeof record.base !== "string" || !HASH.test(record.base)
+      || typeof record.result !== "string" || !HASH.test(record.result)
+      || !Array.isArray(record.instructions) || record.instructions.length === 0) {
+      throw new Error("Invalid file delta");
+    }
+    const result = record.result as ObjectHash;
+    if (results.has(result)) throw new Error(`Duplicate file delta result: ${result}`);
+    results.add(result);
+    instructionCount += record.instructions.length;
+    if (instructionCount > MAX_FILE_DELTA_INSTRUCTIONS) throw new Error("fileDeltas exceeds the instruction quota");
+    const instructions = record.instructions.map((instruction) => {
+      if (!instruction || typeof instruction !== "object") throw new Error("Invalid file delta instruction");
+      const value = instruction as { copy?: unknown; insert?: unknown };
+      if ((value.copy === undefined) === (value.insert === undefined)) throw new Error("File delta instruction requires exactly one operation");
+      if (value.copy !== undefined) {
+        if (!value.copy || typeof value.copy !== "object") throw new Error("Invalid file delta copy");
+        const copy = value.copy as { offset?: unknown; length?: unknown };
+        if (!Number.isSafeInteger(copy.offset) || (copy.offset as number) < 0
+          || !Number.isSafeInteger(copy.length) || (copy.length as number) <= 0
+          || !Number.isSafeInteger((copy.offset as number) + (copy.length as number))) {
+          throw new Error("Invalid file delta copy");
+        }
+        return { copy: { offset: copy.offset as number, length: copy.length as number } };
+      }
+      if (typeof value.insert !== "string") throw new Error("Invalid file delta insert");
+      const insert = decodeBase64(value.insert);
+      if (insert.byteLength === 0) throw new Error("File delta insert is empty");
+      insertedBytes += insert.byteLength;
+      if (insertedBytes > MAX_FILE_DELTA_INSERT_BYTES) throw new Error("fileDeltas exceeds the insert-byte quota");
+      return { insert };
+    });
+    return { base: record.base as ObjectHash, result, instructions };
+  });
+}
+
+export function decodeTransitionPayloadJSON(value: unknown): AcceptedTransitionPayload {
+  if (!value || typeof value !== "object") throw new Error("Transition payload must be an object");
+  const record = value as { objects?: unknown; filePatches?: unknown; fileDeltas?: unknown };
+  const objects = decodeObjectEnvelopes(record.objects);
+  const filePatches = record.filePatches === undefined ? undefined : decodeFilePatches(record.filePatches);
+  const fileDeltas = record.fileDeltas === undefined ? undefined : decodeFileDeltas(record.fileDeltas);
+  const results = new Set(objects.map(({ hash }) => hash));
+  for (const result of [...(filePatches ?? []), ...(fileDeltas ?? [])].map(({ result }) => result)) {
+    if (results.has(result)) throw new Error(`Transition result supplied more than once: ${result}`);
+    results.add(result);
+  }
+  return {
+    objects,
+    ...(filePatches?.length ? { filePatches } : {}),
+    ...(fileDeltas?.length ? { fileDeltas } : {}),
+  };
+}
+
+export function encodeTransitionPayloadJSON(payload: AcceptedTransitionPayload): TransitionPayloadJSON {
+  return {
+    objects: payload.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
+    ...(payload.filePatches?.length ? { filePatches: payload.filePatches.map((patch) => ({
+      base: patch.base,
+      result: patch.result,
+      edits: patch.edits.map((edit) => ({ offset: edit.offset, length: edit.length, bytes: encodeBase64(edit.bytes) })),
+    })) } : {}),
+    ...(payload.fileDeltas?.length ? { fileDeltas: payload.fileDeltas.map((delta) => ({
+      base: delta.base,
+      result: delta.result,
+      instructions: delta.instructions.map((instruction) => "copy" in instruction
+        ? { copy: instruction.copy }
+        : { insert: encodeBase64(instruction.insert) }),
+    })) } : {}),
+  };
+}
+
+export function encodeAcceptedTransitionJSON(transition: AcceptedTransition): AcceptedTransitionJSON {
+  return {
+    update: transition.update,
+    ...encodeTransitionPayloadJSON(transition),
+    ...(transition.requestDigest ? { requestDigest: transition.requestDigest } : {}),
+  };
 }
 
 export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
