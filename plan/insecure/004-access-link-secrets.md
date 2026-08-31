@@ -1,6 +1,7 @@
 # Insecure 004: Keep access-link secrets out of local navigation state
 
-> **Drift check:** inspect `packages/render/src/App.tsx`,
+> **Drift check:** inspect `packages/cli/src/index.ts`,
+> `packages/render/src/App.tsx`,
 > `packages/arborsync/src/service.ts`, `packages/stores/src/visits.ts`, the Wire
 > client request boundary, and `docs/client.md`. Stop if local remote browsing
 > already transports link credentials outside locator strings and persists only
@@ -12,7 +13,7 @@
 - **Effort:** M
 - **Risk:** MED
 - **Progress:** TODO
-- **Written against:** `450d2a4`
+- **Written against:** `421e384`
 
 ## Problem
 
@@ -22,27 +23,36 @@ the link fragment in the remote origin and sends `Arbor-Access-Link` as a
 header. Local Arbor does not yet have the equivalent out-of-band handoff:
 
 - `launchedRemoteLocation()` accepts the complete `browse` query value;
+- both CLI browser-launch paths put `target.remoteURL`, including any access
+  fragment, into the loopback `browse` query parameter;
 - remote locators are passed through normal resolve/navigation state;
 - `remoteSnapshot()` canonicalizes the full input URL and gives it to
-  `VisitedTreeStore`; and
-- the visit store derives its key from and persists that locator.
+  `VisitedTreeStore`;
+- the visit store derives its key from and persists that locator; and
+- `fetchRemoteProjection()` constructs a bearer-only `WireClient`, then uses
+  `WireProjection` for object and boundary reads, so the link credential is not
+  available as `Arbor-Access-Link` anywhere along the current projection path.
 
 A link fragment must remain usable for local browsing without becoming durable
 navigation or cache state.
 
 ## Required design
 
-1. Parse the access fragment only at the first local client boundary. Separate
-   the credential from the fragment-free canonical locator before history,
-   recent visits, breadcrumbs, diagnostics, or ordinary locator resolution see
-   it.
+1. Parse the access fragment at the CLI/operating-system launch boundary,
+   before constructing any loopback browser URL. Separate the credential from
+   the fragment-free canonical locator before browser history, recent visits,
+   breadcrumbs, diagnostics, React state, or ordinary locator resolution see
+   it. Browser-side parsing may remain only as defense in depth; it is too late
+   to be the primary handoff because the secret would already be in the
+   loopback URL.
 2. Replace the loopback location immediately with the credential-free browse
    location. Do not preserve the secret in `history.state`, React state that is
    serialized, query parameters, or error messages.
 3. Extend the local client/daemon remote-resolution boundary with an explicit
    ephemeral access-link input. Transport it in a request header or body, never
    inside the locator. Do not overload account bearer credentials.
-4. Pass that credential from Arbor Sync to Canopy as the normative
+4. Pass that credential through `fetchRemoteProjection()` into its `WireClient`
+   and `WireProjection` object/boundary reads, using the normative
    `Arbor-Access-Link` header for resolve, node, children, and object requests
    needed by the visit. Keep it in memory only for the active visit/session.
 5. Normalize and persist visit identity from the fragment-free locator.
@@ -55,6 +65,7 @@ navigation or cache state.
 
 Expected files include:
 
+- `packages/cli/src/index.ts`;
 - `packages/render/src/App.tsx`;
 - `packages/client/src/index.ts`;
 - `packages/arborsync/src/server.ts` and `service.ts`;
@@ -82,7 +93,7 @@ Add tests proving:
 Run:
 
 ```sh
-bun test Tests/integration/canopy/update-host.test.ts Tests/integration/system-trees.test.ts
+bun test tests/integration/canopy/update-host.test.ts tests/integration/system-trees.test.ts
 bun run typecheck
 bun run test:e2e
 git diff --check

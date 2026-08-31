@@ -4,15 +4,24 @@
 >
 > **Drift check**: `git diff --stat 664f43b..HEAD -- packages/render packages/arborsync packages/canopy packages/wire tests/e2e playwright.config.ts plan/history/native/010-add-device-pairing.md`
 
+> **Coordination gate**: Do not execute this plan before
+> [Interface 005](005-multi-canopy-connections.md). Interface 005 intentionally
+> replaces the singular local account and QR presentation with plural account
+> connections and a pairing bundle while preserving Canopy's one-account
+> pairing security contract. After Interface 005 lands, reconcile this plan's
+> selectors, fixtures, and payload expectations against that final surface;
+> retain every secret-redaction, expiry, one-use, revocation, and safe-error
+> requirement below.
+
 ## Status
 
 - **Priority**: P2
 - **Effort**: S
 - **Risk**: MEDIUM
-- **Depends on**: completed native [Plan 010](../history/native/010-add-device-pairing.md)
+- **Depends on**: [Interface 005](005-multi-canopy-connections.md), completed native [Plan 010](../history/native/010-add-device-pairing.md)
 - **Category**: browser hardening
 - **Planned at**: Arbor `664f43b`, 2026-08-24
-- **Progress**: TODO — deliberately deferred from Plan 010 after protocol/runtime, Hetzner, migration, and live Railway revocation verification passed.
+- **Progress**: DEFERRED — deliberately deferred from Plan 010 and now waits for Interface 005's plural account/pairing surface.
 
 ## Why this matters
 
