@@ -1275,11 +1275,12 @@ export class ArborSyncDaemon implements AsyncDisposable {
       this.trees.setSyncState(workspace.tree, "idle");
       return;
     }
-    if (!pending && local.root === remote.ref) {
+    if (local.root === remote.ref) {
       await this.trees.updateSyncMetadata({ ...placement, ref: remote.ref, update: remote.update });
+      await saveAcceptedTreeObjects(workspace.tree, local);
+      if (pending) await clearPendingTreeUpdate(workspace.tree);
       this.trees.setSyncState(workspace.tree, "idle");
       this.syncConflicts.delete(workspace.tree);
-      await saveAcceptedTreeObjects(workspace.tree, local);
       return;
     }
     if (placement.access !== "write") {

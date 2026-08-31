@@ -3,13 +3,17 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { serveArborSync } from "@arbor/arborsync";
+import { ArborSyncDaemon, serveArborSync } from "@arbor/arborsync";
 import { ArborSyncRESTClient } from "@arbor/client";
 import { serveCanopy } from "@arbor/canopy";
 import { generateArborID, sha256 } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
-import { snapshotDirectory, WireClient } from "@arbor/wire";
+import { encodeWireObject, hashObject, snapshotDirectory, WireClient } from "@arbor/wire";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
+import {
+  pendingTreeUpdate,
+  savePendingTreeUpdate,
+} from "../../packages/arborsync/src/sync-state.ts";
 
 const token = "self-sync-owner";
 let sandbox: string;
@@ -429,5 +433,38 @@ describe("private self-sync", () => {
     await waitFor(async () => (await readFile(join(treeA, "sample.bin"), "utf8")) === "binary-from-b");
     expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 2);
     await follower.close();
+  });
+
+  test("discards a stale pending update when local state already matches Canopy", async () => {
+    process.env.ARBOR_DATA_HOME = stateA;
+    const owner = new WireClient(host.url, token);
+    const account = await owner.account();
+    const configurationTree = account.account.configuration.id;
+    const remote = await owner.ref(configurationTree);
+    const emptyDirectory = encodeWireObject({ type: "directory", entries: [] });
+    const emptyDirectoryHash = hashObject(emptyDirectory);
+    const staleRoot = encodeWireObject({
+      type: "directory",
+      entries: [{ name: "LinkPreviews", hash: emptyDirectoryHash }],
+    });
+    const staleRootHash = hashObject(staleRoot);
+    await savePendingTreeUpdate(configurationTree, {
+      base: { root: remote.snapshot.ref, update: remote.snapshot.update! },
+      candidate: staleRootHash,
+      objects: [
+        { hash: emptyDirectoryHash, bytes: Buffer.from(emptyDirectory).toString("base64") },
+        { hash: staleRootHash, bytes: Buffer.from(staleRoot).toString("base64") },
+      ],
+    });
+
+    const service = await ArborSyncDaemon.openControl({ autoSync: false });
+    try {
+      await service.synchronizeNow();
+      expect(await pendingTreeUpdate(configurationTree)).toBeUndefined();
+      expect((await service.trees.descriptors()).find(({ id }) => id === configurationTree)?.sync).toBe("idle");
+      expect((await owner.ref(configurationTree)).snapshot).toEqual(remote.snapshot);
+    } finally {
+      await service[Symbol.asyncDispose]();
+    }
   });
 });
