@@ -4,7 +4,17 @@ import { parseMarkdown } from "@arbor/editor";
 import type { CommunityConfigStore, VisitedTreeStore } from "@arbor/stores";
 import { WireClient, type RemoteAccessEntry, type RemoteTreeDescriptor } from "@arbor/wire";
 import type { EventBus } from "./events.ts";
-import { sampleExpandedNode, summarizeSample } from "./node-sampling.ts";
+import { sampleExpandedNode as sampleNode, summarizeSample } from "./node-sampling.ts";
+
+/**
+ * System records reuse the expanded-node sampler for their properties and
+ * capabilities, but `system:` nodes never carry stable keys: the sampler's
+ * PageID-derived key would only be rejected when a client dereferenced it.
+ */
+function sampleExpandedNode(...args: Parameters<typeof sampleNode>): ReturnType<typeof sampleNode> {
+  const sample = sampleNode(...args);
+  return { ...sample, ref: { ...sample.ref, stableKey: null } };
+}
 import { treeConflict } from "./sync-state.ts";
 import type { TreeManager } from "./tree-manager.ts";
 import { ProtocolError } from "./workspace.ts";
