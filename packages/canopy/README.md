@@ -9,6 +9,7 @@ Update handling is divided by independently testable responsibility:
 - `updates/merge.ts` — pure graph and exact-source Markdown merging;
 - `updates/store.ts` — private accepted history, derived-request replay lookup, current-schema creation, and the ref/reflog/accepted-row transaction, which also appends the accepted update's `tree.ref` row to the observation log;
 - `updates/observations.ts` — the single ordered observation log per tree; its ordinal is the only source of cursor order for `observedThrough` and watch replay;
+- `schema.ts` — the authority table definitions, the schema version stamp, the startup schema assertion, and `openCanopyDatabase`;
 - `canopy.ts` — validation, object durability, bounded race coordination, and other Canopy features;
 - `host.ts` — HTTP authentication, decoding, response mapping, and no update policy.
 

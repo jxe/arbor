@@ -1,8 +1,5 @@
-import { homedir, hostname } from "node:os";
-import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON } from "@arbor/wire";
 import { performance } from "node:perf_hooks";
-import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import type {
   BacklinksPage,
   ChildrenPage,
@@ -19,37 +16,16 @@ import type {
   TreeRef,
   WorkspaceOperation,
 } from "@arbor/core";
-import { LOCAL_TREE, SYSTEM_TREE, canonicalArborLocator, canonicalHTTPURL, canonicalNodePath, generateArborID, pageIDFromStableKey, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
-import { parseMarkdown } from "@arbor/editor";
-import { FsConflictError } from "@arbor/fs";
-import { CommunityConfigStore, VisitedTreeStore, arborDataRoot, arborPrivateRoot, saveCurrentDeviceID } from "@arbor/stores";
+import { LOCAL_TREE, SYSTEM_TREE, canonicalArborLocator, canonicalNodePath, pageIDFromStableKey, revisionOf, siblingMarkdownTreePath } from "@arbor/core";
+import { FsConflictError, materializeTree, snapshotDirectory } from "@arbor/fs";
+import { CommunityConfigStore, VisitedTreeStore } from "@arbor/stores";
 import { WireClient, encodeObjectDeltaJSON, encodeWireObject, hashObject, objectDelta, type ObjectDelta, type RemoteTreeDescriptor } from "@arbor/wire";
 import { WireProjection } from "@arbor/wire-projection";
+import { claimProfileBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath } from "./account-bootstrap.ts";
 import { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
-import { TreeManager } from "./tree-manager.ts";
-import { TreeSynchronizer } from "./tree-sync.ts";
-import { materializeTree, snapshotDirectory } from "@arbor/fs";
-
-interface PendingClaimBootstrap {
-  version: 1;
-  origin: string;
-  handle: string;
-  path: string;
-  label: string;
-  profileTree: string;
-  configurationTree: string;
-  deviceID: string;
-  credentialDigest: `sha256:${string}`;
-  files: { account: string; trees: string; device: string };
-  profile: TreeSnapshotJSON;
-  configuration: TreeSnapshotJSON;
-}
-
-const bootstrapSnapshot = decodeTreeSnapshotJSON;
-const persistableBootstrapSnapshot = encodeTreeSnapshotJSON;
-import { ProtocolError, RevisionConflictError, Workspace, type WorkspaceOptions } from "./workspace.ts";
+import { summarizeExpandedNode } from "./node-sampling.ts";
 import {
   acceptedTreeObjects,
   clearPendingTreeUpdate,
@@ -62,37 +38,17 @@ import {
   treeConflict,
   withDelta,
 } from "./sync-state.ts";
-import type { ConfirmedSourcePatch } from "./workspace.ts";
-import {
-  sampleExpandedNode,
-  summarizeExpandedNode,
-  summarizeSample,
-} from "./node-sampling.ts";
+import { SystemTreeProjection } from "./system-tree.ts";
+import { TreeManager } from "./tree-manager.ts";
+import { TreeSynchronizer } from "./tree-sync.ts";
+import { ProtocolError, RevisionConflictError, Workspace, type ConfirmedSourcePatch, type WorkspaceOptions } from "./workspace.ts";
 
-
-const SYSTEM_REMOTE_TIMEOUT_MS = 1_000;
+export { resolveUserPath } from "./account-bootstrap.ts";
 
 type ResolvedScope =
   | { kind: "root"; workspace: Workspace; ref: NodeRef }
   | { kind: "local"; path: string; ref: NodeRef }
   | { kind: "system"; path: string };
-
-interface SystemTreeSegment {
-  readonly segment: string;
-  readonly tree: LocalTreeDescriptor;
-  readonly source: string;
-}
-
-interface SystemTreeProjection {
-  readonly revision: number;
-  readonly expiresAt: number;
-  readonly segments: readonly SystemTreeSegment[];
-}
-
-interface SystemTreeProjectionBuild {
-  readonly revision: number;
-  readonly segments: readonly SystemTreeSegment[];
-}
 
 export interface ArborSyncDaemonOptions {
   autoSync?: boolean;
@@ -105,13 +61,6 @@ export interface ArborSyncDaemonOptions {
 }
 
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
-
-export function resolveUserPath(input: string, home = homedir()): string {
-  const value = input.trim();
-  if (value === "~") return home;
-  if (value.startsWith("~/")) return resolve(home, value.slice(2));
-  return resolve(value);
-}
 
 /**
  * The daemon's top-level coordinator: one process-wide event bus, a root
@@ -132,15 +81,19 @@ export class ArborSyncDaemon implements AsyncDisposable {
   private syncWaiters: Array<() => void> = [];
   private readonly treeSync: TreeSynchronizer;
   private remoteAuthorities = new Map<string, { locator: string; endpoint: string }>();
-  private systemTreeProjection?: SystemTreeProjection;
-  private systemTreeProjectionInFlight?: { revision: number; promise: Promise<readonly SystemTreeSegment[]> };
-  private readonly monotonicNow: () => number;
+  private readonly systemTree: SystemTreeProjection;
 
   private constructor(events: EventBus, trees: TreeManager, options: ArborSyncDaemonOptions = {}) {
     this.events = events;
     this.trees = trees;
     this.localFs = new FilesystemService(events);
-    this.monotonicNow = options.monotonicNow ?? (() => performance.now());
+    this.systemTree = new SystemTreeProjection({
+      trees,
+      events,
+      communityConfig: this.communityConfig,
+      visitedTrees: this.visitedTrees,
+      monotonicNow: options.monotonicNow ?? (() => performance.now()),
+    });
     this.treeSync = new TreeSynchronizer({
       trees,
       events,
@@ -266,7 +219,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const scope = await this.resolveScope(ref);
     if (scope.kind === "root") return scope.workspace.snapshot(scope.ref);
     if (scope.kind === "local") return this.localFs.snapshot(scope.ref);
-    return this.systemSnapshot(scope.path);
+    return this.systemTree.systemSnapshot(scope.path);
   }
 
   async treeList(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
@@ -451,7 +404,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       };
     }
     if (scope.kind === "local") return this.localFs.children(scope.path, cursor);
-    return this.systemChildren(scope.path);
+    return this.systemTree.systemChildren(scope.path);
   }
 
   async backlinksPage(ref: NodeRef, cursor?: string | null): Promise<BacklinksPage> {
@@ -651,394 +604,17 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return null;
   }
 
-  /** Safe diagnostic projections. Account configuration is ordinary tree content. */
-  private async systemSnapshot(path: string): Promise<NodeResponse> {
-    await this.trees.descriptors();
-    const observedThrough = this.events.currentCursor();
-    if (path === "/") {
-      return sampleExpandedNode({
-        path: "/",
-        name: "system",
-        kind: "directory",
-        revision: revisionOf(""),
-        writable: false,
-        materialization: "available",
-        document: parseMarkdown(""),
-        diagnostics: [],
-      }, { tree: SYSTEM_TREE, observedThrough, writable: false });
-    }
-    if (path === "/visited") {
-      const listing = (await this.visitedTrees.list()).map((visit) => visit.id);
-      const revision = revisionOf(listing.join("\n"));
-      return sampleExpandedNode({
-        path,
-        name: path.slice(1),
-        kind: "directory",
-        revision,
-        writable: false,
-        materialization: "available",
-        document: parseMarkdown(""),
-        diagnostics: this.trees.diagnostics(),
-      }, { tree: SYSTEM_TREE, observedThrough, writable: false });
-    }
-    const record = await this.systemRecordAt(path);
-    if (!record) {
-      throw new ProtocolError("not-found", `Node not found: system:${path.slice(1)}`, 404, { path });
-    }
-    return sampleExpandedNode({
-      path,
-      name: record.segment,
-      kind: "markdown",
-      revision: revisionOf(record.record.source),
-      writable: false,
-      materialization: "available",
-      bodyOrigin: "sibling",
-      document: parseMarkdown(record.record.source),
-      diagnostics: [],
-    }, { tree: SYSTEM_TREE, observedThrough, writable: false });
-  }
-
-  private async systemChildren(path: string): Promise<ChildrenPage> {
-    await this.trees.descriptors();
-    const observedThrough = this.events.currentCursor();
-    if (path === "/") {
-      const items = await Promise.all(["/credentials", "/visited", "/diagnostics"].map(async (childPath) =>
-        summarizeSample(await this.systemSnapshot(childPath))
-      ));
-      return {
-        parent: { tree: SYSTEM_TREE, path: "/", stableKey: null },
-        items,
-        nextCursor: null,
-        observedThrough,
-      };
-    }
-    if (path === "/visited") {
-      const visits = await this.visitedTrees.list();
-      return {
-        parent: { tree: SYSTEM_TREE, path: "/visited", stableKey: null },
-        items: await Promise.all(visits.map(async (visit) => summarizeSample(await this.systemSnapshot(`/visited/${visit.id}`)))),
-        nextCursor: null,
-        observedThrough,
-      };
-    }
-    throw new ProtocolError("invalid-reference", `system:${path.slice(1)} does not have children`, 400, { path });
-  }
-
-  private async buildSystemTreeSegments(): Promise<SystemTreeProjectionBuild> {
-    const configured = await this.communityConfig.get();
-    let remote: RemoteTreeDescriptor[] = [];
-    let writable = new Set<string>();
-    const remoteAccess = new Map<string, import("@arbor/wire").RemoteAccessEntry[]>();
-    if (configured) {
-      const client = new WireClient(configured.record.origin, configured.accountToken, {
-        timeoutMs: SYSTEM_REMOTE_TIMEOUT_MS,
-      });
-      const [listed, account] = await Promise.allSettled([client.list(), client.account()]);
-      if (listed.status === "fulfilled") remote = listed.value.snapshot;
-      if (account.status === "fulfilled") {
-        writable = new Set(account.value.account.writableProfiles.map((tree) => tree.id));
-      }
-      if (
-        (listed.status === "rejected" && listed.reason instanceof TypeError)
-        || (account.status === "rejected" && account.reason instanceof TypeError)
-      ) {
-        for (const placement of this.trees.sharedPlacements()) {
-          if (placement.endpoint === configured.record.origin) this.trees.setSyncState(placement.tree, "offline");
-        }
-      }
-      await Promise.all(remote.map(async (tree) => {
-        const entries = await client.access(tree.id).then((value) => value.snapshot).catch(() => []);
-        remoteAccess.set(tree.id, entries);
-      }));
-    }
-    // Read local descriptors after the bounded remote refresh so any transport
-    // failure above is visible immediately as `sync: offline`.
-    const local = await this.trees.descriptors();
-    const byID = new Map<string, LocalTreeDescriptor>(local.map((tree) => [tree.id, tree]));
-    for (const tree of remote) {
-      const current = byID.get(tree.id);
-      byID.set(tree.id, {
-        id: tree.id,
-        name: current?.name ?? tree.canonical?.path.split("/").filter(Boolean).at(-1) ?? "community",
-        osPath: current?.osPath,
-        kind: tree.kind,
-        canonical: tree.canonical,
-        access: current?.access ?? tree.access ?? (writable.has(tree.id) ? "write" : "read"),
-        placement: current?.placement ?? "remote",
-        sync: current?.sync,
-      });
-    }
-    const segments = await Promise.all([...byID.values()].map(async (tree) => ({
-      segment: tree.id,
-      tree,
-      source: this.treeRecordSource(
-        tree,
-        tree.placement !== "remote" ? await treeConflict(tree.id) : undefined,
-      ),
-    })));
-    return { revision: this.trees.descriptorRevision, segments };
-  }
-
-  private async systemTreeSegments(): Promise<readonly SystemTreeSegment[]> {
-    const revision = this.trees.descriptorRevision;
-    const now = this.monotonicNow();
-    const cached = this.systemTreeProjection;
-    if (cached && cached.revision === revision && cached.expiresAt > now) return cached.segments;
-    const inFlight = this.systemTreeProjectionInFlight;
-    if (inFlight) return inFlight.promise;
-
-    const promise = (async () => {
-      const build = await this.buildSystemTreeSegments();
-      if (this.trees.descriptorRevision === build.revision) {
-        this.systemTreeProjection = {
-          revision: build.revision,
-          expiresAt: this.monotonicNow() + 1_000,
-          segments: build.segments,
-        };
-      }
-      return build.segments;
-    })();
-    this.systemTreeProjectionInFlight = { revision, promise };
-    try {
-      return await promise;
-    } finally {
-      if (this.systemTreeProjectionInFlight?.promise === promise) {
-        this.systemTreeProjectionInFlight = undefined;
-      }
-    }
-  }
-
-  private async systemTreeChildren() {
-    return (await this.systemTreeSegments())
-      .map(({ segment, tree }) => ({
-        tree: SYSTEM_TREE,
-        name: tree.name,
-        path: `/trees/${segment}`,
-        kind: "markdown" as const,
-        materialization: "available" as const,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }
-
-  private treeRecordSource(
-    tree: LocalTreeDescriptor,
-    conflict?: Awaited<ReturnType<typeof treeConflict>>,
-  ): string {
-    return [
-      "---",
-      `id: ${tree.id}`,
-      `name: ${JSON.stringify(tree.name)}`,
-      `placement: ${tree.placement}`,
-      ...(tree.osPath ? [`path: ${JSON.stringify(tree.osPath)}`] : []),
-      ...(tree.canonical ? [`canonical: ${JSON.stringify(canonicalArborLocator(tree.canonical))}`] : []),
-      ...(tree.canonical ? [`http: ${JSON.stringify(canonicalHTTPURL(tree.canonical))}`] : []),
-      ...(tree.canonical ? [`endpoint: ${JSON.stringify(tree.canonical.endpoint)}`] : []),
-      ...(tree.canonical ? [`canonicalPath: ${JSON.stringify(tree.canonical.path)}`] : []),
-      `access: ${tree.access}`,
-      ...(tree.sync ? [`sync: ${tree.sync}`] : []),
-      ...(conflict ? [
-        `conflictCurrent: ${JSON.stringify({ update: conflict.details.current.id, root: conflict.details.current.root })}`,
-        `conflictBase: ${JSON.stringify(conflict.details.base)}`,
-        `conflictCandidate: ${JSON.stringify(conflict.details.candidate)}`,
-        `conflictDraft: ${JSON.stringify(conflict.details.draft.root)}`,
-        `conflicts: ${JSON.stringify(conflict.details.conflicts)}`,
-      ] : []),
-      "---",
-      "",
-      `# ${tree.name}`,
-      "",
-    ].join("\n");
-  }
-
-  private async systemRecordAt(path: string) {
-    if (path === "/diagnostics") {
-      return {
-        segment: "diagnostics",
-        record: {
-          source: `---\ncount: ${this.trees.diagnostics().length}\n---\n\n# Diagnostics\n\n${this.trees.diagnostics().map((item) => `- ${item.message}`).join("\n")}\n`,
-        },
-      };
-    }
-    if (path === "/credentials") {
-      const status = await this.communityConfig.status();
-      return {
-        segment: "credentials",
-        record: {
-          source: status
-            ? `---\ncommunityAccount: connected\ncredential: ${JSON.stringify(status.record.credential)}\ncredentialAvailable: ${status.credentialAvailable}\n---\n\n# Credentials\n\nSecrets are held by the operating system.\n`
-            : "---\ncommunityAccount: missing\n---\n\n# Credentials\n",
-        },
-      };
-    }
-    const visitedMatch = /^\/visited\/([^/]+)$/.exec(path);
-    if (visitedMatch) {
-      const visit = (await this.visitedTrees.list()).find((candidate) => candidate.id === visitedMatch[1]);
-      if (!visit) return null;
-      return {
-        segment: visit.name,
-        record: {
-          source: [
-            "---",
-            `id: ${JSON.stringify(visit.id)}`,
-            `tree: ${JSON.stringify(visit.tree)}`,
-            `locator: ${JSON.stringify(visit.locator)}`,
-            ...(visit.canonical ? [`canonical: ${JSON.stringify(visit.canonical)}`] : []),
-            `visitedAt: ${JSON.stringify(visit.visitedAt)}`,
-            "---",
-            "",
-            `# ${visit.name}`,
-            "",
-          ].join("\n"),
-        },
-      };
-    }
-    return null;
-  }
-
-  private async configuredWire(): Promise<{ client: WireClient; origin: string }> {
-    const configured = await this.communityConfig.get();
-    if (!configured) {
-      const record = await this.communityConfig.safe();
-      if (record) {
-        throw new ProtocolError(
-          "credential-unavailable",
-          `The credential for ~${record.handle} is unavailable. Run arbor connect ${record.origin} to restore it.`,
-          409,
-          { path: "system:credentials" },
-        );
-      }
-      throw new ProtocolError("not-found", "Connect to an Arbor community first", 409, { path: "system:community" });
-    }
-    return {
-      client: new WireClient(configured.record.origin, configured.accountToken),
-      origin: configured.record.origin,
-    };
-  }
-
-  private accountMetadata(account: import("@arbor/wire").RemoteAccountDescriptor) {
-    return {
-      id: account.id,
-      handle: account.handle,
-      profileTree: account.profileTree,
-      profileURL: account.profileURL,
-      communityTree: account.community.id,
-      communityURL: canonicalArborLocator(account.community.canonical!),
-      configurationTree: account.configuration.id,
-      configurationRef: account.configuration.ref,
-      configurationUpdate: account.configuration.update,
-    };
-  }
-
   async claimProfileBootstrap(
     originInput: string,
     handle: string,
     inputPath: string,
     displayName?: string,
   ): Promise<MutationReceipt["effects"]> {
-    const origin = new URL(originInput).origin;
-    const requested = resolveUserPath(inputPath);
-    await mkdir(requested, { recursive: true });
-    const path = await realpath(requested);
-    const index = join(path, "_index.md");
-    const exists = await stat(index).then(() => true).catch(() => false);
-    if (!exists) {
-      await writeFile(index, `---\ntype: person\n---\n\n# ${displayName?.trim() || handle}\n`);
-    } else if (!/^type:\s*person\s*$/m.test(await readFile(index, "utf8"))) {
-      throw new ProtocolError("invalid-reference", "Profile _index.md must declare type: person", 409, { path });
-    }
-    const dataHome = arborDataRoot();
-    const accountPath = join(dataHome, "account.yaml");
-    const treesPath = join(dataHome, "trees.yaml");
-    const devicesPath = join(dataHome, "devices");
-    const pendingPath = join(arborPrivateRoot(), "bootstrap-claim.json");
-    let pending: PendingClaimBootstrap | undefined;
-    try { pending = JSON.parse(await readFile(pendingPath, "utf8")) as PendingClaimBootstrap; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    let credential = await this.communityConfig.provisionalCredential();
-    if (pending) {
-      if (pending.version !== 1 || pending.origin !== origin || pending.handle !== handle || pending.path !== path) {
-        throw new ProtocolError("conflict", "A different profile bootstrap is already pending in this data home", 409);
-      }
-      if (!credential || `sha256:${sha256(credential)}` !== pending.credentialDigest) {
-        throw new ProtocolError("conflict", "The pending bootstrap credential is unavailable", 409);
-      }
-    } else {
-      if (await Promise.any([accountPath, treesPath, devicesPath].map((candidate) => stat(candidate).then(() => true))).catch(() => false)) {
-        throw new ProtocolError("conflict", "Account configuration already exists; bootstrap will not rewrite authored YAML", 409);
-      }
-      const profileTree = generateArborID("tr");
-      const configurationTree = generateArborID("tr");
-      const deviceID = generateArborID("dv");
-      credential = `arb_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
-      const label = hostname() || "Initial device";
-      const files = {
-        account: [
-          "version: 1", `community: ${JSON.stringify(origin)}`, "profile:", `  tree: ${JSON.stringify(profileTree)}`,
-          `  handle: ${JSON.stringify(handle)}`, "admins:", `  - ${JSON.stringify(deviceID)}`, "",
-        ].join("\n"),
-        trees: [
-          "version: 1", "trees:", `  ${JSON.stringify(profileTree)}:`,
-          `    canonicalPath: ${JSON.stringify(`/~${handle}`)}`, "    access:", "      - subject:",
-          "          kind: everyone", "        access: read", "",
-        ].join("\n"),
-        device: [
-          "version: 1", `label: ${JSON.stringify(label)}`, "placements:", `  ${JSON.stringify(profileTree)}:`,
-          `    server: ${JSON.stringify(origin)}`, `    path: ${JSON.stringify(path)}`, "",
-        ].join("\n"),
-      };
-      const staging = join(arborPrivateRoot(), `bootstrap-config-${crypto.randomUUID()}`);
-      await mkdir(join(staging, "devices"), { recursive: true, mode: 0o700 });
-      try {
-        await writeFile(join(staging, "account.yaml"), files.account, { mode: 0o600 });
-        await writeFile(join(staging, "trees.yaml"), files.trees, { mode: 0o600 });
-        await writeFile(join(staging, "devices", `${deviceID}.yaml`), files.device, { mode: 0o600 });
-        pending = {
-          version: 1, origin, handle, path, label, profileTree, configurationTree, deviceID,
-          credentialDigest: `sha256:${sha256(credential)}`,
-          files,
-          profile: persistableBootstrapSnapshot(await snapshotDirectory(path)),
-          configuration: persistableBootstrapSnapshot(await snapshotDirectory(staging)),
-        };
-        await this.communityConfig.storeProvisionalCredential(credential);
-        const temporary = `${pendingPath}.${crypto.randomUUID()}.tmp`;
-        await writeFile(temporary, `${JSON.stringify(pending)}\n`, { mode: 0o600 });
-        await rename(temporary, pendingPath);
-      } finally {
-        await rm(staging, { recursive: true, force: true });
-      }
-    }
-    const install = async (destination: string, source: string) => {
-      const existing = await readFile(destination, "utf8").catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? null : Promise.reject(error));
-      if (existing !== null && existing !== source) throw new ProtocolError("conflict", `Bootstrap will not overwrite ${destination}`, 409);
-      if (existing === null) await writeFile(destination, source, { mode: 0o600, flag: "wx" });
-    };
-    await mkdir(devicesPath, { recursive: true, mode: 0o700 });
-    await install(accountPath, pending.files.account);
-    await install(treesPath, pending.files.trees);
-    await install(join(devicesPath, `${pending.deviceID}.yaml`), pending.files.device);
-    await saveCurrentDeviceID(pending.deviceID);
-    if (!credential) throw new ProtocolError("conflict", "The bootstrap credential is unavailable", 409);
-    const result = await new WireClient(origin).claim(handle, {
-      profileTree: pending.profileTree,
-      configurationTree: pending.configurationTree,
-      device: { id: pending.deviceID, label: pending.label, credentialDigest: pending.credentialDigest },
-      profile: bootstrapSnapshot(pending.profile),
-      configuration: bootstrapSnapshot(pending.configuration),
-    });
-    await this.communityConfig.set(origin, credential, this.accountMetadata(result.account));
-    await rm(pendingPath, { force: true });
-    await this.trees.refreshConfiguration();
-    return [
-      { kind: "updated", ref: { tree: result.configuration.id, path: "/account.yaml", stableKey: null } },
-      { kind: "created", ref: { tree: result.configuration.id, path: "/trees.yaml", stableKey: null } },
-      { kind: "created", ref: { tree: result.tree.id, path: "/", stableKey: null } },
-    ];
+    return claimProfileBootstrap(this, originInput, handle, inputPath, displayName);
   }
 
   async forgetLocalAccount(): Promise<void> {
-    await this.communityConfig.remove();
-    this.trees.invalidateDescriptors();
-    this.events.emit({ tree: SYSTEM_TREE, kind: "updated", ref: { tree: SYSTEM_TREE, path: "/credentials", stableKey: null }, origin: "api" });
+    return forgetLocalAccount(this);
   }
 
   /** Flush a valid file-edited configuration and its resulting tree work before a CLI process exits. */
@@ -1048,8 +624,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   async createPairingBootstrap() {
-    const { client } = await this.configuredWire();
-    return client.createPairing();
+    return createPairingBootstrap(this);
   }
 
   async resolveTreeConflict(
