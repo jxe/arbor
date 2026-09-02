@@ -50,7 +50,7 @@ keeping `_store.*` and `schema.ts` out of child navigation. The Swift replica
 currently preserves these objects losslessly but does not project their rows
 while fully offline.
 
-For a state-changing update, Canopy canonicalizes the all-string semantic value `{ base, candidate, tree, version: "updates-v1" }` and hashes its UTF-8 JSON with SHA-256. The successful accepted row stores that digest for replay. Supplied object envelopes are transport aids and do not change identity; `current` and conflict outcomes remain stateless. Rejected candidates and complete conflict drafts are returned to and retained by the client, not stored as Canopy history.
+For a state-changing update, Canopy canonicalizes the semantic value `{ version: "updates-v1", tree, base, candidate }` ([wire §1.4](../spec/04-wire.md#14-submit-a-candidate-state)) and hashes its RFC 8785 UTF-8 JSON with SHA-256. The successful accepted row stores that digest for replay. Supplied object envelopes are transport aids and do not change identity; `current` and conflict outcomes remain stateless. Rejected candidates and complete conflict drafts are returned to and retained by the client, not stored as Canopy history.
 
 The reference `canopyd` can run locally or behind a deployment provider. Provider environment detection, volume paths, Railway/Hetzner recipes, bootstrap migration variables, credential rotation, backup/restore commands, and operator reset procedures belong in deployment documentation, not the CLI or wire spec.
 

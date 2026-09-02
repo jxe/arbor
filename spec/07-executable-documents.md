@@ -76,7 +76,9 @@ it emits the equivalent server-visible path suffix and preserves the authored
 application query. It does not forward the reserved identity alias as an HTML
 fragment.
 
-Structured editors that cannot preserve MDX or TSX source exactly must use a raw/code-capable mode. They never rewrite executable source as ordinary Markdown. General network, filesystem, process, credential, and host APIs are unavailable in the component realm.
+Structured editors that cannot preserve MDX or TSX source exactly must use a raw/code-capable mode. They never rewrite executable source as ordinary Markdown.
+
+Executable code—components, query plan callbacks, schema evaluation, mutation handlers, and agent runs—has no ambient authority: filesystem, network, process, clock, randomness, credential, secret, and host APIs are absent unless a separately specified capability or tool grants them. This is the single normative statement of that rule; other sections refer to it.
 
 ## Modules and named handles
 
@@ -177,13 +179,13 @@ External side effects and cross-domain workflows require a separately specified 
 
 ## Component and data packages
 
-Components are React authoring in TSX or MDX within a confined UI realm. Workspace data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. General network and host APIs are absent; UI-local timers, focus, and animation do not become data authority.
+Components are React authoring in TSX or MDX within a confined UI realm. Workspace data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. The [no-ambient-authority rule](#authored-component-forms) applies; UI-local timers, focus, and animation do not become data authority.
 
 The public component package is `arbor/react`; data and handle authoring come from `arbor/data`. The former provides `useQuery`, `skipQuery`, `useMutationAction`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`. The latter provides `arbor(path)` logical node sources, schema-derived children handles, `query`, `mutation`, `publicError`, `RowOf`, and `ResultOf`. Package names are part of the authored portability surface.
 
 Cross-tree source imports use absolute Arbor locators and resolve to immutable code identities for one build or execution. Imported handles retain their own declared access; resolving an import cannot silently widen it.
 
-Before first execution in a context, a human-readable consent statement summarizes the resolved trees, read prefixes, write prefixes, hosted execution, and any backing-coupled or external capability. Enforcement must make this statement true. A host process's broader filesystem or credentials do not become executable-document capabilities. Named handles are callable from human clients and agent tools using the same identity, validation, and authorization.
+Before first execution in a context, a human-readable consent statement lists the resolved trees, readable prefixes, writable prefixes, hosted execution, any backing-coupled or external capability, and—for an agent run—its tools, transcript destination, and any explicitly granted non-tree effect. Broad or computed declarations remain visibly broad. This is the single definition of the statement's contents, and enforcement must make it true. A host process's broader filesystem or credentials do not become executable-document capabilities. Named handles are callable from human clients and agent tools using the same identity, validation, and authorization.
 
 ## Compilation and hosting
 

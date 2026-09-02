@@ -326,7 +326,6 @@ type TreeRefEvent = {
   change: {
     descriptor: RemoteTreeDescriptor;
     transitions: AcceptedTransition[];
-    requestDigest?: Hash;
   };
 };
 ```
@@ -362,13 +361,28 @@ the final materialization.
 
 For `tree.ref`, a transition's `requestDigest` is present only when the stream
 is authenticated by the exact bearer credential that submitted that accepted
-request. For compatibility, `change.requestDigest` may repeat the final
-transition's digest. It is correlation data, not authority. Account status and
-activation use their own kinds and may advance the observation stream without
-changing the accepted content update. A non-retained event cursor, a retained
-accepted update without a replay payload, or a batch too old for retained
-transition data produces one terminal `resync-required` event and closes; the
-client reads a new snapshot and resumes after its cursor.
+request. It is correlation data, not authority. A non-retained event cursor, a
+retained accepted update without a replay payload, or a batch too old for
+retained transition data produces one terminal `resync-required` event and
+closes; the client reads a new snapshot and resumes after its cursor.
+
+`tree.activation` is the one non-ref observation kind. When a tree declared in
+`trees.yaml` becomes active ([§6.2](#62-declaring-and-activating-a-tree)), the
+authority records one event on the declaring account's configuration-tree
+stream:
+
+```ts
+type TreeActivationEvent = {
+  cursor: EventCursor;
+  tree: TreeID; // the account-configuration tree carrying the event
+  kind: "tree.activation";
+  change: { tree: TreeID; status: "active" };
+};
+```
+
+`change.tree` names the newly active tree. The event advances the
+configuration tree's observation stream and `observedThrough` without changing
+its accepted content update; a watcher applies no transition for it.
 
 ### 1.6 Example: editor edit roundtrip
 
@@ -706,17 +720,25 @@ type AccessSubject =
 
 type AccessRule = { subject: AccessSubject; access: ReadWriteAccess };
 
+type SafeAccessSubject =
+  | { kind: "everyone" }
+  | { kind: "profile"; tree: TreeID; locator?: string }
+  | { kind: "link" };
+
 type AccessEntry = {
   id: string;
-  subject:
-    | { kind: "everyone" }
-    | { kind: "profile"; tree: TreeID; locator?: string }
-    | { kind: "link" };
+  subject: SafeAccessSubject;
   access: ReadWriteAccess;
 };
 
+type NodeRef = {
+  tree: TreeID;
+  path: LogicalPath;
+  stableKey: string | null;
+};
+
 type LocatorResolution = {
-  ref: { tree: TreeID; path: LogicalPath; stableKey: string | null };
+  ref: NodeRef;
   enclosingTree: TreeDescriptor;
   historical: boolean;
   observedThrough: EventCursor;
@@ -737,111 +759,17 @@ type ObservationEvent<TKind extends string, TChange> = {
   kind: TKind;
   change: TChange;
 };
-
-type NodeRef = {
-  tree: TreeID;
-  path: LogicalPath;
-  stableKey: string | null;
-};
-
-type WritePropertiesOperation = {
-  op: "writeProperties";
-  ref: NodeRef;
-  basePropertiesRevision: string;
-  properties: Record<string, JSONValue>;
-};
-
-type IdentityRule = {
-  properties: string[];
-};
-
-type ChildRepresentationSummary =
-  | { type: "expanded" }
-  | {
-      type: "rollup";
-      codec: "csv" | "json" | "jsonl" | "sqlite";
-      scope: "children" | "subtree";
-      modelDigest: Hash;
-    }
-  | { type: "external"; driver: string };
-
-type NodeCapabilities = {
-  properties?: { revision: string; schema?: Hash; writable: boolean };
-  content?: {
-    revision: string;
-    mediaType: string;
-    format?: "markdown" | "mdx" | "tsx" | "json";
-    writable: boolean;
-  };
-  children?: {
-    revision: string;
-    schema?: Hash;
-    representation?: ChildRepresentationSummary;
-    total?: number;
-    writable: boolean;
-  };
-  executable?: {
-    version: Hash;
-    state: "runnable" | "diagnostic" | "inactive";
-  };
-};
-
-type NodeContent = {
-  source: string;
-  representation?: {
-    state: "stored" | "implicit";
-    origin?: "sibling" | "index";
-  };
-};
-
-type NodeSummary = {
-  ref: NodeRef;
-  name: string;
-  revision: string;
-  properties: Record<string, JSONValue>;
-  capabilities: NodeCapabilities;
-  materialization: "available" | "placeholder";
-  diagnostics: Diagnostic[];
-};
-
-type NodeSnapshot = NodeSummary & {
-  content?: NodeContent;
-  observedThrough: EventCursor;
-};
-
-type ChildrenPage = {
-  parent: NodeRef;
-  items: NodeSummary[];
-  nextCursor: string | null;
-  observedThrough: EventCursor;
-};
 ```
 
-These are model-sampling values, not another stored graph. `ref` is the sole
-tree/path/identity carrier; snapshots and summaries do not repeat `tree`,
-`path`, `kind`, `pageID`, or collection-specific fields. Properties and
-content remain independent, and an omitted content payload does not negate a
-content capability—for example, clients normally fetch large file bytes
-separately. Capability names and states are fail-closed: an unknown capability
-or format may be retained or ignored for forward compatibility but never
-grants editing, execution, traversal, or file access.
-
-Clients may derive a parsed Markdown document from exact `NodeContent.source`;
-that derived representation is not a second authored value. Markdown property
-and content operations are addressed separately even when their capability
-revisions name the same exact source bytes. A `ChildRepresentationSummary` describes the observed placement;
-it does not make backing or projection topology part of node identity. The
-exact synchronized rollup form remains the `RollupDescriptor` below.
-
-The local HTTP adapter carries this same reference without inventing a second
-locator shape. Requests to `/v1/node`, `/v1/file`, `/v1/children`,
-`/v1/backlinks`, and `/v1/recovery` require the `tree`, `path`, and `stableKey`
-query parameters. An empty `stableKey` parameter encodes JSON `null`; a
-non-empty value is the canonical identity-key JSON, percent-encoded by the HTTP
-client. JSON mutation and transfer requests embed the three fields directly.
-The removed `pageID | pathHint` request union is invalid on every route. The
-local-only `local` and `system` tree scopes use the same three-field shape even
-though those sentinel scopes never cross Arbor Wire.
+`AccessRule` is the submitted and stored form; `AccessEntry` is the safe
+administrative form, and a `SafeAccessSubject` never carries a link digest or
+secret. `NodeRef` is the sole tree/path/identity carrier: `stableKey` is
+`null` or the canonical key JSON defined by
+[locators](03-locators.md#stable-keys-revisions-and-fragments). The
+node-sampling values built on `NodeRef` (`NodeSummary`, `NodeSnapshot`,
+`ChildrenPage`, and their capabilities) are not wire operations; the reference
+local API documents them in
+[docs/arborsync-api.md](../docs/arborsync-api.md#5-model-sampling-values).
 
 New tree IDs are `tr_` plus 26 lowercase base32 characters encoding 128 random
 bits. New device IDs use the same encoding after `dv_`. Existing shorter IDs
@@ -1012,8 +940,9 @@ is `account-config-v1`; all other trees use `ordinary`. There is no generic
 policy extension framework. The tree uses the ordinary object, snapshot,
 accepted-update, merge, replica, and watch machinery.
 
-The complete path and YAML contract is normative in [configuration](05-configuration.md).
-For every direct candidate and every automatic merge, the server:
+The complete path, YAML, per-device write-rule, and semantic-merge contract is
+normative in [configuration](05-configuration.md#governed-account-tree). For
+every direct candidate and every automatic merge, the server:
 
 1. authenticates the submitting device using the current accepted root;
 2. parses and validates the complete candidate graph and semantic diff;
@@ -1023,20 +952,9 @@ For every direct candidate and every automatic merge, the server:
 5. accepts the new root and applies credential revocation, administrators,
    existing-tree ACLs, and canonical boundaries in one transaction.
 
-Ordinary devices may change only their own device file. Administrators may
-change `account.yaml` and `trees.yaml` or delete another device file, but may
-not edit another device's placements. Administrators remain a nonempty subset
-of active devices. Kind cannot change after activation. A removed active tree
-declaration is rejected; removing an uninitialized declaration cancels its
-reservation.
-
-Merge is semantic: device files, placements, administrators, tree declarations,
-and ACL subjects are independent keys. Disjoint edits merge. Delete versus
-unchanged yields delete. Administrator revocation defeats a concurrent edit by
-the revoked device. Incompatible same-field edits return `conflict` with exact
-typed `account-configuration` details and a private draft snapshot. Resolution
-is a later explicit candidate; the accepted YAML contains no markers or
-resolution/status field.
+Kind cannot change after activation. Incompatible same-field edits return
+`conflict` with exact typed `account-configuration` details and a private draft
+snapshot; resolution is a later explicit candidate.
 
 ### 6.2 Declaring and activating a tree
 
@@ -1069,10 +987,11 @@ GET /.arbor/trees/{TreeID}/access
 
 The response is a snapshot envelope of safe `AccessEntry`s. Steady-state ACL
 mutation occurs by editing the authenticated account's `trees.yaml`; there is
-no separate access-mutation endpoint. Rules use `everyone`, profile `TreeID`,
-or link digest and `read`/`write`. `none` removes a rule and is never stored.
-An access-link secret is generated and shown locally once; only its digest is
-submitted in configuration.
+no separate access-mutation endpoint. Rule subjects, levels, and the `none`
+removal rule are defined once in
+[configuration](05-configuration.md#configuration-yaml). An access-link secret
+is generated and shown locally once; only its digest is submitted in
+configuration, and a safe entry exposes neither.
 
 ## 7. Public HTTP projection
 

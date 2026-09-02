@@ -44,7 +44,9 @@ though the logical Markdown body is byte-for-byte unchanged.
 
 A materialized Markdown document may carry an opaque durable `id`. This
 projection historically calls its value a `PageID`; in the common data model it
-is simply the stable key selected by the tree's identity declaration. `id`
+is simply the stable key selected by the tree's identity declaration, encoded
+and addressed as [locators](03-locators.md#stable-keys-revisions-and-fragments)
+specify. `id`
 remains visible as an ordinary property, but it cannot be changed through an
 ordinary property update and remains stable across rename and move.
 Six-character lowercase values are a legacy convention, not the grammar:
@@ -99,7 +101,8 @@ or child unless an explicit materialization operation creates one.
 Links use [Arbor locators](03-locators.md). Relative and tree-rooted logical
 paths are valid within a resolved tree; cross-tree links use canonical or raw
 TreeID locators. Any schema-identified node may use the Markdown-compatible
-`#arbor-key=<base64url-key>` relative-link alias. When its readable path and
+`#arbor-key=<base64url-key>` relative-link alias defined by
+[locators](03-locators.md#stable-keys-revisions-and-fragments). When its readable path and
 valid stable key disagree, the key selects the node within its declaring
 keyspace and the authored content may be healed through an ordinary mutation. The alias
 and application query survive healing unchanged. Arbor renderers translate the

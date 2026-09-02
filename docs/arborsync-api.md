@@ -10,36 +10,16 @@ credentials or access-link secrets.
 
 ## 1. Shared values
 
-REST v1 extends values from [the Arbor wire protocol](../spec/04-wire.md) with its local `local` and `system` scopes:
+REST v1 reuses the wire's transport-neutral values—`TreeID`, `LogicalPath`,
+`EventCursor`, `Hash`, `JSONValue`, `Diagnostic`, `AccessLevel`,
+`ReadWriteAccess`, `TreeKind`, `TreeDescriptor`, `RemoteTreeDescriptor`,
+`AccessSubject`, `AccessRule`, `SafeAccessSubject`, `AccessEntry`, `NodeRef`,
+`ArborError`, and `ObservationEvent`—exactly as defined in
+[the Arbor wire protocol §3.2](../spec/04-wire.md#32-shared-values-and-descriptors).
+It adds only the following:
 
 ```ts
-type TreeID = string;
 type TreeRef = "local" | "system" | TreeID;
-type LogicalPath = string;
-type EventCursor = string;
-type Hash = `sha256:${string}`;
-type AccessLevel = "none" | "read" | "write";
-type ReadWriteAccess = "read" | "write";
-
-type TreeKind =
-  | "community-profile"
-  | "person-profile"
-  | "group-profile"
-  | "shared-subtree"
-  | "account-configuration";
-
-type TreeDescriptor = {
-  id: TreeID;
-  kind: TreeKind;
-  access: AccessLevel;
-  canonical: {
-    locator: string;
-    path: LogicalPath;
-    endpoint: string;
-    httpURL: string;
-    parentTree: TreeID | null;
-  } | null;
-};
 
 type LocalTreeDescriptor = TreeDescriptor & {
   name: string;
@@ -47,26 +27,6 @@ type LocalTreeDescriptor = TreeDescriptor & {
   osPath?: string;
   sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
   missing?: boolean;
-};
-
-type RemoteTreeDescriptor = TreeDescriptor & {
-  ref: Hash;
-  update: string;
-};
-```
-
-Only actual Arbor `TreeID`s receive descriptors. `local` and `system` are
-explicit scopes, not pretend trees. Hosted ordinary trees have non-null
-canonical data; the private account-configuration tree has `canonical: null`.
-
-Every `NodeRef`, structural or content operation, result, event, effect, and
-relevant error names its tree explicitly. Omitted-tree defaults are invalid.
-
-```ts
-type NodeRef = {
-  tree: TreeRef;
-  path: LogicalPath;
-  stableKey: string | null;
 };
 
 type LocatorResolution = {
@@ -77,55 +37,33 @@ type LocatorResolution = {
 };
 ```
 
-Arbor Sync includes `enclosingTree` for Arbor trees and omits it for `local` and
-`system`. Clients derive writability from effective access and historical state;
+- `local` and `system` are explicit local-only scopes, not pretend trees, and
+  never cross Arbor Wire. Wherever a wire value says `TreeID`—`NodeRef.tree`,
+  `ArborError.tree`, `ObservationEvent.tree`—REST v1 accepts a `TreeRef`.
+- Only actual Arbor `TreeID`s receive descriptors; `GET /v1/trees` returns
+  `LocalTreeDescriptor`s. Hosted ordinary trees have non-null canonical data and
+  the private account-configuration tree has `canonical: null`.
+- `LocatorResolution.enclosingTree` is present for Arbor trees and omitted for
+  `local` and `system`; on the wire it is always present.
+
+Every `NodeRef`, structural or content operation, result, event, effect, and
+relevant error names its tree explicitly. Omitted-tree defaults are invalid.
+Clients derive writability from effective access and historical state;
 resolution does not duplicate a `writable` flag.
 
 ## 2. Access and errors
 
-Configuration and mutation requests use rules; safe administrative responses
-use entries:
+Access subjects, levels, and the `none` removal rule are defined once in
+[configuration](../spec/05-configuration.md#configuration-yaml). Configuration
+and mutation requests use the wire's `AccessRule`; safe administrative
+responses use `AccessEntry`, whose link subject exposes neither raw secret nor
+digest ([wire §3.2](../spec/04-wire.md#32-shared-values-and-descriptors)).
 
-```ts
-type AccessSubject =
-  | { kind: "everyone" }
-  | { kind: "profile"; tree: TreeID }
-  | { kind: "link"; digest: Hash };
-
-type AccessRule = { subject: AccessSubject; access: ReadWriteAccess };
-
-type SafeAccessSubject =
-  | { kind: "everyone" }
-  | { kind: "profile"; tree: TreeID; locator?: string }
-  | { kind: "link" };
-
-type AccessEntry = {
-  id: string;
-  subject: SafeAccessSubject;
-  access: ReadWriteAccess;
-};
-```
-
-`none` means removal and is not a stored rule. A link entry exposes neither raw
-secret nor digest.
-
-Every non-2xx JSON error uses:
-
-```ts
-type ArborError<TDetails = unknown> = {
-  error: string;
-  message: string;
-  retryable: boolean;
-  tree?: TreeRef;
-  path?: LogicalPath;
-  details?: TDetails;
-};
-```
-
-Shared codes are `invalid-request`, `unauthenticated`, `permission-denied`,
-`not-found`, `conflict`, `read-only`, `unsupported-operation`,
-`resync-required`, `rate-limited`, `quota-exceeded`, and `internal-error`.
-Conflict details are discriminated as `server-update`,
+Every non-2xx JSON error uses the wire's `ArborError` envelope with
+`tree?: TreeRef`. Shared codes are `invalid-request`, `unauthenticated`,
+`permission-denied`, `not-found`, `conflict`, `read-only`,
+`unsupported-operation`, `resync-required`, `rate-limited`, `quota-exceeded`,
+and `internal-error`. Conflict details are discriminated as `server-update`,
 `workspace-revision`, or `account-configuration`; domain-specific fields live
 inside `details`, not alongside the envelope. Clients tolerate unknown codes
 and fields but never reinterpret malformed required data.
@@ -201,7 +139,105 @@ affected rows explicitly identity-less and read-only; the server never
 substitutes a row offset as durable identity. Markdown rows may derive the same
 identity from a schema-declared `id` property.
 
-## 5. Authored mutations
+## 5. Model-sampling values
+
+Node reads return these provider-neutral sampling values. They build on the
+wire's `NodeRef`, `Diagnostic`, `Hash`, and `JSONValue` but are a local API
+surface, not another stored graph or a wire operation. The language-neutral
+vectors in [`conformance/node-model.json`](../conformance/node-model.json)
+freeze their positive and negative cases.
+
+```ts
+type IdentityRule = {
+  properties: string[];
+};
+
+type ChildRepresentationSummary =
+  | { type: "expanded" }
+  | {
+      type: "rollup";
+      codec: "csv" | "json" | "jsonl" | "sqlite";
+      scope: "children" | "subtree";
+      modelDigest: Hash;
+    }
+  | { type: "external"; driver: string };
+
+type NodeCapabilities = {
+  properties?: { revision: string; schema?: Hash; writable: boolean };
+  content?: {
+    revision: string;
+    mediaType: string;
+    format?: "markdown" | "mdx" | "tsx" | "json";
+    writable: boolean;
+  };
+  children?: {
+    revision: string;
+    schema?: Hash;
+    representation?: ChildRepresentationSummary;
+    total?: number;
+    writable: boolean;
+  };
+  executable?: {
+    version: Hash;
+    state: "runnable" | "diagnostic" | "inactive";
+  };
+};
+
+type NodeContent = {
+  source: string;
+  representation?: {
+    state: "stored" | "implicit";
+    origin?: "sibling" | "index";
+  };
+};
+
+type NodeSummary = {
+  ref: NodeRef;
+  name: string;
+  revision: string;
+  properties: Record<string, JSONValue>;
+  capabilities: NodeCapabilities;
+  materialization: "available" | "placeholder";
+  diagnostics: Diagnostic[];
+};
+
+type NodeSnapshot = NodeSummary & {
+  content?: NodeContent;
+  observedThrough: EventCursor;
+};
+
+type ChildrenPage = {
+  parent: NodeRef;
+  items: NodeSummary[];
+  nextCursor: string | null;
+  observedThrough: EventCursor;
+};
+```
+
+`ref` is the sole tree/path/identity carrier; snapshots and summaries do not
+repeat `tree`, `path`, `kind`, `pageID`, or collection-specific fields.
+Properties and content remain independent, and an omitted content payload does
+not negate a content capability—for example, clients normally fetch large file
+bytes separately. Capability names and states are fail-closed: an unknown
+capability or format may be retained or ignored for forward compatibility but
+never grants editing, execution, traversal, or file access.
+
+Clients may derive a parsed Markdown document from exact `NodeContent.source`;
+that derived representation is not a second authored value. Markdown property
+and content operations are addressed separately even when their capability
+revisions name the same exact source bytes. A `ChildRepresentationSummary`
+describes the observed placement; it does not make backing or projection
+topology part of node identity. The exact synchronized rollup form remains the
+wire's [`RollupDescriptor`](../spec/04-wire.md#33-deterministic-lossless-encoding-and-tree-scoped-authorization).
+
+The REST routes carry `NodeRef` without inventing a second locator shape. Node
+reads take it as the `tree`, `path`, and `stableKey` query parameters described
+in [§4](#4-node-reads); JSON mutation and transfer requests embed the three
+fields directly. The removed `pageID | pathHint` request union is invalid on
+every route. The local-only `local` and `system` scopes use the same three-field
+shape even though those sentinel scopes never cross Arbor Wire.
+
+## 6. Authored mutations
 
 ```text
 POST /v1/mutations
@@ -247,15 +283,14 @@ type WriteProperties = {
 };
 ```
 
-The submitted map is complete: omitted keys are deletions and explicit `null`
-is a value. Identity properties cannot change. Markdown rewrites only
-frontmatter while retaining the exact body; a primary-key SQLite row is updated
-in one foreign-key-checked transaction. Stable-key CSV/JSON/JSONL rows use an
-exact-source compare, complete schema validation, fsynced prepared replacement,
-and atomic rename while preserving untouched source spans. Identity-less rows
-and file-rollup membership remain read-only. Named executable mutations remain
-the surface for authorization, multi-row work, cascades, and business
-invariants.
+Its semantics—complete map, omitted keys as deletions, explicit `null` as a
+value, immutable identity properties, and exact Markdown body preservation—are
+specified once in the
+[directory format](../spec/02-directory-format.md#properties-markdown-content-and-identity);
+rollup and database row writes follow [stores](../spec/06-stores.md).
+Identity-less rows and file-rollup membership remain read-only. Named
+executable mutations remain the surface for authorization, multi-row work,
+cascades, and business invariants.
 Structural operations guard the relevant directory revisions. Multipart assets
 and imports contain explicit destination `NodeRef`s and are idempotent under the
 same mutation identity rules.
@@ -276,7 +311,7 @@ has no `connectCommunity`, `disconnectCommunity`, `createGroupProfile`,
 `promoteTree`, `placeTree`, `removeTreePlacement`, `setTreeAccess`, local device
 list/revoke proxy, or `/v1/remote` route.
 
-## 6. Bootstrap and local recovery
+## 7. Bootstrap and local recovery
 
 Narrow operations remain for states that cannot yet be represented by editing
 an authenticated configuration tree:
@@ -298,7 +333,7 @@ disconnects this data home without revoking the server device or deleting
 user files. Typed conflict resolution names an exact stored private conflict
 identity and never adds a resolution field to YAML.
 
-## 7. Snapshot then observe
+## 8. Snapshot then observe
 
 All mutable snapshots establish an observation boundary. Clients first read a
 snapshot and then observe strictly after its cursor:
@@ -333,7 +368,7 @@ Local workspace events and server accepted-update events deliberately keep
 different `kind` and `change` payloads. Sharing the observation framing does
 not claim the domain events are identical.
 
-## 8. Reference fixtures
+## 9. Reference fixtures
 
 The TypeScript and Swift reference clients consume the REST JSON and SSE
 fixtures under [`tests/fixtures/arborsync`](../tests/fixtures/arborsync). Their shared

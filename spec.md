@@ -42,12 +42,12 @@ Six concepts organize the system:
 
 1. The **global TreeID space** maps stable tree identities to logical trees without requiring one global store or discovery service.
 2. An **Arbor tree** is an independent `TreeID`, rooted hierarchy of nodes, history, synchronization stream, and whole-tree permission boundary.
-3. A **node** has properties, optional authored content, and child membership; document, directory, collection, table, and row are roles or projections rather than competing kinds.
-4. A **canonical URL lookup** first uses DNS to place a Canopy authority, then resolves that Canopy's longest accessible path boundary back to TreeID and path.
+3. A **node** has properties, optional authored content, and child membership; document, directory, collection, table, row, and the other roles listed in the [data model](spec/01-data-model.md#4-representing-structured-data) are roles or projections rather than competing kinds.
+4. A **canonical URL lookup** first uses DNS to place a Canopy authority, then resolves that Canopy's longest readable registered boundary back to TreeID and path.
 5. A **workspace** is the resolved view a person, executable document, or agent can address across trees, ordinary local paths, stores, and mounts.
 6. An **executable document** or **agent** is a node whose reviewed capabilities bound its reads, writes, tools, and effects.
 
-Ordinary unpromoted files are browsable as `tree: "local"`, without gaining a durable Arbor identity. Promotion creates an Arbor tree in place: its local path need not move, its canonical public name is replaceable, and `arbor://tree/<TreeID>/` remains the raw identity locator. Sharing changes its audience and access; it does not establish its storage or synchronization identity. Nested Arbor trees are separate graphs and access boundaries, resolved by longest prefix.
+Ordinary unpromoted files are browsable as `tree: "local"`, without gaining a durable Arbor identity. Promotion creates an Arbor tree in place: its local path need not move, its canonical public name is replaceable, and `arbor://tree/<TreeID>/` remains the raw identity locator. Sharing changes its audience and access; it does not establish its storage or synchronization identity. Nested Arbor trees are separate graphs and access boundaries, resolved by the longest readable registered boundary; the normative resolution rule is [wire §4](spec/04-wire.md#4-finding-trees).
 
 ## Specification map
 

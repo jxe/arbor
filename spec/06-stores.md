@@ -59,191 +59,62 @@ logical checkpoint for synchronization or recovery, but that checkpoint is not
 the revision of ordinary reads and never consists of database page, WAL, or
 provider storage bytes.
 
-### Relational capability of the node query language
+### Queries over collections
 
-The general query contract is defined by [executable documents](07-executable-documents.md#queries).
-A database relation or schema-governed collection is a typed node set within
-that language, not a separate query universe. Its portable surface is the same
-property filtering, field picking, and cardinality available to ordinary
-`arbor(path).children` sources. A relational capability extension may
-add proved relationships, joins, aggregates, grouping, ordering, and
-transaction-domain metadata; providers may compile those operators to SQL or
-another native plan. Unsupported extensions fail before data access.
+The query language—its portable baseline of predicate filtering, explicit field
+picking, and cardinality; its capability extensions for relationships, joins,
+aggregates, authored ordering, and pagination; plan-callback confinement; and
+the one-transaction-per-mutation rule—is specified once in
+[executable documents](07-executable-documents.md#queries). A database relation
+or schema-governed collection is a typed node set within that language, not a
+separate query universe. A provider may compile a plan to SQL or another native
+plan but cannot change its meaning, and an unsupported extension fails before
+data access.
 
-A mutable collection has a declared primary key. The key may be compound, but
-it must be stable, non-null, serializable, and independent of row position,
-SQLite `rowid`, a display label, or a database query plan. That declaration is
-the stable-key rule declared by the collection's children capability. A row
-uses the same uniform `(TreeID, current path, stable key)` reference as every other node; its
-third component is derived from the declared key fields in order. Each key
-field's Standard Schema output is a canonical JSON scalar: a string, boolean,
-or finite number. A backing value that cannot be represented exactly in one of
-those forms must be normalized to a string by the schema before it can be a
-portable key.
+This specification adds only the facts a store owns:
 
-The canonical row key uses the data model's canonical key encoding: RFC 8785
-JSON for an array of `[field, value]` pairs in declaration order. Drivers encode
-that value opaquely in node references rather than concatenating display
-strings. A row's logical child segment is its
-single string key when that is a valid nonempty logical path component and does
-not begin with the reserved `~row-` prefix; otherwise it is `~row-` followed by
-the unpadded base64url encoding of the canonical row key.
-Changing a key is observed as removal of one child and creation of another.
-
-A read-only collection may expose synthetic positional paging keys, but the
-corresponding node references have a null stable key. Those rows are not durable
-node identities and executable-document handles cannot use the paging keys for
-mutation or durable references. Duplicate, missing, invalid, or noncanonical
-declared keys are diagnostics and disable mutation rather than silently falling
-back to position.
-The portable query baseline over any `arbor(path).children` source is predicate
-filtering plus explicit field picking and cardinality. It orders results
-automatically by canonical stable key, falling back to canonical path. Authored
-ordering, relationships, aggregates, joins, and pagination operators are not
-portable in this version. A placement-dependent extension may expose them only
-when the application manifest declares and every allowed placement proves that
-capability.
-
-Input validation, authenticated-user requirements, predicate evaluation, field
-shaping, cardinality checks, and canonical-key comparison have one portable
-meaning independent of provider. A native pushdown must produce that meaning;
-backing-default comparison or collation is not an acceptable substitute.
-
-Where a relational extension supplies explicit ordering, a proved stable key is
-the deterministic final tie-breaker. Live or mutable pagination uses a
-provider-bound keyset cursor rather than an unqualified offset. A file rollup
-binds that cursor to its exact source revision; a database binds it to schema,
-ordering, last stable key, and an observation boundary that can detect expiry
-or relevant committed change. It does not hash the complete database.
-
-Relational node-set queries use ordinary TypeScript to construct the same closed
-declarative selection graph as other node queries rather than imperative CRUD
-calls, runtime ORM objects, or a second textual query language. `query.many`,
-`query.one`, and `query.maybe` assert source cardinality. When their source is a
-schema-derived relation handle, the plan callback additionally receives proved
-fields, relationships, aggregates, and relational controls. Omitting the
-optional Standard Schema input validator means that the handle takes no input;
-callers use `useQuery(handle)` rather than supplying an empty object.
-
-```tsx
-import { z } from "zod"
-
-const arborProfiles = arbor("./data/arbor_profiles").children
-const lists = arbor("./data/lists").children
-const profileCard = arborProfiles.pick("id", "name", "handle", "portrait")
-
-export const list = query.maybe(
-  lists,
-  z.object({ id: z.string().uuid() }),
-  (list, { input, user }) => ({
-    where: [
-      list.id.eq(input.id),
-      list.visibility.eq("public").or(
-        list.owner_profile.eq(user.profile),
-      ),
-    ],
-
-    select: {
-      ...list.pick("id", "name", "about"),
-      ownerProfile: list.owner_profile,
-      owner: list.owner(profileCard),
-
-      items: list.items({
-        orderBy: item => item.position,
-        select: item => ({
-          position: item.position,
-          practice: item.practice(practice => ({
-            ...practice.pick("id", "name", "about"),
-            authors: practice.authors({
-              orderBy: author => author.name,
-              select: profileCard,
-            }),
-          })),
-        }),
-      }),
-    },
-  }),
-)
-```
-
-The node, row, and relation values passed to plan callbacks are symbolic
-schema-checked expressions, not loaded records. A callback constructs one
-finite plan at compilation; it is never invoked once per result node or row.
-It may use the closed methods supplied by those expressions, ordinary object
-construction, and reusable plan fragments. It cannot branch on a symbolic
-value, await data, call an arbitrary function over results, or acquire
-filesystem, network, process, clock, randomness, credential, or undeclared-tree
-access. Unsupported construction fails with a source-located diagnostic rather
-than falling back to unbounded in-memory execution.
-
-`where` accepts one typed predicate or an array whose members are AND-combined. Field expressions provide the portable comparison, null, membership, string, and boolean operators; predicates compose through explicit methods such as `.and()`, `.or()`, and `.not()`. The callback context exposes validated symbolic `input` and trusted symbolic `user`. `user.profile` is nullable-safe for a query that also admits anonymous execution; dereferencing `user.required.profile` declares that the query requires an authenticated Arbor user and fails before data access when none exists.
-
-`select` is a plain object whose keys are the public result keys. Assigning a field under a different key aliases it. `row.pick("id", "name")` produces an explicit reusable field projection and may be spread into the result. There is no implicit select-all shortcut: fields crossing the query disclosure boundary remain visible in source. The return shape projects node/store facts, nested edges, and specified aggregates; it is not a general-purpose presentation expression language.
-
-Schema relationships are callable symbolic relations. Calling one with a selection fragment or selection callback is the compact form; calling it with `{ where, orderBy, take, after, keyBy, select }` adds relational controls. A relationship carries its proved correlation and `one`, nullable-one, or `many` cardinality, so nested queries do not restate them. `.count` is a typed correlated aggregate. A bare field in `orderBy` means ascending; `.desc()` reverses it. Named relationship metadata is part of the portable schema fingerprint: drivers derive unambiguous candidates from declared keys, while product-named, through, ProfileID-backed, or otherwise non-obvious relationships require an explicit schema-adjacent declaration. Arbor never guesses a relationship from mutable names or a coincidental field spelling.
-
-```tsx
-export const popularLists = query.many(
-  lists,
-  list => ({
-    where: list.visibility.eq("public"),
-    orderBy: list.reactions.count.desc(),
-    take: 12,
-
-    select: {
-      ...list.pick("id", "name", "about"),
-      owner: list.owner(profileCard),
-      practiceCount: list.items.count,
-      reactionCount: list.reactions.count,
-    },
-  }),
-)
-```
-
-`query.one` requires exactly one result and fails with a declared not-found/cardinality error otherwise. `query.maybe` yields zero or one value and rejects a plan that could silently choose among several rows. `query.many` yields an ordered collection. Every observably ordered repeated result has deterministic ordering. The compiler infers its stable key from the root primary key or relationship metadata and appends missing key fields as ascending final tie-breakers. If uniqueness cannot be proved, the author must supply `keyBy`; an unstable, nullable, or duplicate key is a compilation error.
-
-Merely selecting a child relationship does not filter away a parent with no matching children. Filtering by child presence uses explicit `.exists()` or `.notExists()`. Flattening joins use explicit inner, left, semi, or anti plan operations. The relational plan may use reusable virtual relations, grouping, specified aggregates, explicit null handling, deterministic ordering, and provider-bound keyset pagination.
-
-Compilation validates all addressed paths and fields, infers `ResultOf` for the handle and `RowOf` for its relations, and produces a backing-independent query meaning. A driver must preserve Arbor's specified null, comparison, collation, aggregate, and ordering semantics or reject the expression; it never silently substitutes backing-default behavior that changes a portable result. Unsupported operations fail before data access rather than loading an unbounded collection into executable memory.
-
-A query that deliberately uses driver-specific SQL, functions, collation, full-text behavior, extensions, or cross-database facilities is backing-coupled and is identified as such in its compiled handle and consent statement. Raw SQL is not the portable intermediate representation and cannot interpolate an unchecked table name, path, predicate, or capability.
-
-A mutation runs inside one transaction and may atomically change several collections when their handles resolve to that same store transaction domain. The runner passes the transaction as `tx`; authored handlers do not open or nest it. Arbor does not imply atomicity across a file collection, a separate SQLite database, a Postgres connection, or another Arbor tree. A handler requiring cross-domain effects must use a separately specified workflow rather than presenting them as one collection transaction.
-
-Portable mutable schema includes primary and alternate unique keys, ordered
-foreign-key field pairs, nullability, and explicit constraint actions. Primary
-keys are immutable. The first portable foreign-key subset supports `restrict`,
-`cascade`, and `set-null` on delete, with transaction-end validation sufficient
-for declared deferred/cyclic inserts. `ON UPDATE CASCADE`, `SET DEFAULT`, and
-backing-default collation or coercion are not portable unless a later contract
-defines them. A foreign key may cross collections only inside one logical data
-tree and one transaction domain. A cross-tree Arbor reference is a typed
-authored property value, not a transactional foreign key.
-
-A named mutation's accepted transaction contains all direct and cascading row
-effects. A candidate update decoded from externally edited CSV, JSON, or JSONL
-is merged by stable row identity and then checked against the complete schema.
-Database mutations and external database commits enter through the committed
-change/transaction contract rather than by diffing storage bytes. Arbor never
-invents cascade intent for an ambiguous concurrent file edit or imprecise
-database invalidation; it reports a constraint conflict or requires resync.
-Cross-file foreign-key atomicity is not implied.
-
-Ordered membership is a portable transaction concern rather than an application calculation based on row count. A transaction may open an ordered relation partition by naming its stable membership key and order field:
-
-```ts
-const items = tx.ordered(list_practices, {
-  within: { list_id: listId },
-  key: "practice_id",
-  order: "position",
-})
-
-await items.append({ practice_id: practiceId })
-await items.replace(practiceIds)
-await items.remove(practiceId)
-```
-
-The driver serializes concurrent changes to that partition, verifies replacement keys exactly, and assigns or normalizes order values without temporarily violating a declared uniqueness constraint. The order field is observable data, but its temporary rewrite strategy is not. Counting current rows and inserting that count is not a conforming append because gaps and concurrent writers can collide.
+- **Row identity.** A mutable collection's declared primary key is the
+  stable-key rule for its children. It must be stable, non-null,
+  serializable, and independent of row position, SQLite `rowid`, display
+  label, or query plan. A row's third reference component is its canonical key
+  JSON as defined by
+  [locators](03-locators.md#stable-keys-revisions-and-fragments); each key
+  field's Standard Schema output must be a JSON string, boolean, or finite
+  number, and a backing value not exactly representable in one of those forms
+  is normalized to a string by the schema first. Changing a key is observed as
+  removal of one child and creation of another. A row's logical child segment
+  is its single string key when that is a valid nonempty logical path component
+  not beginning with the reserved `~row-` prefix; otherwise it is `~row-`
+  followed by the unpadded base64url encoding of the canonical row key.
+- **Ordering.** Rollup and database rows enumerate in canonical stable-key
+  order, falling back to canonical path, using the portable comparison; a
+  backing's default collation is not an acceptable substitute. Where a
+  relational extension supplies explicit ordering, the proved stable key is the
+  deterministic final tie-breaker.
+- **Pagination.** Live or mutable pagination uses a provider-bound keyset
+  cursor, never an unqualified offset. A file rollup binds that cursor to its
+  exact source and schema revision; a database binds it to the schema
+  fingerprint, ordering, last stable key, and an observation boundary that can
+  detect expiry or relevant committed change. It never hashes the complete
+  database.
+- **Identity-less rows.** A read-only collection may expose synthetic
+  positional paging keys, but those node references have a null stable key and
+  are not durable identities; handles cannot use them for mutation or durable
+  references. Duplicate, missing, invalid, or noncanonical declared keys are
+  diagnostics and disable mutation rather than falling back to position.
+- **Constraints.** Portable mutable schema includes primary and alternate
+  unique keys, ordered foreign-key field pairs, nullability, and explicit
+  constraint actions. Primary keys are immutable. The first portable
+  foreign-key subset supports `restrict`, `cascade`, and `set-null` on delete,
+  validated at transaction end so declared deferred or cyclic inserts succeed.
+  `ON UPDATE CASCADE`, `SET DEFAULT`, and backing-default collation or coercion
+  are not portable. A foreign key may cross collections only inside one logical
+  data tree and one transaction domain; a cross-tree Arbor reference is a typed
+  authored property value, not a transactional foreign key. A named mutation's
+  accepted transaction contains all direct and cascading row effects; Arbor
+  never invents cascade intent for an ambiguous concurrent file edit or
+  imprecise database invalidation, and cross-file foreign-key atomicity is not
+  implied.
 
 ### Revisions and committed change observation
 
@@ -338,7 +209,7 @@ to collection invalidation. Reordering lines does not change identity.
 
 Mixing backing shapes produces a diagnostic and disables collection-level interpretation without making the underlying files inaccessible. Invalid rows are diagnostics, not daemon crashes or silent deletion.
 
-The schema evaluator accepts the authored schema and its declared schema-library import without ambient filesystem, network, process, clock, randomness, or secret access. It has finite resource bounds. This specification does not prescribe evaluator technology or generated-file layout.
+The schema evaluator accepts the authored schema and its declared schema-library import under the [no-ambient-authority rule](07-executable-documents.md#authored-component-forms), with finite resource bounds. This specification does not prescribe evaluator technology or generated-file layout.
 
 ## SQLite
 

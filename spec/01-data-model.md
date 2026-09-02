@@ -47,7 +47,7 @@ Canonical URLs are a secondary index over the TreeID map:
 type CanonicalURLs = Map<`${DNSName}${PathPrefix}`, TreeID>
 ```
 
-The DNS-name portion specifies a Canopy server on the network. The path-prefix portion specifies a tree served by that Canopy. Resolving a canonical URL first uses its DNS authority to reach the Canopy, then chooses the longest accessible path boundary there. The result is that boundary's TreeID plus the remaining logical path and optional stable key, still in the uniform `(TreeID, path, key)` shape.
+The DNS-name portion specifies a Canopy server on the network. The path-prefix portion specifies a tree served by that Canopy. Resolving a canonical URL first uses its DNS authority to reach the Canopy, then selects the longest readable registered boundary there, as specified by [the wire](04-wire.md#4-finding-trees). The result is that boundary's TreeID plus the remaining logical path and optional stable key, still in the uniform `(TreeID, path, key)` shape.
 
 Normal DNS and HTTPS establish how the Canopy is reached.
 
@@ -108,7 +108,7 @@ tree state through deterministic lossless encodings and observations.
 materializations. [Executable documents](07-executable-documents.md) defines
 queries and mutations over nodes rather than provider-specific rows.
 
-## 8. Equivalence
+## 6. Equivalence
 
 Arbor states equivalence at the level relevant to the claim. It does not require
 one universal serialized graph or one universal logical hash.

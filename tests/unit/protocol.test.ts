@@ -11,9 +11,50 @@ import type {
   WorkspaceEvent,
   WorkspaceOperation,
 } from "@arbor/core";
-import { canonicalJSONString } from "@arbor/core";
-import type { NodeResponse } from "@arbor/core";
+import { canonicalJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
+import type { AccessEntry, NodeResponse, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
+import { WireClient, decodeAcceptedUpdateJSON, decodeUpdateRequestJSON, updateRequestDigest } from "@arbor/wire";
 import { nodeDocument } from "../helpers/node-snapshot.ts";
+
+// Test-local checks mirroring ArborWire's `WireTreeDescriptor.validated()` and
+// `WireSafeAccessSubject` decoding; the TypeScript packages export no descriptor
+// validator, so these only assert that the shared vectors are self-consistent.
+const TREE_KINDS = new Set(["community-profile", "person-profile", "group-profile", "shared-subtree", "account-configuration"]);
+const ACCESS_LEVELS = new Set(["none", "read", "write"]);
+function validateTreeDescriptor(value: unknown): TreeDescriptor {
+  const descriptor = value as Partial<TreeDescriptor>;
+  if (typeof descriptor.id !== "string" || !descriptor.id.startsWith("tr_")) throw new TypeError("descriptor.id must be a TreeID");
+  if (!TREE_KINDS.has(descriptor.kind as string)) throw new TypeError("unknown tree kind");
+  if (!ACCESS_LEVELS.has(descriptor.access as string)) throw new TypeError("unknown access level");
+  if (descriptor.kind === "account-configuration") {
+    if (descriptor.canonical !== null) throw new TypeError("account configuration must be noncanonical");
+  } else {
+    const canonical = descriptor.canonical;
+    if (!canonical || !canonical.path.startsWith("/")) throw new TypeError("ordinary trees need canonical data");
+    for (const url of [canonical.locator, canonical.endpoint, canonical.httpURL]) new URL(url);
+    if (canonical.parentTree !== null && typeof canonical.parentTree !== "string") throw new TypeError("parentTree must be a TreeID or null");
+  }
+  return descriptor as TreeDescriptor;
+}
+function validateAccessEntry(value: unknown): AccessEntry {
+  const entry = value as Partial<AccessEntry>;
+  if (typeof entry.id !== "string" || (entry.access !== "read" && entry.access !== "write")) throw new TypeError("malformed access entry");
+  const subject = entry.subject as Record<string, unknown> | undefined;
+  if (!subject) throw new TypeError("access entry needs a subject");
+  if (subject.kind === "everyone") return entry as AccessEntry;
+  if (subject.kind === "profile" && typeof subject.tree === "string") return entry as AccessEntry;
+  if (subject.kind === "link" && Object.keys(subject).length === 1) return entry as AccessEntry;
+  throw new TypeError("unsafe or unknown access subject");
+}
+function decodeWireValue(value: unknown): unknown {
+  const record = value as Record<string, unknown>;
+  if ("subject" in record) return validateAccessEntry(record);
+  if ("ref" in record) {
+    if (!record.enclosingTree) throw new TypeError("resolution requires enclosingTree");
+    return { ref: decodeNodeRef(record.ref), enclosingTree: validateTreeDescriptor(record.enclosingTree) };
+  }
+  return validateTreeDescriptor(record);
+}
 
 const fixtures = join(import.meta.dir, "../fixtures/arborsync");
 const conformance = join(import.meta.dir, "../../conformance");
@@ -108,9 +149,85 @@ describe("REST v1 protocol fixtures", () => {
     expect(data.cursor).toBeUndefined();
   });
 
+  test("observation-events.sse frames satisfy id === cursor and event === kind", async () => {
+    const source = await readFile(join(conformance, "observation-events.sse"), "utf8");
+    const frames = await Array.fromAsync(parseSSEStream(new Response(source).body!));
+    expect(frames.map((frame) => frame.event)).toEqual(["tree.ref", "tree.activation"]);
+    for (const frame of frames) {
+      const data = JSON.parse(frame.data) as { cursor: string; tree: string; kind: string; change: unknown };
+      expect(frame.id).toBe(data.cursor);
+      expect(frame.event).toBe(data.kind);
+      expect(data.tree).toStartWith("tr_");
+    }
+    const ref = JSON.parse(frames[0]!.data) as { change: { descriptor: RemoteTreeDescriptor } };
+    validateTreeDescriptor(ref.change.descriptor);
+    expect(ref.change.descriptor.canonical?.endpoint).toBe(`https://community.example/.arbor/trees/${ref.change.descriptor.id}`);
+    const activation = JSON.parse(frames[1]!.data) as { tree: string; change: unknown };
+    expect(activation.tree).toBe("tr_cccccccccccccccccccccccccc");
+    expect(activation.change).toEqual({ tree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", status: "active" });
+  });
+
+  test("observation-events-invalid.json frames are rejected by the wire watch decode path", async () => {
+    const { cases } = await conformanceJSON<{ cases: Array<{ name: string; frame: string }> }>("observation-events-invalid.json");
+    expect(cases.map((item) => item.name)).toEqual(["id-cursor-mismatch", "event-kind-mismatch", "missing-tree"]);
+    const originalFetch = globalThis.fetch;
+    try {
+      for (const item of cases) {
+        globalThis.fetch = (async () => new Response(item.frame, {
+          status: 200,
+          headers: { "content-type": "text/event-stream; charset=utf-8" },
+        })) as unknown as typeof fetch;
+        const client = new WireClient("https://community.example");
+        await expect(Array.fromAsync(client.watch("tr_a", null))).rejects.toThrow("Malformed Arbor watch event");
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("wire-values.json values decode and every invalid value is rejected", async () => {
+    const values = await conformanceJSON<{
+      valid: {
+        treeDescriptor: TreeDescriptor;
+        accountConfigurationDescriptor: TreeDescriptor;
+        remoteTreeDescriptor: RemoteTreeDescriptor;
+        accessEntries: AccessEntry[];
+        error: ArborError;
+        resolution: { ref: unknown; enclosingTree: TreeDescriptor; historical: boolean; observedThrough: string };
+      };
+      invalid: Array<{ name: string; value: unknown }>;
+    }>("wire-values.json");
+    const { valid } = values;
+    for (const descriptor of [valid.treeDescriptor, valid.remoteTreeDescriptor, valid.resolution.enclosingTree]) {
+      validateTreeDescriptor(descriptor);
+      expect(descriptor.canonical?.endpoint).toBe(`https://community.example/.arbor/trees/${descriptor.id}`);
+    }
+    expect(validateTreeDescriptor(valid.accountConfigurationDescriptor).canonical).toBeNull();
+    expect(valid.remoteTreeDescriptor.ref).toStartWith("sha256:");
+    expect(valid.accessEntries.map((entry) => validateAccessEntry(entry).subject.kind)).toEqual(["everyone", "profile", "link"]);
+    expect(decodeNodeRef(valid.resolution.ref)).toEqual({ tree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", path: "/notes", stableKey: '[["id","page-1"]]' });
+    expect(valid.error.tree).not.toBe("local");
+    expect(values.invalid.map((item) => item.name)).toEqual([
+      "descriptor-for-local",
+      "ordinary-tree-without-canonical",
+      "link-entry-leaks-digest",
+      "resolution-omits-tree",
+    ]);
+    for (const item of values.invalid) {
+      expect(() => decodeWireValue(item.value), item.name).toThrow();
+    }
+  });
+
   test("publishes configuration and wire conformance vectors separately from reference merge cases", async () => {
     const registry = await conformanceJSON<{ valid: Array<{ name: string }>; invalid: Array<{ name: string }>; behavior: Array<{ name: string }> }>("configuration-yaml.json");
-    const endpoints = await conformanceJSON<{ cases: Array<{ name: string; response: { status: number } }> }>("wire-endpoints.json");
+    const endpoints = await conformanceJSON<{
+      tree: RemoteTreeDescriptor;
+      cases: Array<{
+        name: string;
+        request: { body?: unknown; derivedRequestDigest?: string };
+        response: { status: number; body?: Record<string, unknown>; frame?: string };
+      }>;
+    }>("wire-endpoints.json");
     const wireErrors = await conformanceJSON<ArborError[]>("errors.json");
     const merges = JSON.parse(await readFile(join(canopyFixtures, "wire-merge.json"), "utf8")) as {
       version: number;
@@ -136,6 +253,29 @@ describe("REST v1 protocol fixtures", () => {
       "mutate-reviewed-model-intent",
     ]);
     expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 200, 200, 200, 200, 200]);
+
+    // Decode each response body with the matching wire decoder where one exists.
+    const byName = new Map(endpoints.cases.map((item) => [item.name, item]));
+    const tree = validateTreeDescriptor(endpoints.tree);
+    expect(tree.canonical?.endpoint).toBe("https://community.example/.arbor/trees/tr_atlas");
+    for (const name of ["read-ref", "link-read"]) {
+      const snapshot = validateTreeDescriptor(byName.get(name)!.response.body!.snapshot) as RemoteTreeDescriptor;
+      expect(snapshot.canonical).toEqual(tree.canonical);
+      expect(byName.get(name)!.response.body!.observedThrough).toBe(snapshot.update);
+    }
+    const submit = byName.get("submit-current-update")!;
+    const request = decodeUpdateRequestJSON(submit.request.body);
+    expect(updateRequestDigest("tr_atlas", request)).toBe(submit.request.derivedRequestDigest!);
+    expect(submit.response.body!.requestDigest).toBe(submit.request.derivedRequestDigest);
+    const current = decodeAcceptedUpdateJSON(submit.response.body!.current);
+    expect(current).toMatchObject({ id: "up_atlas1", tree: "tr_atlas", sequence: 1, kind: "initial", previousRoot: null });
+    expect(current.root).toBe(request.candidate);
+    const watch = parseSSEFrame(byName.get("watch-ref")!.response.frame!.trim())!;
+    const watched = JSON.parse(watch.data) as { cursor: string; tree: string; kind: string; change: { descriptor: unknown } };
+    expect(watch.id).toBe(watched.cursor);
+    expect(watch.event).toBe(watched.kind);
+    expect(watched.tree).toBe("tr_atlas");
+    expect(validateTreeDescriptor(watched.change.descriptor).canonical).toEqual(tree.canonical);
     expect(wireErrors.every((item) => item.tree !== "local" && item.tree !== "system")).toBe(true);
     expect(merges.version).toBe(2);
     expect(merges.markdownCases.length).toBeGreaterThanOrEqual(10);

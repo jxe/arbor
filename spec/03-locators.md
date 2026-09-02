@@ -20,7 +20,7 @@ logical path. Relative and tree-rooted paths resolve within an already selected
 tree. Their portable meaning is never an operating-system path. Canonical HTTP
 and `arbor://<authority>/...` names first resolve through the secondary
 canonical lookup: the URI's DNS authority places/selects a Canopy, then that
-Canopy resolves its longest accessible path boundary to a TreeID. `authority`
+Canopy resolves its longest readable registered boundary to a TreeID. `authority`
 here is the URI authority component. Operating-system paths and `system:` content
 addresses are facilities of a local implementation, not portable Arbor
 locators; a separately specified capability field may use a `system:` reference
@@ -28,7 +28,7 @@ without making it a content locator.
 
 Canonical public names are replaceable human names, not tree identity. A
 canonical resolver returns the selected Canopy origin, the `TreeID` selected by
-its longest accessible boundary, the decoded logical path remainder, optional
+its longest readable registered boundary, the decoded logical path remainder, optional
 immutable revision, access, and enough server provenance to perform a permitted
 operation.
 
@@ -43,9 +43,14 @@ Every successfully resolved node locator yields the same information:
 
 When the node has a schema-derived stable key, the final raw path segment may
 carry `;arbor-key=<base64url-key>`. The value is the unpadded base64url encoding
-of the UTF-8 canonical key value defined by the [data model](01-data-model.md).
-The suffix supplies the third component of `(TreeID, path, stable key or null)`;
-it is not part of the decoded logical path.
+of the UTF-8 canonical key JSON. This is the single definition of that
+encoding: [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) canonical JSON for
+an array of `[field, value]` pairs in the identity rule's declared field order,
+where each value is a JSON string, boolean, or finite number—for example
+`[["id","x7f3q2"]]`. A schema normalizes any other backing value to a string
+before it can be a key. The same canonical JSON is the `stableKey` value carried
+in node references. The suffix supplies the third component of
+`(TreeID, path, stable key or null)`; it is not part of the decoded logical path.
 
 ```text
 arbor://tree/<TreeID>/roadmap;arbor-key=<base64url-key>
@@ -127,7 +132,7 @@ Authored `.md`, `.mdx`, `.tsx`, `/_index.md`, and legacy `tree:` spellings may b
 
 ## Resolution rules
 
-- A canonical server path uses the longest registered canonical boundary prefix, subject to access. An inaccessible nested boundary is not resolved through its parent.
+- A canonical server path resolves to the longest readable registered boundary, as specified by [the wire](04-wire.md#4-finding-trees); an inaccessible nested boundary is not resolved through its parent.
 - A raw TreeID locator resolves independently of its current public name, using a verified endpoint hint or already-known server record.
 - A relative or tree-rooted reference retains the tree scope of its resolution context and cannot cross a nested tree boundary without an explicit canonical or raw locator.
 - When `stableKey` is non-null, the resolver validates it against the addressed schema. A key from a tree identity declaration may repair the path anywhere in that tree; a key from a parent's children declaration may repair only the final child component after the parent path resolves. The declaration site supplies this keyspace; the identity rule has no separate `scope` field.

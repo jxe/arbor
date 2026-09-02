@@ -7,7 +7,7 @@
     "canonical": {
       "locator": "arbor://community.example/~alice/atlas",
       "path": "/~alice/atlas",
-      "endpoint": "https://community.example",
+      "endpoint": "https://community.example/.arbor/trees/tr_atlas",
       "httpURL": "https://community.example/~alice/atlas",
       "parentTree": "tr_alice"
     },
@@ -32,7 +32,7 @@
             "canonical": {
               "locator": "arbor://community.example/~alice/atlas",
               "path": "/~alice/atlas",
-              "endpoint": "https://community.example",
+              "endpoint": "https://community.example/.arbor/trees/tr_atlas",
               "httpURL": "https://community.example/~alice/atlas",
               "parentTree": "tr_alice"
             },
@@ -95,7 +95,7 @@
             "canonical": {
               "locator": "arbor://community.example/~alice/atlas",
               "path": "/~alice/atlas",
-              "endpoint": "https://community.example",
+              "endpoint": "https://community.example/.arbor/trees/tr_atlas",
               "httpURL": "https://community.example/~alice/atlas",
               "parentTree": "tr_alice"
             },
@@ -116,7 +116,7 @@
       "response": {
         "status": 200,
         "contentType": "text/event-stream; charset=utf-8",
-        "frame": "id: up_atlas1\nevent: tree.ref\ndata: {\"cursor\":\"up_atlas1\",\"tree\":\"tr_atlas\",\"kind\":\"tree.ref\",\"change\":{\"descriptor\":{\"id\":\"tr_atlas\",\"kind\":\"shared-subtree\",\"access\":\"write\",\"canonical\":{\"locator\":\"arbor://community.example/~alice/atlas\",\"path\":\"/~alice/atlas\",\"endpoint\":\"https://community.example\",\"httpURL\":\"https://community.example/~alice/atlas\",\"parentTree\":\"tr_alice\"},\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"update\":\"up_atlas1\"}}}\n\n"
+        "frame": "id: up_atlas1\nevent: tree.ref\ndata: {\"cursor\":\"up_atlas1\",\"tree\":\"tr_atlas\",\"kind\":\"tree.ref\",\"change\":{\"descriptor\":{\"id\":\"tr_atlas\",\"kind\":\"shared-subtree\",\"access\":\"write\",\"canonical\":{\"locator\":\"arbor://community.example/~alice/atlas\",\"path\":\"/~alice/atlas\",\"endpoint\":\"https://community.example/.arbor/trees/tr_atlas\",\"httpURL\":\"https://community.example/~alice/atlas\",\"parentTree\":\"tr_alice\"},\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"update\":\"up_atlas1\"}}}\n\n"
       }
     },
     {

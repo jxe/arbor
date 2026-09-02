@@ -33,11 +33,11 @@ Before execution, the runtime resolves an effective namespace from:
 
 The intersection is the complete authority. The agent and its tools cannot address a path, tree, credential, network target, or host capability outside it. A tool cannot widen the namespace of the agent that called it. Access changes during a run take effect before subsequent operations.
 
-This specification does not prescribe isolation technology, worker language, or process topology. The absence of ambient filesystem, network, process, secret, clock, and randomness authority—unless a separately specified tool grants it—is normative.
+This specification does not prescribe isolation technology, worker language, or process topology. The [no-ambient-authority rule](07-executable-documents.md#authored-component-forms) applies to agents and their tools.
 
 ## Consent and effects
 
-Before an effectful run, the client presents a concrete consent statement listing effective readable trees/prefixes, writable trees/prefixes, tools, hosted execution, transcript destination, and any explicitly granted non-tree effect. Broad or computed declarations remain visibly broad.
+Before an effectful run, the client presents the [consent statement](07-executable-documents.md#component-and-data-packages) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
 
 All workspace effects pass through ordinary wire or store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct host-filesystem edit and label it an Arbor mutation. Ambiguous mutation retries reuse the original mutation identity.
 

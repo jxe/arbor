@@ -51,7 +51,7 @@ projects/atlas/                  work/atlas/
              └──── same Arbor tree ────┘
 ```
 
-Inside Markdown, these are still ordinary link destinations. From the document `/projects/atlas`, `[Notes](notes)` points to its child and `[Roadmap](../roadmap)` to its sibling; `[Drift](arbor://notes.example.org/essays/drift#x7f3q2)` jumps to another Arbor tree. (That final fragment is the document's durable ID, which makes it so you can relocate files and directories and the links can heal to point to the right place.)
+Inside Markdown, these are still ordinary link destinations. From the document `/projects/atlas`, `[Notes](notes)` points to its child and `[Roadmap](../roadmap)` to its sibling; `[Drift](arbor://notes.example.org/essays/drift;arbor-key=W1siaWQiLCJ4N2YzcTIiXV0)` jumps to another Arbor tree. (That `;arbor-key=` suffix carries the document's durable stable key, which makes it so you can relocate files and directories and the links can heal to point to the right place.)
 
 I have a little CLI tool to manage all this:
 
@@ -110,7 +110,8 @@ This is how Notion turns page properties into a database.
 **Third: a connection to a database you already have.** An external database enters the tree as a small reference file:
 
 ```yaml
-# reports/_store.postgres
+# reports/_store.yaml
+version: 1
 driver: postgres
 connection: system:connections/production
 schema: public
@@ -120,35 +121,46 @@ Whether a collection is files, SQLite, or Postgres, it's the same kind of node i
 
 ## Now put code in it
 
-Imagine we could add a page to our `projects/atlas` tree that shows the twenty most recent essays with a given tag, and lets you submit a new essay. The page is just a `.tsx` file in the tree:
+Imagine we could add a page to our `projects/atlas` tree that shows the published essays with a given tag, and lets you submit a new essay. The page is just a `.tsx` file in the tree:
 
 ```tsx
 // atlas.tsx
 import { useState } from "react";
-import { query, mutation, tree } from "arbor/runtime";
-import { useQuery, useMutation } from "arbor/react";
-import type { Submission } from "./submissions/schema";
+import { z } from "zod";
+import { arbor, query, mutation } from "arbor/data";
+import { useQuery, useMutationAction } from "arbor/react";
+import { schema as submission } from "./submissions/schema";
 
-export const recentEssays = query(async ({ tag }: { tag: string }) => {
-  return tree("./essays")
-    .filter(e => e.tag === tag && e.status === "published")
-    .sortBy(e => e.date, "desc")
-    .take(20);
-});
+const atlas = arbor(".");
+const essays = arbor("./essays").children;
+const submissions = arbor("./submissions").children;
 
-export const submitEssay = mutation(async (s: Submission) => {
-  return tree("./submissions").append(s);
-});
+export const recentEssays = query.many(
+  essays,
+  z.object({ tag: z.string() }),
+  (essay, { input }) => ({
+    where: [essay.tag.eq(input.tag), essay.status.eq("published")],
+    select: essay.pick("id", "title", "date"),
+  }),
+);
+
+export const submitEssay = mutation(
+  atlas,
+  submission.omit({ id: true, status: true }),
+  async ({ tx, id, now }, input) => {
+    await tx.insert(submissions, { id: id("submission"), ...input, status: "pending", submitted_at: now });
+  },
+);
 
 export default function ReadingRoom() {
   const [tag, setTag] = useState("governance");
-  const essays = useQuery(recentEssays, { tag });
-  const submit = useMutation(submitEssay);
-  return <EssayList essays={essays} tag={tag} onTagChange={setTag} onSubmit={submit} />;
+  const list = useQuery(recentEssays, { tag });
+  const [, submit] = useMutationAction(submitEssay);
+  return <EssayList essays={list} tag={tag} onTagChange={setTag} onSubmit={submit} />;
 }
 ```
 
-Arbor does runtime validation from the TypeScript parameter types, so `{ tag: string }` is enforced at the execution boundary. It also collects the literal tree paths — `./essays`, `arbor://paxmachina.org/inbox` — as the query's read set and the mutation's write set so it can (a) re-run the query when any of those trees change, and (b) make sure permissions are respected and the user is informed what the code can do.
+Arbor validates every call through the handle's schema, so `{ tag: string }` is enforced at the execution boundary. It also collects the literal tree paths — `./essays`, `arbor://paxmachina.org/inbox` — as the query's read set and the mutation's write set so it can (a) re-run the query when any of those trees change, and (b) make sure permissions are respected and the user is informed what the code can do.
 
 Default placement of the queries follows the data. Queries on data you've synced run in your own arborsync and are private, offline-capable, and free for the host. Trees you're merely visiting run their queries close to the data. (Authors can also force hosting, for queries that must control egress or touch secrets.) For hosted queries, each is a stable, versioned endpoint, identified by its code, so the host can patch a particular version in place while old consumers keep working, or can publish a new version alongside it. Nobody needs to design a REST API.
 
@@ -169,13 +181,19 @@ Represent an AI agent as a markdown file in the tree. The prompt is the body. Th
 Just add to our file earlier:
 
 ```tsx
-export const pendingSubmissions = query(async () =>
-  tree("./submissions").filter(s => s.status === "pending"));
+export const pendingSubmissions = query.many(submissions, (submission) => ({
+  where: submission.status.eq("pending"),
+  select: submission.pick("id", "title", "body"),
+}));
 
-export const acceptSubmission = mutation(async ({ id }: { id: string }) => {
-  const s = await tree("./submissions").get(id);
-  return tree("./essays").append({ ...s, status: "published" });
-});
+export const acceptSubmission = mutation(
+  atlas,
+  z.object({ id: z.string() }),
+  async ({ tx, now }, input) => {
+    const pending = await tx.one(submissions, { id: input.id });
+    await tx.insert(essays, { ...pending, status: "published", date: now });
+  },
+);
 ```
 
 and we can do this!

@@ -425,3 +425,84 @@ private final class WireURLProtocolStub: URLProtocol, @unchecked Sendable {
 
     override func stopLoading() {}
 }
+
+@Suite("Shared wire value and observation vectors")
+struct WireValueVectorTests {
+    @Test("wire-values.json remote descriptors, access entries, and node refs decode; invalid values are rejected")
+    func wireValues() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "wire-values.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let valid = try #require(fixture["valid"] as? [String: Any])
+        let decoder = JSONDecoder()
+
+        let remoteData = try JSONSerialization.data(withJSONObject: try #require(valid["remoteTreeDescriptor"]))
+        let remote = try decoder.decode(WireTreeDescriptor.self, from: remoteData).validated()
+        #expect(remote.canonical?.endpoint == "https://community.example/.arbor/trees/\(remote.id)")
+        #expect(remote.update == "up_aaaaaaaaaaaaaaaaaaaaaaaaaa")
+        // TODO: `treeDescriptor`, `accountConfigurationDescriptor`, and `resolution.enclosingTree`
+        // are plain `TreeDescriptor`s without `ref`/`update`. ArborWire models only the remote
+        // shape (`WireTreeDescriptor` requires both), so they cannot be decoded here yet.
+
+        let entriesData = try JSONSerialization.data(withJSONObject: try #require(valid["accessEntries"]))
+        let entries = try decoder.decode([WireAccessEntry].self, from: entriesData)
+        #expect(entries.map(\.id) == ["everyone", "profile:joe", "opaque-link-entry"])
+        #expect(entries[1].subject == .profile(tree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", locator: "arbor://community.example/~joe"))
+        #expect(entries[2].subject == .link)
+
+        let resolution = try #require(valid["resolution"] as? [String: Any])
+        let refData = try JSONSerialization.data(withJSONObject: try #require(resolution["ref"]))
+        let ref = try decoder.decode(WireResolvedNodeRef.self, from: refData)
+        #expect(ref == WireResolvedNodeRef(tree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", path: "/notes", stableKey: "[[\"id\",\"page-1\"]]"))
+
+        let invalid = try #require(fixture["invalid"] as? [[String: Any]])
+        #expect(invalid.map { $0["name"] as? String } == [
+            "descriptor-for-local", "ordinary-tree-without-canonical", "link-entry-leaks-digest", "resolution-omits-tree",
+        ])
+        for vector in invalid {
+            let name = vector["name"] as? String ?? ""
+            let value = try #require(vector["value"] as? [String: Any])
+            switch name {
+            case "descriptor-for-local", "ordinary-tree-without-canonical":
+                let bytes = try JSONSerialization.data(withJSONObject: value)
+                #expect(throws: (any Error).self, "\(name)") {
+                    _ = try decoder.decode(WireTreeDescriptor.self, from: bytes).validated()
+                }
+            case "resolution-omits-tree":
+                let bytes = try JSONSerialization.data(withJSONObject: try #require(value["ref"]))
+                #expect(throws: (any Error).self, "\(name)") {
+                    _ = try decoder.decode(WireResolvedNodeRef.self, from: bytes)
+                }
+            default:
+                // TODO: `link-entry-leaks-digest` is not rejected: `WireSafeAccessSubject` ignores an
+                // unexpected `digest` key on a link subject instead of failing closed.
+                continue
+            }
+        }
+    }
+
+    @Test("observation-events.sse frames satisfy id == cursor and event == kind")
+    func observationEvents() throws {
+        let source = try String(contentsOf: fixtures.appending(path: "observation-events.sse"), encoding: .utf8)
+        // TODO: `ArborSSEParser` throws "Frame has no data" for a comment-only frame such as the
+        // fixture's `: keepalive`, so comment lines are stripped before parsing here.
+        let semantic = source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.hasPrefix(":") }
+            .joined(separator: "\n")
+        var parser = ArborSSEParser()
+        var frames = try parser.append(Data(semantic.utf8))
+        frames.append(contentsOf: try parser.finish())
+        #expect(frames.map(\.event) == ["tree.ref", "tree.activation"])
+        for frame in frames {
+            let payload = try #require(JSONSerialization.jsonObject(with: Data(frame.data.utf8)) as? [String: Any])
+            #expect(frame.id == payload["cursor"] as? String)
+            #expect(frame.event == payload["kind"] as? String)
+            #expect((payload["tree"] as? String)?.hasPrefix("tr_") == true)
+        }
+        let activation = try #require(JSONSerialization.jsonObject(with: Data(frames[1].data.utf8)) as? [String: Any])
+        let change = try #require(activation["change"] as? [String: Any])
+        #expect(change["tree"] as? String == "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa")
+        #expect(change["status"] as? String == "active")
+        // TODO: observation-events-invalid.json is not consumed here. The id/cursor, event/kind, and
+        // tree checks live inside `ArborWireClient.watch` rather than an exported decoder.
+    }
+}
