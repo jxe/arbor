@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableKey, rowPathSegment, sha256 } from "@arbor/core";
 import { serveCanopy } from "@arbor/canopy";
 import { ProjectionProviderHost } from "@arbor/stores";
-import { WireClient } from "@arbor/wire";
+import { WireClient, applyTransitionPayload, WireUpdateConflict } from "@arbor/wire";
 import {
   readAccountConfigGraph,
   snapshotAccountConfig,
@@ -332,6 +332,22 @@ describe("governed account-configuration Canopy server", () => {
       kind: "merged",
       previousRoot: remoteAccepted.update.root,
     });
+    // The result carries the transition from the candidate to the accepted root.
+    const mergedCandidate = await snapshotWithRollups(treePath);
+    expect(merged.reconciliation).toBeDefined();
+    const reconciled = applyTransitionPayload(mergedCandidate.objects, merged.reconciliation!);
+    expect(reconciled.has(merged.update.root)).toBe(true);
+
+    // A bytesHash match refuses any concurrent change and answers with the candidate as the draft.
+    await writeFile(renamedPath, `${mergeBaseSource}\nExact line\n`);
+    const exact = await snapshotWithRollups(treePath);
+    const rejected = await client.submitUpdate(treeID, mergeBase.tree.update, exact, { ifMatch: "bytesHash" }).catch((error) => error);
+    expect(rejected).toBeInstanceOf(WireUpdateConflict);
+    expect((rejected as WireUpdateConflict).result.details.draft.root).toBe(exact.root);
+    expect((rejected as WireUpdateConflict).result.details.conflicts).toEqual([{ path: "/", reason: "node-conflict" }]);
+    // Resubmitted against the current update it is a plain acceptance.
+    const latest = await client.descriptor(treeID);
+    expect((await client.submitUpdate(treeID, latest.tree.update, exact, { ifMatch: "bytesHash" })).outcome).toBe("accepted");
 
     const changedPath = join(dataRoot, "incompatible-tree");
     await mkdir(changedPath);
