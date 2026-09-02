@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/p
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  changedPaths,
   compareWireNames,
   decodeCBOR,
   decodeWireObject,
@@ -189,19 +188,6 @@ describe("canonical tree objects", () => {
         await rm(root, { recursive: true, force: true });
       }
     }
-  });
-
-  test("finds changed paths without walking unchanged branches", async () => {
-    const fileA = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("a") });
-    const fileB = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("b") });
-    const hashA = hashObject(fileA);
-    const hashB = hashObject(fileB);
-    const before = encodeWireObject({ type: "directory", entries: [{ name: "note.md", hash: hashA }] });
-    const after = encodeWireObject({ type: "directory", entries: [{ name: "note.md", hash: hashB }] });
-    const beforeHash = hashObject(before);
-    const afterHash = hashObject(after);
-    const objects = new Map([[hashA, fileA], [hashB, fileB], [beforeHash, before], [afterHash, after]]);
-    expect(await changedPaths(beforeHash, afterHash, async (hash) => objects.get(hash)!)).toEqual(["/note.md"]);
   });
 
   test("materialization leaves byte-identical authored files untouched", async () => {

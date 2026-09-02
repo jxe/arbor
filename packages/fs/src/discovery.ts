@@ -1,16 +1,9 @@
 import { readFile, readdir, realpath } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
-import { isPageID, nodePathFromPhysical, toTreePath } from "@arbor/core";
+import { IGNORED_WORKSPACE_DIRECTORIES, isPageID, nodePathFromPhysical, toTreePath } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 
-export const IGNORED_WORKSPACE_DIRECTORIES = new Set([
-  ".git",
-  "node_modules",
-  ".arbor",
-  "Trash",
-  ".build",
-  "DerivedData",
-]);
+export { IGNORED_WORKSPACE_DIRECTORIES };
 
 export const WORKSPACE_WATCHER_IGNORE_GLOBS = [
   "**/.git/**",

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
-  ArborSyncErrorEnvelope,
+  ArborError,
   BacklinksPage,
   MutationReceipt,
   MutationRequest,
@@ -28,7 +28,7 @@ describe("REST v1 protocol fixtures", () => {
     const node = await json<NodeResponse>("node.json");
     const mutation = await json<MutationRequest>("mutation.json");
     const receipt = await json<MutationReceipt>("receipt.json");
-    const error = await json<ArborSyncErrorEnvelope>("error.json");
+    const error = await json<ArborError>("error.json");
     expect(node.ref).toEqual({ tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: '[["id","abc123"]]' });
     expect(node.ref.tree).toBe("tr_notes7f3q2ab7c");
     expect(node.enclosingTree?.osPath).toBe("/Users/joe/notes");
@@ -62,7 +62,7 @@ describe("REST v1 protocol fixtures", () => {
 
   test("covers every operation, current error code, cursor, and unknown response field", async () => {
     const operationRequests = await json<MutationRequest[]>("operations.json");
-    const errors = await json<ArborSyncErrorEnvelope[]>("errors.json");
+    const errors = await json<ArborError[]>("errors.json");
     const node = await json<NodeSnapshot>("node-unknown-field.json");
     const cursors = await json<{ current: string; foreignEpoch: string; malformed: string }>("cursors.json");
     expect(operationRequests
@@ -111,7 +111,7 @@ describe("REST v1 protocol fixtures", () => {
   test("publishes configuration and wire conformance vectors separately from reference merge cases", async () => {
     const registry = await conformanceJSON<{ valid: Array<{ name: string }>; invalid: Array<{ name: string }>; behavior: Array<{ name: string }> }>("configuration-yaml.json");
     const endpoints = await conformanceJSON<{ cases: Array<{ name: string; response: { status: number } }> }>("wire-endpoints.json");
-    const wireErrors = await conformanceJSON<ArborSyncErrorEnvelope[]>("errors.json");
+    const wireErrors = await conformanceJSON<ArborError[]>("errors.json");
     const merges = JSON.parse(await readFile(join(canopyFixtures, "wire-merge.json"), "utf8")) as {
       version: number;
       markdownCases: Array<{ name: string }>;

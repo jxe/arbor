@@ -1,10 +1,4 @@
 import type { ObjectHash } from "../objects.ts";
-import type { AccessLevel, ReadWriteAccess, TreeKind } from "@arbor/core";
-
-/** @deprecated Use AccessRule with an everyone subject. */
-export type PublicAccess = AccessLevel;
-export type TreeAccess = ReadWriteAccess;
-export type BoundaryKind = TreeKind;
 
 export type MergeSummary =
   | { version: "markdown-additive-v1"; approximatePlacements: number }
@@ -51,38 +45,27 @@ export interface AcceptedUpdate {
   kind: "initial" | "accepted" | "merged" | "restored";
   acceptedAt: number;
   subject: string | null;
-  baseRoot?: ObjectHash;
-  candidateRoot?: ObjectHash;
-  remoteRoot?: ObjectHash;
   merge?: MergeSummary;
 }
 
-export interface FilePatchEdit {
-  offset: number;
-  length: number;
-  bytes: Uint8Array;
-}
-
-export interface FilePatch {
-  base: ObjectHash;
-  result: ObjectHash;
-  edits: FilePatchEdit[];
-}
-
-export type FileDeltaInstruction =
+export type ObjectDeltaInstruction =
   | { copy: { offset: number; length: number } }
   | { insert: Uint8Array };
 
-export interface FileDelta {
+/**
+ * Sparse representation of one canonical object against a base object that is
+ * reachable in the relevant basis graph. Instructions address the base's exact
+ * canonical CBOR bytes, so files and directories use the same rule.
+ */
+export interface ObjectDelta {
   base: ObjectHash;
   result: ObjectHash;
-  instructions: FileDeltaInstruction[];
+  instructions: ObjectDeltaInstruction[];
 }
 
 export interface AcceptedTransitionPayload {
   objects: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
-  filePatches?: FilePatch[];
-  fileDeltas?: FileDelta[];
+  deltas?: ObjectDelta[];
 }
 
 export interface AcceptedTransition extends AcceptedTransitionPayload {
@@ -94,7 +77,7 @@ export interface UpdateRequest {
   base: { root: ObjectHash; update: string };
   candidate: ObjectHash;
   objects: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
-  filePatches?: FilePatch[];
+  deltas?: ObjectDelta[];
   /** Transport hint only; excluded from the updates-v1 semantic request digest. */
   returnSnapshot?: true | "if-result-differs";
 }

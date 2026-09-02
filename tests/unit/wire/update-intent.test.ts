@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   canonicalUpdateIntent,
-  decodeFilePatches,
+  decodeObjectDeltas,
   decodeObjectEnvelopes,
   decodeUpdateRequestJSON,
   updateRequestDigest,
@@ -30,12 +30,12 @@ const fixtures = JSON.parse(await readFile(
   join(import.meta.dir, "../../../conformance/wire-update-intent.json"),
   "utf8",
 )) as IntentFixtures;
-const patchFixtures = JSON.parse(await readFile(
-  join(import.meta.dir, "../../../conformance/wire-file-patches.json"),
+const deltaFixtures = JSON.parse(await readFile(
+  join(import.meta.dir, "../../../conformance/wire-object-deltas.json"),
   "utf8",
 )) as {
-  valid: { base: ObjectHash; result: ObjectHash; edits: Array<{ offset: number; length: number; bytes: string }> };
-  invalid: Array<{ name: string; patches: unknown[] }>;
+  valid: { base: ObjectHash; result: ObjectHash; instructions: unknown[] };
+  invalid: Array<{ name: string; deltas: unknown[] }>;
 };
 
 describe("updates-v1 JSON identity", () => {
@@ -87,25 +87,31 @@ describe("updates-v1 JSON identity", () => {
     }).returnSnapshot).toBe("if-result-differs");
   });
 
-  test("validates canonical file-patch envelopes before server use", () => {
-    const { base, result } = patchFixtures.valid;
-    const decoded = decodeFilePatches([patchFixtures.valid]);
+  test("validates canonical object-delta envelopes before server use", () => {
+    const { base, result } = deltaFixtures.valid;
+    const decoded = decodeObjectDeltas([deltaFixtures.valid]);
     expect(decoded).toEqual([{
       base,
       result,
-      edits: [
-        { offset: 1, length: 2, bytes: new Uint8Array([120]) },
-        { offset: 4, length: 0, bytes: new Uint8Array([121]) },
+      instructions: [
+        { copy: { offset: 0, length: 1 } },
+        { insert: new Uint8Array([120]) },
       ],
     }]);
-    for (const fixture of patchFixtures.invalid) {
-      expect(() => decodeFilePatches(fixture.patches), fixture.name).toThrow();
+    for (const fixture of deltaFixtures.invalid) {
+      expect(() => decodeObjectDeltas(fixture.deltas), fixture.name).toThrow();
     }
     expect(() => decodeUpdateRequestJSON({
       base: fixtures.identity.base,
       candidate: fixtures.identity.candidate,
       objects: [{ hash: result, bytes: "eA==" }],
-      filePatches: [{ base, result, edits: [{ offset: 0, length: 0, bytes: "eA==" }] }],
+      deltas: [{ base, result, instructions: [{ insert: "eA==" }] }],
     })).toThrow("also supplied as a complete object");
+    expect(() => decodeUpdateRequestJSON({
+      base: fixtures.identity.base,
+      candidate: fixtures.identity.candidate,
+      objects: [],
+      filePatches: [],
+    })).toThrow("no longer a supported");
   });
 });

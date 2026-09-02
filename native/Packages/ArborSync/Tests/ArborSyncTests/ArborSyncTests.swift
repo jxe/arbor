@@ -173,14 +173,11 @@ struct ArborSyncTests {
             }
             let firstPrepared = try #require(await transport.requests.first)
             let first = try JSONDecoder().decode(WireUpdateRequest.self, from: firstPrepared.body)
-            let patch = try #require(first.filePatches?.first)
+            let delta = try #require(first.deltas?.first)
             #expect(first.returnSnapshot == .ifResultDiffers)
-            #expect(patch.edits == [WireFilePatchEdit(
-                offset: range.lowerBound,
-                length: range.count,
-                bytes: Data("Edited".utf8)
-            )])
-            #expect(!first.objects.contains(where: { $0.hash == patch.result }))
+            #expect(delta.instructions.contains(.insert(Data("Edited".utf8))))
+            #expect(delta.instructions.contains(where: { if case .copy = $0 { return true } else { return false } }))
+            #expect(!first.objects.contains(where: { $0.hash == delta.result }))
 
             let large = try await session.snapshot()
             let fallbackSource = "---\nid: pg_note\n---\n\n# Small fallback\n"
@@ -197,7 +194,7 @@ struct ArborSyncTests {
             }
             let secondPrepared = try #require(await transport.requests.dropFirst().first)
             let second = try JSONDecoder().decode(WireUpdateRequest.self, from: secondPrepared.body)
-            #expect(second.filePatches == nil)
+            #expect(second.deltas == nil)
             #expect(!second.objects.isEmpty)
             #expect(try await replica.heads().pendingRoot == nil)
         }
@@ -250,11 +247,6 @@ struct ArborSyncTests {
             let snapshotRequestsBefore = await transport.snapshotRequests
             let initialFile = try #require(initial.objects.first { $0.hash != initial.root })
             let remoteFile = try #require(remote.objects.first { $0.hash != remote.root })
-            guard case let .file(initialPayload) = try WireObjectCodec.decode(initialFile.bytes),
-                  case let .file(remotePayload) = try WireObjectCodec.decode(remoteFile.bytes) else {
-                Issue.record("Expected Markdown file objects")
-                return
-            }
             let update = WireAcceptedUpdate(
                 id: "up_remote",
                 tree: tree,
@@ -267,10 +259,10 @@ struct ArborSyncTests {
             let transition = WireAcceptedTransition(
                 update: update,
                 objects: [try #require(remote.objects.first { $0.hash == remote.root })],
-                filePatches: [WireFilePatch(
+                deltas: [WireObjectDelta(
                     base: initialFile.hash,
                     result: remoteFile.hash,
-                    edits: [.init(offset: 0, length: initialPayload.count, bytes: remotePayload)]
+                    instructions: [.insert(remoteFile.bytes)]
                 )]
             )
             let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)

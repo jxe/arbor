@@ -94,12 +94,11 @@ export class NodeProviderRouter implements AsyncDisposable {
     if (mount.relative.length === 0) {
       return this.decorateRoot(await this.physical.snapshot({ ...ref, path }, observedThrough), mount);
     }
-    const descriptor = await mount.session.descriptor();
-    if (descriptor.tables?.includes(mount.relative[0]!) && mount.relative.length === 1 && ref.stableKey === null) {
-      const table = await mount.session.tableSnapshot(path, mount.relative[0]!, await this.context(mount.mountPath, observedThrough));
-      if (table) return this.response(table);
+    const table = await mount.session.tableFor(mount.relative);
+    if (table && mount.relative.length === 1 && ref.stableKey === null) {
+      const snapshot = await mount.session.tableSnapshot(path, table, await this.context(mount.mountPath, observedThrough));
+      if (snapshot) return this.response(snapshot);
     }
-    const table = descriptor.tables?.includes(mount.relative[0]!) ? mount.relative[0] : undefined;
     const parentPath = table ? `${mount.mountPath === "/" ? "" : mount.mountPath}/${table}` : mount.mountPath;
     const result = await mount.session.resolveChild(
       parentPath,
@@ -119,15 +118,14 @@ export class NodeProviderRouter implements AsyncDisposable {
         return this.physical.children({ ...ref, path }, cursor, observedThrough);
       }
       const context = await this.context(path, observedThrough);
-      if (!descriptor.tables?.length) {
+      if (!(await mount.session.hasTables())) {
         const parent = (await this.snapshot({ ...ref, path }, observedThrough)).ref;
         return mount.session.children(path, parent, context, cursor);
       }
       const tables = await mount.session.tableItems(path, context);
       return this.physical.children({ ...ref, path }, cursor, observedThrough, tables);
     }
-    const table = mount.relative.length === 1 && descriptor.tables?.includes(mount.relative[0]!)
-      ? mount.relative[0] : undefined;
+    const table = mount.relative.length === 1 ? await mount.session.tableFor(mount.relative) : undefined;
     if (table) {
       const parent = (await this.snapshot({ ...ref, path }, observedThrough)).ref;
       return mount.session.children(path, parent, await this.context(path, observedThrough), cursor, table);
@@ -138,8 +136,7 @@ export class NodeProviderRouter implements AsyncDisposable {
     const path = canonicalNodePath(ref.path);
     const mount = await this.mount(path);
     if (!mount || mount.relative.length === 0) return null;
-    const descriptor = await mount.session.descriptor();
-    const table = descriptor.tables?.includes(mount.relative[0]!) ? mount.relative[0] : undefined;
+    const table = await mount.session.tableFor(mount.relative);
     const parentPath = table ? `${mount.mountPath === "/" ? "" : mount.mountPath}/${table}` : mount.mountPath;
     const target = await mount.session.writeTarget(parentPath, { path, stableKey: ref.stableKey }, table);
     if (!target) return null;

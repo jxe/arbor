@@ -2,7 +2,7 @@ import { mkdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, join, posix, relative } from "node:path";
 import type {
   ArborBlock,
-  ArborSyncErrorCode,
+  ArborErrorCode,
   BacklinkEntry,
   BacklinksPage,
   ChildrenPage,
@@ -91,7 +91,7 @@ export class RevisionConflictError extends Error {
 
 export class ProtocolError extends Error {
   constructor(
-    public code: ArborSyncErrorCode,
+    public code: ArborErrorCode,
     message: string,
     public status: number,
     public details: Partial<{

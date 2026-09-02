@@ -130,40 +130,39 @@ struct UpdateProtocolTests {
         #expect(updateRequestDigest(tree: tree, base: value, candidate: candidate) == identity["digest"] as? String)
     }
 
-    @Test("Swift consumes the shared file-patch and conditional-snapshot fixtures")
-    func filePatchFixtures() throws {
-        let data = try Data(contentsOf: fixtures.appending(path: "wire-file-patches.json"))
+    @Test("Swift consumes the shared object-delta and conditional-snapshot fixtures")
+    func objectDeltaFixtures() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "wire-object-deltas.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let valid = try #require(fixture["valid"] as? [String: Any])
         let validData = try JSONSerialization.data(withJSONObject: valid)
-        let patch = try JSONDecoder().decode(WireFilePatch.self, from: validData)
-        #expect(patch.edits.map(\.offset) == [1, 4])
-        #expect(patch.edits.map(\.bytes) == [Data("x".utf8), Data("y".utf8)])
+        let delta = try JSONDecoder().decode(WireObjectDelta.self, from: validData)
+        #expect(delta.instructions == [.copy(offset: 0, length: 1), .insert(Data("x".utf8))])
 
         let base = WireUpdateBase(root: "sha256:" + String(repeating: "0", count: 64), update: "up_base")
         let request = WireUpdateRequest(
             base: base,
             candidate: "sha256:" + String(repeating: "1", count: 64),
             objects: [],
-            filePatches: [patch],
+            deltas: [delta],
             returnSnapshot: .ifResultDiffers
         )
         let encoded = try JSONEncoder().encode(request)
         let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         #expect(json["returnSnapshot"] as? String == "if-result-differs")
-        #expect((json["filePatches"] as? [[String: Any]])?.count == 1)
+        #expect((json["deltas"] as? [[String: Any]])?.count == 1)
 
         let invalid = try #require(fixture["invalid"] as? [[String: Any]])
         for vector in invalid {
-            let patches = try #require(vector["patches"] as? [[String: Any]])
+            let deltas = try #require(vector["deltas"] as? [[String: Any]])
             let body: [String: Any] = [
                 "base": ["root": base.root, "update": base.update],
                 "candidate": "sha256:" + String(repeating: "1", count: 64),
                 "objects": [],
-                "filePatches": patches,
+                "deltas": deltas,
             ]
             let bodyData = try JSONSerialization.data(withJSONObject: body)
-            #expect(throws: (any Error).self) {
+            #expect(throws: (any Error).self, "\(vector["name"] ?? "")") {
                 _ = try JSONDecoder().decode(WireUpdateRequest.self, from: bodyData)
             }
         }
@@ -182,7 +181,7 @@ struct UpdateProtocolTests {
         #expect(update.id == "up_atlas1")
     }
 
-    @Test("Ordered accepted transitions apply splices and copy-insert deltas through a merge")
+    @Test("Ordered accepted transitions apply object deltas through a merge")
     func acceptedTransitionReplay() throws {
         let baseFile = try WireObjectCodec.object(.file(Data("abcdef".utf8)))
         let baseRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: baseFile.hash)]))
@@ -199,23 +198,37 @@ struct UpdateProtocolTests {
             previousRoot: firstRoot.hash, kind: "merged", acceptedAt: 2,
             merge: .init(version: "markdown-additive-v1", approximatePlacements: 0)
         )
+        // Deltas address canonical object bytes: the file header carries the
+        // payload length, so it is inserted and payload ranges are copied.
+        let baseHeader = baseFile.bytes.count - 6
+        let firstHeader = Data(firstFile.bytes.prefix(firstFile.bytes.count - 6))
+        let finalHeader = Data(finalFile.bytes.prefix(finalFile.bytes.count - 7))
         let transitions = [
             WireAcceptedTransition(
                 update: firstUpdate,
                 objects: [firstRoot],
-                filePatches: [.init(
+                deltas: [.init(
                     base: baseFile.hash,
                     result: firstFile.hash,
-                    edits: [.init(offset: 2, length: 2, bytes: Data("XY".utf8))]
+                    instructions: [
+                        .insert(firstHeader),
+                        .copy(offset: baseHeader, length: 2),
+                        .insert(Data("XY".utf8)),
+                        .copy(offset: baseHeader + 4, length: 2),
+                    ]
                 )]
             ),
             WireAcceptedTransition(
                 update: finalUpdate,
                 objects: [finalRoot],
-                fileDeltas: [.init(
+                deltas: [.init(
                     base: firstFile.hash,
                     result: finalFile.hash,
-                    instructions: [.copy(offset: 0, length: 6), .insert(Data("!".utf8))]
+                    instructions: [
+                        .insert(finalHeader),
+                        .copy(offset: baseHeader, length: 6),
+                        .insert(Data("!".utf8)),
+                    ]
                 )]
             ),
         ]

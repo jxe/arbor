@@ -8,6 +8,7 @@ import {
   type ObjectHash,
   type UpdateResult,
 } from "@arbor/wire";
+import { ObservationLog } from "./observations.ts";
 
 export interface StoredAcceptedResponse {
   status: number;
@@ -21,6 +22,7 @@ export interface AcceptedUpdateInput {
   kind: AcceptedUpdate["kind"];
   acceptedAt: number;
   subject?: string | null;
+  /** Reconciliation provenance retained privately; never part of the wire `AcceptedUpdate`. */
   baseRoot?: ObjectHash;
   candidateRoot?: ObjectHash;
   remoteRoot?: ObjectHash;
@@ -34,7 +36,11 @@ export interface AcceptedCommitInput extends AcceptedUpdateInput {
 }
 
 export class AcceptedUpdateStore {
-  constructor(private readonly db: Database) {}
+  private readonly observations: ObservationLog;
+
+  constructor(private readonly db: Database) {
+    this.observations = new ObservationLog(db);
+  }
 
   static createSchema(db: Database): void {
     db.run(`
@@ -61,6 +67,7 @@ export class AcceptedUpdateStore {
       ON accepted_updates(tree_id, subject, request_digest)
       WHERE request_digest IS NOT NULL
     `);
+    ObservationLog.createSchema(db);
   }
 
   private row(value: unknown): AcceptedUpdate | null {
@@ -74,9 +81,6 @@ export class AcceptedUpdateStore {
       kind: AcceptedUpdate["kind"];
       accepted_at: number;
       subject: string | null;
-      base_root: ObjectHash | null;
-      candidate_root: ObjectHash | null;
-      remote_root: ObjectHash | null;
       merge_summary: string | null;
     };
     return {
@@ -88,9 +92,6 @@ export class AcceptedUpdateStore {
       kind: record.kind,
       acceptedAt: record.accepted_at,
       subject: record.subject,
-      ...(record.base_root ? { baseRoot: record.base_root } : {}),
-      ...(record.candidate_root ? { candidateRoot: record.candidate_root } : {}),
-      ...(record.remote_root ? { remoteRoot: record.remote_root } : {}),
       ...(record.merge_summary ? { merge: JSON.parse(record.merge_summary) as MergeSummary } : {}),
     };
   }
@@ -136,7 +137,12 @@ export class AcceptedUpdateStore {
     return row?.transition_json ? decodeTransitionPayloadJSON(JSON.parse(row.transition_json)) : null;
   }
 
+  /** Record one accepted update and its `tree.ref` observation atomically. */
   insert(id: string, input: AcceptedUpdateInput): AcceptedUpdate {
+    return this.db.transaction(() => this.insertWithinTransaction(id, input))();
+  }
+
+  private insertWithinTransaction(id: string, input: AcceptedUpdateInput): AcceptedUpdate {
     const sequence = (this.db.query(
       "SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM accepted_updates WHERE tree_id = ?",
     ).get(input.tree) as { sequence: number }).sequence;
@@ -160,6 +166,7 @@ export class AcceptedUpdateStore {
       input.requestDigest ?? null,
       input.transition ? JSON.stringify(encodeTransitionPayloadJSON(input.transition)) : null,
     ]);
+    this.observations.append({ cursor: id, tree: input.tree, kind: "tree.ref", updateID: id, createdAt: input.acceptedAt });
     return this.get(id)!;
   }
 
@@ -180,7 +187,7 @@ export class AcceptedUpdateStore {
         input.acceptedAt,
       ]);
       withinTransaction?.();
-      accepted = this.insert(id, input);
+      accepted = this.insertWithinTransaction(id, input);
     })();
     return accepted;
   }

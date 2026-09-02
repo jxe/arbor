@@ -1,20 +1,22 @@
 import type {
+  AcceptedTransition,
   UpdateConflictResult,
   UpdateRequest,
   UpdateResult,
-  FilePatch,
+  ObjectDelta,
   ServerDevice,
   PairingOffer,
   TreeSnapshotEnvelope,
 } from "./updates/types.ts";
-import type {
-  AccessEntry,
-  ArborError,
-  EventCursor,
-  LocatorResolution,
-  RemoteTreeDescriptor,
-  SnapshotEnvelope,
-  TreeID,
+import {
+  parseSSEStream,
+  type AccessEntry,
+  type ArborError,
+  type EventCursor,
+  type LocatorResolution,
+  type RemoteTreeDescriptor,
+  type SnapshotEnvelope,
+  type TreeID,
 } from "@arbor/core";
 import {
   decodeWireObject,
@@ -25,6 +27,7 @@ import {
   type TreeSnapshot,
 } from "./objects.ts";
 import {
+  decodeAcceptedTransitionJSON,
   decodeBase64,
   encodeObjectEnvelopes,
   encodeUpdateRequestJSON,
@@ -82,6 +85,53 @@ export interface PairingClaimResult {
 }
 
 export type RemoteAccessEntry = AccessEntry;
+
+/** One decoded frame of a tree watch. `tree.ref` carries a verified, contiguous transition batch. */
+export type WatchEvent =
+  | {
+    kind: "tree.ref";
+    cursor: EventCursor;
+    tree: TreeID;
+    descriptor: RemoteTreeDescriptor;
+    transitions: AcceptedTransition[];
+    requestDigest?: ObjectHash;
+  }
+  | { kind: "resync-required"; cursor: EventCursor; tree: TreeID; reason?: string }
+  | { kind: string; cursor: EventCursor; tree: TreeID; change: unknown };
+
+function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown): Extract<WatchEvent, { kind: "tree.ref" }> {
+  if (!value || typeof value !== "object") throw new Error("Malformed tree.ref change");
+  const change = value as { descriptor?: RemoteTreeDescriptor; transitions?: unknown; requestDigest?: unknown };
+  const descriptor = change.descriptor;
+  if (!descriptor || descriptor.id !== tree || !Array.isArray(change.transitions) || !change.transitions.length) {
+    throw new Error("Malformed tree.ref change");
+  }
+  const transitions = change.transitions.map(decodeAcceptedTransitionJSON);
+  let previous: AcceptedTransition | undefined;
+  for (const transition of transitions) {
+    if (transition.update.tree !== tree) throw new Error("Watch transition names another tree");
+    if (previous && (transition.update.sequence !== previous.update.sequence + 1 || transition.update.previousRoot !== previous.update.root)) {
+      throw new Error("Watch transitions are not contiguous");
+    }
+    previous = transition;
+  }
+  const final = transitions.at(-1)!;
+  if (final.update.id !== descriptor.update || final.update.root !== descriptor.ref || final.update.id !== cursor) {
+    throw new Error("Watch descriptor does not end at its final transition");
+  }
+  const requestDigest = change.requestDigest;
+  if (requestDigest !== undefined && (typeof requestDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(requestDigest))) {
+    throw new Error("Malformed tree.ref request digest");
+  }
+  return {
+    kind: "tree.ref",
+    cursor,
+    tree,
+    descriptor,
+    transitions,
+    ...(requestDigest ? { requestDigest: requestDigest as ObjectHash } : {}),
+  };
+}
 
 export class WireTransportError extends TypeError {
   override readonly cause: unknown;
@@ -263,13 +313,13 @@ export class WireClient {
     tree: string,
     base: { root: ObjectHash; update: string },
     snapshot: TreeSnapshot,
-    options: { returnSnapshot?: true | "if-result-differs"; filePatches?: FilePatch[] } = {},
+    options: { returnSnapshot?: true | "if-result-differs"; deltas?: ObjectDelta[] } = {},
   ): Promise<UpdateResult> {
     const request: UpdateRequest = {
       base,
       candidate: snapshot.root,
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
-      ...(options.filePatches?.length ? { filePatches: options.filePatches } : {}),
+      ...(options.deltas?.length ? { deltas: options.deltas } : {}),
       ...(options.returnSnapshot ? { returnSnapshot: options.returnSnapshot } : {}),
     };
     const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
@@ -320,6 +370,37 @@ export class WireClient {
       { headers: this.headers() },
     ));
     return response.json();
+  }
+
+  /**
+   * Follow one tree's accepted transitions and other observations strictly
+   * after `after`. The stream ends when the server closes it or sends
+   * `resync-required`; the caller reconnects with a fresh cursor.
+   */
+  async *watch(tree: TreeID, after: EventCursor | null, options: { signal?: AbortSignal } = {}): AsyncGenerator<WatchEvent> {
+    const query = after ? `?after=${encodeURIComponent(after)}` : "";
+    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/watch${query}`, {
+      headers: { ...this.headers(), accept: "text/event-stream" },
+      signal: options.signal ?? new AbortController().signal,
+    }));
+    if (!response.body) throw new Error("Watch response has no body");
+    for await (const frame of parseSSEStream(response.body)) {
+      if (!frame.data) continue;
+      const decoded = JSON.parse(frame.data) as { cursor?: unknown; tree?: unknown; kind?: unknown; change?: unknown };
+      if (typeof decoded.cursor !== "string" || typeof decoded.kind !== "string" || decoded.tree !== tree
+        || frame.id !== decoded.cursor || frame.event !== decoded.kind) {
+        throw new Error("Malformed Arbor watch event");
+      }
+      if (decoded.kind === "tree.ref") {
+        yield decodeTreeRefChange(tree, decoded.cursor, decoded.change);
+      } else if (decoded.kind === "resync-required") {
+        const reason = (decoded.change as { reason?: unknown } | null)?.reason;
+        yield { kind: "resync-required", cursor: decoded.cursor, tree, ...(typeof reason === "string" ? { reason } : {}) };
+        return;
+      } else {
+        yield { kind: decoded.kind, cursor: decoded.cursor, tree, change: decoded.change };
+      }
+    }
   }
 
   async object(tree: TreeID, hash: string): Promise<Uint8Array> {

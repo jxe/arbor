@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { buildNetworkLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@arbor/core";
-import type { AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, RemoteTreeDescriptor } from "@arbor/core";
+import type { AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@arbor/core";
 import { treeMutationResponse, treeQueryResponse } from "@arbor/data";
 import {
   AlreadyClaimedError,
@@ -13,16 +13,16 @@ import {
   type CanopyTree,
   type CanopyBootstrapAccount,
 } from "./canopy.ts";
+import type { ObservationRecord } from "./updates/observations.ts";
 import {
   decodeObjectEnvelopes,
   decodeUpdateRequestJSON,
   decodeWireObject,
   encodeAcceptedTransitionJSON,
+  encodeObjectEnvelopes,
   type AcceptedTransition,
-  type AcceptedUpdate,
   type ObjectHash,
   type RemoteAccountDescriptor,
-  type TreeAccess,
 } from "@arbor/wire";
 import { renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
 import { WireProjection, wireRollupRowMarkdown, wireRollupRowTitle } from "@arbor/wire-projection";
@@ -68,7 +68,7 @@ function descriptorWithUpdate(
   origin: string,
   canopy: CanopyDaemon,
   tree: CanopyTree,
-  access: TreeAccess = "read",
+  access: ReadWriteAccess = "read",
 ): RemoteTreeDescriptor {
   const update = canopy.currentUpdate(tree.id);
   if (!update) throw new Error(`Tree has no accepted update: ${tree.id}`);
@@ -79,7 +79,7 @@ function watchDescriptor(
   origin: string,
   tree: CanopyTree,
   transitions: AcceptedTransition[],
-  access: TreeAccess,
+  access: ReadWriteAccess,
 ): ObservationEvent<"tree.ref", { descriptor: RemoteTreeDescriptor; transitions: unknown[]; requestDigest?: ObjectHash }> {
   const final = transitions.at(-1);
   if (!final) throw new Error("Tree ref frame requires at least one accepted transition");
@@ -102,7 +102,7 @@ function updateJSON(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   const encodeSnapshot = (snapshot: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> }) => ({
     root: snapshot.root,
-    objects: snapshot.objects.map(({ hash, bytes }) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
+    objects: encodeObjectEnvelopes(snapshot.objects.map(({ hash, bytes }) => [hash, bytes] as const)),
   });
   if (!("error" in value) || (value as { error?: unknown }).error !== "conflict") {
     const result = value as { snapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> } };
@@ -424,6 +424,10 @@ export async function serveCanopy(options: {
             kind: "server-update",
             state: "awaiting-initialization",
           }, { tree: treeID });
+          // Captured in the same synchronous step as `current`, so a later
+          // non-ref observation may advance the cursor but no newer accepted
+          // update can hide behind it.
+          const observedThrough = canopy.observedThrough(tree.id);
           const snapshot = await canopy.snapshotForUpdate(tree.id, current.id);
           return json({
             tree: {
@@ -436,12 +440,9 @@ export async function serveCanopy(options: {
             },
             snapshot: {
               root: snapshot.root,
-              objects: [...snapshot.objects].map(([hash, bytes]) => ({
-                hash,
-                bytes: Buffer.from(bytes).toString("base64"),
-              })),
+              objects: encodeObjectEnvelopes(snapshot.objects),
             },
-            observedThrough: current.id,
+            observedThrough,
           });
         }
         const updates = /^\/\.arbor\/trees\/([^/]+)\/updates$/.exec(url.pathname);
@@ -494,50 +495,46 @@ export async function serveCanopy(options: {
             return wireError("invalid-request", "after and Last-Event-ID disagree", 400);
           }
           const lastEventID = queryCursor ?? headerCursor;
-          const refFrames = (updated: CanopyTree, accepted: AcceptedUpdate[]): string[] | null => {
-            const transitions = accepted.map((update) => canopy.acceptedTransition(update.id, credentialSubject));
-            if (transitions.some((transition) => transition === null)) return null;
+          /** Encode a contiguous run of accepted updates as bounded `tree.ref` frames, or null when any transition is unavailable. */
+          const refFrames = (updateIDs: string[]): string[] | null => {
+            const current = canopy.get(tree.id) ?? tree;
+            const transitions: AcceptedTransition[] = [];
+            for (const id of updateIDs) {
+              const transition = canopy.acceptedTransition(id, credentialSubject);
+              if (!transition) return null;
+              transitions.push(transition);
+            }
             const frames: string[] = [];
             let batch: AcceptedTransition[] = [];
-            const flush = () => {
-              if (!batch.length) return;
-              const final = batch.at(-1)!;
-              frames.push(encodeSSEFrame({ id: final.update.id, event: "tree.ref", data: watchDescriptor(publicOrigin, updated, batch, access) }));
-              batch = [];
-            };
-            for (const transition of transitions as AcceptedTransition[]) {
+            const frame = (items: AcceptedTransition[]) => encodeSSEFrame({
+              id: items.at(-1)!.update.id,
+              event: "tree.ref",
+              data: watchDescriptor(publicOrigin, current, items, access),
+            });
+            for (const transition of transitions) {
               const candidate = [...batch, transition];
-              const frame = encodeSSEFrame({
-                id: transition.update.id,
-                event: "tree.ref",
-                data: watchDescriptor(publicOrigin, updated, candidate, access),
-              });
-              if (batch.length && (candidate.length > MAX_WATCH_TRANSITIONS_PER_FRAME || Buffer.byteLength(frame) > MAX_WATCH_TRANSITION_FRAME_BYTES)) {
-                flush();
+              if (batch.length && (candidate.length > MAX_WATCH_TRANSITIONS_PER_FRAME || Buffer.byteLength(frame(candidate)) > MAX_WATCH_TRANSITION_FRAME_BYTES)) {
+                frames.push(frame(batch));
+                batch = [];
               }
               batch.push(transition);
-              const single = encodeSSEFrame({
-                id: transition.update.id,
-                event: "tree.ref",
-                data: watchDescriptor(publicOrigin, updated, batch, access),
-              });
-              if (Buffer.byteLength(single) > MAX_WATCH_TRANSITION_FRAME_BYTES) return null;
+              if (Buffer.byteLength(frame(batch)) > MAX_WATCH_TRANSITION_FRAME_BYTES) return null;
             }
-            flush();
+            if (batch.length) frames.push(frame(batch));
             return frames;
           };
-          const observationFrame = (event: { cursor: string; tree: string; kind: string; change: unknown }) =>
-            encodeSSEFrame({ id: event.cursor, event: event.kind, data: event });
+          const observationFrame = (record: ObservationRecord) => encodeSSEFrame({
+            id: record.cursor,
+            event: record.kind,
+            data: { cursor: record.cursor, tree: record.tree, kind: record.kind, change: record.change },
+          });
           return new Response(new ReadableStream({
             start(controller) {
               let closed = false;
               let replaying = true;
-              const pending: Array<
-                | { kind: "ref"; tree: CanopyTree; update: AcceptedUpdate }
-                | { kind: "observation"; event: { cursor: string; tree: string; kind: string; change: unknown } }
-              > = [];
-              let stopRefs = () => {};
-              let stopObservations = () => {};
+              let delivered = 0;
+              const pending: ObservationRecord[] = [];
+              let stop = () => {};
               const resync = (reason: string) => {
                 if (closed) return;
                 closed = true;
@@ -549,78 +546,46 @@ export async function serveCanopy(options: {
                   change: { reason },
                 };
                 controller.enqueue(encoder.encode(encodeSSEFrame({ id: cursor, event: "resync-required", data: event })));
-                stopRefs();
-                stopObservations();
+                stop();
                 controller.close();
               };
-              const deliverRef = (updated: CanopyTree, accepted: AcceptedUpdate) => {
-                if (closed) return;
-                const frames = refFrames(updated, [accepted]);
-                if (!frames) return resync("The accepted transition is unavailable or exceeds the watch frame limit");
+              const sendRefs = (updateIDs: string[], failure: string) => {
+                if (!updateIDs.length || closed) return;
+                const frames = refFrames(updateIDs);
+                if (!frames) return resync(failure);
                 for (const frame of frames) controller.enqueue(encoder.encode(frame));
               };
-              const deliverObservation = (event: { cursor: string; tree: string; kind: string; change: unknown }) => {
-                if (!closed) controller.enqueue(encoder.encode(observationFrame(event)));
+              const deliver = (record: ObservationRecord) => {
+                if (closed || record.ordinal <= delivered) return;
+                delivered = record.ordinal;
+                if (record.updateID) sendRefs([record.updateID], "The accepted transition is unavailable or exceeds the watch frame limit");
+                else controller.enqueue(encoder.encode(observationFrame(record)));
               };
-              stopRefs = canopy.subscribe(tree.id, (updated, accepted) => {
-                if (replaying) pending.push({ kind: "ref", tree: updated, update: accepted });
-                else deliverRef(updated, accepted);
+              stop = canopy.subscribeObservations(tree.id, (record) => {
+                if (replaying) pending.push(record);
+                else deliver(record);
               });
-              stopObservations = canopy.subscribeObservations(tree.id, (event) => {
-                if (replaying) pending.push({ kind: "observation", event });
-                else deliverObservation(event);
-              });
-              const accepted = canopy.acceptedUpdates(tree.id);
-              const observations = canopy.observationEvents(tree.id);
-              const timeline = [
-                ...accepted.map((update) => ({ cursor: update.id, at: update.acceptedAt, update })),
-                ...observations.map((event) => ({ cursor: event.cursor, at: event.createdAt, event })),
-              ].sort((a, b) => {
-                if (a.at !== b.at) return a.at - b.at;
-                if ("update" in a && a.update && "update" in b && b.update) {
-                  return a.update.sequence - b.update.sequence;
+              const replay = canopy.observationsAfter(tree.id, lastEventID);
+              if (!replay.retained) return resync("The requested cursor is no longer retained");
+              // Replay groups consecutive accepted updates into bounded batches
+              // without crossing another observation kind.
+              let batch: string[] = [];
+              for (const record of replay.records) {
+                if (record.updateID) {
+                  batch.push(record.updateID);
+                  continue;
                 }
-                if ("update" in a && a.update) return -1;
-                if ("update" in b && b.update) return 1;
-                return a.cursor.localeCompare(b.cursor);
-              });
-              const cursorIndex = lastEventID ? timeline.findIndex((event) => event.cursor === lastEventID) : -1;
-              if (lastEventID && cursorIndex < 0) {
-                return resync("The requested cursor is no longer retained");
+                sendRefs(batch, "Retained accepted history has no replayable transition batch");
+                batch = [];
+                if (!closed) controller.enqueue(encoder.encode(observationFrame(record)));
               }
-              const replay = lastEventID === null
-                ? []
-                : cursorIndex >= 0
-                  ? timeline.slice(cursorIndex + 1)
-                  : [];
-              let acceptedBatch: AcceptedUpdate[] = [];
-              const flushAccepted = () => {
-                if (!acceptedBatch.length || closed) return;
-                const frames = refFrames(tree, acceptedBatch);
-                acceptedBatch = [];
-                if (!frames) return resync("Retained accepted history has no replayable transition batch");
-                for (const frame of frames) controller.enqueue(encoder.encode(frame));
-              };
-              for (const item of replay) {
-                if ("update" in item && item.update) acceptedBatch.push(item.update);
-                else if ("event" in item && item.event) {
-                  flushAccepted();
-                  if (!closed) controller.enqueue(encoder.encode(observationFrame(item.event)));
-                }
-              }
-              flushAccepted();
-              const retainedCursors = new Set(timeline.map((item) => item.cursor));
+              sendRefs(batch, "Retained accepted history has no replayable transition batch");
+              delivered = replay.through;
               replaying = false;
-              for (const item of pending) {
-                const cursor = item.kind === "ref" ? item.update.id : item.event.cursor;
-                if (retainedCursors.has(cursor)) continue;
-                if (item.kind === "ref") deliverRef(item.tree, item.update);
-                else deliverObservation(item.event);
-              }
+              for (const record of pending) deliver(record);
               request.signal.addEventListener("abort", () => {
                 closed = true;
-                stopRefs();
-                stopObservations();
+                stop();
                 try { controller.close(); } catch {}
               }, { once: true });
             },
@@ -634,7 +599,7 @@ export async function serveCanopy(options: {
           const bytes = await canopy.object(hash);
           return new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, {
             headers: {
-              "content-type": "application/vnd.ipld.dag-cbor",
+              "content-type": "application/cbor",
               "cache-control": "public, immutable",
               etag: `"${hash}"`,
             },

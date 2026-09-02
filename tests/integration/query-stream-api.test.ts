@@ -59,7 +59,7 @@ function expectFrames(body: string) {
 }
 
 describe("stateless query stream HTTP contract", () => {
-  test("serves the same self-contained request through Local REST and the local Wire alias", async () => {
+  test("serves the self-contained query request at the local Wire path only", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-query-api-"));
     const state = await mkdtemp(join(tmpdir(), "arbor-query-api-state-"));
     const previous = process.env.ARBOR_DATA_HOME;
@@ -69,18 +69,17 @@ describe("stateless query stream HTTP contract", () => {
     const mutations = new FixtureMutationRuntime();
     const running = await serveArborSync(root, { port: 0, queryRuntime: runtime, mutationRuntime: mutations, queryUser: { profile: "tr_local_user" } });
     try {
-      for (const [path, method] of [["/v1/query-stream", "POST"], ["/.arbor/trees/tr_source/queries", "QUERY"]] as const) {
-        const response = await fetch(`${running.url}${path}`, {
-          method,
-          headers: { "content-type": "application/json", "last-event-id": "must-be-ignored" },
-          body: JSON.stringify(request),
-        });
-        expect(response.status).toBe(200);
-        expect(response.headers.get("content-type")).toContain("text/event-stream");
-        expectFrames(await response.text());
-      }
-      expect(runtime.users).toEqual([{ profile: "tr_local_user" }, { profile: "tr_local_user" }]);
+      const response = await fetch(`${running.url}/.arbor/trees/tr_source/queries`, {
+        method: "QUERY",
+        headers: { "content-type": "application/json", "last-event-id": "must-be-ignored" },
+        body: JSON.stringify(request),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/event-stream");
+      expectFrames(await response.text());
+      expect(runtime.users).toEqual([{ profile: "tr_local_user" }]);
       expect((await fetch(`${running.url}/.arbor/query-stream`, { method: "POST" })).status).toBe(405);
+      expect((await fetch(`${running.url}/v1/query-stream`, { method: "POST" })).status).toBe(405);
       const mutation: MutationCallRequest = {
         document: request.document,
         handle: request.queries[0]!.handle,

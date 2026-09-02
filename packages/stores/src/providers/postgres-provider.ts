@@ -3,6 +3,7 @@ import { parseDocument } from "yaml";
 import { revisionOf } from "@arbor/core";
 import { ConnectionStore, connectionName } from "../connections.ts";
 import {
+  type ProjectionProvider,
   decodeProviderCursor,
   encodeProviderCursor,
   representationFor,
@@ -10,7 +11,8 @@ import {
   type ProjectionDefinition,
   type ProjectionDescriptor,
 } from "./types.ts";
-export class PostgresProjectionDriver {
+export class PostgresProjectionDriver implements ProjectionProvider {
+  readonly kinds = ["postgres"] as const;
   constructor(private connections = new ConnectionStore()) {}
   async describe(definition: ProjectionDefinition): Promise<ProjectionDescriptor> {
     const reference = await this.reference(definition.storePath!);
@@ -57,10 +59,11 @@ export class PostgresProjectionDriver {
   async page(
     definition: ProjectionDefinition,
     treePath: string,
-    table: string,
     cursor: string | null,
     limit: number,
+    table?: string,
   ): Promise<LoadedProjectionSlice> {
+    if (!table) throw new Error("A Postgres table is required");
     const safeLimit = Math.max(1, Math.min(limit, 500));
     const query = `postgres:${treePath}:${table}`;
     const decoded = decodeProviderCursor(cursor, query, "external:postgres", "offset");

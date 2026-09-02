@@ -129,10 +129,19 @@ function same(left: unknown, right: unknown): boolean {
 }
 
 const missing = Symbol("missing");
-function mergeValue(base: unknown, candidate: unknown, remote: unknown, path: string, conflicts: string[]): unknown {
+interface MergeTally {
+  conflicts: string[];
+  /** Fields the candidate contributed while the remote changed elsewhere. */
+  mergedFields: number;
+}
+
+function mergeValue(base: unknown, candidate: unknown, remote: unknown, path: string, tally: MergeTally): unknown {
   if (same(candidate, remote)) return candidate;
   if (same(candidate, base)) return remote;
-  if (same(remote, base)) return candidate;
+  if (same(remote, base)) {
+    tally.mergedFields += 1;
+    return candidate;
+  }
   const maps = [base, candidate, remote].every((value) => value === undefined || (value !== null && typeof value === "object" && !Array.isArray(value)));
   if (maps) {
     const result: Record<string, unknown> = {};
@@ -147,7 +156,7 @@ function mergeValue(base: unknown, candidate: unknown, remote: unknown, path: st
         (candidate as Record<string, unknown> | undefined)?.[key] ?? missing,
         (remote as Record<string, unknown> | undefined)?.[key] ?? missing,
         path ? `${path}.${key}` : key,
-        conflicts,
+        tally,
       );
       if (value !== missing) result[key] = value;
     }
@@ -155,7 +164,7 @@ function mergeValue(base: unknown, candidate: unknown, remote: unknown, path: st
   }
   // Deleting a device wins over a concurrent edit made by that device.
   if (path.startsWith("devices.") && (candidate === missing || remote === missing)) return missing;
-  conflicts.push(path);
+  tally.conflicts.push(path);
   return candidate;
 }
 
@@ -184,9 +193,9 @@ function fromSemantic(value: Record<string, any>): Omit<AccountConfigGraph, "sou
 }
 
 export function mergeAccountConfigGraphs(base: AccountConfigGraph, candidate: AccountConfigGraph, remote: AccountConfigGraph) {
-  const conflicts: string[] = [];
-  const value = mergeValue(semantic(base), semantic(candidate), semantic(remote), "", conflicts) as Record<string, any>;
-  return { graph: fromSemantic(value), conflicts };
+  const tally: MergeTally = { conflicts: [], mergedFields: 0 };
+  const value = mergeValue(semantic(base), semantic(candidate), semantic(remote), "", tally) as Record<string, any>;
+  return { graph: fromSemantic(value), conflicts: tally.conflicts, mergedFields: tally.mergedFields };
 }
 
 export function authorizeAccountConfigTransition(

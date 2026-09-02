@@ -56,6 +56,29 @@ async function submitConfiguration(
   );
 }
 
+async function readWatchFrames(url: string, count: number) {
+  const abort = new AbortController();
+  const response = await fetch(url, { headers: { authorization: `Bearer ${token}` }, signal: abort.signal });
+  expect(response.status).toBe(200);
+  const reader = response.body!.getReader();
+  let source = "";
+  while (source.split("\n\n").length <= count) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    source += new TextDecoder().decode(chunk.value, { stream: true });
+  }
+  abort.abort();
+  return source.split("\n\n").slice(0, count).map((frame) => {
+    const lines = frame.split("\n");
+    const field = (name: string) => lines.filter((line) => line.startsWith(`${name}: `)).map((line) => line.slice(name.length + 2));
+    return {
+      id: field("id")[0],
+      event: field("event")[0],
+      data: JSON.parse(field("data").join("\n")) as { cursor: string; change: { transitions?: Array<{ update: { id: string } }> } & Record<string, unknown> },
+    };
+  });
+}
+
 async function snapshotWithRollups(path: string) {
   const stores = new ProjectionProviderHost();
   try {
@@ -313,6 +336,60 @@ describe("governed account-configuration Canopy server", () => {
 
     const account = await client.account();
     expect(account.observedThrough).not.toBe(accepted.observedThrough);
+  });
+
+  test("replays accepted updates and activation events in log order", async () => {
+    const baseline = await currentConfig();
+    const administrator = baseline.graph.account.admins[0]!;
+    const relabel = (graph: typeof baseline.graph, label: string) => ({
+      account: graph.account,
+      trees: graph.trees,
+      devices: { ...graph.devices, [administrator]: { ...graph.devices[administrator]!, label } },
+    });
+    const first = await submitConfiguration(baseline.current, relabel(baseline.graph, "Log order one"));
+    if (first.outcome !== "accepted" && first.outcome !== "merged") throw new Error("Expected an accepted update");
+
+    const treeID = generateArborID("tr");
+    const treePath = join(dataRoot, "log-order-tree");
+    const afterFirst = await currentConfig();
+    const declared = await submitConfiguration(afterFirst.current, {
+      account: afterFirst.graph.account,
+      trees: {
+        version: 1 as const,
+        trees: {
+          ...afterFirst.graph.trees.trees,
+          [treeID]: { kind: "shared-subtree" as const, canonicalPath: "/~owner/log-order-tree", access: [] },
+        },
+      },
+      devices: {
+        ...afterFirst.graph.devices,
+        [administrator]: {
+          ...afterFirst.graph.devices[administrator]!,
+          placements: {
+            ...afterFirst.graph.devices[administrator]!.placements,
+            [treeID]: { server: new URL(running.url).origin, path: treePath },
+          },
+        },
+      },
+    });
+    if (declared.outcome !== "accepted" && declared.outcome !== "merged") throw new Error("Expected an accepted update");
+    await mkdir(treePath);
+    await writeFile(join(treePath, "note.md"), "# Log order\n");
+    await client.activateTree(treeID, await snapshotDirectory(treePath));
+    const afterActivation = await currentConfig();
+    const third = await submitConfiguration(afterActivation.current, relabel(afterActivation.graph, "Log order three"));
+    if (third.outcome !== "accepted" && third.outcome !== "merged") throw new Error("Expected an accepted update");
+
+    const frames = await readWatchFrames(
+      `${running.url}/.arbor/trees/${baseline.current.tree.id}/watch?after=${baseline.current.observedThrough}`,
+      3,
+    );
+    expect(frames.map((frame) => frame.event)).toEqual(["tree.ref", "tree.activation", "tree.ref"]);
+    expect(frames.every((frame) => frame.id === frame.data.cursor)).toBe(true);
+    expect(frames[0]!.data.change.transitions!.map(({ update }) => update.id)).toEqual([first.update.id, declared.update.id]);
+    expect(frames[1]!.data.change).toEqual({ tree: treeID, status: "active" });
+    expect(frames[2]!.data.change.transitions!.map(({ update }) => update.id)).toEqual([third.update.id]);
+    expect(frames[2]!.id).toBe(third.update.id);
   });
 
   test("pairing adds a client-owned device file and deleting it atomically revokes its credential", async () => {

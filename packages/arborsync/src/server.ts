@@ -2,8 +2,8 @@ import { existsSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import { extname, isAbsolute, join } from "node:path";
 import type {
-  ArborSyncErrorCode,
-  ArborSyncErrorEnvelope,
+  ArborErrorCode,
+  ArborError,
   MutationRequest,
   NodeRef,
   QueryStreamRequest,
@@ -11,7 +11,7 @@ import type {
   MutationCallRuntime,
 } from "@arbor/core";
 import { PathEscapeError, encodeSSEFrame, generateArborID } from "@arbor/core";
-import { queryStreamResponse, treeMutationResponse, treeQueryResponse } from "@arbor/data";
+import { treeMutationResponse, treeQueryResponse } from "@arbor/data";
 import { decodeNodeRef } from "@arbor/core/node-model";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
 import { currentDeviceID } from "@arbor/stores";
@@ -71,10 +71,10 @@ function fileResponse(
 }
 
 function errorResponse(
-  code: ArborSyncErrorCode,
+  code: ArborErrorCode,
   message: string,
   status: number,
-  details: Partial<Omit<ArborSyncErrorEnvelope, "error" | "message">> = {},
+  details: Partial<Omit<ArborError, "error" | "message">> = {},
 ): Response {
   const normalized = (() => {
     switch (code) {
@@ -104,7 +104,7 @@ function errorResponse(
     ...(tree ? { tree } : {}),
     ...(path ? { path } : {}),
     ...(normalizedDetails === undefined ? {} : { details: normalizedDetails }),
-  } satisfies ArborSyncErrorEnvelope, status);
+  } satisfies ArborError, status);
 }
 
 function assertSameOrigin(request: Request, url: URL): void {
@@ -393,6 +393,8 @@ export interface ArborSyncServerOptions {
   queryRuntime?: QueryStreamRuntime;
   mutationRuntime?: MutationCallRuntime;
   queryUser?: { profile: string } | null;
+  /** Fallback reconciliation interval; Wire watches normally drive synchronization. */
+  syncIntervalMs?: number;
 }
 
 function startArborSyncServer(
@@ -514,19 +516,6 @@ function startArborSyncServer(
             headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" },
           });
         }
-        if (request.method === "POST" && url.pathname === "/v1/query-stream") {
-          if (!options.queryRuntime) return errorResponse("unsupported-operation", "No query runtime is active", 422);
-          try {
-            return await queryStreamResponse(
-              options.queryRuntime,
-              await request.json() as QueryStreamRequest,
-              request.signal,
-              options.queryUser ?? null,
-            );
-          } catch (error) {
-            return errorResponse("invalid-request", error instanceof Error ? error.message : "Invalid query stream request", 400);
-          }
-        }
         const queryRoute = /^\/\.arbor\/trees\/([^/]+)\/queries$/.exec(url.pathname);
         if (request.method === "QUERY" && queryRoute) {
           if (!options.queryRuntime) return errorResponse("unsupported-operation", "No query runtime is active", 422);
@@ -639,7 +628,11 @@ export async function serveArborSync(
   startPath: string,
   options: ArborSyncServerOptions = {},
 ) {
-  const service = await ArborSyncDaemon.open(startPath, { faultInjector: options.faultInjector });
+  const service = await ArborSyncDaemon.open(
+    startPath,
+    { faultInjector: options.faultInjector },
+    { ...(options.syncIntervalMs !== undefined ? { syncIntervalMs: options.syncIntervalMs } : {}) },
+  );
   const workspace = service.session;
   try {
     const running = startArborSyncServer(service, workspace, options);

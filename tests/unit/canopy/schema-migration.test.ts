@@ -44,6 +44,15 @@ describe("Canopy database migration", () => {
     db.run("CREATE TABLE pairings (id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), secret_digest TEXT NOT NULL, confirmation_code TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, claimed_at INTEGER)");
     db.run("CREATE TABLE access (id TEXT PRIMARY KEY, tree_id TEXT NOT NULL REFERENCES trees(id), subject_kind TEXT NOT NULL, subject TEXT NOT NULL, access TEXT NOT NULL, claimed_profile TEXT, UNIQUE(tree_id, subject_kind, subject))");
     db.run("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    // A tree whose history predates the single observation log: two accepted
+    // updates with an activation event recorded between them by timestamp.
+    db.run("CREATE TABLE observation_events (cursor TEXT PRIMARY KEY, tree_id TEXT NOT NULL REFERENCES trees(id), kind TEXT NOT NULL, change_json TEXT NOT NULL, created_at INTEGER NOT NULL)");
+    const oldRoot = `sha256:${"a".repeat(64)}`;
+    const newRoot = `sha256:${"b".repeat(64)}`;
+    db.run("INSERT INTO trees (id, ref, updated_at) VALUES ('tr_legacy', ?, 300)", [newRoot]);
+    db.run("INSERT INTO accepted_updates (id, tree_id, root, previous_root, kind, accepted_at) VALUES ('up_legacy1', 'tr_legacy', ?, NULL, 'initial', 100)", [oldRoot]);
+    db.run("INSERT INTO accepted_updates (id, tree_id, root, previous_root, kind, accepted_at) VALUES ('up_legacy2', 'tr_legacy', ?, ?, 'accepted', 300)", [newRoot, oldRoot]);
+    db.run("INSERT INTO observation_events (cursor, tree_id, kind, change_json, created_at) VALUES ('up_legacyevent', 'tr_legacy', 'tree.activation', '{}', 200)");
     expect(await stat(`${database}-wal`).then(({ size }) => size > 0).catch(() => false)).toBe(true);
 
     const canopy = await CanopyDaemon.open(root, {
@@ -68,6 +77,12 @@ describe("Canopy database migration", () => {
       "id", "tree_id", "root", "previous_root", "kind", "accepted_at", "subject", "base_root",
       "candidate_root", "remote_root", "merge_summary", "request_digest", "sequence", "transition_json",
     ]);
+    expect(columns("observations")).toEqual(["ordinal", "cursor", "tree_id", "kind", "update_id", "change_json", "created_at"]);
+    expect(migrated.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'observation_events'").get()).toBeNull();
+    expect((migrated.query("SELECT cursor FROM observations WHERE tree_id = 'tr_legacy' ORDER BY ordinal").all() as Array<{ cursor: string }>)
+      .map(({ cursor }) => cursor)).toEqual(["up_legacy1", "up_legacyevent", "up_legacy2"]);
+    expect(migrated.query("SELECT COUNT(*) AS count FROM observations WHERE kind = 'tree.ref'").get())
+      .toEqual(migrated.query("SELECT COUNT(*) AS count FROM accepted_updates").get());
     expect(migrated.query("PRAGMA quick_check").get()).toEqual({ quick_check: "ok" });
     migrated.close();
   });

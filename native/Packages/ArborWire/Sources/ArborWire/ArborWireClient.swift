@@ -100,7 +100,7 @@ public actor ArborWireClient {
     public func object(tree: String, hash: String) async throws -> Data {
         try validateObjectHash(hash)
         var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/objects/\(component(hash))")
-        request.setValue("application/vnd.ipld.dag-cbor", forHTTPHeaderField: "Accept")
+        request.setValue("application/cbor", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)
         let status = try statusCode(response)
         try validate(data: data, status: status)

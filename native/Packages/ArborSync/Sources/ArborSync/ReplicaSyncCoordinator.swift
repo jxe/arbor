@@ -291,7 +291,7 @@ public actor ReplicaSyncCoordinator {
         )
         _ = try WireObjectGraph.validate(wireSnapshot)
         let retained = (try? await retainedObjectHashes(root: base.root)) ?? []
-        let filePatch = try await immediateFilePatch(
+        let delta = try await immediateDelta(
             admission,
             heads: heads,
             base: base,
@@ -299,13 +299,13 @@ public actor ReplicaSyncCoordinator {
             retained: retained
         )
         let sparseObjects = wireSnapshot.objects.filter {
-            !retained.contains($0.hash) && $0.hash != filePatch?.result
+            !retained.contains($0.hash) && $0.hash != delta?.result
         }
         let request = WireUpdateRequest(
             base: base,
             candidate: snapshot.root,
             objects: sparseObjects,
-            filePatches: filePatch.map { [$0] } ?? [],
+            deltas: delta.map { [$0] } ?? [],
             returnSnapshot: .ifResultDiffers
         )
         let encoder = JSONEncoder()
@@ -331,13 +331,18 @@ public actor ReplicaSyncCoordinator {
         return attempt
     }
 
-    private func immediateFilePatch(
+    /// Express the just-admitted Markdown edit as an object delta when the
+    /// accepted base file is retained locally and the delta is smaller than the
+    /// complete result object. Deltas address canonical object bytes, so the
+    /// result's header (which carries the new payload length) is inserted and
+    /// unchanged payload ranges are copied at their base offsets.
+    private func immediateDelta(
         _ admission: ReplicaPatchAdmission?,
         heads: ReplicaHeads,
         base: WireUpdateBase,
         snapshot: WireSnapshot,
         retained: Set<String>
-    ) async throws -> WireFilePatch? {
+    ) async throws -> WireObjectDelta? {
         guard let admission,
               admission.baseWasAccepted,
               admission.baseRoot == base.root,
@@ -358,24 +363,36 @@ public actor ReplicaSyncCoordinator {
         let resultSource: String
         do { resultSource = try admission.patch.applying(to: baseSource) }
         catch { return nil }
-        let reconstructed = try WireObjectCodec.encode(.file(Data(resultSource.utf8)))
+        let resultPayload = Data(resultSource.utf8)
+        let reconstructed = try WireObjectCodec.encode(.file(resultPayload))
         guard WireObjectCodec.hash(reconstructed) == admission.resultFile,
               reconstructed == resultEnvelope.bytes else { return nil }
-        let patch = try WireFilePatch(
-            base: admission.baseFile,
-            result: admission.resultFile,
-            edits: admission.patch.edits.map { edit in
-                WireFilePatchEdit(
-                    offset: edit.utf8Range.lowerBound,
-                    length: edit.utf8Range.count,
-                    bytes: Data(edit.replacement.utf8)
-                )
-            }
-        ).validated()
+
+        let baseHeader = baseBytes.count - basePayload.count
+        var instructions: [WireObjectDeltaInstruction] = [
+            .insert(Data(reconstructed.prefix(reconstructed.count - resultPayload.count)))
+        ]
+        var cursor = 0
+        for edit in admission.patch.edits.sorted(by: { $0.utf8Range.lowerBound < $1.utf8Range.lowerBound }) {
+            let lower = edit.utf8Range.lowerBound
+            guard lower >= cursor, edit.utf8Range.upperBound <= basePayload.count else { return nil }
+            if lower > cursor { instructions.append(.copy(offset: baseHeader + cursor, length: lower - cursor)) }
+            let replacement = Data(edit.replacement.utf8)
+            if !replacement.isEmpty { instructions.append(.insert(replacement)) }
+            cursor = edit.utf8Range.upperBound
+        }
+        if cursor < basePayload.count {
+            instructions.append(.copy(offset: baseHeader + cursor, length: basePayload.count - cursor))
+        }
+        let delta: WireObjectDelta
+        do {
+            delta = try WireObjectDelta(base: admission.baseFile, result: admission.resultFile, instructions: instructions).validated()
+            guard try delta.apply(to: baseBytes) == reconstructed else { return nil }
+        } catch { return nil }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        guard try encoder.encode(patch).count < encoder.encode(resultEnvelope).count else { return nil }
-        return patch
+        guard try encoder.encode(delta).count < encoder.encode(resultEnvelope).count else { return nil }
+        return delta
     }
 
     private func apply(_ response: WireUpdateResponse, for attempt: DurableSyncAttempt) async throws {

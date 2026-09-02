@@ -8,40 +8,35 @@ import {
 } from "@arbor/wire";
 
 describe("accepted transition wire encoding", () => {
-  test("round-trips canonical object, splice, and copy/insert representations", () => {
+  test("round-trips complete objects and object deltas", () => {
     const base = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("base") });
     const result = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("best") });
     const directory = encodeWireObject({ type: "directory", entries: [{ name: "note.md", hash: hashObject(result) }] });
     const payload: AcceptedTransitionPayload = {
       objects: [{ hash: hashObject(directory), bytes: directory }],
-      filePatches: [{
+      deltas: [{
         base: hashObject(base),
         result: hashObject(result),
-        edits: [{ offset: 1, length: 3, bytes: new TextEncoder().encode("est") }],
+        instructions: [
+          { copy: { offset: 0, length: base.length - 3 } },
+          { insert: new TextEncoder().encode("est") },
+        ],
       }],
     };
     expect(decodeTransitionPayloadJSON(encodeTransitionPayloadJSON(payload))).toEqual(payload);
-
-    const delta: AcceptedTransitionPayload = {
-      objects: [],
-      fileDeltas: [{
-        base: hashObject(base),
-        result: hashObject(result),
-        instructions: [{ copy: { offset: 0, length: 1 } }, { insert: new TextEncoder().encode("est") }],
-      }],
-    };
-    expect(decodeTransitionPayloadJSON(encodeTransitionPayloadJSON(delta))).toEqual(delta);
   });
 
-  test("rejects duplicate results and ambiguous delta instructions", () => {
+  test("rejects duplicate results, ambiguous instructions, and retired representations", () => {
     const hash = `sha256:${"a".repeat(64)}`;
     expect(() => decodeTransitionPayloadJSON({
       objects: [{ hash, bytes: "AA==" }],
-      fileDeltas: [{ base: hash, result: hash, instructions: [{ insert: "YQ==" }] }],
+      deltas: [{ base: hash, result: hash, instructions: [{ insert: "YQ==" }] }],
     })).toThrow("supplied more than once");
     expect(() => decodeTransitionPayloadJSON({
       objects: [],
-      fileDeltas: [{ base: hash, result: `sha256:${"b".repeat(64)}`, instructions: [{ copy: { offset: 0, length: 1 }, insert: "YQ==" }] }],
+      deltas: [{ base: hash, result: `sha256:${"b".repeat(64)}`, instructions: [{ copy: { offset: 0, length: 1 }, insert: "YQ==" }] }],
     })).toThrow("exactly one operation");
+    expect(() => decodeTransitionPayloadJSON({ objects: [], filePatches: [] })).toThrow("no longer a supported");
+    expect(() => decodeTransitionPayloadJSON({ objects: [], fileDeltas: [] })).toThrow("no longer a supported");
   });
 });

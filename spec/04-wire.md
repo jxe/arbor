@@ -97,7 +97,7 @@ an accepted-history query.
 
 `GET .../objects/{hash}` returns the exact canonical CBOR bytes for one
 immutable component of the lossless Wire encoding. It uses
-`application/vnd.ipld.dag-cbor`, an ETag equal to the quoted hash, and immutable
+`application/cbor`, an ETag equal to the quoted hash, and immutable
 cache headers. Possession of a hash is not authorization: the object must be
 reachable from the current readable root of the named tree. Retained accepted
 history does not create historical-object access. A snapshot is the ordinary
@@ -110,27 +110,17 @@ bytes do not need an independent observation cursor.
 
 ### 1.3 Sparse graph transfer
 
-Updates and accepted transitions use the same content-addressed graph and may
-choose a compact representation independently for each changed file:
+Updates and accepted transitions transfer the same content-addressed graph.
+Each changed object travels either as its complete canonical bytes or as a
+delta against an object that is reachable in the relevant basis graph:
 
 | Representation | Update submission | Accepted transition | Intended use |
 |---|---|---|---|
-| `ObjectEnvelope` | Yes | Yes | New files or whenever complete canonical bytes are smallest |
-| `FilePatch` | Yes | Yes | Small guarded UTF-8 Markdown edits |
-| `FileDelta` | No | Yes | Larger Markdown or binary files with reusable byte ranges |
+| `ObjectEnvelope` | Yes | Yes | New objects, or whenever complete canonical bytes are smallest |
+| `ObjectDelta` | Yes | Yes | Any changed file or directory whose predecessor shares most of its bytes |
 
 ```ts
-type FilePatch = {
-  base: Hash;
-  result: Hash;
-  edits: Array<{
-    offset: number;
-    length: number;
-    bytes: string;
-  }>;
-};
-
-type FileDelta = {
+type ObjectDelta = {
   base: Hash;
   result: Hash;
   instructions: Array<
@@ -140,33 +130,34 @@ type FileDelta = {
 };
 ```
 
-A `FilePatch` reconstructs a changed UTF-8 file without retransmitting its
-complete file object. Each edit addresses bytes in decoded `file.bytes`, not
-CBOR offsets, Unicode scalars, or editor blocks. Offsets and lengths are
-nonnegative safe JSON integers. Edits are nonempty, sorted by ascending offset,
-non-overlapping, in bounds, and applied simultaneously to the unmodified base
-payload. Replacement bytes use canonical padded base64.
+An `ObjectDelta` concatenates ordered instructions into the complete canonical
+bytes of the `result` object. `copy` addresses the exact canonical bytes of the
+`base` object and `insert` is canonical padded base64. Copy ranges are
+nonempty, nonnegative safe JSON integers wholly within the base bytes; inserts
+and the instruction list are nonempty. Because instructions address encoded
+bytes rather than a decoded payload, one rule covers every object kind: a
+one-entry change to a large directory or a one-paragraph change to a large
+file costs a few instructions instead of the whole object, and a moved region
+is a copy rather than a retransmission.
 
-The patch base must be a reachable file object in the relevant basis graph.
-The receiver hash-verifies that object, applies the edits, canonically encodes
-the resulting file object, and requires its hash to equal `result`. It then
-treats that result exactly like a complete object. Duplicate results, a result
-also supplied as a complete object, noncanonical base64, overlapping edits,
-arithmetic overflow, and quota excess are invalid.
+A file object's canonical encoding carries its payload length, so a sender
+deriving a delta from editor edits inserts the result's header bytes and copies
+the unchanged payload ranges at their base offsets. Any instruction sequence
+that reconstructs the exact result is valid; the diff algorithm is the
+sender's choice and never part of identity.
 
-A `FileDelta` concatenates ordered instructions into the complete target file
-payload. `copy` addresses decoded bytes in the basis file object; `insert` is
-canonical padded base64. Copy ranges are nonempty, nonnegative safe JSON
-integers wholly within the base payload, and inserts are nonempty. The receiver
-canonically encodes the reconstructed file object and requires its hash to equal
-`result`.
-
-A result appears exactly once across complete objects, file patches, and file
-deltas. New files use complete objects. The sender chooses whichever supported
-representation is smaller. The encoding is a transport choice: the identified
-result object and accepted roots remain canonical, and retries or later storage
-packing may select a different representation without changing semantic
-identity.
+The base must be reachable in the relevant basis graph: the retained accepted
+base for a submission, or the previous accepted root for a transition. The
+receiver hash-verifies that base, applies the instructions, requires the
+reconstructed bytes to hash to `result`, and decodes them as a valid canonical
+object. It then treats the result exactly like a complete object. A result
+appears exactly once across complete objects and deltas. New objects use
+complete bytes. The sender chooses whichever representation is smaller. The
+encoding is a transport choice: the identified result object and accepted
+roots remain canonical, and retries or later storage packing may select a
+different representation without changing semantic identity. Duplicate
+results, a result also supplied as a complete object, noncanonical base64,
+out-of-bounds copies, arithmetic overflow, and quota excess are invalid.
 
 ### 1.4 Submit a candidate state
 
@@ -188,7 +179,7 @@ type UpdateRequest = {
   };
   candidate: Hash;
   objects: ObjectEnvelope[];
-  filePatches?: FilePatch[];
+  deltas?: ObjectDelta[];
   returnSnapshot?: true | "if-result-differs";
 };
 ```
@@ -201,7 +192,7 @@ projection-specific fidelity required by that encoding. `objects` supplies
 canonical CBOR objects the server does not already retain; a client normally
 walks base and candidate together and omits unchanged objects. The candidate
 must still be complete and provable from retained base objects, supplied
-objects, and valid `filePatches`. The [sparse graph transfer](#13-sparse-graph-transfer)
+objects, and valid `deltas`. The [sparse graph transfer](#13-sparse-graph-transfer)
 rules define those interchangeable representations; they do not change the
 candidate's identity.
 
@@ -236,6 +227,7 @@ type AcceptedUpdate = {
   kind: "initial" | "accepted" | "merged" | "restored";
   acceptedAt: number;
   subject: string | null;
+  merge?: MergeSummary;
 };
 
 type MergeSummary =
@@ -283,9 +275,9 @@ the complete authoritative snapshot needed for immediate reconciliation.
 
 Semantic request identity is the SHA-256 of RFC 8785 canonical JSON for
 `{ version: "updates-v1", tree, base, candidate }`, scoped to the authenticated
-credential. `objects`, `filePatches`, their ordering, and `returnSnapshot` are
+credential. `objects`, `deltas`, their ordering, and `returnSnapshot` are
 transport choices and are excluded. An ambiguous retry may therefore replace a
-patch with complete bytes without changing identity. Exact accepted or merged
+delta with complete bytes without changing identity. Exact accepted or merged
 replay returns the original result and creates no duplicate accepted update.
 Clients durably retain the base, candidate, required content, and any conflict
 draft until the result has been applied.
@@ -323,8 +315,7 @@ body is:
 type AcceptedTransition = {
   update: AcceptedUpdate;
   objects: ObjectEnvelope[];
-  filePatches?: FilePatch[];
-  fileDeltas?: FileDelta[];
+  deltas?: ObjectDelta[];
   requestDigest?: Hash;
 };
 
@@ -348,12 +339,12 @@ Every later accepted update durably records one replay payload from its exact
 merged, or restored that result.
 
 The replay payload is a sparse proof of the target graph. `objects` contains
-canonical target objects not reconstructed by another representation from
-the [sparse graph transfer](#13-sparse-graph-transfer) rules. Submission and
-watch share the guarded `FilePatch` primitive, but not editor history: after
-validation and any merge, the authority derives the transition from the actual
-accepted endpoints. It may use a `FileDelta` for a larger Markdown or binary
-file.
+canonical target objects not reconstructed by a delta under the
+[sparse graph transfer](#13-sparse-graph-transfer) rules. Submission and watch
+share the `ObjectDelta` primitive, but not editor history: after validation and
+any merge, the authority derives the transition from the actual accepted
+endpoints, diffing every changed directory and file against its predecessor at
+the same path.
 
 Transition identity is the ordered accepted update and its previous/target
 roots, not the selected byte encoding. Canopy may replace or pack physical
@@ -379,14 +370,14 @@ accepted update without a replay payload, or a batch too old for retained
 transition data produces one terminal `resync-required` event and closes; the
 client reads a new snapshot and resumes after its cursor.
 
-### 1.6 Example: editor patch roundtrip
+### 1.6 Example: editor edit roundtrip
 
 This non-normative example shows how the preceding operations compose:
 
 1. The client makes an editor change durable locally and records its accepted
    `{ root, update }` base.
 2. It builds the complete candidate graph, omitting unchanged objects and using
-   a `FilePatch` when that is smaller than the complete changed file object.
+   an `ObjectDelta` when that is smaller than the complete changed object.
 3. It submits the candidate with `returnSnapshot: "if-result-differs"`. The
    authority validates it, performs any merge, and atomically records at most
    one accepted update.
@@ -400,7 +391,7 @@ This non-normative example shows how the preceding operations compose:
 
 The client clears its durable attempt only after applying the accepted or
 merged graph and advancing its local base. The event acknowledges candidate
-intent, not the submitted patch bytes: a merge may produce a different accepted
+intent, not the submitted delta bytes: a merge may produce a different accepted
 representation. Rejected conflicts never appear on watch.
 
 ## 2. Executable-document operations

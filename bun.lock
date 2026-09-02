@@ -157,7 +157,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@arbor/core": "workspace:*",
-        "@arbor/fs": "workspace:*",
       },
     },
     "packages/wire-projection": {

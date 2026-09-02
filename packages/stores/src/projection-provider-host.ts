@@ -14,7 +14,9 @@ import {
   type ProjectionDefinition,
   type ProjectionDescriptor,
   type ProjectionPropertyPreparation,
+  type ProjectionProvider,
   type ProjectionProviderContext,
+  type ProjectionProviderKind,
   type ProjectionWriteTarget,
   type ProviderChildRecord,
 } from "./providers/types.ts";
@@ -55,15 +57,25 @@ export class ProjectionReadSession {
   constructor(
     readonly directory: string,
     private definition: ProjectionDefinition,
-    private files: FileProjectionDriver,
-    private sqlite: SQLiteProjectionDriver,
-    private postgres: PostgresProjectionDriver,
+    private provider: ProjectionProvider,
   ) {}
+  private get invalid(): boolean {
+    return this.definition.diagnostics.some((item) => item.severity === "error");
+  }
   async descriptor(): Promise<ProjectionDescriptor> {
-    if (this.definition.diagnostics.some((item) => item.severity === "error")) return invalidDescriptor(this.definition);
-    if (this.definition.provider === "sqlite") return this.sqlite.describe(this.definition);
-    if (this.definition.provider === "postgres") return this.postgres.describe(this.definition);
-    return this.files.describe(this.definition);
+    if (this.invalid) return invalidDescriptor(this.definition);
+    return this.provider.describe(this.definition);
+  }
+  /** Whether this projection presents table subtrees rather than a flat row set. */
+  async hasTables(): Promise<boolean> {
+    if (!this.provider.describeTable) return false;
+    return (await this.descriptor()).tables !== undefined;
+  }
+  /** The table segment when `relative` names a table or a row within one. */
+  async tableFor(relative: readonly string[]): Promise<string | undefined> {
+    if (!relative.length || !this.provider.describeTable) return undefined;
+    const descriptor = await this.descriptor();
+    return descriptor.tables?.includes(relative[0]!) ? relative[0] : undefined;
   }
   /** Providers own direct rows; database providers additionally own table/row subtrees. */
   async owns(relative: readonly string[]): Promise<boolean> {
@@ -74,9 +86,7 @@ export class ProjectionReadSession {
     return relative.length === 1;
   }
   async tableDescriptor(table: string): Promise<ProjectionDescriptor | null> {
-    if (this.definition.provider === "sqlite") return this.sqlite.describeTable(this.definition, table);
-    if (this.definition.provider === "postgres") return this.postgres.describeTable(this.definition, table);
-    return null;
+    return this.provider.describeTable ? this.provider.describeTable(this.definition, table) : null;
   }
   async tableSnapshot(treePath: string, table: string, context: ProjectionProviderContext): Promise<NodeSnapshot | null> {
     const descriptor = await this.tableDescriptor(table);
@@ -127,16 +137,16 @@ export class ProjectionReadSession {
       observedThrough: context.observedThrough,
     };
   }
+  private async resolveRow(parentPath: string, ref: { path: string; stableKey: string | null }, table?: string) {
+    return this.provider.resolve ? this.provider.resolve(this.definition, parentPath, ref, table) : null;
+  }
   async resolveChild(
     parentPath: string,
     ref: { path: string; stableKey: string | null },
     context: ProjectionProviderContext,
     table?: string,
   ): Promise<NodeSnapshot | null> {
-    if (this.definition.provider === "postgres") return null;
-    const result = this.definition.provider === "sqlite"
-      ? table ? await this.sqlite.resolve(this.definition, parentPath, table, ref) : null
-      : await this.files.resolve(this.definition, parentPath, ref);
+    const result = await this.resolveRow(parentPath, ref, table);
     if (!result) return null;
     const summary = rowSummary(result.row, result.page, parentPath, context);
     if (result.page.rowContent !== "markdown") return { ...summary, observedThrough: context.observedThrough };
@@ -155,15 +165,12 @@ export class ProjectionReadSession {
     ref: { path: string; stableKey: string | null },
     table?: string,
   ): Promise<ProjectionWriteTarget | null> {
-    if (this.definition.provider === "postgres") return null;
-    const result = this.definition.provider === "sqlite"
-      ? table ? await this.sqlite.resolve(this.definition, parentPath, table, ref) : null
-      : await this.files.resolve(this.definition, parentPath, ref);
+    const result = await this.resolveRow(parentPath, ref, table);
     if (!result) return null;
     return {
       directory: this.directory,
       parentPath,
-      storage: this.definition.provider === "markdown" ? "physical" : "provider",
+      storage: this.provider.rowStorage?.(this.definition) ?? "provider",
       ...(table ? { table } : {}),
       path: `${parentPath === "/" ? "" : parentPath}/${result.row.path}`,
       stableKey: result.row.stableKey,
@@ -180,69 +187,71 @@ export class ProjectionReadSession {
     properties: Record<string, JSONValue>,
     mutation: { scope: string; id: string },
   ): Promise<ProjectionPropertyPreparation> {
-    if (this.definition.provider === "markdown") {
-      return { storage: "physical", ...(await this.files.prepareMarkdown(this.definition, properties)) };
+    if (this.provider.rowStorage?.(this.definition) === "physical") {
+      if (!this.provider.prepareMarkdown) throw new ProjectionProviderError("read-only", "This provider is read-only");
+      return { storage: "physical", ...(await this.provider.prepareMarkdown(this.definition, properties)) };
     }
-    if (this.definition.provider === "sqlite") {
-      return { storage: "provider", write: await this.sqlite.prepareWrite(this.definition, target, basePropertiesRevision, properties, mutation) };
-    }
-    if (this.definition.provider === "csv" || this.definition.provider === "json" || this.definition.provider === "jsonl") {
-      return { storage: "provider", write: await this.files.prepareWrite(this.definition, target, basePropertiesRevision, properties) };
-    }
-    throw new ProjectionProviderError("read-only", "This provider is read-only");
+    if (!this.provider.prepareWrite) throw new ProjectionProviderError("read-only", "This provider is read-only");
+    return {
+      storage: "provider",
+      write: await this.provider.prepareWrite(this.definition, target, basePropertiesRevision, properties, mutation),
+    };
   }
   async schemaTypes(): Promise<
     | { kind: "collection" }
     | { kind: "database"; tables: Record<string, Record<string, string>> | null }
   > {
-    if (this.definition.provider !== "postgres") return { kind: "collection" };
-    try { return { kind: "database", tables: await this.postgres.schema(this.definition) }; }
+    if (!this.provider.schema) return { kind: "collection" };
+    try { return { kind: "database", tables: await this.provider.schema(this.definition) }; }
     catch { return { kind: "database", tables: null }; }
   }
   private async page(treePath: string, cursor: string | null, limit: number, table?: string): Promise<LoadedProjectionSlice> {
-    if (this.definition.diagnostics.some((item) => item.severity === "error")) {
+    if (this.invalid) {
       return {
         path: treePath, columns: [], rows: [], nextCursor: null,
         revision: revisionOf(JSON.stringify(this.definition.diagnostics)), schemaRevision: revisionOf("invalid-collection-schema"),
         diagnostics: this.definition.diagnostics, editable: false,
       };
     }
-    if (this.definition.provider === "sqlite") {
-      if (!table) throw new Error("A SQLite table is required");
-      return this.sqlite.page(this.definition, treePath, table, cursor, limit);
-    }
-    if (this.definition.provider === "postgres") {
-      if (!table) throw new Error("A Postgres table is required");
-      return this.postgres.page(this.definition, treePath, table, cursor, limit);
-    }
-    return this.files.page(this.definition, treePath, cursor, limit);
+    return this.provider.page(this.definition, treePath, cursor, limit, table);
   }
 }
-/** Durable owner of projection discovery, driver resources, and driver lifecycles. */
+/** Durable owner of projection discovery, the provider registry, and driver lifecycles. */
 export class ProjectionProviderHost implements AsyncDisposable {
-  private files: FileProjectionDriver;
-  private sqlite = new SQLiteProjectionDriver();
-  private postgres: PostgresProjectionDriver;
+  private readonly drivers: ProjectionProvider[];
+  private readonly providers = new Map<ProjectionProviderKind, ProjectionProvider>();
   constructor(schemas = new SchemaSandbox(), connections = new ConnectionStore()) {
-    this.files = new FileProjectionDriver(schemas);
-    this.postgres = new PostgresProjectionDriver(connections);
+    this.drivers = [
+      new FileProjectionDriver(schemas),
+      new SQLiteProjectionDriver(),
+      new PostgresProjectionDriver(connections),
+    ];
+    for (const driver of this.drivers) {
+      for (const kind of driver.kinds) this.providers.set(kind, driver);
+    }
+  }
+  private provider(kind: ProjectionProviderKind): ProjectionProvider {
+    const provider = this.providers.get(kind);
+    if (!provider) throw new Error(`No projection provider is registered for ${kind}`);
+    return provider;
   }
   async open(directory: string): Promise<ProjectionReadSession | null> {
     const definition = await detectProjection(directory);
-    return definition ? new ProjectionReadSession(directory, definition, this.files, this.sqlite, this.postgres) : null;
+    return definition ? new ProjectionReadSession(directory, definition, this.provider(definition.provider)) : null;
   }
   async descriptor(directory: string): Promise<ProjectionDescriptor | null> {
     return (await this.open(directory))?.descriptor() ?? null;
   }
   async fileRollupDescriptor(directory: string, sourceName: string) {
     const definition = await detectProjection(directory);
-    if (!definition || definition.provider === "sqlite" || definition.provider === "postgres") return null;
-    return this.files.fileRollupDescriptor(definition, sourceName);
+    if (!definition) return null;
+    const provider = this.provider(definition.provider);
+    return provider.fileRollupDescriptor ? provider.fileRollupDescriptor(definition, sourceName) : null;
   }
   async schemaTypes(directory: string) {
     return (await this.open(directory))?.schemaTypes() ?? null;
   }
   async [Symbol.asyncDispose](): Promise<void> {
-    await this.files[Symbol.asyncDispose]();
+    for (const driver of this.drivers) await driver[Symbol.asyncDispose]?.();
   }
 }

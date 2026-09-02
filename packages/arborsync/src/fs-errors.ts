@@ -1,7 +1,7 @@
-import type { ArborSyncErrorCode } from "@arbor/core";
+import type { ArborErrorCode } from "@arbor/core";
 import { FsConflictError } from "@arbor/fs";
 
-export function fsErrorCode(error: FsConflictError): { code: ArborSyncErrorCode; status: number; retryable?: boolean } {
+export function fsErrorCode(error: FsConflictError): { code: ArborErrorCode; status: number; retryable?: boolean } {
   switch (error.details.code) {
     case "stale-revision": return { code: "stale-content-revision", status: 409 };
     case "occupied-destination": return { code: "occupied-destination", status: 409 };

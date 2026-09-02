@@ -391,27 +391,15 @@ export type ArborErrorCode =
   | "tree-id-conflict"
   | (string & {});
 
-export type ArborSyncErrorCode = ArborErrorCode;
-
-export interface ArborSyncErrorValue {
+/** The single error envelope shared by Arbor Wire and the local REST surface. */
+export interface ArborError<TDetails = unknown> {
   error: ArborErrorCode;
   message: string;
   retryable: boolean;
   tree?: TreeRef;
   path?: LogicalPath;
-  details?: unknown;
+  details?: TDetails;
 }
-
-export interface ArborSyncErrorEnvelope {
-  error: ArborErrorCode;
-  message: string;
-  retryable: boolean;
-  tree?: TreeRef;
-  path?: LogicalPath;
-  details?: unknown;
-}
-
-export type ArborError<TDetails = unknown> = Omit<ArborSyncErrorEnvelope, "details"> & { details?: TDetails };
 
 export interface ObservationEvent<TKind extends string = string, TChange = unknown> {
   cursor: EventCursor;

@@ -1,5 +1,5 @@
 import type {
-  ArborSyncErrorCode,
+  ArborErrorCode,
   ContentWorkspaceOperation,
   MutationEffect,
   NodeRef,
@@ -34,7 +34,7 @@ export interface FilesystemPropertyWriteHost {
     options: Parameters<WorkspaceFS["writeMarkdown"]>[2],
   ): Promise<ExpandedNode>;
   error(
-    code: ArborSyncErrorCode,
+    code: ArborErrorCode,
     message: string,
     status: number,
     details?: Record<string, unknown>,

@@ -46,62 +46,14 @@ public enum WireTransitionReplay {
             suppliedResults.insert(envelope.hash)
         }
 
-        for patch in transition.filePatches {
-            guard basisHashes.contains(patch.base), let encodedBase = bytesByHash[patch.base],
-                  case let .file(base) = try WireObjectCodec.decode(encodedBase) else {
-                throw ArborWireValidationError.invalidValue("File patch base is not reachable from the transition basis")
+        for delta in transition.deltas {
+            guard basisHashes.contains(delta.base), let base = bytesByHash[delta.base] else {
+                throw ArborWireValidationError.invalidValue("Object delta base is not reachable from the transition basis")
             }
-            var output = Data()
-            var cursor = 0
-            for edit in patch.edits {
-                let end = edit.offset + edit.length
-                guard edit.offset >= cursor, end <= base.count else {
-                    throw ArborWireValidationError.invalidValue("File patch edit is out of bounds")
-                }
-                output.append(base[cursor..<edit.offset])
-                output.append(edit.bytes)
-                cursor = end
-            }
-            output.append(base[cursor..<base.count])
-            let encoded = try WireObjectCodec.encode(.file(output))
-            let actual = WireObjectCodec.hash(encoded)
-            guard actual == patch.result else {
-                throw ArborWireValidationError.objectHashMismatch(expected: patch.result, actual: actual)
-            }
-            guard bytesByHash[patch.result] == nil else {
-                throw ArborWireValidationError.invalidValue("File patch result was already supplied")
-            }
-            bytesByHash[patch.result] = encoded
-            suppliedResults.insert(patch.result)
-        }
-
-        for delta in transition.fileDeltas {
-            guard basisHashes.contains(delta.base), let encodedBase = bytesByHash[delta.base],
-                  case let .file(base) = try WireObjectCodec.decode(encodedBase) else {
-                throw ArborWireValidationError.invalidValue("File delta base is not reachable from the transition basis")
-            }
-            var output = Data()
-            for instruction in delta.instructions {
-                switch instruction {
-                case let .copy(offset, length):
-                    guard offset <= base.count, length <= base.count - offset else {
-                        throw ArborWireValidationError.invalidValue("File delta copy is out of bounds")
-                    }
-                    output.append(base[offset..<(offset + length)])
-                case let .insert(bytes):
-                    output.append(bytes)
-                }
-                guard output.count <= 1_000_000_000 else {
-                    throw ArborWireValidationError.invalidValue("File delta result exceeds the storage quota")
-                }
-            }
-            let encoded = try WireObjectCodec.encode(.file(output))
-            let actual = WireObjectCodec.hash(encoded)
-            guard actual == delta.result else {
-                throw ArborWireValidationError.objectHashMismatch(expected: delta.result, actual: actual)
-            }
+            let encoded = try delta.apply(to: base)
+            _ = try WireObjectCodec.decode(encoded)
             guard bytesByHash[delta.result] == nil else {
-                throw ArborWireValidationError.invalidValue("File delta result was already supplied")
+                throw ArborWireValidationError.invalidValue("Object delta result was already supplied")
             }
             bytesByHash[delta.result] = encoded
             suppliedResults.insert(delta.result)

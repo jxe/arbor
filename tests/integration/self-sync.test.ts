@@ -8,7 +8,7 @@ import { ArborSyncRESTClient } from "@arbor/client";
 import { serveCanopy } from "@arbor/canopy";
 import { generateArborID, sha256 } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
-import { encodeWireObject, hashObject, snapshotDirectory, WireClient } from "@arbor/wire";
+import { compareWireNames, decodeWireObject, encodeWireObject, hashObject, snapshotDirectory, WireClient } from "@arbor/wire";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 import {
   pendingTreeUpdate,
@@ -59,7 +59,9 @@ async function installDataHome(
 
 async function launch(state: string, path: string) {
   process.env.ARBOR_DATA_HOME = state;
-  const running = await serveArborSync(path, { port: 0 });
+  // A long fallback interval proves that live Wire watches, not polling,
+  // drive every cross-daemon expectation below.
+  const running = await serveArborSync(path, { port: 0, syncIntervalMs: 60_000 });
   const client = new ArborSyncRESTClient({ baseURL: running.url, retryDelay: async () => {} });
   const close = async () => {
     running.server.stop(true);
@@ -192,16 +194,14 @@ describe("private self-sync", () => {
         source,
         sourceEdits: [{ offset: 2, length: 6, replacement: "From A", expected: "Common" }],
       });
-      await waitFor(async () => updateBodies.some((body) => body.filePatches?.length === 1));
+      await waitFor(async () => updateBodies.some((body) => body.deltas?.length === 1));
     } finally {
       globalThis.fetch = systemFetch;
     }
-    const patchBody = updateBodies.find((body) => body.filePatches?.length === 1)!;
-    expect(patchBody.returnSnapshot).toBe("if-result-differs");
-    expect(patchBody.filePatches[0].edits).toEqual([
-      { offset: 2, length: 6, bytes: Buffer.from("From A").toString("base64") },
-    ]);
-    expect(patchBody.objects).not.toContainEqual(expect.objectContaining({ hash: patchBody.filePatches[0].result }));
+    const deltaBody = updateBodies.find((body) => body.deltas?.length === 1)!;
+    expect(deltaBody.returnSnapshot).toBe("if-result-differs");
+    expect(deltaBody.deltas[0].instructions).toContainEqual({ insert: Buffer.from("From A").toString("base64") });
+    expect(deltaBody.objects).not.toContainEqual(expect.objectContaining({ hash: deltaBody.deltas[0].result }));
     await author.close();
 
     const reader = await launch(stateB, treeB);
@@ -240,7 +240,7 @@ describe("private self-sync", () => {
       globalThis.fetch = fallbackFetch;
     }
     const fallbackBody = fallbackBodies.find((body) => Array.isArray(body.objects) && body.objects.length > 0)!;
-    expect(fallbackBody.filePatches).toBeUndefined();
+    expect(fallbackBody.deltas).toBeUndefined();
     await fallback.running.service.synchronizeNow();
     await fallback.close();
   }, 20_000);
@@ -433,6 +433,42 @@ describe("private self-sync", () => {
     await waitFor(async () => (await readFile(join(treeA, "sample.bin"), "utf8")) === "binary-from-b");
     expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 2);
     await follower.close();
+  });
+
+  test("a live watch materializes a remote accepted update without polling", async () => {
+    const reader = await launch(stateB, treeB);
+    const idle = async () => (await reader.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle";
+    await waitFor(idle);
+
+    // Another writer advances the tree directly on Canopy; the reader's only
+    // way to learn about it within the timeout is its live watch.
+    const owner = new WireClient(host.url, token);
+    const current = await owner.currentSnapshot(tree);
+    const rootObject = decodeWireObject(current.snapshot.objects.find(({ hash }) => hash === current.snapshot.root)!.bytes);
+    if (rootObject.type !== "directory") throw new Error("Expected a directory root");
+    const file = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("delivered by watch\n") });
+    const nextRoot = encodeWireObject({
+      type: "directory",
+      entries: [...rootObject.entries, { name: "watched.txt", hash: hashObject(file) }]
+        .sort((left, right) => compareWireNames(left.name, right.name)),
+    });
+    const objects = new Map(current.snapshot.objects.map(({ hash, bytes }) => [hash, bytes]));
+    objects.set(hashObject(file), file);
+    objects.set(hashObject(nextRoot), nextRoot);
+    const accepted = await owner.submitUpdate(
+      tree,
+      { root: current.tree.ref, update: current.tree.update },
+      { root: hashObject(nextRoot), objects },
+    );
+    if (accepted.outcome !== "accepted") throw new Error(`Expected an accepted update, got ${accepted.outcome}`);
+
+    await waitFor(() => readFile(join(treeB, "watched.txt"), "utf8")
+      .then((value) => value === "delivered by watch\n")
+      .catch(() => false));
+    await waitFor(idle);
+    expect(reader.running.service.trees.placementFor(tree)?.update).toBe(accepted.update.id);
+    await reader.close();
   });
 
   test("discards a stale pending update when local state already matches Canopy", async () => {

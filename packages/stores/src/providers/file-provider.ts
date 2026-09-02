@@ -8,6 +8,7 @@ import { replaceFileRollupRow } from "../file-rollup-writes.ts";
 import { SchemaSandbox, type SchemaDescription } from "../schema.ts";
 import { decodeFileRollupSource } from "./file-rollup-codec.ts";
 import {
+  type ProjectionProvider,
   decodeProviderCursor,
   encodeProviderCursor,
   jsonValue,
@@ -30,7 +31,8 @@ interface LoadedFileProjection {
   identityRule?: { properties: string[] };
   editable: boolean;
 }
-export class FileProjectionDriver implements AsyncDisposable {
+export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable {
+  readonly kinds = ["csv", "json", "jsonl", "markdown"] as const;
   private commitTails = new Map<string, Promise<void>>();
   private snapshots = new Map<string, Promise<LoadedFileProjection>>();
   constructor(private schemas = new SchemaSandbox()) {}
@@ -162,11 +164,15 @@ export class FileProjectionDriver implements AsyncDisposable {
     };
   }
 
+  rowStorage(definition: ProjectionDefinition): "physical" | "provider" {
+    return definition.provider === "markdown" ? "physical" : "provider";
+  }
   async prepareWrite(
     definition: ProjectionDefinition,
     target: ProjectionWriteTarget,
     basePropertiesRevision: string,
     properties: Record<string, JSONValue>,
+    _mutation?: { scope: string; id: string },
   ): Promise<PreparedProviderPropertyWrite> {
     if (!definition.storePath || !definition.schemaPath
       || !(definition.provider === "csv" || definition.provider === "json" || definition.provider === "jsonl")) {

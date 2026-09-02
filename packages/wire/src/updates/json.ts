@@ -1,9 +1,10 @@
-import type { ObjectHash } from "../objects.ts";
+import { hashObject, type ObjectHash } from "../objects.ts";
 import type {
   AcceptedTransition,
   AcceptedTransitionPayload,
-  FileDelta,
-  FilePatch,
+  AcceptedUpdate,
+  MergeSummary,
+  ObjectDelta,
   UpdateRequest,
 } from "./types.ts";
 
@@ -12,26 +13,23 @@ export interface ObjectEnvelopeJSON {
   bytes: string;
 }
 
+export interface ObjectDeltaJSON {
+  base: ObjectHash;
+  result: ObjectHash;
+  instructions: Array<{ copy: { offset: number; length: number } } | { insert: string }>;
+}
+
 export interface UpdateRequestJSON {
   base: { root: ObjectHash; update: string };
   candidate: ObjectHash;
   objects: ObjectEnvelopeJSON[];
-  filePatches?: Array<{
-    base: ObjectHash;
-    result: ObjectHash;
-    edits: Array<{ offset: number; length: number; bytes: string }>;
-  }>;
+  deltas?: ObjectDeltaJSON[];
   returnSnapshot?: true | "if-result-differs";
 }
 
 export interface TransitionPayloadJSON {
   objects: ObjectEnvelopeJSON[];
-  filePatches?: UpdateRequestJSON["filePatches"];
-  fileDeltas?: Array<{
-    base: ObjectHash;
-    result: ObjectHash;
-    instructions: Array<{ copy: { offset: number; length: number } } | { insert: string }>;
-  }>;
+  deltas?: ObjectDeltaJSON[];
 }
 
 export interface AcceptedTransitionJSON extends TransitionPayloadJSON {
@@ -40,11 +38,11 @@ export interface AcceptedTransitionJSON extends TransitionPayloadJSON {
 }
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
-const MAX_FILE_PATCHES = 10_000;
-const MAX_FILE_PATCH_EDITS = 100_000;
-const MAX_FILE_PATCH_REPLACEMENT_BYTES = 64 * 1024 * 1024;
-const MAX_FILE_DELTA_INSTRUCTIONS = 100_000;
-const MAX_FILE_DELTA_INSERT_BYTES = 64 * 1024 * 1024;
+const MAX_DELTAS = 10_000;
+const MAX_DELTA_INSTRUCTIONS = 100_000;
+const MAX_DELTA_INSERT_BYTES = 64 * 1024 * 1024;
+/** Representations retired before the single object-delta rule; a stored or received payload naming them is unusable. */
+const RETIRED_SPARSE_FIELDS = ["filePatches", "fileDeltas"] as const;
 
 export function encodeBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64");
@@ -61,6 +59,12 @@ export function decodeBase64(value: string): Uint8Array {
 
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return left.length === right.length && left.every((byte, index) => byte === right[index]);
+}
+
+function rejectRetiredFields(record: Record<string, unknown>): void {
+  for (const field of RETIRED_SPARSE_FIELDS) {
+    if (record[field] !== undefined) throw new Error(`${field} is no longer a supported sparse representation`);
+  }
 }
 
 export function decodeObjectEnvelopes(value: unknown): Array<{ hash: ObjectHash; bytes: Uint8Array }> {
@@ -83,125 +87,85 @@ export function encodeObjectEnvelopes(objects: Iterable<readonly [ObjectHash, Ui
   return [...objects].map(([hash, bytes]) => ({ hash, bytes: encodeBase64(bytes) }));
 }
 
-export function decodeFilePatches(value: unknown): FilePatch[] {
-  if (!Array.isArray(value)) throw new Error("filePatches must be an array");
-  if (value.length > MAX_FILE_PATCHES) throw new Error("filePatches exceeds the patch quota");
-  const results = new Set<ObjectHash>();
-  let editCount = 0;
-  let replacementBytes = 0;
-  return value.map((item) => {
-    if (!item || typeof item !== "object") throw new Error("Invalid file patch");
-    const record = item as { base?: unknown; result?: unknown; edits?: unknown };
-    if (typeof record.base !== "string" || !HASH.test(record.base)
-      || typeof record.result !== "string" || !HASH.test(record.result)
-      || !Array.isArray(record.edits) || record.edits.length === 0) {
-      throw new Error("Invalid file patch");
-    }
-    const result = record.result as ObjectHash;
-    if (results.has(result)) throw new Error(`Duplicate file patch result: ${result}`);
-    results.add(result);
-    editCount += record.edits.length;
-    if (editCount > MAX_FILE_PATCH_EDITS) throw new Error("filePatches exceeds the edit quota");
-    let previousEnd = 0;
-    const edits = record.edits.map((edit) => {
-      if (!edit || typeof edit !== "object") throw new Error("Invalid file patch edit");
-      const value = edit as { offset?: unknown; length?: unknown; bytes?: unknown };
-      if (!Number.isSafeInteger(value.offset) || (value.offset as number) < 0
-        || !Number.isSafeInteger(value.length) || (value.length as number) < 0
-        || typeof value.bytes !== "string") throw new Error("Invalid file patch edit");
-      const offset = value.offset as number;
-      const length = value.length as number;
-      const end = offset + length;
-      if (!Number.isSafeInteger(end) || offset < previousEnd) throw new Error("File patch edits overlap or overflow");
-      previousEnd = end;
-      const bytes = decodeBase64(value.bytes);
-      replacementBytes += bytes.byteLength;
-      if (replacementBytes > MAX_FILE_PATCH_REPLACEMENT_BYTES) {
-        throw new Error("filePatches exceeds the replacement-byte quota");
-      }
-      return { offset, length, bytes };
-    });
-    return { base: record.base as ObjectHash, result, edits };
-  });
-}
-
-export function decodeFileDeltas(value: unknown): FileDelta[] {
-  if (!Array.isArray(value)) throw new Error("fileDeltas must be an array");
-  if (value.length > MAX_FILE_PATCHES) throw new Error("fileDeltas exceeds the delta quota");
+export function decodeObjectDeltas(value: unknown): ObjectDelta[] {
+  if (!Array.isArray(value)) throw new Error("deltas must be an array");
+  if (value.length > MAX_DELTAS) throw new Error("deltas exceeds the delta quota");
   const results = new Set<ObjectHash>();
   let instructionCount = 0;
   let insertedBytes = 0;
   return value.map((item) => {
-    if (!item || typeof item !== "object") throw new Error("Invalid file delta");
+    if (!item || typeof item !== "object") throw new Error("Invalid object delta");
     const record = item as { base?: unknown; result?: unknown; instructions?: unknown };
     if (typeof record.base !== "string" || !HASH.test(record.base)
       || typeof record.result !== "string" || !HASH.test(record.result)
       || !Array.isArray(record.instructions) || record.instructions.length === 0) {
-      throw new Error("Invalid file delta");
+      throw new Error("Invalid object delta");
     }
     const result = record.result as ObjectHash;
-    if (results.has(result)) throw new Error(`Duplicate file delta result: ${result}`);
+    if (results.has(result)) throw new Error(`Duplicate object delta result: ${result}`);
     results.add(result);
     instructionCount += record.instructions.length;
-    if (instructionCount > MAX_FILE_DELTA_INSTRUCTIONS) throw new Error("fileDeltas exceeds the instruction quota");
+    if (instructionCount > MAX_DELTA_INSTRUCTIONS) throw new Error("deltas exceeds the instruction quota");
     const instructions = record.instructions.map((instruction) => {
-      if (!instruction || typeof instruction !== "object") throw new Error("Invalid file delta instruction");
+      if (!instruction || typeof instruction !== "object") throw new Error("Invalid object delta instruction");
       const value = instruction as { copy?: unknown; insert?: unknown };
-      if ((value.copy === undefined) === (value.insert === undefined)) throw new Error("File delta instruction requires exactly one operation");
+      if ((value.copy === undefined) === (value.insert === undefined)) throw new Error("Object delta instruction requires exactly one operation");
       if (value.copy !== undefined) {
-        if (!value.copy || typeof value.copy !== "object") throw new Error("Invalid file delta copy");
+        if (!value.copy || typeof value.copy !== "object") throw new Error("Invalid object delta copy");
         const copy = value.copy as { offset?: unknown; length?: unknown };
         if (!Number.isSafeInteger(copy.offset) || (copy.offset as number) < 0
           || !Number.isSafeInteger(copy.length) || (copy.length as number) <= 0
           || !Number.isSafeInteger((copy.offset as number) + (copy.length as number))) {
-          throw new Error("Invalid file delta copy");
+          throw new Error("Invalid object delta copy");
         }
         return { copy: { offset: copy.offset as number, length: copy.length as number } };
       }
-      if (typeof value.insert !== "string") throw new Error("Invalid file delta insert");
+      if (typeof value.insert !== "string") throw new Error("Invalid object delta insert");
       const insert = decodeBase64(value.insert);
-      if (insert.byteLength === 0) throw new Error("File delta insert is empty");
+      if (insert.byteLength === 0) throw new Error("Object delta insert is empty");
       insertedBytes += insert.byteLength;
-      if (insertedBytes > MAX_FILE_DELTA_INSERT_BYTES) throw new Error("fileDeltas exceeds the insert-byte quota");
+      if (insertedBytes > MAX_DELTA_INSERT_BYTES) throw new Error("deltas exceeds the insert-byte quota");
       return { insert };
     });
     return { base: record.base as ObjectHash, result, instructions };
   });
 }
 
+export function encodeObjectDeltaJSON(delta: ObjectDelta): ObjectDeltaJSON {
+  return {
+    base: delta.base,
+    result: delta.result,
+    instructions: delta.instructions.map((instruction) => "copy" in instruction
+      ? { copy: { offset: instruction.copy.offset, length: instruction.copy.length } }
+      : { insert: encodeBase64(instruction.insert) }),
+  };
+}
+
+function assertDistinctResults(objects: Array<{ hash: ObjectHash }>, deltas: ObjectDelta[] | undefined, message: string): void {
+  const results = new Set(objects.map(({ hash }) => hash));
+  for (const delta of deltas ?? []) {
+    if (results.has(delta.result)) throw new Error(`${message}: ${delta.result}`);
+    results.add(delta.result);
+  }
+}
+
 export function decodeTransitionPayloadJSON(value: unknown): AcceptedTransitionPayload {
   if (!value || typeof value !== "object") throw new Error("Transition payload must be an object");
-  const record = value as { objects?: unknown; filePatches?: unknown; fileDeltas?: unknown };
+  const record = value as Record<string, unknown> & { objects?: unknown; deltas?: unknown };
+  rejectRetiredFields(record);
   const objects = decodeObjectEnvelopes(record.objects);
-  const filePatches = record.filePatches === undefined ? undefined : decodeFilePatches(record.filePatches);
-  const fileDeltas = record.fileDeltas === undefined ? undefined : decodeFileDeltas(record.fileDeltas);
-  const results = new Set(objects.map(({ hash }) => hash));
-  for (const result of [...(filePatches ?? []), ...(fileDeltas ?? [])].map(({ result }) => result)) {
-    if (results.has(result)) throw new Error(`Transition result supplied more than once: ${result}`);
-    results.add(result);
-  }
+  const deltas = record.deltas === undefined ? undefined : decodeObjectDeltas(record.deltas);
+  assertDistinctResults(objects, deltas, "Transition result supplied more than once");
   return {
     objects,
-    ...(filePatches?.length ? { filePatches } : {}),
-    ...(fileDeltas?.length ? { fileDeltas } : {}),
+    ...(deltas?.length ? { deltas } : {}),
   };
 }
 
 export function encodeTransitionPayloadJSON(payload: AcceptedTransitionPayload): TransitionPayloadJSON {
   return {
     objects: payload.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
-    ...(payload.filePatches?.length ? { filePatches: payload.filePatches.map((patch) => ({
-      base: patch.base,
-      result: patch.result,
-      edits: patch.edits.map((edit) => ({ offset: edit.offset, length: edit.length, bytes: encodeBase64(edit.bytes) })),
-    })) } : {}),
-    ...(payload.fileDeltas?.length ? { fileDeltas: payload.fileDeltas.map((delta) => ({
-      base: delta.base,
-      result: delta.result,
-      instructions: delta.instructions.map((instruction) => "copy" in instruction
-        ? { copy: instruction.copy }
-        : { insert: encodeBase64(instruction.insert) }),
-    })) } : {}),
+    ...(payload.deltas?.length ? { deltas: payload.deltas.map(encodeObjectDeltaJSON) } : {}),
   };
 }
 
@@ -213,9 +177,57 @@ export function encodeAcceptedTransitionJSON(transition: AcceptedTransition): Ac
   };
 }
 
+const ACCEPTED_KINDS = new Set(["initial", "accepted", "merged", "restored"]);
+
+export function decodeAcceptedUpdateJSON(value: unknown): AcceptedUpdate {
+  if (!value || typeof value !== "object") throw new Error("Accepted update must be an object");
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== "string" || !record.id || typeof record.tree !== "string" || !record.tree
+    || !Number.isSafeInteger(record.sequence) || (record.sequence as number) < 1
+    || typeof record.root !== "string" || !HASH.test(record.root)
+    || (record.previousRoot !== null && (typeof record.previousRoot !== "string" || !HASH.test(record.previousRoot)))
+    || typeof record.kind !== "string" || !ACCEPTED_KINDS.has(record.kind)
+    || !Number.isSafeInteger(record.acceptedAt)
+    || (record.subject !== null && typeof record.subject !== "string")
+    || (record.merge !== undefined && (!record.merge || typeof record.merge !== "object"))) {
+    throw new Error("Invalid accepted update");
+  }
+  return {
+    id: record.id,
+    tree: record.tree,
+    sequence: record.sequence as number,
+    root: record.root as ObjectHash,
+    previousRoot: record.previousRoot as ObjectHash | null,
+    kind: record.kind as AcceptedUpdate["kind"],
+    acceptedAt: record.acceptedAt as number,
+    subject: record.subject as string | null,
+    ...(record.merge ? { merge: record.merge as MergeSummary } : {}),
+  };
+}
+
+/** Decode one watch transition, verifying every complete object's hash. */
+export function decodeAcceptedTransitionJSON(value: unknown): AcceptedTransition {
+  if (!value || typeof value !== "object") throw new Error("Accepted transition must be an object");
+  const record = value as { update?: unknown; requestDigest?: unknown };
+  const update = decodeAcceptedUpdateJSON(record.update);
+  const payload = decodeTransitionPayloadJSON(value);
+  for (const object of payload.objects) {
+    if (hashObject(object.bytes) !== object.hash) throw new Error(`Transition object hash mismatch: ${object.hash}`);
+  }
+  if (record.requestDigest !== undefined && (typeof record.requestDigest !== "string" || !HASH.test(record.requestDigest))) {
+    throw new Error("Invalid transition request digest");
+  }
+  return {
+    update,
+    ...payload,
+    ...(record.requestDigest ? { requestDigest: record.requestDigest as ObjectHash } : {}),
+  };
+}
+
 export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
   if (!value || typeof value !== "object") throw new Error("Update body must be a JSON object");
-  const body = value as { base?: unknown; candidate?: unknown; objects?: unknown; filePatches?: unknown; returnSnapshot?: unknown };
+  const body = value as Record<string, unknown> & { base?: unknown; candidate?: unknown; objects?: unknown; deltas?: unknown; returnSnapshot?: unknown };
+  rejectRetiredFields(body);
   const base = body.base as { root?: unknown; update?: unknown } | null;
   if (!base || typeof base.root !== "string" || typeof base.update !== "string" || typeof body.candidate !== "string") {
     throw new Error("Update requires base root/update and candidate root");
@@ -224,18 +236,13 @@ export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
     throw new Error('returnSnapshot must be true or "if-result-differs" when present');
   }
   const objects = decodeObjectEnvelopes(body.objects);
-  const filePatches = body.filePatches === undefined ? undefined : decodeFilePatches(body.filePatches);
-  if (filePatches) {
-    const objectHashes = new Set(objects.map(({ hash }) => hash));
-    for (const patch of filePatches) {
-      if (objectHashes.has(patch.result)) throw new Error(`File patch result also supplied as a complete object: ${patch.result}`);
-    }
-  }
+  const deltas = body.deltas === undefined ? undefined : decodeObjectDeltas(body.deltas);
+  assertDistinctResults(objects, deltas, "Object delta result also supplied as a complete object");
   return {
     base: { root: base.root, update: base.update },
     candidate: body.candidate,
     objects,
-    ...(filePatches ? { filePatches } : {}),
+    ...(deltas ? { deltas } : {}),
     ...(body.returnSnapshot ? { returnSnapshot: body.returnSnapshot } : {}),
   };
 }
@@ -245,11 +252,7 @@ export function encodeUpdateRequestJSON(request: UpdateRequest): UpdateRequestJS
     base: request.base,
     candidate: request.candidate,
     objects: request.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
-    ...(request.filePatches ? { filePatches: request.filePatches.map((patch) => ({
-      base: patch.base,
-      result: patch.result,
-      edits: patch.edits.map((edit) => ({ offset: edit.offset, length: edit.length, bytes: encodeBase64(edit.bytes) })),
-    })) } : {}),
+    ...(request.deltas?.length ? { deltas: request.deltas.map(encodeObjectDeltaJSON) } : {}),
     ...(request.returnSnapshot ? { returnSnapshot: request.returnSnapshot } : {}),
   };
 }

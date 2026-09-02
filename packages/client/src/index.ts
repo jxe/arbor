@@ -1,6 +1,5 @@
 import type {
-  ArborSyncErrorEnvelope,
-  ArborSyncErrorValue,
+  ArborError,
   BacklinksPage,
   ChildrenPage,
   ContentMutationRequest,
@@ -25,12 +24,12 @@ import type {
   WorkspaceEvent,
 } from "@arbor/core";
 import { pageIDStableKey } from "@arbor/core/node-key";
+import { parseSSEStream, type ParsedSSEFrame } from "@arbor/core/sse";
 
 export type {
   ArborBlock,
-  ArborSyncErrorCode,
-  ArborSyncErrorEnvelope,
-  ArborSyncErrorValue,
+  ArborErrorCode,
+  ArborError,
   BacklinkEntry,
   BacklinksPage,
   ChildrenPage,
@@ -59,10 +58,10 @@ export type {
 export type NodeSnapshot = NodeResponse;
 
 export class ArborSyncError extends Error {
-  readonly payload: ArborSyncErrorEnvelope;
+  readonly payload: ArborError;
   constructor(
     public status: number,
-    public value: ArborSyncErrorValue,
+    public value: ArborError,
   ) {
     super(value.message);
     this.name = "ArborSyncError";
@@ -429,23 +428,11 @@ export class ArborSyncRESTClient {
         if (!response.ok) await this.throwResponse(response);
         if (!response.body) throw new Error("SSE response has no body");
         reconnectAttempt = 0;
-        let buffer = "";
-        const decoder = new TextDecoder();
-        const reader = response.body.getReader();
-        while (true) {
-          const { done, value: chunk } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(chunk, { stream: true }).replaceAll("\r\n", "\n");
-          let boundary = buffer.indexOf("\n\n");
-          while (boundary >= 0) {
-            const frame = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            const event = this.parseEvent(frame);
-            if (event) {
-              cursor = event.cursor;
-              yield event;
-            }
-            boundary = buffer.indexOf("\n\n");
+        for await (const frame of parseSSEStream(response.body)) {
+          const event = this.parseEvent(frame);
+          if (event) {
+            cursor = event.cursor;
+            yield event;
           }
         }
       } catch (error) {
@@ -504,12 +491,8 @@ export class ArborSyncRESTClient {
     }
   }
 
-  private parseEvent(frame: string): WorkspaceEvent | null {
-    const lines = frame.split("\n");
-    if (lines.every((line) => !line || line.startsWith(":"))) return null;
-    const id = lines.find((line) => line.startsWith("id:"))?.slice(3).trimStart();
-    const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trimStart();
-    const data = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+  private parseEvent(frame: ParsedSSEFrame): WorkspaceEvent | null {
+    const { id, event: eventName, data } = frame;
     if (!data) return null;
     const decoded = JSON.parse(data) as { cursor?: unknown; tree?: unknown; kind?: unknown; change?: unknown };
     if (!id || !eventName || id !== decoded.cursor || eventName !== decoded.kind || !decoded.change) {
@@ -570,8 +553,8 @@ export class ArborSyncRESTClient {
   }
 
   private async throwResponse(response: Response): Promise<never> {
-    let envelope: ArborSyncErrorEnvelope;
-    try { envelope = await response.json() as ArborSyncErrorEnvelope; }
+    let envelope: ArborError;
+    try { envelope = await response.json() as ArborError; }
     catch {
       envelope = { error: "internal-error", message: response.statusText, retryable: false };
     }

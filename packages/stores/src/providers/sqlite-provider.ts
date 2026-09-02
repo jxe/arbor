@@ -11,6 +11,7 @@ import {
 } from "@arbor/core";
 import { introspectSQLiteDatabase, introspectStoreSchema, type FieldMetadata, type StoreSchema } from "@arbor/data";
 import {
+  type ProjectionProvider,
   decodeProviderCursor,
   encodeProviderCursor,
   ProjectionProviderError,
@@ -37,7 +38,8 @@ interface LoadedSQLiteStore {
   revision: string;
   modelDigest: string;
 }
-export class SQLiteProjectionDriver {
+export class SQLiteProjectionDriver implements ProjectionProvider {
+  readonly kinds = ["sqlite"] as const;
   async describe(definition: ProjectionDefinition): Promise<ProjectionDescriptor> {
     const loaded = await this.load(definition);
     return {
@@ -71,10 +73,11 @@ export class SQLiteProjectionDriver {
   async page(
     definition: ProjectionDefinition,
     treePath: string,
-    tableName: string,
     cursor: string | null,
     limit: number,
+    tableName?: string,
   ): Promise<LoadedProjectionSlice> {
+    if (!tableName) throw new Error("A SQLite table is required");
     const loaded = await this.load(definition);
     const table = loaded.tables[tableName];
     if (!table) throw new Error(`Unknown SQLite table ${tableName}`);
@@ -109,9 +112,10 @@ export class SQLiteProjectionDriver {
   async resolve(
     definition: ProjectionDefinition,
     treePath: string,
-    tableName: string,
     ref: { path: string; stableKey: string | null },
+    tableName?: string,
   ): Promise<{ row: ProviderChildRecord; page: LoadedProjectionSlice } | null> {
+    if (!tableName) return null;
     const loaded = await this.load(definition);
     const table = loaded.tables[tableName];
     if (!table) return null;

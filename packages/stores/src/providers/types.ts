@@ -81,6 +81,56 @@ export interface ProviderPropertyWriteResult {
   revision: string;
   properties: Record<string, JSONValue>;
 }
+export interface ProjectionRowResolution {
+  row: ProviderChildRecord;
+  page: LoadedProjectionSlice;
+}
+/**
+ * One storage driver behind the projection host. A driver registers the
+ * provider kinds it serves; optional members are absent when a driver cannot
+ * support them, and the session then answers read-only or null instead of
+ * dispatching on the kind.
+ */
+export interface ProjectionProvider {
+  readonly kinds: readonly ProjectionProviderKind[];
+  describe(definition: ProjectionDefinition): Promise<ProjectionDescriptor>;
+  /** Table subtrees of a database-shaped projection. */
+  describeTable?(definition: ProjectionDefinition, table: string): Promise<ProjectionDescriptor | null>;
+  page(
+    definition: ProjectionDefinition,
+    treePath: string,
+    cursor: string | null,
+    limit: number,
+    table?: string,
+  ): Promise<LoadedProjectionSlice>;
+  resolve?(
+    definition: ProjectionDefinition,
+    parentPath: string,
+    ref: { path: string; stableKey: string | null },
+    table?: string,
+  ): Promise<ProjectionRowResolution | null>;
+  /** Where a row's properties live: an authored file, or the provider's own store. */
+  rowStorage?(definition: ProjectionDefinition): "physical" | "provider";
+  prepareWrite?(
+    definition: ProjectionDefinition,
+    target: ProjectionWriteTarget,
+    basePropertiesRevision: string,
+    properties: Record<string, JSONValue>,
+    mutation: { scope: string; id: string },
+  ): Promise<PreparedProviderPropertyWrite>;
+  prepareMarkdown?(
+    definition: ProjectionDefinition,
+    properties: Record<string, JSONValue>,
+  ): Promise<{ properties: Record<string, JSONValue>; identityRule?: { properties: string[] } }>;
+  fileRollupDescriptor?(definition: ProjectionDefinition, sourceName: string): Promise<{
+    codec: "csv" | "json" | "jsonl";
+    schema: Hash;
+    scope: "children";
+    modelDigest: Hash;
+  } | null>;
+  schema?(definition: ProjectionDefinition): Promise<Record<string, Record<string, string>>>;
+  [Symbol.asyncDispose]?(): Promise<void>;
+}
 export type ProjectionProviderErrorCode =
   | "invalid-cursor"
   | "stale-properties"

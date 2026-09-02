@@ -1,7 +1,6 @@
 import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, normalize, relative, resolve, sep } from "node:path";
-import { decodeRollupDescriptor, sha256, type Hash, type RollupDescriptor } from "@arbor/core";
-import { IGNORED_WORKSPACE_DIRECTORIES } from "@arbor/fs";
+import { IGNORED_WORKSPACE_DIRECTORIES, decodeRollupDescriptor, sha256, type Hash, type RollupDescriptor } from "@arbor/core";
 import { decodeCBOR, encodeCanonicalCBOR } from "./cbor.ts";
 
 export type ObjectHash = string;
@@ -379,42 +378,4 @@ export async function materializeTree(
     }
   };
   await visit(canonicalDestination, rootHash);
-}
-
-export async function changedPaths(
-  before: ObjectHash | null,
-  after: ObjectHash,
-  load: (hash: ObjectHash) => Promise<Uint8Array>,
-): Promise<string[]> {
-  const changes: string[] = [];
-  const compare = async (path: string, left: ObjectHash | null, right: ObjectHash): Promise<void> => {
-    if (left === right) return;
-    if (!left) {
-      changes.push(path);
-      return;
-    }
-    const [leftObject, rightObject] = await Promise.all([load(left).then(decodeWireObject), load(right).then(decodeWireObject)]);
-    if (leftObject.type !== "directory" || rightObject.type !== "directory") {
-      changes.push(path);
-      return;
-    }
-    const leftEntries = new Map(leftObject.entries.map((entry) => [entry.name, entry]));
-    const rightEntries = new Map(rightObject.entries.map((entry) => [entry.name, entry]));
-    for (const name of new Set([...leftEntries.keys(), ...rightEntries.keys()])) {
-      const leftEntry = leftEntries.get(name);
-      const rightEntry = rightEntries.get(name);
-      const childPath = `${path === "/" ? "" : path}/${name}`;
-      if (!rightEntry || rightEntry.tree || leftEntry?.tree || rightEntry.rollup || leftEntry?.rollup) {
-        if (
-          leftEntry?.tree !== rightEntry?.tree
-          || leftEntry?.hash !== rightEntry?.hash
-          || JSON.stringify(leftEntry?.rollup) !== JSON.stringify(rightEntry?.rollup)
-        ) changes.push(childPath);
-      } else {
-        await compare(childPath, leftEntry?.hash ?? null, rightEntry.hash!);
-      }
-    }
-  };
-  await compare("/", before, after);
-  return changes.sort();
 }

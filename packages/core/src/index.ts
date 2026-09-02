@@ -9,3 +9,4 @@ export * from "./page-id.ts";
 export * from "./identity.ts";
 export * from "./protocol.ts";
 export * from "./sse.ts";
+export * from "./workspace.ts";
