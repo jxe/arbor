@@ -30,7 +30,9 @@ export type ResolvedLink =
   | null;
 
 const SCHEME_PATTERN = /^([a-z][a-z0-9+.-]*):/i;
-const RAW_KEY_SUFFIX = /;arbor-key=([^;/?#]+)$/;
+const PARAMETER_MARKER = ";arbor-";
+const REVISION_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const TREE_ID_AUTHORITY = /^tr_[a-z2-7]+$/;
 const MARKDOWN_KEY_PREFIX = "arbor-key=";
 
 function splitOnce(value: string, separator: string): [string, string | null] {
@@ -40,15 +42,47 @@ function splitOnce(value: string, separator: string): [string, string | null] {
     : [value.slice(0, index), value.slice(index + separator.length)];
 }
 
+/**
+ * Split the final raw segment's `;arbor-key=…;arbor-rev=…` parameter block from the path.
+ * Parameters appear in that order at most once each; anything else after the first
+ * `;arbor-` marker is invalid rather than path data.
+ */
+function segmentParameters(rawPathWithParameters: string): {
+  rawPath: string;
+  stableKey: string | null;
+  revision: string | null;
+} | null {
+  const segmentStart = rawPathWithParameters.lastIndexOf("/") + 1;
+  const marker = rawPathWithParameters.indexOf(PARAMETER_MARKER, segmentStart);
+  if (marker === -1) return { rawPath: rawPathWithParameters, stableKey: null, revision: null };
+  let stableKey: string | null = null;
+  let revision: string | null = null;
+  let stage = 0;
+  for (const parameter of rawPathWithParameters.slice(marker + 1).split(";")) {
+    const [name, value] = splitOnce(parameter, "=");
+    if (!value) return null;
+    if (name === "arbor-key" && stage === 0) {
+      stableKey = decodeStableKey(value);
+      if (!stableKey) return null;
+      stage = 1;
+    } else if (name === "arbor-rev" && stage <= 1 && REVISION_PATTERN.test(value)) {
+      revision = value;
+      stage = 2;
+    } else {
+      return null;
+    }
+  }
+  return { rawPath: rawPathWithParameters.slice(0, marker), stableKey, revision };
+}
+
 function locatorState(destination: string, fragment: string | null): {
   rawPath: string;
-  state: Omit<ResolvedLocatorState, "revision">;
+  state: ResolvedLocatorState;
 } | null {
-  const [rawPathWithKey, applicationQuery] = splitOnce(destination, "?");
-  const suffix = rawPathWithKey.match(RAW_KEY_SUFFIX);
-  const rawPath = suffix ? rawPathWithKey.slice(0, suffix.index) : rawPathWithKey;
-  const pathStableKey = suffix ? decodeStableKey(suffix[1]!) : null;
-  if (suffix && !pathStableKey) return null;
+  const [rawPathWithParameters, applicationQuery] = splitOnce(destination, "?");
+  const parameters = segmentParameters(rawPathWithParameters);
+  if (!parameters) return null;
+  const { rawPath, stableKey: pathStableKey, revision } = parameters;
 
   const markdownKeyToken = fragment?.startsWith(MARKDOWN_KEY_PREFIX)
     ? fragment.slice(MARKDOWN_KEY_PREFIX.length)
@@ -64,6 +98,7 @@ function locatorState(destination: string, fragment: string | null): {
     rawPath,
     state: {
       stableKey,
+      revision,
       applicationQuery,
       contentFragment: ordinaryFragment,
       legacyStableKeyCandidate: stableKey ? null : ordinaryFragment,
@@ -119,14 +154,6 @@ function resolveTreePath(baseDocumentPath: LogicalPath, rawDestination: string):
   return canonicalDecodedNodePath(`/${stack.join("/")}`);
 }
 
-function parseRevision(value: string): { value: string; revision: string | null } | null {
-  const marker = value.indexOf("@sha256:");
-  if (marker === -1) return { value, revision: null };
-  const revision = value.slice(marker + 1);
-  if (!/^sha256:[a-f0-9]{64}$/.test(revision) || value.indexOf("@sha256:", marker + 1) !== -1) return null;
-  return { value: value.slice(0, marker), revision };
-}
-
 function parseArborURL(href: string): ResolvedLink {
   const withoutScheme = href.slice("arbor://".length);
   const [destination, fragment] = splitOnce(withoutScheme, "#");
@@ -135,23 +162,14 @@ function parseArborURL(href: string): ResolvedLink {
   const [authorityPart, ...pathParts] = parsed.rawPath.split("/");
   if (!authorityPart) return null;
 
-  let authority: { dns: string } | { treeID: string };
-  let revision: string | null = null;
-  let pathSegments = pathParts;
-  if (authorityPart === "tree") {
-    const [treeIdentity, ...rest] = pathParts;
-    if (!treeIdentity) return null;
-    const parsedIdentity = parseRevision(treeIdentity);
-    if (!parsedIdentity?.value) return null;
-    authority = { treeID: parsedIdentity.value };
-    revision = parsedIdentity.revision;
-    pathSegments = rest;
-  } else {
-    authority = { dns: authorityPart };
-  }
-  const path = resolveTreePath("/", pathSegments.join("/"));
+  // `_` cannot occur in a DNS label, so a `tr_` authority is a TreeID and nothing else.
+  if (authorityPart.startsWith("tr_") && !TREE_ID_AUTHORITY.test(authorityPart)) return null;
+  const authority = TREE_ID_AUTHORITY.test(authorityPart)
+    ? { treeID: authorityPart }
+    : { dns: authorityPart };
+  const path = resolveTreePath("/", pathParts.join("/"));
   if (path === null) return null;
-  return { kind: "arbor", authority, path, revision, ...parsed.state };
+  return { kind: "arbor", authority, path, ...parsed.state };
 }
 
 export function resolveLogicalURL(baseDocumentPath: LogicalPath, href: string): ResolvedLink {
@@ -166,9 +184,6 @@ export function resolveLogicalURL(baseDocumentPath: LogicalPath, href: string): 
 
   const scheme = raw.match(SCHEME_PATTERN)?.[1]?.toLowerCase();
   if (scheme === "arbor") return raw.startsWith("arbor://") ? parseArborURL(raw) : null;
-  if (scheme === "tree") {
-    return parseArborURL(`arbor://tree/${raw.slice("tree:".length).replace(/^\/+/, "")}`);
-  }
   if (scheme === "system") return { kind: "system", raw };
   if (scheme === "local") return { kind: "overlay", raw };
   if (scheme) return { kind: "external", href: raw };
@@ -178,7 +193,7 @@ export function resolveLogicalURL(baseDocumentPath: LogicalPath, href: string): 
   if (!parsed) return null;
   const path = resolveTreePath(baseDocumentPath, parsed.rawPath);
   if (path === null) return null;
-  return { kind: "local", path, revision: null, ...parsed.state };
+  return { kind: "local", path, ...parsed.state };
 }
 
 export function relativeLogicalReference(fromInput: LogicalPath, toInput: LogicalPath): string {
@@ -205,20 +220,22 @@ export function buildCanonicalLink(
     : `${reference}${query}`;
 }
 
-/** Attach identity to the final raw path segment for wire and hosted hrefs. */
+/** Attach identity and revision to the final raw path segment for wire and hosted hrefs. */
 export function buildNetworkLocator(
   rawPath: string,
   options: {
     stableKey?: string | null;
+    revision?: string | null;
     applicationQuery?: string | null;
     contentFragment?: string | null;
   } = {},
 ): string {
   const keyed = options.stableKey ? `${rawPath};arbor-key=${encodeStableKey(options.stableKey)}` : rawPath;
+  const pinned = options.revision ? `${keyed};arbor-rev=${options.revision}` : keyed;
   const fragment = options.contentFragment === null || options.contentFragment === undefined
     ? ""
     : `#${options.contentFragment}`;
-  return `${keyed}${querySuffix(options.applicationQuery)}${fragment}`;
+  return `${pinned}${querySuffix(options.applicationQuery)}${fragment}`;
 }
 
 /** Rewrite only a local link's readable path, retaining all locator state. */
@@ -230,7 +247,7 @@ export function rewriteLocalLinkPath(
   const resolved = resolveLogicalURL(baseDocumentPath, href);
   if (resolved?.kind !== "local") return null;
   const relativePath = relativeLogicalReference(baseDocumentPath, newPath);
-  if (resolved.stableKey && resolved.contentFragment) {
+  if (resolved.revision || (resolved.stableKey && resolved.contentFragment)) {
     return buildNetworkLocator(relativePath, resolved);
   }
   if (resolved.stableKey) {

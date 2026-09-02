@@ -48,7 +48,7 @@ function communityArborOrigin(canonical: string | undefined): string | null {
   if (!canonical) return null;
   try {
     const value = new URL(canonical);
-    return value.protocol === "arbor:" && value.hostname !== "tree" ? `arbor://${value.host}` : null;
+    return value.protocol === "arbor:" && !value.hostname.startsWith("tr_") ? `arbor://${value.host}` : null;
   } catch {
     return null;
   }
@@ -61,7 +61,7 @@ function normalizeMemberLocator(input: string, communityOrigin: string | null): 
   try {
     const locator = new URL(value);
     const match = /^\/~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(locator.pathname);
-    if (locator.protocol !== "arbor:" || locator.hostname === "tree" || !match) return null;
+    if (locator.protocol !== "arbor:" || locator.hostname.startsWith("tr_") || !match) return null;
     return `arbor://${locator.host}/~${match[1]}`;
   } catch {
     return null;

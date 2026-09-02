@@ -24,6 +24,9 @@ public enum ArborAuthority: Sendable, Equatable {
 }
 
 private let schemeExpression = try! NSRegularExpression(pattern: "^([a-zA-Z][a-zA-Z0-9+.-]*):")
+private let parameterMarker = ";arbor-"
+private let revisionPattern = #"^sha256:[a-f0-9]{64}$"#
+private let treeIDAuthorityPattern = #"^tr_[a-z2-7]+$"#
 private let markdownKeyPrefix = "arbor-key="
 
 private func splitOnce(_ value: String, separator: Character) -> (String, String?) {
@@ -122,22 +125,39 @@ public func decodeStableKey(_ value: String) -> String? {
     return decoded
 }
 
-private func locatorState(destination: String, fragment: String?) -> (rawPath: String, locator: ResolvedLocatorState)? {
-    let (rawPathWithKey, applicationQuery) = splitOnce(destination, separator: "?")
-    let lastSlash = rawPathWithKey.lastIndex(of: "/")
-    let keyMarker = rawPathWithKey.range(of: ";arbor-key=", options: .backwards)
-    let suffixIsFinalSegment = keyMarker.map { range in
-        lastSlash == nil || range.lowerBound > lastSlash!
-    } ?? false
-
-    var rawPath = rawPathWithKey
-    var pathStableKey: String?
-    if let keyMarker, suffixIsFinalSegment {
-        let token = String(rawPathWithKey[keyMarker.upperBound...])
-        guard !token.contains(";"), let decoded = decodeStableKey(token) else { return nil }
-        rawPath = String(rawPathWithKey[..<keyMarker.lowerBound])
-        pathStableKey = decoded
+/// Split the final raw segment's `;arbor-key=…;arbor-rev=…` parameter block from the path.
+/// Parameters appear in that order at most once each; anything else after the first
+/// `;arbor-` marker is invalid rather than path data.
+private func segmentParameters(_ rawPathWithParameters: String) -> (rawPath: String, stableKey: String?, revision: String?)? {
+    let segmentStart = rawPathWithParameters.lastIndex(of: "/").map { rawPathWithParameters.index(after: $0) }
+        ?? rawPathWithParameters.startIndex
+    guard let marker = rawPathWithParameters[segmentStart...].range(of: parameterMarker) else {
+        return (rawPathWithParameters, nil, nil)
     }
+    var stableKey: String?
+    var revision: String?
+    var stage = 0
+    let block = rawPathWithParameters[rawPathWithParameters.index(after: marker.lowerBound)...]
+    for parameter in block.split(separator: ";", omittingEmptySubsequences: false) {
+        let (name, value) = splitOnce(String(parameter), separator: "=")
+        guard let value, !value.isEmpty else { return nil }
+        if name == "arbor-key", stage == 0 {
+            guard let decoded = decodeStableKey(value) else { return nil }
+            stableKey = decoded
+            stage = 1
+        } else if name == "arbor-rev", stage <= 1, value.range(of: revisionPattern, options: .regularExpression) != nil {
+            revision = value
+            stage = 2
+        } else {
+            return nil
+        }
+    }
+    return (String(rawPathWithParameters[..<marker.lowerBound]), stableKey, revision)
+}
+
+private func locatorState(destination: String, fragment: String?) -> (rawPath: String, locator: ResolvedLocatorState)? {
+    let (rawPathWithParameters, applicationQuery) = splitOnce(destination, separator: "?")
+    guard let (rawPath, pathStableKey, revision) = segmentParameters(rawPathWithParameters) else { return nil }
 
     var markdownStableKey: String?
     if let fragment, fragment.hasPrefix(markdownKeyPrefix) {
@@ -151,7 +171,7 @@ private func locatorState(destination: String, fragment: String?) -> (rawPath: S
         rawPath,
         ResolvedLocatorState(
             stableKey: stableKey,
-            revision: nil,
+            revision: revision,
             applicationQuery: applicationQuery,
             contentFragment: ordinaryFragment,
             legacyStableKeyCandidate: stableKey == nil ? ordinaryFragment : nil
@@ -198,14 +218,6 @@ private func resolveTreePath(base baseDocumentPath: String, rawDestination: Stri
     return canonicalDecodedNodePath("/" + stack.joined(separator: "/"))
 }
 
-private func parseRevision(_ value: String) -> (value: String, revision: String?)? {
-    guard let marker = value.range(of: "@sha256:") else { return (value, nil) }
-    let identity = String(value[..<marker.lowerBound])
-    let revision = String(value[marker.lowerBound...].dropFirst())
-    guard !identity.isEmpty, revision.range(of: #"^sha256:[a-f0-9]{64}$"#, options: .regularExpression) != nil else { return nil }
-    return (identity, revision)
-}
-
 private func parseArborURL(_ href: String) -> ResolvedLink? {
     let withoutScheme = String(href.dropFirst("arbor://".count))
     let (destination, fragment) = splitOnce(withoutScheme, separator: "#")
@@ -213,18 +225,12 @@ private func parseArborURL(_ href: String) -> ResolvedLink? {
     var parts = parsed.rawPath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
     guard let authorityPart = parts.first, !authorityPart.isEmpty else { return nil }
     parts.removeFirst()
-    let authority: ArborAuthority
-    var locator = parsed.locator
-    if authorityPart == "tree" {
-        guard let treeIdentity = parts.first, let parsedIdentity = parseRevision(treeIdentity) else { return nil }
-        authority = .treeID(parsedIdentity.value)
-        locator.revision = parsedIdentity.revision
-        parts.removeFirst()
-    } else {
-        authority = .dns(authorityPart)
-    }
+    // `_` cannot occur in a DNS label, so a `tr_` authority is a TreeID and nothing else.
+    let isTreeID = authorityPart.range(of: treeIDAuthorityPattern, options: .regularExpression) != nil
+    if authorityPart.hasPrefix("tr_"), !isTreeID { return nil }
+    let authority: ArborAuthority = isTreeID ? .treeID(authorityPart) : .dns(authorityPart)
     guard let path = resolveTreePath(base: "/", rawDestination: parts.joined(separator: "/")) else { return nil }
-    return .arbor(authority: authority, path: path, locator: locator)
+    return .arbor(authority: authority, path: path, locator: parsed.locator)
 }
 
 public func resolveLogicalURL(base baseDocumentPath: String, href: String) -> ResolvedLink? {
@@ -242,10 +248,6 @@ public func resolveLogicalURL(base baseDocumentPath: String, href: String) -> Re
         switch raw[schemeRange].lowercased() {
         case "arbor":
             return raw.hasPrefix("arbor://") ? parseArborURL(raw) : nil
-        case "tree":
-            var remainder = String(raw.dropFirst("tree:".count))
-            while remainder.hasPrefix("/") { remainder.removeFirst() }
-            return parseArborURL("arbor://tree/\(remainder)")
         case "system": return .system(raw: raw)
         case "local": return .overlay(raw: raw)
         default: return .external(href: raw)
@@ -289,6 +291,7 @@ public func buildCanonicalLink(from fromInput: String, toPath: String, stableKey
 public func buildNetworkLocator(
     rawPath: String,
     stableKey: String? = nil,
+    revision: String? = nil,
     applicationQuery: String? = nil,
     contentFragment: String? = nil
 ) -> String? {
@@ -297,6 +300,7 @@ public func buildNetworkLocator(
         guard let encoded = encodeStableKey(stableKey) else { return nil }
         result += ";arbor-key=\(encoded)"
     }
+    if let revision { result += ";arbor-rev=\(revision)" }
     result += querySuffix(applicationQuery)
     if let contentFragment { result += "#\(contentFragment)" }
     return result
@@ -306,10 +310,11 @@ public func buildNetworkLocator(
 public func rewriteLocalLinkPath(base: String, href: String, newPath: String) -> String? {
     guard case let .local(_, locator) = resolveLogicalURL(base: base, href: href) else { return nil }
     let relativePath = relativeLogicalReference(from: base, to: newPath)
-    if locator.stableKey != nil, locator.contentFragment != nil {
+    if locator.revision != nil || (locator.stableKey != nil && locator.contentFragment != nil) {
         return buildNetworkLocator(
             rawPath: relativePath,
             stableKey: locator.stableKey,
+            revision: locator.revision,
             applicationQuery: locator.applicationQuery,
             contentFragment: locator.contentFragment
         )

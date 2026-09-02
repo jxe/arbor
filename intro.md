@@ -40,7 +40,7 @@ Everything is ordinary files. And imagine a background process — call it arbor
 
 ```text
 https://garden.example.org/~joe/atlas
-arbor://tree/tr_7k3m…          # identity fallback if it moves
+arbor://tr_7k3m…               # identity fallback if it moves
 ```
 
 I can share it as 'private' and use it to sync with my cloud agents. Or, I can give `everyone` read or write access, or share it with specific people or groups. If I share it with Alice, she places the tree wherever it makes sense in *her* workspace:

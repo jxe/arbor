@@ -8,15 +8,18 @@ lookup.*
 Portable Arbor content uses these locator forms:
 
 ```text
-arbor://tree/<TreeID>/path[;arbor-key=<base64url-key>][?application-query][#content-fragment]
-./relative/tree/path[;arbor-key=<base64url-key>][?application-query][#content-fragment]
-/tree-rooted/path[;arbor-key=<base64url-key>][?application-query][#content-fragment]
-https://community.example/~profile/path[;arbor-key=<base64url-key>][?application-query][#content-fragment]
-arbor://community.example/~profile/path[;arbor-key=<base64url-key>][?application-query][#content-fragment]
+arbor://<TreeID>/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+./relative/tree/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+/tree-rooted/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+https://community.example/~profile/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+arbor://community.example/~profile/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
 ```
 
-`arbor://tree/<TreeID>/...` directly names the primary tree identity plus a
-logical path. Relative and tree-rooted paths resolve within an already selected
+`arbor://<TreeID>/...` directly names the primary tree identity plus a logical
+path. A `TreeID` begins with `tr_`, and an underscore cannot appear in a DNS
+label, so the authority component is unambiguously either a TreeID or a DNS
+name; an authority beginning `tr_` that is not a well-formed TreeID is invalid.
+Relative and tree-rooted paths resolve within an already selected
 tree. Their portable meaning is never an operating-system path. Canonical HTTP
 and `arbor://<authority>/...` names first resolve through the secondary
 canonical lookup: the URI's DNS authority places/selects a Canopy, then that
@@ -53,8 +56,8 @@ in node references. The suffix supplies the third component of
 `(TreeID, path, stable key or null)`; it is not part of the decoded logical path.
 
 ```text
-arbor://tree/<TreeID>/roadmap;arbor-key=<base64url-key>
-arbor://tree/<TreeID>/practices/walking;arbor-key=<base64url-key>
+arbor://<TreeID>/roadmap;arbor-key=<base64url-key>
+arbor://<TreeID>/practices/walking;arbor-key=<base64url-key>
 ```
 
 The same syntax is used for a Markdown `id`, a collection primary key, or any
@@ -82,27 +85,31 @@ and canonical HTTP locators use the path-attached suffix directly. Legacy bare
 `#<PageID>` and `#row=<key>` spellings may be accepted as input during migration,
 but conforming writers emit either the Markdown alias or the path suffix.
 
-Append `@sha256:<root>` to an Arbor tree locator to select an immutable wire root:
+Append `;arbor-rev=sha256:<root>` to the final path segment, after any
+identity suffix, to select an immutable wire root of the addressed tree:
 
 ```text
-arbor://tree/<TreeID>@sha256:<root>/notes
-arbor://community.example/~alice/atlas@sha256:<root>/notes
+arbor://<TreeID>/notes;arbor-rev=sha256:<root>
+arbor://community.example/~alice/atlas/notes;arbor-rev=sha256:<root>
+./notes;arbor-key=<base64url-key>;arbor-rev=sha256:<root>
 ```
 
-A revision locator is read-only. Mutations against it fail as read-only.
+A revision locator is read-only. Mutations against it fail as read-only. The
+identity suffix and the revision suffix are the only segment parameters; they
+appear at most once each and in that order.
 
-A query string follows the optional identity suffix and belongs completely to
-the addressed application document:
+A query string follows the segment parameters and belongs completely to the
+addressed application document:
 
 ```text
-arbor://tree/<TreeID>/Practice;arbor-key=<base64url-key>?id=p_123&edit
+arbor://<TreeID>/Practice;arbor-key=<base64url-key>?id=p_123&edit
 ```
 
 Arbor routing consumes neither application keys nor values. Other fragments
 remain ordinary content-local navigation and are not used as node identity:
 
 ```text
-arbor://tree/<TreeID>/roadmap;arbor-key=<base64url-key>#implementation
+arbor://<TreeID>/roadmap;arbor-key=<base64url-key>#implementation
 ```
 
 This separation is required for server rendering: the authority receives the
@@ -117,9 +124,12 @@ fragment form may add both without changing the three-part node reference.
 
 ## Parsing and canonicalization
 
-An external URL parser separates the final raw-segment `;arbor-key=` suffix
-before percent-decoding path components. A literal suffix-like filename encodes
-its semicolon as `%3B`; it is data, not identity syntax. The parser then
+An external URL parser separates the final raw segment's parameter block,
+beginning at its first `;arbor-`, before percent-decoding path components. A
+literal suffix-like filename encodes its semicolon as `%3B`; it is data, not
+identity syntax. Within the block, any parameter other than `arbor-key` and
+`arbor-rev`, a repeated parameter, an empty value, or the two in the wrong
+order makes the locator invalid rather than path data. The parser then
 percent-decodes each path component exactly once. Every internal logical path is
 already decoded and may contain a literal `%`, including text resembling
 another escape. Resolvers, routers, clients, and stores must not decode it again.
@@ -128,7 +138,7 @@ the locator addresses the canonical root node itself.
 
 `.` and `..` are resolved only while parsing a relative reference or URL. A resolved logical path is absolute within its tree, contains no empty interior component, and cannot escape its tree root. Backslash and NUL are invalid logical-path characters. URL serialization percent-encodes decoded components once.
 
-Authored `.md`, `.mdx`, `.tsx`, `/_index.md`, and legacy `tree:` spellings may be accepted as input aliases, but emitted links and canonical locations use extensionless logical paths and the locator forms above.
+Authored `.md`, `.mdx`, `.tsx`, and `/_index.md` spellings may be accepted as input aliases, but emitted links and canonical locations use extensionless logical paths and the locator forms above.
 
 ## Resolution rules
 

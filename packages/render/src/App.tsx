@@ -1362,7 +1362,7 @@ export function App() {
         <div className="canonical-addresses">
           {treeControl.tree.canonical && <div><span>Web</span><a href={canonicalHTTPURL(treeControl.tree.canonical)} target="_blank" rel="noreferrer">{canonicalHTTPURL(treeControl.tree.canonical)}</a><button onClick={() => void navigator.clipboard.writeText(canonicalHTTPURL(treeControl.tree!.canonical!))}>Copy</button></div>}
           {treeControl.tree.canonical && <div><span>Arbor</span><code>{canonicalArborLocator(treeControl.tree.canonical)}</code><button onClick={() => void navigator.clipboard.writeText(canonicalArborLocator(treeControl.tree!.canonical!))}>Copy</button></div>}
-          <div><span>Identity</span><code>arbor://tree/{treeControl.tree.id}</code><button onClick={() => void navigator.clipboard.writeText(`arbor://tree/${treeControl.tree!.id}`)}>Copy</button></div>
+          <div><span>Identity</span><code>arbor://{treeControl.tree.id}</code><button onClick={() => void navigator.clipboard.writeText(`arbor://${treeControl.tree!.id}`)}>Copy</button></div>
         </div>
         <div className="sync-status">
           <strong>Sync</strong>

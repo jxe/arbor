@@ -47,7 +47,7 @@ Six concepts organize the system:
 5. A **workspace** is the resolved view a person, executable document, or agent can address across trees, ordinary local paths, stores, and mounts.
 6. An **executable document** or **agent** is a node whose reviewed capabilities bound its reads, writes, tools, and effects.
 
-Ordinary unpromoted files are browsable as `tree: "local"`, without gaining a durable Arbor identity. Promotion creates an Arbor tree in place: its local path need not move, its canonical public name is replaceable, and `arbor://tree/<TreeID>/` remains the raw identity locator. Sharing changes its audience and access; it does not establish its storage or synchronization identity. Nested Arbor trees are separate graphs and access boundaries, resolved by the longest readable registered boundary; the normative resolution rule is [wire §4](spec/04-wire.md#4-finding-trees).
+Ordinary unpromoted files are browsable as `tree: "local"`, without gaining a durable Arbor identity. Promotion creates an Arbor tree in place: its local path need not move, its canonical public name is replaceable, and `arbor://<TreeID>/` remains the raw identity locator. Sharing changes its audience and access; it does not establish its storage or synchronization identity. Nested Arbor trees are separate graphs and access boundaries, resolved by the longest readable registered boundary; the normative resolution rule is [wire §4](spec/04-wire.md#4-finding-trees).
 
 ## Specification map
 

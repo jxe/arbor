@@ -61,25 +61,43 @@
   },
   {
     "base": "/projects/atlas",
-    "href": "arbor://tree/tr_7k3m/essays/drift;arbor-key=W1siaWQiLCJ4N2YzcTIiXV0?id=p_123#section",
+    "href": "arbor://tr_7k3m/essays/drift;arbor-key=W1siaWQiLCJ4N2YzcTIiXV0?id=p_123#section",
     "expected": { "kind": "arbor", "authority": { "treeID": "tr_7k3m" }, "path": "/essays/drift", "stableKey": "[[\"id\",\"x7f3q2\"]]", "revision": null, "applicationQuery": "id=p_123", "contentFragment": "section", "legacyStableKeyCandidate": null }
   },
   {
     "base": "/projects/atlas",
-    "href": "arbor://tree/tr_7k3m@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/essays/drift",
+    "href": "arbor://tr_7k3m/essays/drift;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     "expected": { "kind": "arbor", "authority": { "treeID": "tr_7k3m" }, "path": "/essays/drift", "stableKey": null, "revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "applicationQuery": null, "contentFragment": null, "legacyStableKeyCandidate": null }
   },
+  {
+    "base": "/projects/atlas",
+    "href": "arbor://tr_7k3m/essays/drift;arbor-key=W1siaWQiLCJ4N2YzcTIiXV0;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?id=p_123#section",
+    "expected": { "kind": "arbor", "authority": { "treeID": "tr_7k3m" }, "path": "/essays/drift", "stableKey": "[[\"id\",\"x7f3q2\"]]", "revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "applicationQuery": "id=p_123", "contentFragment": "section", "legacyStableKeyCandidate": null }
+  },
+  {
+    "base": "/projects/atlas",
+    "href": "arbor://tr_7k3m",
+    "expected": { "kind": "arbor", "authority": { "treeID": "tr_7k3m" }, "path": "/", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null, "legacyStableKeyCandidate": null }
+  },
+  {
+    "base": "/projects/atlas",
+    "href": "../roadmap;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef#implementation",
+    "rewritePath": "/projects/current-roadmap",
+    "expectedRewritten": "../current-roadmap;arbor-rev=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef#implementation",
+    "expected": { "kind": "local", "path": "/projects/roadmap", "stableKey": null, "revision": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "applicationQuery": null, "contentFragment": "implementation", "legacyStableKeyCandidate": "implementation" }
+  },
+  { "base": "/projects/atlas", "href": "arbor://tr_7k3m/essays/drift;arbor-rev=W1siaWQiLCJ4N2YzcTIiXV0;arbor-key=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "expected": null },
+  { "base": "/projects/atlas", "href": "arbor://tr_7k3m/essays/drift;arbor-rev=sha256:0123", "expected": null },
+  { "base": "/projects/atlas", "href": "arbor://tr_7k3m/essays/drift;arbor-key=W1siaWQiLCJ4N2YzcTIiXV0;arbor-key=W1siaWQiLCJ4N2YzcTIiXV0", "expected": null },
+  { "base": "/projects/atlas", "href": "arbor://tr_7k3m/essays/drift;arbor-tag=x", "expected": null },
+  { "base": "/projects/atlas", "href": "arbor://tr_7k3m@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/essays/drift", "expected": null },
+  { "base": "/projects/atlas", "href": "tree:tr_7k3m/essays/drift", "expected": { "kind": "external", "href": "tree:tr_7k3m/essays/drift" } },
   {
     "base": "/projects/atlas",
     "href": "arbor://library.meaningalignment.org/essays/drift?",
     "expected": { "kind": "arbor", "authority": { "dns": "library.meaningalignment.org" }, "path": "/essays/drift", "stableKey": null, "revision": null, "applicationQuery": "", "contentFragment": null, "legacyStableKeyCandidate": null }
   },
-  {
-    "base": "/projects/atlas",
-    "href": "tree:tr_7k3m/essays/drift",
-    "expected": { "kind": "arbor", "authority": { "treeID": "tr_7k3m" }, "path": "/essays/drift", "stableKey": null, "revision": null, "applicationQuery": null, "contentFragment": null, "legacyStableKeyCandidate": null }
-  },
-  { "base": "/projects/atlas", "href": "arbor://tree", "expected": null },
+  { "base": "/projects/atlas", "href": "arbor://", "expected": null },
   { "base": "/projects/atlas", "href": "", "expected": null },
   { "base": "/projects/atlas", "href": "system:mounts/railton", "expected": { "kind": "system", "raw": "system:mounts/railton" } },
   { "base": "/projects/atlas", "href": "local:annotations/railton", "expected": { "kind": "overlay", "raw": "local:annotations/railton" } },
