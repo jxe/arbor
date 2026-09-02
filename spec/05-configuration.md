@@ -102,8 +102,8 @@ filenames, so the last administrator cannot be removed or demoted.
 Removing a placement stops replication and does not delete local files, remote
 identity, ACLs, history, boundaries, or conflicts. Removing an uninitialized
 tree declaration cancels its reservation. Removing an active remote tree
-declaration is invalid until Arbor specifies a separate remote deletion
-lifecycle.
+declaration is invalid until Arbor specifies a remote deletion lifecycle
+([deferred 1](../spec.md#deferred)).
 
 YAML never contains refs, update IDs, retry state, conflict choices, status,
 device credential digests, raw credentials, or raw access-link secrets. Link

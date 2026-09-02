@@ -3,7 +3,7 @@
 
 ## Agent files
 
-An agent is an ordinary Markdown document. Its body is the primary instruction/prompt; frontmatter declares configuration such as model policy, named tools, context roots or queries, and transcript destination. Model/provider-specific tuning may be present as optional namespaced metadata, but the portable agent remains readable without a proprietary database.
+An agent is an ordinary Markdown document. Its body is the primary instruction/prompt; frontmatter declares configuration such as model policy, named tools, context roots or queries, and transcript destination. Model/provider-specific tuning may be present as optional namespaced metadata, but the portable agent remains readable without a proprietary database. The portable frontmatter key set is not yet defined ([deferred 6](../spec.md#deferred)).
 
 An agent file is versioned, linked, shared, and access-controlled like other
 authored Markdown. Moving it preserves the stable key derived from its `id`
@@ -39,7 +39,7 @@ This specification does not prescribe isolation technology, worker language, or 
 
 Before an effectful run, the client presents the [consent statement](07-executable-documents.md#component-and-data-packages) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
 
-All workspace effects pass through ordinary wire or store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct host-filesystem edit and label it an Arbor mutation. Ambiguous mutation retries reuse the original mutation identity.
+All tree effects pass through ordinary wire or store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct host-filesystem edit and label it an Arbor mutation. Ambiguous mutation retries reuse the original mutation identity.
 
 ## Transcripts
 

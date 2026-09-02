@@ -36,7 +36,7 @@ A tree also has independent history, a synchronization stream, and a whole-tree 
 The root node has logical path `/`. Looking up successive names in `children`
 produces every other logical path.
 
-Arbor trees can be mounted inside other arbor trees, but they remain a separate entry in the global TreeID map. A workspace resolver may present it below a node in another tree, but its
+Arbor trees can be mounted inside other arbor trees, but they remain a separate entry in the global TreeID map. A placement may present it below a node in another tree, but its
 nodes, history, access, and mutations are not copied into that parent.
 
 ## 3. Canonical URL lookup
@@ -64,8 +64,6 @@ Ordinary application data uses the same nodes:
 | Record | Fields are node properties |
 | Collection | Records are child nodes governed by a shared schema |
 | Row | One child node, usually with a stable-key rule declared by its parent |
-| Table | A collection with relational query and mutation capabilities |
-| Database | A node/subtree materialized by a database provider |
 | File | A node projected primarily through content bytes |
 | Directory | A projection of a node's children |
 | Document | A node presented primarily through its content |

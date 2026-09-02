@@ -92,7 +92,7 @@ For each exported handle, compilation exposes stable function identity, input va
 
 ## Queries
 
-A query is a deterministic function of `(resolved workspace snapshot,
+A query is a deterministic function of `(resolved node snapshots,
 validated input, trusted user context)`. Its only data door is a finite,
 declarative selection over the scoped logical node model. Authored sources use
 `arbor(path)` everywhere. The initial portable node-set source is `.children`,
@@ -109,10 +109,11 @@ in the server plan and are never delegated to a component.
 The initial universal symbolic surface is the source's schema-declared
 properties. Filtering and field picking behave identically across providers.
 Results have automatic deterministic ordering by canonical stable
-key, falling back to canonical path; authored ordering is not portable yet.
+key, falling back to canonical path; authored ordering is not portable yet
+([deferred 8](../spec.md#deferred)).
 Relationships, joins, grouping, aggregates, explicit ordering, pagination
 operators, and unbounded traversal are capability extensions rather than
-baseline semantics. A provider may push a portable plan into SQL, indexes, or
+baseline semantics ([deferred 8](../spec.md#deferred)). A provider may push a portable plan into SQL, indexes, or
 tree traversal, but cannot change its meaning. An unavailable capability fails
 before data access rather than silently loading an entire tree into executable
 memory. There is no authored `database()` source or `.relations` namespace.
@@ -165,7 +166,8 @@ server when that host advertises and enforces the same manifest, validation,
 access, determinism, and version contract. A read-only placement projection may
 materialize a reviewed node query into SQLite and serve its last completely
 applied state offline. This specification does not define general cross-server
-query discovery, delegated authorization, or server-to-server routing.
+query discovery, delegated authorization, or server-to-server routing
+([deferred 2](../spec.md#deferred)).
 
 ## Mutations
 
@@ -175,11 +177,11 @@ The caller supplies one mutation identity and reuses it for an ambiguous retry. 
 
 `arbor/react` adapts a mutation handle to React Actions. Form conversion is shallow and deterministic: a name occurring once becomes its string or file value, a repeated name becomes an array in document order, and an omitted name is absent. Coercion belongs to the authored schema. Expected failures use `publicError(code, message, options?)` from `arbor/data`; other thrown values become a generic internal error without stack traces, SQL, paths, or private row data.
 
-External side effects and cross-domain workflows require a separately specified effect and consent contract; they are not disguised as deterministic collection mutations.
+External side effects and cross-domain workflows require a separately specified effect and consent contract ([deferred 3](../spec.md#deferred)); they are not disguised as deterministic collection mutations.
 
 ## Component and data packages
 
-Components are React authoring in TSX or MDX within a confined UI realm. Workspace data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. The [no-ambient-authority rule](#authored-component-forms) applies; UI-local timers, focus, and animation do not become data authority.
+Components are React authoring in TSX or MDX within a confined UI realm. Node data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. The [no-ambient-authority rule](#authored-component-forms) applies; UI-local timers, focus, and animation do not become data authority.
 
 The public component package is `arbor/react`; data and handle authoring come from `arbor/data`. The former provides `useQuery`, `skipQuery`, `useMutationAction`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`. The latter provides `arbor(path)` logical node sources, schema-derived children handles, `query`, `mutation`, `publicError`, `RowOf`, and `ResultOf`. Package names are part of the authored portability surface.
 
@@ -222,13 +224,12 @@ Executable-document subscriptions are not accepted-update history and do not add
 Executable documents do not define their own password, login-code, or session model. The host resolves the existing Arbor account/device or server browser session and injects an unforgeable user context into queries and mutations:
 
 ```ts
-type ArborUser = null | {
-  profile: ProfileID
+type ArborUser = null | {  profile: TreeID
   community: TreeID
 }
 ```
 
-Server-local account IDs, device IDs, credentials, and mutable handles are not document user identities. Handlers never accept a caller-supplied profile or account ID as proof of identity. Authored rows referring to a person store `ProfileID`; current display name, handle, portrait, and other public profile fields are resolved from that profile tree at query time. Profile reads are live dependencies, so a profile edit updates subscribed documents.
+Server-local account IDs, device IDs, credentials, and mutable handles are not document user identities. Handlers never accept a caller-supplied profile or account ID as proof of identity. Authored rows referring to a person store that profile tree's `TreeID`; current display name, handle, portrait, and other public profile fields are resolved from that profile tree at query time. Profile reads are live dependencies, so a profile edit updates subscribed documents.
 
 A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the server browser session is Arbor platform UI. The server rechecks the session on render, each `queries` request, and mutation; revocation terminates existing streams and prevents an unauthorized value from being treated as current.
 
@@ -240,7 +241,7 @@ Anonymous, Arbor-user, and tree-principal executions are separate cache and subs
 
 The host resolves the requested Arbor path, loads one coherent executable-document version, passes its query string, evaluates mounted query reads, server-renders the component tree, and embeds only validated results plus public handle metadata. Hydration reuses those values. `useQuery` follows React Suspense semantics for its initial value and throws failures to the nearest error boundary.
 
-Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [wire protocol](04-wire.md#15-evaluate-and-stream-named-queries) and its separate named-mutation operation.
+Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [wire protocol](04-wire.md#21-evaluate-and-stream-named-queries) and its separate named-mutation operation.
 
 Mutation handles are React Actions as well as typed imperative handles. `useMutationAction(handle)` returns `[state, action, pending]`. Its Action converts `FormData`, validates it through the handle's Standard Schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. Successful return commits the runner-owned transaction; throwing rolls it back. Ordinary forms retain React's reset behavior.
 

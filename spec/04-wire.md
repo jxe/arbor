@@ -4,8 +4,7 @@
 An Arbor server represents one community. It owns accounts and profile
 claims, canonical tree boundaries, the private account-configuration trees,
 credential bindings, ACL enforcement, one mutable accepted ref per tree,
-immutable objects, and observation streams. It need not implement a local
-workspace or UI.
+immutable objects, and observation streams. It need not implement a local placement, filesystem replica, or UI.
 
 ## Protocol relationship to the data model
 
@@ -555,9 +554,8 @@ type MutateRequest = {
 type MutationHandleRef = QueryHandleRef;
 
 type MutationResultReceipt<Result = unknown> = {
-  mutationID: string;
-  requestDigest: Hash;
-  observedThrough: EventCursor;
+  mutationID: string;  requestDigest: Hash;
+  observedThrough: QueryCursor;
   affected?: {
     tree: TreeID;
     update: string;
@@ -623,7 +621,7 @@ update query results without an Arbor data-tree update. Neither execution nor
 network reachability grants historical-object access, broadens the readable tree graph,
 or exposes raw stores, credentials, private handler source, unrelated rows, or
 private diagnostics. Cross-server query discovery, delegated authorization,
-and server-to-server execution routing remain unspecified.
+and server-to-server execution routing remain unspecified ([deferred 2](../spec.md#deferred)).
 
 ## 3. Protocol conventions
 
@@ -817,10 +815,9 @@ nothing on the wire is identified by a canonical JSON text. The
 [`canonical-cbor-values`](../conformance/canonical-cbor-values.json) vectors
 freeze valid encodings and rejected byte sequences for every language binding.
 
-The reference validation profile bounds one exact file rollup to 16 MiB,
-`schema.ts` to 1 MiB, and the normalized row set to 100,000 rows. Authorities
-may advertise smaller quotas but never accept a rollup they cannot validate
-completely. Semantic merge reports `rollup-row-conflict`,
+Authorities advertise their rollup, schema, and row quotas and never accept a
+rollup they cannot validate completely; the reference quotas are recorded in
+[the reference implementation](../docs/reference-implementation.md#wire-encoding-reconciliation-and-hosting). Semantic merge reports `rollup-row-conflict`,
 `rollup-schema-conflict`, or `rollup-constraint-conflict`; a row conflict path
 uses the parent logical path plus its `arbor-key` identity suffix.
 
@@ -830,7 +827,7 @@ logical changes and, when required for resync, a content-addressed canonical
 logical checkpoint produced at one database snapshot. Such a checkpoint is an
 explicit synchronization artifact, not an ordinary database revision, and
 contains no SQLite pages/WAL bytes or Postgres storage representation. Its
-change-log/checkpoint format is deferred to Data 005.
+change-log/checkpoint format is deferred ([deferred 5](../spec.md#deferred)).
 
 Possession of a hash is not authorization. The server checks reachability from
 the named tree's current readable root; retained accepted history does not
@@ -991,23 +988,7 @@ removal rule are defined once in
 is generated and shown locally once; only its digest is submitted in
 configuration, and a safe entry exposes neither.
 
-## 7. Public HTTP projection
-
-Readable canonical paths have safe HTTP and `arbor://` projections. HTML,
-Markdown, files, and redirects retain canonical tree/path provenance and never
-broaden access. Historical roots remain immutable and read-only. The server
-does not publish or resolve the account-configuration tree.
-
-Rows in a recognized synchronized CSV/JSON/JSONL child rollup have the same
-ordinary public path and stable-key locator projection as expanded children.
-The parent page lists those logical rows rather than `_store.*` or `schema.ts`.
-A path lookup or stable-key lookup may render a row as an HTML property page or
-a Markdown data projection; a stale readable path redirects permanently to the
-current row path while preserving the key, application query, and content
-fragment. Public projection never materializes a row as a Markdown file and
-never exposes the reserved representation objects as children.
-
-## 8. Conformance
+## 7. Conformance
 
 Language-neutral vectors under [`conformance`](../conformance) cover
 descriptors, access, errors, resolution, objects, updates, snapshots, SSE

@@ -26,8 +26,8 @@ canonical lookup: the URI's DNS authority places/selects a Canopy, then that
 Canopy resolves its longest readable registered boundary to a TreeID. `authority`
 here is the URI authority component. Operating-system paths and `system:` content
 addresses are facilities of a local implementation, not portable Arbor
-locators; a separately specified capability field may use a `system:` reference
-without making it a content locator.
+locators; a separately specified capability field ([deferred 9](../spec.md#deferred)) may use a
+`system:` reference without making it a content locator.
 
 Canonical public names are replaceable human names, not tree identity. A
 canonical resolver returns the selected Canopy origin, the `TreeID` selected by
@@ -117,10 +117,11 @@ path-attached stable key on the initial HTTP request, while browsers do not send
 the content fragment and executable documents retain their full query-string
 namespace.
 
-Version 0.8 does not define one Markdown relative link carrying both a stable
-key and a separate within-node content fragment. Authors choose rename-healable
-node navigation or within-node navigation for that link. A later structured
-fragment form may add both without changing the three-part node reference.
+This version does not define one Markdown relative link carrying both a
+stable key and a separate within-node content fragment ([deferred 7](../spec.md#deferred)).
+Authors choose rename-healable node navigation or within-node navigation for
+that link. A later structured fragment form may add both without changing the
+three-part node reference.
 
 ## Parsing and canonicalization
 
@@ -150,3 +151,19 @@ Authored `.md`, `.mdx`, `.tsx`, and `/_index.md` spellings may be accepted as in
 - Ambiguous identity is an error. A resolver never guesses among placements, endpoints, stable-key owners, or boundary records.
 
 Locator resolution is separate from rendering. A successful result always retains explicit tree scope so mounted/composed child actions, search results, backlinks, and historical reads cannot silently fall back to a parent's tree.
+
+## Public HTTP projection
+
+Readable canonical paths have safe HTTP and `arbor://` projections. HTML,
+Markdown, files, and redirects retain canonical tree/path provenance and never
+broaden access. Historical roots remain immutable and read-only. The server
+does not publish or resolve the account-configuration tree.
+
+Rows in a recognized synchronized CSV/JSON/JSONL child rollup have the same
+ordinary public path and stable-key locator projection as expanded children.
+The parent page lists those logical rows rather than `_store.*` or `schema.ts`.
+A path lookup or stable-key lookup may render a row as an HTML property page or
+a Markdown data projection; a stale readable path redirects permanently to the
+current row path while preserving the key, application query, and content
+fragment. Public projection never materializes a row as a Markdown file and
+never exposes the reserved representation objects as children.

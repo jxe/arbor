@@ -278,7 +278,8 @@ After uncertainty or a missed observation, the driver conservatively rereads
 affected scopes or rebuilds from a fresh snapshot before advancing its applied
 root.
 
-`mode: bidirectional` requests the later full-duplex contract. It is permitted
+`mode: bidirectional` requests the later full-duplex contract
+([deferred 4](../spec.md#deferred)). It is permitted
 only when the host has activated the external store as an Arbor-managed
 materialization: the Arbor logical data tree is canonical, external Postgres
 writes are denied, accepted named mutations atomically record the resulting

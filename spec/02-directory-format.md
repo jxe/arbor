@@ -106,8 +106,7 @@ TreeID locators. Any schema-identified node may use the Markdown-compatible
 valid stable key disagree, the key selects the node within its declaring
 keyspace and the authored content may be healed through an ordinary mutation. The alias
 and application query survive healing unchanged. Arbor renderers translate the
-alias to the server-visible path suffix before emitting HTTP links. Version 0.8
-does not combine this alias with a separate within-node fragment. Nodes with a
+alias to the server-visible path suffix before emitting HTTP links. Nodes with a
 null stable key remain path-identified.
 
 ## Profiles and groups
