@@ -31,4 +31,13 @@ Follow [the procedure](../README.md#the-procedure). Specific to this migration:
 
 ## Rehearsal log
 
-_(date, archive name, report summary, compare result, verify result)_
+- 2026-09-02, archive `/data/backups/2026-09-02-if-match/volume.tar` (sha256 7286…74f, 92.7 MB),
+  downloaded with `railway volume files --volume resplendent-freedom-volume download`, which
+  takes about ten minutes; `railway ssh -- cat` does not stream binary. The vacuumed database
+  matched the live one on every row count (9 trees, 20 updates, 2 accounts, 11 devices).
+- Migration on the copy: no tree carries a rollup, so 0 objects rewritten and all 9 roots
+  unchanged; 128 objects retained, 2,347 history-only objects pruned; stamp 3.
+- `compare-canopy-roots before migrated`: every root unchanged, OK.
+- Served the migrated copy with the new build under the real public origin: health ok,
+  `GET /.arbor/trees/{id}` returns `{ tree, observedThrough }` with `root`, the snapshot is
+  flat with `tree.root === root`, `verify.ts` green against local placements, `/~joe` 200.

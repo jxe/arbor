@@ -127,7 +127,7 @@ export function assertCanopySchemaVersion(db: Database): void {
   if (stamp !== CANOPY_SCHEMA_VERSION) {
     throw new Error(
       `Canopy data root was written by schema version ${stamp ?? "1 (unstamped)"} but this build requires ${CANOPY_SCHEMA_VERSION}: `
-      + "delete the Canopy data root and re-bootstrap",
+      + "run the migration for this version, or delete the Canopy data root and re-bootstrap",
     );
   }
 }

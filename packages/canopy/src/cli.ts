@@ -52,7 +52,7 @@ export function serveMaintenance(port: number, hostname: string): ReturnType<typ
       );
     },
   });
-  console.log(`Canopy in maintenance mode at http://${hostname}:${server.port}; unset ARBOR_CANOPY_MAINTENANCE to serve.`);
+  console.log(`Canopy in maintenance mode at http://${hostname}:${server.port}; migrate the data root or unset ARBOR_CANOPY_MAINTENANCE, then restart.`);
   return server;
 }
 
@@ -114,18 +114,34 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
     throw new Error("A new claim-first community needs a stable nonzero --port or explicit --url");
   }
 
-  const running = await serveCanopy({
-    dataRoot,
-    publicOrigin,
-    community: {
-      handle: communityHandle,
-      name: communityHandle,
-      ...(firstWriterHandle ? { firstWriter: { handle: firstWriterHandle } } : {}),
-    },
-    accounts,
-    port: requestedPort,
-    hostname: option(args, "--hostname") ?? "0.0.0.0",
-  });
+  let running: Awaited<ReturnType<typeof serveCanopy>>;
+  try {
+    running = await serveCanopy({
+      dataRoot,
+      publicOrigin,
+      community: {
+        handle: communityHandle,
+        name: communityHandle,
+        ...(firstWriterHandle ? { firstWriter: { handle: firstWriterHandle } } : {}),
+      },
+      accounts,
+      port: requestedPort,
+      hostname: option(args, "--hostname") ?? "0.0.0.0",
+    });
+  } catch (error) {
+    // A data root written by another schema version is not served and not
+    // touched; the process stays up in maintenance mode so an operator can run
+    // the migration in place, then restart.
+    if (error instanceof Error && /schema version/.test(error.message)) {
+      console.error(error.message);
+      const server = serveMaintenance(requestedPort, option(args, "--hostname") ?? "0.0.0.0");
+      const stop = () => { server.stop(true); process.exit(0); };
+      process.on("SIGINT", stop);
+      process.on("SIGTERM", stop);
+      return;
+    }
+    throw error;
+  }
   const resetAccount = process.env.ARBOR_RESET_ACCOUNT?.trim();
   if (resetAccount) {
     if (!accountToken) throw new Error("ARBOR_RESET_ACCOUNT requires ARBOR_ACCOUNT_TOKEN");
