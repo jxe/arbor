@@ -1,0 +1,64 @@
+# Data 009: `ifMatch` and merge rules on the wire
+
+## Status
+
+- **Priority:** P0
+- **Effort:** L
+- **State:** PLANNED — the spec side is written ([wire §1.4](../../spec/01-data-model.md#11-submit-a-candidate-state),
+  [data model §5](../../spec/01-data-model.md#5-change-and-equivalence)); no code has changed.
+- **Depends on:** the `arbor://<TreeID>` locator change (landed 2026-09-02). Ships through
+  [migrations/001](../../migrations/001-if-match-and-model-hash/README.md) using [the migration procedure](../../migrations/README.md).
+
+## Target result
+
+An update names which hash must still match at base, `ifMatch: "bytesHash" | "modelHash"`, and
+what to do with a same-node conflict, `onConflict: "reject" | "merge"` (default merge). The
+authority merges disjoint nodes itself, format-independently, from per-node model hashes;
+the three format-specific mergers survive only as merge rules for two changes to one node.
+`modelDigest` is renamed `modelHash` everywhere, including inside the rollup directory entry.
+
+## Code changes, in order
+
+1. **Wire types (TypeScript and Swift).** `UpdateRequest` gains `ifMatch` and optional
+   `onConflict`; `AcceptedUpdate.merge` is present only when a merge rule ran. Files:
+   `packages/wire/src/updates/types.ts`, `packages/wire/src/updates/json.ts`,
+   `native/Packages/ArborWire/Sources/ArborWire/WireModels.swift`.
+2. **Intent digest.** `updates-v1` becomes `{ version, tree, base, candidate, ifMatch, onConflict }`
+   with `onConflict` at its effective value. `packages/wire/src/updates/intent.ts`,
+   `canonicalUpdateIntent` in `ArborWireClient.swift`, and `conformance/wire-update-intent.json`.
+3. **`modelDigest` → `modelHash`.** `RollupDescriptor` in `packages/core/src/node-model.ts`, every
+   provider that computes it (`file-provider.ts`, `sqlite-provider.ts`, `wire-file-rollup.ts`,
+   `canopy/updates/merge.ts`), the Swift replica models, and the `wire-objects.json` and
+   `node-model.json` vectors. This changes the bytes of every directory object carrying a rollup,
+   so rollup-bearing trees need re-placement.
+4. **Per-node model hashes in Canopy.** A function that walks a wire directory graph and yields
+   each node's model hash (schema, properties, content, children digests) so the authority can
+   compare base, current, and candidate node by node. Reuse the CBOR canonicalizer; rollup
+   entries already carry their collection's hash.
+5. **Decision.** `packages/canopy/src/updates/decision.ts` grows from root comparison to:
+   current/accepted as today; under `bytesHash`, anything else is a conflict; under `modelHash`,
+   compute touched nodes (bytes differ base→candidate), check each node's model hash
+   base→current, merge disjoint nodes, and hand conflicting nodes to `onConflict`.
+6. **Merge module split.** `packages/canopy/src/updates/merge.ts` becomes `merge.ts` (assemble
+   current plus the candidate's touched nodes) and `merge-rules/` (`markdown-additive-v1`,
+   `rollup-rows-v1`, `account-config-v1`), each invoked only for a conflicting node.
+7. **Reconcile and host.** `reconcile.ts` and `canopy/src/host.ts` return `merged` for both
+   disjoint merges and rule merges; conflict details name each conflicting node.
+8. **Clients.** arborsync's submit path (`packages/arborsync/src/tree-sync.ts`) and the Swift
+   replica send `ifMatch: "modelHash"`; activation and the configuration tree send what
+   [wire §6.2](../../spec/04-accounts-and-devices.md#5-declaring-and-activating-a-tree) and
+   [configuration §3](../../spec/04-accounts-and-devices.md#6-governed-account-tree) say.
+9. **Stamp-triggered re-place in arborsync.** The daemon records the schema version it last
+   ran against in `.state`; on start, a stamp older than its own discards the rebuildable state
+   (`sync`, `refs`, `replicas`, indexes) and re-places every placement from a snapshot,
+   comparing authored bytes before writing. Canopy already refuses a stale stamp; this is the
+   client half, and it is what makes the Mac step of a migration "install and start".
+10. **Vectors and tests.** `wire-endpoints.json` gains a case per outcome; unit tests for the
+   decision matrix (bytes/reject, model/disjoint, model/same-node reformat, model/conflict with
+   each `onConflict`); `bun test`, the Swift suites, and `tests/protocol/conformance.ts`.
+
+## Do not
+
+- Reintroduce a merge that understands a file format for disjoint nodes.
+- Change the object encoding beyond the field rename.
+- Add a third `ifMatch` value; an explicit-value form is a later extension.

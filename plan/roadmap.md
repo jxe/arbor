@@ -46,12 +46,12 @@ Durable product contracts live in the topic specifications:
   `_index.md`, frontmatter, child placement, tree-relative references,
   canonical names, raw TreeID fallback, schema-stable keys, application-query
   separation, content fragments, and immutable revision selection;
-- [Wire and community hosting](../spec/04-wire.md) owns remote model sampling,
+- [Wire and community hosting](../spec/01-data-model.md) owns remote model sampling,
   exact projection objects, canonical boundaries, promotion, profiles, claims,
   access, refs, updates, watch/retry/resync, query/mutate transport, secrets, and
   HTTP projection;
-- [configuration](../spec/05-configuration.md) owns synchronized account, tree, device, placement, ACL, and governance data;
-- [stores](../spec/06-stores.md), [executable documents](../spec/07-executable-documents.md), and the [authoring API](../spec/09-authoring-api.md) own their respective authored contracts;
+- [configuration](../spec/04-accounts-and-devices.md) owns synchronized account, tree, device, placement, ACL, and governance data;
+- [stores](../spec/06-stores.md), [executable documents](../spec/07-executable-documents.md), and the [authoring API](../spec/08-authoring-api.md) own their respective authored contracts;
 - the [reference documentation](../docs/reference-implementation.md) owns the Local Arbor REST API, CLI, data home, client interaction design, runtime algorithms, and platform behavior.
 
 ## Milestone 2 — live data documents
@@ -119,7 +119,7 @@ Outcome: communities can recover identities and operate persistent hosts without
 - Define understandable claim recovery, dispute resolution, and administrator reset without changing profile `TreeID` identity.
 - Add confirmed removal and restoration flows for claimed community members.
 - Add historical/recovery UI for access changes and revocation.
-- Productize permanent-domain, persistent-volume, graceful-restart, backup/restore, and migration diagnostics for community hosts.
+- Productize permanent-domain, persistent-volume, and graceful-restart handling for community hosts. Backup, restore, and cutover verification are the reusable scripts and procedure under [`migrations/`](../migrations/README.md), not product features.
 
 Completion gate: an operator restores a persistent community on a replacement host, and a member with a lost device recovers the same profile identity onto a new device through an auditable user-facing flow.
 

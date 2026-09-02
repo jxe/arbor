@@ -37,6 +37,10 @@ items table for conditional, not-yet-designed, or independently minor work.
 - [`history/`](history/README.md) — completed, rejected, and superseded plans,
   plus durable implementation evidence.
 
+Deployment migrations are not plans. Each lives in its own directory under
+[`migrations/`](../migrations/README.md) with the reusable procedure and tools,
+and is deleted after its cutover; a plan whose change needs one links there.
+
 An active plan should describe only work that remains. When a milestone is
 completed, move its executor document to `history/` without renumbering its
 historical identifier, record the outcome and verification evidence, and leave

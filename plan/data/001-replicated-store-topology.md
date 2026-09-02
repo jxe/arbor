@@ -414,7 +414,7 @@ abandoned. It never deletes the logical tree or authority Postgres data.
 
 ## Source areas expected to change
 
-- `spec/06-stores.md`, `spec/07-executable-documents.md`, `spec/04-wire.md`
+- `spec/06-stores.md`, `spec/07-executable-documents.md`, `spec/01-data-model.md`
 - `packages/core/src/protocol.ts`
 - `packages/data/src/schema.ts`, `mutation.ts`, `observer.ts`, `live.ts`, and
   SQLite executor modules

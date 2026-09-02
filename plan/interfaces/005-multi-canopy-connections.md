@@ -9,7 +9,7 @@
 >
 > ```sh
 > git diff --stat ab139c6..HEAD -- \
->   spec/04-wire.md spec/05-configuration.md conformance \
+>   spec/01-data-model.md spec/04-accounts-and-devices.md spec/05-access-control.md conformance \
 >   docs/local-system.md docs/arborsync-api.md docs/client.md docs/cli.md \
 >   packages/stores packages/arborsync packages/client packages/cli packages/render \
 >   native/Packages/ArborSync native/Packages/ArborClient native/ArborApp \
@@ -195,7 +195,7 @@ Requirements:
 
 The executor must open and confirm these facts before editing:
 
-- `spec/05-configuration.md:4-16,59-79` defines one
+- `spec/04-accounts-and-devices.md` (configuration graph and YAML) defines one
   `account.yaml`/`trees.yaml`/`devices/` graph per account. `trees.yaml` owns
   declarations and ACLs; the current device file owns placements.
 - `packages/canopy/src/account-policy.ts:73-88` rejects undeclared placements
@@ -259,8 +259,8 @@ simulator; if it is unavailable, stop and report rather than creating another.
 ### In scope
 
 - Normative and reference contracts:
-  - `spec/04-wire.md`
-  - `spec/05-configuration.md`
+  - `spec/01-data-model.md`
+  - `spec/04-accounts-and-devices.md`
   - `conformance/configuration-yaml.json`
   - `docs/local-system.md`
   - `docs/arborsync-api.md`
@@ -535,6 +535,10 @@ do not restore its old assumption that one fixed pairing payload is the final
 surface.
 
 ### D3. Perform authorized migration and exact-artifact acceptance
+
+Follow [the migration procedure](../../migrations/README.md): rehearse on copies with the
+reusable tools, quiesce writers rather than the server, and put this migration's runbook,
+script, and rehearsal log in its own `migrations/NNN-<name>/` directory for later deletion.
 
 Only after explicit operator authorization:
 
