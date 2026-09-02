@@ -1,8 +1,8 @@
 # 001: `ifMatch`, merge rules, `modelHash`, and `_index.md` precedence
 
-**Status:** code complete, not yet run against real data. `run.ts` migrates a data root from
-schema 2 to 3 and `migrate.test.ts` proves it on a bootstrapped Canopy. Runs once, then this
-directory is deleted.
+**Status:** run on 2026-09-02 against the Railway volume and the Mac. Delete this directory
+once the backups named below have aged out (about 2026-09-16) and the iPhone has been
+updated.
 
 ## What changes on disk
 
@@ -41,3 +41,23 @@ Follow [the procedure](../README.md#the-procedure). Specific to this migration:
 - Served the migrated copy with the new build under the real public origin: health ok,
   `GET /.arbor/trees/{id}` returns `{ tree, observedThrough }` with `root`, the snapshot is
   flat with `tree.root === root`, `verify.ts` green against local placements, `/~joe` 200.
+
+## Live run (2026-09-02)
+
+1. Backup `/data/backups/2026-09-02-if-match/volume.tar` on the volume; local copies under
+   `~/arbor-migration-2026-09-02/if-match/` (`volume.tar`, `before/`, `migrated/`,
+   `dot-arbor.before/`, `authored-before.json`).
+2. Stopped the Mac daemon with every placement idle. The iPhone app was not running.
+3. `railway up --detach -y` deployed commit `82a717f`; the new build found stamp 2 and served
+   maintenance mode (deployment `90dd5c32`).
+4. `railway ssh -- bun run migrations/001-if-match-and-model-hash/run.ts /data`: identical
+   report to the rehearsal (0 rewritten, 128 retained, 2,347 pruned, stamp 3).
+5. `railway redeploy -y`; health `ok` after about a minute.
+6. `arbor daemon start`; all five placements idle within seconds, refs advanced to the restored
+   update ids, `verify.ts` green, authored manifest unchanged (111 files).
+7. Round-trip edit on the Drift tree accepted and visible at its canonical URL, then removed.
+
+Caveat: `~/.arbor/.state/version` had already been stamped "2" earlier the same day by a test
+that touched the real data home, so the daemon's stamp-triggered re-place did not fire. It was
+not needed, since no root changed. The old iPhone build cannot sync against the new server
+(it reads `/ref`); update the app.
