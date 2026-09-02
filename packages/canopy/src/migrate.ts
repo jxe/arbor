@@ -22,6 +22,39 @@ function columns(db: Database, table: string): string[] {
   return (db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(({ name }) => name);
 }
 
+function tableExists(db: Database, table: string): boolean {
+  return Boolean(db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
+}
+
+/**
+ * Columns and tables that builds before the single observation log added over
+ * time. History tables are recreated fresh because the migration resets them.
+ */
+function alignLegacyTables(db: Database): void {
+  const add = (table: string, column: string, definition: string) => {
+    if (!columns(db, table).includes(column)) db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  };
+  add("trees", "policy", "TEXT NOT NULL DEFAULT 'ordinary'");
+  add("trees", "status", "TEXT NOT NULL DEFAULT 'active'");
+  add("trees", "account_id", "TEXT");
+  add("accounts", "config_tree", "TEXT");
+  add("accounts", "claim_digest", "TEXT");
+  add("pairings", "claimed_device", "TEXT");
+  if (!tableExists(db, "tree_reservations")) {
+    db.run(`CREATE TABLE tree_reservations (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      canonical_path TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL,
+      error TEXT
+    )`);
+  }
+  for (const table of ["observation_events", "update_replays", "legacy_trees", "observations", "accepted_updates"]) {
+    db.run(`DROP TABLE IF EXISTS ${table}`);
+  }
+  AcceptedUpdateStore.createSchema(db);
+}
+
 /** Rewrite a configuration tree's `trees.yaml` without per-tree `kind` lines, preserving comments and order. */
 async function stripTreeKinds(objects: ObjectStore, root: ObjectHash): Promise<ObjectHash> {
   const directory = decodeWireObject(await objects.read(root));
@@ -82,20 +115,17 @@ export async function migrateCanopy(dataRoot: string): Promise<CanopyMigrationRe
 
     const now = Date.now();
     db.transaction(() => {
+      alignLegacyTables(db);
       for (const table of ["boundaries", "tree_reservations"]) {
         if (columns(db, table).includes("kind")) db.run(`ALTER TABLE ${table} DROP COLUMN kind`);
       }
-      db.run("DROP INDEX IF EXISTS accepted_updates_tree_order");
-      if (columns(db, "accepted_updates").includes("sequence")) db.run("ALTER TABLE accepted_updates DROP COLUMN sequence");
       for (const tree of trees) {
         const next = nextRefs.get(tree.id)!;
         if (next !== tree.ref) db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ?", [next, now, tree.id]);
       }
       db.run("DELETE FROM meta WHERE key LIKE 'members:%' OR key LIKE 'profile:%'");
       for (const [ref, facts] of profiles) db.run("INSERT INTO meta (key, value) VALUES (?, ?)", [`profile:${ref}`, facts]);
-      db.run("DELETE FROM accepted_updates");
       db.run("DELETE FROM reflog");
-      db.run("DELETE FROM observations");
       const store = new AcceptedUpdateStore(db);
       for (const tree of trees) {
         const ref = nextRefs.get(tree.id)!;

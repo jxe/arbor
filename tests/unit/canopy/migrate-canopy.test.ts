@@ -57,6 +57,10 @@ describe("offline Canopy migration", () => {
     db.run("ALTER TABLE accepted_updates ADD COLUMN sequence INTEGER");
     db.run("UPDATE accepted_updates SET sequence = (SELECT COUNT(*) FROM accepted_updates AS o WHERE o.tree_id = accepted_updates.tree_id AND o.rowid <= accepted_updates.rowid)");
     db.run("CREATE UNIQUE INDEX accepted_updates_tree_order ON accepted_updates(tree_id, sequence)");
+    // Builds before the single observation log kept a separate events table.
+    db.run("DROP TABLE observations");
+    db.run("CREATE TABLE observation_events (cursor TEXT PRIMARY KEY, tree_id TEXT NOT NULL, kind TEXT NOT NULL, change_json TEXT, created_at INTEGER NOT NULL)");
+    db.run("CREATE TABLE update_replays (id TEXT PRIMARY KEY)");
     db.run("DELETE FROM meta WHERE key = 'schema_version' OR key LIKE 'profile:%'");
     db.run("INSERT INTO meta (key, value) VALUES (?, ?)", [`members:${communityRef}`, JSON.stringify(["canopy.test/~owner"])]);
     const legacyDocument = parseDocument(treesYAML(dataRoot, configTree.ref), { keepSourceTokens: true });
@@ -112,6 +116,9 @@ describe("offline Canopy migration", () => {
       const check = new Database(join(dataRoot, "canopy.sqlite3"), { readonly: true });
       expect(check.query("SELECT COUNT(*) AS n FROM meta WHERE key LIKE 'members:%'").get()).toEqual({ n: 0 });
       expect((check.query("PRAGMA table_info(boundaries)").all() as Array<{ name: string }>).map((c) => c.name)).not.toContain("kind");
+      for (const legacy of ["observation_events", "update_replays"]) {
+        expect(check.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(legacy)).toBeNull();
+      }
       check.close();
     } finally {
       await reopened[Symbol.asyncDispose]();
