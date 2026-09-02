@@ -47,6 +47,8 @@ Ordinary unpromoted files are browsable without gaining a durable Arbor identity
 
 ## Specification map
 
+New readers should start with the non-normative [walkthrough](spec/00-walkthrough.md), which follows one account through claiming a profile, activating a tree, editing, watching, adding a collection, and querying it from a page. The numbered files are the normative contract, in reading order.
+
 | File | Public contract | Status |
 |---|---|---|
 | [data model](spec/01-data-model.md) | Global TreeID lookup, trees and nodes, DNS/Canopy/path canonical lookup, structured data, projections/materializations, revisions, and equivalence | Definitional |
@@ -83,12 +85,12 @@ The wire carries tree identity and revisions, including each account's private c
 These are the behaviors the specification names but does not yet define. Each inline
 mention links here; the [roadmap](plan/roadmap.md) owns their sequencing.
 
-1. **Remote tree deletion.** Removing an active remote tree declaration from `trees.yaml` is invalid until a deletion lifecycle exists ([configuration](spec/05-configuration.md#configuration-yaml)).
-2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([wire §2.3](spec/04-wire.md#23-relationship-to-tree-synchronization), [executable documents](spec/07-executable-documents.md#queries)).
-3. **External side effects and cross-domain workflows** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](spec/07-executable-documents.md#mutations)).
-4. **Bidirectional placement projections**: the full-duplex contract behind `mode: bidirectional` ([stores](spec/06-stores.md#postgres-and-placement-projections)).
+1. **Remote tree deletion.** Removing an active remote tree declaration from `trees.yaml` is invalid until a deletion lifecycle exists ([configuration](spec/05-configuration.md#2-configuration-yaml)).
+2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([wire §2.3](spec/04-wire.md#23-relationship-to-tree-synchronization), [executable documents](spec/07-executable-documents.md#4-queries)).
+3. **External side effects and cross-domain workflows** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](spec/07-executable-documents.md#5-mutations)).
+4. **Bidirectional placement projections**: the full-duplex contract behind `mode: bidirectional` ([stores](spec/06-stores.md#4-postgres-and-placement-projections)).
 5. **Database change-log and checkpoint format** for synchronizing SQLite and Postgres placements ([wire §3.3](spec/04-wire.md#33-deterministic-lossless-encoding-and-tree-scoped-authorization)).
-6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](spec/07-executable-documents.md#agent-files)).
-7. **A relative Markdown link carrying both a stable key and a content fragment** ([locators](spec/03-locators.md#stable-keys-revisions-and-fragments)).
-8. **Portable authored ordering, relationships, joins, aggregates, and pagination** in the query language; today they are capability extensions ([executable documents](spec/07-executable-documents.md#queries)).
-9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](spec/03-locators.md#forms)).
+6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](spec/07-executable-documents.md#121-agent-files)).
+7. **A relative Markdown link carrying both a stable key and a content fragment** ([locators](spec/03-locators.md#2-stable-keys-revisions-and-fragments)).
+8. **Portable authored ordering, relationships, joins, aggregates, and pagination** in the query language; today they are capability extensions ([executable documents](spec/07-executable-documents.md#4-queries)).
+9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](spec/03-locators.md#1-forms)).

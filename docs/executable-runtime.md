@@ -4,7 +4,7 @@ This document records replaceable compiler, store-driver, hosting, and live-eval
 
 ## Compilation and isolation
 
-The reference direction uses isolated JavaScript workers, with QuickJS/Wasm available for deterministic schema and handle evaluation. Only reviewed libraries such as Zod enter a schema realm. Time, stack, and memory limits enforce the authored capability contract together with the spec's [no-ambient-authority rule](../spec/07-executable-documents.md#authored-component-forms).
+The reference direction uses isolated JavaScript workers, with QuickJS/Wasm available for deterministic schema and handle evaluation. Only reviewed libraries such as Zod enter a schema realm. Time, stack, and memory limits enforce the authored capability contract together with the spec's [no-ambient-authority rule](../spec/07-executable-documents.md#2-authored-component-forms).
 
 Generated TypeScript declarations live in private workspace state. Arbor-owned compiler and language-service hosts include them as extra root files, so authored trees do not name machine-local paths or require generated content. Bundles, code hashes, validators, manifests, caches, and generated database declarations are reproducible output. If a schema or connection is temporarily invalid, the reference tooling retains the last valid declarations, marks them stale, and reports a diagnostic.
 

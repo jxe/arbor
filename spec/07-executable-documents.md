@@ -1,9 +1,11 @@
 # Executable documents
 *Part of the [Arbor spec](../spec.md): the execution model for portable MDX/TSX documents and agents: named handles, queries, mutations, Arbor user identity, hosting, confinement, consent, and transcripts. The `arbor/react` and `arbor/data` packages a document is written against are the [authoring API](09-authoring-api.md).*
 
+*Owns: handle identity, query and mutation semantics, user context, compilation, hosting, confinement, the consent statement, the no-ambient-authority rule, and agents. References: [wire §2](04-wire.md#2-executable-document-operations) for transport guarantees and the [authoring API](09-authoring-api.md) for package surfaces.*
+
 Arbor does not add an application object, application identifier, entry component, route table, or location language. A website is an Arbor tree containing ordinary related documents. A host that supports execution may render an authored `.mdx` or `.tsx` document at that document's ordinary canonical Arbor location.
 
-## Documents and navigation
+## 1. Documents and navigation
 
 Executable documents use the same logical paths, tree boundaries, canonical server URLs, relative links, moves, and access rules as other Arbor content. For a tree containing:
 
@@ -28,7 +30,7 @@ Links are ordinary authored links:
 Relative resolution and extensionless canonicalization follow [format](02-directory-format.md) and [locators](03-locators.md). A same-tree host may intercept an ordinary link for client navigation, but the link must remain correct as an ordinary HTTP navigation with JavaScript absent. Back, forward, reload, open-in-new-tab, and copying the URL use browser semantics rather than a parallel application history.
 
 The query string belongs to the addressed document, which receives it as an
-ordinary search-parameter value ([authoring API](09-authoring-api.md#documents)).
+ordinary search-parameter value ([authoring API](09-authoring-api.md#2-documents)).
 
 The optional path-attached `;arbor-key=...` identity suffix is consumed before
 document routing and never appears in `search`. It can therefore heal or
@@ -42,7 +44,7 @@ a fragment for explicitly client-local state, but node identity, server
 rendering, authorization, metadata, and initial live queries cannot depend on
 fragment data unavailable to the server.
 
-## Authored component forms
+## 2. Authored component forms
 
 `.md` remains non-executable authored Markdown. `.mdx` combines Markdown composition, frontmatter, explicit ESM imports/exports, and React components. A `.tsx` document is renderable when it has a default component export. Supporting `.tsx` modules without a default component remain importable source rather than hosted views. `.ts` modules may define server handles and shared code.
 
@@ -51,14 +53,14 @@ component output hoisted during server rendering and client updates; there is
 no parallel metadata export or metadata read lifecycle, and the server supplies
 the canonical Arbor URL independently, so an authored document need not
 rediscover it merely to emit the canonical link. Styling and Markdown
-rendering facilities belong to the [authoring API](09-authoring-api.md#documents);
+rendering facilities belong to the [authoring API](09-authoring-api.md#2-documents);
 the pinned compiler version is part of the coherent document version.
 
 Structured editors that cannot preserve MDX or TSX source exactly must use a raw/code-capable mode. They never rewrite executable source as ordinary Markdown.
 
 Executable code—components, query plan callbacks, schema evaluation, mutation handlers, and agent runs—has no ambient authority: filesystem, network, process, clock, randomness, credential, secret, and host APIs are absent unless a separately specified capability or tool grants them. This is the single normative statement of that rule; other sections refer to it.
 
-## Modules and named handles
+## 3. Modules and named handles
 
 Executable-document source uses ordinary `.ts` and `.tsx` modules plus explicit `.mdx` documents. Modules may export components, queries, and mutations. `query` and `mutation` are explicit execution-boundary markers; Arbor does not infer a security boundary from an arbitrary export graph. Ordinary `.md` files never become executable merely because another document imports or links them.
 
@@ -66,12 +68,12 @@ A source tree is identified by its existing `TreeID`; Arbor adds no application-
 
 For each exported handle, compilation exposes stable function identity, input validation, code version, declared or inferred tree access, and public result metadata without disclosing privileged implementation code. Literal tree paths contribute precise prefixes; computed paths require explicit declarations. Compilation fails when code can address an undeclared path, closes over UI-only state, or imports ambient host authority.
 
-A handle may declare an input schema in the [authoring API](09-authoring-api.md#handles)'s
+A handle may declare an input schema in the [authoring API](09-authoring-api.md#3-handles)'s
 Standard Schema form. The handle's call input is the schema input type; the
 query plan or mutation handler receives its validated, transformed output, and
 validation occurs before data access.
 
-## Queries
+## 4. Queries
 
 A query is a deterministic function of `(resolved node snapshots,
 validated input, trusted user context)`. Its only data door is a finite,
@@ -155,7 +157,7 @@ applied state offline. This specification does not define general cross-server
 query discovery, delegated authorization, or server-to-server routing
 ([deferred 2](../spec.md#deferred)).
 
-## Mutations
+## 5. Mutations
 
 A mutation is validated code running against explicit write prefixes. The runner opens one transaction in the selected store and supplies it as `tx`. Returning commits; throwing rolls back. All reads, authorization checks, ordered operations, and writes through `tx` share that transaction. A mutation cannot silently span several transaction domains.
 
@@ -172,15 +174,15 @@ traces, SQL, paths, or private row data.
 
 External side effects and cross-domain workflows require a separately specified effect and consent contract ([deferred 3](../spec.md#deferred)); they are not disguised as deterministic collection mutations.
 
-## Components, imports, and consent
+## 6. Components, imports, and consent
 
-Components run within a confined UI realm. Node data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. The [no-ambient-authority rule](#authored-component-forms) applies; UI-local timers, focus, and animation do not become data authority.
+Components run within a confined UI realm. Node data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. The [no-ambient-authority rule](#2-authored-component-forms) applies; UI-local timers, focus, and animation do not become data authority.
 
 Cross-tree source imports use absolute Arbor locators and resolve to immutable code identities for one build or execution. Imported handles retain their own declared access; resolving an import cannot silently widen it.
 
 Before first execution in a context, a human-readable consent statement lists the resolved trees, readable prefixes, writable prefixes, hosted execution, any backing-coupled or external capability, and—for an agent run—its tools, transcript destination, and any explicitly granted non-tree effect. Broad or computed declarations remain visibly broad. This is the single definition of the statement's contents, and enforcement must make it true. A host process's broader filesystem or credentials do not become executable-document capabilities. Named handles are callable from human clients and agent tools using the same identity, validation, and authorization.
 
-## Compilation and hosting
+## 7. Compilation and hosting
 
 Compilation begins from the addressed executable document and follows its explicit import graph. It produces a reviewed document manifest containing:
 
@@ -198,7 +200,7 @@ An Arbor server explicitly enables executable-document hosting for a tree and gr
 
 Framework filenames do not create mutation endpoints, action routes, loaders, or private-data boundaries. Generated transport endpoints are host protocol details and are never authored or navigable Arbor documents.
 
-## Host and server boundaries
+## 8. Host and server boundaries
 
 A live Arbor server may run the executable-document runtime adjacent to its Wire API. The roles remain distinct:
 
@@ -210,7 +212,7 @@ The tree execution principal receives only reviewed tree prefixes, store connect
 
 Executable-document subscriptions are not accepted-update history and do not add historical-object access. A mutation of an Arbor-canonical data tree produces an ordinary accepted data-tree update regardless of its SQLite or Postgres materialization. A mutation of a shared external Postgres store may update live query results without changing the executable source-tree ref.
 
-## Arbor user identity and authorization
+## 9. Arbor user identity and authorization
 
 Executable documents do not define their own password, login-code, or session model. The host resolves the existing Arbor account/device or server browser session and injects an unforgeable user context into queries and mutations:
 
@@ -230,21 +232,21 @@ presents its own session UI before user-dependent queries mount, and an
 authored tree never receives credentials or implements authentication. A query
 plan may dereference the nullable user profile, or declare that anonymous
 execution must fail before data access even when the handle is invoked outside
-a component ([authoring API](09-authoring-api.md#user)).
+a component ([authoring API](09-authoring-api.md#5-user)).
 
 Anonymous, Arbor-user, and tree-principal executions are separate cache and subscription contexts. User-dependent queries record the identity and access decision as dependencies. Public executions may be shared only when their inputs, authorization, capabilities, and output are genuinely user-independent.
 
-## Rendering, actions, and live data
+## 10. Rendering, actions, and live data
 
 The host resolves the requested Arbor path, loads one coherent executable-document version, passes its query string, evaluates mounted query reads, server-renders the component tree, and embeds only validated results plus public handle metadata. Hydration reuses those values.
 
 Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [wire protocol](04-wire.md#21-evaluate-and-stream-named-queries) and its separate named-mutation operation.
 
-Mutation handles are callable as form actions as well as typed imperative handles. The [authoring API](09-authoring-api.md#actions-and-forms)'s action adapter validates form input through the handle's schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. Successful return commits the runner-owned transaction; throwing rolls it back.
+Mutation handles are callable as form actions as well as typed imperative handles. The [authoring API](09-authoring-api.md#4-actions-and-forms)'s action adapter validates form input through the handle's schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. Successful return commits the runner-owned transaction; throwing rolls it back.
 
 Server exceptions, database diagnostics, private values, and stack traces never become action state. Expected public errors have stable codes, safe messages, retryability, and optional field errors. The durable receipt and authoritative query result may arrive in either order and are correlated idempotently. Optimistic presentation never displaces the subscribed result as the source of truth.
 
-## Portability and limits
+## 11. Portability and limits
 
 The same source document may be served by any compatible local runtime or
 server that provides its declared nodes, stores, and runtime features. A
@@ -257,13 +259,13 @@ For a query spanning transaction domains, the opaque `observedThrough` value rep
 
 Static baking may replace explicitly static query reads with compiled results. A document depending on user identity, live data, mutations, or hosted-only capabilities remains an executable-host requirement and cannot silently become static.
 
-## Agents
+## 12. Agents
 
 An agent is an executable document whose body is a prompt. It shares the
 no-ambient-authority rule, the consent statement, named handles, and mutation
 receipts defined above; this section adds only what is specific to agents.
 
-### Agent files
+### 12.1 Agent files
 
 An agent is an ordinary Markdown document. Its body is the primary instruction/prompt; frontmatter declares configuration such as model policy, named tools, context roots or queries, and transcript destination. Model/provider-specific tuning may be present as optional namespaced metadata, but the portable agent remains readable without a proprietary database. The portable frontmatter key set is not yet defined ([deferred 6](../spec.md#deferred)).
 
@@ -272,19 +274,19 @@ authored Markdown. Moving it preserves the stable key derived from its `id`
 property; execution uses the resolved tree/path and revision chosen by the
 caller.
 
-### Tools and context
+### 12.2 Tools and context
 
 Every runtime may expose Arbor's built-in read, navigate, search, backlinks,
 node-query, and mutation operations. The node-query surface includes schema-
 governed collection and relational capabilities when the addressed source
 provides them. An agent may additionally name compiled
-[executable-document](#modules-and-named-handles) query and mutation handles. Each
+[executable-document](#3-modules-and-named-handles) query and mutation handles. Each
 tool has a typed input/output boundary and retains tree/path provenance in its
 results.
 
 Context is assembled from explicit tree roots, locator selections, or deterministic query handles. It is not ambient retrieval over every host-readable file. Context results record their source locator and revision or observation cursor so a transcript can explain what the agent saw.
 
-### Confinement
+### 12.3 Confinement
 
 Before execution, the runtime resolves an effective namespace from:
 
@@ -295,15 +297,15 @@ Before execution, the runtime resolves an effective namespace from:
 
 The intersection is the complete authority. The agent and its tools cannot address a path, tree, credential, network target, or host capability outside it. A tool cannot widen the namespace of the agent that called it. Access changes during a run take effect before subsequent operations.
 
-This specification does not prescribe isolation technology, worker language, or process topology. The [no-ambient-authority rule](#authored-component-forms) applies to agents and their tools.
+This specification does not prescribe isolation technology, worker language, or process topology. The [no-ambient-authority rule](#2-authored-component-forms) applies to agents and their tools.
 
-### Consent and effects
+### 12.4 Consent and effects
 
-Before an effectful run, the client presents the [consent statement](#components-imports-and-consent) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
+Before an effectful run, the client presents the [consent statement](#6-components-imports-and-consent) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
 
 All tree effects pass through ordinary wire or store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct host-filesystem edit and label it an Arbor mutation. Ambiguous mutation retries reuse the original mutation identity.
 
-### Transcripts
+### 12.5 Transcripts
 
 An effectful run produces a readable transcript as ordinary tree content. It includes the agent identity/revision, caller-approved authority summary, model/runtime identity where available, ordered tool calls and results with secrets redacted, mutation receipts, failures, and final output. Large binary/tool payloads may be referenced by content hash rather than duplicated.
 

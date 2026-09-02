@@ -3,7 +3,9 @@
 TreeID identity, tree-relative paths, revisions, and DNS/Canopy canonical
 lookup.*
 
-## Forms
+*Owns: locator grammar, parsing, resolution, and the public HTTP projection. References: canonical boundary selection ([wire §4](04-wire.md#4-finding-trees)) and row segments ([stores](06-stores.md)).*
+
+## 1. Forms
 
 Portable Arbor content uses these locator forms:
 
@@ -42,7 +44,7 @@ Every successfully resolved node locator yields the same information:
  application query, content fragment)
 ```
 
-## Stable keys, revisions, and fragments
+## 2. Stable keys, revisions, and fragments
 
 When the node has a schema-derived stable key, the final raw path segment may
 carry `;arbor-key=<base64url-key>`. The value is the unpadded base64url encoding
@@ -123,7 +125,7 @@ Authors choose rename-healable node navigation or within-node navigation for
 that link. A later structured fragment form may add both without changing the
 three-part node reference.
 
-## Parsing and canonicalization
+## 3. Parsing and canonicalization
 
 An external URL parser separates the final raw segment's parameter block,
 beginning at its first `;arbor-`, before percent-decoding path components. A
@@ -141,7 +143,7 @@ the locator addresses the canonical root node itself.
 
 Authored `.md`, `.mdx`, `.tsx`, and `/_index.md` spellings may be accepted as input aliases, but emitted links and canonical locations use extensionless logical paths and the locator forms above.
 
-## Resolution rules
+## 4. Resolution rules
 
 - A canonical server path resolves to the longest readable registered boundary, as specified by [the wire](04-wire.md#4-finding-trees); an inaccessible nested boundary is not resolved through its parent.
 - A raw TreeID locator resolves independently of its current public name, using a verified endpoint hint or already-known server record.
@@ -152,7 +154,7 @@ Authored `.md`, `.mdx`, `.tsx`, and `/_index.md` spellings may be accepted as in
 
 Locator resolution is separate from rendering. A successful result always retains explicit tree scope so mounted/composed child actions, search results, backlinks, and historical reads cannot silently fall back to a parent's tree.
 
-## Public HTTP projection
+## 5. Public HTTP projection
 
 Readable canonical paths have safe HTTP and `arbor://` projections. HTML,
 Markdown, files, and redirects retain canonical tree/path provenance and never

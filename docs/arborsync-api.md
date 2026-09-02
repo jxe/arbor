@@ -54,7 +54,7 @@ resolution does not duplicate a `writable` flag.
 ## 2. Access and errors
 
 Access subjects, levels, and the `none` removal rule are defined once in
-[configuration](../spec/05-configuration.md#configuration-yaml). Configuration
+[configuration](../spec/05-configuration.md#2-configuration-yaml). Configuration
 and mutation requests use the wire's `AccessRule`; safe administrative
 responses use `AccessEntry`, whose link subject exposes neither raw secret nor
 digest ([wire §3.2](../spec/04-wire.md#32-shared-values-and-descriptors)).
@@ -286,7 +286,7 @@ type WriteProperties = {
 Its semantics—complete map, omitted keys as deletions, explicit `null` as a
 value, immutable identity properties, and exact Markdown body preservation—are
 specified once in the
-[directory format](../spec/02-directory-format.md#properties-markdown-content-and-identity);
+[directory format](../spec/02-directory-format.md#3-properties-markdown-content-and-identity);
 rollup and database row writes follow [stores](../spec/06-stores.md).
 Identity-less rows and file-rollup membership remain read-only. Named
 executable mutations remain the surface for authorization, multi-row work,

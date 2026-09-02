@@ -112,7 +112,7 @@ A workspace may contain local folders, SQLite databases, connected stores, and A
 Working documents:
 
 - **[intro.md](intro.md)** — narrative introduction and pitch: from the agent-playground problems (sharing/syncing, human interface, containment) to a universal dynamic material that supersedes the web.
-- **[spec.md](spec.md)** — aspirational spec overview, v0.8, split into portable contracts for authored format, locators, synchronized configuration, stores, executable documents, agents, and the cross-server wire.
+- **[spec.md](spec.md)** — aspirational spec overview, v0.8, split into portable contracts for authored format, locators, synchronized configuration, stores, executable documents and agents, the authoring API, and the cross-server wire.
 - **[plan/](plan/README.md)** — active outcome and cross-cutting workstreams plus preserved planning history.
 - **[docs/client.md](docs/client.md)** — non-normative Arbor client interaction design.
 - **[docs/reference-implementation.md](docs/reference-implementation.md)** — replaceable Bun/TypeScript/Swift architecture, private-state mechanics, and verification details.

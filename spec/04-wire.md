@@ -1,6 +1,8 @@
 # Arbor Wire API
 *Part of the [Arbor spec](../spec.md): the portable wire protocol for community identity, governed configuration, immutable trees, synchronization, executable-document data, access, and observation.*
 
+*Owns: every endpoint, wire value, encoding, digest, and how the server enforces the account-configuration policy. References: the configuration YAML contract ([configuration](05-configuration.md)) and revisions ([data model §6](01-data-model.md#6-revisions-and-equivalence)).*
+
 An Arbor server represents one community. It owns accounts and profile
 claims, canonical tree boundaries, the private account-configuration trees,
 credential bindings, ACL enforcement, one mutable accepted ref per tree,
@@ -20,7 +22,7 @@ conforming server is more than a content-addressed store. It implements:
   restricted runtime that executes `schema.ts` to recompute schema
   fingerprints and model digests ([§3.3](#33-deterministic-lossless-encoding-and-tree-scoped-authorization));
 - profile claims, device pairing, access evaluation, and the public HTTP
-  projection ([§4](#4-finding-trees), [§5](#5-accounts-and-devices), [locators](03-locators.md#public-http-projection)).
+  projection ([§4](#4-finding-trees), [§5](#5-accounts-and-devices), [locators](03-locators.md#5-public-http-projection)).
 
 Hosting executable documents ([§2](#2-executable-document-operations)) is
 optional; a server without that runtime answers those routes with
@@ -746,7 +748,7 @@ type ObservationEvent<TKind extends string, TChange> = {
 administrative form, and a `SafeAccessSubject` never carries a link digest or
 secret. `NodeRef` is the sole tree/path/identity carrier: `stableKey` is
 `null` or the canonical key JSON defined by
-[locators](03-locators.md#stable-keys-revisions-and-fragments). The
+[locators](03-locators.md#2-stable-keys-revisions-and-fragments). The
 node-sampling values built on `NodeRef` (`NodeSummary`, `NodeSnapshot`,
 `ChildrenPage`, and their capabilities) are not wire operations; the reference
 local API documents them in
@@ -940,7 +942,7 @@ accepted-update, merge, replica, and watch machinery.
 The complete path, YAML, per-device write rule, and semantic-merge contract,
 including what the server validates and applies atomically with each accepted
 root, is normative in
-[configuration](05-configuration.md#governed-account-tree). Incompatible
+[configuration](05-configuration.md#3-governed-account-tree). Incompatible
 same-field edits return `conflict` with exact typed `account-configuration`
 details and a private draft snapshot; resolution is a later explicit candidate.
 
@@ -981,7 +983,7 @@ The response is a snapshot envelope of safe `AccessEntry`s. Steady-state ACL
 mutation occurs by editing the authenticated account's `trees.yaml`; there is
 no separate access-mutation endpoint. Rule subjects, levels, and the `none`
 removal rule are defined once in
-[configuration](05-configuration.md#configuration-yaml). An access-link secret
+[configuration](05-configuration.md#2-configuration-yaml). An access-link secret
 is generated and shown locally once; only its digest is submitted in
 configuration, and a safe entry exposes neither.
 

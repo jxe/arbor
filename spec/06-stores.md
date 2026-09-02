@@ -1,7 +1,9 @@
 # Stores and collections
 *Part of the [Arbor spec](../spec.md): backing-independent child behavior over Markdown, CSV, JSON, JSONL, SQLite, external stores, and placement projections.*
 
-## Common collection contract
+*Owns: the collection contract, row identity and ordering, observation precision, file, SQLite, and Postgres backings, placement projections, and migration. References: the query language ([executable documents](07-executable-documents.md)) and the property write ([data model](01-data-model.md)).*
+
+## 1. Common collection contract
 
 A collection is not a separate logical node kind. It is a node whose immediate
 children share a declared record schema, stable identity rules, and provider
@@ -30,7 +32,7 @@ A conforming store supplies:
 
 Portable collection queries and mutations have the same meaning across backings. Backing-specific relational operations may exist only where the addressed database provides them and must be identified as backing-coupled.
 
-### Physical representations
+### 1.1 Physical representations
 
 Expanded child files and rolled-up child sets are representations of the same
 logical nodes. `_store.csv`, `_store.json`, and `_store.jsonl` represent the
@@ -55,13 +57,13 @@ logical checkpoint for synchronization or recovery, but that checkpoint is not
 the revision of ordinary reads and never consists of database page, WAL, or
 provider storage bytes.
 
-### Queries over collections
+### 1.2 Queries over collections
 
 The query language—its portable baseline of predicate filtering, explicit field
 picking, and cardinality; its capability extensions for relationships, joins,
 aggregates, authored ordering, and pagination; plan-callback confinement; and
 the one-transaction-per-mutation rule—is specified once in
-[executable documents](07-executable-documents.md#queries). A database relation
+[executable documents](07-executable-documents.md#4-queries). A database relation
 or schema-governed collection is a typed node set within that language, not a
 separate query universe. A provider may compile a plan to SQL or another native
 plan but cannot change its meaning, and an unsupported extension fails before
@@ -74,7 +76,7 @@ This specification adds only the facts a store owns:
   serializable, and independent of row position, SQLite `rowid`, display
   label, or query plan. A row's third reference component is its canonical key
   JSON as defined by
-  [locators](03-locators.md#stable-keys-revisions-and-fragments); each key
+  [locators](03-locators.md#2-stable-keys-revisions-and-fragments); each key
   field's Standard Schema output must be a JSON string, boolean, or finite
   number, and a backing value not exactly representable in one of those forms
   is normalized to a string by the schema first. Changing a key is observed as
@@ -112,7 +114,7 @@ This specification adds only the facts a store owns:
   imprecise database invalidation, and cross-file foreign-key atomicity is not
   implied.
 
-### Revisions and committed change observation
+### 1.3 Revisions and committed change observation
 
 Every store read is associated with a coherent read boundary and returns the
 observation cursor it read through. File stores also name a source revision.
@@ -151,7 +153,7 @@ mechanism that can distinguish a completed commit from an unexecuted intent
 after restart. The identity itself is defined by
 [wire §2.2](04-wire.md#22-execute-named-mutations).
 
-## File-backed collections
+## 2. File-backed collections
 
 A file-backed collection contains `schema.ts` exporting
 `export const schema = z.object(...)`, an optional declared primary key, and
@@ -209,9 +211,9 @@ to collection invalidation. Reordering lines does not change identity.
 
 Mixing backing shapes produces a diagnostic and disables collection-level interpretation without making the underlying files inaccessible. Invalid rows are diagnostics, not daemon crashes or silent deletion.
 
-The schema evaluator accepts the authored schema and its declared schema-library import under the [no-ambient-authority rule](07-executable-documents.md#authored-component-forms), with finite resource bounds. This specification does not prescribe evaluator technology or generated-file layout.
+The schema evaluator accepts the authored schema and its declared schema-library import under the [no-ambient-authority rule](07-executable-documents.md#2-authored-component-forms), with finite resource bounds. This specification does not prescribe evaluator technology or generated-file layout.
 
-## SQLite
+## 3. SQLite
 
 `_store.sqlite3` makes the enclosing folder SQLite-backed. If `schema.ts` selects a collection/table, the folder is that collection; otherwise each introspected user table appears as a child collection of a database container. An ordinarily named `.sqlite3` file remains browsable as a database node but does not absorb its enclosing folder.
 
@@ -227,7 +229,7 @@ External-write observation must detect committed changes made through other proc
 
 A server-hosted SQLite executable document coordinates committed writes with accepted updates for the containing tree, durably records mutation completion before acknowledgement, and advances the tree only from a consistent database state. Changing backing at the same logical database path does not change portable handles.
 
-## Postgres and placement projections
+## 4. Postgres and placement projections
 
 `_store.yaml` is the driver-dispatched, non-secret external-store descriptor.
 For Postgres it contains:
@@ -300,15 +302,15 @@ SQLite edit has no intent and is submitted as candidate logical state through
 tree updates; ambiguous cascades or constraint interactions conflict. Direct
 external writes to the managed authority Postgres are unsupported.
 
-## Data disclosure
+## 5. Data disclosure
 
 Collection access and executable-document result access are distinct. Publishing a component or query result does not make the backing tree, SQLite file, Postgres connection, or unrelated rows readable. Conversely, putting public and private rows in a publicly readable Arbor tree exposes the backing bytes regardless of query filters. Sites containing row-private data keep the raw data boundary private to the source tree's execution principal or split data into separate Arbor trees, then expose only validated query results.
 
-## Schema identity
+## 6. Schema identity
 
 Schema information and explicit relationship declarations are mapped to canonical tree-rooted collection paths so executable source remains portable across placements. Relative collection references resolve against the source tree and path before use. A database schema, file schema, or relationship change changes the corresponding schema fingerprint and invalidates dependent compiled handles. Derived declarations, caches, and introspection artifacts are not authored tree content or portable artifacts.
 
-## Store migration
+## 7. Store migration
 
 Replacing Markdown/CSV/JSON/JSONL rows with `_store.sqlite3`, or replacing one
 supported representation/provider with another, preserves the logical

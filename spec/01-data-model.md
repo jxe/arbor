@@ -2,6 +2,8 @@
 *Part of the [Arbor spec](../spec.md): the global TreeID space, trees, nodes,
 structured data, projections, and equivalence.*
 
+*Owns: the TreeID space, nodes, canonical lookup, the property write, revisions, equivalence, and the glossary of identities. References: every projection.*
+
 ## 1. The global TreeID space
 
 Arbor is conceptually a global hash table of trees:
@@ -42,8 +44,8 @@ with the [write guard](#6-revisions-and-equivalence) the writer observed: omitte
 JSON `null` is retained as a value, content and children are untouched, a
 stale revision is rejected, and a property selected by the applicable identity
 declaration cannot change. Projections add only what their representation
-requires, as the [directory format](02-directory-format.md#properties-markdown-content-and-identity)
-and [stores](06-stores.md#file-backed-collections) specify.
+requires, as the [directory format](02-directory-format.md#3-properties-markdown-content-and-identity)
+and [stores](06-stores.md#2-file-backed-collections) specify.
 
 Arbor trees can be mounted inside other arbor trees, but they remain a separate entry in the global TreeID map. A placement may present it below a node in another tree, but its
 nodes, history, access, and mutations are not copied into that parent.
@@ -139,7 +141,7 @@ Two representations of one model state have different source revisions and
 the same model digest. That is expected, and it is why the wire root is not a
 logical hash. A database row's digest is cheap, so it is that row's write
 guard; a live database does not maintain a digest for a whole table and says
-so by returning a cursor instead. [Stores](06-stores.md#revisions-and-committed-change-observation)
+so by returning a cursor instead. [Stores](06-stores.md#13-revisions-and-committed-change-observation)
 defines observation precision.
 
 A write guard names a source revision when the write edits a representation,
@@ -163,3 +165,27 @@ Equivalence has two levels:
   JSON, SQLite, and Postgres may therefore be equivalent representations of
   one collection even though none is the canonical serialization of the
   others.
+
+## 7. Identities and revisions
+
+Every identifier and change token the specification uses, in one place. The
+[revisions](#6-revisions-and-equivalence) section defines the three change
+primitives; this table says who mints each token, where it travels, and what
+it survives.
+
+| Token | Identifies | Minted by | Appears in | Survives |
+|---|---|---|---|---|
+| `TreeID` | one logical tree and its history | the declaring client: `tr_` plus 26 base32 characters | every wire operation, `trees.yaml`, locators, `NodeRef` | rename, move, re-placement, and any change of canonical name |
+| `DeviceID` | one credential binding for one account | the device: `dv_` plus 26 base32 characters | `devices/<DeviceID>.yaml`, `admins` | everything except deletion of its file, which retires it |
+| `PairingID` | one short-lived pairing secret | the server | the pairing claim route ([wire §5.2](04-wire.md#52-device-pairing)) | nothing; it is single use |
+| stable key | one keyed node within its declaring keyspace | the schema's identity rule, as canonical key JSON | `NodeRef.stableKey`, `;arbor-key=`, the Markdown alias, row segments ([locators §2](03-locators.md#2-stable-keys-revisions-and-fragments)) | rename, move, reformat, and representation migration |
+| source revision | one exact representation | hashing the bytes | object hashes, wire roots, `ref`, `base`, `candidate`, and editor write guards | nothing that changes a byte |
+| model digest | one model state | hashing the canonical CBOR of the model | `RollupDescriptor.modelDigest`, projection state, equivalence claims | reformatting, representation migration, and merges that preserve the model |
+| observation cursor (`EventCursor`, `QueryCursor`) | a position in one provider's committed-change stream | the provider | `observedThrough`, the watch `after` parameter, receipts, dependency plans | nothing; it only orders |
+| accepted update `id` | one accepted transition of one tree | the server's observation ordinal | `AcceptedUpdate.id`, `UpdateRequest.base`, `tree.ref` frame ids ([wire §1.5](04-wire.md#15-watch-accepted-transitions)) | it is that update's cursor by construction |
+| `requestDigest` | the semantic intent of one update or mutation | canonical CBOR of `updates-v1` or `mutate-v1` | update results, the submitter's `tree.ref` events, mutation receipts | retransmission with different objects or deltas |
+| `mutationID` | one caller's mutation attempt | the caller | `MutateRequest`, receipts ([wire §2.2](04-wire.md#22-execute-named-mutations)) | exact retries; reuse with a different digest conflicts |
+| `outputHash` | one complete public query result | canonical CBOR of the result | query `result` and `ready` events, placement projections | provider or plan changes that leave the result identical |
+| schema fingerprint | one compiled schema | executing `schema.ts` or introspecting a database | `RollupDescriptor.schema`, manifests, activated bindings, dependency plans | nothing that changes the compiled schema |
+| code version | one compiled handle or document | the compiler | `QueryHandleRef.version`, `document.version`, manifests ([executable documents §3](07-executable-documents.md#3-modules-and-named-handles)) | moving the source tree; not a code change |
+| access-link digest | one access link | hashing the secret | `trees.yaml` ACL subjects, `AccessSubject` ([configuration §2](05-configuration.md#2-configuration-yaml)) | the secret is never shown again; deleting the rule revokes it |

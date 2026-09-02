@@ -1,7 +1,9 @@
 # Synchronized configuration
 *Part of the [Arbor spec](../spec.md): the governed account-configuration tree shared by devices and servers.*
 
-## Configuration graph
+*Owns: the configuration graph, YAML forms, write rules, and semantic merge. References: [wire §6](04-wire.md#6-governing-trees) for how the server applies it.*
+
+## 1. Configuration graph
 
 Each account has one private `account-configuration` Arbor tree with this complete graph layout:
 
@@ -15,7 +17,7 @@ Each account has one private `account-configuration` Arbor tree with this comple
 
 The server rejects every other graph path, including `.state`. The tree must not declare itself in `trees.yaml` or appear in a device's placements. It is private, noncanonical, and governed control content despite using ordinary immutable Arbor objects and synchronization. Local checkout, private-state, migration, and credential-storage choices are outside this specification.
 
-## Configuration YAML
+## 2. Configuration YAML
 
 The three configuration forms are ordinary human-editable UTF-8 YAML:
 
@@ -87,7 +89,7 @@ coherent remote query state, may serve the last completely applied output hash
 and scoped model digest offline, and rejects local mutations and direct database
 writes. A bidirectional projection
 may additionally publish provisional named mutations and candidate state under
-the [store replication contract](06-stores.md#postgres-and-placement-projections).
+the [store replication contract](06-stores.md#4-postgres-and-placement-projections).
 Projection files, paths, applied output hashes/model digests, queues, and
 readiness are private state;
 only the requested driver and mode belong to synchronized placement YAML.
@@ -121,7 +123,7 @@ A syntactically or semantically invalid candidate cannot become the accepted
 configuration. Generated IDs, status, retry state, and normalized YAML are not
 inserted into accepted user-authored files.
 
-## Governed account tree
+## 3. Governed account tree
 
 For storage, immutable objects, snapshots, accepted updates, merging, replicas,
 and observation, the account-configuration tree is an ordinary private Arbor

@@ -2,7 +2,9 @@
 *Part of the [Arbor spec](../spec.md): one human-editable filesystem/Markdown
 projection of the [Arbor data model](01-data-model.md).*
 
-## Projection boundary
+*Owns: how files, directories, frontmatter, `_index.md`, child placement, profiles, and reserved names map to nodes. References: stable keys ([locators](03-locators.md)) and the property write ([data model](01-data-model.md)).*
+
+## 1. Projection boundary
 
 This format is not the Arbor ontology. It maps ordinary directory entries,
 Markdown/frontmatter, reserved store files, and child-placement syntax to the
@@ -16,7 +18,7 @@ state, so its writes are guarded by [source revisions](01-data-model.md#6-revisi
 file bytes, frontmatter spelling/order/comments, and reserved rollup bytes
 change the source revision even when the model digest is unchanged.
 
-## Mapping files and directories to nodes
+## 2. Mapping files and directories to nodes
 
 One of `x.md`, `x.mdx`, or `x.tsx` supplies content for logical path `/x`; sibling directory `x/` supplies its children. `.md` supplies non-executable Markdown, while `.mdx` and a default-exporting `.tsx` may supply an executable component body as specified by [executable documents](07-executable-documents.md). When no sibling body exists, `x/_index.md` is the Markdown directory-content fallback. URLs, links, API paths, and visible names use extensionless logical paths.
 
@@ -24,7 +26,7 @@ One content file and `x/` therefore coexist as one logical node. Creating a chil
 
 More than one sibling content representation—such as `x.md` with `x.mdx`—is ambiguous. Sibling content together with `x/_index.md` is also ambiguous. A conforming implementation reports `duplicate-body-representation` and refuses rendering or mutation of that logical node until a person explicitly chooses which representation remains. Rename, move, copy, trash, and restore treat sibling content and its directory as one logical unit and never silently merge an occupied destination.
 
-## Properties, Markdown content, and identity
+## 3. Properties, Markdown content, and identity
 
 Markdown frontmatter is the Markdown provider's authored serialization of node
 properties; the remainder is the node's Markdown content. The property API and
@@ -42,7 +44,7 @@ though the logical Markdown body is byte-for-byte unchanged.
 A materialized Markdown document may carry an opaque durable `id`. This
 projection historically calls its value a `PageID`; in the common data model it
 is simply the stable key selected by the tree's identity declaration, encoded
-and addressed as [locators](03-locators.md#stable-keys-revisions-and-fragments)
+and addressed as [locators](03-locators.md#2-stable-keys-revisions-and-fragments)
 specify. `id`
 remains visible as an ordinary property, but it cannot be changed through an
 ordinary property update and remains stable across rename and move.
@@ -66,7 +68,7 @@ and whitespace are projection concerns even when the modeled properties are
 semantically unchanged. Editor block IDs and caches are neither modeled nor
 authored source.
 
-## Complete documents for nodes with children
+## 4. Complete documents for nodes with children
 
 When this format projects a node with children and without executable content,
 it exposes one operational Markdown document. The directory provider forms it
@@ -97,14 +99,14 @@ Links use [Arbor locators](03-locators.md). Relative and tree-rooted logical
 paths are valid within a resolved tree; cross-tree links use canonical or raw
 TreeID locators. Any schema-identified node may use the Markdown-compatible
 `#arbor-key=<base64url-key>` relative-link alias defined by
-[locators](03-locators.md#stable-keys-revisions-and-fragments). When its readable path and
+[locators](03-locators.md#2-stable-keys-revisions-and-fragments). When its readable path and
 valid stable key disagree, the key selects the node within its declaring
 keyspace and the authored content may be healed through an ordinary mutation. The alias
 and application query survive healing unchanged. Arbor renderers translate the
 alias to the server-visible path suffix before emitting HTTP links. Nodes with a
 null stable key remain path-identified.
 
-## Profiles and groups
+## 5. Profiles and groups
 
 Person and group profiles are complete Arbor trees with ordinary root Markdown:
 
@@ -121,7 +123,7 @@ members:
 
 The profile tree's `TreeID`, not its mutable title or root `PageID`, is the stable person or group identity. The root document's `type: person` or `type: group` is the sole declaration of a profile's kind; wire tree descriptors carry no profile kind, and the server enforces `type: person` at an account's profile tree and `type: group` at the community root without validating `type:` elsewhere. Group membership is the authored `members` list. Membership does not itself grant write access to the group tree.
 
-## Recognized authored files
+## 6. Recognized authored files
 
 - `schema.ts` declares a file-backed collection row schema as specified by [stores](06-stores.md).
 - `_store.csv`, `_store.json`, `_store.jsonl`, `_store.sqlite3`, and
@@ -130,11 +132,11 @@ The profile tree's `TreeID`, not its mutable title or root `PageID`, is the stab
   not imply Postgres.
 - `.ts` and `.tsx` files may define Arbor handles, components, and executable documents as specified by [executable documents](07-executable-documents.md).
 - `.mdx` files may define explicit executable component documents as specified by [executable documents](07-executable-documents.md).
-- Markdown files may define agents as specified by [executable documents](07-executable-documents.md#agents).
+- Markdown files may define agents as specified by [executable documents](07-executable-documents.md#12-agents).
 
 These recognizers do not make generated declarations, compiled bundles, database credentials, or execution transcripts part of this format unless they are themselves deliberately authored ordinary tree content.
 
-## Reserved names and sidecars
+## 7. Reserved names and sidecars
 
 - `_index.md` is the fallback body for its directory and is never exposed as a child.
 - `_store.*` names select the enclosing collection's backing and are not ordinary row children.
