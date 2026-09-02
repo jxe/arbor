@@ -12,6 +12,7 @@ dependency column controls execution order.
 | [005](005-database-observation-and-semantic-sync.md) | Replace whole-database revision stand-ins with transaction snapshots, committed observation cursors, logical effects, and reviewed semantic synchronization | P1 | PLANNED — observation/checkpoint design requires review | 002; 007; 004; 001 for bidirectional projection |
 | [006](006-native-offline-rollup-row-projection.md) | Present synchronized CSV/JSON/JSONL rows through native offline replicas | P2 | DEFERRED — preserve Wire rollups losslessly until native offline row browsing is required | 002; Applications 003 execution decisions |
 | [007](007-provider-runtime-ownership.md) | Give every projection backing one runtime owner and make Arbor Sync provider-neutral | P0 | COMPLETE | 002 |
+| [008](008-locator-identity-surfaces.md) | Give the stable key one spelling per surface and one segment-parameter grammar, listed in one table | P2 | PLANNED — decide the Markdown alias, row-segment, and legacy-input questions first | 003; remove-later 001 |
 
 Historical [Data 002](../history/data/002-reconcile-node-data-model.md) and
 completed [Data 007](007-provider-runtime-ownership.md) are the architectural
