@@ -412,7 +412,7 @@ function startArborSyncServer(
   const server = Bun.serve({
     port: options.port ?? 4317,
     hostname: options.hostname ?? "127.0.0.1",
-    async fetch(request) {
+    async fetch(request, server) {
       const url = new URL(request.url);
       try {
         assertSameOrigin(request, url);
@@ -512,6 +512,8 @@ function startArborSyncServer(
               headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" },
             });
           }
+          // Event streams stay open indefinitely; lift Bun's per-connection idle timeout for them.
+          server.timeout(request, 0);
           return new Response(service.events.stream(after, request.signal), {
             headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" },
           });
@@ -520,6 +522,7 @@ function startArborSyncServer(
         if (request.method === "QUERY" && queryRoute) {
           if (!options.queryRuntime) return errorResponse("unsupported-operation", "No query runtime is active", 422);
           const treeID = decodeURIComponent(queryRoute[1]!);
+          server.timeout(request, 0);
           return treeQueryResponse(options.queryRuntime, request, treeID, options.queryUser ?? null);
         }
         const mutateRoute = /^\/\.arbor\/trees\/([^/]+)\/mutate$/.exec(url.pathname);

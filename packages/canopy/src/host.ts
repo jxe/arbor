@@ -191,7 +191,7 @@ export async function serveCanopy(options: {
   const server = Bun.serve({
     port: options.port ?? Number(process.env.PORT ?? 4318),
     hostname: options.hostname ?? "0.0.0.0",
-    async fetch(request) {
+    async fetch(request, server) {
       const url = new URL(request.url);
       const authentication = canopy.authenticateToken(bearer(request));
       const account = authentication?.account ?? null;
@@ -202,6 +202,7 @@ export async function serveCanopy(options: {
           const treeID = decodeURIComponent(queryRoute[1]!);
           const tree = canopy.get(treeID);
           if (!tree || !canopy.canRead(account, treeID, linkDigest(request))) return wireError("not-found", "Tree not found", 404);
+          server.timeout(request, 0);
           return treeQueryResponse(
             options.queryRuntime,
             request,
@@ -442,6 +443,8 @@ export async function serveCanopy(options: {
         if (watch && request.method === "GET") {
           const tree = canopy.get(decodeURIComponent(watch[1]!));
           if (!tree || !canopy.canRead(account, tree.id, linkDigest(request))) return new Response("Not found", { status: 404 });
+          // Watch streams stay open indefinitely; lift Bun's per-connection idle timeout for them.
+          server.timeout(request, 0);
           const encoder = new TextEncoder();
           const credentialSubject = authentication?.subject;
           const access = canopy.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read";
