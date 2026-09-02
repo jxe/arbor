@@ -18,6 +18,23 @@ not evidence that the live volume has been inspected or changed.
 
 ## Live-volume rehearsal
 
-Not run. Do not perform the live cutover until the archive restore, root
-comparison, served verification, and authored-manifest checks in the runbook
-are recorded here.
+### 2026-09-02
+
+- Created `/data/backups/2026-09-02-collection-file-wire/volume.tar` while the
+  schema-3 image remained healthy. The vacuumed database matched the live
+  database on every checked row count: 9 trees, 11 accepted updates, 11
+  observations, 11 reflog rows, 2 accounts, and 11 devices.
+- Downloaded the archive to
+  `/Users/joe/arbor-migration-2026-09-02/collection-file-wire/volume.tar`; its
+  checksum matched the value produced on the volume.
+- Restored independent `before` and `migrated` copies. Migration 002 advanced
+  only the copy from schema 3 to 4. The live data contained no legacy
+  collection-file directory: all 9 roots were unchanged, 0 objects were
+  rewritten, 128 reachable objects were retained, and 2 history-only objects
+  were pruned from the migrated copy.
+- `compare-canopy-roots.ts` reported every root unchanged and completed with
+  `OK`. A schema-4 server over the migrated copy passed `verify.ts` against all
+  current public roots and the five idle Mac placements.
+- With every Mac placement idle, wrote an authored manifest covering 111 files
+  and copied the complete Arbor data home to `dot-arbor.before`. Do not deploy
+  until the iPhone migration-001 closeout and quiescence gate is confirmed.
