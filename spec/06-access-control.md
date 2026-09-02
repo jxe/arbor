@@ -6,6 +6,8 @@
 ## 1. Subjects and rules
 
 ```ts
+type ReadWriteAccess = "read" | "write";
+
 type AccessSubject =
   | { kind: "everyone" }
   | { kind: "profile"; tree: TreeID }

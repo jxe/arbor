@@ -54,7 +54,7 @@ not invent a whole-database bytes hash or model hash.
 
 Reformatting JSON or CSV changes the bytes hash and not the model hash,
 and a representation migration may preserve the digest while changing every
-byte ([model §4](01-tree-operations.md#14-change-and-equivalence)). Updates name the complete candidate tree and may carry
+byte ([tree reads §1.5](01-tree-operations.md#15-equality-after-a-read)). Updates name the complete candidate tree and may carry
 compact patches to representation bytes, but the authority decodes
 base/current/candidate under quotas, merges by stable node identity where safe,
 validates the complete schema and constraints, and computes the accepted model
@@ -191,7 +191,7 @@ its bytes hash, validates the complete key set and requested effects, writes and
 fsyncs a complete replacement, atomically renames it, and fsyncs the containing
 directory where supported. Retry identity and acknowledgement remain owned by
 the mutation contract.
-A [property write](01-tree-operations.md#14-change-and-equivalence) on a row must
+A [property write](01-tree-operations.md#22-what-the-write-matches) on a row must
 match the row's model hash and must preserve the declared key. A logical no-op leaves the source byte-identical. A direct row-property
 write cannot add, remove, or reorder rows.
 Multi-row mutations preserve row order unless the mutation

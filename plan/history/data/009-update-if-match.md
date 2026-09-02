@@ -5,7 +5,7 @@
 - **Priority:** P0
 - **Effort:** L
 - **State:** DONE on 2026-09-02: code, tests, and the live cutover through migrations/001. Spec:
-  [synchronization §3](../../../spec/01-tree-operations.md#22-updating-a-tree), [model §4](../../../spec/01-tree-operations.md#14-change-and-equivalence).
+  [updates §2.1](../../../spec/01-tree-operations.md#21-the-update-request), [tree reads §1.5](../../../spec/01-tree-operations.md#15-equality-after-a-read).
   Remaining gap: `wire-endpoints.json` has no merged or conflict case; capture one from a real
   server when the endpoint vectors are next regenerated.
 - **Depends on:** the `arbor://<TreeID>` locator change (landed 2026-09-02). Ships through

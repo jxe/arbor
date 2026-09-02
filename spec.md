@@ -43,7 +43,7 @@ Five concepts organize the system:
 
 1. The **global TreeID space** maps stable tree identities to logical trees without requiring one global store or discovery service.
 2. An **Arbor tree** is an independent `TreeID`, rooted hierarchy of nodes, history, synchronization stream, and whole-tree permission boundary.
-3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other roles listed in the [model](spec/01-tree-operations.md#13-one-node-shape-for-every-kind-of-data) are roles rather than competing kinds, while expanded files, collection files, databases, and external stores are interchangeable backings where their represented model agrees.
+3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other [node readings](spec/01-tree-operations.md#nodes-children-and-readings) are roles rather than competing kinds, while expanded files, collection files, databases, and external stores are interchangeable [representations](spec/01-tree-operations.md#representations) where their represented model agrees.
 4. A **canonical URL lookup** first uses DNS to place a Canopy authority, then resolves that Canopy's longest readable registered boundary back to TreeID and path.
 5. An **executable document** or **agent** is a node whose reviewed capabilities bound its reads, writes, tools, and effects.
 
@@ -81,16 +81,16 @@ Every HTTP route an Arbor server exposes, and the section that defines it.
 | Route | Defined in |
 |---|---|
 | `GET /.arbor/health`, `GET /.arbor/account`, `GET /.arbor/trees`, `GET /.well-known/arbor[/{path}]` | [locators §5](spec/04-locators.md#5-finding-trees) |
-| `GET /.arbor/trees/{TreeID}/ref`, `/snapshot`, `/objects/{hash}` | [tree reads §1.8](spec/01-tree-operations.md#18-reading-a-tree) |
-| `POST /.arbor/trees/{TreeID}/updates` | [updates §2.2](spec/01-tree-operations.md#22-updating-a-tree) |
-| `GET /.arbor/trees/{TreeID}/watch` | [watching §3.1](spec/01-tree-operations.md#31-watching-a-tree) |
+| `GET /.arbor/trees/{TreeID}`, `/snapshot`, `/objects/{hash}` | [tree reads §1.1–1.3](spec/01-tree-operations.md#11-reading-the-current-tree) |
+| `POST /.arbor/trees/{TreeID}/updates` | [updates §2.1](spec/01-tree-operations.md#21-the-update-request) |
+| `GET /.arbor/trees/{TreeID}/watch` | [watching §3.1](spec/01-tree-operations.md#31-the-watch-endpoint-and-event-values) |
 | `QUERY /.arbor/trees/{TreeID}/queries` | [executable documents §12.1](spec/08-executable-documents.md#121-evaluate-and-stream-named-queries) |
 | `POST /.arbor/trees/{TreeID}/mutate` | [executable documents §12.2](spec/08-executable-documents.md#122-execute-named-mutations) |
 | `GET /.arbor/trees/{TreeID}/access` | [access control §4](spec/06-access-control.md#4-reading-access) |
 | `PUT /.arbor/claims/{handle}` | [accounts §1.1](spec/05-accounts-and-devices.md#11-profile-claim) |
 | `POST /.arbor/pairings`, `PUT /.arbor/pairings/{PairingID}/claim` | [accounts §4](spec/05-accounts-and-devices.md#4-device-pairing) |
 
-Authentication headers apply to every route ([access control §2](spec/06-access-control.md#2-authentication-and-secrets)); shared values are introduced with [tree reads §1.6](spec/01-tree-operations.md#16-shared-foundation-values), while SSE framing and the error envelope are in [watching §3.2](spec/01-tree-operations.md#32-streams-and-errors).
+Authentication headers apply to every route ([access control §2](spec/06-access-control.md#2-authentication-and-secrets)); shared read values are introduced with [tree reads §1.1](spec/01-tree-operations.md#11-reading-the-current-tree), while SSE framing and common errors are in [watching §3.5](spec/01-tree-operations.md#35-stream-framing-and-errors).
 
 ## Component roles
 
@@ -114,9 +114,9 @@ mention links here; the [roadmap](plan/roadmap.md) owns their sequencing.
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](spec/08-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](spec/08-executable-documents.md#4-queries)).
 3. **External side effects and cross-domain workflows** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](spec/08-executable-documents.md#5-mutations)).
 4. **Bidirectional placement projections**: the full-duplex contract behind `mode: bidirectional` ([child backings](spec/07-child-backings.md#4-postgres-and-placement-projections)).
-5. **Database change-log and checkpoint format** for synchronizing SQLite and Postgres placements ([model and Wire §5](spec/01-tree-operations.md#15-accepted-state-and-canonical-wire-encoding)).
+5. **Database change-log and checkpoint format** for synchronizing SQLite and Postgres placements ([child backings §1.1](spec/07-child-backings.md#11-child-backings)).
 6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](spec/08-executable-documents.md#131-agent-files)).
 7. **A relative Markdown link carrying both a stable key and a content fragment** ([locators](spec/04-locators.md#2-stable-keys-revisions-and-fragments)).
 8. **Portable authored ordering, relationships, joins, aggregates, and pagination** in the query language; today they are capability extensions ([executable documents](spec/08-executable-documents.md#4-queries)).
 9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](spec/04-locators.md#1-forms)).
-10. **A write grant limited to `ifMatch: "modelHash"`.** An update matching on the bytes hash can replace a tree's exact state; one matching on model hashes can only contribute to it. `AccessLevel` does not yet distinguish the two ([synchronization §3](spec/01-tree-operations.md#22-updating-a-tree), [access control §4](spec/06-access-control.md#4-reading-access)).
+10. **A write grant limited to `ifMatch: "modelHash"`.** An update matching on the bytes hash can replace a tree's exact state; one matching on model hashes can only contribute to it. `AccessLevel` does not yet distinguish the two ([updates §2.2](spec/01-tree-operations.md#22-what-the-write-matches), [access control §4](spec/06-access-control.md#4-reading-access)).

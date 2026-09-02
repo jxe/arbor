@@ -10,16 +10,26 @@ credentials or access-link secrets.
 
 ## 1. Shared values
 
-REST v1 reuses the wire's transport-neutral values—`TreeID`, `LogicalPath`,
-`EventCursor`, `Hash`, `JSONValue`, `Diagnostic`, `AccessLevel`,
-`ReadWriteAccess`, `TreeKind`, `TreeDescriptor`, `RemoteTreeDescriptor`,
-`AccessSubject`, `AccessRule`, `SafeAccessSubject`, `AccessEntry`, `NodeRef`,
-`ArborError`, and `ObservationEvent`—exactly as defined in
-[model and Wire §6](../spec/01-tree-operations.md#16-shared-foundation-values).
-It adds only the following:
+REST v1 reuses the portable model, read, locator, access, update, and
+observation values defined across the specification. In particular,
+`TreeID`, `LogicalPath`, `JSONValue`, and `NodeRef` come from the
+[Arbor data model](../spec/01-tree-operations.md#the-arbor-data-model), while
+`EventCursor`, `Hash`, `AccessLevel`, `TreeKind`, `TreeDescriptor`, and
+`RemoteTreeDescriptor` come from the
+[current-tree read](../spec/01-tree-operations.md#11-reading-the-current-tree).
+REST v1 adds the following local values:
 
 ```ts
 type TreeRef = "local" | "system" | TreeID;
+
+type Diagnostic = {
+  code: string;
+  message: string;
+  severity: "info" | "warning" | "error";
+  path?: LogicalPath;
+  row?: number;
+  field?: string;
+};
 
 type LocalTreeDescriptor = TreeDescriptor & {
   name: string;
@@ -57,7 +67,7 @@ Access subjects, levels, and the `none` removal rule are defined once in
 [configuration](../spec/05-accounts-and-devices.md#3-configuration-yaml). Configuration
 and mutation requests use the wire's `AccessRule`; safe administrative
 responses use `AccessEntry`, whose link subject exposes neither raw secret nor
-digest ([model and Wire §6](../spec/01-tree-operations.md#16-shared-foundation-values)).
+digest ([access control §1](../spec/06-access-control.md#1-subjects-and-rules)).
 
 Every non-2xx JSON error uses the wire's `ArborError` envelope with
 `tree?: TreeRef`. Shared codes are `invalid-request`, `unauthenticated`,
@@ -142,7 +152,7 @@ identity from a schema-declared `id` property.
 ## 5. Model-sampling values
 
 Node reads return these provider-neutral sampling values. They build on the
-wire's `NodeRef`, `Diagnostic`, `Hash`, and `JSONValue` but are a local API
+portable `NodeRef`, `Hash`, and `JSONValue` plus the local `Diagnostic`, but are a local API
 surface, not another stored graph or a wire operation. The language-neutral
 vectors in [`conformance/node-model.json`](../conformance/node-model.json)
 freeze their positive and negative cases.
@@ -229,7 +239,7 @@ revisions name the same exact source bytes. A `ChildBackingSummary`
 describes the observed placement; it does not make backing or projection
 topology part of node identity. The exact synchronized collection-file form is
 the directory-level `CollectionFileDescriptor` defined by
-[tree reads](../spec/01-tree-operations.md#151-physical-entries-and-child-set-interpretation);
+[tree reads](../spec/01-tree-operations.md#14-interpreting-the-object-graph);
 SQLite remains a distinct database backing.
 
 The REST routes carry `NodeRef` without inventing a second locator shape. Node

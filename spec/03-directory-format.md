@@ -2,7 +2,7 @@
 *Part of the [Arbor spec](../spec.md): one human-editable filesystem/Markdown
 projection of the [Arbor data model](01-tree-operations.md).*
 
-*Owns: how files, directories, frontmatter, `_index.md`, child placement, and reserved names map to nodes. References: stable keys ([locators](04-locators.md)) and the property write ([model §4](01-tree-operations.md#14-change-and-equivalence)).*
+*Owns: how files, directories, frontmatter, `_index.md`, child placement, and reserved names map to nodes. References: stable keys ([locators](04-locators.md)) and the [property write](01-tree-operations.md#22-what-the-write-matches).*
 
 ## 1. Projection boundary
 
@@ -14,7 +14,7 @@ differently while preserving the same model and the projection-specific fidelity
 guarantees it advertises.
 
 The directory projection preserves exact authored source in addition to modeled
-state, so its writes match on [bytes hashes](01-tree-operations.md#14-change-and-equivalence):
+state, so its writes match on [bytes hashes](01-tree-operations.md#15-equality-after-a-read):
 file bytes, frontmatter spelling/order/comments, and reserved collection-file
 bytes
 change the bytes hash even when the model hash is unchanged.
@@ -58,7 +58,7 @@ the Markdown editor therefore address one value rather than parallel record and
 document state. A property mutation rewrites frontmatter through the same exact-
 source concurrency boundary as a body mutation.
 
-A [property write](01-tree-operations.md#14-change-and-equivalence) preserves
+A [property write](01-tree-operations.md#22-what-the-write-matches) preserves
 the Markdown body exactly. Providers may expose the property and content
 capabilities separately even when both match values currently name the same
 Markdown source bytes. In that shared-byte representation, a successful

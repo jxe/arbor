@@ -195,6 +195,15 @@ longest readable registered boundary. Inaccessible nested boundaries cannot be
 read through a parent. The private account-configuration tree is absent from
 public discovery and canonical resolution.
 
+```ts
+type LocatorResolution = {
+  ref: NodeRef;
+  enclosingTree: TreeDescriptor;
+  historical: boolean;
+  observedThrough: EventCursor;
+};
+```
+
 ## 6. Public HTTP projection
 
 Readable canonical paths have safe HTTP and `arbor://` projections. HTML,
