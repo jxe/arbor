@@ -35,7 +35,6 @@ admins:
 version: 1
 trees:
   "tr_<26-lowercase-base32-characters>":
-    kind: person-profile
     canonicalPath: "/~joe"
     access:
       - subject:
@@ -58,8 +57,11 @@ placements:
 
 `account.yaml` owns the community/profile connection and the nonempty set of
 administrator `DeviceID`s. `trees.yaml` is keyed by client-generated `TreeID`
-and owns each tree's canonical boundary, kind, and ACL. `kind` cannot change
-after activation. The configuration tree is never an entry in either file.
+and owns each tree's canonical boundary and ACL. A tree's profile kind is the
+root document's `type:` frontmatter; the server requires `type: person` at an
+account's profile tree and `type: group` at the community root, and does not
+validate `type:` elsewhere. The configuration tree is never an entry in either
+file.
 
 Access subjects are `everyone`, a stable profile `TreeID`, or a
 `sha256:<hex>` access-link digest. Stored rules contain only `read` or `write`;

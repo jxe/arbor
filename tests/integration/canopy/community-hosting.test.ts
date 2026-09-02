@@ -78,7 +78,6 @@ describe("client-generated profile and account-configuration bootstrap", () => {
         version: 1,
         trees: {
           [profileTree]: {
-            kind: "person-profile",
             canonicalPath: "/~alice",
             access: [{ subject: { kind: "everyone" }, access: "read" }],
           },
@@ -104,7 +103,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     };
 
     const claimed = await new WireClient(running.url).claim("alice", request);
-    expect(claimed.tree).toMatchObject({ id: profileTree, kind: "person-profile", access: "write" });
+    expect(claimed.tree).toMatchObject({ id: profileTree, kind: "ordinary", access: "write" });
     expect(claimed.tree.canonical?.path).toBe("/~alice");
     expect(claimed.configuration).toMatchObject({ id: configurationTree, kind: "account-configuration", canonical: null });
     expect(JSON.stringify(claimed)).not.toContain(credential);
@@ -125,7 +124,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     const profile = await snapshotDirectory(await profileFolder("mallory", "person"));
     const configuration = snapshotAccountConfig({
       account: { version: 1, community: new URL(running.url).origin, profile: { tree: profileTree, handle: "mallory" }, admins: [deviceID] },
-      trees: { version: 1, trees: { [profileTree]: { kind: "person-profile", canonicalPath: "/~mallory", access: [] } } },
+      trees: { version: 1, trees: { [profileTree]: { canonicalPath: "/~mallory", access: [] } } },
       devices: { [deviceID]: { version: 1, id: deviceID, label: "Mallory", placements: {} } },
     });
     await expect(new WireClient(running.url).claim("mallory", {
@@ -137,5 +136,39 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     })).rejects.toThrow("not reserved");
     expect(running.canopy.get(profileTree)).toBeNull();
     expect(running.canopy.get(configurationTree)).toBeNull();
+  });
+});
+
+describe("profile invariants derived from root frontmatter", () => {
+  async function submitRoot(tree: string, source: string) {
+    const current = await owner.ref(tree);
+    const nested = new Map(running.canopy.list()
+      .filter((candidate) => candidate.parentTree === tree && candidate.canonicalPath)
+      .map((candidate) => [join(source, candidate.canonicalPath!.split("/").filter(Boolean).at(-1)!), candidate.id]));
+    return owner.submitUpdate(tree, { root: current.snapshot.ref, update: current.snapshot.update }, await snapshotDirectory(source, nested));
+  }
+
+  test("a person profile listing members does not expand as a group ACL subject", async () => {
+    const ownerAccount = running.canopy.accountByHandle("owner")!;
+    const alice = running.canopy.accountByHandle("alice")!;
+    const community = running.canopy.community();
+    const aliceLocator = `arbor://${new URL(running.url).host}/~alice`;
+    expect(running.canopy.canWrite(ownerAccount, community.id)).toBe(true);
+    expect(running.canopy.canWrite(alice, community.id)).toBe(false);
+
+    const source = await profileFolder("owner-with-members", "person");
+    await writeFile(join(source, "_index.md"), ["---", "type: person", "members:", `  - ${JSON.stringify(aliceLocator)}`, "---", "", "# Owner", ""].join("\n"));
+    await submitRoot(ownerAccount.profileTree!, source);
+    expect(running.canopy.rootProfileType(running.canopy.get(ownerAccount.profileTree!)!.ref)).toBe("person");
+    expect(running.canopy.canWrite(alice, community.id)).toBe(false);
+    expect(running.canopy.canRead(alice, community.id)).toBe(true);
+  });
+
+  test("an account's profile tree must keep type: person and the community root type: group", async () => {
+    const ownerAccount = running.canopy.accountByHandle("owner")!;
+    await expect(submitRoot(ownerAccount.profileTree!, await profileFolder("owner-as-group", "group")))
+      .rejects.toThrow(/type: person/);
+    await expect(submitRoot(running.canopy.community().id, await profileFolder("community-as-person", "person")))
+      .rejects.toThrow(/type: group/);
   });
 });

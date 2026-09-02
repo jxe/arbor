@@ -502,7 +502,7 @@ final class ArborClientTests: XCTestCase {
         let wireSnapshot = try wireSnapshot("object")
         let root = try XCTUnwrap(wireSnapshot.objects.first { $0.hash == wireSnapshot.root })
         let descriptor = """
-        {"snapshot":{"id":"tr_atlas","kind":"shared-subtree","access":"write","canonical":{"locator":"arbor://canopy.test/~alice/atlas","path":"/~alice/atlas","endpoint":"https://canopy.test","httpURL":"https://canopy.test/~alice/atlas","parentTree":null},"ref":"\(wireSnapshot.root)","update":"up_1"},"observedThrough":"up_1"}
+        {"snapshot":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"locator":"arbor://canopy.test/~alice/atlas","path":"/~alice/atlas","endpoint":"https://canopy.test","httpURL":"https://canopy.test/~alice/atlas","parentTree":null},"ref":"\(wireSnapshot.root)","update":"up_1"},"observedThrough":"up_1"}
         """
         await URLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {
@@ -546,7 +546,7 @@ final class ArborClientTests: XCTestCase {
     }
 
     func testRemoteBrowsingResolvesThenUsesExplicitTreeScope() async throws {
-        let response = Data(#"{"ref":{"tree":"tr_notes7f3q2ab7c","path":"/notes/today","stableKey":"[[\"id\",\"abc123\"]]"},"enclosingTree":{"id":"tr_notes7f3q2ab7c","kind":"shared-subtree","access":"read","canonical":{"locator":"arbor://example.test/~alice/notes","path":"/~alice/notes","endpoint":"https://example.test","httpURL":"https://example.test/~alice/notes","parentTree":null}},"historical":false,"observedThrough":"up_notes"}"#.utf8)
+        let response = Data(#"{"ref":{"tree":"tr_notes7f3q2ab7c","path":"/notes/today","stableKey":"[[\"id\",\"abc123\"]]"},"enclosingTree":{"id":"tr_notes7f3q2ab7c","kind":"ordinary","access":"read","canonical":{"locator":"arbor://example.test/~alice/notes","path":"/~alice/notes","endpoint":"https://example.test","httpURL":"https://example.test/~alice/notes","parentTree":null}},"historical":false,"observedThrough":"up_notes"}"#.utf8)
         await URLProtocolStub.state.install { request, _ in
             request.url?.path == "/v1/resolve"
                 ? (200, response)

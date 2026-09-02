@@ -508,13 +508,11 @@ async function promoteLocal(
       if (!samePath) throw new Error(`${path} already has a different canonical URL`);
     } else {
       tree = await client.treeID();
-      const indexSource = await readFile(join(path, "_index.md"), "utf8").catch(() => "");
-      const kind = /^type:\s*group\s*$/m.test(indexSource) ? "group-profile" : "shared-subtree";
       const configured = await service.communityConfig.get();
       if (!configured) throw new Error("The server credential is unavailable");
       const rules = await accessRulesFor(new WireClient(target.endpoint, configured.accountToken), initialAudience(audience, target));
       await editConfigurationYAML(client, "/trees.yaml", (document) => {
-        document.setIn(["trees", tree!], { kind, canonicalPath: target.canonicalPath, access: rules });
+        document.setIn(["trees", tree!], { canonicalPath: target.canonicalPath, access: rules });
       });
       await editConfigurationYAML(client, config.devicePath, (document) => {
         document.setIn(["placements", tree!], { server: target.endpoint, path });

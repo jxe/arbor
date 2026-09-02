@@ -112,7 +112,7 @@ beforeAll(async () => {
     account: graph.account,
     trees: { version: 1, trees: {
       ...graph.trees.trees,
-      [tree]: { kind: "shared-subtree", canonicalPath: "/~owner/self-sync", access: [] },
+      [tree]: { canonicalPath: "/~owner/self-sync", access: [] },
     } },
     devices: {
       ...graph.devices,

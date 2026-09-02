@@ -84,8 +84,8 @@ export function readAccountConfigGraph(snapshot: TreeSnapshot, configTreeID?: st
     }
   }
   const profile = trees.trees[account.profile.tree];
-  if (!profile || profile.kind !== "person-profile" || profile.canonicalPath !== `/~${account.profile.handle}`) {
-    throw new Error("account.profile must match a person-profile declaration at its canonical handle");
+  if (!profile || profile.canonicalPath !== `/~${account.profile.handle}`) {
+    throw new Error("account.profile must match a tree declaration at its canonical handle");
   }
   return { account, trees, devices, sources };
 }
@@ -103,7 +103,6 @@ function semantic(graph: AccountConfigGraph): Record<string, unknown> {
       admins: Object.fromEntries(graph.account.admins.map((id) => [id, true])),
     },
     trees: Object.fromEntries(Object.entries(graph.trees.trees).map(([id, tree]) => [id, {
-      kind: tree.kind,
       canonicalPath: tree.canonicalPath,
       access: Object.fromEntries(tree.access.map((rule) => [subjectKey(rule), rule])),
     }])),
@@ -178,7 +177,6 @@ function fromSemantic(value: Record<string, any>): Omit<AccountConfigGraph, "sou
   const trees: TreesConfiguration = {
     version: 1,
     trees: Object.fromEntries(Object.entries(value.trees).map(([id, raw]: [string, any]) => [id, {
-      kind: raw.kind,
       canonicalPath: raw.canonicalPath,
       access: Object.values(raw.access),
     }])),
@@ -226,10 +224,6 @@ export function authorizeAccountConfigTransition(
   }
   if (!next.account.admins.length || next.account.admins.some((id) => !next.devices[id])) {
     throw new Error("Administrators must remain a nonempty subset of active devices");
-  }
-  for (const [id, before] of Object.entries(changesFrom.trees.trees)) {
-    const after = next.trees.trees[id];
-    if (after && after.kind !== before.kind) throw new Error(`Tree kind is immutable after activation: ${id}`);
   }
 }
 

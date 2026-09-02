@@ -130,7 +130,7 @@ export async function applyConfigurationAction(client: ArborSyncRESTClient, acti
     const id = await client.treeID();
     const access = await normalizedRules(client, rules(action.audience));
     await edit(client, configTree, "/trees.yaml", (document) => {
-      document.setIn(["trees", id], { kind: "shared-subtree", canonicalPath: action.canonicalPath, access });
+      document.setIn(["trees", id], { canonicalPath: action.canonicalPath, access });
     });
     await edit(client, configTree, `/devices/${device}.yaml`, (document) => {
       document.setIn(["placements", id], { server: community, path: action.path });

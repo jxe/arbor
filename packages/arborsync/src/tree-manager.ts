@@ -211,7 +211,7 @@ export class TreeManager implements AsyncDisposable {
         await open.activateRecursiveDiscovery();
         open.tracking = "tracked";
         open.updateTreeDescriptor({
-          kind: candidate.placement.kind ?? "shared-subtree",
+          kind: candidate.placement.kind ?? "ordinary",
           canonical: descriptorCanonical(candidate.placement),
           access: candidate.placement.access,
           placement: candidate.placement.replica ? "replica" : "placed",
@@ -280,7 +280,7 @@ export class TreeManager implements AsyncDisposable {
       tracking: tracked ? "tracked" : "session",
       discovery: tracked ? "recursive" : "shallow",
       treeDescriptor: tracked?.placement ? {
-        kind: tracked.placement.kind ?? "shared-subtree",
+        kind: tracked.placement.kind ?? "ordinary",
         canonical: descriptorCanonical(tracked.placement),
         access: tracked.placement.access,
         placement: tracked.placement.replica ? "replica" : "placed",
@@ -322,7 +322,7 @@ export class TreeManager implements AsyncDisposable {
       tracking: "tracked",
       discovery: "recursive",
       treeDescriptor: root.placement ? {
-        kind: root.placement.kind ?? "shared-subtree",
+        kind: root.placement.kind ?? "ordinary",
         canonical: descriptorCanonical(root.placement),
         access: root.placement.access,
         placement: root.placement.replica ? "replica" : "placed",
@@ -359,7 +359,7 @@ export class TreeManager implements AsyncDisposable {
       id,
       name: this.workspaces.get(id)?.descriptor().name ?? root.name,
       osPath: root.osPath,
-      kind: root.placement!.kind ?? "shared-subtree",
+      kind: root.placement!.kind ?? "ordinary",
       canonical: descriptorCanonical(root.placement!, this.canonicalParentOf(id)),
       access: root.placement!.access,
       placement: root.placement!.replica ? "replica" : "placed",

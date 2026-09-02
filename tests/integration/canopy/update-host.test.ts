@@ -181,7 +181,6 @@ describe("governed account-configuration Canopy server", () => {
         trees: {
           ...graph.trees.trees,
           [treeID]: {
-            kind: "shared-subtree" as const,
             canonicalPath: "/~owner/new-shared-tree",
             access: [{
               subject: { kind: "link" as const, digest: `sha256:${sha256(linkSecret)}` as const },
@@ -211,7 +210,7 @@ describe("governed account-configuration Canopy server", () => {
     const activated = await client.activateTree(treeID, initial);
     expect(activated.snapshot).toMatchObject({
       id: treeID,
-      kind: "shared-subtree",
+      kind: "ordinary",
       canonical: { path: "/~owner/new-shared-tree" },
       ref: initial.root,
     });
@@ -359,7 +358,7 @@ describe("governed account-configuration Canopy server", () => {
         version: 1 as const,
         trees: {
           ...afterFirst.graph.trees.trees,
-          [treeID]: { kind: "shared-subtree" as const, canonicalPath: "/~owner/log-order-tree", access: [] },
+          [treeID]: { canonicalPath: "/~owner/log-order-tree", access: [] },
         },
       },
       devices: {

@@ -58,9 +58,9 @@ remains host-controlled and durable, including recovery after failed delivery.
 
 ## Profile control and Claim
 
-The persistent profile control shows the active safe community/profile identity, connected or credential-unavailable state, and every writable community, person-profile, and group-profile namespace. Selecting an unplaced namespace asks where it should live locally; selecting an existing placement opens it. The control never displays or copies stored credentials.
+The persistent profile control shows the active safe community/profile identity, connected or credential-unavailable state, and every writable profile namespace (a tree whose root declares `type: person` or `type: group`). Selecting an unplaced namespace asks where it should live locally; selecting an existing placement opens it. The control never displays or copies stored credentials.
 
-An unresolved person-profile URL renders as an empty reserved profile with a **Claim** action. Claim asks where the profile should live locally, previews the canonical address and local path, explains that the first valid claim wins, and creates/places the profile only after server success. Conflict and unavailable-credential states remain recoverable and explicit.
+An unresolved URL for an unclaimed profile with `type: person` renders as an empty reserved profile with a **Claim** action. Claim asks where the profile should live locally, previews the canonical address and local path, explains that the first valid claim wins, and creates/places the profile only after server success. Conflict and unavailable-credential states remain recoverable and explicit.
 
 Community and group profiles remain authored trees rather than a separate account/group database. Their `members` property is a real locator list: Arbor clients show one person per row and provide **Add person** on the community or **Add member** on a group without flattening the YAML array. A community accepts a local handle such as `~alice` and stores its complete same-community profile locator, explains that this reserves a first-claim-wins address, rejects duplicates, and confirms removal because removing a community member disables that account.
 

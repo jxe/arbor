@@ -19,7 +19,7 @@ import { nodeDocument } from "../helpers/node-snapshot.ts";
 // Test-local checks mirroring ArborWire's `WireTreeDescriptor.validated()` and
 // `WireSafeAccessSubject` decoding; the TypeScript packages export no descriptor
 // validator, so these only assert that the shared vectors are self-consistent.
-const TREE_KINDS = new Set(["community-profile", "person-profile", "group-profile", "shared-subtree", "account-configuration"]);
+const TREE_KINDS = new Set(["ordinary", "account-configuration"]);
 const ACCESS_LEVELS = new Set(["none", "read", "write"]);
 function validateTreeDescriptor(value: unknown): TreeDescriptor {
   const descriptor = value as Partial<TreeDescriptor>;

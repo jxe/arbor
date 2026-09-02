@@ -1,7 +1,7 @@
 import { watch, type FSWatcher } from "node:fs";
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
-import type { AccessRule, Diagnostic, TreeID, TreeKind } from "@arbor/core";
+import type { AccessRule, Diagnostic, TreeID } from "@arbor/core";
 import { isAlias, isMap, isSeq, parseDocument, type Node } from "yaml";
 import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
@@ -13,7 +13,6 @@ export interface AccountConfiguration {
 }
 
 export interface TreeDeclaration {
-  kind: Exclude<TreeKind, "account-configuration">;
   canonicalPath: string;
   access: AccessRule[];
 }
@@ -46,12 +45,6 @@ export interface AccountConfigurationSnapshot {
 const ID = /^(?:tr|dv)_[a-z2-7]+$/;
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
 const HASH = /^sha256:[a-f0-9]{64}$/;
-const TREE_KINDS = new Set<TreeDeclaration["kind"]>([
-  "community-profile",
-  "person-profile",
-  "group-profile",
-  "shared-subtree",
-]);
 
 function issue(code: string, message: string, path: string): Diagnostic {
   return { code, message, path, severity: "warning" };
@@ -175,12 +168,8 @@ export function parseTreesConfiguration(source: string, path = join(arborDataRoo
   for (const [idValue, candidate] of Object.entries(input)) {
     const id = treeID(idValue, `trees.${idValue}`);
     const declaration = record(candidate, `trees.${id}`);
-    exactFields(declaration, ["kind", "canonicalPath", "access"], `trees.${id}`);
-    if (typeof declaration.kind !== "string" || !TREE_KINDS.has(declaration.kind as TreeDeclaration["kind"])) {
-      throw new Error(`trees.${id}.kind is invalid`);
-    }
+    exactFields(declaration, ["canonicalPath", "access"], `trees.${id}`);
     trees[id] = {
-      kind: declaration.kind as TreeDeclaration["kind"],
       canonicalPath: canonicalPath(declaration.canonicalPath),
       access: accessRules(declaration.access),
     };

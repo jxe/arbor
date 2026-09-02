@@ -290,7 +290,7 @@ describe("primary CLI sync forms", () => {
 
     expect(await arbor(["sync", "--access", "public=read", groupSource, canonical], stateA)).toContain("/~editors");
     expect(host.canopy.boundary("/~editors")).toMatchObject({
-      kind: "group-profile",
+      kind: "ordinary",
       publicAccess: "read",
     });
 

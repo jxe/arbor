@@ -3,7 +3,7 @@
   "valid": {
     "treeDescriptor": {
       "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "kind": "person-profile",
+      "kind": "ordinary",
       "access": "write",
       "canonical": {
         "locator": "arbor://community.example/~joe",
@@ -21,7 +21,7 @@
     },
     "remoteTreeDescriptor": {
       "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "kind": "person-profile",
+      "kind": "ordinary",
       "access": "write",
       "canonical": {
         "locator": "arbor://community.example/~joe",
@@ -50,7 +50,7 @@
       "ref": { "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "path": "/notes", "stableKey": "[[\"id\",\"page-1\"]]" },
       "enclosingTree": {
         "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "kind": "person-profile",
+        "kind": "ordinary",
         "access": "read",
         "canonical": {
           "locator": "arbor://community.example/~joe",
@@ -65,8 +65,8 @@
     }
   },
   "invalid": [
-    { "name": "descriptor-for-local", "value": { "id": "local", "kind": "shared-subtree", "access": "write", "canonical": null } },
-    { "name": "ordinary-tree-without-canonical", "value": { "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "kind": "shared-subtree", "access": "read", "canonical": null } },
+    { "name": "descriptor-for-local", "value": { "id": "local", "kind": "ordinary", "access": "write", "canonical": null } },
+    { "name": "ordinary-tree-without-canonical", "value": { "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "kind": "ordinary", "access": "read", "canonical": null } },
     { "name": "link-entry-leaks-digest", "value": { "id": "link", "subject": { "kind": "link", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000" }, "access": "read" } },
     { "name": "resolution-omits-tree", "value": { "ref": { "path": "/notes" }, "historical": false, "observedThrough": "up_aaaaaaaaaaaaaaaaaaaaaaaaaa" } }
   ]

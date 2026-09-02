@@ -2,7 +2,7 @@
 
 id: up_aaaaaaaaaaaaaaaaaaaaaaaaaa
 event: tree.ref
-data: {"cursor":"up_aaaaaaaaaaaaaaaaaaaaaaaaaa","tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"tree.ref","change":{"descriptor":{"id":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"shared-subtree","access":"read","canonical":{"locator":"arbor://community.example/~joe/shared","path":"/~joe/shared","endpoint":"https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","httpURL":"https://community.example/~joe/shared","parentTree":null},"ref":"sha256:0000000000000000000000000000000000000000000000000000000000000000","update":"up_aaaaaaaaaaaaaaaaaaaaaaaaaa"}}}
+data: {"cursor":"up_aaaaaaaaaaaaaaaaaaaaaaaaaa","tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"tree.ref","change":{"descriptor":{"id":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"ordinary","access":"read","canonical":{"locator":"arbor://community.example/~joe/shared","path":"/~joe/shared","endpoint":"https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","httpURL":"https://community.example/~joe/shared","parentTree":null},"ref":"sha256:0000000000000000000000000000000000000000000000000000000000000000","update":"up_aaaaaaaaaaaaaaaaaaaaaaaaaa"}}}
 
 id: up_bbbbbbbbbbbbbbbbbbbbbbbbbb
 event: tree.activation

@@ -1,7 +1,8 @@
 import { link, mkdir, open, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { canonicalJSONString, generateArborID, isGeneratedArborID, sha256, type AccessLevel, type AccessRule, type ReadWriteAccess, type TreeKind } from "@arbor/core";
+import { stableJSONString, generateArborID, isGeneratedArborID, sha256, type AccessLevel, type AccessRule, type ReadWriteAccess } from "@arbor/core";
+import { parseMarkdown } from "@arbor/editor";
 import { decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
 import {
   decodeWireObject,
@@ -101,9 +102,18 @@ function profileSource(kind: "person" | "group", name: string, members: string[]
   ].join("\n");
 }
 
+/**
+ * Stamped into `meta.schema_version` when the database is created. A stored
+ * value that differs from this constant means the data root was written by an
+ * incompatible build; the operator deletes it and re-bootstraps (or runs the
+ * offline migration tool, which sets the stamp). "1" is the implicit stamp of
+ * every database created before the profile-kind columns were removed.
+ */
+export const CANOPY_SCHEMA_VERSION = "2";
+
 const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],
-  boundaries: ["path", "tree_id", "parent_tree", "kind"],
+  boundaries: ["path", "tree_id", "parent_tree"],
   reflog: ["tree_id", "ref", "previous_ref", "changed_at"],
   accepted_updates: [
     "id", "tree_id", "sequence", "root", "previous_root", "kind", "accepted_at", "subject",
@@ -113,7 +123,7 @@ const AUTHORITY_SCHEMA = {
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
   access: ["id", "tree_id", "subject_kind", "subject", "access", "claimed_profile"],
-  tree_reservations: ["id", "account_id", "kind", "canonical_path", "status", "error"],
+  tree_reservations: ["id", "account_id", "canonical_path", "status", "error"],
   observations: ["ordinal", "cursor", "tree_id", "kind", "update_id", "change_json", "created_at"],
   meta: ["key", "value"],
 } as const;
@@ -133,8 +143,7 @@ function createCanopySchema(db: Database): void {
     CREATE TABLE boundaries (
       path TEXT PRIMARY KEY,
       tree_id TEXT NOT NULL UNIQUE REFERENCES trees(id),
-      parent_tree TEXT,
-      kind TEXT NOT NULL
+      parent_tree TEXT
     )
   `);
   db.run(`
@@ -184,7 +193,6 @@ function createCanopySchema(db: Database): void {
     CREATE TABLE tree_reservations (
       id TEXT PRIMARY KEY,
       account_id TEXT NOT NULL REFERENCES accounts(id),
-      kind TEXT NOT NULL,
       canonical_path TEXT NOT NULL UNIQUE,
       status TEXT NOT NULL,
       error TEXT
@@ -207,6 +215,7 @@ function createCanopySchema(db: Database): void {
       value TEXT NOT NULL
     )
   `);
+  db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?)", [CANOPY_SCHEMA_VERSION]);
 }
 
 function migrateCanopySchema(db: Database): void {
@@ -239,7 +248,6 @@ function migrateCanopySchema(db: Database): void {
   db.run(`CREATE TABLE IF NOT EXISTS tree_reservations (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL REFERENCES accounts(id),
-    kind TEXT NOT NULL,
     canonical_path TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL,
     error TEXT
@@ -272,7 +280,22 @@ function migrateObservationLog(db: Database): void {
   if (legacyEvents) db.run("DROP TABLE observation_events");
 }
 
-function assertCurrentCanopySchema(db: Database): void {
+/** Refuse a data root written by a different schema version before touching it. */
+export function assertCanopySchemaVersion(db: Database): void {
+  const hasMeta = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
+  const stamp = hasMeta
+    ? (db.query("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | null)?.value ?? null
+    : null;
+  if (stamp !== CANOPY_SCHEMA_VERSION) {
+    throw new Error(
+      `Canopy data root was written by schema version ${stamp ?? "1 (unstamped)"} but this build requires ${CANOPY_SCHEMA_VERSION}: `
+      + "delete the Canopy data root and re-bootstrap",
+    );
+  }
+}
+
+export function assertCurrentCanopySchema(db: Database): void {
+  assertCanopySchemaVersion(db);
   const issues: string[] = [];
   for (const [table, expected] of Object.entries(AUTHORITY_SCHEMA)) {
     const actual = (db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(({ name }) => name);
@@ -387,6 +410,10 @@ export class CanopyDaemon implements AsyncDisposable {
     this.access = new AccessControl(db, {
       tree: (id) => this.get(id),
       profileMemberHandles: (id) => this.profileMemberHandles(id),
+      rootProfileType: (id) => {
+        const tree = this.get(id);
+        return tree ? this.rootProfileType(tree.ref) : null;
+      },
     });
   }
 
@@ -397,6 +424,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const db = new Database(databasePath, { create: true });
     try {
       if (databaseExists) {
+        assertCanopySchemaVersion(db);
         db.transaction(() => migrateCanopySchema(db))();
         assertCurrentCanopySchema(db);
       }
@@ -428,7 +456,6 @@ export class CanopyDaemon implements AsyncDisposable {
     const members = [...new Set(memberHandles)].map((handle) => `arbor://${memberHost}/~${handle}`);
     const community = await this.insertTree(
       "/",
-      "community-profile",
       directSnapshot(profileSource("group", config.name, members)),
       "read",
       null,
@@ -441,7 +468,6 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!HANDLE.test(account.handle)) throw new Error(`Invalid account handle: ${account.handle}`);
       const profile = await this.insertTree(
         `/~${account.handle}`,
-        "person-profile",
         directSnapshot(profileSource("person", account.name ?? account.handle)),
         "read",
         community.id,
@@ -470,7 +496,6 @@ export class CanopyDaemon implements AsyncDisposable {
       updated_at: number;
       path: string | null;
       parent_tree: string | null;
-      kind: TreeKind | null;
       public_access: AccessLevel | null;
       policy: CanopyTree["policy"];
       status: CanopyTree["status"];
@@ -480,7 +505,7 @@ export class CanopyDaemon implements AsyncDisposable {
       id: row.id,
       canonicalPath: row.path,
       parentTree: row.parent_tree,
-      kind: row.kind ?? "account-configuration",
+      kind: row.policy === "account-config-v1" ? "account-configuration" : "ordinary",
       ref: row.ref,
       publicAccess: row.public_access ?? "none",
       updatedAt: row.updated_at,
@@ -492,7 +517,7 @@ export class CanopyDaemon implements AsyncDisposable {
 
   private treeSelect(where: string, value?: string): CanopyTree | null {
     const sql = `
-      SELECT t.*, b.path, b.parent_tree, b.kind,
+      SELECT t.*, b.path, b.parent_tree,
         COALESCE((SELECT access FROM access
           WHERE tree_id = t.id AND subject_kind = 'everyone' AND subject = 'everyone'), 'none') AS public_access
       FROM trees t LEFT JOIN boundaries b ON b.tree_id = t.id
@@ -503,7 +528,7 @@ export class CanopyDaemon implements AsyncDisposable {
 
   list(): CanopyTree[] {
     return this.db.query(`
-      SELECT t.*, b.path, b.parent_tree, b.kind,
+      SELECT t.*, b.path, b.parent_tree,
         COALESCE((SELECT access FROM access
           WHERE tree_id = t.id AND subject_kind = 'everyone' AND subject = 'everyone'), 'none') AS public_access
       FROM trees t LEFT JOIN boundaries b ON b.tree_id = t.id
@@ -691,7 +716,8 @@ export class CanopyDaemon implements AsyncDisposable {
 
   writableProfiles(account: CanopyAccount): CanopyTree[] {
     return this.list().filter((tree) =>
-      ["community-profile", "person-profile", "group-profile"].includes(tree.kind)
+      tree.policy === "ordinary"
+      && this.rootProfileType(tree.ref) !== null
       && this.canWrite(account, tree.id)
     );
   }
@@ -709,7 +735,6 @@ export class CanopyDaemon implements AsyncDisposable {
       const declarations = Object.fromEntries(this.list()
         .filter((tree) => tree.canonicalPath && tree.policy === "ordinary" && this.canAdminister(account, tree.id))
         .map((tree) => [tree.id, {
-          kind: tree.kind as Exclude<TreeKind, "account-configuration">,
           canonicalPath: tree.canonicalPath!,
           access: this.accessEntries(tree.id).map((entry): AccessRule => ({
             subject: entry.subjectKind === "everyone"
@@ -723,7 +748,6 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!declarations[account.profileTree]) {
         const profile = this.get(account.profileTree)!;
         declarations[profile.id] = {
-          kind: "person-profile",
           canonicalPath: profile.canonicalPath!,
           access: this.accessEntries(profile.id).map((entry): AccessRule => ({
             subject: entry.subjectKind === "everyone" ? { kind: "everyone" }
@@ -765,29 +789,28 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!row) throw new Error(`Device ${id} has no credential binding`);
       if (row.revoked_at !== null) throw new Error(`Retired DeviceID cannot be reactivated: ${id}`);
     }
-    for (const [id, before] of Object.entries(current.trees.trees)) {
+    for (const id of Object.keys(current.trees.trees)) {
       if (!next.trees.trees[id]) {
         const reservation = this.db.query("SELECT status FROM tree_reservations WHERE id = ? AND account_id = ?").get(id, accountID) as { status: string } | null;
         if (reservation?.status === "awaiting-initialization") this.db.run("DELETE FROM tree_reservations WHERE id = ?", [id]);
         else throw new Error(`Active remote tree declarations cannot be removed: ${id}`);
       }
-      if (next.trees.trees[id] && before.kind !== next.trees.trees[id]!.kind) throw new Error(`Tree kind is immutable after activation: ${id}`);
     }
     for (const [id, declaration] of Object.entries(next.trees.trees)) {
       const active = this.get(id);
       if (!active) {
-        this.db.run(`INSERT INTO tree_reservations (id, account_id, kind, canonical_path, status, error)
-          VALUES (?, ?, ?, ?, 'awaiting-initialization', NULL)
-          ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, canonical_path = excluded.canonical_path`,
-        [id, accountID, declaration.kind, declaration.canonicalPath]);
+        this.db.run(`INSERT INTO tree_reservations (id, account_id, canonical_path, status, error)
+          VALUES (?, ?, ?, 'awaiting-initialization', NULL)
+          ON CONFLICT(id) DO UPDATE SET canonical_path = excluded.canonical_path`,
+        [id, accountID, declaration.canonicalPath]);
         continue;
       }
       if (active.policy !== "ordinary") throw new Error(`Configuration may not declare governed tree ${id}`);
       const boundary = this.boundary(declaration.canonicalPath);
       if (boundary && boundary.id !== id) throw new Error(`Canonical boundary is occupied: ${declaration.canonicalPath}`);
       const parent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
-      this.db.run("UPDATE boundaries SET path = ?, parent_tree = ?, kind = ? WHERE tree_id = ?", [
-        declaration.canonicalPath, parent?.id ?? null, declaration.kind, id,
+      this.db.run("UPDATE boundaries SET path = ?, parent_tree = ? WHERE tree_id = ?", [
+        declaration.canonicalPath, parent?.id ?? null, id,
       ]);
       this.db.run("DELETE FROM access WHERE tree_id = ?", [id]);
       for (const rule of declaration.access) {
@@ -816,7 +839,7 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new TreeIDConflictError(treeID);
     }
     const reservation = this.db.query("SELECT * FROM tree_reservations WHERE id = ?").get(treeID) as {
-      account_id: string; kind: Exclude<TreeKind, "account-configuration">; canonical_path: string; status: string;
+      account_id: string; canonical_path: string; status: string;
     } | null;
     if (!reservation || reservation.account_id !== authentication.account.id || reservation.status !== "awaiting-initialization") {
       throw new Error(`TreeID is not reserved for activation: ${treeID}`);
@@ -827,14 +850,13 @@ export class CanopyDaemon implements AsyncDisposable {
     if (!config.devices[authentication.device]?.placements[treeID]) throw new Error("The initializing administrator must place the tree");
     const declaration = config.trees.trees[treeID];
     if (!declaration) throw new Error("Tree declaration disappeared before activation");
-    if (declaration.kind === "person-profile") await this.validateProfileSnapshot(snapshot, "person");
-    if (declaration.kind === "group-profile" || declaration.kind === "community-profile") await this.validateProfileSnapshot(snapshot, "group");
+    const requiredType = this.requiredProfileType(treeID, declaration.canonicalPath);
+    if (requiredType) await this.validateProfileSnapshot(snapshot, requiredType);
     const parent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
     if (!parent) throw new Error("Canonical parent is unavailable");
     let statusEvent: ObservationRecord | undefined;
     const activated = await this.insertTree(
       declaration.canonicalPath,
-      declaration.kind,
       snapshot,
       "none",
       parent.id,
@@ -884,7 +906,7 @@ export class CanopyDaemon implements AsyncDisposable {
     configurationSnapshot: TreeSnapshot;
   }): Promise<{ account: CanopyAccount; tree: CanopyTree; configuration: CanopyTree }> {
     const { handle } = input;
-    const claimDigest = sha256(canonicalJSONString({
+    const claimDigest = sha256(stableJSONString({
       handle,
       profileTree: input.profileTree,
       configurationTree: input.configurationTree,
@@ -927,7 +949,6 @@ export class CanopyDaemon implements AsyncDisposable {
     const parent = this.community();
     const tree = await this.insertTree(
       `/~${handle}`,
-      "person-profile",
       input.profileSnapshot,
       "none",
       parent.id,
@@ -964,8 +985,8 @@ export class CanopyDaemon implements AsyncDisposable {
         for (const [id, pending] of Object.entries(config.trees.trees)) {
           if (id === profileID) continue;
           this.db.run(
-            "INSERT INTO tree_reservations (id, account_id, kind, canonical_path, status) VALUES (?, ?, ?, ?, 'awaiting-initialization')",
-            [id, accountID, pending.kind, pending.canonicalPath],
+            "INSERT INTO tree_reservations (id, account_id, canonical_path, status) VALUES (?, ?, ?, 'awaiting-initialization')",
+            [id, accountID, pending.canonicalPath],
           );
         }
         const firstWriter = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'").get() as { value: string } | null;
@@ -1136,8 +1157,8 @@ export class CanopyDaemon implements AsyncDisposable {
       conflict: { kind: "server-update", message: "The candidate could not be merged safely" },
       validateCandidate: async (root, objects) => {
         await this.validateReservedBoundaries(tree, root, objects);
-        if (tree.kind === "person-profile") await this.validateProfileRoot(root, objects, "person");
-        if (tree.kind === "group-profile" || tree.kind === "community-profile") await this.validateProfileRoot(root, objects, "group");
+        const requiredType = this.requiredProfileType(tree.id, tree.canonicalPath);
+        if (requiredType) await this.validateProfileRoot(root, objects, requiredType);
       },
       validateAccepted: async (remoteTree, root, objects) => {
         if (root === request.candidate) return;
@@ -1146,7 +1167,7 @@ export class CanopyDaemon implements AsyncDisposable {
       },
       prepareCommit: async (remoteTree) => ({
         afterCommit: () => {
-          if (remoteTree.kind === "community-profile") this.reconcileCommunityAccounts();
+          if (remoteTree.canonicalPath === "/") this.reconcileCommunityAccounts();
         },
       }),
     };
@@ -1202,7 +1223,7 @@ export class CanopyDaemon implements AsyncDisposable {
         const rewrites = await this.prepareAccountBoundaryRewrites(currentGraph, nextGraph);
         const transitions = new Map<string, AcceptedTransitionPayload>();
         for (const rewrite of rewrites) {
-          await this.cacheMembers(rewrite.nextRoot, rewrite.generated);
+          await this.cacheRootProfile(rewrite.nextRoot, rewrite.generated);
           await this.objects.store([...rewrite.generated].map(([hash, bytes]) => ({ hash, bytes })));
           transitions.set(rewrite.parent.id, await this.acceptedTransitionPayload(rewrite.parent.ref, rewrite.nextRoot));
         }
@@ -1285,7 +1306,6 @@ export class CanopyDaemon implements AsyncDisposable {
 
   private async insertTree(
     canonicalPath: string,
-    kind: TreeKind,
     snapshot: TreeSnapshot,
     publicAccess: AccessLevel,
     parentTree: string | null,
@@ -1305,7 +1325,7 @@ export class CanopyDaemon implements AsyncDisposable {
       ? await this.prepareBoundaryRewrite(parentTree, [], [{ path, tree: id }], { replaceEntries: true })
       : null;
     if (attachment) {
-      await this.cacheMembers(attachment.nextRoot, attachment.generated);
+      await this.cacheRootProfile(attachment.nextRoot, attachment.generated);
       await this.objects.store([...attachment.generated].map(([hash, bytes]) => ({ hash, bytes })));
     }
     const attachmentTransition = attachment
@@ -1315,8 +1335,8 @@ export class CanopyDaemon implements AsyncDisposable {
     this.db.transaction(() => {
       this.db.run("INSERT INTO trees (id, ref, updated_at, account_id) VALUES (?, ?, ?, ?)", [id, snapshot.root, now, accountID ?? null]);
       this.db.run(
-        "INSERT INTO boundaries (path, tree_id, parent_tree, kind) VALUES (?, ?, ?, ?)",
-        [path, id, parentTree, kind],
+        "INSERT INTO boundaries (path, tree_id, parent_tree) VALUES (?, ?, ?)",
+        [path, id, parentTree],
       );
       this.db.run(
         "INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)",
@@ -1455,10 +1475,19 @@ export class CanopyDaemon implements AsyncDisposable {
     if (!index?.hash) throw new Error("Profile tree requires _index.md");
     const file = decodeWireObject(await this.objects.load(index.hash, proposed));
     if (file.type !== "file") throw new Error("Profile _index.md must be a file");
-    const source = new TextDecoder().decode(file.bytes);
-    if (!new RegExp(`^type:\\s*${kind}\\s*$`, "m").test(source)) {
-      throw new Error(`Profile root must declare type: ${kind}`);
-    }
+    const { frontmatter } = parseMarkdown(new TextDecoder().decode(file.bytes));
+    if (frontmatter.type !== kind) throw new Error(`Profile root must declare type: ${kind}`);
+  }
+
+  /**
+   * The two profile invariants the server enforces: an account's profile tree
+   * keeps `type: person` and the community root keeps `type: group`. Every
+   * other tree's `type:` is authored data the server does not validate.
+   */
+  private requiredProfileType(treeID: string, canonicalPath: string | null): "person" | "group" | null {
+    if (canonicalPath === "/") return "group";
+    if (this.db.query("SELECT 1 FROM accounts WHERE profile_tree = ?").get(treeID)) return "person";
+    return null;
   }
 
   private profileMemberHandles(treeID: string): Set<string> {
@@ -1470,13 +1499,30 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.memberHandlesFromRoot(this.community().ref);
   }
 
+  /**
+   * Graph validation caches each root's `_index.md` frontmatter profile facts
+   * (`type` and the authored member locators) by immutable root hash, so
+   * synchronous authorization never reparses mutable filesystem state or
+   * treats display names as identity.
+   */
+  private rootProfile(root: ObjectHash): { type: "person" | "group" | null; members: string[] } {
+    const row = this.db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
+    if (!row) return { type: null, members: [] };
+    const value = JSON.parse(row.value) as { type?: unknown; members?: unknown };
+    return {
+      type: value.type === "person" || value.type === "group" ? value.type : null,
+      members: Array.isArray(value.members) ? value.members.filter((member): member is string => typeof member === "string") : [],
+    };
+  }
+
+  /** The root document's `type: person` or `type: group`, or null when it declares neither. */
+  rootProfileType(root: ObjectHash): "person" | "group" | null {
+    return this.rootProfile(root).type;
+  }
+
   private memberHandlesFromRoot(root: ObjectHash): Set<string> {
-    // Profile validation caches the authored member locators by immutable root
-    // hash, so synchronous authorization never reparses mutable filesystem
-    // state or treats display names as identity.
-    const row = this.db.query("SELECT value FROM meta WHERE key = ?").get(`members:${root}`) as { value: string } | null;
     const host = (this.db.query("SELECT value FROM meta WHERE key = 'community_host'").get() as { value: string } | null)?.value;
-    const values = row ? JSON.parse(row.value) as string[] : [];
+    const values = this.rootProfile(root).members;
     return new Set(values.flatMap((value) => {
       if (!value.includes("/~")) return [value];
       const match = /^([^/]+)\/~([a-z0-9][a-z0-9-]{0,62})$/.exec(value);
@@ -1484,19 +1530,24 @@ export class CanopyDaemon implements AsyncDisposable {
     }));
   }
 
-  private async cacheMembers(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void> {
+  private async cacheRootProfile(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void> {
     const directory = decodeWireObject(await this.objects.load(root, proposed));
     if (directory.type !== "directory") return;
     const index = directory.entries.find((entry) => entry.name === "_index.md");
     if (!index?.hash) return;
     const file = decodeWireObject(await this.objects.load(index.hash, proposed));
     if (file.type !== "file") return;
-    const source = new TextDecoder().decode(file.bytes);
-    const handles = [...source.matchAll(/arbor:\/\/([^/\s"']+)\/~([a-z0-9][a-z0-9-]{0,62})/g)]
-      .map((match) => `${match[1]!.toLowerCase()}/~${match[2]!}`);
+    const { frontmatter } = parseMarkdown(new TextDecoder().decode(file.bytes));
+    const type = frontmatter.type === "person" || frontmatter.type === "group" ? frontmatter.type : null;
+    const declared = Array.isArray(frontmatter.members) ? frontmatter.members : [];
+    const members = declared.flatMap((value) => {
+      if (typeof value !== "string") return [];
+      const match = /arbor:\/\/([^/\s"']+)\/~([a-z0-9][a-z0-9-]{0,62})/.exec(value);
+      return match ? [`${match[1]!.toLowerCase()}/~${match[2]!}`] : [];
+    });
     this.db.run(
       "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      [`members:${root}`, JSON.stringify([...new Set(handles)])],
+      [`profile:${root}`, JSON.stringify({ type, members: [...new Set(members)] })],
     );
   }
 
@@ -1552,7 +1603,7 @@ export class CanopyDaemon implements AsyncDisposable {
         }
       }
     }
-    await this.cacheMembers(root, proposed);
+    await this.cacheRootProfile(root, proposed);
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

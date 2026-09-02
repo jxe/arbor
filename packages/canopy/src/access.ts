@@ -6,6 +6,8 @@ export interface AccessHost {
   tree(id: string): CanopyTree | null;
   /** Handles of every member of a group profile tree. */
   profileMemberHandles(treeID: string): Set<string>;
+  /** The tree root's frontmatter `type`, or null when the root declares neither profile kind. */
+  rootProfileType(treeID: string): "person" | "group" | null;
 }
 
 /** Tree access rules and the read/write/administer decisions derived from them. */
@@ -75,7 +77,7 @@ export class AccessControl {
     if (!tree || !account.profileTree) return false;
     if (tree.policy === "account-config-v1") return tree.accountID === account.id;
     if (tree.accountID === account.id) return true;
-    if (tree.kind === "person-profile" && tree.id === account.profileTree) return true;
+    if (tree.id === account.profileTree) return true;
     return this.subjectAccess("profile", account.profileTree, treeID) === "write";
   }
 
@@ -86,7 +88,11 @@ export class AccessControl {
     return row?.access ?? "none";
   }
 
-  /** Direct profile access, else the strongest access granted through group membership. */
+  /**
+   * Direct profile access, else the strongest access granted through group
+   * membership. Only a subject whose root declares `type: group` expands: a
+   * person profile that merely lists `members` must not widen access.
+   */
   private effectiveAccess(account: CanopyAccount, treeID: string): ReadWriteAccess | "none" {
     if (!account.profileTree) return "none";
     const direct = this.subjectAccess("profile", account.profileTree, treeID);
@@ -94,9 +100,8 @@ export class AccessControl {
     let result: ReadWriteAccess | "none" = "none";
     for (const entry of this.entries(treeID)) {
       if (entry.subjectKind !== "profile") continue;
-      const subject = this.host.tree(entry.subject);
-      if (subject?.kind !== "group-profile") continue;
-      if (this.host.profileMemberHandles(subject.id).has(account.handle)) {
+      if (this.host.rootProfileType(entry.subject) !== "group") continue;
+      if (this.host.profileMemberHandles(entry.subject).has(account.handle)) {
         if (entry.access === "write") return "write";
         result = "read";
       }

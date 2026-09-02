@@ -977,7 +977,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
           `  handle: ${JSON.stringify(handle)}`, "admins:", `  - ${JSON.stringify(deviceID)}`, "",
         ].join("\n"),
         trees: [
-          "version: 1", "trees:", `  ${JSON.stringify(profileTree)}:`, "    kind: person-profile",
+          "version: 1", "trees:", `  ${JSON.stringify(profileTree)}:`,
           `    canonicalPath: ${JSON.stringify(`/~${handle}`)}`, "    access:", "      - subject:",
           "          kind: everyone", "        access: read", "",
         ].join("\n"),

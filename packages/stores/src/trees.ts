@@ -94,7 +94,6 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
         tree,
         canonical: canonicalLocator(placement.server, declaration.canonicalPath),
         canonicalPath: declaration.canonicalPath,
-        kind: declaration.kind,
         access: "write",
         endpoint: placement.server,
         replica,

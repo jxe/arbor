@@ -72,7 +72,7 @@ try {
         account: graph.account,
         trees: { version: 1, trees: {
           ...graph.trees.trees,
-          [nativeTreeID]: { kind: "shared-subtree", canonicalPath: "/~owner/native-sync", access: [] },
+          [nativeTreeID]: { canonicalPath: "/~owner/native-sync", access: [] },
         } },
         devices: {
           ...graph.devices,

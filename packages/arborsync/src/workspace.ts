@@ -186,7 +186,7 @@ export class Workspace implements AsyncDisposable {
       id: this.tree,
       name: this.displayName,
       osPath: this.root,
-      kind: "shared-subtree",
+      kind: "ordinary",
       access: "write",
       canonical: null,
       placement: "placed",

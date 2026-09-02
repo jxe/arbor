@@ -125,7 +125,7 @@ members:
   - arbor://community.example/~bob
 ```
 
-The profile tree's `TreeID`, not its mutable title or root `PageID`, is the stable person or group identity. Group membership is the authored `members` list. Membership does not itself grant write access to the group tree.
+The profile tree's `TreeID`, not its mutable title or root `PageID`, is the stable person or group identity. The root document's `type: person` or `type: group` is the sole declaration of a profile's kind; wire tree descriptors carry no profile kind, and the server enforces `type: person` at an account's profile tree and `type: group` at the community root without validating `type:` elsewhere. Group membership is the authored `members` list. Membership does not itself grant write access to the group tree.
 
 ## Recognized authored files
 

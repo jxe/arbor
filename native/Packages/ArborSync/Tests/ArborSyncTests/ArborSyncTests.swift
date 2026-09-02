@@ -351,7 +351,7 @@ struct ArborSyncTests {
             let request = try JSONDecoder().decode(WireUpdateRequest.self, from: frozen.body)
             let eventTree = WireTreeDescriptor(
                 id: tree,
-                kind: "shared-subtree",
+                kind: "ordinary",
                 ref: request.candidate,
                 access: "write",
                 canonical: WireCanonicalDescriptor(
@@ -656,7 +656,7 @@ private func completeCandidate(_ request: WireUpdateRequest, retained: WireSnaps
 private func descriptor(tree: String, snapshot: WireSnapshot, update: String) -> WireTreeDescriptor {
     WireTreeDescriptor(
         id: tree,
-        kind: "shared-subtree",
+        kind: "ordinary",
         ref: snapshot.root,
         access: "write",
         canonical: WireCanonicalDescriptor(

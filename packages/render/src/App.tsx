@@ -1173,7 +1173,7 @@ export function App() {
             const remoteTree: TreeDescriptor = {
               id: visit.tree,
               name: visit.name,
-              kind: "shared-subtree",
+              kind: "ordinary",
               access: "read",
               canonical: visit.canonical ? {
                 locator: visit.canonical,

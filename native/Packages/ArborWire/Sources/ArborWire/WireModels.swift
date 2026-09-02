@@ -59,7 +59,7 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
     public func validated() throws -> Self {
         guard !id.isEmpty else { throw ArborWireValidationError.invalidValue("Tree ID is empty") }
         try validateObjectHash(ref)
-        guard ["community-profile", "person-profile", "group-profile", "shared-subtree", "account-configuration"].contains(kind) else {
+        guard ["ordinary", "account-configuration"].contains(kind) else {
             throw ArborWireValidationError.invalidValue("Unknown tree kind")
         }
         guard ["none", "read", "write"].contains(access) else {

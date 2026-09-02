@@ -689,12 +689,7 @@ type Diagnostic = {
 type AccessLevel = "none" | "read" | "write";
 type ReadWriteAccess = "read" | "write";
 
-type TreeKind =
-  | "community-profile"
-  | "person-profile"
-  | "group-profile"
-  | "shared-subtree"
-  | "account-configuration";
+type TreeKind = "ordinary" | "account-configuration";
 
 type TreeDescriptor = {
   id: TreeID;
@@ -819,6 +814,11 @@ merge address rolled-up children without converting them into Markdown files
 or making the reserved source file a visible row. A decoder recomputes schema
 and the codec/schema-scoped `modelDigest` from `source`; a mismatch is invalid.
 This is not a universal tree serialization or hash. Exact source bytes and
+model-state equivalence remain distinct. Names reject NUL,
+slashes, backslashes, dot segments, non-NFC text, and reserved ambiguity.
+Directory entries are canonically ordered; decoders reject noncanonical
+encodings and hash mismatches.
+
 Arbor has one canonical encoding and one hash rule. The canonical CBOR subset
 is: `null`; booleans; integers in the safe 53-bit range as CBOR integers with
 minimal-length heads; every other finite number as a 64-bit float; UTF-8 text;
@@ -830,11 +830,6 @@ fingerprints are all `sha256:` of this encoding of the identified value;
 nothing on the wire is identified by a canonical JSON text. The
 [`canonical-cbor-values`](../conformance/canonical-cbor-values.json) vectors
 freeze valid encodings and rejected byte sequences for every language binding.
-
-model-state equivalence remain distinct. Names reject NUL,
-slashes, backslashes, dot segments, non-NFC text, and reserved ambiguity.
-Directory entries are canonically ordered; decoders reject noncanonical
-encodings and hash mismatches.
 
 The reference validation profile bounds one exact file rollup to 16 MiB,
 `schema.ts` to 1 MiB, and the normalized row set to 100,000 rows. Authorities
@@ -965,14 +960,14 @@ every direct candidate and every automatic merge, the server:
 5. accepts the new root and applies credential revocation, administrators,
    existing-tree ACLs, and canonical boundaries in one transaction.
 
-Kind cannot change after activation. Incompatible same-field edits return
+Incompatible same-field edits return
 `conflict` with exact typed `account-configuration` details and a private draft
 snapshot; resolution is a later explicit candidate.
 
 ### 6.2 Declaring and activating a tree
 
 Adding an unknown client-generated `TreeID` to `trees.yaml` first accepts and
-reserves its identity, canonical path, immutable kind, and ACL. Private derived
+reserves its identity, canonical path, and ACL. Private derived
 status becomes `awaiting-initialization`. At least one active administrator's
 placements must name it. Pending trees are unreadable, unresolved, and
 unattached.

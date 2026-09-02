@@ -68,12 +68,10 @@ const configured = snapshotAccountConfig({
   trees: { version: 1, trees: {
     ...graph.trees.trees,
     [editorsTree]: {
-      kind: "group-profile",
       canonicalPath: "/~editors",
       access: [{ subject: { kind: "everyone" }, access: "read" }],
     },
     [fixtureTree]: {
-      kind: "shared-subtree",
       canonicalPath: "/~owner/fixture",
       access: [],
     },

@@ -88,7 +88,7 @@ struct ArborAppTests {
         let store = NativePlacementStore(url: root.appending(path: "placement.json"))
         let tree = WireTreeDescriptor(
             id: "tr_native",
-            kind: "shared-subtree",
+            kind: "ordinary",
             ref: "sha256:\(String(repeating: "a", count: 64))",
             access: "write",
             canonical: WireCanonicalDescriptor(

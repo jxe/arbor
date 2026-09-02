@@ -5,7 +5,6 @@ export interface CanonicalBoundary {
   path: string;
   tree: string;
   parentTree: string | null;
-  kind: TreeKind;
 }
 
 export interface CanopyTree {

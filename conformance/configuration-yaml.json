@@ -6,7 +6,7 @@
       "currentDevice": "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
       "files": {
         "account.yaml": "version: 1\ncommunity: https://community.example\nprofile:\n  tree: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa\n  handle: joe\nadmins:\n  - dv_aaaaaaaaaaaaaaaaaaaaaaaaaa\n",
-        "trees.yaml": "version: 1\ntrees:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    kind: person-profile\n    canonicalPath: /~joe\n    access:\n      - subject:\n          kind: everyone\n        access: read\n",
+        "trees.yaml": "version: 1\ntrees:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    canonicalPath: /~joe\n    access:\n      - subject:\n          kind: everyone\n        access: read\n",
         "devices/dv_aaaaaaaaaaaaaaaaaaaaaaaaaa.yaml": "version: 1\nlabel: Joe's Mac\nplacements:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    server: https://community.example\n    path: /Users/joe/Arbor\n"
       },
       "placement": "placed"
@@ -16,7 +16,7 @@
       "currentDevice": "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
       "files": {
         "account.yaml": "version: 1\ncommunity: https://community.example\nprofile:\n  tree: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa\n  handle: joe\nadmins: [dv_aaaaaaaaaaaaaaaaaaaaaaaaaa]\n",
-        "trees.yaml": "version: 1\ntrees:\n  tr_bbbbbbbbbbbbbbbbbbbbbbbbbb:\n    kind: shared-subtree\n    canonicalPath: /~joe/shared\n    access:\n      - subject: { kind: link, digest: 'sha256:0000000000000000000000000000000000000000000000000000000000000000' }\n        access: write\n",
+        "trees.yaml": "version: 1\ntrees:\n  tr_bbbbbbbbbbbbbbbbbbbbbbbbbb:\n    canonicalPath: /~joe/shared\n    access:\n      - subject: { kind: link, digest: 'sha256:0000000000000000000000000000000000000000000000000000000000000000' }\n        access: write\n",
         "devices/dv_aaaaaaaaaaaaaaaaaaaaaaaaaa.yaml": "version: 1\nlabel: Joe's Mac\nplacements:\n  tr_bbbbbbbbbbbbbbbbbbbbbbbbbb:\n    server: https://community.example\n"
       },
       "placement": "replica"
@@ -26,8 +26,9 @@
     { "name": "duplicate-key", "path": "trees.yaml", "source": "version: 1\ntrees: {}\ntrees: {}\n", "code": "invalid-trees-yaml" },
     { "name": "alias", "path": "trees.yaml", "source": "version: 1\ntrees: &trees {}\ncopy: *trees\n", "code": "invalid-trees-yaml" },
     { "name": "unknown-field", "path": "account.yaml", "source": "version: 1\ncommunity: https://community.example\nprofile: { tree: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa, handle: joe }\nadmins: [dv_aaaaaaaaaaaaaaaaaaaaaaaaaa]\nupdate: up_private\n", "code": "invalid-account-yaml" },
-    { "name": "stored-none", "path": "trees.yaml", "source": "version: 1\ntrees:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    kind: person-profile\n    canonicalPath: /~joe\n    access: [{ subject: { kind: everyone }, access: none }]\n", "code": "invalid-trees-yaml" },
-    { "name": "public-access-field", "path": "trees.yaml", "source": "version: 1\ntrees:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    kind: person-profile\n    canonicalPath: /~joe\n    access: []\n    publicAccess: read\n", "code": "invalid-trees-yaml" },
+    { "name": "stored-none", "path": "trees.yaml", "source": "version: 1\ntrees:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    canonicalPath: /~joe\n    access: [{ subject: { kind: everyone }, access: none }]\n", "code": "invalid-trees-yaml" },
+    { "name": "public-access-field", "path": "trees.yaml", "source": "version: 1\ntrees:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    canonicalPath: /~joe\n    access: []\n    publicAccess: read\n", "code": "invalid-trees-yaml" },
+    { "name": "kind-field-rejected", "path": "trees.yaml", "source": "version: 1\ntrees:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    kind: person-profile\n    canonicalPath: /~joe\n    access: []\n", "code": "invalid-trees-yaml" },
     { "name": "state-injection", "path": ".state/credential", "source": "secret", "code": "invalid-account-configuration" },
     { "name": "bad-device-filename", "path": "devices/laptop.yaml", "source": "version: 1\nlabel: Laptop\nplacements: {}\n", "code": "invalid-device-file" },
     { "name": "missing-admin", "remove": "devices/dv_aaaaaaaaaaaaaaaaaaaaaaaaaa.yaml", "code": "inactive-admin" },

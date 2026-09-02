@@ -38,11 +38,9 @@ async function writeConfiguration(home: string, placementPath?: string): Promise
     "version: 1",
     "trees:",
     `  ${profile}:`,
-    "    kind: person-profile",
     "    canonicalPath: /~joe",
     "    access: [{ subject: { kind: everyone }, access: read }]",
     `  ${shared}:`,
-    "    kind: shared-subtree",
     "    canonicalPath: /~joe/shared",
     "    access: []",
     "",
@@ -102,9 +100,13 @@ describe("account configuration YAML", () => {
       "status: syncing",
     ].join("\n"))).toThrow("unknown fields");
     expect(() => parseTreesConfiguration([
-      "version: 1", "trees:", `  ${profile}:`, "    kind: person-profile", "    canonicalPath: /~joe",
+      "version: 1", "trees:", `  ${profile}:`, "    canonicalPath: /~joe",
       "    access: [{ subject: { kind: everyone }, access: none }]",
     ].join("\n"))).toThrow("read or write");
+    // Profile kind lives only in the root document's frontmatter; a declared kind is an unknown field.
+    expect(() => parseTreesConfiguration([
+      "version: 1", "trees:", `  ${profile}:`, "    kind: person-profile", "    canonicalPath: /~joe", "    access: []",
+    ].join("\n"))).toThrow("unknown fields");
     expect(() => parseDeviceConfiguration([
       "version: 1", "label: Laptop", "placements:", `  ${profile}:`,
       "    server: https://community.example", "    path: relative/path",
