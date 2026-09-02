@@ -37,6 +37,9 @@ describe("arbor open operands", () => {
 
   test("attaches to an existing Arbor Sync workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-open-attach-"));
+    const state = await mkdtemp(join(tmpdir(), "arbor-open-attach-state-"));
+    const previousDataHome = process.env.ARBOR_DATA_HOME;
+    process.env.ARBOR_DATA_HOME = state;
     const running = await serveArborSync(root, { port: 0 });
     try {
       const port = Number(new URL(running.url).port);
@@ -45,7 +48,10 @@ describe("arbor open operands", () => {
     } finally {
       running.server.stop(true);
       await running.service[Symbol.asyncDispose]();
+      if (previousDataHome === undefined) delete process.env.ARBOR_DATA_HOME;
+      else process.env.ARBOR_DATA_HOME = previousDataHome;
       await rm(root, { recursive: true, force: true });
+      await rm(state, { recursive: true, force: true });
     }
   });
 });

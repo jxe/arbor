@@ -11,9 +11,13 @@ import {
 } from "../../packages/cli/src/daemon.ts";
 
 const roots: string[] = [];
+const previousDataHome = process.env.ARBOR_DATA_HOME;
 
+// Supervision owns only the default data home, so tests that install clear the
+// override inside their own body; it is restored before the next test starts.
 afterEach(async () => {
-  delete process.env.ARBOR_DATA_HOME;
+  if (previousDataHome === undefined) delete process.env.ARBOR_DATA_HOME;
+  else process.env.ARBOR_DATA_HOME = previousDataHome;
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -32,6 +36,7 @@ describe("Arbor daemon supervision", () => {
   });
 
   test("installs, reports, stops, restarts, and uninstalls one launchd job", async () => {
+    delete process.env.ARBOR_DATA_HOME;
     const home = await mkdtemp(join(tmpdir(), "arbor-daemon-supervision-"));
     roots.push(home);
     const commands: string[][] = [];
@@ -80,6 +85,7 @@ describe("Arbor daemon supervision", () => {
   });
 
   test("refuses to install over an unsupervised process on the well-known port", async () => {
+    delete process.env.ARBOR_DATA_HOME;
     const home = await mkdtemp(join(tmpdir(), "arbor-daemon-collision-"));
     roots.push(home);
     const supervisor = new DarwinArborDaemonSupervisor({

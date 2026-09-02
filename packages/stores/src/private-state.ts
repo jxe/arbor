@@ -29,9 +29,21 @@ export class AmbiguousWorkspaceIdentityError extends Error {
 
 type StoredWorkspaceRegistry = Record<string, string | WorkspaceRegistryRecord>;
 
-/** Arbor's one default local state home. Tests and isolated runs may override it. */
+/**
+ * Arbor's one default local state home. Tests and isolated runs may override
+ * it; the test preload also sets ARBOR_REQUIRE_DATA_HOME so that a test which
+ * loses its override fails instead of preparing the developer's real home.
+ */
 export function arborDataRoot(): string {
-  return process.env.ARBOR_DATA_HOME || join(homedir(), ".arbor");
+  const explicit = process.env.ARBOR_DATA_HOME;
+  const fallback = join(homedir(), ".arbor");
+  if (process.env.ARBOR_REQUIRE_DATA_HOME) {
+    if (!explicit) throw new Error("ARBOR_DATA_HOME is unset while ARBOR_REQUIRE_DATA_HOME forbids the default Arbor data home");
+    if (explicit === fallback || explicit.startsWith(`${fallback}/`)) {
+      throw new Error(`ARBOR_DATA_HOME (${explicit}) is the real Arbor data home, which ARBOR_REQUIRE_DATA_HOME forbids`);
+    }
+  }
+  return explicit || fallback;
 }
 
 export function arborPrivateRoot(): string {
