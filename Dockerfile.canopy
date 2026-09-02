@@ -3,6 +3,7 @@ FROM oven/bun:1.3.14
 WORKDIR /app
 COPY package.json bun.lock tsconfig.json ./
 COPY packages ./packages
+COPY migrations ./migrations
 RUN bun install --frozen-lockfile --production
 
 ENV ARBOR_CANOPY_DATA=/data

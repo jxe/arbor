@@ -3,7 +3,8 @@ import { Database } from "bun:sqlite";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { CANOPY_SCHEMA_VERSION, CanopyDaemon, migrateCanopy } from "@arbor/canopy";
+import { CANOPY_SCHEMA_VERSION, CanopyDaemon } from "@arbor/canopy";
+import { migrateCanopy } from "./migrate.ts";
 import { decodeWireObject, encodeWireObject, hashObject, type ObjectHash } from "@arbor/wire";
 import { parseDocument, type YAMLMap } from "yaml";
 

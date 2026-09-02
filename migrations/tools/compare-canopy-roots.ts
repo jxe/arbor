@@ -1,17 +1,17 @@
 // Compare a Canopy data root before and after the offline migration: every
 // tree's current root must decode to the same materialized files, except that
 // the account-configuration tree's trees.yaml loses its kind lines.
-//   bun run tools/compare-canopy-roots.ts <original-data-root> <migrated-data-root>
+//   bun run migrations/tools/compare-canopy-roots.ts <original-data-root> <migrated-data-root>
 import { Database } from "bun:sqlite";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { ObjectStore } from "../packages/canopy/src/objects.ts";
+import { ObjectStore } from "../../packages/canopy/src/objects.ts";
 import { materializeTree } from "@arbor/fs";
 
 const [originalRoot, migratedRoot] = process.argv.slice(2).map((path) => path && resolve(path));
 if (!originalRoot || !migratedRoot) {
-  console.error("usage: bun run tools/compare-canopy-roots.ts <original-data-root> <migrated-data-root>");
+  console.error("usage: bun run migrations/tools/compare-canopy-roots.ts <original-data-root> <migrated-data-root>");
   process.exit(2);
 }
 

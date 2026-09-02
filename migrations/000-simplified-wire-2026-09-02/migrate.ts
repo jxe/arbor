@@ -3,10 +3,10 @@ import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { isMap, parseDocument } from "yaml";
 import { decodeWireObject, encodeWireObject, hashObject, type ObjectHash } from "@arbor/wire";
-import { ObjectStore } from "./objects.ts";
-import { rootProfileFacts } from "./profile.ts";
-import { CANOPY_SCHEMA_VERSION, assertCurrentCanopySchema } from "./schema.ts";
-import { AcceptedUpdateStore } from "./updates/store.ts";
+import { ObjectStore } from "../../packages/canopy/src/objects.ts";
+import { rootProfileFacts } from "../../packages/canopy/src/profile.ts";
+import { CANOPY_SCHEMA_VERSION, assertCurrentCanopySchema } from "../../packages/canopy/src/schema.ts";
+import { AcceptedUpdateStore } from "../../packages/canopy/src/updates/store.ts";
 
 export interface CanopyMigrationReport {
   trees: Array<{ id: string; policy: string; refBefore: ObjectHash; refAfter: ObjectHash }>;
