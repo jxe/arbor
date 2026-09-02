@@ -3,7 +3,7 @@
 TreeID identity, tree-relative paths, revisions, and DNS/Canopy canonical
 lookup.*
 
-*Owns: locator grammar, parsing, resolution, and the public HTTP projection. References: canonical boundary selection ([wire §4](04-wire.md#4-finding-trees)) and row segments ([stores](06-stores.md)).*
+*Owns: locator grammar, parsing, resolution, the routes that find trees, and the public HTTP projection. References: row segments ([stores](06-stores.md)).*
 
 ## 1. Forms
 
@@ -145,7 +145,7 @@ Authored `.md`, `.mdx`, `.tsx`, and `/_index.md` spellings may be accepted as in
 
 ## 4. Resolution rules
 
-- A canonical server path resolves to the longest readable registered boundary, as specified by [the wire](04-wire.md#4-finding-trees); an inaccessible nested boundary is not resolved through its parent.
+- A canonical server path resolves to the longest readable registered boundary, as specified by [the wire](#5-finding-trees); an inaccessible nested boundary is not resolved through its parent.
 - A raw TreeID locator resolves independently of its current public name, using a verified endpoint hint or already-known server record.
 - A relative or tree-rooted reference retains the tree scope of its resolution context and cannot cross a nested tree boundary without an explicit canonical or raw locator.
 - When `stableKey` is non-null, the resolver validates it against the addressed schema. A key from a tree identity declaration may repair the path anywhere in that tree; a key from a parent's children declaration may repair only the final child component after the parent path resolves. The declaration site supplies this keyspace; the identity rule has no separate `scope` field.
@@ -154,7 +154,28 @@ Authored `.md`, `.mdx`, `.tsx`, and `/_index.md` spellings may be accepted as in
 
 Locator resolution is separate from rendering. A successful result always retains explicit tree scope so mounted/composed child actions, search results, backlinks, and historical reads cannot silently fall back to a parent's tree.
 
-## 5. Public HTTP projection
+## 5. Finding trees
+
+```text
+GET /.arbor/health
+GET /.arbor/account
+GET /.arbor/trees
+GET /.well-known/arbor[/{path}]
+```
+
+Authenticated account and tree-list reads use explicit envelopes carrying
+`observedThrough`; bare arrays and descriptors are not mutable responses. The
+same snapshot-then-observe rule as the core tree API applies. For an ordinary
+tree, its accepted-update ID is its `observedThrough` cursor unless a later
+non-ref event advances that tree's observation stream; `tree.update` remains
+the content synchronization base.
+
+Well-known and canonical-path resolution return `LocatorResolution`, using the
+longest readable registered boundary. Inaccessible nested boundaries cannot be
+read through a parent. The private account-configuration tree is absent from
+public discovery and canonical resolution.
+
+## 6. Public HTTP projection
 
 Readable canonical paths have safe HTTP and `arbor://` projections. HTML,
 Markdown, files, and redirects retain canonical tree/path provenance and never

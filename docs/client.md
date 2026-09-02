@@ -111,4 +111,4 @@ File menus provide ordinary rename, move, copy, Trash, restore, and asset import
 
 ## Agents
 
-Arbor clients may render agent files with context/tool summaries, a concrete consent sheet, live progress, tool calls, receipts, and ordinary-tree transcripts. The portable behavior is in [the agents section of executable documents](../spec/07-executable-documents.md#12-agents); Arbor's panels, streaming presentation, and approval controls are reference design.
+Arbor clients may render agent files with context/tool summaries, a concrete consent sheet, live progress, tool calls, receipts, and ordinary-tree transcripts. The portable behavior is in [the agents section of executable documents](../spec/07-executable-documents.md#13-agents); Arbor's panels, streaming presentation, and approval controls are reference design.

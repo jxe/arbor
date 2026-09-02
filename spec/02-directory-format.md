@@ -2,7 +2,7 @@
 *Part of the [Arbor spec](../spec.md): one human-editable filesystem/Markdown
 projection of the [Arbor data model](01-data-model.md).*
 
-*Owns: how files, directories, frontmatter, `_index.md`, child placement, profiles, and reserved names map to nodes. References: stable keys ([locators](03-locators.md)) and the property write ([data model §5](01-data-model.md#5-revisions-and-equivalence)).*
+*Owns: how files, directories, frontmatter, `_index.md`, child placement, and reserved names map to nodes. References: stable keys ([locators](03-locators.md)) and the property write ([data model §5](01-data-model.md#5-change-and-equivalence)).*
 
 ## 1. Projection boundary
 
@@ -14,17 +14,38 @@ differently while preserving the same model and the projection-specific fidelity
 guarantees it advertises.
 
 The directory projection preserves exact authored source in addition to modeled
-state, so its writes are guarded by [source revisions](01-data-model.md#5-revisions-and-equivalence):
+state, so its writes match on [bytes hashes](01-data-model.md#5-change-and-equivalence):
 file bytes, frontmatter spelling/order/comments, and reserved rollup bytes
-change the source revision even when the model digest is unchanged.
+change the bytes hash even when the model hash is unchanged.
 
 ## 2. Mapping files and directories to nodes
 
-One of `x.md`, `x.mdx`, or `x.tsx` supplies content for logical path `/x`; sibling directory `x/` supplies its children. `.md` supplies non-executable Markdown, while `.mdx` and a default-exporting `.tsx` may supply an executable component body as specified by [executable documents](07-executable-documents.md). When no sibling body exists, `x/_index.md` is the Markdown directory-content fallback. URLs, links, API paths, and visible names use extensionless logical paths.
+A directory is a node. Its entries are the node's children, and its own
+content lives inside it as `x/_index.md`, so a node that has children keeps
+everything in one place. A node may instead keep its content beside the
+directory: `x.md`, `x.mdx`, or `x.tsx` supplies the content of `/x` when `x/`
+has no `_index.md`, and the sibling directory `x/`, if present, still supplies
+the children. `.md` supplies non-executable Markdown, while `.mdx` and a
+default-exporting `.tsx` may supply an executable component body as specified
+by [executable documents](07-executable-documents.md). URLs, links, API paths,
+and visible names use extensionless logical paths either way.
 
-One content file and `x/` therefore coexist as one logical node. Creating a child does not move or rename the content. Merely reading a contentless directory does not create `_index.md`. The first authored Markdown content/property edit, authored child ordering, or operation requiring durable Markdown document identity may materialize it.
+`_index.md` takes precedence. When both `x/_index.md` and a sibling body exist,
+`_index.md` is the node's content, the sibling body is not part of the model,
+and a conforming implementation reports `shadowed-body` as a diagnostic so a
+person can remove or merge the sibling; the node stays readable and editable.
+More than one sibling body, such as `x.md` beside `x.mdx`, is ambiguous with
+nothing to prefer: the implementation reports `duplicate-body-representation`
+and refuses rendering or mutation of that node until a person chooses which
+remains.
 
-More than one sibling content representation—such as `x.md` with `x.mdx`—is ambiguous. Sibling content together with `x/_index.md` is also ambiguous. A conforming implementation reports `duplicate-body-representation` and refuses rendering or mutation of that logical node until a person explicitly chooses which representation remains. Rename, move, copy, trash, and restore treat sibling content and its directory as one logical unit and never silently merge an occupied destination.
+A sibling body and `x/` coexist as one logical node. Creating a child does not
+move or rename the content. Merely reading a contentless directory does not
+create `_index.md`. The first authored Markdown content/property edit,
+authored child ordering, or operation requiring durable Markdown document
+identity may materialize it. Rename, move, copy, trash, and restore treat
+sibling content and its directory as one logical unit and never silently merge
+an occupied destination.
 
 ## 3. Properties, Markdown content, and identity
 
@@ -34,12 +55,12 @@ the Markdown editor therefore address one value rather than parallel record and
 document state. A property mutation rewrites frontmatter through the same exact-
 source concurrency boundary as a body mutation.
 
-A [property write](01-data-model.md#5-revisions-and-equivalence) preserves
+A [property write](01-data-model.md#5-change-and-equivalence) preserves
 the Markdown body exactly. Providers may expose the property and content
-capabilities separately even when both revisions currently name the same
+capabilities separately even when both match values currently name the same
 Markdown source bytes. In that shared-byte representation, a successful
-frontmatter-only write advances both exact-source capability revisions even
-though the logical Markdown body is byte-for-byte unchanged.
+frontmatter-only write changes both capabilities' bytes hashes even though the
+logical Markdown body is byte-for-byte unchanged.
 
 A materialized Markdown document may carry an opaque durable `id`. This
 projection historically calls its value a `PageID`; in the common data model it
@@ -81,7 +102,7 @@ placement and child membership are distinct:
 
 Reading an implicit body or marker does not materialize it. The first authored
 content/property/placement write persists only the exact authored source; it
-does not serialize the marker's remainder. A placement write is guarded by the parent's source revision together with the
+does not serialize the marker's remainder. A placement write must match the parent's bytes hash together with the
 children cursor it observed. Child add/remove/relocate/identity changes
 invalidate a concurrent placement write; property or content changes within an
 existing child do not change parent membership unless they also change its
@@ -106,24 +127,7 @@ and application query survive healing unchanged. Arbor renderers translate the
 alias to the server-visible path suffix before emitting HTTP links. Nodes with a
 null stable key remain path-identified.
 
-## 5. Profiles and groups
-
-Person and group profiles are complete Arbor trees with ordinary root Markdown:
-
-```yaml
-type: person
-```
-
-```yaml
-type: group
-members:
-  - arbor://community.example/~alice
-  - arbor://community.example/~bob
-```
-
-The profile tree's `TreeID`, not its mutable title or root `PageID`, is the stable person or group identity. The root document's `type: person` or `type: group` is the sole declaration of a profile's kind; wire tree descriptors carry no profile kind, and the server enforces `type: person` at an account's profile tree and `type: group` at the community root without validating `type:` elsewhere. Group membership is the authored `members` list. Membership does not itself grant write access to the group tree.
-
-## 6. Recognized authored files
+## 5. Recognized authored files
 
 - `schema.ts` declares a file-backed collection row schema as specified by [stores](06-stores.md).
 - `_store.csv`, `_store.json`, `_store.jsonl`, `_store.sqlite3`, and
@@ -132,14 +136,14 @@ The profile tree's `TreeID`, not its mutable title or root `PageID`, is the stab
   not imply Postgres.
 - `.ts` and `.tsx` files may define Arbor handles, components, and executable documents as specified by [executable documents](07-executable-documents.md).
 - `.mdx` files may define explicit executable component documents as specified by [executable documents](07-executable-documents.md).
-- Markdown files may define agents as specified by [executable documents](07-executable-documents.md#12-agents).
+- Markdown files may define agents as specified by [executable documents](07-executable-documents.md#13-agents).
 
 These recognizers do not make generated declarations, compiled bundles, database credentials, or execution transcripts part of this format unless they are themselves deliberately authored ordinary tree content.
 
-## 7. Reserved names and sidecars
+## 6. Reserved names and sidecars
 
-- `_index.md` is the fallback body for its directory and is never exposed as a child.
+- `_index.md` is its directory's own content and is never exposed as a child.
 - `_store.*` names select the enclosing collection's backing and are not ordinary row children.
-- `.state` is forbidden in an account-configuration graph as specified by [configuration](05-configuration.md).
+- `.state` is forbidden in an account-configuration graph as specified by [configuration](04-accounts-and-devices.md).
 
 The account YAML is human-editable special control content, not portable authored format. Credentials, access-link secrets, private indexes, journals, recovery databases, and private device credential records are never portable authored format.

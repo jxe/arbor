@@ -15,7 +15,7 @@ REST v1 reuses the wire's transport-neutral values—`TreeID`, `LogicalPath`,
 `ReadWriteAccess`, `TreeKind`, `TreeDescriptor`, `RemoteTreeDescriptor`,
 `AccessSubject`, `AccessRule`, `SafeAccessSubject`, `AccessEntry`, `NodeRef`,
 `ArborError`, and `ObservationEvent`—exactly as defined in
-[the Arbor wire protocol §3.2](../spec/04-wire.md#32-shared-values-and-descriptors).
+[data model §8](../spec/01-data-model.md#8-shared-wire-values).
 It adds only the following:
 
 ```ts
@@ -54,10 +54,10 @@ resolution does not duplicate a `writable` flag.
 ## 2. Access and errors
 
 Access subjects, levels, and the `none` removal rule are defined once in
-[configuration](../spec/05-configuration.md#2-configuration-yaml). Configuration
+[configuration](../spec/04-accounts-and-devices.md#3-configuration-yaml). Configuration
 and mutation requests use the wire's `AccessRule`; safe administrative
 responses use `AccessEntry`, whose link subject exposes neither raw secret nor
-digest ([wire §3.2](../spec/04-wire.md#32-shared-values-and-descriptors)).
+digest ([data model §8](../spec/01-data-model.md#8-shared-wire-values)).
 
 Every non-2xx JSON error uses the wire's `ArborError` envelope with
 `tree?: TreeRef`. Shared codes are `invalid-request`, `unauthenticated`,
@@ -228,7 +228,7 @@ and content operations are addressed separately even when their capability
 revisions name the same exact source bytes. A `ChildRepresentationSummary`
 describes the observed placement; it does not make backing or projection
 topology part of node identity. The exact synchronized rollup form remains the
-wire's [`RollupDescriptor`](../spec/04-wire.md#33-deterministic-lossless-encoding-and-tree-scoped-authorization).
+wire's [`RollupDescriptor`](../spec/01-data-model.md#7-the-canonical-encoding-of-a-tree).
 
 The REST routes carry `NodeRef` without inventing a second locator shape. Node
 reads take it as the `tree`, `path`, and `stableKey` query parameters described

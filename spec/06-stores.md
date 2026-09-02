@@ -1,7 +1,7 @@
 # Stores and collections
 *Part of the [Arbor spec](../spec.md): backing-independent child behavior over Markdown, CSV, JSON, JSONL, SQLite, external stores, and placement projections.*
 
-*Owns: the collection contract, row identity and ordering, observation precision, file, SQLite, and Postgres backings, placement projections, and migration. References: the query language ([executable documents](07-executable-documents.md)) and the property write ([data model §5](01-data-model.md#5-revisions-and-equivalence)).*
+*Owns: the collection contract, row identity and ordering, observation precision, file, SQLite, and Postgres backings, placement projections, and migration. References: the query language ([executable documents](07-executable-documents.md)) and the property write ([data model §5](01-data-model.md#5-change-and-equivalence)).*
 
 ## 1. Common collection contract
 
@@ -18,7 +18,7 @@ A collection is addressed by its logical folder path. Its backing is selected in
 Collection enumeration is ordinary paginated child enumeration. A protocol may
 offer a collection-shaped projection for columns, tables, or bulk query results,
 but it does not require a second collection-page resource to identify or browse
-rows. Such a projection returns the same row node references and revisions as
+rows. Such a projection returns the same row node references and match values as
 the generic node surface.
 
 A conforming store supplies:
@@ -41,20 +41,20 @@ represent a table's immediate rows or a database container's table/row subtree.
 The provider exposes those children through ordinary node and children APIs;
 reserved store files are not themselves row children.
 
-Reformatting JSON or CSV changes the source revision and not the model digest,
+Reformatting JSON or CSV changes the bytes hash and not the model hash,
 and a representation migration may preserve the digest while changing every
-byte ([data model §5](01-data-model.md#5-revisions-and-equivalence)). Updates name the complete candidate tree and may carry
+byte ([data model §5](01-data-model.md#5-change-and-equivalence)). Updates name the complete candidate tree and may carry
 compact patches to representation bytes, but the authority decodes
 base/current/candidate under quotas, merges by stable node identity where safe,
 validates the complete schema and constraints, and computes the accepted model
-digest itself.
+hash itself.
 
-A live SQLite or Postgres database has no source revision. Database reads
+A live SQLite or Postgres database has no bytes hash. Database reads
 instead carry a schema fingerprint, a provider-local transaction snapshot for
-the duration of the read, each row's model digest as its write guard, and an
+the duration of the read, each row's model hash as what a write must match, and an
 ordered observation cursor. A database may export a canonical
-logical checkpoint for synchronization or recovery, but that checkpoint is not
-the revision of ordinary reads and never consists of database page, WAL, or
+logical checkpoint for synchronization or recovery, but that checkpoint is not what an
+ordinary read matches on and never consists of database page, WAL, or
 provider storage bytes.
 
 ### 1.2 Queries over collections
@@ -90,8 +90,7 @@ This specification adds only the facts a store owns:
   relational extension supplies explicit ordering, the proved stable key is the
   deterministic final tie-breaker.
 - **Pagination.** Live or mutable pagination uses a provider-bound keyset
-  cursor, never an unqualified offset. A file rollup binds that cursor to its
-  exact source and schema revision; a database binds it to the schema
+  cursor, never an unqualified offset. A file rollup binds that cursor to its bytes hash and schema fingerprint; a database binds it to the schema
   fingerprint, ordering, last stable key, and an observation boundary that can
   detect expiry or relevant committed change. It never hashes the complete
   database.
@@ -114,12 +113,12 @@ This specification adds only the facts a store owns:
   imprecise database invalidation, and cross-file foreign-key atomicity is not
   implied.
 
-### 1.3 Revisions and committed change observation
+### 1.3 Read boundaries and committed change observation
 
 Every store read is associated with a coherent read boundary and returns the
-observation cursor it read through. File stores also name a source revision.
+observation cursor it read through. File stores also name a bytes hash.
 Database stores hold a provider-local transaction snapshot only for the read;
-they do not expose a whole-database revision or digest. A store observer yields changes only
+they do not expose a whole-database bytes hash or model hash. A store observer yields changes only
 after the corresponding transaction commits and supplies a cursor from which
 the runtime can establish a snapshot-then-follow boundary. Rollbacks and
 partial statements produce no visible change.
@@ -151,7 +150,7 @@ Mutation retry identity and its completed result are recorded in the same
 transaction domain as the data effects, or by an equivalent crash-recoverable
 mechanism that can distinguish a completed commit from an unexecuted intent
 after restart. The identity itself is defined by
-[wire §2.2](04-wire.md#22-execute-named-mutations).
+[executable documents §12.2](07-executable-documents.md#122-execute-named-mutations).
 
 ## 2. File-backed collections
 
@@ -190,12 +189,12 @@ available through the common node projection rather than a separate Markdown-
 row API.
 
 CSV, JSON, and JSONL mutations are atomic at the whole-file transaction boundary. A
-driver locks and revision-checks the source, validates the complete key set and
+driver locks the source, checks its bytes hash, validates the complete key set and
 requested effects, writes and fsyncs a complete replacement, atomically renames
 it, fsyncs the containing directory where supported, and records retry
 completion in the same crash-recoverable workflow before acknowledgement.
-A [property write](01-data-model.md#5-revisions-and-equivalence) on a row is
-guarded by the row's model digest and must preserve the declared key. A logical no-op leaves the source byte-identical. A direct row-property
+A [property write](01-data-model.md#5-change-and-equivalence) on a row must
+match the row's model hash and must preserve the declared key. A logical no-op leaves the source byte-identical. A direct row-property
 write cannot add, remove, or reorder rows.
 Multi-row mutations preserve row order unless the mutation
 explicitly changes ordered membership. JSONL drivers preserve untouched line
@@ -219,9 +218,9 @@ The schema evaluator accepts the authored schema and its declared schema-library
 SQLite remains canonical and usable by ordinary SQLite tools. Row mutations
 run in SQLite transactions. Observation occurs at committed boundaries and
 snapshots are database-consistent; a live main database and WAL are never
-treated as unrelated files or assigned an exact source revision. A provider
+treated as unrelated files or assigned an exact bytes hash. A provider
 may widen an imprecise concurrent change to collection/store invalidation, but
-must not manufacture a whole-database revision by hashing all rows or storage
+must not manufacture a whole-database hash by hashing all rows or storage
 bytes.
 
 External-write observation must detect committed changes made through other processes or connections. When affected rows cannot be recovered precisely, the driver emits a whole-store invalidation after the external commit. A wakeup alone is never treated as proof of a committed row change.
@@ -254,7 +253,7 @@ mutations in Postgres transactions, and observes committed changes; the authored
 tree synchronizes the safe descriptor rather than a database copy.
 
 A device placement may instead request a private SQLite projection in its
-[configuration](05-configuration.md):
+[configuration](04-accounts-and-devices.md):
 
 ```yaml
 projection:
@@ -269,7 +268,7 @@ logical result into private SQLite. Local queries may use the last completely
 applied projection while offline. Mutations and direct SQLite writes fail with
 `read-only-projection`; reconnect reevaluates current state, so this mode does
 not need retained mutation history or two-way CDC. Projection query plans,
-applied output hashes/model digests, SQLite/WAL bytes, and local paths are
+applied output hashes/model hashes, SQLite/WAL bytes, and local paths are
 private placement state.
 
 The projection manifest declares a finite schema-complete node scope. Bootstrap
@@ -284,7 +283,7 @@ root.
 only when the host has activated the external store as an Arbor-managed
 materialization: the Arbor logical data tree is canonical, external Postgres
 writes are denied, accepted named mutations atomically record the resulting
-scoped model digest, accepted update, and receipt with their Postgres effects,
+scoped model hash, accepted update, and receipt with their Postgres effects,
 and local SQLite publishes reviewed mutation intent or complete candidate
 updates. Host activation is an
 operational trust decision, not authored tree content or placement projection
@@ -314,6 +313,6 @@ Schema information and explicit relationship declarations are mapped to canonica
 Replacing Markdown/CSV/JSON/JSONL rows with `_store.sqlite3`, or replacing one
 supported representation/provider with another, preserves the logical
 collection address, stable row identities, and portable operations when schema
-and primary-key values are preserved. Source revisions change while the model digest remains equal. The transition is not atomic
+and primary-key values are preserved. Bytes hashes change while the model hash remains equal. The transition is not atomic
 across independent backing authorities unless the implementation actually
 provides that guarantee.
