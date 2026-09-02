@@ -501,11 +501,16 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
 
     public func close() async { terminal = true }
 
-    private nonisolated static func targets(
+    nonisolated static func targets(
         _ event: WorkspaceEvent,
         reference: WorkspaceReference
     ) -> Bool {
         if event.tree != reference.tree.rawValue { return false }
+        // Arbor Sync emits a root-scoped invalidation after it materializes an
+        // accepted, cursor-ordered Wire transition. It is deliberately broad:
+        // every open document in the tree must refetch rather than depend on a
+        // filesystem watcher correctly attributing identical bytes.
+        if event.change.origin == "sync", event.change.ref.path == "/" { return true }
         if let stableKey = reference.stableKey, let eventStableKey = event.change.ref.stableKey {
             return stableKey == eventStableKey
         }

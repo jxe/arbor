@@ -435,7 +435,17 @@ describe("private self-sync", () => {
     const reader = await launch(stateB, treeB);
     const idle = async () => (await reader.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle";
+    // Establish the initial accepted base and its live Wire watch. After this
+    // setup pass, the remote update below must arrive without another poll.
+    await reader.running.service.synchronizeNow();
     await waitFor(idle);
+    const observed = await reader.client.openNodeView({ tree, path: "/note", stableKey: null });
+    const syncInvalidation = (async () => {
+      for await (const update of observed.updates) {
+        if (update.kind === "event" && update.event.change.origin === "sync") return update.event;
+      }
+      throw new Error("The local observation stream ended before sync invalidation");
+    })();
 
     // Another writer advances the tree directly on Canopy; the reader's only
     // way to learn about it within the timeout is its live watch.
@@ -464,6 +474,12 @@ describe("private self-sync", () => {
       .catch(() => false));
     await waitFor(idle);
     expect(reader.running.service.trees.placementFor(tree)?.update).toBe(accepted.update.id);
+    const invalidation = await Promise.race([
+      syncInvalidation,
+      Bun.sleep(2_000).then(() => { throw new Error("Timed out waiting for sync invalidation"); }),
+    ]);
+    expect(invalidation.change.ref.path).toBe("/");
+    observed.close();
     await reader.close();
   });
 

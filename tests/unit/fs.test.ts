@@ -275,6 +275,35 @@ describe("@arbor/fs logical nodes", () => {
     expect(second.byteRevision).not.toBe(first.byteRevision);
   });
 
+  test("observes a peer undo that returns to the most recent authored revision", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-fs-peer-undo-"));
+    const state = await mkdtemp(join(tmpdir(), "arbor-fs-peer-undo-state-"));
+    directories.push(root, state);
+    await writeFile(join(root, "page.md"), "---\nid: abc123\n---\nInitial\n");
+    const fs = await WorkspaceFS.open(root, { stateDirectory: state, settleDelayMs: 250 });
+    opened.push(fs);
+    const externalRevisions: string[] = [];
+    fs.subscribe((event) => {
+      if (event.classification === "external" && event.byteRevision) externalRevisions.push(event.byteRevision);
+    });
+
+    const initial = await fs.read("/page");
+    const authored = await fs.writeMarkdown("/page", {
+      baseRevision: initial.byteRevision,
+      source: "---\nid: abc123\n---\nAuthored\n",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 320));
+
+    await writeFile(join(root, "page.md"), "---\nid: abc123\n---\nPeer edit\n");
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    await writeFile(join(root, "page.md"), authored.bytes!);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+
+    expect(externalRevisions).toHaveLength(2);
+    expect(externalRevisions[1]).toBe(authored.byteRevision);
+    expect(await readFile(join(root, "page.md"), "utf8")).toContain("Authored");
+  });
+
   test("correlates an external Markdown rename by durable page ID", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-fs-rename-watch-"));
     const state = await mkdtemp(join(tmpdir(), "arbor-fs-rename-watch-state-"));

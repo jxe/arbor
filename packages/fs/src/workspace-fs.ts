@@ -92,9 +92,13 @@ class NodeCoordinator {
   }
 
   settleEcho(revision: string): boolean {
-    if (this.recent[0]?.revision !== revision) return false;
+    if (!this.unsettled || this.recent[0]?.revision !== revision) return false;
     this.settle();
     return true;
+  }
+
+  settleBeforeExternal(): void {
+    if (this.unsettled) this.settle();
   }
 
   async drain(): Promise<void> {
@@ -1228,6 +1232,10 @@ export class WorkspaceFS implements AsyncDisposable {
       });
       return;
     }
+    // A different observed revision closes the local echo window. If the
+    // filesystem later returns to our last-authored bytes, that is a genuine
+    // external reversal rather than the delayed notification for our write.
+    coordinator?.settleBeforeExternal();
     if (current.document) {
       const id = current.document.frontmatter.id;
       if (isPageID(id)) {

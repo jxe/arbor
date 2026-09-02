@@ -130,8 +130,8 @@ export class TreeSynchronizer {
     }
   }
 
-  private materialize(workspace: Workspace, snapshot: TreeSnapshot): Promise<void> {
-    return materializeTree(
+  private async materialize(workspace: Workspace, snapshot: TreeSnapshot): Promise<void> {
+    await materializeTree(
       workspace.root,
       snapshot.root,
       (hash) => {
@@ -142,6 +142,17 @@ export class TreeSynchronizer {
       undefined,
       this.deps.trees.excludedMountsWithin(workspace.root),
     );
+    // Cursor ordering and request-digest correlation have already established
+    // that this is accepted Wire state. Publish that causal fact directly
+    // instead of relying on the filesystem watcher to infer it from bytes. The
+    // root event is a conservative tree-wide invalidation for open sessions;
+    // path-specific filesystem observations may follow as harmless duplicates.
+    this.deps.events.emit({
+      tree: workspace.tree,
+      kind: "updated",
+      ref: { tree: workspace.tree, path: "/", stableKey: null },
+      origin: "sync",
+    });
   }
 
   /** Verify the on-disk tree matches the accepted root, then record it as the accepted base. */

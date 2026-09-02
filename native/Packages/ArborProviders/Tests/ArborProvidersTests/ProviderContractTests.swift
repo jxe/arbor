@@ -7,6 +7,30 @@ import Testing
 
 @Suite("Workspace provider contract", .serialized)
 struct ProviderContractTests {
+    @Test("A root sync invalidation targets every document in its tree")
+    func rootSyncInvalidationTargetsWholeTree() throws {
+        let event = try JSONDecoder().decode(WorkspaceEvent.self, from: Data(#"""
+        {
+          "cursor":"local:1",
+          "tree":"tr_notes",
+          "kind":"updated",
+          "change":{
+            "ref":{"tree":"tr_notes","path":"/","stableKey":null},
+            "origin":"sync"
+          }
+        }
+        """#.utf8))
+        let nested = WorkspaceReference(
+            tree: "tr_notes",
+            path: "/nested/note",
+            stableKey: markdownStableKey("pg_nested")
+        )
+        let otherTree = WorkspaceReference(tree: "tr_other", path: "/nested/note")
+
+        #expect(ArborSyncDocumentSession.targets(event, reference: nested))
+        #expect(!ArborSyncDocumentSession.targets(event, reference: otherTree))
+    }
+
 #if os(macOS)
     @Test("Bookmark restore migrates the former sandbox preferences domain")
     func bookmarkMigrationFromSandboxPreferences() async throws {
