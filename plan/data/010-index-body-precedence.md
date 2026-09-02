@@ -4,7 +4,7 @@
 
 - **Priority:** P1
 - **Effort:** S
-- **State:** PLANNED — the spec is written ([directory format §2](../../spec/02-directory-format.md#2-mapping-files-and-directories-to-nodes)); the code still blocks on `duplicate-body-representation`.
+- **State:** IMPLEMENTED on 2026-09-02: the filesystem provider, the wire projection, and Canopy's public rendering prefer `_index.md` and report `shadowed-body`; covered by unit and integration tests rather than a new vector.
 - **Depends on:** nothing.
 
 ## Target result

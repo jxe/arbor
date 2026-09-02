@@ -32,7 +32,8 @@ export interface ResolvedWireLogicalNode {
   objectName: string;
   body?: WireFile;
   bodyOrigin?: "sibling" | "index";
-  duplicateBody: boolean;
+  /** A sibling body exists beside the `_index.md` that supplies this node's content. */
+  shadowedBody: boolean;
 }
 
 export interface TreeSnapshot {
@@ -112,7 +113,7 @@ async function directoryBody(
   directory: WireDirectory,
   sibling: WireDirectoryEntry | undefined,
   load: (hash: ObjectHash) => Promise<Uint8Array>,
-): Promise<Pick<ResolvedWireLogicalNode, "body" | "bodyOrigin" | "duplicateBody">> {
+): Promise<Pick<ResolvedWireLogicalNode, "body" | "bodyOrigin" | "shadowedBody">> {
   const index = directory.entries.find((entry) => entry.name === "_index.md" && entry.hash);
   const [siblingObject, indexObject] = await Promise.all([
     sibling?.hash ? loadWireObject(sibling.hash, load) : null,
@@ -120,23 +121,20 @@ async function directoryBody(
   ]);
   if (siblingObject && siblingObject.type !== "file") throw new Error("Sibling Markdown body must be a file");
   if (indexObject && indexObject.type !== "file") throw new Error("Directory _index.md body must be a file");
-  if (siblingObject?.type === "file") {
-    return {
-      body: siblingObject,
-      bodyOrigin: "sibling",
-      duplicateBody: indexObject?.type === "file",
-    };
-  }
+  // `_index.md` takes precedence; a sibling body beside it is shadowed, not the model.
   if (indexObject?.type === "file") {
-    return { body: indexObject, bodyOrigin: "index", duplicateBody: false };
+    return { body: indexObject, bodyOrigin: "index", shadowedBody: siblingObject?.type === "file" };
   }
-  return { duplicateBody: false };
+  if (siblingObject?.type === "file") {
+    return { body: siblingObject, bodyOrigin: "sibling", shadowedBody: false };
+  }
+  return { shadowedBody: false };
 }
 
 /**
  * Resolve an extensionless logical path over the physical wire graph. A
- * sibling `x.md` supplies `/x`'s body while `x/` supplies its children, with
- * `x/_index.md` as fallback exactly as in the filesystem driver.
+ * `x/_index.md` supplies `/x`'s body and `x/` its children; a sibling `x.md`
+ * supplies the body only when there is no `_index.md`, as in the filesystem driver.
  */
 export async function resolveWireLogicalNode(
   root: ObjectHash,
@@ -146,7 +144,7 @@ export async function resolveWireLogicalNode(
   const parts = path.split("/").filter(Boolean);
   let object = await loadWireObject(root, load);
   if (!parts.length) {
-    if (object.type !== "directory") return { object, objectName: "", duplicateBody: false };
+    if (object.type !== "directory") return { object, objectName: "", shadowedBody: false };
     return { object, objectName: "", ...await directoryBody(object, undefined, load) };
   }
 
@@ -170,13 +168,13 @@ export async function resolveWireLogicalNode(
           ...await directoryBody(next, sibling, load),
         };
       }
-      return { object: next, objectName: exact.name, duplicateBody: false };
+      return { object: next, objectName: exact.name, shadowedBody: false };
     }
 
     if (!last || !sibling?.hash) return null;
     const markdown = await loadWireObject(sibling.hash, load);
     if (markdown.type !== "file") return null;
-    return { object: markdown, objectName: sibling.name, duplicateBody: false };
+    return { object: markdown, objectName: sibling.name, shadowedBody: false };
   }
   return null;
 }

@@ -313,20 +313,21 @@ export class WorkspaceFS implements AsyncDisposable {
       const indexPath = join(direct, "_index.md");
       const hasIndex = await pathExists(indexPath);
       const hasSibling = Boolean(siblingInfo?.isFile());
+      // `_index.md` takes precedence; a sibling body beside it is reported, not used.
       const diagnostics: Diagnostic[] = hasSibling && hasIndex ? [{
-        code: "duplicate-body-representation",
-        message: `${path} has competing bodies at ${siblingTreePath} and ${directoryIndexTreePath(path)}; keep only one.`,
+        code: "shadowed-body",
+        message: `${path} has a sibling body at ${siblingTreePath} beside ${directoryIndexTreePath(path)}; _index.md is the content and the sibling is ignored.`,
         path,
-        severity: "error",
+        severity: "warning",
       }] : [];
-      const bodyPath = hasSibling ? sibling : hasIndex ? indexPath : null;
+      const bodyPath = hasIndex ? indexPath : hasSibling ? sibling : null;
       return {
         path,
         kind: "directory",
         absolutePath: direct,
         directoryPath: direct,
         bodyPath,
-        bodySource: hasSibling ? "sibling" : hasIndex ? "index" : null,
+        bodySource: hasIndex ? "index" : hasSibling ? "sibling" : null,
         writable: await this.isWritable(direct) && (!bodyPath || await this.isWritable(bodyPath)),
         materialization: "available",
         diagnostics,

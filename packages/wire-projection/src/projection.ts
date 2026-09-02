@@ -119,11 +119,11 @@ export class WireProjection {
     const { node, path } = resolution;
     const object = node.object;
     const objectName = node.objectName || (path === "/" ? this.options.rootName : path.split("/").at(-1)!) || this.options.rootName;
-    const diagnostics: Diagnostic[] = node.duplicateBody ? [{
-      code: "duplicate-body-representation",
-      message: `${path} has both a sibling Markdown body and _index.md; keep only one.`,
+    const diagnostics: Diagnostic[] = node.shadowedBody ? [{
+      code: "shadowed-body",
+      message: `${path} has a sibling Markdown body beside its _index.md; _index.md is the content and the sibling is ignored.`,
       path,
-      severity: "error",
+      severity: "warning",
     }] : [];
     if (object.type === "file") {
       const markdown = objectName.endsWith(".md");
@@ -209,7 +209,7 @@ export class WireProjection {
             type: "rollup",
             codec: rollupDescriptor.codec,
             scope: rollupDescriptor.scope,
-            modelDigest: rollupDescriptor.modelDigest,
+            modelHash: rollupDescriptor.modelHash,
           },
           total: rollup.rows.length,
           writable: false,

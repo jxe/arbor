@@ -42,7 +42,9 @@ describe("@arbor/fs logical nodes", () => {
     expect((await fs.resolve("/implicit")).bodyPath).toBeNull();
     expect((await fs.read("/implicit")).document?.bodySource).toBe("");
     expect((await fs.list("/implicit")).map((entry) => entry.path)).toEqual(["/implicit/child.txt"]);
-    expect((await fs.resolve("/duplicate")).diagnostics[0]?.code).toBe("duplicate-body-representation");
+    expect((await fs.resolve("/duplicate")).bodySource).toBe("index");
+    expect(new TextDecoder().decode((await fs.read("/duplicate")).bytes!)).toBe("Index\n");
+    expect((await fs.resolve("/duplicate")).diagnostics[0]?.code).toBe("shadowed-body");
     expect((await fs.list("/")).filter((entry) => entry.path === "/sibling")).toHaveLength(1);
   });
 
@@ -130,15 +132,17 @@ describe("@arbor/fs logical nodes", () => {
     expect((await first.fs.read("/")).byteRevision).toBe((await second.fs.read("/")).byteRevision);
   });
 
-  test("rejects duplicate bodies, occupied destinations, and recursive moves", async () => {
-    const { fs } = await workspace({
+  test("writes a shadowed node's _index.md, rejects occupied destinations and recursive moves", async () => {
+    const { root, fs } = await workspace({
       "duplicate.md": "Sibling\n",
       "duplicate/_index.md": "Index\n",
       "destination/child.md": "Existing\n",
       "folder/child.md": "Child\n",
     });
     const duplicate = await fs.read("/duplicate");
-    await expect(fs.writeMarkdown("/duplicate", { baseRevision: duplicate.byteRevision, source: "" })).rejects.toBeInstanceOf(FsConflictError);
+    await fs.writeMarkdown("/duplicate", { baseRevision: duplicate.byteRevision, source: "New\n" });
+    expect(await readFile(join(root, "duplicate", "_index.md"), "utf8")).toBe("New\n");
+    expect(await readFile(join(root, "duplicate.md"), "utf8")).toBe("Sibling\n");
     await expect(fs.mutate({ operations: [{ op: "move", paths: ["/folder/child"], destination: "/destination" }] })).rejects.toThrow("Destination already exists");
     await expect(fs.mutate({ operations: [{ op: "move", paths: ["/folder"], destination: "/folder" }] })).rejects.toThrow("itself");
     await expect(fs.mutate({ operations: [{ op: "createDirectory", path: "/schema.ts" }] })).rejects.toThrow("Invalid workspace name");

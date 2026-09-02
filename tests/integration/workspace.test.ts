@@ -331,7 +331,7 @@ describe("workspace service", () => {
     expect(workspace.search("build marker")).toEqual([]);
   });
 
-  test("uses a sibling Markdown body for a directory and blocks two bodies", async () => {
+  test("uses a sibling Markdown body for a directory and prefers _index.md beside it", async () => {
     const duplicateRoot = await mkdtemp(join(tmpdir(), "arbor-duplicate-"));
     const duplicateState = await mkdtemp(join(tmpdir(), "arbor-duplicate-state-"));
     process.env.ARBOR_DATA_HOME = duplicateState;
@@ -352,13 +352,16 @@ describe("workspace service", () => {
       await writeFile(join(duplicateRoot, "same", "_index.md"), "Directory\n");
       duplicateWorkspace = await Workspace.open(duplicateRoot);
       const duplicate = await duplicateWorkspace.snapshot({ tree: duplicateWorkspace.tree, path: "/same", stableKey: null });
-      expect(duplicate.diagnostics.some((item) => item.code === "duplicate-body-representation")).toBe(true);
-      await expect(duplicateWorkspace.executeMutation({ mutationID: "duplicate-body-write", operations: [{
+      expect(nodeDocument(duplicate)?.bodySource).toBe("Directory\n");
+      expect(duplicate.diagnostics.some((item) => item.code === "shadowed-body")).toBe(true);
+      await duplicateWorkspace.executeMutation({ mutationID: "shadowed-body-write", operations: [{
         op: "writeMarkdown",
         ref: duplicate.ref,
         baseContentRevision: duplicate.capabilities.content!.revision,
-        source: nodeDocument(duplicate)?.source ?? "",
-      }] })).rejects.toThrow("competing bodies");
+        source: "Written\n",
+      }] });
+      expect(await readFile(join(duplicateRoot, "same", "_index.md"), "utf8")).toBe("Written\n");
+      expect(await readFile(join(duplicateRoot, "same.md"), "utf8")).toBe("Leaf\n");
     } finally {
       await duplicateWorkspace?.[Symbol.asyncDispose]();
       process.env.ARBOR_DATA_HOME = state;
