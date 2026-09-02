@@ -71,9 +71,10 @@ struct WorkspaceStructuralReceipt: Identifiable {
 @Observable
 final class ArborWorkspaceState {
     /// Wire format the replica store was placed under; bump when accepted-update
-    /// identity or request shapes change incompatibly. "2": canonical CBOR
-    /// digests, ordinal update ids, base as an update id.
-    static let replicaWireFormat = "2"
+    /// identity, request shapes, or canonical object encoding changes
+    /// incompatibly. "3": collection-file directory descriptors and required
+    /// transition arrays.
+    static let replicaWireFormat = "3"
 
     private(set) var provider: any WorkspaceProvider
     private(set) var editorWorkspace: ArborEditorWorkspace

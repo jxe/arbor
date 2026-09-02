@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  ARBOR_SYNC_STATE_VERSION,
   AmbiguousWorkspaceIdentityError,
   arborDataRoot,
   prepareArborDataRoot,
@@ -26,6 +27,30 @@ afterEach(async () => {
 });
 
 describe("Arbor private state", () => {
+  test("a Wire format bump discards only rebuildable private state", async () => {
+    const state = await temp("arbor-private-state-version-");
+    process.env.ARBOR_DATA_HOME = state;
+    await prepareArborDataRoot();
+
+    const privateRoot = join(state, ".state");
+    await mkdir(join(privateRoot, "refs"), { recursive: true });
+    await mkdir(join(privateRoot, "sync"), { recursive: true });
+    await mkdir(join(privateRoot, "workspaces", "one"), { recursive: true });
+    await writeFile(join(privateRoot, "refs", "tree.json"), "{}\n");
+    await writeFile(join(privateRoot, "sync", "tree.json"), "{}\n");
+    await writeFile(join(privateRoot, "workspaces", "one", "index.json"), "{}\n");
+    await writeFile(join(privateRoot, "device.json"), "keep\n");
+    await writeFile(join(privateRoot, "version"), "2\n");
+
+    await prepareArborDataRoot();
+
+    await expect(stat(join(privateRoot, "refs"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(join(privateRoot, "sync"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(join(privateRoot, "workspaces", "one", "index.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(join(privateRoot, "device.json"), "utf8")).toBe("keep\n");
+    expect(await readFile(join(privateRoot, "version"), "utf8")).toBe(`${ARBOR_SYNC_STATE_VERSION}\n`);
+  });
+
   test("an explicit data home is used as-is and upgrades registry identity", async () => {
     const state = await temp("arbor-data-override-");
     process.env.ARBOR_DATA_HOME = state;
