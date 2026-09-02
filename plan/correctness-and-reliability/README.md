@@ -10,7 +10,7 @@ stable identifiers within this workstream, not an execution order.
 |---|---|---:|---|---|
 | [001](001-link-healing.md) | Heal links whose fragments contain ordinary `s` characters | P1 | TODO | — |
 | [002](002-journal-append.md) | Serialize write-journal counters and appends per document | P1 | TODO | — |
-| [003](003-untracked-rollup-transactions.md) | Make untracked file-rollup mutations and receipts restart-safe | P1 | TODO | 002 for shared journal safety |
+| [003](003-untracked-collection-file-transactions.md) | Make untracked collection-file mutations and receipts restart-safe | P1 | TODO | 002; Data 011 terminology |
 
 ## Smaller items
 

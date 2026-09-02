@@ -37,7 +37,7 @@ repeat their executor instructions.
 
 Durable product contracts live in the topic specifications:
 
-- the [data model](../spec/01-data-model.md) owns the global TreeID space,
+- the [data model](../spec/01-model-and-wire.md) owns the global TreeID space,
   partial availability, trees, nodes, identities, properties, content, children,
   derived references/relationships, the secondary canonical URL index,
   structured-data interpretation, and equivalence;
@@ -46,12 +46,14 @@ Durable product contracts live in the topic specifications:
   `_index.md`, frontmatter, child placement, tree-relative references,
   canonical names, raw TreeID fallback, schema-stable keys, application-query
   separation, content fragments, and immutable revision selection;
-- [Wire and community hosting](../spec/01-data-model.md) owns remote model sampling,
-  exact projection objects, canonical boundaries, promotion, profiles, claims,
-  access, refs, updates, watch/retry/resync, query/mutate transport, secrets, and
-  HTTP projection;
+- the [model and Wire encoding](../spec/01-model-and-wire.md) owns accepted-state
+  objects and shared synchronized values;
+- [synchronization](../spec/02-synchronization.md), [locators](../spec/04-locators.md),
+  [accounts](../spec/05-accounts-and-devices.md), and
+  [access control](../spec/06-access-control.md) own hosting, discovery,
+  transitions, observation, identity, and authorization;
 - [configuration](../spec/05-accounts-and-devices.md) owns synchronized account, tree, device, placement, ACL, and governance data;
-- [stores](../spec/07-stores.md), [executable documents](../spec/08-executable-documents.md), and the [authoring API](../spec/09-authoring-api.md) own their respective authored contracts;
+- [child backings](../spec/07-child-backings.md), [executable documents](../spec/08-executable-documents.md), and the [authoring API](../spec/09-authoring-api.md) own their respective authored contracts;
 - the [reference documentation](../docs/reference-implementation.md) owns the Local Arbor REST API, CLI, data home, client interaction design, runtime algorithms, and platform behavior.
 
 ## Milestone 2 — live data documents

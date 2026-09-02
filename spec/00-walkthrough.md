@@ -32,15 +32,15 @@ is readable yet ([configuration YAML](05-accounts-and-devices.md#3-configuration
 
 ## 3. Activate it
 
-The laptop encodes the folder as wire objects: one file object per file, one
+The laptop encodes the folder as Wire objects: one file object per file, one
 directory object per directory, each addressed by the SHA-256 of its canonical
 CBOR. It sends `POST /.arbor/trees/tr_…/updates` with `base: null`, the root
 hash as `candidate`, and every object. The server verifies the graph, records
 the first accepted update, applies the declared ACL and canonical boundary,
 marks the tree active, and emits `tree.activation` on the configuration tree.
 `https://garden.example/~joe/atlas` and `arbor://tr_…/` now resolve to the
-same tree ([data model §6](01-data-model.md#6-the-canonical-encoding-of-a-tree),
-[locator forms](04-locators.md#1-forms), [canonical lookup](01-data-model.md#3-canonical-url-lookup)).
+same tree ([model and Wire §5](01-model-and-wire.md#5-accepted-state-and-canonical-wire-encoding),
+[locator forms](04-locators.md#1-forms), [canonical lookup](04-locators.md#5-finding-trees)).
 
 ## 4. Edit a file
 
@@ -52,10 +52,10 @@ objects from `notes.md` up to the root. It sends the file as an `ObjectDelta`
 against the previous file object and the small directory objects in full,
 with `base` set to the accepted update id it last observed and
 `ifMatch: "modelHash"`. The server finds current equal to base and answers
-`201 accepted` with the new update's id and the request digest ([sparse transfer](01-data-model.md#61-deltas),
+`201 accepted` with the new update's id and the request digest ([sparse transfer](01-model-and-wire.md#53-deltas),
 [submit](02-synchronization.md#3-updating-a-tree)). The root that changed is a bytes hash; the model hash of every node Joe did
 not touch is unchanged
-([revisions](01-data-model.md#5-change-and-equivalence)).
+([revisions](01-model-and-wire.md#4-change-and-equivalence)).
 
 ## 5. Follow from a second device
 
@@ -79,12 +79,13 @@ Joe creates `practices/schema.ts` exporting a Zod object schema and
 `primaryKey = ["id"]`, and `practices/_store.csv` with a header row. The
 folder is now a file-backed collection: each CSV row is a child node of
 `/practices`, its columns are the child's properties, and its stable key is
-the canonical key JSON of its `id` ([file-backed collections](07-stores.md#2-file-backed-collections),
-[row identity](07-stores.md#12-queries-over-collections)). In the wire encoding
-the directory carries a rollup entry naming the exact CSV object, the exact
-`schema.ts` object, the schema fingerprint the server recomputes by executing
-that source, and the collection's model hash
-([data model §6](01-data-model.md#6-the-canonical-encoding-of-a-tree)).
+the canonical key JSON of its `id` ([file-backed collections](07-child-backings.md#2-file-backed-collections),
+[row identity](07-child-backings.md#12-member-identity-order-and-pagination)). In the Wire encoding,
+the exact CSV and `schema.ts` remain ordinary physical entries while the
+directory's collection-file descriptor identifies them as the source of its
+logical children. The authority recomputes both the schema fingerprint and the
+child-set hash
+([model and Wire §5](01-model-and-wire.md#5-accepted-state-and-canonical-wire-encoding)).
 Each row has an ordinary public address such as
 `/~joe/atlas/practices/walking;arbor-key=…` ([public projection](04-locators.md#6-public-http-projection)).
 
@@ -134,4 +135,4 @@ Joe changes `canonicalPath` to `/~joe/atlas-2026` in `trees.yaml`. The
 `TreeID`, every stable key, every object, and the accepted history are
 unchanged; only the secondary lookup moved. `arbor://tr_…/practices/walking;arbor-key=…`
 still resolves, and Alice's placement keeps following the same tree
-([canonical lookup](01-data-model.md#3-canonical-url-lookup), [revisions](01-data-model.md#5-change-and-equivalence)).
+([canonical lookup](04-locators.md#5-finding-trees), [revisions](01-model-and-wire.md#4-change-and-equivalence)).

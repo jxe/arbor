@@ -23,10 +23,10 @@ The same canonical key JSON (`[["id","x7f3q2"]]`) has five surfaces:
 
 | Surface | Spelling | Owner |
 |---|---|---|
-| `NodeRef.stableKey` | canonical key JSON text | data model §7 |
+| `NodeRef.stableKey` | canonical key JSON text | model and Wire §6 |
 | Final path segment | `;arbor-key=<base64url of the JSON>` | locators |
 | Markdown relative link | `#arbor-key=<base64url>` fragment alias, translated by Arbor renderers | directory format, locators |
-| Row child segment | the raw single string key when it is a valid path component, otherwise `~row-<base64url>` | stores |
+| Row child segment | the raw single string key when it is a valid path component, otherwise `~row-<base64url>` | child backings |
 | Legacy input | bare `#<PageID>` and `#row=<key>` fragments, accepted but never emitted | locators, remove-later 001 |
 
 `;arbor-key=` and `;arbor-rev=` already share one parameter grammar, so the segment side is

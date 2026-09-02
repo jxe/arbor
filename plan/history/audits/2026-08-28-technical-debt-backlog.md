@@ -40,7 +40,7 @@ These are implementation violations of the aspirational specification. They are 
    a provider-owned codec. Keep the owner index behavior behind the generic
    identity rule; do not remove rename healing itself.
 2. **Complete
-   [Data 006](../../data/006-native-offline-rollup-row-projection.md).** The
+   [Data 006](../../data/006-native-offline-collection-file-projection.md).** The
    local daemon's unplaced remote-tree adapter now pages descriptor-derived rows directly and
    the old `remoteChildren` physical cache is deleted. Swift independently
    validates, retains, materializes, and re-encodes rollup descriptors so an

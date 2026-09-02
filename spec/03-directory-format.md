@@ -1,8 +1,8 @@
 # Portable directory projection
 *Part of the [Arbor spec](../spec.md): one human-editable filesystem/Markdown
-projection of the [Arbor data model](01-data-model.md).*
+projection of the [Arbor data model](01-model-and-wire.md).*
 
-*Owns: how files, directories, frontmatter, `_index.md`, child placement, and reserved names map to nodes. References: stable keys ([locators](04-locators.md)) and the property write ([data model §5](01-data-model.md#5-change-and-equivalence)).*
+*Owns: how files, directories, frontmatter, `_index.md`, child placement, and reserved names map to nodes. References: stable keys ([locators](04-locators.md)) and the property write ([model §4](01-model-and-wire.md#4-change-and-equivalence)).*
 
 ## 1. Projection boundary
 
@@ -14,13 +14,16 @@ differently while preserving the same model and the projection-specific fidelity
 guarantees it advertises.
 
 The directory projection preserves exact authored source in addition to modeled
-state, so its writes match on [bytes hashes](01-data-model.md#5-change-and-equivalence):
-file bytes, frontmatter spelling/order/comments, and reserved rollup bytes
+state, so its writes match on [bytes hashes](01-model-and-wire.md#4-change-and-equivalence):
+file bytes, frontmatter spelling/order/comments, and reserved collection-file
+bytes
 change the bytes hash even when the model hash is unchanged.
 
 ## 2. Mapping files and directories to nodes
 
-A directory is a node. Its entries are the node's children, and its own
+A directory projects one node. Its ordinary entries supply the node's child
+set; reserved body, collection-file, and schema entries instead
+supply the node's content or the interpretation of its children. Its own
 content lives inside it as `x/_index.md`, so a node that has children keeps
 everything in one place. A node may instead keep its content beside the
 directory: `x.md`, `x.mdx`, or `x.tsx` supplies the content of `/x` when `x/`
@@ -55,7 +58,7 @@ the Markdown editor therefore address one value rather than parallel record and
 document state. A property mutation rewrites frontmatter through the same exact-
 source concurrency boundary as a body mutation.
 
-A [property write](01-data-model.md#5-change-and-equivalence) preserves
+A [property write](01-model-and-wire.md#4-change-and-equivalence) preserves
 the Markdown body exactly. Providers may expose the property and content
 capabilities separately even when both match values currently name the same
 Markdown source bytes. In that shared-byte representation, a successful
@@ -129,10 +132,11 @@ null stable key remain path-identified.
 
 ## 5. Recognized authored files
 
-- `schema.ts` declares a file-backed collection row schema as specified by [stores](07-stores.md).
+- `schema.ts` declares a collection child schema, stable key, and optional
+  logical-name rule as specified by [child backings](07-child-backings.md).
 - `_store.csv`, `_store.json`, `_store.jsonl`, `_store.sqlite3`, and
   `_store.yaml` select child/store representation behavior specified by
-  [stores](07-stores.md). `_store.yaml` is driver-dispatched; its filename does
+  [child backings](07-child-backings.md). `_store.yaml` is driver-dispatched; its filename does
   not imply Postgres.
 - `.ts` and `.tsx` files may define Arbor handles, components, and executable documents as specified by [executable documents](08-executable-documents.md).
 - `.mdx` files may define explicit executable component documents as specified by [executable documents](08-executable-documents.md).

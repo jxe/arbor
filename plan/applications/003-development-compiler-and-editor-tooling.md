@@ -131,4 +131,4 @@ Completion gate:
 - Do not make a global TreeID/path registry part of authored application code.
 - Do not infer property types from currently sampled rows.
 - Do not require one editor, one workspace layout, or a running Canopy.
-- Do not absorb Application 001 rendering/hosting or Data 001 replication.
+- Do not absorb Application 001 rendering/hosting or Data 012 replication.

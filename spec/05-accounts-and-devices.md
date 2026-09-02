@@ -1,7 +1,7 @@
 # Accounts and devices
 *Part of the [Arbor spec](../spec.md): communities, profiles, the private account-configuration tree, devices, placements, and how a tree is declared and activated.*
 
-*Owns: profile documents, the profile claim, the configuration graph and YAML, device pairing, placements and projections, tree activation, and the `account-config-v1` write rules and merge rule. References: [access control](06-access-control.md) for subjects, rules, and credentials, and the [data model](01-data-model.md) for synchronization.*
+*Owns: profile documents, the profile claim, the configuration graph and YAML, device pairing, placements and projections, tree activation, and the `account-config-v1` write rules and merge rule. References: [access control](06-access-control.md) for subjects, rules, and credentials, and the [data model](01-model-and-wire.md) for synchronization.*
 
 ## 1. Accounts and profiles
 
@@ -118,7 +118,7 @@ coherent remote query state, may serve the last completely applied output hash
 and scoped model hash offline, and rejects local mutations and direct database
 writes. A bidirectional projection
 may additionally publish provisional named mutations and candidate state under
-the [store replication contract](07-stores.md#4-postgres-and-placement-projections).
+the [store replication contract](07-child-backings.md#4-postgres-and-placement-projections).
 Projection files, paths, applied output hashes/model hashes, queues, and
 readiness are private state;
 only the requested driver and mode belong to synchronized placement YAML.

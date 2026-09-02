@@ -4,10 +4,11 @@
 
 - **Priority:** P1
 - **Effort:** L
-- **State:** PLANNED — extracted from Data 002; implementation begins only
-  after Data 002 closes its common local/Wire node and rollup protocol.
-- **Depends on:** Data 002 stable keys, rollup descriptors, bounded placement,
-  semantic update merge, and generic locator healing.
+- **State:** PLANNED — extracted from Data 002; implementation begins after
+  Data 011 lands the collection-file Wire shape and `childName` rule.
+- **Depends on:** Data 002 stable keys, Data 011 collection-file descriptors
+  and path rules, bounded placement, semantic update merge, and generic locator
+  healing.
 
 ## Target result
 
@@ -18,36 +19,33 @@ meaning, or application-visible component state once synchronization settles.
 Exact representation bytes and physical filenames may change; logical node
 identity and model equivalence do not.
 
-## The unresolved path problem
+## Logical path preservation
 
-Expanded Markdown records retain authored readable filenames. Rolled-up rows
-derive collision-safe readable segments from declared stable keys. Those rules
-do not automatically produce the same current path, so equal keys and model
-digests alone are insufficient to promise equivalent `NodeRef`s or ordinary
-Markdown navigation.
+Expanded Markdown records retain authored readable filenames. Collection-file
+rows otherwise derive collision-safe readable names from declared stable keys.
+Equal keys and child-set hashes alone are therefore insufficient to promise
+equivalent `NodeRef`s or ordinary Markdown navigation.
 
-Before implementation, choose and specify one provider-neutral rule:
+The specification supplies one provider-neutral mechanism: `schema.ts` may
+declare a deterministic primary-key- or property-derived `childName` rule.
 
-1. a schema-declared logical path property or formatter whose output is unique,
-   stable, reversible where required, and validated for every representation;
-2. a durable key-to-readable-path map carried with the logical collection; or
-3. a reviewed converter that renames expanded files to the canonical key-derived
-   path as part of representation migration.
-
-Do not silently use display names, mutable titles, row position, SQLite rowid,
-or backing-specific table names. Do not claim representation equivalence until
-the selected rule has been reviewed with the user.
+The converter uses an existing unique property when it can reproduce every
+source logical name. Otherwise its dry-run reports the resulting renames or
+requires a reviewed schema/property addition; it never
+silently uses display names, mutable titles, row position, SQLite rowid, or
+backing-specific table names.
 
 ## Migration protocol
 
 1. Read the complete source at one exact revision and validate its schema,
-   identities, relationships, constraints, and scoped model digest.
+   identities, relationships, constraints, and child-set hash.
 2. Compute every target logical path and fail on collisions, reserved segments,
    invalid components, duplicate keys, or ambiguous existing relative links.
 3. Produce the target representation without changing TreeID or stable keys.
 4. Rewrite only relative links whose resolved target is proven to be a migrated
    node; retain application queries, content fragments, and stable-key aliases.
-5. Compare the complete pre/post logical fixture, scoped model digest, query
+5. Compare the complete pre/post logical fixture, child-set and node model
+   hashes, query
    results, mutation validation, child generation, search results, backlinks,
    and derived reference indexes.
 6. Commit the representation and link changes as one accepted candidate tree
@@ -58,12 +56,15 @@ the selected rule has been reviewed with the user.
 ## Conformance corpus
 
 Use one nontrivial fixture with compound and Unicode keys, authored filenames
-that differ from keys, nested Markdown content, relative links, application
-queries, foreign keys, ordered memberships, nullable values, and formatting-
-only changes. Materialize it through every supported representation and prove:
+that differ from keys, relative links, application queries, foreign keys,
+ordered memberships, nullable values, and formatting-only changes. Use a
+separate expanded-only fixture with nested Markdown content and children: the
+property-only CSV/JSON/JSONL forms must reject that conversion rather than
+claim equivalence. Materialize every fully representable fixture through each
+supported backing and prove:
 
 - identical stable refs and logical paths;
-- identical properties, schemas, capabilities, child order, and model digest;
+- identical properties, schemas, capabilities, child order, and model hashes;
 - ordinary Markdown links open in non-Arbor editors;
 - locator healing preserves key, query, and content-fragment components;
 - portable queries and named mutations produce the same public results and
@@ -82,7 +83,8 @@ only changes. Materialize it through every supported representation and prove:
 - Preserve exact CSV/JSON/JSONL formatting through semantic merge where the
   authority's current source span remains identifiable. Canonical encoding is a
   fallback only for changed material whose exact form cannot be retained.
-- Reuse the bounded-placement corpus when SQLite, Postgres, remote rollups, and
+- Reuse the bounded-placement corpus when SQLite, Postgres, remote
+  collection-file projections, and
   native offline projection gain direct providers. Include a 100k-row case
   proving generated placement does not grow authored Markdown source.
 

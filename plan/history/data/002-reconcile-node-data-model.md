@@ -18,10 +18,10 @@
   conversion, Postgres, durable database observation/synchronization, native
   offline rollup-row projection, and compiler/editor tooling continue in their
   dedicated plans.
-- **Depends on:** accepted specification in `spec/01-data-model.md`,
+- **Depends on:** accepted specification in `spec/01-model-and-wire.md`,
   `spec/02-directory-format.md`, `spec/03-locators.md`, `spec/04-wire.md`, and
   `spec/06-stores.md`
-- **Unblocks:** Data 001, Data 003 representation migration, Data 004 Postgres,
+- **Unblocks:** Data 001 read-only projection, Data 003 representation migration, Data 004 Postgres,
   Data 005 database observation/synchronization, Data 006 native offline row
   projection, and Application 003 compiler/runtime binding
 
@@ -249,7 +249,7 @@
   deferred [security boundary](../../insecure/README.md) shared with
   SSR/query/mutation execution. Native
   offline row projection is deliberately deferred to
-  [Data 006](../../data/006-native-offline-rollup-row-projection.md). The reference
+  [Data 006](../../data/006-native-offline-collection-file-projection.md). The reference
   merge currently writes one canonical encoding after semantic reconciliation;
   preserving untouched source formatting is tracked as explicit continuation
   debt rather than weakening the logical merge contract.
@@ -272,7 +272,7 @@
   observation/synchronization continues in
   [Data 005](../../data/005-database-observation-and-semantic-sync.md); and native offline
   rollup-row projection is deliberately deferred to
-  [Data 006](../../data/006-native-offline-rollup-row-projection.md). The closure gate
+  [Data 006](../../data/006-native-offline-collection-file-projection.md). The closure gate
   passed TypeScript checking, the production build, 313 Bun tests, the live
   TypeScript/Swift protocol harness, all seven Swift package suites, and the
   macOS 27 Arbor application build.
@@ -528,7 +528,7 @@ Provider variants:
 - `_store.sqlite3` provider-owned database table/row subtree;
 - `_store.yaml` driver-dispatched external providers supplied later by Data 004;
   and
-- later Data 001 replicated materializations using the same logical objects.
+- later Data 012 replicated materializations using the same logical objects.
 
 For file rollups, the exact bytes/source revision and schema-normalized, store-scoped model
 digest are separate. The digest is not a universal serialization/hash of the
@@ -873,7 +873,7 @@ from this plan's completion gate.
   backlog items superseded by this work.
 - Keep historical outcome evidence truthful: describe its old POST/collection
   implementation as historical rather than rewriting what previously shipped.
-- Use the normative `spec/01-data-model.md` projection/equivalence sections as
+- Use the normative `spec/01-model-and-wire.md` projection/equivalence sections as
   the architecture decision for capabilities versus provider representations
   and rollup semantics; do not create a competing implementation-only model.
 

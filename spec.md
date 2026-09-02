@@ -3,14 +3,14 @@
 
 ## Specification stance
 
-This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [The roadmap](plan/roadmap.md) and [implemented outcomes](plan/history/outcomes.md) own implementation status, direction, and evidence; the [cross-cutting plan indexes](plan/README.md#cross-cutting-workstreams) record known conformance failures by reason.
+This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [The roadmap](plan/roadmap.md) and [implemented outcomes](plan/history/outcomes.md) own implementation status, direction, and evidence; the [cross-cutting plan indexes](plan/README.md) record known conformance failures by reason.
 
 The specification contains only behavior that must remain portable across independently implemented Arbor components. The [reference documentation](docs/reference-implementation.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Arbor requirements.
 
-The normative surface begins with the representation-independent data model,
-including the canonical encoding of a tree; then synchronization, the routes
-that read, update, and watch a tree; then the directory projection, locators and their
-public HTTP projection, accounts and devices, access control, stores,
+The normative surface begins with the logical model and its canonical lossless
+Wire encoding; then synchronization routes that read, update, and watch a tree;
+then the directory projection, locators and their public HTTP projection,
+accounts and devices, access control, child backings,
 executable documents and agents, and the authoring API. Every route is listed
 in the [route index](#route-index). Local
 client/daemon transport, UI controls, CLI commands, runtime algorithms, package
@@ -43,7 +43,7 @@ Five concepts organize the system:
 
 1. The **global TreeID space** maps stable tree identities to logical trees without requiring one global store or discovery service.
 2. An **Arbor tree** is an independent `TreeID`, rooted hierarchy of nodes, history, synchronization stream, and whole-tree permission boundary.
-3. A **node** has properties, optional authored content, and child membership; document, directory, collection, row, file, and the other roles listed in the [data model](spec/01-data-model.md#4-one-node-shape-for-every-kind-of-data) are roles or projections rather than competing kinds.
+3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other roles listed in the [model](spec/01-model-and-wire.md#3-one-node-shape-for-every-kind-of-data) are roles rather than competing kinds, while expanded files, collection files, databases, and external stores are interchangeable backings where their represented model agrees.
 4. A **canonical URL lookup** first uses DNS to place a Canopy authority, then resolves that Canopy's longest readable registered boundary back to TreeID and path.
 5. An **executable document** or **agent** is a node whose reviewed capabilities bound its reads, writes, tools, and effects.
 
@@ -55,13 +55,13 @@ New readers should start with the non-normative [walkthrough](spec/00-walkthroug
 
 | File | Public contract | Status |
 |---|---|---|
-| [data model](spec/01-data-model.md) | Global TreeID lookup, trees and nodes, canonical lookup, one node shape for every kind of data, change and equivalence, the canonical encoding of a tree with its deltas, and the shared values | Definitional for §1–5; conformance-backed for the encoding, deltas, and values |
-| [synchronization](spec/02-synchronization.md) | What a server is and must implement; the routes that read, update, and watch a tree; transitions and replay; streams and errors | Conformance-backed for update identity, endpoints, SSE, and errors |
+| [model and Wire encoding](spec/01-model-and-wire.md) | TreeID, logical trees, nodes and child sets, change and equivalence, accepted-state boundaries, physical entries and collection-file interpretation, canonical CBOR, deltas, and shared values | Definitional for the model; conformance-backed for encoding, deltas, and shared values |
+| [synchronization](spec/02-synchronization.md) | Server requirements, reads, updates, transitions and replay, streams, and errors over the canonical encoding | Conformance-backed for update identity, endpoints, SSE, and errors |
 | [directory format](spec/03-directory-format.md) | Filesystem/Markdown projection, `_index.md`, frontmatter, bounded child placement, and reserved names | Conformance-backed |
 | [locators](spec/04-locators.md) | Uniform tree/path/stable-key references, canonical and relative resolution, revisions, application queries, content fragments, the routes that find trees, and the public HTTP projection | Conformance-backed |
 | [accounts and devices](spec/05-accounts-and-devices.md) | Profiles, the profile claim, the governed account-configuration tree and its YAML, device pairing, placements, tree activation, and the `account-config-v1` merge rule | Conformance-backed for the YAML; described for claims and pairing |
 | [access control](spec/06-access-control.md) | Access subjects and rules, authentication and secrets, tree-scoped authorization, and the `access` route | Conformance-backed for values; described otherwise |
-| [stores](spec/07-stores.md) | Markdown/CSV/JSON/JSONL/SQLite projections, external stores, and placement materializations | Described; no vectors |
+| [child backings](spec/07-child-backings.md) | How expanded files, collection files, SQLite, Postgres, and placement projections supply child sets; backing revisions, snapshots, observation, and physical commit behavior | Described; no vectors |
 | [executable documents](spec/08-executable-documents.md) | Execution model for MDX/TSX documents and agents: named handles, queries, mutations and their routes, identity, hosting, confinement, consent, and transcripts | Described; no vectors (agents: sketch) |
 | [authoring API](spec/09-authoring-api.md) | The `arbor/react` and `arbor/data` packages, React Actions, hooks, and styling a document is written against | Library contract, versioned with the packages |
 
@@ -91,15 +91,16 @@ Every HTTP route an Arbor server exposes, and the section that defines it.
 | `PUT /.arbor/claims/{handle}` | [accounts §1.1](spec/05-accounts-and-devices.md#11-profile-claim) |
 | `POST /.arbor/pairings`, `PUT /.arbor/pairings/{PairingID}/claim` | [accounts §4](spec/05-accounts-and-devices.md#4-device-pairing) |
 
-Authentication headers apply to every route ([access control §2](spec/06-access-control.md#2-authentication-and-secrets)); shared values, SSE framing, and the error envelope are in [data model §7](spec/01-data-model.md#7-shared-values) and [synchronization §5](spec/02-synchronization.md#5-streams-and-errors).
+Authentication headers apply to every route ([access control §2](spec/06-access-control.md#2-authentication-and-secrets)); shared values, SSE framing, and the error envelope are in [model and Wire §6](spec/01-model-and-wire.md#6-shared-values) and [synchronization §5](spec/02-synchronization.md#5-streams-and-errors).
 
 ## Component roles
 
 - A **wire host** represents one community and owns profile/account identity, governed private account-configuration trees, canonical boundary records, mutable refs, immutable objects, claims, access enforcement, and watch streams. It does not need local filesystem materialization.
 - A **wire client** resolves community names, transfers deterministic objects, performs compare-and-swap synchronization, and applies access without disclosing credentials or link secrets.
-- A **store driver** projects the common node/children/query contract onto a
-  representation or external store and supplies backing-appropriate
-  transactions, observation, schema, and consistent snapshots.
+- A **backing adapter** supplies the common node/children primitives from one
+  representation or external source, including observation, schema, coherent
+  snapshots, and physical commit primitives. The execution runtime owns query
+  and transaction semantics.
 - An **executable-document runtime** renders a reviewed MDX/TSX node at its ordinary Arbor location, injects authenticated Arbor user context, executes its named handles, and streams validated live-query results without exposing the backing data authority.
 - An **agent runtime** supplies the explicitly scoped execution environment described by its authored file. It has no ambient authority beyond that environment.
 
@@ -113,8 +114,8 @@ mention links here; the [roadmap](plan/roadmap.md) owns their sequencing.
 1. **Remote tree deletion.** Removing an active remote tree declaration from `trees.yaml` is invalid until a deletion lifecycle exists ([configuration](spec/05-accounts-and-devices.md#3-configuration-yaml)).
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](spec/08-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](spec/08-executable-documents.md#4-queries)).
 3. **External side effects and cross-domain workflows** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](spec/08-executable-documents.md#5-mutations)).
-4. **Bidirectional placement projections**: the full-duplex contract behind `mode: bidirectional` ([stores](spec/07-stores.md#4-postgres-and-placement-projections)).
-5. **Database change-log and checkpoint format** for synchronizing SQLite and Postgres placements ([data model §6](spec/01-data-model.md#6-the-canonical-encoding-of-a-tree)).
+4. **Bidirectional placement projections**: the full-duplex contract behind `mode: bidirectional` ([child backings](spec/07-child-backings.md#4-postgres-and-placement-projections)).
+5. **Database change-log and checkpoint format** for synchronizing SQLite and Postgres placements ([model and Wire §5](spec/01-model-and-wire.md#5-accepted-state-and-canonical-wire-encoding)).
 6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](spec/08-executable-documents.md#131-agent-files)).
 7. **A relative Markdown link carrying both a stable key and a content fragment** ([locators](spec/04-locators.md#2-stable-keys-revisions-and-fragments)).
 8. **Portable authored ordering, relationships, joins, aggregates, and pagination** in the query language; today they are capability extensions ([executable documents](spec/08-executable-documents.md#4-queries)).

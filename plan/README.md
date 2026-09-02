@@ -10,8 +10,8 @@ Outcome workstreams:
 - [`roadmap.md`](roadmap.md) — the cross-workstream forward map.
 - [`applications/`](applications/README.md) — authored Arbor applications and
   the execution capabilities they prove.
-- [`data/`](data/README.md) — the logical node/data model, portable store
-  representations, and replicated materializations.
+- [`data/`](data/README.md) — the logical node/data model, portable child
+  backings, and replicated materializations.
 - [`interfaces/`](interfaces/README.md) — native, web, CLI, and browser-facing
   ways people and tools use Arbor.
 

@@ -1,7 +1,7 @@
 # Executable documents
 *Part of the [Arbor spec](../spec.md): the execution model for portable MDX/TSX documents and agents: named handles, queries, mutations, Arbor user identity, hosting, confinement, consent, and transcripts. The `arbor/react` and `arbor/data` packages a document is written against are the [authoring API](09-authoring-api.md).*
 
-*Owns: handle identity, query and mutation semantics and their routes, user context, compilation, hosting, confinement, the consent statement, the no-ambient-authority rule, and agents. References: the [data model](01-data-model.md) for tree synchronization and the [authoring API](09-authoring-api.md) for package surfaces.*
+*Owns: handle identity, query and mutation semantics and their routes, user context, compilation, hosting, confinement, the consent statement, the no-ambient-authority rule, and agents. References: the [model and Wire encoding](01-model-and-wire.md) for synchronized values and the [authoring API](09-authoring-api.md) for package surfaces.*
 
 Arbor does not add an application object, application identifier, entry component, route table, or location language. A website is an Arbor tree containing ordinary related documents. A host that supports execution may render an authored `.mdx` or `.tsx` document at that document's ordinary canonical Arbor location.
 
@@ -87,7 +87,7 @@ A query is a deterministic function of `(resolved node snapshots,
 validated input, trusted user context)`. Its only data door is a finite,
 declarative selection over the scoped logical node model. Authored sources use
 `arbor(path)` everywhere. The initial portable node-set source is `.children`,
-with the same meaning for expanded directories, Markdown records, file rollups,
+with the same meaning for expanded directories, Markdown records, collection files,
 SQLite tables, and later external or replicated providers. Every result retains
 tree-scoped provenance internally even when the authored projection omits it.
 
@@ -99,6 +99,11 @@ in the server plan and are never delegated to a component.
 
 The initial universal symbolic surface is the source's schema-declared
 properties. Filtering and field picking behave identically across providers.
+Portable collection queries have the same meaning across backings. A database
+relation or schema-governed collection is a typed node set within this language,
+not a separate query universe. A provider may compile a plan to SQL, indexes,
+or tree traversal but cannot change its meaning. Backing-specific relational
+operations require an explicitly backing-coupled handle.
 Results have automatic deterministic ordering by canonical stable
 key, falling back to canonical path; authored ordering is not portable yet
 ([deferred 8](../spec.md#deferred)).
@@ -144,7 +149,7 @@ A live dependency plan is a set of (provider, observation cursor, precision
 scope) entries: the narrowest proved nodes, child membership, property/content
 fields, edges, schema fingerprints, mounted roots, and profile/access facts
 that can affect the result, each bound to the cursor it was read through
-([data model §5](01-data-model.md#5-change-and-equivalence)). Providers translate it into committed observation or
+([model §4](01-model-and-wire.md#4-change-and-equivalence)). Providers translate it into committed observation or
 conservative subtree/store invalidation. Observation precision is an
 optimization and cannot change the result.
 
@@ -169,12 +174,31 @@ query discovery, delegated authorization, or server-to-server routing
 
 A mutation is validated code running against explicit write prefixes. The runner opens one transaction in the selected store and supplies it as `tx`. Returning commits; throwing rolls back. All reads, authorization checks, ordered operations, and writes through `tx` share that transaction. A mutation cannot silently span several transaction domains.
 
+Portable mutable schema includes primary and alternate unique keys, ordered
+foreign-key field pairs, nullability, and explicit constraint actions. Primary
+keys are immutable. The first portable foreign-key subset supports `restrict`,
+`cascade`, and `set-null` on delete, validated at transaction end so declared
+deferred or cyclic inserts succeed. `ON UPDATE CASCADE`, `SET DEFAULT`, and
+backing-default collation or coercion are not portable. A foreign key may cross
+collections only inside one logical data tree and one transaction domain; a
+cross-tree Arbor reference is a typed authored property, not a transactional
+foreign key. An accepted mutation contains every direct and cascading effect.
+Arbor never invents cascade intent for an ambiguous concurrent file edit or
+imprecise invalidation, and separate collection files do not imply a shared
+transaction domain.
+
 The caller supplies one mutation identity and reuses it for an ambiguous retry;
 [§12.2](#122-execute-named-mutations) defines the request digest
 that binds it to the handle, code version, validated input, and activated
 source bindings, the replay scoping, and the receipt. The runtime captures one
 logical mutation time and deterministic generated-ID namespace before
 execution; exact retries observe the same values.
+
+The runtime records retry identity and its completed result in the same
+transaction domain as the data effects, or uses an equivalent crash-recoverable
+mechanism that distinguishes a completed commit from an unexecuted intent after
+restart. Backing adapters provide guarded physical commit primitives; they do
+not define transaction scope, retry identity, or mutation semantics.
 
 Expected failures are declared public errors with stable codes and safe
 messages; other thrown values become a generic internal error without stack
@@ -213,8 +237,11 @@ Framework filenames do not create mutation endpoints, action routes, loaders, or
 A live Arbor server may run the executable-document runtime adjacent to its Wire API. The roles remain distinct:
 
 - the Arbor server owns tree identity, access, accepted updates, immutable objects, and current-tree watch;
-- node/store providers own traversal, database transactions, snapshots, and committed change observation; and
-- the document runtime owns source compilation, query isolation, dependency tracking, server rendering, live query evaluation, and public result disclosure.
+- node/backing providers own traversal, snapshots, committed-change observation,
+  and the physical primitives used to realize a commit; and
+- the document runtime owns source compilation, query semantics and isolation,
+  mutation transaction scope and retry identity, dependency tracking, server
+  rendering, live query evaluation, and public result disclosure.
 
 The tree execution principal receives only reviewed tree prefixes, store connections, and operations. A public executable document may read a private backing tree, but only validated rendered output and query results are disclosed. Raw stores, credentials, server handle source, diagnostics containing private values, and unrelated rows never enter the browser bundle or public response.
 
@@ -321,7 +348,7 @@ manifest. The host verifies the coherent document version, reviewed handle
 membership, input schema, authenticated user context, effective access, and all
 bound node roots, edge/schema fingerprints, and provider identities. The
 request and events are independent of whether those nodes are expanded files,
-rollups, SQLite, Postgres, mounted trees, or remote providers. A
+collection files, SQLite, Postgres, mounted trees, or remote providers. A
 `knownOutputHash` permits omission of unchanged bytes only after fresh
 authorization and reevaluation; it is neither
 authorization nor evidence of current state. Output hashes are SHA-256 of the

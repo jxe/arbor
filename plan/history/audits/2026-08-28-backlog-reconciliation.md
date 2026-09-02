@@ -21,7 +21,7 @@ owner. It is not an active queue.
 | Former item | Disposition |
 |---|---|
 | PageID-shaped compatibility bridge | [Remove later](../../remove-later/README.md). |
-| Native offline rollup rows | Existing [Data 006](../../data/006-native-offline-rollup-row-projection.md). |
+| Native offline rollup rows | Existing [Data 006](../../data/006-native-offline-collection-file-projection.md). |
 | Postgres child provider | Existing [Data 004](../../data/004-postgres-child-provider.md). |
 | Representation equivalence | Existing [Data 003](../../data/003-representation-equivalence.md). |
 | File-provider exact-source cache invalidation | Smaller item in [Slow](../../slow/README.md). |
@@ -32,7 +32,7 @@ owner. It is not an active queue.
 | Compiler and editor tooling | Existing [Application 003](../../applications/003-development-compiler-and-editor-tooling.md). |
 | Whole-source portable query evaluation | Added as Application 003's bounded portable-execution requirement. |
 | SQLite direct-write receipt bridge | Existing Data 005 mutation/receipt deletion gate. |
-| Untracked file-rollup transaction lifecycle | Promoted to [Correctness and reliability 003](../../correctness-and-reliability/003-untracked-rollup-transactions.md). |
+| Untracked file-rollup transaction lifecycle | Promoted to [Correctness and reliability 003](../../correctness-and-reliability/003-untracked-collection-file-transactions.md). |
 | Legacy mutation-journal effect decoder | [Remove later](../../remove-later/README.md). |
 | Canopy application-code isolation | Smaller gated item in [Insecure](../../insecure/README.md). |
 | Exact rollup formatting through semantic merge | Added to Data 003's provider/exact-source continuation. |

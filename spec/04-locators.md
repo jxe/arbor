@@ -3,7 +3,7 @@
 TreeID identity, tree-relative paths, revisions, and DNS/Canopy canonical
 lookup.*
 
-*Owns: locator grammar, parsing, resolution, the routes that find trees, and the public HTTP projection. References: row segments ([stores](07-stores.md)).*
+*Owns: locator grammar, parsing, resolution, the routes that find trees, and the public HTTP projection. References: row segments ([child backings](07-child-backings.md)).*
 
 ## 1. Forms
 
@@ -156,6 +156,26 @@ Locator resolution is separate from rendering. A successful result always retain
 
 ## 5. Finding trees
 
+Canonical URLs are a secondary index over the global TreeID space:
+
+```ts
+type CanonicalURLs = Map<`${DNSName}${PathPrefix}`, TreeID>
+```
+
+The DNS name reaches one Canopy through normal DNS and HTTPS. Within that
+authority, resolution selects the longest readable registered path boundary
+and returns its TreeID plus the remaining logical path and optional stable key.
+URL nesting does not imply common storage, history, ownership, or access: if
+one tree is canonical at `/~alice` and another at `/~alice/atlas`, the latter
+boundary wins below it.
+
+Canonical placement is mutable naming. Changing the Canopy's DNS name, moving
+a registered boundary, or renaming a node changes canonical URLs without
+changing TreeID or stable key. Moving the physical server behind an unchanged
+DNS origin changes neither. A raw `arbor://<TreeID>/...` locator remains the
+primary address when a canonical name is absent, unknown, inaccessible, or
+changing.
+
 ```text
 GET /.arbor/health
 GET /.arbor/account
@@ -182,7 +202,7 @@ Markdown, files, and redirects retain canonical tree/path provenance and never
 broaden access. Historical roots remain immutable and read-only. The server
 does not publish or resolve the account-configuration tree.
 
-Rows in a recognized synchronized CSV/JSON/JSONL child rollup have the same
+Rows in a recognized synchronized CSV/JSON/JSONL collection file have the same
 ordinary public path and stable-key locator projection as expanded children.
 The parent page lists those logical rows rather than `_store.*` or `schema.ts`.
 A path lookup or stable-key lookup may render a row as an HTML property page or

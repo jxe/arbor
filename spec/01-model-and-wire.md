@@ -1,8 +1,11 @@
-# Arbor data model
+# Arbor model and Wire encoding
 *Part of the [Arbor spec](../spec.md): the global TreeID space, trees, nodes,
 structured data, projections, and equivalence.*
 
-*Owns: the TreeID space, nodes, canonical lookup, change and equivalence, the canonical encoding of a tree, and the values every route shares. References: [synchronization](02-synchronization.md) for how tree state moves.*
+*Owns: the TreeID space, logical nodes and child sets, change and equivalence,
+accepted tree state, its canonical Wire encoding, and the values every route
+shares. References: [synchronization](02-synchronization.md) for how accepted
+tree state moves.*
 
 ## 1. The global TreeID space
 
@@ -25,39 +28,41 @@ interface Tree {
   root: Node
 }
 
+interface ChildSet {
+  members: Map<Name, Node>
+  schema?: ChildSchema
+}
+
 interface Node {
   properties: Record<string, Value>
   content?: Content
-  children: Map<Name, Node>
-  schema?: Schema
+  children: ChildSet
 }
 ```
 
+`Name` is one valid logical path component. `ChildSchema` denotes the
+validated schema meaning shared by a child set; its authored and Wire forms are
+defined by [child backings](07-child-backings.md) and this document's Wire
+encoding,
+not by this conceptual shape.
+
 A tree also has independent history, a synchronization stream, and a whole-tree permission boundary.
 
-The root node has logical path `/`. Looking up successive names in `children`
+The root node has logical path `/`. Looking up successive names in
+`children.members`
 produces every other logical path.
+
+The child set, rather than the node as an undifferentiated whole, owns any
+schema shared by its members. That schema defines the members' property and
+content shapes, stable-key rule, logical-name rule, relationships, ordering,
+and constraints. A stable key identifies one member within its declaring child
+set while `Name` is its current readable path component; a rename may change
+the latter without changing the former.
 
 Arbor trees can be mounted inside other arbor trees, but they remain a separate entry in the global TreeID map. A placement may present it below a node in another tree, but its
 nodes, history, access, and mutations are not copied into that parent.
 
-## 3. Canonical URL lookup
-
-Canonical URLs are a secondary index over the TreeID map:
-
-```ts
-type CanonicalURLs = Map<`${DNSName}${PathPrefix}`, TreeID>
-```
-
-The DNS-name portion specifies a Canopy server on the network. The path-prefix portion specifies a tree served by that Canopy. Resolving a canonical URL first uses its DNS authority to reach the Canopy, then selects the longest readable registered boundary there, as specified by [the wire](04-locators.md#5-finding-trees). The result is that boundary's TreeID plus the remaining logical path and optional stable key, still in the uniform `(TreeID, path, key)` shape.
-
-Normal DNS and HTTPS establish how the Canopy is reached.
-
-URL nesting does not imply common storage, history, ownership, or access. If one tree is canonical at `/~alice` and another at `/~alice/atlas`, the latter boundary wins for URLs beneath it.
-
-Canonical placement is mutable naming at both levels. Replacing the DNS name of a Canopy placement, moving a tree boundary within that Canopy, or renaming a node changes canonical URLs without changing TreeID or stable key. Moving the physical server behind an unchanged DNS origin changes neither. A raw `arbor://<TreeID>/...` locator addresses the primary namespace when a canonical name is absent, unknown, inaccessible, or changing.
-
-## 4. One node shape for every kind of data
+## 3. One node shape for every kind of data
 
 A node has three parts: properties, optional content, and children. Arbor has
 no second shape for records, tables, files, or documents. Each of those is a
@@ -88,30 +93,45 @@ store them in two places, as the [directory format](03-directory-format.md#2-map
 does with `_index.md` inside a directory or a file beside it, but the model
 sees one node.
 
-Because the readings are defined on the model, the representation is free to
-vary, and several representations of the same nodes may exist at once. The
-same schema-governed children may be expanded Markdown files, one
-`_store.csv`, `_store.json`, or `_store.jsonl`, a SQLite table, or a Postgres
-relation, and a Canopy may read them from Postgres while a laptop keeps a
-SQLite copy for offline use. A query or link that addresses the nodes does not
-change when their representation does ([stores](07-stores.md)). A file named
-`something.json` is a content node; only the reserved `_store.json` name means
-"these are the collection's children".
+Because the readings are defined on the model, the backing is free to vary,
+and several backings of the same nodes may exist at once. The same
+schema-governed child set may use expanded Markdown files, one collection file
+(`_store.csv`, `_store.json`, or `_store.jsonl`), a SQLite database, or a
+Postgres database. A Canopy may read it from Postgres while a laptop keeps
+a SQLite projection for offline use. A query or link that addresses the nodes
+does not change when their backing does ([child backings](07-child-backings.md)). A file named
+`something.json` is a content node; only the reserved `_store.json` name is a
+collection file.
 
-A schema is what turns a set of children into a collection. It declares
+A child schema is what turns a child set into a collection. It declares member
 property and content types, the stable-key rule that gives each child its
-identity, allowed child shapes and discriminated unions, references and
-relationships, uniqueness, ordering, and foreign-key behavior. A development
+identity, the logical-name rule used by compact backings, allowed child shapes
+and discriminated unions, references and relationships, uniqueness, ordering,
+and foreign-key behavior. A development
 compiler can read the schema at a literal Arbor location and generate types
 from it rather than inferring them from sample values.
 
-## 5. Change and equivalence
+**Child set** is the logical term. **Backing** describes how a placement
+supplies it: expanded files, a collection file, a database, or an external
+store. **Collection file** is the narrow exact-source CSV/JSON/JSONL form used
+by the Wire. SQLite is a database backing, not a collection file. Backing
+metadata is observational capability information and never becomes node
+identity.
 
-Section 4 separated the model from its representations. That separation
+| Layer | Term | Example | What it identifies |
+|---|---|---|---|
+| Logical model | child set | the members and shared schema below `/books` | model state, independent of storage |
+| Placement | child backing | expanded files, collection file, database, external store | how one placement supplies the child set |
+| Accepted encoding | physical Wire entries | `_store.json` and `schema.ts` file objects | exact authored bytes and reachability |
+| Wire interpretation | collection-file descriptor | `childrenSource` on the directory object | how those physical entries decode as one child set |
+
+## 4. Change and equivalence
+
+Section 3 separated the model from its representations. That separation
 means there are two different questions a reader can ask about change, and a
 third about time. Arbor answers each with one token and never blurs them.
 
-### 5.1 Did the bytes change? The bytes hash
+### 4.1 Did the bytes change? The bytes hash
 
 A bytes hash is the hash of a representation's exact bytes, which the
 directory format calls authored source. The wire encodes
@@ -124,10 +144,11 @@ CSV, reordering frontmatter keys, or re-encoding a directory changes it even
 though nothing in the model moved. Its job is compare-and-swap for byte-level
 synchronization and proof that authored source is untouched.
 
-### 5.2 Did the data change? The model hash
+### 4.2 Did the data change? The model hash
 
 A model hash is the hash of model state: the canonical CBOR of a node's
-schema, properties, content, and the digests of its children. It is defined
+properties, content, and child set, including the child schema and the model
+hashes of its members. It is defined
 for every node, and a provider computes it wherever it can. Two
 representations of one model state have different bytes hashes and the
 same model hash; that is why the wire root is not a logical hash. Its job is
@@ -137,15 +158,15 @@ cheap, so it is what a row write must match. A live database does not
 maintain a model hash for a whole table, and says so by returning a cursor
 instead.
 
-### 5.3 What changed since I looked? The observation cursor
+### 4.3 What changed since I looked? The observation cursor
 
 An observation cursor is an ordered position in a provider's committed-change
 stream. Every read returns the cursor it observed through, and every
 dependency is a provider, a cursor, and a precision scope
-([stores](07-stores.md#13-read-boundaries-and-committed-change-observation)).
+([child backings](07-child-backings.md#13-read-boundaries-and-committed-change-observation)).
 Cursors are the only way to follow change; hashes never are.
 
-### 5.4 Which one a write names
+### 4.4 Which one a write names
 
 A write says what must still match: the bytes hash it saw, or the model hash
 of each node it changed. The authority rejects a write whose match fails,
@@ -160,7 +181,7 @@ replaces the complete map under the match it names, cannot change the
 property selected by the applicable identity declaration, and leaves content
 and children alone.
 
-### 5.5 When two things are the same
+### 4.5 When two things are the same
 
 - **Identity.** Two copies are the same logical tree when they have the same
   `TreeID`, even if their observed revisions have not settled. Two references
@@ -175,79 +196,122 @@ and children alone.
   representations of one collection even though none is the canonical
   serialization of the others.
 
-## 6. The canonical encoding of a tree
+## 5. Accepted state and canonical Wire encoding
 
-The current canonical lossless Wire encoding of an immutable tree snapshot
-names a root directory object. This directory-shaped object graph is a
-synchronization encoding of accepted tree state, not Arbor's logical node
-ontology and not a requirement that every backing be physically directory
-shaped. All objects are canonical CBOR addressed by
-`sha256:<lowercase-hex>` of their exact bytes. Directories map normalized UTF-8
-names to file, directory, nested-tree, or versioned rollup entries. Files
-contain exact bytes and media metadata. A rollup entry references its exact
-source object, schema fingerprint, provider scope, and authority-derived
-logical child/subtree root:
+An accepted tree state contains the logical model plus the tree-owned authored
+representation fidelity required to reproduce that state faithfully. The
+logical model is derived from the accepted representation by deterministic
+decoding and schema validation; it is not a second independently mutable copy.
+Placement-private paths, indexes, caches, readiness, database pages, WAL files,
+and query plans are not accepted tree state.
+
+The canonical lossless Wire encoding of one immutable accepted state names a
+root directory object. This directory-shaped graph is an encoding of the model
+and its authored fidelity, not another logical ontology and not a requirement
+that every backing be directory-shaped. All objects are canonical CBOR
+addressed by `sha256:<lowercase-hex>` of their exact bytes.
+
+The Wire root is therefore a bytes hash. Per-node model hashes and
+collection-file child-set hashes are derived logical equality proofs. A
+formatting-only edit can change the Wire root while leaving every affected
+logical hash unchanged.
+
+### 5.1 Physical entries and child-set interpretation
+
+Physical authored entries and their logical interpretation are separate:
 
 ```ts
-type RollupDescriptor = {
+type WireFile = {
+  type: "file";
+  bytes: Uint8Array;
+};
+
+type WireDirectoryEntry =
+  | { name: Name; hash: Hash }
+  | { name: Name; tree: TreeID };
+
+type CollectionFileDescriptor = {
   version: 1;
-  codec: "csv" | "json" | "jsonl";
-  source: Hash;
-  schemaSource: Hash;
-  schema: Hash;
-  scope: "children" | "subtree";
-  modelHash: Hash;
+  type: "collection-file";
+  format: "csv" | "json" | "jsonl";
+  source: "_store.csv" | "_store.json" | "_store.jsonl";
+  schemaSource: "schema.ts";
+  schemaFingerprint: Hash;
+  childSetHash: Hash;
+};
+
+type WireDirectory = {
+  type: "directory";
+  entries: WireDirectoryEntry[];
+  childrenSource?: CollectionFileDescriptor;
 };
 ```
 
-`schemaSource` references the exact `schema.ts` file object. The authority
-executes that source through the same restricted application-code runtime used
-locally, recomputes `schema`, and never trusts client-asserted compiled
-metadata. Schema execution shares the future isolation boundary with SSR,
-queries, mutations, and executable documents; it does not require a second
-authored schema. The descriptor lets remote resolution, paging, querying, search, and semantic
-merge address rolled-up children without converting them into Markdown files
-or making the reserved source file a visible row. A decoder recomputes `schema` and `modelHash` from `source`; a mismatch is
-invalid. `modelHash` is the collection node's
-[model hash](#5-change-and-equivalence), computed over its
-schema-normalized rows in stable-key order as `{ key, path, properties }`
-entries. Names reject NUL,
-slashes, backslashes, dot segments, non-NFC text, and reserved ambiguity.
-Directory entries are canonically ordered; decoders reject noncanonical
-encodings and hash mismatches.
+Every declared source names an ordinary file entry in the same directory
+object. Its entry hash makes the exact authored bytes reachable and
+materializable. `source` must agree with `format`, and `schemaSource` names the
+exact schema source. These reserved files are physical entries but are not
+logical children.
 
-Arbor has one canonical encoding and one hash rule. The canonical CBOR subset
-is: `null`; booleans; integers in the safe 53-bit range as CBOR integers with
-minimal-length heads; every other finite number as a 64-bit float; UTF-8 text;
-byte strings; arrays; and maps whose keys are text, unique, and ordered by the
-bytes of their encoded form. Non-finite numbers, indefinite lengths, tags, and
-non-text keys are invalid. Object hashes, the `updates-v1` and `mutate-v1`
-semantic digests, query output hashes, rollup `modelHash` values, and schema
-fingerprints are all `sha256:` of this encoding of the identified value;
-nothing on the wire is identified by a canonical JSON text. The
-[`canonical-cbor-values`](../conformance/canonical-cbor-values.json) vectors
-freeze valid encodings and rejected byte sequences for every language binding.
+A directory without `childrenSource` derives expanded logical children from
+its entries under the [directory projection](03-directory-format.md). A
+directory with a collection-file source derives its complete logical child set
+from that source. It may otherwise contain only the enclosing node's body and
+the descriptor's declared representation files; mixing collection-file rows
+with another immediate-child backing is invalid.
 
-Authorities advertise their rollup, schema, and row quotas and never accept a
-rollup they cannot validate completely; the reference quotas are recorded in
-[the reference implementation](../docs/reference-implementation.md#wire-encoding-reconciliation-and-hosting). Semantic merge reports `rollup-row-conflict`,
-`rollup-schema-conflict`, or `rollup-constraint-conflict`; a row conflict path
-uses the parent logical path plus its `arbor-key` identity suffix.
+The authority executes `schema.ts` through the same restricted application-code
+runtime used locally, recomputes `schemaFingerprint`, and never trusts
+client-asserted compiled metadata. It validates and normalizes every row,
+derives its stable key and logical name through the schema's `childName` rule,
+and recomputes `childSetHash` over stable-key-ordered
+`{ key, name, properties }` entries. A mismatch is invalid. `childSetHash` is
+the logical contribution of the complete child set, not the enclosing node's
+model hash. The enclosing node's model hash combines its properties and
+content with its child schema and child set.
+
+Names reject NUL, slashes, backslashes, dot segments, non-NFC text, and
+reserved ambiguity. Directory entries are canonically ordered; decoders reject
+noncanonical encodings, missing or multiply claimed source entries, and hash
+mismatches.
 
 Database placements may expose the same logical subtree, but they do not use
-this exact-source descriptor. Wire database synchronization names committed
+the collection-file encoding. Wire database synchronization names committed
 logical changes and, when required for resync, a content-addressed canonical
 logical checkpoint produced at one database snapshot. Such a checkpoint is an
 explicit synchronization artifact, not what an ordinary read matches on, and
 contains no SQLite pages/WAL bytes or Postgres storage representation. Its
 change-log/checkpoint format is deferred ([deferred 5](../spec.md#deferred)).
 
-### 6.1 Deltas
+### 5.2 Canonical encoding and hashes
 
-A transition ([synchronization](02-synchronization.md)) transfers the
-content-addressed graph sparsely. Each changed object travels either as its
-complete canonical bytes or as a delta against an object that is reachable in
-the relevant basis graph:
+Arbor has one canonical CBOR rule. The permitted subset is: `null`; booleans;
+integers in the safe 53-bit range as CBOR integers with minimal-length heads;
+every other finite number as a 64-bit float; UTF-8 text; byte strings; arrays;
+and maps whose keys are text, unique, and ordered by the bytes of their encoded
+form. Non-finite numbers, indefinite lengths, tags, and non-text keys are
+invalid.
+
+Object hashes, the `updates-v1` and `mutate-v1` semantic digests, query output
+hashes, collection-file `childSetHash` values, and schema fingerprints are all
+`sha256:` of this encoding of the identified value; nothing on the Wire is
+identified by canonical JSON text. The
+[`canonical-cbor-values`](../conformance/canonical-cbor-values.json) vectors
+freeze valid encodings and rejected byte sequences for every language binding.
+
+Authorities advertise collection-file, schema, and row quotas and never
+accept a collection file they cannot validate completely. Semantic merge
+reports `collection-file-row-conflict`, `collection-file-schema-conflict`, or
+`collection-file-constraint-conflict`; a row conflict path uses the parent
+logical path plus its `arbor-key` identity suffix. Database backings do not use
+this exact-source descriptor and their live storage bytes are never accepted
+as Wire objects.
+
+### 5.3 Deltas
+
+A transition transfers the content-addressed graph sparsely. Each changed
+object travels either as its complete canonical bytes or as a delta against an
+object reachable in the relevant basis graph:
 
 | Representation | Update submission | Accepted transition | Intended use |
 |---|---|---|---|
@@ -271,15 +335,15 @@ bytes of the `result` object. `copy` addresses the exact canonical bytes of the
 nonempty, nonnegative safe JSON integers wholly within the base bytes; inserts
 and the instruction list are nonempty. Because instructions address encoded
 bytes rather than a decoded payload, one rule covers every object kind: a
-one-entry change to a large directory or a one-paragraph change to a large
-file costs a few instructions instead of the whole object, and a moved region
-is a copy rather than a retransmission.
+one-entry change to a large directory or a one-paragraph change to a large file
+can use a few instructions, and a moved region is a copy rather than a
+retransmission.
 
 A file object's canonical encoding carries its payload length, so a sender
 deriving a delta from editor edits inserts the result's header bytes and copies
-the unchanged payload ranges at their base offsets. Any instruction sequence
-that reconstructs the exact result is valid; the diff algorithm is the
-sender's choice and never part of identity.
+unchanged payload ranges at their base offsets. Any instruction sequence that
+reconstructs the exact result is valid; the diff algorithm is the sender's
+choice and never part of identity.
 
 The base must be reachable in the relevant basis graph: the retained accepted
 base for a submission, or the previous accepted root for a transition. The
@@ -287,14 +351,14 @@ receiver hash-verifies that base, applies the instructions, requires the
 reconstructed bytes to hash to `result`, and decodes them as a valid canonical
 object. It then treats the result exactly like a complete object. A result
 appears exactly once across complete objects and deltas. New objects use
-complete bytes. The sender chooses whichever representation is smaller. The
+complete bytes; otherwise the sender normally chooses the smaller form. The
 encoding is a transport choice: the identified result object and accepted
-roots remain canonical, and retries or later storage packing may select a
-different representation without changing semantic identity. Duplicate
+roots remain canonical, and retries or later storage packing may choose
+another transfer representation without changing semantic identity. Duplicate
 results, a result also supplied as a complete object, noncanonical base64,
 out-of-bounds copies, arithmetic overflow, and quota excess are invalid.
 
-## 7. Shared values
+## 6. Shared values
 
 These transport-neutral values are shared by every route. Language bindings must be
 equivalent and consume the language-neutral vectors under
@@ -399,7 +463,7 @@ The wire's own tokens, and what each survives:
 
 | Token | Identifies | Minted by | Survives |
 |---|---|---|---|
-| wire root and object hashes | one exact encoded snapshot or object; the tree's bytes hashes ([data model §5.1](#51-did-the-bytes-change-the-bytes-hash)) | hashing canonical CBOR bytes | nothing that changes a byte |
+| wire root and object hashes | one exact encoded snapshot or object; the tree's bytes hashes ([§4.1](#41-did-the-bytes-change-the-bytes-hash)) | hashing canonical CBOR bytes | nothing that changes a byte |
 | accepted update `id` | one accepted transition of one tree | the server's observation ordinal | it is that update's `tree.update` cursor by construction |
 | `EventCursor` | a position in one tree's observation stream | the server | nothing; it only orders |
 | `QueryCursor` | a position in a host's derived-query observation domain | the host | nothing; it only orders |

@@ -1,17 +1,18 @@
-# Correctness and reliability 003: Make untracked rollup mutations restart-safe
+# Correctness and reliability 003: Make untracked collection-file mutations restart-safe
 
 > **Drift check:** inspect `FilesystemService.executeMutation`,
 > `ProjectionProviderHost` prepared property writes,
 > `MutationJournal`, and the managed `Workspace` mutation path. Stop if
-> untracked file-rollup receipts and prepared-file recovery are already durable
-> across process restart.
+> untracked collection-file receipts and prepared-file recovery are already
+> durable across process restart.
 
 ## Status
 
 - **Priority:** P1
 - **Effort:** M
 - **Risk:** MED
-- **Depends on:** Correctness and reliability 002 for safe journal appends
+- **Depends on:** Correctness and reliability 002 for safe journal appends;
+  Data 011 for the final collection-file names and descriptors
 - **Progress:** TODO
 - **Written against:** `450d2a4`
 
@@ -92,7 +93,8 @@ git diff --check
 
 ## Done criteria
 
-- [ ] Untracked file-rollup intent, materialization, and receipt survive restart.
+- [ ] Untracked collection-file intent, materialization, and receipt survive
+  restart.
 - [ ] Exact replay returns the original receipt; mismatched replay fails closed.
 - [ ] Startup cleanup touches only positively identified Arbor prepare files.
 - [ ] Current exact-source validation, formatting preservation, and CAS remain intact.

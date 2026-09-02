@@ -8,7 +8,8 @@
   exact revisions; the change-log/checkpoint design requires review before
   implementation.
 - **Depends on:** Data 002 common node model; Data 007 provider runtime; Data
-  004 for the Postgres provider; Data 001 for bidirectional SQLite projections.
+  004 for the Postgres provider. Data 012 depends on this plan for
+  bidirectional SQLite projections.
 
 ## Architectural correction
 

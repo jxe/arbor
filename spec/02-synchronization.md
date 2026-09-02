@@ -1,11 +1,15 @@
 # Synchronization
 *Part of the [Arbor spec](../spec.md): how tree state moves between a client and a server: reading a tree, proposing a transition to it, and watching its accepted transitions.*
 
-*Owns: what a server is and must implement, the routes that read, update, and watch a tree, transitions and their replay, streams, and errors. References: the [data model](01-data-model.md) for the encoding, the shared values, and what a bytes hash and a model hash are.*
+*Owns: what a server is and must implement; the routes that read, update, and
+watch a tree; transitions and their replay; streams; and errors. References:
+the [model and Wire encoding](01-model-and-wire.md) for logical nodes, accepted
+state, objects, deltas, shared values, and hash meanings.*
 
 ## 1. A server and its trees
 
-The wire transports observations and changes of the [data model](01-data-model.md). Its
+Synchronization transports observations and changes of the
+[model](01-model-and-wire.md). Its
 envelopes may include access, capabilities, materialization state,
 diagnostics, cursors, bytes hashes, and transport hints that are
 not stored model properties.
@@ -19,7 +23,7 @@ The operations have distinct relationships to the model:
 - `queries` derives current typed values from any reviewed logical nodes; and
 - `mutate` executes reviewed transactional model intent.
 
-The synchronized root is a [bytes hash](01-data-model.md#5-change-and-equivalence):
+The synchronized root is a [bytes hash](01-model-and-wire.md#4-change-and-equivalence):
 it identifies the exact Wire encoding of one accepted tree state and serves as
 its compare-and-swap key. Different roots may decode to model-equivalent trees
 when authored representation details differ.
@@ -37,9 +41,10 @@ implements:
 - the merge of disjoint nodes under `ifMatch: "modelHash"`, and the
   `markdown-additive-v1` merge rule for two edits to one Markdown node
   ([§3](#3-updating-a-tree));
-- rollup decoding, the `rollup-rows-v1` merge rule, and a restricted runtime
-  that executes `schema.ts` to recompute schema fingerprints and model hashes
-  ([data model §6](01-data-model.md#6-the-canonical-encoding-of-a-tree));
+- collection-file decoding, the `collection-file-rows-v1` merge rule, and a
+  restricted runtime that executes `schema.ts` to recompute schema
+  fingerprints and child-set hashes
+  ([model and Wire §5](01-model-and-wire.md#5-accepted-state-and-canonical-wire-encoding));
 - the `account-config-v1` merge rule and the governed configuration tree
   ([accounts §6](05-accounts-and-devices.md#6-governed-account-tree));
 - profile claims, device pairing, access evaluation, and the public HTTP
@@ -162,11 +167,12 @@ projection-specific fidelity required by that encoding. `objects` supplies
 canonical CBOR objects the server does not already retain; a client normally
 walks base and candidate together and omits unchanged objects. The candidate
 must still be complete and provable from retained base objects, supplied
-objects, and valid `deltas`. The [deltas](01-data-model.md#61-deltas)
+objects, and valid `deltas`. The
+[deltas](01-model-and-wire.md#53-deltas)
 rules define those interchangeable representations; they do not change the
 candidate's identity.
 
-`ifMatch` names which hash of the [data model](01-data-model.md#5-change-and-equivalence)
+`ifMatch` names which hash of the [model](01-model-and-wire.md#4-change-and-equivalence)
 must still match its value at base for the candidate to be accepted; `base`
 supplies the values, as an ETag does for HTTP `If-Match`:
 
@@ -207,8 +213,9 @@ of these decisions:
    history.
 
 A merge rule is the representation-specific way to combine two changes to
-one node: `markdown-additive-v1` for Markdown, `rollup-rows-v1` for a file
-rollup, and `account-config-v1` for the governed configuration tree. A node
+one node: `markdown-additive-v1` for Markdown,
+`collection-file-rows-v1` for a collection file, and `account-config-v1` for
+the governed configuration tree. A node
 with no merge rule, or one the rule cannot combine, is a conflict.
 
 ### 3.3 Results, reconciliation, and retry
@@ -230,7 +237,7 @@ type AcceptedUpdate = {
 type MergeSummary =
   | { version: "markdown-additive-v1"; approximatePlacements: number }
   | { version: "account-config-v1"; mergedFields: number }
-  | { version: "rollup-rows-v1"; mergedRows: number };
+  | { version: "collection-file-rows-v1"; mergedRows: number };
 
 type UpdateResult = {
   outcome: "current" | "accepted" | "merged";
@@ -247,7 +254,7 @@ present only when a merge rule ran; a merge of disjoint nodes carries none. An a
 of the observation that recorded it, so it is also that update's `tree.update`
 cursor and `observedThrough`. `reconciliation` is present exactly when the accepted root differs from the
 submitted candidate: it is the transition from the candidate root to
-`update.root` under the [deltas](01-data-model.md#61-deltas) rules, so
+`update.root` under the [deltas](01-model-and-wire.md#53-deltas) rules, so
 a superseded, merged, or replayed result is applied with the same code that
 applies a watch frame. An accepted candidate returns none.
 
@@ -257,7 +264,7 @@ roots, structured conflict reasons naming each conflicting node, and `draft`,
 the transition from the candidate root to the draft root the client keeps.
 
 Semantic request identity is the SHA-256 of the
-[canonical CBOR encoding](01-data-model.md#6-the-canonical-encoding-of-a-tree)
+[canonical CBOR encoding](01-model-and-wire.md#52-canonical-encoding-and-hashes)
 of `{ version: "updates-v1", tree, base, candidate, ifMatch, onConflict }`,
 with `onConflict` as its effective value, scoped to the
 authenticated credential. `objects`, `deltas`, and their ordering are
@@ -267,18 +274,27 @@ replay returns the original result and creates no duplicate accepted update.
 Clients durably retain the base, candidate, required content, and any conflict
 draft until the result has been applied.
 
-### 3.4 Rollups in a candidate
+### 3.4 Collection files in a candidate
 
-When a candidate changes a recognized file child rollup, the submitted root
+When a candidate changes a recognized collection file, the submitted root
 names the exact lossless encoding of that candidate tree state. The authority
 decodes coherent base, current, and candidate representations under schema and
-resource bounds, recomputes logical row identities and the collection's model
-hash, applies `rollup-rows-v1` to a conflicting rollup, validates all
+resource bounds, recomputes logical row identities and the collection file's
+child-set hash, applies `collection-file-rows-v1` to a conflicting collection
+file, validates all
 keys, foreign keys, and constraints, and encodes the accepted representation.
-It never trusts a client-supplied model hash. Formatting-only changes advance the accepted root without changing the model
-hash, so they invalidate no logical query dependency. SQLite and Postgres changes use the database transaction,
+It never trusts a client-supplied schema fingerprint or child-set hash.
+Formatting-only changes advance the accepted root without changing the
+child-set hash, so they invalidate no logical query dependency.
+
+The update setting `ifMatch: "modelHash"` is intentionally not renamed: it
+compares the complete model hash of every touched logical node, not the
+collection file's narrower `childSetHash`. The latter is used while decoding
+and merging the node's child-set contribution. SQLite and Postgres changes use
+the database transaction,
 observation, and semantic-checkpoint protocol specified separately; live
-database storage bytes are never submitted or merged as a rollup object.
+database storage bytes are never submitted or merged as a collection-file
+object.
 
 ## 4. Watching a tree
 
@@ -322,7 +338,7 @@ merged, or restored that result.
 
 The replay payload is a sparse proof of the target graph. `objects` contains
 canonical target objects not reconstructed by a delta under the
-[deltas](01-data-model.md#61-deltas) rules. Submission and watch
+[deltas](01-model-and-wire.md#53-deltas) rules. Submission and watch
 share the `ObjectDelta` primitive, but not editor history: after validation and
 any merge, the authority derives the transition from the actual accepted
 endpoints, diffing every changed directory and file against its predecessor at

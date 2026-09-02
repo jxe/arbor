@@ -9,7 +9,7 @@
 >
 > ```sh
 > git diff --stat ab139c6..HEAD -- \
->   spec/01-data-model.md spec/04-accounts-and-devices.md spec/05-access-control.md conformance \
+>   spec/01-model-and-wire.md spec/04-accounts-and-devices.md spec/05-access-control.md conformance \
 >   docs/local-system.md docs/arborsync-api.md docs/client.md docs/cli.md \
 >   packages/stores packages/arborsync packages/client packages/cli packages/render \
 >   native/Packages/ArborSync native/Packages/ArborClient native/ArborApp \
@@ -259,7 +259,7 @@ simulator; if it is unavailable, stop and report rather than creating another.
 ### In scope
 
 - Normative and reference contracts:
-  - `spec/01-data-model.md`
+  - `spec/01-model-and-wire.md`
   - `spec/04-accounts-and-devices.md`
   - `conformance/configuration-yaml.json`
   - `docs/local-system.md`

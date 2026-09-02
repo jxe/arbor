@@ -9,14 +9,15 @@
 - **Depends on:** Data 002 common node model; Data 007 provider runtime;
   reviewed observation and Wire query/mutation routes; Application 003
   activation manifests.
-- **Related:** Data 001 placement-level SQLite projection and replication.
+- **Related:** Data 001 read-only SQLite projection and Data 012 bidirectional
+  projection.
 
 ## Target result
 
 A `_store.yaml` placement using the Postgres driver exposes its database,
 relations, and rows through the same `ProjectionProviderHost`, `NodeSnapshot`,
 `ChildrenPage`, stable-key, query, mutation, observation, and diagnostic
-contracts as expanded, file-rollup, and SQLite providers. Postgres is a
+contracts as expanded, collection-file, and SQLite providers. Postgres is a
 placement/provider choice, never a parallel public node ontology.
 
 The placement declares whether authority execution addresses Postgres directly,
@@ -56,7 +57,8 @@ master tree.
 
 ## Projection modes
 
-Coordinate with Data 001 rather than embedding replication here:
+Coordinate read-only materialization with Data 001 and bidirectional
+replication with Data 012 rather than embedding either here:
 
 - `direct`: authority and permitted local tools query the same Postgres source;
 - `sqlite-read-only`: a local SQLite projection supports offline/local reads and

@@ -1,7 +1,11 @@
-# Stores and collections
+# Child backings
 *Part of the [Arbor spec](../spec.md): backing-independent child behavior over Markdown, CSV, JSON, JSONL, SQLite, external stores, and placement projections.*
 
-*Owns: the collection contract, row identity and ordering, observation precision, file, SQLite, and Postgres backings, placement projections, and migration. References: the query language ([executable documents](08-executable-documents.md)) and the property write ([data model §5](01-data-model.md#5-change-and-equivalence)).*
+*Owns: how expanded files, collection files, SQLite, Postgres, and later
+external providers supply logical child sets; backing-specific revisions,
+snapshots, observation, and physical commit behavior; placement projections;
+and representation migration. Query and transaction semantics belong to
+[executable documents](08-executable-documents.md).*
 
 ## 1. Common collection contract
 
@@ -21,29 +25,36 @@ but it does not require a second collection-page resource to identify or browse
 rows. Such a projection returns the same row node references and match values as
 the generic node surface.
 
-A conforming store supplies:
+A conforming backing adapter supplies:
 
 - schema discovery or validation;
 - ordered reads and stable row identity appropriate to the backing;
-- atomic row mutations within that backing's transaction boundary;
+- guarded write primitives through which the mutation runtime realizes its
+  transaction contract;
 - change observation without treating partial writes as commits;
 - a consistent read snapshot and ordered committed-observation boundary;
 - actionable diagnostics while preserving the last fully usable schema/view.
 
-Portable collection queries and mutations have the same meaning across backings. Backing-specific relational operations may exist only where the addressed database provides them and must be identified as backing-coupled.
+### 1.1 Child backings
 
-### 1.1 Physical representations
-
-Expanded child files and rolled-up child sets are representations of the same
-logical nodes. `_store.csv`, `_store.json`, and `_store.jsonl` represent the
-enclosing node's immediate schema-governed children. `_store.sqlite3` may
+The logical child set is independent of its backing. The portable backing
+categories are expanded files, a collection file, a database, and an external
+store. `_store.csv`, `_store.json`, and `_store.jsonl` are collection files:
+each represents the enclosing node's complete, immediate, schema-governed,
+property-only child set. `_store.sqlite3` is a database backing and may
 represent a table's immediate rows or a database container's table/row subtree.
-The provider exposes those children through ordinary node and children APIs;
-reserved store files are not themselves row children.
+The provider exposes all of them through ordinary node and children APIs;
+reserved representation files are not themselves logical children.
+
+A child-backing summary may expose the observed category and format, but it is
+capability metadata rather than identity. A collection-file summary may carry
+an exact source revision, schema fingerprint, and child-set hash. A database
+summary instead carries a schema fingerprint and observation boundary; it must
+not invent a whole-database bytes hash or model hash.
 
 Reformatting JSON or CSV changes the bytes hash and not the model hash,
 and a representation migration may preserve the digest while changing every
-byte ([data model §5](01-data-model.md#5-change-and-equivalence)). Updates name the complete candidate tree and may carry
+byte ([model §4](01-model-and-wire.md#4-change-and-equivalence)). Updates name the complete candidate tree and may carry
 compact patches to representation bytes, but the authority decodes
 base/current/candidate under quotas, merges by stable node identity where safe,
 validates the complete schema and constraints, and computes the accepted model
@@ -57,19 +68,9 @@ logical checkpoint for synchronization or recovery, but that checkpoint is not w
 ordinary read matches on and never consists of database page, WAL, or
 provider storage bytes.
 
-### 1.2 Queries over collections
+### 1.2 Member identity, order, and pagination
 
-The query language—its portable baseline of predicate filtering, explicit field
-picking, and cardinality; its capability extensions for relationships, joins,
-aggregates, authored ordering, and pagination; plan-callback confinement; and
-the one-transaction-per-mutation rule—is specified once in
-[executable documents](08-executable-documents.md#4-queries). A database relation
-or schema-governed collection is a typed node set within that language, not a
-separate query universe. A provider may compile a plan to SQL or another native
-plan but cannot change its meaning, and an unsupported extension fails before
-data access.
-
-This specification adds only the facts a store owns:
+A backing preserves these logical child-set facts:
 
 - **Row identity.** A mutable collection's declared primary key is the
   stable-key rule for its children. It must be stable, non-null,
@@ -84,13 +85,13 @@ This specification adds only the facts a store owns:
   is its single string key when that is a valid nonempty logical path component
   not beginning with the reserved `~row-` prefix; otherwise it is `~row-`
   followed by the unpadded base64url encoding of the canonical row key.
-- **Ordering.** Rollup and database rows enumerate in canonical stable-key
+- **Ordering.** Collection-file and database rows enumerate in canonical stable-key
   order, falling back to canonical path, using the portable comparison; a
   backing's default collation is not an acceptable substitute. Where a
   relational extension supplies explicit ordering, the proved stable key is the
   deterministic final tie-breaker.
 - **Pagination.** Live or mutable pagination uses a provider-bound keyset
-  cursor, never an unqualified offset. A file rollup binds that cursor to its bytes hash and schema fingerprint; a database binds it to the schema
+  cursor, never an unqualified offset. A collection file binds that cursor to its bytes hash and schema fingerprint; a database binds it to the schema
   fingerprint, ordering, last stable key, and an observation boundary that can
   detect expiry or relevant committed change. It never hashes the complete
   database.
@@ -99,26 +100,13 @@ This specification adds only the facts a store owns:
   are not durable identities; handles cannot use them for mutation or durable
   references. Duplicate, missing, invalid, or noncanonical declared keys are
   diagnostics and disable mutation rather than falling back to position.
-- **Constraints.** Portable mutable schema includes primary and alternate
-  unique keys, ordered foreign-key field pairs, nullability, and explicit
-  constraint actions. Primary keys are immutable. The first portable
-  foreign-key subset supports `restrict`, `cascade`, and `set-null` on delete,
-  validated at transaction end so declared deferred or cyclic inserts succeed.
-  `ON UPDATE CASCADE`, `SET DEFAULT`, and backing-default collation or coercion
-  are not portable. A foreign key may cross collections only inside one logical
-  data tree and one transaction domain; a cross-tree Arbor reference is a typed
-  authored property value, not a transactional foreign key. A named mutation's
-  accepted transaction contains all direct and cascading row effects; Arbor
-  never invents cascade intent for an ambiguous concurrent file edit or
-  imprecise database invalidation, and cross-file foreign-key atomicity is not
-  implied.
 
 ### 1.3 Read boundaries and committed change observation
 
-Every store read is associated with a coherent read boundary and returns the
-observation cursor it read through. File stores also name a bytes hash.
-Database stores hold a provider-local transaction snapshot only for the read;
-they do not expose a whole-database bytes hash or model hash. A store observer yields changes only
+Every backing read is associated with a coherent read boundary and returns the
+observation cursor it read through. Collection files also name a bytes hash.
+Database adapters hold a provider-local transaction snapshot only for the read;
+they do not expose a whole-database bytes hash or model hash. A backing observer yields changes only
 after the corresponding transaction commits and supplies a cursor from which
 the runtime can establish a snapshot-then-follow boundary. Rollbacks and
 partial statements produce no visible change.
@@ -126,7 +114,7 @@ partial statements produce no visible change.
 An observation has the narrowest precision the driver can prove:
 
 ```ts
-type StoreChange =
+type BackingChange =
   | { precision: "rows"; collection: string; rows: RowChange[] }
   | { precision: "collection"; collection: string }
   | { precision: "store" };
@@ -144,13 +132,7 @@ These shapes describe information, not a required JSON or driver API. Missing ke
 
 The runtime must conservatively identify every committed change that may alter a query's public result. Optimization may not change the authored handle or observable result.
 
-For a runtime-owned mutation, the store driver normally knows exact affected collections, primary keys, and changed fields. External writers may provide less information. A conforming driver may degrade from row precision to collection or whole-store invalidation, but it must not miss an externally committed change. Observation precision is an optimization and cannot change query results.
-
-Mutation retry identity and its completed result are recorded in the same
-transaction domain as the data effects, or by an equivalent crash-recoverable
-mechanism that can distinguish a completed commit from an unexecuted intent
-after restart. The identity itself is defined by
-[executable documents §12.2](08-executable-documents.md#122-execute-named-mutations).
+For a runtime-owned mutation, the backing adapter normally knows exact affected collections, primary keys, and changed fields. External writers may provide less information. A conforming adapter may degrade from row precision to collection or whole-backing invalidation, but it must not miss an externally committed change. Observation precision is an optimization and cannot change query results.
 
 ## 2. File-backed collections
 
@@ -163,16 +145,26 @@ import { z } from "zod"
 
 export const schema = z.object({
   id: z.string(),
+  slug: z.string(),
   title: z.string(),
 })
 
 export const primaryKey = ["id"] as const
+
+// Optional. Omission derives logical names from the primary key.
+export const childName = { from: "property", property: "slug" } as const
 ```
 
 - Markdown row files other than `_index.md`;
 - one `_store.csv`;
 - one `_store.json`; or
 - one `_store.jsonl`.
+
+`childName` is an optional deterministic logical-name rule for compact
+backings. It is either `{ from: "primaryKey" }` or
+`{ from: "property", property: <schema property> }`; omission means
+`primaryKey`. The selected schema-normalized value must produce one valid
+logical `Name`.
 
 `primaryKey` is required for mutation and durable row references. It names one or
 more required schema properties in tuple order. Omitting it leaves CSV and
@@ -188,12 +180,18 @@ Markdown body supplies optional content; `id`, path, and content remain
 available through the common node projection rather than a separate Markdown-
 row API.
 
-CSV, JSON, and JSONL mutations are atomic at the whole-file transaction boundary. A
-driver locks the source, checks its bytes hash, validates the complete key set and
-requested effects, writes and fsyncs a complete replacement, atomically renames
-it, fsyncs the containing directory where supported, and records retry
-completion in the same crash-recoverable workflow before acknowledgement.
-A [property write](01-data-model.md#5-change-and-equivalence) on a row must
+CSV, JSON, and JSONL rows carry properties only. A conversion from expanded
+Markdown must therefore reject a child with content or children unless a later
+target format explicitly represents those parts; equal keys alone do not make
+a lossy conversion model-equivalent.
+
+When the mutation runtime commits a collection-file write, the adapter realizes
+that commit as one guarded whole-file replacement. It locks the source, checks
+its bytes hash, validates the complete key set and requested effects, writes and
+fsyncs a complete replacement, atomically renames it, and fsyncs the containing
+directory where supported. Retry identity and acknowledgement remain owned by
+the mutation contract.
+A [property write](01-model-and-wire.md#4-change-and-equivalence) on a row must
 match the row's model hash and must preserve the declared key. A logical no-op leaves the source byte-identical. A direct row-property
 write cannot add, remove, or reorder rows.
 Multi-row mutations preserve row order unless the mutation
@@ -215,8 +213,9 @@ The schema evaluator accepts the authored schema and its declared schema-library
 
 `_store.sqlite3` makes the enclosing folder SQLite-backed. If `schema.ts` selects a collection/table, the folder is that collection; otherwise each introspected user table appears as a child collection of a database container. An ordinarily named `.sqlite3` file remains browsable as a database node but does not absorb its enclosing folder.
 
-SQLite remains canonical and usable by ordinary SQLite tools. Row mutations
-run in SQLite transactions. Observation occurs at committed boundaries and
+SQLite remains canonical and usable by ordinary SQLite tools. The adapter maps
+one runtime-owned mutation transaction to one SQLite transaction. Observation
+occurs at committed boundaries and
 snapshots are database-consistent; a live main database and WAL are never
 treated as unrelated files or assigned an exact bytes hash. A provider
 may widen an imprecise concurrent change to collection/store invalidation, but
@@ -248,8 +247,8 @@ activate either descriptor.
 
 With no placement `projection`, every execution placement connects directly to
 the declared Postgres store and must resolve the same stable store identity.
-Postgres is then the shared data authority. Arbor introspects schemas, runs
-mutations in Postgres transactions, and observes committed changes; the authored
+Postgres is then the shared data authority. Arbor introspects schemas, maps each
+runtime-owned transaction to Postgres, and observes committed changes; the authored
 tree synchronizes the safe descriptor rather than a database copy.
 
 A device placement may instead request a private SQLite projection in its
@@ -308,11 +307,13 @@ Collection access and executable-document result access are distinct. Publishing
 
 Schema information and explicit relationship declarations are mapped to canonical tree-rooted collection paths so executable source remains portable across placements. Relative collection references resolve against the source tree and path before use. A database schema, file schema, or relationship change changes the corresponding schema fingerprint and invalidates dependent compiled handles. Derived declarations, caches, and introspection artifacts are not authored tree content or portable artifacts.
 
-## 7. Store migration
+## 7. Backing migration
 
 Replacing Markdown/CSV/JSON/JSONL rows with `_store.sqlite3`, or replacing one
-supported representation/provider with another, preserves the logical
-collection address, stable row identities, and portable operations when schema
-and primary-key values are preserved. Bytes hashes change while the model hash remains equal. The transition is not atomic
+supported backing with another, preserves the logical collection address,
+stable row identities, logical child names, and portable operations only when
+the schema, primary-key values, child-name rule, and every
+represented part of each child are preserved. Bytes hashes may change while
+the model hash remains equal. The transition is not atomic
 across independent backing authorities unless the implementation actually
 provides that guarantee.
