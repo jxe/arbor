@@ -570,7 +570,8 @@ type MutateRequest = {
 type MutationHandleRef = QueryHandleRef;
 
 type MutationResultReceipt<Result = unknown> = {
-  mutationID: string;  requestDigest: Hash;
+  mutationID: string;
+  requestDigest: Hash;
   observedThrough: QueryCursor;
   affected?: {
     tree: TreeID;

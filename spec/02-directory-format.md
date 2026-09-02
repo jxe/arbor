@@ -130,7 +130,7 @@ The profile tree's `TreeID`, not its mutable title or root `PageID`, is the stab
   not imply Postgres.
 - `.ts` and `.tsx` files may define Arbor handles, components, and executable documents as specified by [executable documents](07-executable-documents.md).
 - `.mdx` files may define explicit executable component documents as specified by [executable documents](07-executable-documents.md).
-- Markdown files may define agents as specified by [agents](08-agents.md).
+- Markdown files may define agents as specified by [executable documents](07-executable-documents.md#agents).
 
 These recognizers do not make generated declarations, compiled bundles, database credentials, or execution transcripts part of this format unless they are themselves deliberately authored ordinary tree content.
 

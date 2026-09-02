@@ -1,5 +1,5 @@
 # Executable documents
-*Part of the [Arbor spec](../spec.md): portable MDX/TSX source, named handles, Arbor user identity, rendering, confinement, and consent.*
+*Part of the [Arbor spec](../spec.md): the execution model for portable MDX/TSX documents and agents: named handles, queries, mutations, Arbor user identity, hosting, confinement, consent, and transcripts. The `arbor/react` and `arbor/data` packages a document is written against are the [authoring API](09-authoring-api.md).*
 
 Arbor does not add an application object, application identifier, entry component, route table, or location language. A website is an Arbor tree containing ordinary related documents. A host that supports execution may render an authored `.mdx` or `.tsx` document at that document's ordinary canonical Arbor location.
 
@@ -27,15 +27,8 @@ Links are ordinary authored links:
 
 Relative resolution and extensionless canonicalization follow [format](02-directory-format.md) and [locators](03-locators.md). A same-tree host may intercept an ordinary link for client navigation, but the link must remain correct as an ordinary HTTP navigation with JavaScript absent. Back, forward, reload, open-in-new-tab, and copying the URL use browser semantics rather than a parallel application history.
 
-The query string belongs to the addressed document and is passed as an ordinary `URLSearchParams` value named `search`:
-
-```tsx
-export default function List({ search }: { search: URLSearchParams }) {
-  const id = search.get("id")
-  if (!id) return <p>This link has no list ID.</p>
-  return <ListContent id={id} editing={search.has("edit")} />
-}
-```
+The query string belongs to the addressed document, which receives it as an
+ordinary search-parameter value ([authoring API](09-authoring-api.md#documents)).
 
 The optional path-attached `;arbor-key=...` identity suffix is consumed before
 document routing and never appears in `search`. It can therefore heal or
@@ -53,28 +46,13 @@ fragment data unavailable to the server.
 
 `.md` remains non-executable authored Markdown. `.mdx` combines Markdown composition, frontmatter, explicit ESM imports/exports, and React components. A `.tsx` document is renderable when it has a default component export. Supporting `.tsx` modules without a default component remain importable source rather than hosted views. `.ts` modules may define server handles and shared code.
 
-An MDX body is its default component. Document head elements are ordinary React authoring and are hoisted by React during server rendering and client updates:
-
-```mdx
-import { PopularLists } from "./components/PopularLists"
-
-<title>Meaning Supplies</title>
-<meta name="description" content="A directory of social practices" />
-
-# Discover and share social practices
-
-<PopularLists />
-```
-
-There is no parallel metadata export or metadata read lifecycle. A component renders `<title>`, `<meta>`, `<link>`, and other React-supported head elements from the same query result it uses for visible content. The server supplies the canonical Arbor URL independently, so an authored document need not rediscover it merely to emit the canonical link.
-
-Executable documents have Tailwind available as a compiler capability without an import, stylesheet directive, configuration file, or content glob. Statically discoverable utility classes in the addressed document's public import graph are available, and the pinned Tailwind/compiler version is part of the coherent document version. Constructing class names from arbitrary string fragments is not portable; conditional complete class tokens are. An ordinary imported stylesheet remains available for exceptional CSS, but neither `@import "tailwindcss"` nor a CDN/runtime compiler is part of authored source.
-
-`Markdown` from `arbor/react` renders a Markdown source string with Arbor's ordinary link resolution, safe URL and asset policy, and source semantics. It is the standard way for a component to present stored Markdown; executable documents do not choose a separate third-party Markdown policy accidentally.
-For a relative Markdown destination carrying the reserved `#arbor-key=` alias,
-it emits the equivalent server-visible path suffix and preserves the authored
-application query. It does not forward the reserved identity alias as an HTML
-fragment.
+An MDX body is its default component. Document head elements are ordinary
+component output hoisted during server rendering and client updates; there is
+no parallel metadata export or metadata read lifecycle, and the server supplies
+the canonical Arbor URL independently, so an authored document need not
+rediscover it merely to emit the canonical link. Styling and Markdown
+rendering facilities belong to the [authoring API](09-authoring-api.md#documents);
+the pinned compiler version is part of the coherent document version.
 
 Structured editors that cannot preserve MDX or TSX source exactly must use a raw/code-capable mode. They never rewrite executable source as ordinary Markdown.
 
@@ -88,7 +66,10 @@ A source tree is identified by its existing `TreeID`; Arbor adds no application-
 
 For each exported handle, compilation exposes stable function identity, input validation, code version, declared or inferred tree access, and public result metadata without disclosing privileged implementation code. Literal tree paths contribute precise prefixes; computed paths require explicit declarations. Compilation fails when code can address an undeclared path, closes over UI-only state, or imports ambient host authority.
 
-`query.many`, `query.one`, `query.maybe`, and `mutation` accept an optional Standard Schema-compatible input schema. Zod is supported directly, without an Arbor-specific validator vocabulary. The handle's call input is the schema input type; the query plan or mutation handler receives its validated, transformed output. Validation occurs before data access. A no-input query omits the schema and is called as `useQuery(handle)`.
+A handle may declare an input schema in the [authoring API](09-authoring-api.md#handles)'s
+Standard Schema form. The handle's call input is the schema input type; the
+query plan or mutation handler receives its validated, transformed output, and
+validation occurs before data access.
 
 ## Queries
 
@@ -124,9 +105,9 @@ homogeneous children receive one item type and heterogeneous children a declared
 discriminated union. Computed locators require an explicit schema and capability
 bound. The compiler never guesses from sampled data. The document manifest pins
 the contributing tree roots and schema fingerprints, and activation refuses a
-stale plan or keeps the last-known-good version. `RowOf` and `ResultOf` expose
-inferred types, so authored source maintains no second result
-schema.
+stale plan or keeps the last-known-good version. Inferred row and result types
+are exposed by the authoring API, so authored source maintains no second
+result schema.
 
 Activation retains each literal's authored spelling together with its resolved
 `(TreeID, logical path, schema fingerprint)`; the authored basename is never a
@@ -185,15 +166,15 @@ source bindings, the replay scoping, and the receipt. The runtime captures one
 logical mutation time and deterministic generated-ID namespace before
 execution; exact retries observe the same values.
 
-`arbor/react` adapts a mutation handle to React Actions. Form conversion is shallow and deterministic: a name occurring once becomes its string or file value, a repeated name becomes an array in document order, and an omitted name is absent. Coercion belongs to the authored schema. Expected failures use `publicError(code, message, options?)` from `arbor/data`; other thrown values become a generic internal error without stack traces, SQL, paths, or private row data.
+Expected failures are declared public errors with stable codes and safe
+messages; other thrown values become a generic internal error without stack
+traces, SQL, paths, or private row data.
 
 External side effects and cross-domain workflows require a separately specified effect and consent contract ([deferred 3](../spec.md#deferred)); they are not disguised as deterministic collection mutations.
 
-## Component and data packages
+## Components, imports, and consent
 
-Components are React authoring in TSX or MDX within a confined UI realm. Node data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. The [no-ambient-authority rule](#authored-component-forms) applies; UI-local timers, focus, and animation do not become data authority.
-
-The public component package is `arbor/react`; data and handle authoring come from `arbor/data`. The former provides `useQuery`, `skipQuery`, `useMutationAction`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`. The latter provides `arbor(path)` logical node sources, schema-derived children handles, `query`, `mutation`, `publicError`, `RowOf`, and `ResultOf`. Package names are part of the authored portability surface.
+Components run within a confined UI realm. Node data and effects enter through query and mutation handles. The compiler excludes server implementations from client bundles. The [no-ambient-authority rule](#authored-component-forms) applies; UI-local timers, focus, and animation do not become data authority.
 
 Cross-tree source imports use absolute Arbor locators and resolve to immutable code identities for one build or execution. Imported handles retain their own declared access; resolving an import cannot silently widen it.
 
@@ -234,7 +215,8 @@ Executable-document subscriptions are not accepted-update history and do not add
 Executable documents do not define their own password, login-code, or session model. The host resolves the existing Arbor account/device or server browser session and injects an unforgeable user context into queries and mutations:
 
 ```ts
-type ArborUser = null | {  profile: TreeID
+type ArborUser = null | {
+  profile: TreeID
   community: TreeID
 }
 ```
@@ -243,21 +225,24 @@ Server-local account IDs, device IDs, credentials, and mutable handles are not d
 
 A query or mutation may require `user !== null`, but source documents never implement sign-in. Establishing, renewing, switching, and revoking the server browser session is Arbor platform UI. The server rechecks the session on render, each `queries` request, and mutation; revocation terminates existing streams and prevents an unauthorized value from being treated as current.
 
-`useUser()` returns the optional safe Arbor user projection. `useUser({ required: true })` declares that the mounted component cannot execute anonymously. It suspends before user-dependent queries mount and lets the server present its own session UI; an authored tree never receives credentials or implements authentication. A query plan may dereference the nullable-safe symbolic `user.profile`, or use `user.required.profile` to declare that anonymous execution must fail before data access even when the handle is invoked outside React.
+A component may declare that it cannot execute anonymously; the host then
+presents its own session UI before user-dependent queries mount, and an
+authored tree never receives credentials or implements authentication. A query
+plan may dereference the nullable user profile, or declare that anonymous
+execution must fail before data access even when the handle is invoked outside
+a component ([authoring API](09-authoring-api.md#user)).
 
 Anonymous, Arbor-user, and tree-principal executions are separate cache and subscription contexts. User-dependent queries record the identity and access decision as dependencies. Public executions may be shared only when their inputs, authorization, capabilities, and output are genuinely user-independent.
 
 ## Rendering, actions, and live data
 
-The host resolves the requested Arbor path, loads one coherent executable-document version, passes its query string, evaluates mounted query reads, server-renders the component tree, and embeds only validated results plus public handle metadata. Hydration reuses those values. `useQuery` follows React Suspense semantics for its initial value and throws failures to the nearest error boundary.
+The host resolves the requested Arbor path, loads one coherent executable-document version, passes its query string, evaluates mounted query reads, server-renders the component tree, and embeds only validated results plus public handle metadata. Hydration reuses those values.
 
 Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [wire protocol](04-wire.md#21-evaluate-and-stream-named-queries) and its separate named-mutation operation.
 
-Mutation handles are React Actions as well as typed imperative handles. `useMutationAction(handle)` returns `[state, action, pending]`. Its Action converts `FormData`, validates it through the handle's Standard Schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. Successful return commits the runner-owned transaction; throwing rolls it back. Ordinary forms retain React's reset behavior.
+Mutation handles are callable as form actions as well as typed imperative handles. The [authoring API](09-authoring-api.md#actions-and-forms)'s action adapter validates form input through the handle's schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. Successful return commits the runner-owned transaction; throwing rolls it back.
 
-Server exceptions, database diagnostics, private values, and stack traces never become Action state. Expected `MutationActionError` values have stable codes, safe messages, retryability, and optional field errors. The durable receipt and authoritative query result may arrive in either order and are correlated idempotently. Optimistic presentation never displaces the subscribed result as the source of truth.
-
-`useNavigate` performs an ordinary same-origin Arbor navigation when a destination depends on a mutation result. Anchors remain the default for known destinations; the hook adds no route registry or parallel history model.
+Server exceptions, database diagnostics, private values, and stack traces never become action state. Expected public errors have stable codes, safe messages, retryability, and optional field errors. The durable receipt and authoritative query result may arrive in either order and are correlated idempotently. Optimistic presentation never displaces the subscribed result as the source of truth.
 
 ## Portability and limits
 
@@ -271,3 +256,57 @@ are checked before the new handle version is used.
 For a query spanning transaction domains, the opaque `observedThrough` value represents the host's revision vector rather than inventing a global transaction. Cross-server execution requires explicit composition and never acquires authority merely through network reachability.
 
 Static baking may replace explicitly static query reads with compiled results. A document depending on user identity, live data, mutations, or hosted-only capabilities remains an executable-host requirement and cannot silently become static.
+
+## Agents
+
+An agent is an executable document whose body is a prompt. It shares the
+no-ambient-authority rule, the consent statement, named handles, and mutation
+receipts defined above; this section adds only what is specific to agents.
+
+### Agent files
+
+An agent is an ordinary Markdown document. Its body is the primary instruction/prompt; frontmatter declares configuration such as model policy, named tools, context roots or queries, and transcript destination. Model/provider-specific tuning may be present as optional namespaced metadata, but the portable agent remains readable without a proprietary database. The portable frontmatter key set is not yet defined ([deferred 6](../spec.md#deferred)).
+
+An agent file is versioned, linked, shared, and access-controlled like other
+authored Markdown. Moving it preserves the stable key derived from its `id`
+property; execution uses the resolved tree/path and revision chosen by the
+caller.
+
+### Tools and context
+
+Every runtime may expose Arbor's built-in read, navigate, search, backlinks,
+node-query, and mutation operations. The node-query surface includes schema-
+governed collection and relational capabilities when the addressed source
+provides them. An agent may additionally name compiled
+[executable-document](#modules-and-named-handles) query and mutation handles. Each
+tool has a typed input/output boundary and retains tree/path provenance in its
+results.
+
+Context is assembled from explicit tree roots, locator selections, or deterministic query handles. It is not ambient retrieval over every host-readable file. Context results record their source locator and revision or observation cursor so a transcript can explain what the agent saw.
+
+### Confinement
+
+Before execution, the runtime resolves an effective namespace from:
+
+- the agent file's declared roots and tools;
+- the caller's visible placements and remote access;
+- the selected historical/live revisions; and
+- an optional stricter process ceiling.
+
+The intersection is the complete authority. The agent and its tools cannot address a path, tree, credential, network target, or host capability outside it. A tool cannot widen the namespace of the agent that called it. Access changes during a run take effect before subsequent operations.
+
+This specification does not prescribe isolation technology, worker language, or process topology. The [no-ambient-authority rule](#authored-component-forms) applies to agents and their tools.
+
+### Consent and effects
+
+Before an effectful run, the client presents the [consent statement](#components-imports-and-consent) with the agent's effective values, including its tools, transcript destination, and any explicitly granted non-tree effect.
+
+All tree effects pass through ordinary wire or store mutations and produce normal durable receipts, conflicts, events, access checks, and nested-boundary enforcement. An agent cannot make a direct host-filesystem edit and label it an Arbor mutation. Ambiguous mutation retries reuse the original mutation identity.
+
+### Transcripts
+
+An effectful run produces a readable transcript as ordinary tree content. It includes the agent identity/revision, caller-approved authority summary, model/runtime identity where available, ordered tool calls and results with secrets redacted, mutation receipts, failures, and final output. Large binary/tool payloads may be referenced by content hash rather than duplicated.
+
+Transcripts are versioned and access-controlled by their destination tree. They never contain raw credentials or access-link secrets. A caller may choose not to persist a read-only exploratory transcript, but an effectful run cannot omit the durable record of its committed mutation receipts.
+
+The same agent can run from the CLI, a human client, or another conforming orchestration client. No Arbor-specific screen or control is required.

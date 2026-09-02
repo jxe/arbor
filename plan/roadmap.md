@@ -51,7 +51,7 @@ Durable product contracts live in the topic specifications:
   access, refs, updates, watch/retry/resync, query/mutate transport, secrets, and
   HTTP projection;
 - [configuration](../spec/05-configuration.md) owns synchronized account, tree, device, placement, ACL, and governance data;
-- [stores](../spec/06-stores.md), [executable documents](../spec/07-executable-documents.md), and [agents](../spec/08-agents.md) own their respective authored contracts;
+- [stores](../spec/06-stores.md), [executable documents](../spec/07-executable-documents.md), and the [authoring API](../spec/09-authoring-api.md) own their respective authored contracts;
 - the [reference documentation](../docs/reference-implementation.md) owns the Local Arbor REST API, CLI, data home, client interaction design, runtime algorithms, and platform behavior.
 
 ## Milestone 2 — live data documents

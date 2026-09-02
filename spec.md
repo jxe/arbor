@@ -8,7 +8,7 @@ This is the aspirational public contract for Arbor. It describes behavior an imp
 The specification contains only behavior that must remain portable across independently implemented Arbor components. The [reference documentation](docs/reference-implementation.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Arbor requirements.
 
 The normative surface begins with the representation-independent data model,
-then defines its directory projection, locators and their public HTTP projection, Wire synchronization, synchronized configuration, stores/materializations, executable documents, and agents. Local
+then defines its directory projection, locators and their public HTTP projection, Wire synchronization, synchronized configuration, stores/materializations, executable documents and agents, and the authoring API. Local
 client/daemon transport, UI controls, CLI commands, runtime algorithms, package
 topology, private-state layout, and test machinery are reference choices.
 
@@ -55,8 +55,8 @@ Ordinary unpromoted files are browsable without gaining a durable Arbor identity
 | [wire](spec/04-wire.md) | Arbor server identity, claims, access, deterministic objects, sync, watch, and executable-document data and effects | Conformance-backed for values, objects, deltas, update identity, endpoints, SSE, and errors; described for queries, mutations, claims, and pairing |
 | [configuration](spec/05-configuration.md) | Governed account YAML, devices, placements, ACLs, and semantic merge | Conformance-backed |
 | [stores](spec/06-stores.md) | Markdown/CSV/JSON/JSONL/SQLite projections, external stores, and placement materializations | Described; no vectors |
-| [executable documents](spec/07-executable-documents.md) | Portable MDX/TSX source, named queries and mutations, React components, identity, confinement, and consent | Described; no vectors |
-| [agents](spec/08-agents.md) | Agent files, tools, context, confinement, consent, effects, and transcripts | Sketch |
+| [executable documents](spec/07-executable-documents.md) | Execution model for MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, and transcripts | Described; no vectors (agents: sketch) |
+| [authoring API](spec/09-authoring-api.md) | The `arbor/react` and `arbor/data` packages, React Actions, hooks, and styling a document is written against | Library contract, versioned with the packages |
 
 *Conformance-backed* means the file's exact representations and results are frozen by
 vectors under [`conformance`](conformance) that both language bindings decode.
@@ -88,7 +88,7 @@ mention links here; the [roadmap](plan/roadmap.md) owns their sequencing.
 3. **External side effects and cross-domain workflows** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](spec/07-executable-documents.md#mutations)).
 4. **Bidirectional placement projections**: the full-duplex contract behind `mode: bidirectional` ([stores](spec/06-stores.md#postgres-and-placement-projections)).
 5. **Database change-log and checkpoint format** for synchronizing SQLite and Postgres placements ([wire §3.3](spec/04-wire.md#33-deterministic-lossless-encoding-and-tree-scoped-authorization)).
-6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([agents](spec/08-agents.md#agent-files)).
+6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](spec/07-executable-documents.md#agent-files)).
 7. **A relative Markdown link carrying both a stable key and a content fragment** ([locators](spec/03-locators.md#stable-keys-revisions-and-fragments)).
 8. **Portable authored ordering, relationships, joins, aggregates, and pagination** in the query language; today they are capability extensions ([executable documents](spec/07-executable-documents.md#queries)).
 9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](spec/03-locators.md#forms)).
