@@ -32,6 +32,30 @@ function defaultHandle(input: string | undefined, fallback: string): string {
   return /^[a-z0-9](?:[a-z0-9-]{0,62})$/.test(normalized) ? normalized : fallback;
 }
 
+/**
+ * Maintenance mode answers the health check and nothing else, without opening
+ * the data root. A host whose volume operations require a running service uses
+ * it while the operator migrates or replaces the data root out of band.
+ */
+export function serveMaintenance(port: number, hostname: string): ReturnType<typeof Bun.serve> {
+  const server = Bun.serve({
+    port,
+    hostname,
+    fetch(request) {
+      const { pathname } = new URL(request.url);
+      if (pathname === "/.arbor/health") {
+        return Response.json({ status: "maintenance" }, { headers: { "cache-control": "no-store" } });
+      }
+      return Response.json(
+        { error: "internal-error", message: "This Arbor server is in maintenance; try again later", retryable: true },
+        { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } },
+      );
+    },
+  });
+  console.log(`Canopy in maintenance mode at http://${hostname}:${server.port}; unset ARBOR_CANOPY_MAINTENANCE to serve.`);
+  return server;
+}
+
 export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<void> {
   const valuedOptions = ["--url", "--port", "--hostname", "--community", "--first-writer"];
   const positional = positionals(args, valuedOptions);
@@ -42,6 +66,13 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
   const requestedPort = Number(option(args, "--port") ?? process.env.PORT ?? 4318);
   if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65_535) {
     throw new Error("Canopy port must be an integer from 0 through 65535");
+  }
+  if (process.env.ARBOR_CANOPY_MAINTENANCE?.trim()) {
+    const server = serveMaintenance(requestedPort, option(args, "--hostname") ?? "0.0.0.0");
+    const stop = () => { server.stop(true); process.exit(0); };
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
+    return;
   }
   const onRailway = Boolean(process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_ENVIRONMENT_ID);
   const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
