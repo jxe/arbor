@@ -5,7 +5,6 @@ import {
   applyObjectDelta,
   decodeWireObject,
   hashObject,
-  materializeTree,
   type ObjectHash,
   type RemoteTreeDescriptor,
   type TreeSnapshot,
@@ -28,6 +27,7 @@ import {
   snapshotFromPending,
   treeConflict,
 } from "./sync-state.ts";
+import { materializeTree } from "@arbor/fs";
 
 export interface TreeSyncDeps {
   trees: TreeManager;

@@ -1,9 +1,22 @@
 import { readFile, readdir, realpath } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
-import { IGNORED_WORKSPACE_DIRECTORIES, isPageID, nodePathFromPhysical, toTreePath } from "@arbor/core";
+import { isPageID, nodePathFromPhysical } from "@arbor/core";
+import { toTreePath } from "@arbor/core/path";
 import { parseMarkdown } from "@arbor/editor";
 
-export { IGNORED_WORKSPACE_DIRECTORIES };
+/**
+ * Directory names that are never part of an Arbor tree's authored content:
+ * tooling and platform state that discovery, watching, snapshots, and
+ * materialization all skip.
+ */
+export const IGNORED_WORKSPACE_DIRECTORIES: ReadonlySet<string> = new Set([
+  ".git",
+  "node_modules",
+  ".arbor",
+  "Trash",
+  ".build",
+  "DerivedData",
+]);
 
 export const WORKSPACE_WATCHER_IGNORE_GLOBS = [
   "**/.git/**",

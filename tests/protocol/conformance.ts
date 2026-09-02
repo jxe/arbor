@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { serveArborSync } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
 import { generateArborID } from "@arbor/core";
-import { snapshotDirectory, WireClient } from "@arbor/wire";
+import { WireClient } from "@arbor/wire";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
+import { snapshotDirectory } from "@arbor/fs";
 
 async function run(command: string[], environment: Record<string, string> = {}): Promise<void> {
   const process = Bun.spawn(command, {

@@ -6,6 +6,7 @@
   "dependencies": {
     "@arbor/core": "workspace:*",
     "@arbor/editor": "workspace:*",
-    "@parcel/watcher": "2.5.1"
+    "@parcel/watcher": "2.5.1",
+    "@arbor/wire": "workspace:*"
   }
 }

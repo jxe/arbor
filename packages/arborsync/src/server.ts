@@ -11,7 +11,7 @@ import type {
   MutationCallRuntime,
 } from "@arbor/core";
 import { PathEscapeError, encodeSSEFrame, generateArborID } from "@arbor/core";
-import { treeMutationResponse, treeQueryResponse } from "@arbor/data";
+import { treeMutationResponse, treeQueryResponse } from "@arbor/data/host";
 import { decodeNodeRef } from "@arbor/core/node-model";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
 import { currentDeviceID } from "@arbor/stores";

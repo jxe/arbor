@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { decodeTreeSnapshotJSON, encodeUpdateConflictJSON, encodeUpdateResultJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResult } from "@arbor/wire";
 import { buildNetworkLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@arbor/core";
 import type { AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@arbor/core";
-import { treeMutationResponse, treeQueryResponse } from "@arbor/data";
+import { treeMutationResponse, treeQueryResponse } from "@arbor/data/host";
 import {
   AlreadyClaimedError,
   RefConflictError,

@@ -8,13 +8,13 @@ import {
   decodeWireObject,
   encodeWireObject,
   hashObject,
-  snapshotDirectory,
   type ObjectHash,
   type TreeSnapshot,
   type UpdateConflict,
   type WireDirectoryEntry,
   type WireObject,
 } from "@arbor/wire";
+import { snapshotDirectory } from "@arbor/fs";
 
 interface ExpectedMerge {
   conflicts: UpdateConflict[];

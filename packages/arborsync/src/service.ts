@@ -23,13 +23,14 @@ import { LOCAL_TREE, SYSTEM_TREE, canonicalNodePath, generateArborID, pageIDFrom
 import { parseMarkdown } from "@arbor/editor";
 import { FsConflictError } from "@arbor/fs";
 import { CommunityConfigStore, VisitedTreeStore, arborDataRoot, arborPrivateRoot, saveCurrentDeviceID } from "@arbor/stores";
-import { WireClient, encodeObjectDeltaJSON, encodeWireObject, hashObject, materializeTree, objectDelta, snapshotDirectory, type ObjectDelta, type RemoteTreeDescriptor } from "@arbor/wire";
+import { WireClient, encodeObjectDeltaJSON, encodeWireObject, hashObject, objectDelta, type ObjectDelta, type RemoteTreeDescriptor } from "@arbor/wire";
 import { WireProjection } from "@arbor/wire-projection";
 import { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { TreeSynchronizer } from "./tree-sync.ts";
+import { materializeTree, snapshotDirectory } from "@arbor/fs";
 
 interface PendingClaimBootstrap {
   version: 1;

@@ -27,7 +27,6 @@ import {
   isPageID,
   pageIDFromStableKey,
   pageIDStableKey,
-  resolveTreePath,
   revisionOf,
   sha256,
 } from "@arbor/core";
@@ -61,6 +60,7 @@ export { ProtocolError, RevisionConflictError } from "./protocol-error.ts";
 import { FilesystemNodeSurface } from "./filesystem-node-surface.ts";
 import { writeFilesystemProperties } from "./filesystem-property-write.ts";
 import { NodeProviderRouter } from "./node-provider-router.ts";
+import { resolveTreePath } from "@arbor/core/path";
 
 
 const EMPTY_REVISION = revisionOf("");

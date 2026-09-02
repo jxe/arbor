@@ -3,11 +3,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArborSync } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
-import { snapshotDirectory, WireClient } from "@arbor/wire";
+import { WireClient } from "@arbor/wire";
 import { generateArborID } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 import { build } from "vite";
+import { snapshotDirectory } from "@arbor/fs";
 
 await build({ configFile: join(import.meta.dir, "../../packages/render/vite.config.ts"), logLevel: "error" });
 

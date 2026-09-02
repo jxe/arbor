@@ -9,16 +9,13 @@ import {
   canonicalNodePath,
   isPageID,
   directoryIndexTreePath,
-  ensureContainedPath,
   nodeDisplayName,
   nodePathFromPhysical,
   normalizeTreePath,
   PathEscapeError,
-  resolveTreePath,
   revisionOf,
   sha256,
   siblingMarkdownTreePath,
-  toTreePath,
 } from "@arbor/core";
 import { directoryPlacementDiagnostics, mintPageID, parseMarkdown, patchFrontmatter, serializeMarkdown } from "@arbor/editor";
 import { commitPrepared, pathExists, prepareAtomic, removeIfExists, syncDirectory, transactionTemporaryPath, writeAtomic } from "./file-ops.ts";
@@ -46,6 +43,7 @@ import {
   type ResolvedFsNode,
   type WorkspaceFSOptions,
 } from "./types.ts";
+import { ensureContainedPath, resolveTreePath, toTreePath } from "@arbor/core/path";
 
 const RESERVED = new Set(["schema.ts", "_store.csv", "_store.json", "_store.jsonl", "_store.postgres", "_store.sqlite3", "_index.md"]);
 const IGNORED = IGNORED_WORKSPACE_DIRECTORIES;

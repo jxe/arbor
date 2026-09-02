@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { generateArborID, type ReadWriteAccess } from "@arbor/core";
-import type { CanopyAccessEntry, CanopyAccount, CanopyTree } from "./canopy.ts";
+import type { CanopyAccessEntry, CanopyAccount, CanopyTree } from "./model.ts";
 
 export interface AccessHost {
   tree(id: string): CanopyTree | null;

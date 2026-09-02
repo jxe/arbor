@@ -1,26 +1,9 @@
 import type { Diagnostic, SearchResult } from "./types.ts";
 import { sha256 } from "./hash.ts";
 import type { JSONValue, NodeRef, NodeSnapshot } from "./node-model.ts";
+import type { ContentRevision, DirectoryRevision, EventCursor, Hash, LogicalPath, TreeID, TreeRef } from "./identifiers.ts";
 
-export type {
-  ChildRepresentationSummary,
-  ChildrenPage,
-  IdentityRule,
-  JSONValue,
-  NodeCapabilities,
-  NodeContent,
-  NodeDiagnostic,
-  NodeRef,
-  NodeSnapshot,
-  NodeSummary,
-  RollupDescriptor,
-} from "./node-model.ts";
 
-export type LogicalPath = string;
-export type ContentRevision = string;
-export type DirectoryRevision = string;
-export type EventCursor = string;
-export type Hash = `sha256:${string}`;
 
 export interface QueryHandleRef {
   tree: TreeID;
@@ -91,8 +74,6 @@ export interface MutationCallRuntime {
  * OS-absolute), `"system"` (the control scope), or a stable shared
  * `TreeID`. The scope is always explicit; there is no omitted-tree default.
  */
-export type TreeRef = "local" | "system" | TreeID;
-export type TreeID = string;
 export type AccessLevel = "none" | "read" | "write";
 export type ReadWriteAccess = Exclude<AccessLevel, "none">;
 export type TreeKind =
@@ -123,8 +104,6 @@ export interface AccessEntry {
   access: ReadWriteAccess;
 }
 
-export const LOCAL_TREE: TreeRef = "local";
-export const SYSTEM_TREE: TreeRef = "system";
 
 export interface TreeDescriptor {
   id: TreeID;

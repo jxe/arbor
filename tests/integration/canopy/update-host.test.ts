@@ -5,11 +5,12 @@ import { tmpdir } from "node:os";
 import { buildNetworkLocator, canonicalStableKey, generateArborID, pageIDStableKey, rowPathSegment, sha256 } from "@arbor/core";
 import { serveCanopy } from "@arbor/canopy";
 import { ProjectionProviderHost } from "@arbor/stores";
-import { snapshotDirectory, WireClient } from "@arbor/wire";
+import { WireClient } from "@arbor/wire";
 import {
   readAccountConfigGraph,
   snapshotAccountConfig,
 } from "../../../packages/canopy/src/account-policy.ts";
+import { snapshotDirectory } from "@arbor/fs";
 
 const token = "owner-test-credential";
 let dataRoot: string;

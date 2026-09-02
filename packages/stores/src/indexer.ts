@@ -2,13 +2,14 @@ import { readFile, stat } from "node:fs/promises";
 import { readFileSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
+import { toTreePath } from "@arbor/core/path";
 export interface SearchIndexResult {
   path: string;
   title: string;
   excerpt: string;
   score: number;
 }
-import { legacyPageIDCandidate, nodeDisplayName, nodePathFromPhysical, resolveLogicalURL, toTreePath } from "@arbor/core";
+import { legacyPageIDCandidate, nodeDisplayName, nodePathFromPhysical, resolveLogicalURL } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { discoverWorkspace, type WorkspaceDiscovery } from "@arbor/fs";
 const INDEXED_EXTENSIONS = new Set(["md", "csv", "jsonl", "json", "ts", "tsx", "txt"]);

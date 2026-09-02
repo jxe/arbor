@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { canonicalNodePath, directoryIndexTreePath, ensureContainedPath, siblingMarkdownTreePath, normalizeTreePath, nodePathFromPhysical, resolveTreePath } from "@arbor/core";
+import { canonicalNodePath, directoryIndexTreePath, siblingMarkdownTreePath, normalizeTreePath, nodePathFromPhysical } from "@arbor/core";
+import { ensureContainedPath, resolveTreePath } from "@arbor/core/path";
 
 const temporaryPaths: string[] = [];
 afterEach(async () => Promise.all(temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true }))));

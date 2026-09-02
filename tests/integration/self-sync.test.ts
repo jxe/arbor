@@ -8,12 +8,13 @@ import { ArborSyncRESTClient } from "@arbor/client";
 import { serveCanopy } from "@arbor/canopy";
 import { generateArborID, sha256 } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
-import { compareWireNames, decodeWireObject, encodeWireObject, hashObject, snapshotDirectory, WireClient } from "@arbor/wire";
+import { compareWireNames, decodeWireObject, encodeWireObject, hashObject, WireClient } from "@arbor/wire";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 import {
   pendingTreeUpdate,
   savePendingTreeUpdate,
 } from "../../packages/arborsync/src/sync-state.ts";
+import { snapshotDirectory } from "@arbor/fs";
 
 const token = "self-sync-owner";
 let sandbox: string;

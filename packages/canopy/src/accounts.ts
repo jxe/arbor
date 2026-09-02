@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { generateArborID, sha256 } from "@arbor/core";
 import type { PairingOffer, ServerDevice } from "@arbor/wire";
-import type { CanopyAccount, CanopyAuthentication } from "./canopy.ts";
+import type { CanopyAccount, CanopyAuthentication } from "./model.ts";
 
 export interface PairingRecord {
   id: string;

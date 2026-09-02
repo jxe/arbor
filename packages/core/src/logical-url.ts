@@ -1,4 +1,4 @@
-import type { LogicalPath } from "./protocol.ts";
+import type { LogicalPath } from "./identifiers.ts";
 import { canonicalNodePath, nodeDisplayName } from "./logical-path.ts";
 import { decodeStableKey, encodeStableKey, pageIDFromStableKey } from "./node-key.ts";
 

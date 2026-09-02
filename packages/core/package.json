@@ -10,7 +10,8 @@
     "./node-key": "./src/node-key.ts",
     "./node-model": "./src/node-model.ts",
     "./sse": "./src/sse.ts",
-    "./utf8": "./src/utf8.ts"
+    "./utf8": "./src/utf8.ts",
+    "./path": "./src/path.ts"
   },
   "dependencies": {
     "@noble/hashes": "^2.2.0"

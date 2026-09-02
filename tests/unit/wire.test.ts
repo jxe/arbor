@@ -9,10 +9,9 @@ import {
   encodeCanonicalCBOR,
   encodeWireObject,
   hashObject,
-  materializeTree,
-  snapshotDirectory,
 } from "@arbor/wire";
 import { ProjectionProviderHost, decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
+import { materializeTree, snapshotDirectory } from "@arbor/fs";
 
 describe("canonical tree objects", () => {
   test("matches the language-neutral canonical object vectors", async () => {

@@ -112,6 +112,16 @@ afterAll(async () => {
   await rm(state, { recursive: true, force: true });
 });
 
+async function settleEvents(): Promise<void> {
+  let cursor = workspace.events.currentCursor();
+  for (;;) {
+    await Bun.sleep(50);
+    const next = workspace.events.currentCursor();
+    if (next === cursor) return;
+    cursor = next;
+  }
+}
+
 describe("portable arbor() node queries", () => {
   test("uses the same filtering and picking handle over expanded and SQLite children", async () => {
     const nodes = ordinaryNodes();
@@ -201,6 +211,10 @@ describe("portable arbor() node queries", () => {
   });
 
   test("evaluates once initially and narrows live invalidation by source and property field", async () => {
+    // The previous test's file write can still be echoing through the watcher;
+    // an event landing during the initial evaluation would legitimately force a
+    // second one, so let the observation stream settle first.
+    await settleEvents();
     const base = ordinaryNodes();
     let executions = 0;
     const counted = {

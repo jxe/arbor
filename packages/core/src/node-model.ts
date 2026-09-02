@@ -1,5 +1,5 @@
 import type { Diagnostic, Materialization } from "./types.ts";
-import type { EventCursor, Hash, LogicalPath, TreeRef } from "./protocol.ts";
+import type { EventCursor, Hash, LogicalPath, TreeRef } from "./identifiers.ts";
 import { parseCanonicalStableKey } from "./node-key.ts";
 
 export type JSONValue = null | boolean | number | string | JSONValue[] | { [name: string]: JSONValue };

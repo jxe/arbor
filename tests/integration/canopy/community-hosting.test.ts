@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { generateArborID, sha256 } from "@arbor/core";
 import { serveCanopy } from "@arbor/canopy";
-import { snapshotDirectory, WireClient } from "@arbor/wire";
+import { WireClient } from "@arbor/wire";
 import { snapshotAccountConfig } from "../../../packages/canopy/src/account-policy.ts";
+import { snapshotDirectory } from "@arbor/fs";
 
 const ownerToken = "owner-device-credential";
 let sandbox: string;
