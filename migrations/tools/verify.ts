@@ -14,7 +14,9 @@ if (!origin || !reportPath) {
 const flag = (name: string, count: number) => { const i = args.indexOf(name); return i >= 0 ? args.slice(i + 1, i + 1 + count) : null; };
 const manifest = flag("--manifest", 2);
 const sync = flag("--sync", 1)?.[0] ?? "http://127.0.0.1:4317";
-const report = JSON.parse(await readFile(resolve(reportPath), "utf8")) as { trees: Array<{ id: string; root: string }> };
+// A report captured over `railway ssh` carries the CLI's own notices before the JSON.
+const reportText = await readFile(resolve(reportPath), "utf8");
+const report = JSON.parse(reportText.slice(reportText.indexOf("{"))) as { trees: Array<{ id: string; root: string }> };
 const failures: string[] = [];
 
 const health = await fetch(`${origin}/.arbor/health`).catch(() => null);

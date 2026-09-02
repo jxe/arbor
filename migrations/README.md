@@ -16,55 +16,117 @@ Two things live here:
 
 ## The procedure
 
-Joe is the only user, so the writers are quiesced, not the server. The Canopy
-keeps serving reads throughout, and no maintenance mode or environment
-variable toggle is needed.
+Joe is the only user, so the writers are quiesced, not the server. Every
+`railway` command below must run from the linked repository directory (a
+`cd` elsewhere loses the project link). The whole live portion takes about
+fifteen minutes; the rehearsal is where the time should go.
 
-1. **Rehearse.** Download one backup archive (step 3 below, run against the
-   live volume over `railway ssh`), restore it locally, run the migration
-   against the copy, run `compare-canopy-roots` and `verify --report`, and
-   record the result in the migration's README. Repeat until green. This is
-   where the time should go.
-2. **Quiesce writers.** `arbor daemon stop` on the Mac after `GET /v1/trees`
-   shows every placement `idle`; close Arbor on the iPhone. Nothing else
-   writes.
-3. **Back up as one archive.** Over `railway ssh`, in the running container:
-   `bun run migrations/tools/backup-canopy.ts /data /data/backups/<name>.tar`.
-   This is `VACUUM INTO` for the database plus a tar of `objects/`. Download
-   that one file with `railway volume` or `scp`; never the object tree file
-   by file.
-4. **Deploy once.** The image built from the migration commit contains both
-   the new server and `migrations/`. Deploy it. The server starts, asserts its
-   schema stamp against the volume, and refuses to serve until migrated; that
-   is expected and brief.
-5. **Migrate in place.** Over `railway ssh`:
-   `bun run migrations/NNN-<name>/run.ts /data`. The script writes new objects
-   first, rewrites the SQLite database in one transaction, stamps the new
-   schema version, and prints a report of tree ids and roots only, never
-   digests or tokens. Restart the service once.
-6. **Bring the Mac back.** Install the build and `arbor daemon start`. The
-   daemon sees a schema stamp older than its own, discards its rebuildable
-   state, and re-places every tree from a snapshot; authored files are
-   compared byte for byte and rewritten only if they differ.
-7. **Verify.** `bun run migrations/tools/verify.ts <origin> <report.json>`
-   checks health, every public tree's ref against the report, every local
-   placement idle, and the authored manifest unchanged. Then make one edit on
-   the Mac and see it at the canonical URL.
-8. **iPhone last.** Update the app whenever convenient. A replica whose wire
-   format changed is deleted and re-placed on launch.
-9. **Close out.** Keep the archive and the pre-migration `~/.arbor` copy for
-   two weeks. Then delete them and this migration's directory.
+1. **Back up as one archive, while the old image is still running.** The
+   deployed image predates the migration and has no `migrations/` directory,
+   so the backup is an inline command over ssh: `VACUUM INTO` for the database
+   plus a tar of `objects/`.
 
-Rollback before step 6 is `restore-canopy` from the archive and redeploying
-the previous image. After step 6 it also means restoring `~/.arbor` from its
-copy.
+   ```sh
+   railway ssh -- sh -c 'set -e; D=/data/backups/<name>; mkdir -p $D; bun -e "const {Database}=require(\"bun:sqlite\"); const db=new Database(\"/data/canopy.sqlite3\",{readonly:true}); db.run(\"VACUUM INTO \x27$D/canopy.sqlite3\x27\"); db.close()"; tar -cf $D/volume.tar -C $D canopy.sqlite3 -C /data objects; sha256sum $D/volume.tar'
+   ```
+
+   Compare row counts between the live database and the vacuumed copy before
+   trusting it (the copy is much smaller because it has no free pages).
+2. **Download the archive.** `railway ssh -- cat` does not stream binary, and
+   `base64` in the container lacks `-w`. Use the volume command, from the repo
+   directory, with the mount-relative path, and run it in the background: it
+   takes about ten minutes for 100 MB and is silently cut off by a foreground
+   timeout.
+
+   ```sh
+   railway volume files --volume resplendent-freedom-volume download /backups/<name>/volume.tar ~/arbor-migration-<date>/<name>/volume.tar --overwrite
+   ```
+
+   Check the sha256 against the one printed on the volume.
+3. **Rehearse.** Restore two copies with `restore-canopy`, run the migration
+   on one, and compare:
+
+   ```sh
+   bun run migrations/tools/restore-canopy.ts volume.tar before
+   bun run migrations/tools/restore-canopy.ts volume.tar migrated
+   bun run migrations/NNN-<name>/run.ts migrated | tee report.json
+   bun run migrations/tools/compare-canopy-roots.ts before migrated
+   ```
+
+   Then serve the migrated copy with the new build and verify it. The server
+   checks that its `--url` matches the community's canonical host, so pass the
+   real public origin and listen locally:
+
+   ```sh
+   bun run canopyd migrated --url https://<public-domain> --port 4399 --hostname 127.0.0.1
+   bun run migrations/tools/verify.ts http://127.0.0.1:4399 report.json --sync http://127.0.0.1:4317
+   ```
+
+   Record the result in the migration's README. Repeat until green.
+4. **Snapshot the Mac.** With every placement `idle` in `GET /v1/trees`, write
+   the authored manifest over every placement path and copy `~/.arbor`:
+
+   ```sh
+   bun run migrations/tools/authored-manifest.ts write authored-before.json <placement paths…>
+   cp -a ~/.arbor dot-arbor.before
+   ```
+5. **Quiesce writers.** `bun run arbor daemon stop`; make sure Arbor is not
+   running on the iPhone.
+6. **Deploy once.** `railway up --detach -y`, then poll `railway deployment
+   list` until the build succeeds (a few minutes). The new server finds the
+   old schema stamp and serves maintenance mode by itself: health reports
+   `maintenance`, every other route is 503, and ssh keeps working. No
+   environment variable is involved.
+7. **Migrate in place.**
+
+   ```sh
+   railway ssh -- bun run migrations/NNN-<name>/run.ts /data | tee live-report.json
+   ```
+
+   The report must match the rehearsal's roots exactly. The CLI prefixes its
+   own notices to the output; `verify.ts` skips anything before the first `{`.
+   Then `railway redeploy -y` and poll health until it is `ok`, about a
+   minute.
+8. **Bring the Mac back.** `bun run arbor daemon start`. If the migration
+   changed any root, the daemon's private-state stamp makes it discard
+   rebuildable state and re-place every tree from a snapshot; if roots are
+   unchanged it only advances each placement to the restored update id.
+   Placements should be idle within seconds. Then:
+
+   ```sh
+   bun run migrations/tools/verify.ts https://<public-domain> live-report.json --sync http://127.0.0.1:4317
+   bun run migrations/tools/authored-manifest.ts write authored-after.json <placement paths…>
+   bun run migrations/tools/authored-manifest.ts diff authored-before.json authored-after.json
+   ```
+9. **Round trip one edit.** Create a small file in a placed tree, watch the
+   tree's `update` advance in `GET /.arbor/trees/{id}`, fetch its canonical
+   page, delete the file, and see the page go away.
+10. **iPhone last.** Update the app whenever convenient; an old build cannot
+    sync against a server whose routes changed. A replica whose wire format
+    changed is deleted and re-placed on launch.
+11. **Close out.** Keep the archive, the local copies, and `dot-arbor.before`
+    for two weeks, then delete them and this migration's directory. The
+    backup directory on the volume is deleted by a person.
+
+Rollback before step 8 is `restore-canopy` from the archive onto the volume
+and `railway redeploy` of the previous deployment. After step 8 it also means
+restoring `~/.arbor` from its copy.
+
+Do not let anything write the private-state stamp early: a test that touches
+the real `~/.arbor` before the cutover stamps it and the re-place in step 8
+will not fire.
 
 ## Railway facts that outlive any migration
 
+- Every `railway` command needs the linked repository as its working
+  directory; from anywhere else it reports no linked project.
 - `railway scale` does not stop a service; it is not needed under this
   procedure, and stopping is `railway down`, which only a person may run.
-- Volume commands need a running deployment; `railway ssh` gives a shell in
-  the running container with `bun` available.
+- Volume commands need a running deployment; `railway ssh -- <command>` gives
+  a shell in the running container with `bun` and `tar` available, streams
+  text but not binary, and prefixes its own notices to the output.
+- `railway volume files --volume <name> download <mount-relative> <local>` is
+  the way to fetch a file; it is slow, so background it.
 - Uploading a directory onto an existing remote directory nests it. Prefer one
   archive and `restore-canopy`.
 - Agents are refused deletes on Railway; deletion steps are for a person.
