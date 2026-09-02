@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { decodeTreeSnapshotJSON, encodeUpdateConflictJSON, encodeUpdateResultJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResult } from "@arbor/wire";
 import { buildNetworkLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@arbor/core";
 import type { AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@arbor/core";
 import { treeMutationResponse, treeQueryResponse } from "@arbor/data";
@@ -15,7 +16,6 @@ import {
 } from "./canopy.ts";
 import type { ObservationRecord } from "./updates/observations.ts";
 import {
-  decodeObjectEnvelopes,
   decodeUpdateRequestJSON,
   decodeWireObject,
   encodeAcceptedTransitionJSON,
@@ -24,7 +24,7 @@ import {
   type ObjectHash,
   type RemoteAccountDescriptor,
 } from "@arbor/wire";
-import { renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
+import { escapeHTML, renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
 import { WireProjection, wireRollupRowMarkdown, wireRollupRowTitle } from "@arbor/wire-projection";
 
 
@@ -98,31 +98,8 @@ function watchDescriptor(
 const MAX_WATCH_TRANSITIONS_PER_FRAME = 64;
 const MAX_WATCH_TRANSITION_FRAME_BYTES = 1024 * 1024;
 
-function updateJSON(value: unknown): unknown {
-  if (!value || typeof value !== "object") return value;
-  const encodeSnapshot = (snapshot: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> }) => ({
-    root: snapshot.root,
-    objects: encodeObjectEnvelopes(snapshot.objects.map(({ hash, bytes }) => [hash, bytes] as const)),
-  });
-  if (!("error" in value) || (value as { error?: unknown }).error !== "conflict") {
-    const result = value as { snapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> } };
-    return result.snapshot ? { ...result, snapshot: encodeSnapshot(result.snapshot) } : value;
-  }
-  const conflict = value as {
-    error: "conflict";
-    details: {
-      draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> };
-      currentSnapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> };
-    };
-  };
-  return {
-    ...conflict,
-    details: {
-      ...conflict.details,
-      draft: encodeSnapshot(conflict.details.draft),
-      ...(conflict.details.currentSnapshot ? { currentSnapshot: encodeSnapshot(conflict.details.currentSnapshot) } : {}),
-    },
-  };
+function updateJSON(value: UpdateResult | UpdateConflictResult): unknown {
+  return "error" in value ? encodeUpdateConflictJSON(value) : encodeUpdateResultJSON(value);
 }
 
 function accountDescriptor(origin: string, canopy: CanopyDaemon, account: CanopyAccount): RemoteAccountDescriptor {
@@ -167,10 +144,6 @@ else fetch(location.pathname + location.search, { headers: { "Arbor-Access-Link"
 </script></body>`);
 }
 
-function escapeHTML(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-}
-
 function html(value: string, status = 200, headers: HeadersInit = {}): Response {
   const responseHeaders = new Headers(headers);
   responseHeaders.set("content-type", "text/html; charset=utf-8");
@@ -181,10 +154,8 @@ function html(value: string, status = 200, headers: HeadersInit = {}): Response 
   });
 }
 
-function bodySnapshot(body: { root?: unknown; objects?: unknown }) {
-  if (typeof body.root !== "string") throw new Error("Snapshot root is required");
-  const objects = decodeObjectEnvelopes(body.objects);
-  return { root: body.root, objects: new Map(objects.map(({ hash, bytes }) => [hash, bytes])) };
+function bodySnapshot(body: unknown): TreeSnapshot {
+  return decodeTreeSnapshotJSON(body);
 }
 
 function requireAccount(request: Request, canopy: CanopyDaemon): CanopyAccount {
@@ -464,10 +435,7 @@ export async function serveCanopy(options: {
               const currentSnapshot = await canopy.snapshotForUpdate(treeID, result.result.details.current.id);
               return json(updateJSON({ ...result.result, details: {
                 ...result.result.details,
-                currentSnapshot: {
-                  root: currentSnapshot.root,
-                  objects: [...currentSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
-                },
+                currentSnapshot,
               } }), result.status);
             }
             const accepted = result.result.outcome === "current" ? result.result.current : result.result.update;
@@ -475,10 +443,7 @@ export async function serveCanopy(options: {
               return json(updateJSON(result.result), result.status);
             }
             const snapshot = await canopy.snapshotForUpdate(treeID, accepted.id);
-            return json(updateJSON({ ...result.result, snapshot: {
-              root: snapshot.root,
-              objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
-            } }), result.status);
+            return json(updateJSON({ ...result.result, snapshot }), result.status);
           }
           return new Response("Method not allowed", { status: 405 });
         }

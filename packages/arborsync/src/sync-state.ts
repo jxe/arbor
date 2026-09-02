@@ -1,38 +1,30 @@
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { arborPrivateRoot, prepareArborDataRoot } from "@arbor/stores";
-import type { ObjectDelta, ObjectHash, TreeSnapshot, UpdateConflictResult } from "@arbor/wire";
+import {
+  decodeObjectDeltas,
+  decodeTreeSnapshotJSON,
+  encodeObjectDeltaJSON,
+  encodeObjectEnvelopes,
+  encodeUpdateConflictJSON,
+  type ObjectDelta,
+  type ObjectHash,
+  type TreeSnapshot,
+  type UpdateConflictJSON,
+  type UpdateConflictResult,
+  type UpdateRequestJSON,
+} from "@arbor/wire";
 
-interface StoredObject {
-  hash: ObjectHash;
-  bytes: string;
-}
-
-interface StoredObjectDelta {
-  base: ObjectHash;
-  result: ObjectHash;
-  instructions: Array<{ copy: { offset: number; length: number } } | { insert: string }>;
-}
-
-export interface PendingTreeUpdate {
-  base: { root: ObjectHash; update: string };
-  candidate: ObjectHash;
-  objects: StoredObject[];
-  deltas?: StoredObjectDelta[];
-}
+/** The durable pending update is exactly the wire request body it will become. */
+export type PendingTreeUpdate = UpdateRequestJSON;
 
 export interface AcceptedTreeObjects {
   root: ObjectHash;
   hashes: ObjectHash[];
 }
 
-export interface StoredTreeConflict extends Omit<UpdateConflictResult["details"], "draft" | "currentSnapshot"> {
-  error: "conflict";
-  message: string;
-  retryable: false;
-  tree?: string;
-  draft: { root: ObjectHash; objects: StoredObject[] };
-}
+/** The durable conflict is the wire conflict body without the optional current snapshot. */
+export type StoredTreeConflict = UpdateConflictJSON;
 
 interface TreeSyncState {
   pending?: PendingTreeUpdate;
@@ -90,48 +82,28 @@ export function pendingFromSnapshot(
   return {
     base,
     candidate: snapshot.root,
-    objects: [...snapshot.objects]
-      .filter(([hash]) => !retained.has(hash))
-      .map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
+    objects: encodeObjectEnvelopes([...snapshot.objects].filter(([hash]) => !retained.has(hash))),
   };
 }
 
 export function snapshotFromPending(pending: PendingTreeUpdate): TreeSnapshot {
-  return {
-    root: pending.candidate,
-    objects: new Map(pending.objects.map(({ hash, bytes }) => [hash, new Uint8Array(Buffer.from(bytes, "base64"))])),
-  };
+  return decodeTreeSnapshotJSON({ root: pending.candidate, objects: pending.objects });
 }
 
 export function deltasFromPending(pending: PendingTreeUpdate): ObjectDelta[] | undefined {
-  return pending.deltas?.map((delta) => ({
-    base: delta.base,
-    result: delta.result,
-    instructions: delta.instructions.map((instruction) => "copy" in instruction
-      ? { copy: { offset: instruction.copy.offset, length: instruction.copy.length } }
-      : { insert: new Uint8Array(Buffer.from(instruction.insert, "base64")) }),
-  }));
+  return pending.deltas ? decodeObjectDeltas(pending.deltas) : undefined;
 }
 
 export function withDelta(pending: PendingTreeUpdate, delta: ObjectDelta): PendingTreeUpdate {
   return {
     ...pending,
     objects: pending.objects.filter((object) => object.hash !== delta.result),
-    deltas: [{
-      base: delta.base,
-      result: delta.result,
-      instructions: delta.instructions.map((instruction) => "copy" in instruction
-        ? { copy: { offset: instruction.copy.offset, length: instruction.copy.length } }
-        : { insert: Buffer.from(instruction.insert).toString("base64") }),
-    }],
+    deltas: [...(pending.deltas ?? []).filter((existing) => existing.result !== delta.result), encodeObjectDeltaJSON(delta)],
   };
 }
 
 export function snapshotFromConflictDraft(conflict: StoredTreeConflict): TreeSnapshot {
-  return {
-    root: conflict.draft.root,
-    objects: new Map(conflict.draft.objects.map(({ hash, bytes }) => [hash, new Uint8Array(Buffer.from(bytes, "base64"))])),
-  };
+  return decodeTreeSnapshotJSON(conflict.details.draft);
 }
 
 export function pendingTreeUpdate(tree: string): Promise<PendingTreeUpdate | undefined> {
@@ -183,25 +155,9 @@ export function clearPendingTreeUpdate(tree: string): Promise<void> {
 
 export function saveTreeConflict(tree: string, conflict: UpdateConflictResult): Promise<void> {
   return serialized(tree, async () => {
-  const state = await load(tree);
-  await save(tree, {
-    ...state,
-    conflict: {
-      error: conflict.error,
-      message: conflict.message,
-      retryable: conflict.retryable,
-      ...(conflict.tree ? { tree: conflict.tree } : {}),
-      kind: conflict.details.kind,
-      current: conflict.details.current,
-      base: conflict.details.base,
-      candidate: conflict.details.candidate,
-      conflicts: conflict.details.conflicts,
-      draft: {
-        root: conflict.details.draft.root,
-        objects: conflict.details.draft.objects.map(({ hash, bytes }) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
-      },
-    },
-  });
+    const state = await load(tree);
+    const { currentSnapshot: _omitted, ...details } = conflict.details;
+    await save(tree, { ...state, conflict: encodeUpdateConflictJSON({ ...conflict, details }) });
   });
 }
 

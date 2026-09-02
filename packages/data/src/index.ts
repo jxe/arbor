@@ -3,6 +3,7 @@ export * from "./query-core.ts";
 export * from "./schema.ts";
 export * from "./sqlite.ts";
 export * from "./observer.ts";
+export * from "./live-stream.ts";
 export * from "./live.ts";
 export * from "./mutation.ts";
 export * from "./node-query.ts";

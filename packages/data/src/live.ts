@@ -1,4 +1,7 @@
-import { canonicalJSONString, sha256, type Hash, type QueryHandleRef, type QueryStreamEvent, type QueryStreamRequest, type QueryStreamRuntime } from "@arbor/core";
+import { canonicalJSONString, type QueryHandleRef, type QueryStreamEvent, type QueryStreamRequest, type QueryStreamRuntime } from "@arbor/core";
+import { liveQueryStream, type LiveQueryAdapter, type LiveQueryContext, type MountedQuery } from "./live-stream.ts";
+
+export type { MountedQuery } from "./live-stream.ts";
 import type { ArborUser, PredicateExpression, QueryHandle, QueryPlan, SelectionPlan, ValueExpression } from "./authoring.ts";
 import type { ResolvedArborSource, StoreSchema } from "./schema.ts";
 import { SQLiteQueryEngine, type QueryExecution } from "./sqlite.ts";
@@ -21,14 +24,6 @@ interface QuerySensitivity {
   relations: Map<string, RelationSensitivity>;
   input: unknown;
   user: ArborUser | null;
-}
-
-export interface MountedQuery {
-  id: string;
-  tree?: string;
-  handle: QueryHandle<unknown, unknown>;
-  input?: unknown;
-  knownOutputHash?: Hash;
 }
 
 function refKey(ref: QueryHandleRef): string {
@@ -135,10 +130,6 @@ function relevant(event: Invalidation, query: QuerySensitivity, execution?: Quer
   return event.change.changes.some((change) => rowRelevant(change, query, execution));
 }
 
-function outputHash(value: unknown): Hash {
-  return `sha256:${sha256(canonicalJSONString(value))}`;
-}
-
 function safeError(error: unknown) {
   const message = error instanceof Error && /input|required|not found|missing/i.test(error.message)
     ? error.message
@@ -164,115 +155,32 @@ export class LiveQueryBroker implements AsyncDisposable {
     this.publish({ cursor: this.nextCursor(), kind: "reload", reason });
   }
 
-  stream(mounts: readonly MountedQuery[], context: { signal: AbortSignal; user: ArborUser | null }): ReadableStream<QueryStreamEvent> {
+  stream(mounts: readonly MountedQuery[], context: LiveQueryContext): ReadableStream<QueryStreamEvent> {
     const broker = this;
-    let cancelStream: (() => void) | undefined;
-    return new ReadableStream<QueryStreamEvent>({
-      start(controller) {
-        let closed = false;
-        let ready = false;
-        const states = mounts.map((mount) => ({
-          mount,
-          query: sensitivity(broker.engine.schema, mount.handle.plan, mount.input, context.user),
-          execution: undefined as QueryExecution<unknown> | undefined,
-          pending: [] as Invalidation[],
-          running: undefined as Promise<void> | undefined,
-          hash: undefined as Hash | undefined,
-          cursor: broker.currentCursor(),
-        }));
-        const emit = (event: QueryStreamEvent) => {
-          if (closed) return;
-          if ((controller.desiredSize ?? 1) <= 0) {
-            cleanup();
-            try { controller.close(); } catch {}
-            return;
-          }
-          controller.enqueue(event);
-        };
-        const evaluate = async (state: typeof states[number], publish: boolean): Promise<void> => {
-          if (state.running) return state.running;
-          state.running = (async () => {
-            while (!closed) {
-              const oldExecution = state.execution;
-              state.pending = [];
-              let execution: QueryExecution<unknown>;
-              try {
-                execution = await broker.engine.execute(state.mount.handle, { input: state.mount.input, user: context.user });
-              } catch (error) {
-                state.cursor = broker.currentCursor();
-                emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, error: safeError(error) });
-                return;
-              }
-              const invalidated = state.pending.some((event) =>
-                relevant(event, state.query, oldExecution) || relevant(event, state.query, execution));
-              if (invalidated) continue;
-              state.execution = execution;
-              state.cursor = broker.currentCursor();
-              const hash = outputHash(execution.result);
-              if (publish && hash !== state.hash) {
-                state.hash = hash;
-                emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, outputHash: hash, value: execution.result });
-              } else state.hash = hash;
-              return;
-            }
-          })().finally(() => { state.running = undefined; });
-          return state.running;
-        };
-        const stop = (() => {
-          const listener = (event: Invalidation) => {
-            if (event.kind === "reload") {
-              emit({ type: "reload", reason: event.reason });
-              cleanup();
-              try { controller.close(); } catch {}
-              return;
-            }
-            for (const state of states) {
-              if (!relevant(event, state.query, state.execution)) continue;
-              state.pending.push(event);
-              if (ready && !state.running) void evaluate(state, true);
-            }
-          };
-          broker.listeners.add(listener);
-          return () => broker.listeners.delete(listener);
-        })();
-        const cleanup = () => {
-          if (closed) return;
-          closed = true;
-          stop();
-          context.signal.removeEventListener("abort", abort);
-        };
-        cancelStream = cleanup;
-        const abort = () => {
-          cleanup();
-          try { controller.close(); } catch {}
-        };
-        context.signal.addEventListener("abort", abort, { once: true });
-        if (context.signal.aborted) {
-          abort();
-          return;
-        }
-        void (async () => {
-          await Promise.all(states.map((state) => evaluate(state, false)));
-          if (closed) return;
-          // No event can cross this synchronous publication boundary without
-          // first being queued by the already-attached listener.
-          for (const state of states) {
-            if (!state.execution || !state.hash) continue;
-            if (state.hash !== state.mount.knownOutputHash) {
-              emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, outputHash: state.hash, value: state.execution.result });
-            }
-          }
-          ready = true;
-          emit({ type: "ready", queries: states.map((state) => ({
-            id: state.mount.id,
-            observedThrough: state.cursor,
-            ...(state.hash ? { outputHash: state.hash } : {}),
-          })) });
-          for (const state of states) if (state.pending.length && !state.running) void evaluate(state, true);
-        })();
+    const sensitivities = new Map<MountedQuery, QuerySensitivity>();
+    const querySensitivity = (mount: MountedQuery): QuerySensitivity => {
+      let value = sensitivities.get(mount);
+      if (!value) {
+        value = sensitivity(broker.engine.schema, mount.handle.plan, mount.input, context.user);
+        sensitivities.set(mount, value);
+      }
+      return value;
+    };
+    const adapter: LiveQueryAdapter<QueryExecution<unknown>, QuerySensitivity, Invalidation> = {
+      currentCursor: () => broker.currentCursor(),
+      subscribe(listener) {
+        broker.listeners.add(listener);
+        return () => broker.listeners.delete(listener);
       },
-      cancel() { cancelStream?.(); },
-    }, { highWaterMark: 64 });
+      initialSensitivity: querySensitivity,
+      execute: (mount) => broker.engine.execute(mount.handle, { input: mount.input, user: context.user }),
+      sensitivity: (mount) => querySensitivity(mount),
+      relevant: (event, mount, query, execution) => relevant(event, query ?? querySensitivity(mount), execution),
+      result: (execution) => execution.result,
+      safeError,
+      reload: (event) => event.kind === "reload" ? event.reason : undefined,
+    };
+    return liveQueryStream(mounts, context, adapter);
   }
 
   private nextCursor(): string { this.sequence += 1; return this.currentCursor(); }

@@ -11,6 +11,8 @@ import type {
 import {
   canonicalJSONString,
   canonicalNodePath,
+  mediaTypeForPath,
+  toJSONValue,
   isPageID,
   pageIDStableKey,
   revisionOf,
@@ -71,38 +73,8 @@ export function wireRollupRowMarkdown(row: WireFileRollupRow): string {
   return `# ${wireRollupRowTitle(row).replaceAll(/\r?\n/g, " ")}\n\n${fence}json\n${json}\n${fence}\n`;
 }
 
-function jsonValue(value: unknown): JSONValue | undefined {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-  if (Array.isArray(value)) return value.flatMap((item) => {
-    const converted = jsonValue(item);
-    return converted === undefined ? [] : [converted];
-  });
-  if (value && typeof value === "object") {
-    const result: Record<string, JSONValue> = {};
-    for (const [key, item] of Object.entries(value)) {
-      const converted = jsonValue(item);
-      if (converted !== undefined) result[key] = converted;
-    }
-    return result;
-  }
-  return undefined;
-}
-
 function properties(value: unknown): Record<string, JSONValue> {
-  return (jsonValue(value) ?? {}) as Record<string, JSONValue>;
-}
-
-function mediaType(path: string): string {
-  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  if (extension === "png") return "image/png";
-  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
-  if (extension === "gif") return "image/gif";
-  if (extension === "svg") return "image/svg+xml";
-  if (extension === "pdf") return "application/pdf";
-  if (extension === "json") return "application/json";
-  if (["txt", "css", "js", "ts", "tsx", "csv"].includes(extension)) return "text/plain";
-  return "application/octet-stream";
+  return (toJSONValue(value) ?? {}) as Record<string, JSONValue>;
 }
 
 /** Immutable node-model projection over a content-addressed Wire tree. */
@@ -169,7 +141,7 @@ export class WireProjection {
           capabilities: document ? {
             properties: { revision, writable: false },
             content: { revision, mediaType: "text/markdown", format: "markdown", writable: false },
-          } : { content: { revision, mediaType: mediaType(path), writable: false } },
+          } : { content: { revision, mediaType: mediaTypeForPath(path), writable: false } },
           ...(document ? { content: { source: document.source, representation: { state: "stored", origin: "sibling" } as const } } : {}),
           diagnostics,
         }),
@@ -202,7 +174,7 @@ export class WireProjection {
           capabilities: document ? {
             properties: { revision, writable: false },
             content: { revision, mediaType: "text/markdown", format: "markdown", writable: false },
-          } : kind === "file" ? { content: { revision, mediaType: mediaType(childPath), writable: false } } : {},
+          } : kind === "file" ? { content: { revision, mediaType: mediaTypeForPath(childPath), writable: false } } : {},
           materialization: "available",
           diagnostics: [],
         };

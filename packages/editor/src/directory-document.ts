@@ -1,5 +1,6 @@
 import type { ArborBlock, Diagnostic, MarkdownDocument } from "@arbor/core";
 import { sha256 } from "@arbor/core/hash";
+import { compareUTF8 } from "@arbor/core/utf8";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { buildCanonicalLink, legacyPageIDCandidate, resolveLogicalURL } from "@arbor/core/logical-url";
 import { pageIDStableKey } from "@arbor/core/node-key";
@@ -19,17 +20,6 @@ export interface DirectoryPlacementResult {
   placedChildren: string[];
   generatedChildren: string[];
   diagnostics: Diagnostic[];
-}
-
-function compareUTF8(left: string, right: string): number {
-  const encoder = new TextEncoder();
-  const a = encoder.encode(left);
-  const b = encoder.encode(right);
-  const length = Math.min(a.length, b.length);
-  for (let index = 0; index < length; index += 1) {
-    if (a[index] !== b[index]) return a[index]! - b[index]!;
-  }
-  return a.length - b.length;
 }
 
 function stableKey(child: DirectoryPlacementChild): string | null {

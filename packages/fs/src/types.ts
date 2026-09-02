@@ -1,8 +1,7 @@
-import type { Diagnostic, MarkdownDocument, NodeWriteRequest } from "@arbor/core";
+import type { Diagnostic, MarkdownDocument, Materialization, NodeWriteRequest } from "@arbor/core";
 
 export type FsBodySource = "sibling" | "index" | null;
 export type FsNodeKind = "missing" | "file" | "markdown" | "directory";
-export type FsMaterialization = "available" | "placeholder";
 
 export interface ResolvedFsNode {
   path: string;
@@ -12,7 +11,7 @@ export interface ResolvedFsNode {
   bodyPath: string | null;
   bodySource: FsBodySource;
   writable: boolean;
-  materialization: FsMaterialization;
+  materialization: Materialization;
   diagnostics: Diagnostic[];
 }
 
@@ -20,7 +19,7 @@ export interface FsDirectoryEntry {
   path: string;
   name: string;
   kind: Exclude<FsNodeKind, "missing">;
-  materialization: FsMaterialization;
+  materialization: Materialization;
   pageID?: string;
   diagnostics: Diagnostic[];
 }

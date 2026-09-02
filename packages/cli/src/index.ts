@@ -339,7 +339,7 @@ async function installConfigurationCheckout(
     if (existing.currentDevice.id !== deviceID) throw new Error("This data home belongs to a different device");
     return;
   }
-  const objects = new Map(current.snapshot.objects.map(({ hash, bytes }) => [hash, bytes]));
+  const objects = current.snapshot.objects;
   const object = (hash: string, path: string) => {
     const bytes = objects.get(hash as never);
     if (!bytes) throw new Error(`Account configuration is missing ${path}`);

@@ -6,7 +6,6 @@ import type {
   ObjectDelta,
   ServerDevice,
   PairingOffer,
-  TreeSnapshotEnvelope,
 } from "./updates/types.ts";
 import {
   parseSSEStream,
@@ -19,17 +18,16 @@ import {
   type TreeID,
 } from "@arbor/core";
 import {
-  decodeWireObject,
-  encodeWireObject,
-  hashObject,
-  wireEntryObjectHashes,
   type ObjectHash,
   type TreeSnapshot,
 } from "./objects.ts";
 import {
   decodeAcceptedTransitionJSON,
-  decodeBase64,
-  encodeObjectEnvelopes,
+  decodeTreeSnapshotJSON,
+  decodeUpdateConflictJSON,
+  decodeUpdateResultJSON,
+  encodeTreeSnapshotJSON,
+  verifyTreeSnapshotGraph,
   encodeUpdateRequestJSON,
 } from "./updates/json.ts";
 import { updateRequestDigest } from "./updates/intent.ts";
@@ -38,7 +36,7 @@ export type { RemoteTreeDescriptor } from "@arbor/core";
 
 export interface CurrentTreeSnapshot {
   tree: RemoteTreeDescriptor;
-  snapshot: TreeSnapshotEnvelope;
+  snapshot: TreeSnapshot;
   observedThrough: EventCursor;
 }
 
@@ -143,46 +141,6 @@ export class WireTransportError extends TypeError {
   }
 }
 
-function encodedSnapshot(snapshot: TreeSnapshot) {
-  return {
-    root: snapshot.root,
-    objects: encodeObjectEnvelopes(snapshot.objects),
-  };
-}
-
-function decodedSnapshot(snapshot: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> }) {
-  if (!/^sha256:[a-f0-9]{64}$/.test(snapshot.root)) throw new Error("Snapshot root hash is invalid");
-  const objects = new Map<ObjectHash, Uint8Array>();
-  for (const envelope of snapshot.objects) {
-    if (!/^sha256:[a-f0-9]{64}$/.test(envelope.hash)) throw new Error("Snapshot object hash is invalid");
-    const bytes = decodeBase64(envelope.bytes);
-    if (hashObject(bytes) !== envelope.hash) throw new Error(`Snapshot object hash mismatch: ${envelope.hash}`);
-    const existing = objects.get(envelope.hash);
-    if (existing && (existing.length !== bytes.length || existing.some((byte, index) => byte !== bytes[index]))) {
-      throw new Error(`Snapshot object ${envelope.hash} was supplied with different bytes`);
-    }
-    objects.set(envelope.hash, bytes);
-  }
-  const visited = new Set<ObjectHash>();
-  const visit = (hash: ObjectHash) => {
-    if (visited.has(hash)) return;
-    const bytes = objects.get(hash);
-    if (!bytes) throw new Error(`Snapshot is missing reachable object: ${hash}`);
-    const object = decodeWireObject(bytes);
-    const canonical = encodeWireObject(object);
-    if (canonical.length !== bytes.length || canonical.some((byte, index) => byte !== bytes[index])) {
-      throw new Error(`Snapshot object is not canonical CBOR: ${hash}`);
-    }
-    visited.add(hash);
-    if (object.type === "directory") {
-      for (const entry of object.entries) for (const child of wireEntryObjectHashes(entry)) visit(child);
-    }
-  };
-  visit(snapshot.root);
-  if (visited.size !== objects.size) throw new Error("Snapshot contains unreachable objects");
-  return { root: snapshot.root, objects: [...objects].map(([hash, bytes]) => ({ hash, bytes })) };
-}
-
 export class WireClient {
   private readonly timeoutMs: number;
 
@@ -256,8 +214,8 @@ export class WireClient {
         profileTree: input.profileTree,
         configurationTree: input.configurationTree,
         device: input.device,
-        profile: encodedSnapshot(input.profile),
-        configuration: encodedSnapshot(input.configuration),
+        profile: encodeTreeSnapshotJSON(input.profile),
+        configuration: encodeTreeSnapshotJSON(input.configuration),
       }),
     }));
     return response.json();
@@ -285,7 +243,7 @@ export class WireClient {
       snapshot: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
       observedThrough: EventCursor;
     };
-    const snapshot = decodedSnapshot(value.snapshot);
+    const snapshot = verifyTreeSnapshotGraph(decodeTreeSnapshotJSON(value.snapshot));
     if (value.tree.id !== tree || value.tree.ref !== snapshot.root || !value.tree.update) {
       throw new Error("Current snapshot descriptor does not match its graph");
     }
@@ -296,7 +254,7 @@ export class WireClient {
     const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}`, {
       method: "PUT",
       headers: this.headers(true),
-      body: JSON.stringify(encodedSnapshot(snapshot)),
+      body: JSON.stringify(encodeTreeSnapshotJSON(snapshot)),
     }));
     return response.json();
   }
@@ -328,40 +286,15 @@ export class WireClient {
       body: JSON.stringify(encodeUpdateRequestJSON(request)),
     });
     if (response.status === 409) {
-      type ConflictJSON = Omit<UpdateConflictResult, "details"> & {
-        details: Omit<UpdateConflictResult["details"], "draft" | "currentSnapshot"> & {
-          draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
-          currentSnapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
-        };
-      };
-      const body = await response.json() as ConflictJSON | { error?: unknown; message?: unknown };
-      if (body.error === "conflict") {
-        const conflict = body as ConflictJSON;
-        const { draft, currentSnapshot, ...details } = conflict.details;
-        throw new WireUpdateConflict({
-          ...conflict,
-          details: {
-            ...details,
-            draft: decodedSnapshot(draft),
-            ...(currentSnapshot ? { currentSnapshot: decodedSnapshot(currentSnapshot) } : {}),
-          },
-        });
-      }
-      const rejection = body as { error?: unknown; message?: unknown };
-      throw new Error(`${response.url}: ${typeof rejection.error === "string" ? rejection.error : "update rejected"}${typeof rejection.message === "string" ? `: ${rejection.message}` : ""}`);
+      const body = await response.json() as { error?: unknown; message?: unknown };
+      if (body.error === "conflict") throw new WireUpdateConflict(decodeUpdateConflictJSON(body));
+      throw new Error(`${response.url}: ${typeof body.error === "string" ? body.error : "update rejected"}${typeof body.message === "string" ? `: ${body.message}` : ""}`);
     }
-    const result = await (await this.checked(response)).json() as {
-      requestDigest?: unknown;
-      snapshot?: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
-      [key: string]: unknown;
-    };
+    const result = decodeUpdateResultJSON(await (await this.checked(response)).json());
     if (result.requestDigest !== updateRequestDigest(tree, request)) {
       throw new Error("Server response request digest mismatch");
     }
-    return result.snapshot ? {
-      ...result,
-      snapshot: decodedSnapshot(result.snapshot),
-    } as UpdateResult : result as UpdateResult;
+    return result;
   }
 
   async access(tree: string): Promise<SnapshotEnvelope<RemoteAccessEntry[]>> {

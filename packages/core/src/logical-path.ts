@@ -40,3 +40,9 @@ export function nodeDisplayName(nodePath: string): string {
   const canonical = canonicalNodePath(nodePath);
   return canonical === "/" ? "/" : canonical.slice(canonical.lastIndexOf("/") + 1);
 }
+
+/** Parent of a logical node path; the root is its own parent. */
+export function parentNodePath(nodePath: string): string {
+  const canonical = canonicalNodePath(nodePath);
+  return canonical.slice(0, canonical.lastIndexOf("/")) || "/";
+}

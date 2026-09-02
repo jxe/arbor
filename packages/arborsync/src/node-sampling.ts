@@ -9,7 +9,7 @@ import type {
   NodeSummary,
   TreeRef,
 } from "@arbor/core";
-import { isPageID, pageIDStableKey } from "@arbor/core";
+import { isPageID, mediaTypeForPath, pageIDStableKey, toJSONValue } from "@arbor/core";
 
 /** Adapter-private expanded-filesystem record. Never crosses a node protocol boundary. */
 export interface ExpandedChild {
@@ -37,42 +37,8 @@ export interface ExpandedNode {
   diagnostics: Diagnostic[];
 }
 
-function jsonValue(value: unknown): JSONValue | undefined {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-  if (Array.isArray(value)) {
-    const result: JSONValue[] = [];
-    for (const item of value) {
-      const converted = jsonValue(item);
-      if (converted !== undefined) result.push(converted);
-    }
-    return result;
-  }
-  if (value && typeof value === "object") {
-    const result: Record<string, JSONValue> = {};
-    for (const [key, item] of Object.entries(value)) {
-      const converted = jsonValue(item);
-      if (converted !== undefined) result[key] = converted;
-    }
-    return result;
-  }
-  return undefined;
-}
-
 export function expandedNodeProperties(node: ExpandedNode): Record<string, JSONValue> {
-  return (jsonValue(node.document?.frontmatter ?? {}) ?? {}) as Record<string, JSONValue>;
-}
-
-function mediaType(path: string): string {
-  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  if (extension === "png") return "image/png";
-  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
-  if (extension === "gif") return "image/gif";
-  if (extension === "svg") return "image/svg+xml";
-  if (extension === "pdf") return "application/pdf";
-  if (extension === "json") return "application/json";
-  if (["txt", "css", "js", "ts", "tsx", "csv"].includes(extension)) return "text/plain";
-  return "application/octet-stream";
+  return (toJSONValue(node.document?.frontmatter ?? {}) ?? {}) as Record<string, JSONValue>;
 }
 
 function capabilities(node: ExpandedNode, writable: boolean): NodeCapabilities {
@@ -91,7 +57,7 @@ function capabilities(node: ExpandedNode, writable: boolean): NodeCapabilities {
   } else if (node.kind === "file") {
     result.content = {
       revision: node.contentRevision ?? node.revision,
-      mediaType: mediaType(node.path),
+      mediaType: mediaTypeForPath(node.path),
       writable,
     };
   }

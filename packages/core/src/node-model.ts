@@ -322,3 +322,53 @@ export function decodeRollupDescriptor(value: unknown): RollupDescriptor {
     modelDigest: hash(source.modelDigest, "rollup.modelDigest"),
   };
 }
+
+/**
+ * Lossy conversion of an arbitrary value to JSON: non-finite numbers, `undefined`,
+ * functions, and other non-JSON leaves are dropped rather than rejected.
+ */
+export function toJSONValue(value: unknown): JSONValue | undefined {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (Array.isArray(value)) {
+    const result: JSONValue[] = [];
+    for (const item of value) {
+      const converted = toJSONValue(item);
+      if (converted !== undefined) result.push(converted);
+    }
+    return result;
+  }
+  if (value && typeof value === "object") {
+    const result: Record<string, JSONValue> = {};
+    for (const [key, item] of Object.entries(value)) {
+      const converted = toJSONValue(item);
+      if (converted !== undefined) result[key] = converted;
+    }
+    return result;
+  }
+  return undefined;
+}
+
+/** Strict conversion: throws when any leaf is not a finite JSON value. */
+export function requireJSONValue(value: unknown): JSONValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) return value.map(requireJSONValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, requireJSONValue(item)]));
+  }
+  throw new Error("Value is not a finite JSON value");
+}
+
+/** Media type for a node path by extension; unknown extensions are opaque bytes. */
+export function mediaTypeForPath(path: string): string {
+  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  if (extension === "png") return "image/png";
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension === "gif") return "image/gif";
+  if (extension === "svg") return "image/svg+xml";
+  if (extension === "pdf") return "application/pdf";
+  if (extension === "json") return "application/json";
+  if (["txt", "css", "js", "ts", "tsx", "csv"].includes(extension)) return "text/plain";
+  return "application/octet-stream";
+}

@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, normalize, relative, resolve, sep } from "node:path";
-import { IGNORED_WORKSPACE_DIRECTORIES, decodeRollupDescriptor, sha256, type Hash, type RollupDescriptor } from "@arbor/core";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { IGNORED_WORKSPACE_DIRECTORIES, compareUTF8, compareUTF8Bytes, decodeRollupDescriptor, sha256, type Hash, type RollupDescriptor } from "@arbor/core";
 import { decodeCBOR, encodeCanonicalCBOR } from "./cbor.ts";
 
 export type ObjectHash = string;
@@ -107,7 +107,7 @@ export function decodeWireObject(
       if (
         !options.allowLegacyDirectoryOrder
         && previousName
-        && compareUTF8(previousName, encodedName) >= 0
+        && compareUTF8Bytes(previousName, encodedName) >= 0
       ) throw new Error("Directory entries are not in UTF-8 order");
       previousName = encodedName;
       return {
@@ -122,17 +122,8 @@ export function decodeWireObject(
   throw new Error("Unknown wire object");
 }
 
-function compareUTF8(left: Uint8Array, right: Uint8Array): number {
-  const length = Math.min(left.length, right.length);
-  for (let index = 0; index < length; index += 1) {
-    const difference = left[index]! - right[index]!;
-    if (difference) return difference;
-  }
-  return left.length - right.length;
-}
-
 export function compareWireNames(left: string, right: string): number {
-  return compareUTF8(new TextEncoder().encode(left), new TextEncoder().encode(right));
+  return compareUTF8(left, right);
 }
 
 async function loadWireObject(

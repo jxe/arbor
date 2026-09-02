@@ -171,7 +171,7 @@ export class TreeSynchronizer {
     const current = await client.currentSnapshot(workspace.tree);
     await this.materialize(workspace, {
       root: current.tree.ref,
-      objects: new Map(current.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])),
+      objects: current.snapshot.objects,
     });
     await this.deps.trees.updateSyncMetadata({
       ...placement,
@@ -370,7 +370,7 @@ export class TreeSynchronizer {
           if (!result.snapshot) throw new Error("Server omitted a required accepted snapshot");
           await this.materialize(workspace, {
             root: accepted.root,
-            objects: new Map(result.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])),
+            objects: result.snapshot.objects,
           });
         }
         await trees.updateSyncMetadata({

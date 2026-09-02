@@ -39,7 +39,7 @@ async function currentConfig() {
   const current = await client.currentSnapshot(account.account.configuration.id);
   const graph = readAccountConfigGraph({
     root: current.snapshot.root,
-    objects: new Map(current.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])),
+    objects: current.snapshot.objects,
   }, account.account.configuration.id);
   return { account, current, graph };
 }

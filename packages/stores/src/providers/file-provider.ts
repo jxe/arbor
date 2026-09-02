@@ -1,3 +1,4 @@
+import { toJSONValue } from "@arbor/core";
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { canonicalJSONString, revisionOf, rowPathSegment, stableKeyFromProperties } from "@arbor/core";
@@ -11,7 +12,6 @@ import {
   type ProjectionProvider,
   decodeProviderCursor,
   encodeProviderCursor,
-  jsonValue,
   ProjectionProviderError,
   representationFor,
   type LoadedProjectionSlice,
@@ -201,7 +201,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
     if (!validation.value || typeof validation.value !== "object" || Array.isArray(validation.value)) {
       throw new ProjectionProviderError("invalid-write", "Rollup properties must validate to an object");
     }
-    const candidate = (jsonValue(validation.value) ?? {}) as Record<string, JSONValue>;
+    const candidate = (toJSONValue(validation.value) ?? {}) as Record<string, JSONValue>;
     if (stableKeyFromProperties(loaded.identityRule.properties, candidate) !== current.stableKey) {
       throw new ProjectionProviderError("invalid-write", `Identity properties ${loaded.identityRule.properties.join(", ")} are immutable`);
     }
@@ -220,11 +220,11 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       const preparedRow = prepared.rows.find((row) => row.stableKey === current.stableKey);
       const expectedRows = loaded.rows.map((row) => row.stableKey === current.stableKey
         ? { key: row.stableKey, path: row.path, properties: candidate }
-        : { key: row.stableKey, path: row.path, properties: (jsonValue(row.values) ?? {}) as Record<string, JSONValue> });
+        : { key: row.stableKey, path: row.path, properties: (toJSONValue(row.values) ?? {}) as Record<string, JSONValue> });
       const actualRows = prepared.rows.map((row) => ({
         key: row.stableKey,
         path: row.path,
-        properties: (jsonValue(row.values) ?? {}) as Record<string, JSONValue>,
+        properties: (toJSONValue(row.values) ?? {}) as Record<string, JSONValue>,
       }));
       if (!prepared.editable || !preparedRow
         || canonicalJSONString(expectedRows) !== canonicalJSONString(actualRows)

@@ -57,7 +57,7 @@ const account = await authorityClient.account();
 let configuration = await authorityClient.currentSnapshot(account.account.configuration.id);
 const graph = readAccountConfigGraph({
   root: configuration.snapshot.root,
-  objects: new Map(configuration.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])),
+  objects: configuration.snapshot.objects,
 }, account.account.configuration.id);
 const device = graph.account.admins[0]!;
 const editorsTree = generateArborID("tr");
@@ -96,7 +96,7 @@ await authorityClient.activateTree(fixtureTree, await snapshotDirectory(root));
 configuration = await authorityClient.currentSnapshot(account.account.configuration.id);
 const acceptedGraph = readAccountConfigGraph({
   root: configuration.snapshot.root,
-  objects: new Map(configuration.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])),
+  objects: configuration.snapshot.objects,
 }, account.account.configuration.id);
 await mkdir(join(state, "devices"), { recursive: true });
 for (const [path, source] of Object.entries(acceptedGraph.sources)) await writeFile(join(state, path), source);

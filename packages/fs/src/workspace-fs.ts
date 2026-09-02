@@ -1,9 +1,11 @@
 import { constants } from "node:fs";
 import { access, cp, mkdir, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
-import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import * as watcher from "@parcel/watcher";
 import type { Diagnostic, MarkdownDocument } from "@arbor/core";
 import {
+  compareUTF8,
+  parentNodePath,
   canonicalNodePath,
   isPageID,
   directoryIndexTreePath,
@@ -133,10 +135,6 @@ function bodyRevision(document: MarkdownDocument): string {
   return sha256(document.bodySource);
 }
 
-function compareUTF8(left: string, right: string): number {
-  return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
-}
-
 function directoryContentRevision(storedSource: string, children: readonly FsDirectoryEntry[]): string {
   const descriptors = children
     .map((child) => ({
@@ -150,11 +148,6 @@ function directoryContentRevision(storedSource: string, children: readonly FsDir
 
 function isTransactionTemporary(path: string): boolean {
   return basename(path).includes(".arbor-txn-") || basename(path).includes(".arbor-write-");
-}
-
-function parentPath(path: string): string {
-  const canonical = canonicalNodePath(path);
-  return canonical.slice(0, canonical.lastIndexOf("/")) || "/";
 }
 
 function validateName(name: string): void {
@@ -718,7 +711,7 @@ export class WorkspaceFS implements AsyncDisposable {
 
   private affectedMutationPaths(request: FsMutationRequest): string[] {
     const result = new Set<string>();
-    const add = (path: string) => { const canonical = canonicalNodePath(path); result.add(canonical); result.add(parentPath(canonical)); };
+    const add = (path: string) => { const canonical = canonicalNodePath(path); result.add(canonical); result.add(parentNodePath(canonical)); };
     for (const operation of request.operations) {
       if (operation.op === "createDirectory" || operation.op === "createMarkdown" || operation.op === "createFile") add(operation.path);
       else if (operation.op === "rename") add(operation.path);
@@ -920,7 +913,7 @@ export class WorkspaceFS implements AsyncDisposable {
       validateLogicalName(operation.name);
       const source = canonicalNodePath(operation.path);
       await this.ensureIdentityBeforePathChange(source, transactionId, { materializeImplicit: false });
-      await this.planMove([source], parentPath(source), operation.name, transactionId, steps, changes, destinations);
+      await this.planMove([source], parentNodePath(source), operation.name, transactionId, steps, changes, destinations);
       return;
     }
     if (operation.op === "move") {
@@ -947,7 +940,7 @@ export class WorkspaceFS implements AsyncDisposable {
         const path = canonicalNodePath(pathInput);
         if (!path.startsWith("/Trash/")) throw new FsConflictError({ code: "invalid-name", path }, "Restore paths must be inside Trash");
         const destination = path.slice("/Trash".length) || "/";
-        await this.planMove([path], parentPath(destination), nodeDisplayName(destination), transactionId, steps, changes, destinations);
+        await this.planMove([path], parentNodePath(destination), nodeDisplayName(destination), transactionId, steps, changes, destinations);
       }
       return;
     }
@@ -990,7 +983,7 @@ export class WorkspaceFS implements AsyncDisposable {
       this.assertMutable(node);
       const name = renameTo ?? nodeDisplayName(node.path);
       validateLogicalName(name);
-      const baseDirectory = trash ? `/Trash${parentPath(node.path) === "/" ? "" : parentPath(node.path)}` : destinationDirectory;
+      const baseDirectory = trash ? `/Trash${parentNodePath(node.path) === "/" ? "" : parentNodePath(node.path)}` : destinationDirectory;
       const target = canonicalNodePath(`${baseDirectory === "/" ? "" : baseDirectory}/${name}`);
       if (node.kind === "directory" && (target === node.path || target.startsWith(`${node.path}/`))) {
         if (target === node.path) continue;

@@ -1,3 +1,5 @@
+import { semanticRequestDigest } from "@arbor/core";
+import { toJSONValue } from "@arbor/core";
 import type { ChildrenPage, Hash, JSONValue, NodeRef, NodeSnapshot, NodeSummary } from "@arbor/core";
 import { revisionOf } from "@arbor/core";
 import { ConnectionStore } from "./connections.ts";
@@ -7,9 +9,7 @@ import { PostgresProjectionDriver } from "./providers/postgres-provider.ts";
 import { SQLiteProjectionDriver } from "./providers/sqlite-provider.ts";
 import {
   invalidDescriptor,
-  jsonValue,
   ProjectionProviderError,
-  providerDigest,
   type LoadedProjectionSlice,
   type ProjectionDefinition,
   type ProjectionDescriptor,
@@ -27,8 +27,8 @@ function rowSummary(
   parentPath: string,
   context: ProjectionProviderContext,
 ): NodeSummary {
-  const properties = (jsonValue(row.values) ?? {}) as Record<string, JSONValue>;
-  const revision = row.revision ?? providerDigest({ key: row.key, properties });
+  const properties = (toJSONValue(row.values) ?? {}) as Record<string, JSONValue>;
+  const revision = row.revision ?? semanticRequestDigest({ key: row.key, properties });
   const editable = page.editable && (!page.identityRule || row.stableKey !== null) && context.writable;
   return {
     ref: {
@@ -92,7 +92,7 @@ export class ProjectionReadSession {
     const descriptor = await this.tableDescriptor(table);
     if (!descriptor) return null;
     const revision = descriptor.revision ?? `external:${this.definition.provider}:${table}`;
-    const schema = (descriptor.schemaRevision ?? providerDigest({ columns: descriptor.columns, identityRule: descriptor.identityRule })) as Hash;
+    const schema = (descriptor.schemaRevision ?? semanticRequestDigest({ columns: descriptor.columns, identityRule: descriptor.identityRule })) as Hash;
     return {
       ref: { tree: context.tree, path: treePath, stableKey: null },
       name: table,
@@ -174,9 +174,9 @@ export class ProjectionReadSession {
       ...(table ? { table } : {}),
       path: `${parentPath === "/" ? "" : parentPath}/${result.row.path}`,
       stableKey: result.row.stableKey,
-      revision: result.row.revision ?? providerDigest({ key: result.row.key, properties: result.row.values }),
+      revision: result.row.revision ?? semanticRequestDigest({ key: result.row.key, properties: result.row.values }),
       ...(result.page.sourceRevision ? { sourceRevision: result.page.sourceRevision } : {}),
-      properties: (jsonValue(result.row.values) ?? {}) as Record<string, JSONValue>,
+      properties: (toJSONValue(result.row.values) ?? {}) as Record<string, JSONValue>,
       ...(result.page.identityRule ? { identityRule: result.page.identityRule } : {}),
       writable: result.page.editable && (!result.page.identityRule || result.row.stableKey !== null),
     };

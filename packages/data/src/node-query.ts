@@ -1,5 +1,5 @@
-import { canonicalJSONString, sha256, type ChildrenPage, type Hash, type NodeRef, type NodeSnapshot, type NodeSummary, type QueryStreamEvent, type WorkspaceEvent } from "@arbor/core";
-import type { MountedQuery } from "./live.ts";
+import { parentNodePath, type ChildrenPage, type NodeRef, type NodeSnapshot, type NodeSummary, type QueryStreamEvent, type WorkspaceEvent } from "@arbor/core";
+import { liveQueryStream, type LiveQueryAdapter, type LiveQueryContext, type MountedQuery } from "./live-stream.ts";
 import type {
   ArborUser,
   QueryHandle,
@@ -110,10 +110,6 @@ export interface NodeQueryObservationSource {
   subscribe(listener: (event: WorkspaceEvent) => void): () => void;
 }
 
-function nodeOutputHash(value: unknown): Hash {
-  return `sha256:${sha256(canonicalJSONString(value))}`;
-}
-
 function safeNodeQueryError(error: unknown) {
   const message = error instanceof Error && /input|required|not found|missing|children|bound/i.test(error.message)
     ? error.message
@@ -125,11 +121,6 @@ interface NodeQuerySensitivity {
   source: NodeRef;
   rows: ReadonlySet<string>;
   fields: ReadonlySet<string>;
-}
-
-function parentPath(path: string): string {
-  const separator = path.lastIndexOf("/");
-  return separator <= 0 ? "/" : path.slice(0, separator);
 }
 
 function refIdentity(ref: NodeRef): string {
@@ -169,8 +160,8 @@ function nodeEventRelevant(event: WorkspaceEvent, sensitivity?: NodeQuerySensiti
     && (containsPath(currentPath, sensitivity.source.path)
       || (previousPath ? containsPath(previousPath, sensitivity.source.path) : false))
   ) return true;
-  const currentChild = parentPath(currentPath) === sensitivity.source.path;
-  const previousChild = previousPath ? parentPath(previousPath) === sensitivity.source.path : false;
+  const currentChild = parentNodePath(currentPath) === sensitivity.source.path;
+  const previousChild = previousPath ? parentNodePath(previousPath) === sensitivity.source.path : false;
   if (event.kind === "created" || event.kind === "deleted" || event.kind === "moved") {
     return currentChild || previousChild;
   }
@@ -188,93 +179,16 @@ export class NodeLiveQueryBroker {
 
   bind(_handle: QueryHandle<unknown, unknown>): void {}
 
-  stream(
-    mounts: readonly MountedQuery[],
-    context: { signal: AbortSignal; user: ArborUser | null },
-  ): ReadableStream<QueryStreamEvent> {
-    const engine = this.engine;
-    const observations = this.observations;
-    return new ReadableStream<QueryStreamEvent>({
-      start(controller) {
-        let closed = false;
-        let ready = false;
-        const states = mounts.map((mount) => ({
-          mount,
-          cursor: observations.currentCursor(),
-          execution: undefined as NodeQueryExecution<unknown> | undefined,
-          sensitivity: undefined as NodeQuerySensitivity | undefined,
-          pending: [] as WorkspaceEvent[],
-          hash: undefined as Hash | undefined,
-          running: undefined as Promise<void> | undefined,
-        }));
-        const emit = (event: QueryStreamEvent) => { if (!closed) controller.enqueue(event); };
-        const evaluate = (state: typeof states[number], publish: boolean): Promise<void> => {
-          if (state.running) return state.running;
-          state.running = (async () => {
-            while (!closed) {
-              const oldSensitivity = state.sensitivity;
-              state.pending = [];
-              try {
-                const execution = await engine.execute(state.mount.handle, {
-                  input: state.mount.input,
-                  user: context.user,
-                });
-                const sensitivity = nodeSensitivity(state.mount.handle, execution);
-                if (state.pending.some((event) =>
-                  nodeEventRelevant(event, oldSensitivity) || nodeEventRelevant(event, sensitivity))) continue;
-                state.execution = execution;
-                state.sensitivity = sensitivity;
-                const hash = nodeOutputHash(execution.result);
-                state.cursor = observations.currentCursor();
-                if (publish && hash !== state.hash) {
-                  emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, outputHash: hash, value: execution.result });
-                }
-                state.hash = hash;
-                return;
-              } catch (error) {
-                state.cursor = observations.currentCursor();
-                if (publish) emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, error: safeNodeQueryError(error) });
-                return;
-              }
-            }
-          })().finally(() => { state.running = undefined; });
-          return state.running;
-        };
-        const stop = observations.subscribe((event) => {
-          for (const state of states) {
-            if (state.mount.tree && event.tree !== state.mount.tree) continue;
-            if (!nodeEventRelevant(event, state.sensitivity)) continue;
-            state.pending.push(event);
-            if (ready && !state.running) void evaluate(state, true);
-          }
-        });
-        const close = () => {
-          if (closed) return;
-          closed = true;
-          stop();
-          try { controller.close(); } catch {}
-        };
-        context.signal.addEventListener("abort", close, { once: true });
-        void (async () => {
-          await Promise.all(states.map((state) => evaluate(state, false)));
-          if (closed) return;
-          for (const state of states) {
-            if (state.execution && state.hash !== state.mount.knownOutputHash && state.hash) {
-              emit({ type: "result", id: state.mount.id, observedThrough: state.cursor, outputHash: state.hash, value: state.execution.result });
-            }
-          }
-          ready = true;
-          emit({ type: "ready", queries: states.map((state) => ({
-            id: state.mount.id,
-            observedThrough: state.cursor,
-            ...(state.hash ? { outputHash: state.hash } : {}),
-          })) });
-          for (const state of states) if (state.pending.length && !state.running) void evaluate(state, true);
-        })().catch((error) => {
-          if (!closed) controller.error(error);
-          stop();
-        });
-      },
-    });
+  stream(mounts: readonly MountedQuery[], context: LiveQueryContext): ReadableStream<QueryStreamEvent> {
+    const adapter: LiveQueryAdapter<NodeQueryExecution<unknown>, NodeQuerySensitivity, WorkspaceEvent> = {
+      currentCursor: () => this.observations.currentCursor(),
+      subscribe: (listener) => this.observations.subscribe(listener),
+      execute: (mount) => this.engine.execute(mount.handle, { input: mount.input, user: context.user }),
+      sensitivity: (mount, execution) => nodeSensitivity(mount.handle, execution),
+      relevant: (event, mount, sensitivity) => (!mount.tree || event.tree === mount.tree) && nodeEventRelevant(event, sensitivity),
+      result: (execution) => execution.result,
+      safeError: safeNodeQueryError,
+    };
+    return liveQueryStream(mounts, context, adapter);
   }
 }

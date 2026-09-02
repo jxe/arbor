@@ -1,4 +1,4 @@
-import type { ObjectHash } from "../objects.ts";
+import type { ObjectHash, TreeSnapshot } from "../objects.ts";
 
 export type MergeSummary =
   | { version: "markdown-additive-v1"; approximatePlacements: number }
@@ -83,14 +83,9 @@ export interface UpdateRequest {
 }
 
 export type UpdateResult =
-  | { outcome: "current"; current: AcceptedUpdate; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshotEnvelope }
-  | { outcome: "accepted"; update: AcceptedUpdate; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshotEnvelope }
-  | { outcome: "merged"; update: AcceptedUpdate; merge: MergeSummary; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshotEnvelope };
-
-export interface TreeSnapshotEnvelope {
-  root: ObjectHash;
-  objects: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
-}
+  | { outcome: "current"; current: AcceptedUpdate; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshot }
+  | { outcome: "accepted"; update: AcceptedUpdate; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshot }
+  | { outcome: "merged"; update: AcceptedUpdate; merge: MergeSummary; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshot };
 
 export interface UpdateConflictResult {
   error: "conflict";
@@ -102,9 +97,9 @@ export interface UpdateConflictResult {
     current: AcceptedUpdate;
     base: ObjectHash;
     candidate: ObjectHash;
-    draft: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: Uint8Array }> };
+    draft: TreeSnapshot;
     /** Present when the caller requested a complete accepted snapshot. */
-    currentSnapshot?: TreeSnapshotEnvelope;
+    currentSnapshot?: TreeSnapshot;
     conflicts: UpdateConflict[];
   };
 }

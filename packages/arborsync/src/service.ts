@@ -1,4 +1,5 @@
 import { homedir, hostname } from "node:os";
+import { decodeTreeSnapshotJSON, encodeTreeSnapshotJSON, type TreeSnapshotJSON } from "@arbor/wire";
 import { performance } from "node:perf_hooks";
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -15,7 +16,6 @@ import type {
   LocalTreeDescriptor,
   LocatorResolution,
   SnapshotEnvelope,
-  TreeDescriptor,
   TreeRef,
   WorkspaceOperation,
 } from "@arbor/core";
@@ -23,7 +23,7 @@ import { LOCAL_TREE, SYSTEM_TREE, canonicalNodePath, generateArborID, pageIDFrom
 import { parseMarkdown } from "@arbor/editor";
 import { FsConflictError } from "@arbor/fs";
 import { CommunityConfigStore, VisitedTreeStore, arborDataRoot, arborPrivateRoot, saveCurrentDeviceID } from "@arbor/stores";
-import { WireClient, encodeObjectDeltaJSON, encodeWireObject, hashObject, materializeTree, objectDelta, snapshotDirectory, type ObjectDelta, type ObjectHash, type RemoteTreeDescriptor } from "@arbor/wire";
+import { WireClient, encodeObjectDeltaJSON, encodeWireObject, hashObject, materializeTree, objectDelta, snapshotDirectory, type ObjectDelta, type RemoteTreeDescriptor } from "@arbor/wire";
 import { WireProjection } from "@arbor/wire-projection";
 import { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
@@ -42,23 +42,12 @@ interface PendingClaimBootstrap {
   deviceID: string;
   credentialDigest: `sha256:${string}`;
   files: { account: string; trees: string; device: string };
-  profile: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
-  configuration: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
+  profile: TreeSnapshotJSON;
+  configuration: TreeSnapshotJSON;
 }
 
-function bootstrapSnapshot(value: PendingClaimBootstrap["profile"]): import("@arbor/wire").TreeSnapshot {
-  return {
-    root: value.root,
-    objects: new Map(value.objects.map(({ hash, bytes }) => [hash, new Uint8Array(Buffer.from(bytes, "base64"))])),
-  };
-}
-
-function persistableBootstrapSnapshot(value: import("@arbor/wire").TreeSnapshot): PendingClaimBootstrap["profile"] {
-  return {
-    root: value.root,
-    objects: [...value.objects].map(([hash, bytes]) => ({ hash, bytes: Buffer.from(bytes).toString("base64") })),
-  };
-}
+const bootstrapSnapshot = decodeTreeSnapshotJSON;
+const persistableBootstrapSnapshot = encodeTreeSnapshotJSON;
 import { ProtocolError, RevisionConflictError, Workspace, type WorkspaceOptions } from "./workspace.ts";
 import {
   acceptedTreeObjects,
@@ -77,7 +66,6 @@ import {
   sampleExpandedNode,
   summarizeExpandedNode,
   summarizeSample,
-  type ExpandedNode,
 } from "./node-sampling.ts";
 
 
@@ -848,11 +836,11 @@ export class ArborSyncDaemon implements AsyncDisposable {
       `access: ${tree.access}`,
       ...(tree.sync ? [`sync: ${tree.sync}`] : []),
       ...(conflict ? [
-        `conflictCurrent: ${JSON.stringify({ update: conflict.current.id, root: conflict.current.root })}`,
-        `conflictBase: ${JSON.stringify(conflict.base)}`,
-        `conflictCandidate: ${JSON.stringify(conflict.candidate)}`,
-        `conflictDraft: ${JSON.stringify(conflict.draft.root)}`,
-        `conflicts: ${JSON.stringify(conflict.conflicts)}`,
+        `conflictCurrent: ${JSON.stringify({ update: conflict.details.current.id, root: conflict.details.current.root })}`,
+        `conflictBase: ${JSON.stringify(conflict.details.base)}`,
+        `conflictCandidate: ${JSON.stringify(conflict.details.candidate)}`,
+        `conflictDraft: ${JSON.stringify(conflict.details.draft.root)}`,
+        `conflicts: ${JSON.stringify(conflict.details.conflicts)}`,
       ] : []),
       "---",
       "",
@@ -1108,7 +1096,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     let candidate: import("@arbor/wire").TreeSnapshot;
     if (choice === "draft") {
       const local = await this.snapshotWorkspace(workspace, client);
-      if (local.root !== conflict.candidate) {
+      if (local.root !== conflict.details.candidate) {
         throw new ProtocolError(
           "stale-content-revision",
           "Local files changed after the conflict; keep the current local version or review those edits before choosing the older draft",
@@ -1134,7 +1122,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     await savePendingTreeUpdate(
       tree,
       pendingFromSnapshot(
-        { root: conflict.current.root, update: conflict.current.id },
+        { root: conflict.details.current.root, update: conflict.details.current.id },
         candidate,
       ),
     );

@@ -103,7 +103,7 @@ beforeAll(async () => {
   let configuration = await owner.currentSnapshot(initialAccount.account.configuration.id);
   let graph = readAccountConfigGraph({
     root: configuration.snapshot.root,
-    objects: new Map(configuration.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])),
+    objects: configuration.snapshot.objects,
   }, initialAccount.account.configuration.id);
   deviceA = graph.account.admins[0]!;
   tree = generateArborID("tr");
@@ -138,7 +138,7 @@ beforeAll(async () => {
   configuration = await owner.currentSnapshot(initialAccount.account.configuration.id);
   graph = readAccountConfigGraph({
     root: configuration.snapshot.root,
-    objects: new Map(configuration.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])),
+    objects: configuration.snapshot.objects,
   }, initialAccount.account.configuration.id);
   const account = await owner.account();
   await installDataHome(stateA, deviceA, token, graph, account);
@@ -445,7 +445,7 @@ describe("private self-sync", () => {
     // way to learn about it within the timeout is its live watch.
     const owner = new WireClient(host.url, token);
     const current = await owner.currentSnapshot(tree);
-    const rootObject = decodeWireObject(current.snapshot.objects.find(({ hash }) => hash === current.snapshot.root)!.bytes);
+    const rootObject = decodeWireObject(current.snapshot.objects.get(current.snapshot.root)!);
     if (rootObject.type !== "directory") throw new Error("Expected a directory root");
     const file = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("delivered by watch\n") });
     const nextRoot = encodeWireObject({
@@ -453,7 +453,7 @@ describe("private self-sync", () => {
       entries: [...rootObject.entries, { name: "watched.txt", hash: hashObject(file) }]
         .sort((left, right) => compareWireNames(left.name, right.name)),
     });
-    const objects = new Map(current.snapshot.objects.map(({ hash, bytes }) => [hash, bytes]));
+    const objects = current.snapshot.objects;
     objects.set(hashObject(file), file);
     objects.set(hashObject(nextRoot), nextRoot);
     const accepted = await owner.submitUpdate(

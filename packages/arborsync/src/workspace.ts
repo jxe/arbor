@@ -1,8 +1,7 @@
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { basename, dirname, join, posix, relative } from "node:path";
 import type {
   ArborBlock,
-  ArborErrorCode,
   BacklinkEntry,
   BacklinksPage,
   ChildrenPage,
@@ -17,7 +16,6 @@ import type {
   RecoveryPage,
   LocalTreeDescriptor,
   TreeID,
-  SearchResult,
   SearchPage,
   StructuralWorkspaceOperation,
   WorkspaceOperation,
@@ -56,6 +54,10 @@ import {
 import { EventBus } from "./events.ts";
 import { rootDisplayName } from "./root-title.ts";
 import type { ExpandedNode } from "./node-sampling.ts";
+import { decodePageCursor, encodePageCursor } from "./cursors.ts";
+import { ProtocolError, RevisionConflictError } from "./protocol-error.ts";
+
+export { ProtocolError, RevisionConflictError } from "./protocol-error.ts";
 import { FilesystemNodeSurface } from "./filesystem-node-surface.ts";
 import { writeFilesystemProperties } from "./filesystem-property-write.ts";
 import { NodeProviderRouter } from "./node-provider-router.ts";
@@ -83,30 +85,6 @@ export interface ConfirmedSourcePatch {
   baseSource: string;
   resultSource: string;
   edits: NonNullable<Extract<WorkspaceOperation, { op: "writeMarkdown" }>["sourceEdits"]>;
-}
-
-export class RevisionConflictError extends Error {
-  constructor(public current: ExpandedNode) { super("The file changed since it was opened"); }
-}
-
-export class ProtocolError extends Error {
-  constructor(
-    public code: ArborErrorCode,
-    message: string,
-    public status: number,
-    public details: Partial<{
-      tree: string;
-      path: string;
-      current: NodeResponse;
-      owners: string[];
-      mutationID: string;
-      retryable: boolean;
-      details: unknown;
-    }> = {},
-  ) {
-    super(message);
-    this.name = "ProtocolError";
-  }
 }
 
 export class Workspace implements AsyncDisposable {
@@ -267,7 +245,7 @@ export class Workspace implements AsyncDisposable {
 
   async searchPage(query: string, cursor?: string | null): Promise<SearchPage> {
     const observedThrough = this.events.currentCursor();
-    const offset = this.decodePageCursor(cursor, `search:${query}`);
+    const offset = decodePageCursor(cursor, `search:${query}`);
     const results = this.index.search(query, 30, offset).map((result) => {
       const pageID = this.pathPageIDs.get(result.path);
       return {
@@ -281,7 +259,7 @@ export class Workspace implements AsyncDisposable {
     });
     return {
       results,
-      nextCursor: results.length === 30 ? this.encodePageCursor(`search:${query}`, offset + results.length) : null,
+      nextCursor: results.length === 30 ? encodePageCursor(`search:${query}`, offset + results.length) : null,
       observedThrough,
     };
   }
@@ -293,7 +271,7 @@ export class Workspace implements AsyncDisposable {
     const pageID = isPageID(target.document?.frontmatter.id)
       ? target.document.frontmatter.id
       : this.pathPageIDs.get(path);
-    const offset = this.decodePageCursor(cursor, `backlinks:${path}:${pageID ?? ""}`);
+    const offset = decodePageCursor(cursor, `backlinks:${path}:${pageID ?? ""}`);
     const entries = this.index.backlinks(path, pageID, this.tree, true, 30, offset).map((entry) => {
       const sourcePageID = this.pathPageIDs.get(entry.path);
       return {
@@ -310,7 +288,7 @@ export class Workspace implements AsyncDisposable {
       target: { tree: this.tree, path, stableKey: pageID ? pageIDStableKey(pageID) : null },
       entries,
       nextCursor: entries.length === 30
-        ? this.encodePageCursor(`backlinks:${path}:${pageID ?? ""}`, offset + entries.length)
+        ? encodePageCursor(`backlinks:${path}:${pageID ?? ""}`, offset + entries.length)
         : null,
       observedThrough,
     };
@@ -343,7 +321,7 @@ export class Workspace implements AsyncDisposable {
       throw new ProtocolError("invalid-reference", "Recursive recovery requires a directory", 400, { path });
     }
     const key = `recovery:${path}:${recursive ? "subtree" : "node"}`;
-    const offset = this.decodePageCursor(cursor, key);
+    const offset = decodePageCursor(cursor, key);
     const allEntries = recursive
       ? await this.subtreeRecoveryEntries(path)
       : await this.blockRecoveryEntries(path);
@@ -357,7 +335,7 @@ export class Workspace implements AsyncDisposable {
         stableKey: isPageID(snapshot.document?.frontmatter.id) ? pageIDStableKey(snapshot.document.frontmatter.id) : null,
       },
       entries,
-      nextCursor: nextOffset < allEntries.length ? this.encodePageCursor(key, nextOffset) : null,
+      nextCursor: nextOffset < allEntries.length ? encodePageCursor(key, nextOffset) : null,
       observedThrough,
     };
   }
@@ -1072,21 +1050,6 @@ export class Workspace implements AsyncDisposable {
   private requireWriteAccess(): void {
     if (this.treeDescriptor.access === "read") {
       throw new ProtocolError("read-only", "This tree placement is read-only", 422);
-    }
-  }
-
-  private encodePageCursor(key: string, offset: number): string {
-    return Buffer.from(JSON.stringify({ key: sha256(key), offset })).toString("base64url");
-  }
-
-  private decodePageCursor(cursor: string | null | undefined, key: string): number {
-    if (!cursor) return 0;
-    try {
-      const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { key?: string; offset?: number };
-      if (value.key !== sha256(key) || !Number.isSafeInteger(value.offset) || value.offset! < 0) throw new Error();
-      return value.offset!;
-    } catch {
-      throw new ProtocolError("invalid-reference", "The page cursor does not belong to this query", 400);
     }
   }
 

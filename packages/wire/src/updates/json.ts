@@ -1,11 +1,14 @@
-import { hashObject, type ObjectHash } from "../objects.ts";
+import { decodeWireObject, encodeWireObject, hashObject, wireEntryObjectHashes, type ObjectHash, type TreeSnapshot } from "../objects.ts";
 import type {
   AcceptedTransition,
   AcceptedTransitionPayload,
   AcceptedUpdate,
   MergeSummary,
   ObjectDelta,
+  UpdateConflict,
+  UpdateConflictResult,
   UpdateRequest,
+  UpdateResult,
 } from "./types.ts";
 
 export interface ObjectEnvelopeJSON {
@@ -255,4 +258,136 @@ export function encodeUpdateRequestJSON(request: UpdateRequest): UpdateRequestJS
     ...(request.deltas?.length ? { deltas: request.deltas.map(encodeObjectDeltaJSON) } : {}),
     ...(request.returnSnapshot ? { returnSnapshot: request.returnSnapshot } : {}),
   };
+}
+
+export interface TreeSnapshotJSON {
+  root: ObjectHash;
+  objects: ObjectEnvelopeJSON[];
+}
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+export type UpdateResultJSON = DistributiveOmit<UpdateResult, "snapshot"> & { snapshot?: TreeSnapshotJSON };
+
+export type UpdateConflictJSON = Omit<UpdateConflictResult, "details"> & {
+  details: Omit<UpdateConflictResult["details"], "draft" | "currentSnapshot"> & {
+    draft: TreeSnapshotJSON;
+    currentSnapshot?: TreeSnapshotJSON;
+  };
+};
+
+export function encodeTreeSnapshotJSON(snapshot: TreeSnapshot): TreeSnapshotJSON {
+  return { root: snapshot.root, objects: encodeObjectEnvelopes(snapshot.objects) };
+}
+
+/**
+ * Decode a snapshot envelope, verifying every object's hash and rejecting an
+ * object supplied twice with different bytes. Graph completeness is a separate
+ * check (`verifyTreeSnapshotGraph`) because a server validates the graph later
+ * while a client must refuse an incomplete or noncanonical response.
+ */
+export function decodeTreeSnapshotJSON(value: unknown): TreeSnapshot {
+  if (!value || typeof value !== "object") throw new Error("Snapshot must be an object");
+  const record = value as { root?: unknown; objects?: unknown };
+  if (typeof record.root !== "string" || !HASH.test(record.root)) throw new Error("Snapshot root hash is invalid");
+  const objects = new Map<ObjectHash, Uint8Array>();
+  for (const { hash, bytes } of decodeObjectEnvelopes(record.objects)) {
+    if (!HASH.test(hash)) throw new Error("Snapshot object hash is invalid");
+    if (hashObject(bytes) !== hash) throw new Error(`Snapshot object hash mismatch: ${hash}`);
+    objects.set(hash, bytes);
+  }
+  return { root: record.root as ObjectHash, objects };
+}
+
+/** Require canonical encoding and that every object is reachable from the root, with no extras. */
+export function verifyTreeSnapshotGraph(snapshot: TreeSnapshot): TreeSnapshot {
+  const visited = new Set<ObjectHash>();
+  const visit = (hash: ObjectHash) => {
+    if (visited.has(hash)) return;
+    const bytes = snapshot.objects.get(hash);
+    if (!bytes) throw new Error(`Snapshot is missing reachable object: ${hash}`);
+    const object = decodeWireObject(bytes);
+    if (!bytesEqual(encodeWireObject(object), bytes)) throw new Error(`Snapshot object is not canonical CBOR: ${hash}`);
+    visited.add(hash);
+    if (object.type === "directory") {
+      for (const entry of object.entries) for (const child of wireEntryObjectHashes(entry)) visit(child);
+    }
+  };
+  visit(snapshot.root);
+  if (visited.size !== snapshot.objects.size) throw new Error("Snapshot contains unreachable objects");
+  return snapshot;
+}
+
+function decodeVerifiedSnapshot(value: unknown): TreeSnapshot {
+  return verifyTreeSnapshotGraph(decodeTreeSnapshotJSON(value));
+}
+
+export function encodeUpdateConflictJSON(conflict: UpdateConflictResult): UpdateConflictJSON {
+  const { draft, currentSnapshot, ...details } = conflict.details;
+  return {
+    ...conflict,
+    details: {
+      ...details,
+      draft: encodeTreeSnapshotJSON(draft),
+      ...(currentSnapshot ? { currentSnapshot: encodeTreeSnapshotJSON(currentSnapshot) } : {}),
+    },
+  };
+}
+
+const CONFLICT_KINDS = new Set(["server-update", "account-configuration"]);
+
+export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
+  if (!value || typeof value !== "object") throw new Error("Conflict must be an object");
+  const record = value as Record<string, unknown>;
+  if (record.error !== "conflict" || typeof record.message !== "string" || record.retryable !== false
+    || (record.tree !== undefined && typeof record.tree !== "string")
+    || !record.details || typeof record.details !== "object") {
+    throw new Error("Invalid update conflict");
+  }
+  const details = record.details as Record<string, unknown>;
+  if (typeof details.kind !== "string" || !CONFLICT_KINDS.has(details.kind)
+    || typeof details.base !== "string" || !HASH.test(details.base)
+    || typeof details.candidate !== "string" || !HASH.test(details.candidate)
+    || !Array.isArray(details.conflicts)) {
+    throw new Error("Invalid update conflict details");
+  }
+  return {
+    error: "conflict",
+    message: record.message,
+    retryable: false,
+    ...(record.tree ? { tree: record.tree as string } : {}),
+    details: {
+      kind: details.kind as UpdateConflictResult["details"]["kind"],
+      current: decodeAcceptedUpdateJSON(details.current),
+      base: details.base as ObjectHash,
+      candidate: details.candidate as ObjectHash,
+      draft: decodeVerifiedSnapshot(details.draft),
+      ...(details.currentSnapshot !== undefined ? { currentSnapshot: decodeVerifiedSnapshot(details.currentSnapshot) } : {}),
+      conflicts: details.conflicts as UpdateConflict[],
+    },
+  };
+}
+
+export function encodeUpdateResultJSON(result: UpdateResult): UpdateResultJSON {
+  const { snapshot, ...rest } = result;
+  return { ...rest, ...(snapshot ? { snapshot: encodeTreeSnapshotJSON(snapshot) } : {}) } as UpdateResultJSON;
+}
+
+const OUTCOMES = new Set(["current", "accepted", "merged"]);
+
+export function decodeUpdateResultJSON(value: unknown): UpdateResult {
+  if (!value || typeof value !== "object") throw new Error("Update result must be an object");
+  const record = value as Record<string, unknown>;
+  if (typeof record.outcome !== "string" || !OUTCOMES.has(record.outcome)
+    || typeof record.requestDigest !== "string" || !HASH.test(record.requestDigest)
+    || typeof record.observedThrough !== "string") {
+    throw new Error("Invalid update result");
+  }
+  const snapshot = record.snapshot === undefined ? {} : { snapshot: decodeVerifiedSnapshot(record.snapshot) };
+  const shared = { requestDigest: record.requestDigest as ObjectHash, observedThrough: record.observedThrough, ...snapshot };
+  if (record.outcome === "current") return { outcome: "current", current: decodeAcceptedUpdateJSON(record.current), ...shared };
+  const update = decodeAcceptedUpdateJSON(record.update);
+  if (record.outcome === "accepted") return { outcome: "accepted", update, ...shared };
+  if (!record.merge || typeof record.merge !== "object") throw new Error("Merged update result requires a merge summary");
+  return { outcome: "merged", update, merge: record.merge as MergeSummary, ...shared };
 }

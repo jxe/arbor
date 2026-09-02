@@ -7,7 +7,7 @@ import type {
   NodeSnapshot,
   TreeRef,
 } from "@arbor/core";
-import { canonicalJSONString, revisionOf, sha256 } from "@arbor/core";
+import { revisionOf, semanticRequestDigest } from "@arbor/core";
 export type ProjectionProviderKind = "csv" | "json" | "jsonl" | "markdown" | "sqlite" | "postgres";
 /** Provider discovery metadata, already expressed in the public representation vocabulary. */
 export interface ProjectionDescriptor {
@@ -171,30 +171,6 @@ interface StoredCursor {
   after?: string;
   offset?: number;
 }
-export function jsonValue(value: unknown): JSONValue | undefined {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-  if (Array.isArray(value)) {
-    const result: JSONValue[] = [];
-    for (const item of value) {
-      const converted = jsonValue(item);
-      if (converted !== undefined) result.push(converted);
-    }
-    return result;
-  }
-  if (value && typeof value === "object") {
-    const result: Record<string, JSONValue> = {};
-    for (const [key, item] of Object.entries(value)) {
-      const converted = jsonValue(item);
-      if (converted !== undefined) result[key] = converted;
-    }
-    return result;
-  }
-  return undefined;
-}
-export function providerDigest(value: unknown): Hash {
-  return `sha256:${sha256(canonicalJSONString(value))}`;
-}
 export function invalidDescriptor(definition: ProjectionDefinition): ProjectionDescriptor {
   return {
     columns: [],
@@ -207,7 +183,7 @@ export function invalidDescriptor(definition: ProjectionDefinition): ProjectionD
 }
 export function representationFor(
   provider: ProjectionProviderKind,
-  modelDigest: Hash = providerDigest({ provider }),
+  modelDigest: Hash = semanticRequestDigest({ provider }),
   scope: "children" | "subtree" = provider === "sqlite" ? "subtree" : "children",
 ): ChildRepresentationSummary {
   if (provider === "postgres") return { type: "external", driver: "postgres" };

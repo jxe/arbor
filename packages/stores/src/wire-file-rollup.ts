@@ -1,5 +1,6 @@
 import {
   canonicalJSONString,
+  requireJSONValue,
   revisionOf,
   rowPathSegment,
   stableKeyFromProperties,
@@ -34,13 +35,11 @@ export class WireFileRollupError extends Error {
 }
 
 function jsonValue(value: unknown): JSONValue {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.map(jsonValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, jsonValue(item)]));
+  try {
+    return requireJSONValue(value);
+  } catch {
+    throw new WireFileRollupError("constraint", "Validated rollup properties must be finite JSON values");
   }
-  throw new WireFileRollupError("constraint", "Validated rollup properties must be finite JSON values");
 }
 
 function sourceRows(codec: RollupDescriptor["codec"], source: string): Record<string, unknown>[] {

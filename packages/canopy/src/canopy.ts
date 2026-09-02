@@ -1125,7 +1125,7 @@ export class CanopyDaemon implements AsyncDisposable {
               current: remoteUpdate,
               base: request.base.root,
               candidate: request.candidate,
-              draft: { root: draft.root, objects: [...draft.objects].map(([hash, bytes]) => ({ hash, bytes })) },
+              draft,
               conflicts: reconciled.conflicts,
             },
           },

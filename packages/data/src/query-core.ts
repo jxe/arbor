@@ -1,3 +1,6 @@
+import { compareUTF8 } from "@arbor/core";
+
+export { compareUTF8 };
 import type {
   ArborUser,
   PredicateExpression,
@@ -104,17 +107,6 @@ export function compareQueryValues(left: unknown, right: unknown): number {
   if (right === null || right === undefined) return 1;
   if (typeof left === "number" && typeof right === "number") return left - right;
   return compareUTF8(String(left), String(right));
-}
-
-export function compareUTF8(left: string, right: string): number {
-  const leftBytes = new TextEncoder().encode(left);
-  const rightBytes = new TextEncoder().encode(right);
-  const length = Math.min(leftBytes.length, rightBytes.length);
-  for (let index = 0; index < length; index++) {
-    const difference = leftBytes[index]! - rightBytes[index]!;
-    if (difference !== 0) return difference;
-  }
-  return leftBytes.length - rightBytes.length;
 }
 
 export function isPortableNodePlan(plan: QueryPlan): boolean {
