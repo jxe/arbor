@@ -70,6 +70,11 @@ struct WorkspaceStructuralReceipt: Identifiable {
 @MainActor
 @Observable
 final class ArborWorkspaceState {
+    /// Wire format the replica store was placed under; bump when accepted-update
+    /// identity or request shapes change incompatibly. "2": canonical CBOR
+    /// digests, ordinal update ids, base as an update id.
+    static let replicaWireFormat = "2"
+
     private(set) var provider: any WorkspaceProvider
     private(set) var editorWorkspace: ArborEditorWorkspace
     private(set) var home: WorkspaceReference
@@ -148,16 +153,27 @@ final class ArborWorkspaceState {
         let root = ArborSupportDirectories.root
         let key = tree.id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? UUID().uuidString
         let replicaRoot = root.appending(path: "Replicas/\(key)", directoryHint: .isDirectory)
+        // A replica records the wire format it was placed under. When the format
+        // changes (accepted-update ids, cursors, and request shapes are not
+        // continuous across such a change), the replica and its sync state cannot
+        // resume against the server and are re-placed from a fresh snapshot.
+        let formatMarker = replicaRoot.appending(path: "wire-format")
+        let placedFormat = (try? String(contentsOf: formatMarker, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let syncStateRoot = root.appending(path: "Sync/\(key)", directoryHint: .isDirectory)
         let replica: ArborReplica
-        if FileManager.default.fileExists(atPath: replicaRoot.appending(path: "materialized/tree.json").path) {
+        if placedFormat == Self.replicaWireFormat,
+           FileManager.default.fileExists(atPath: replicaRoot.appending(path: "materialized/tree.json").path) {
             replica = try await ArborReplica.open(at: replicaRoot, tree: TreeID(rawValue: tree.id))
         } else {
+            try? FileManager.default.removeItem(at: replicaRoot)
+            try? FileManager.default.removeItem(at: syncStateRoot)
             replica = try await ReplicaPlacementService.place(tree: tree, at: replicaRoot, transport: transport)
+            try Self.replicaWireFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
         }
         let coordinator = try ReplicaSyncCoordinator(
             replica: replica,
             transport: transport,
-            stateRoot: root.appending(path: "Sync/\(key)", directoryHint: .isDirectory)
+            stateRoot: syncStateRoot
         )
 #if os(macOS)
         if let supervisor { await supervisor.stop(); self.supervisor = nil }
