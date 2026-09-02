@@ -2,7 +2,7 @@
 *Part of the [Arbor spec](../spec.md): the global TreeID space, trees, nodes,
 structured data, projections, and equivalence.*
 
-*Owns: the TreeID space, nodes, canonical lookup, change and equivalence, the canonical encoding of a tree, and the routes that read, update, and watch one: the wire form of the data model. References: every projection.*
+*Owns: the TreeID space, nodes, canonical lookup, change and equivalence, the canonical encoding of a tree, and the values every route shares. References: [synchronization](02-synchronization.md) for how tree state moves.*
 
 ## 1. The global TreeID space
 
@@ -49,7 +49,7 @@ Canonical URLs are a secondary index over the TreeID map:
 type CanonicalURLs = Map<`${DNSName}${PathPrefix}`, TreeID>
 ```
 
-The DNS-name portion specifies a Canopy server on the network. The path-prefix portion specifies a tree served by that Canopy. Resolving a canonical URL first uses its DNS authority to reach the Canopy, then selects the longest readable registered boundary there, as specified by [the wire](03-locators.md#5-finding-trees). The result is that boundary's TreeID plus the remaining logical path and optional stable key, still in the uniform `(TreeID, path, key)` shape.
+The DNS-name portion specifies a Canopy server on the network. The path-prefix portion specifies a tree served by that Canopy. Resolving a canonical URL first uses its DNS authority to reach the Canopy, then selects the longest readable registered boundary there, as specified by [the wire](04-locators.md#5-finding-trees). The result is that boundary's TreeID plus the remaining logical path and optional stable key, still in the uniform `(TreeID, path, key)` shape.
 
 Normal DNS and HTTPS establish how the Canopy is reached.
 
@@ -84,7 +84,7 @@ being a document.
 
 Content and children belong to one node. There is no separate "page" that
 owns the content and "folder" that owns the children; a representation may
-store them in two places, as the [directory format](02-directory-format.md#2-mapping-files-and-directories-to-nodes)
+store them in two places, as the [directory format](03-directory-format.md#2-mapping-files-and-directories-to-nodes)
 does with `_index.md` inside a directory or a file beside it, but the model
 sees one node.
 
@@ -94,7 +94,7 @@ same schema-governed children may be expanded Markdown files, one
 `_store.csv`, `_store.json`, or `_store.jsonl`, a SQLite table, or a Postgres
 relation, and a Canopy may read them from Postgres while a laptop keeps a
 SQLite copy for offline use. A query or link that addresses the nodes does not
-change when their representation does ([stores](06-stores.md)). A file named
+change when their representation does ([stores](07-stores.md)). A file named
 `something.json` is a content node; only the reserved `_store.json` name means
 "these are the collection's children".
 
@@ -142,7 +142,7 @@ instead.
 An observation cursor is an ordered position in a provider's committed-change
 stream. Every read returns the cursor it observed through, and every
 dependency is a provider, a cursor, and a precision scope
-([stores](06-stores.md#13-read-boundaries-and-committed-change-observation)).
+([stores](07-stores.md#13-read-boundaries-and-committed-change-observation)).
 Cursors are the only way to follow change; hashes never are.
 
 ### 5.4 Which one a write names
@@ -151,7 +151,7 @@ A write says what must still match: the bytes hash it saw, or the model hash
 of each node it changed. The authority rejects a write whose match fails,
 unless the write allows a same-node conflict to be resolved by that
 representation's merge rule
-([§11](#11-submit-a-candidate-state)). A claim of equality
+([synchronization §3](02-synchronization.md#3-updating-a-tree)). A claim of equality
 uses whichever level the claim is about. Invalidation uses cursors, narrowed
 by precision.
 
@@ -175,52 +175,7 @@ and children alone.
   representations of one collection even though none is the canonical
   serialization of the others.
 
-## 6. The wire form of a tree
-
-The wire transports observations and changes of the model defined above. Its
-envelopes may include access, capabilities, materialization state,
-diagnostics, cursors, bytes hashes, and transport hints that are
-not stored model properties.
-
-The operations have distinct relationships to the model:
-
-- `ref` observes the current accepted tree state, while `snapshot` and
-  `objects` transfer its deterministic lossless Wire encoding;
-- `updates` proposes a complete candidate tree state through that encoding;
-- `watch` monitors ordered accepted tree-state transitions with replay;
-- `queries` derives current typed values from any reviewed logical nodes; and
-- `mutate` executes reviewed transactional model intent.
-
-The synchronized root is a [bytes hash](#5-change-and-equivalence):
-it identifies the exact Wire encoding of one accepted tree state and serves as
-its compare-and-swap key. Different roots may decode to model-equivalent trees
-when authored representation details differ.
-
-An Arbor server represents one community. It owns accounts and profile
-claims, canonical tree boundaries, the private account-configuration trees,
-credential bindings, access enforcement, one mutable accepted ref per tree,
-immutable objects, and observation streams. It need not implement a local
-placement, filesystem replica, or UI. Because it accepts complete candidate
-states and merges them itself, it is more than a content-addressed store. It
-implements:
-
-- the content-addressed object store, one compare-and-swap ref per tree, and
-  the ordered observation log with watch replay ([§9](#9-read-accepted-tree-state), [§12](#12-watch-accepted-transitions));
-- the merge of disjoint nodes under `ifMatch: "modelHash"`, and the
-  `markdown-additive-v1` merge rule for two edits to one Markdown node
-  ([§11](#11-submit-a-candidate-state));
-- rollup decoding, the `rollup-rows-v1` merge rule, and a restricted runtime
-  that executes `schema.ts` to recompute schema fingerprints and model hashes
-  ([§7](#7-the-canonical-encoding-of-a-tree));
-- the `account-config-v1` merge rule and the governed configuration tree
-  ([accounts §6](04-accounts-and-devices.md#6-governed-account-tree));
-- profile claims, device pairing, access evaluation, and the public HTTP
-  projection ([accounts §1.1](04-accounts-and-devices.md#11-profile-claim), [accounts §4](04-accounts-and-devices.md#4-device-pairing), [access control §1](05-access-control.md#1-subjects-and-rules), [locators §6](03-locators.md#6-public-http-projection)).
-
-Hosting executable documents ([executable documents §12](07-executable-documents.md#12-wire-operations))
-is optional; a server without that runtime answers those routes with `422 unsupported-operation`.
-
-## 7. The canonical encoding of a tree
+## 6. The canonical encoding of a tree
 
 The current canonical lossless Wire encoding of an immutable tree snapshot
 names a root directory object. This directory-shaped object graph is a
@@ -287,198 +242,12 @@ explicit synchronization artifact, not what an ordinary read matches on, and
 contains no SQLite pages/WAL bytes or Postgres storage representation. Its
 change-log/checkpoint format is deferred ([deferred 5](../spec.md#deferred)).
 
-## 8. Shared wire values
+### 6.1 Deltas
 
-These transport-neutral values are shared by every route. Language bindings must be
-equivalent and consume the language-neutral vectors under
-[`conformance`](../conformance).
-
-```ts
-type TreeID = string;
-type LogicalPath = string;
-type EventCursor = string;
-type Hash = `sha256:${string}`;
-type JSONValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JSONValue[]
-  | { [name: string]: JSONValue };
-type Diagnostic = {
-  code: string;
-  message: string;
-  severity: "info" | "warning" | "error";
-  path?: LogicalPath;
-  row?: number;
-  field?: string;
-};
-type AccessLevel = "none" | "read" | "write";
-type ReadWriteAccess = "read" | "write";
-
-type TreeKind = "ordinary" | "account-configuration";
-
-type TreeDescriptor = {
-  id: TreeID;
-  kind: TreeKind;
-  access: AccessLevel;
-  canonical: {
-    path: LogicalPath;
-    endpoint: string;
-    parentTree: TreeID | null;
-  } | null;
-};
-
-type RemoteTreeDescriptor = TreeDescriptor & {
-  ref: Hash;
-  update: string;
-};
-
-type NodeRef = {
-  tree: TreeID;
-  path: LogicalPath;
-  stableKey: string | null;
-};
-
-type LocatorResolution = {
-  ref: NodeRef;
-  enclosingTree: TreeDescriptor;
-  historical: boolean;
-  observedThrough: EventCursor;
-};
-
-type ArborError<TDetails = unknown> = {
-  error: string;
-  message: string;
-  retryable: boolean;
-  tree?: TreeID;
-  path?: LogicalPath;
-  details?: TDetails;
-};
-
-type ObservationEvent<TKind extends string, TChange> = {
-  cursor: EventCursor;
-  tree: TreeID;
-  kind: TKind;
-  change: TChange;
-};
-```
-
-`NodeRef` is the sole tree/path/identity carrier: `stableKey` is
-`null` or the canonical key JSON defined by
-[locators](03-locators.md#2-stable-keys-revisions-and-fragments). The
-node-sampling values built on `NodeRef` (`NodeSummary`, `NodeSnapshot`,
-`ChildrenPage`, and their capabilities) are not wire operations; the reference
-local API documents them in
-[docs/arborsync-api.md](../docs/arborsync-api.md#5-model-sampling-values).
-
-New tree IDs are `tr_` plus 26 lowercase base32 characters encoding 128 random
-bits. New device IDs use the same encoding after `dv_`. Existing shorter IDs
-may remain valid during migration, but activation and pairing require the new
-form. Generating an ID neither reserves it nor contacts the server.
-
-Server resolution always supplies `enclosingTree`. Ordinary hosted trees
-have complete non-null canonical data: the decoded canonical `path`, the
-tree-scoped `endpoint` (`{origin}/.arbor/trees/{TreeID}`), and the enclosing
-`parentTree`. The tree's public HTTP URL and `arbor://` locator are not carried
-on the wire; clients derive them as the endpoint's origin (respectively its
-host) followed by the canonical path percent-encoded segment by segment. The
-authenticated account-configuration tree is returned only to its account and
-has `kind: "account-configuration"` and `canonical: null`.
-
-Every tree operation, result, event, effect, and relevant error names its `TreeID`. `local` and `system` are not wire values. Writability is derived from effective access and historical state.
-
-The wire's own tokens, and what each survives:
-
-| Token | Identifies | Minted by | Survives |
-|---|---|---|---|
-| wire root and object hashes | one exact encoded snapshot or object; the tree's bytes hashes ([data model §5.1](#51-did-the-bytes-change-the-bytes-hash)) | hashing canonical CBOR bytes | nothing that changes a byte |
-| accepted update `id` | one accepted transition of one tree | the server's observation ordinal | it is that update's `tree.ref` cursor by construction |
-| `EventCursor` | a position in one tree's observation stream | the server | nothing; it only orders |
-| `QueryCursor` | a position in a host's derived-query observation domain | the host | nothing; it only orders |
-| `requestDigest` | the semantic intent of one update or mutation | canonical CBOR of `updates-v1` or `mutate-v1` | retransmission with different objects or deltas |
-| `mutationID` | one caller's mutation attempt | the caller | exact retries; reuse with a different digest conflicts |
-| `outputHash` | one complete public query result | canonical CBOR of the result | provider or plan changes that leave the result identical |
-
-## 9. Read accepted tree state
-
-Accepted tree synchronization has three operations with distinct durability
-and replay behavior:
-
-| Operation | Purpose | Durable effect | Replay boundary |
-|---|---|---|---|
-| `ref`, `snapshot`, `objects` | Read one accepted tree state | None | `observedThrough` starts a watch without a read/watch gap |
-| `updates` | Propose a transition to a candidate state, matching on its bytes hash or its model hashes, or activate a reserved tree with a null base | May append one accepted update | Semantic request identity recovers an ambiguous result; a merged result carries the transition back |
-| `watch` | Follow ordered accepted transitions | None | An event cursor resumes retained observation history |
-
-The deterministic lossless graph is both the synchronization representation
-and the faithful roundtrip encoding of accepted tree state. The server accepts
-complete candidate states rather than imperative edit commands; only accepted,
-merged, or restored states enter its ordered history. Identity, bootstrap,
-governed configuration, activation, and access management use these same
-primitives but are described after the core protocol sections.
-
-```text
-GET /.arbor/trees/{TreeID}/ref
-GET /.arbor/trees/{TreeID}/snapshot
-GET /.arbor/trees/{TreeID}/objects/{hash}
-```
-
-`GET .../ref` is the small current-state read. It returns:
-
-```ts
-type CurrentTreeRef = {
-  snapshot: RemoteTreeDescriptor;
-  observedThrough: EventCursor;
-};
-```
-
-The descriptor's `ref` is the exact Wire encoding root of the current accepted
-tree state and `update` is the accepted-update ID that produced it.
-`observedThrough` is the cursor after which a client can begin watching without
-a read/watch race.
-
-`GET .../snapshot` is the self-contained accepted-tree-state read:
-
-```ts
-type ObjectEnvelope = { hash: Hash; bytes: string };
-
-type TreeSnapshot = {
-  root: Hash;
-  objects: ObjectEnvelope[];
-};
-
-type CurrentTreeSnapshot = {
-  tree: RemoteTreeDescriptor;
-  snapshot: TreeSnapshot;
-  observedThrough: EventCursor;
-};
-```
-
-Object bytes in JSON use canonical padded base64. The server captures one
-accepted update and returns the complete graph for that update even if a newer
-update is accepted while the response is being encoded. The response therefore
-satisfies `tree.ref === snapshot.root`; it is an atomic current-state read, not
-an accepted-history query.
-
-`GET .../objects/{hash}` returns the exact canonical CBOR bytes for one
-immutable component of the lossless Wire encoding. It uses
-`application/cbor`, an ETag equal to the quoted hash, and immutable
-cache headers. Possession of a hash is not authorization: the object must be
-reachable from the current readable root of the named tree. Retained accepted
-history does not create historical-object access. A snapshot is the ordinary
-bootstrap and resynchronization read; the object endpoint is useful for
-incremental graph traversal.
-
-All three routes require read access. The ref and snapshot responses are
-mutable observations and therefore carry `observedThrough`; immutable object
-bytes do not need an independent observation cursor.
-
-## 10. Sparse graph transfer
-
-Updates and accepted transitions transfer the same content-addressed graph.
-Each changed object travels either as its complete canonical bytes or as a
-delta against an object that is reachable in the relevant basis graph:
+A transition ([synchronization](02-synchronization.md)) transfers the
+content-addressed graph sparsely. Each changed object travels either as its
+complete canonical bytes or as a delta against an object that is reachable in
+the relevant basis graph:
 
 | Representation | Update submission | Accepted transition | Intended use |
 |---|---|---|---|
@@ -525,295 +294,115 @@ different representation without changing semantic identity. Duplicate
 results, a result also supplied as a complete object, noncanonical base64,
 out-of-bounds copies, arithmetic overflow, and quota excess are invalid.
 
-## 11. Submit a candidate state
+## 7. Shared values
 
-#### 11.0.1 Request
-
-```text
-POST /.arbor/trees/{TreeID}/updates
-Content-Type: application/json
-```
-
-The client submits one complete candidate state, derived from an accepted
-base it observed, together with which hash must still match for the
-candidate to be accepted:
+These transport-neutral values are shared by every route. Language bindings must be
+equivalent and consume the language-neutral vectors under
+[`conformance`](../conformance).
 
 ```ts
-type TransitionPayload = {
-  objects: ObjectEnvelope[];
-  deltas?: ObjectDelta[];
+type TreeID = string;
+type LogicalPath = string;
+type EventCursor = string;
+type Hash = `sha256:${string}`;
+type JSONValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JSONValue[]
+  | { [name: string]: JSONValue };
+type Diagnostic = {
+  code: string;
+  message: string;
+  severity: "info" | "warning" | "error";
+  path?: LogicalPath;
+  row?: number;
+  field?: string;
+};
+type AccessLevel = "none" | "read" | "write";
+type ReadWriteAccess = "read" | "write";
+
+type TreeKind = "ordinary" | "account-configuration";
+
+type TreeDescriptor = {
+  id: TreeID;
+  kind: TreeKind;
+  access: AccessLevel;
+  canonical: {
+    path: LogicalPath;
+    endpoint: string;
+    parentTree: TreeID | null;
+  } | null;
 };
 
-type UpdateRequest = TransitionPayload & {
-  base: string | null;
-  candidate: Hash;
-  ifMatch: "bytesHash" | "modelHash";
-  onConflict?: "reject" | "merge";
-};
-```
-
-An update proposes a transition from the accepted base to the candidate root;
-the authority accepts it, or merges and answers with the transition from the
-candidate to what it accepted; watch ([§12](#12-watch-accepted-transitions))
-delivers every accepted transition in order. One payload shape serves all
-three.
-
-`base` is the id of the retained accepted update the candidate was derived
-from; the authority knows that update's root, so the pair binds reconciliation
-to one accepted event even when the same root appears again later. A `null`
-base activates a reserved tree ([accounts §5](04-accounts-and-devices.md#5-declaring-and-activating-a-tree))
-with its complete initial snapshot and carries no deltas. `candidate`
-names the exact Wire root encoding the desired complete candidate tree state.
-The authority decodes and validates its modeled state and all
-projection-specific fidelity required by that encoding. `objects` supplies
-canonical CBOR objects the server does not already retain; a client normally
-walks base and candidate together and omits unchanged objects. The candidate
-must still be complete and provable from retained base objects, supplied
-objects, and valid `deltas`. The [sparse graph transfer](#10-sparse-graph-transfer)
-rules define those interchangeable representations; they do not change the
-candidate's identity.
-
-`ifMatch` names which hash of the [data model](#5-change-and-equivalence)
-must still match its value at base for the candidate to be accepted; `base`
-supplies the values, as an ETag does for HTTP `If-Match`:
-
-- `bytesHash`: the tree's bytes hash must still match, so current must still
-  equal base. Any other change is a conflict and is always rejected; matching
-  on bytes means "exactly what I saw", so a merge would contradict it.
-  Activation uses it, and so does any tool that must replace the tree's exact
-  state.
-- `modelHash`: the model hash of each node the candidate changed must still
-  match. The authority takes every node whose bytes differ between base and
-  candidate, the candidate's *touched* nodes, and checks that each has the
-  same model hash in current as it had at base. Nodes that current has reformatted without
-  changing their model do not conflict, and neither does anything current
-  changed elsewhere. `onConflict`, which defaults to `merge`, says what to do
-  when a touched node's model did change in current: `reject` the candidate,
-  or resolve each conflicting node with the representation's merge rule.
-
-#### 11.0.2 Authority decision
-
-After reconstructing and validating the candidate graph, the server makes one
-of these decisions:
-
-1. If the candidate already equals current, return `200 current` and create no
-   accepted update.
-2. If the candidate equals the base while current has advanced, return the
-   current accepted update and create no new update.
-3. If current equals the base, atomically accept the candidate and return
-   `201 accepted`.
-4. Otherwise, if `ifMatch` is `modelHash` and every touched node still
-   matches, or every conflicting
-   node is resolved by a merge rule under `onConflict: "merge"`, merge: the
-   result is current with the candidate's bytes for its touched nodes and the
-   rule's output for any resolved node. Atomically accept it and return
-   `201 merged`.
-5. Otherwise return `409 conflict` with the current update, structured reasons
-   naming each conflicting node, and the `draft` transition the client keeps.
-   Accepted state does not advance and the rejected candidate does not become
-   history.
-
-A merge rule is the representation-specific way to combine two changes to
-one node: `markdown-additive-v1` for Markdown, `rollup-rows-v1` for a file
-rollup, and `account-config-v1` for the governed configuration tree. A node
-with no merge rule, or one the rule cannot combine, is a conflict.
-
-#### 11.0.3 Results, reconciliation, and retry
-
-A successful response is:
-
-```ts
-type AcceptedUpdate = {
-  id: string;
-  tree: TreeID;
+type RemoteTreeDescriptor = TreeDescriptor & {
   root: Hash;
-  previousRoot: Hash | null;
-  kind: "initial" | "accepted" | "merged" | "restored";
-  acceptedAt: number;
-  subject: string | null;
-  merge?: MergeSummary;
+  update: string;
 };
 
-type MergeSummary =
-  | { version: "markdown-additive-v1"; approximatePlacements: number }
-  | { version: "account-config-v1"; mergedFields: number }
-  | { version: "rollup-rows-v1"; mergedRows: number };
+type NodeRef = {
+  tree: TreeID;
+  path: LogicalPath;
+  stableKey: string | null;
+};
 
-type UpdateResult = {
-  outcome: "current" | "accepted" | "merged";
-  update: AcceptedUpdate;
-  requestDigest: Hash;
+type LocatorResolution = {
+  ref: NodeRef;
+  enclosingTree: TreeDescriptor;
+  historical: boolean;
   observedThrough: EventCursor;
-  reconciliation?: TransitionPayload;
-};
-```
-
-`update` is the accepted update that stands after the decision: the untouched
-current one for `current`, or the newly accepted or merged one. `merge` is
-present only when a merge rule ran; a merge of disjoint nodes carries none. An accepted update's `id` is the decimal ordinal
-of the observation that recorded it, so it is also that update's `tree.ref`
-cursor and `observedThrough`. `reconciliation` is present exactly when the accepted root differs from the
-submitted candidate: it is the transition from the candidate root to
-`update.root` under the [sparse transfer](#10-sparse-graph-transfer) rules, so
-a superseded, merged, or replayed result is applied with the same code that
-applies a watch frame. An accepted candidate returns none.
-
-A conflict uses the shared `ArborError` envelope with
-`details.kind: "server-update" | "account-configuration"`. Its details include the current `AcceptedUpdate`, the base and candidate
-roots, structured conflict reasons naming each conflicting node, and `draft`,
-the transition from the candidate root to the draft root the client keeps.
-
-Semantic request identity is the SHA-256 of the
-[canonical CBOR encoding](#7-the-canonical-encoding-of-a-tree)
-of `{ version: "updates-v1", tree, base, candidate, ifMatch, onConflict }`,
-with `onConflict` as its effective value, scoped to the
-authenticated credential. `objects`, `deltas`, and their ordering are
-transport choices and are excluded. An ambiguous retry may therefore replace a
-delta with complete bytes without changing identity. Exact accepted or merged
-replay returns the original result and creates no duplicate accepted update.
-Clients durably retain the base, candidate, required content, and any conflict
-draft until the result has been applied.
-
-#### 11.0.4 Projection-specific candidates
-
-When a candidate changes a recognized file child rollup, the submitted root
-names the exact lossless encoding of that candidate tree state. The authority
-decodes coherent base, current, and candidate representations under schema and
-resource bounds, recomputes logical row identities and the collection's model
-hash, applies `rollup-rows-v1` to a conflicting rollup, validates all
-keys, foreign keys, and constraints, and encodes the accepted representation.
-It never trusts a client-supplied model hash. Formatting-only changes advance the accepted root without changing the model
-hash, so they invalidate no logical query dependency. SQLite and Postgres changes use the database transaction,
-observation, and semantic-checkpoint protocol specified separately; live
-database storage bytes are never submitted or merged as a rollup object.
-
-## 12. Watch accepted transitions
-
-```text
-GET /.arbor/trees/{TreeID}/watch?after={cursor}
-Last-Event-ID: {cursor}
-Accept: text/event-stream
-```
-
-The client reads a ref or snapshot and then observes strictly after its
-`observedThrough`. `after` and `Last-Event-ID` are equivalent; supplying both
-with different values is `invalid-request`.
-
-Every frame satisfies `id === data.cursor` and `event === data.kind`. Its JSON
-body is:
-
-```ts
-type AcceptedTransition = TransitionPayload & {
-  update: AcceptedUpdate;
-  requestDigest?: Hash;
 };
 
-type TreeRefEvent = {
+type ArborError<TDetails = unknown> = {
+  error: string;
+  message: string;
+  retryable: boolean;
+  tree?: TreeID;
+  path?: LogicalPath;
+  details?: TDetails;
+};
+
+type ObservationEvent<TKind extends string, TChange> = {
   cursor: EventCursor;
   tree: TreeID;
-  kind: "tree.ref";
-  change: {
-    descriptor: RemoteTreeDescriptor;
-    transitions: AcceptedTransition[];
-  };
+  kind: TKind;
+  change: TChange;
 };
 ```
 
-Accepted updates are ordered within their tree by their `id`, the observation
-ordinal that recorded them; the same ordinal orders the combined observation
-stream, so one counter yields update ids and event cursors. Initial accepted
-updates have no transition.
-Every later accepted update durably records one replay payload from its exact
-`previousRoot` to `root`, regardless of whether the authority directly accepted,
-merged, or restored that result.
+`NodeRef` is the sole tree/path/identity carrier: `stableKey` is
+`null` or the canonical key JSON defined by
+[locators](04-locators.md#2-stable-keys-revisions-and-fragments). The
+node-sampling values built on `NodeRef` (`NodeSummary`, `NodeSnapshot`,
+`ChildrenPage`, and their capabilities) are not wire operations; the reference
+local API documents them in
+[docs/arborsync-api.md](../docs/arborsync-api.md#5-model-sampling-values).
 
-The replay payload is a sparse proof of the target graph. `objects` contains
-canonical target objects not reconstructed by a delta under the
-[sparse graph transfer](#10-sparse-graph-transfer) rules. Submission and watch
-share the `ObjectDelta` primitive, but not editor history: after validation and
-any merge, the authority derives the transition from the actual accepted
-endpoints, diffing every changed directory and file against its predecessor at
-the same path.
+New tree IDs are `tr_` plus 26 lowercase base32 characters encoding 128 random
+bits. New device IDs use the same encoding after `dv_`. Existing shorter IDs
+may remain valid during migration, but activation and pairing require the new
+form. Generating an ID neither reserves it nor contacts the server.
 
-Transition identity is the ordered accepted update and its previous/target
-roots, not the selected byte encoding. Canopy may replace or pack physical
-representations later without changing accepted history or observable Wire
-semantics. Content-addressed objects and accepted roots remain canonical;
-transition chains are replay acceleration and never the sole recovery source.
+Server resolution always supplies `enclosingTree`. Ordinary hosted trees
+have complete non-null canonical data: the decoded canonical `path`, the
+tree-scoped `endpoint` (`{origin}/.arbor/trees/{TreeID}`), and the enclosing
+`parentTree`. The tree's public HTTP URL and `arbor://` locator are not carried
+on the wire; clients derive them as the endpoint's origin (respectively its
+host) followed by the canonical path percent-encoded segment by segment. The
+authenticated account-configuration tree is returned only to its account and
+has `kind: "account-configuration"` and `canonical: null`.
 
-`transitions` is nonempty, chains exactly by root (each `previousRoot` is the
-preceding `root`), and ends at `change.descriptor.update` and `change.descriptor.ref`. The frame ID is
-the final transition's update ID. Live delivery normally has one entry. Replay
-groups consecutive retained accepted-update events into bounded batches without
-crossing another observation event; it does not structurally simplify or
-re-diff them. A client may apply a batch sequentially in memory and commit only
-the final materialization.
+Every tree operation, result, event, effect, and relevant error names its `TreeID`. `local` and `system` are not wire values. Writability is derived from effective access and historical state.
 
-For `tree.ref`, a transition's `requestDigest` is present only when the stream
-is authenticated by the exact bearer credential that submitted that accepted
-request. It is correlation data, not authority. A non-retained event cursor, a
-retained accepted update without a replay payload, or a batch too old for
-retained transition data produces one terminal `resync-required` event and
-closes; the client reads a new snapshot and resumes after its cursor.
+The wire's own tokens, and what each survives:
 
-`tree.activation` is the one non-ref observation kind. When a tree declared in
-`trees.yaml` becomes active ([accounts §5](04-accounts-and-devices.md#5-declaring-and-activating-a-tree)), the
-authority records one event on the declaring account's configuration-tree
-stream:
-
-```ts
-type TreeActivationEvent = {
-  cursor: EventCursor;
-  tree: TreeID; // the account-configuration tree carrying the event
-  kind: "tree.activation";
-  change: { tree: TreeID; status: "active" };
-};
-```
-
-`change.tree` names the newly active tree. The event advances the
-configuration tree's observation stream and `observedThrough` without changing
-its accepted content update; a watcher applies no transition for it.
-
-## 13. Streams and errors
-
-Tree watch and query result streams use one UTF-8 SSE framing rule: blank lines
-separate frames, multiple `data:` lines join with newlines, and clients ignore
-comments and keepalives. The `event` field names the typed event and `data` is
-one canonical JSON value. Producers share escaping, cancellation,
-bounded-buffer, and terminal-close behavior.
-
-This shared transport does not imply shared cursor semantics. A tree watch sets
-a replayable `id`, carries the complete `ObservationEvent`, and supports
-`Last-Event-ID`, retained history, and `resync-required`. A query stream omits
-`id`, sends the remaining event members after `type`, and establishes fresh
-derived state with `ready`; reconnection repeats the complete query.
-
-The shared error envelope and common codes are normative. Narrow server-only
-codes include `already-claimed`. Base/update mismatch,
-reserved boundaries, policy failures, and merge conflicts use `conflict` with
-discriminated `server-update` or `account-configuration` details where
-applicable.
-
-## 14. Example: editor edit roundtrip
-
-This non-normative example shows how the preceding operations compose:
-
-1. The client makes an editor change durable locally and records its accepted
-   `{ root, update }` base.
-2. It builds the complete candidate graph, omitting unchanged objects and using
-   an `ObjectDelta` when that is smaller than the complete changed object.
-3. It submits the candidate against its accepted base update id. The
-   authority validates it, performs any merge, and atomically records at most
-   one accepted update.
-4. The response and the corresponding `tree.ref` event may arrive in either
-   order. The submitting client handles them idempotently; a matching private
-   `requestDigest` is a causal acknowledgement of the frozen semantic intent.
-5. A clean replica applies a contiguous transition batch in memory and durably
-   materializes only its final state. A replica with local changes submits its
-   own candidate. Missing history or any failed check falls back to a coherent
-   snapshot.
-
-The client clears its durable attempt only after applying the accepted or
-merged graph and advancing its local base. The event acknowledges candidate
-intent, not the submitted delta bytes: a merge may produce a different accepted
-representation. Rejected conflicts never appear on watch.
+| Token | Identifies | Minted by | Survives |
+|---|---|---|---|
+| wire root and object hashes | one exact encoded snapshot or object; the tree's bytes hashes ([data model §5.1](#51-did-the-bytes-change-the-bytes-hash)) | hashing canonical CBOR bytes | nothing that changes a byte |
+| accepted update `id` | one accepted transition of one tree | the server's observation ordinal | it is that update's `tree.update` cursor by construction |
+| `EventCursor` | a position in one tree's observation stream | the server | nothing; it only orders |
+| `QueryCursor` | a position in a host's derived-query observation domain | the host | nothing; it only orders |
+| `requestDigest` | the semantic intent of one update or mutation | canonical CBOR of `updates-v1` or `mutate-v1` | retransmission with different objects or deltas |
+| `mutationID` | one caller's mutation attempt | the caller | exact retries; reuse with a different digest conflicts |
+| `outputHash` | one complete public query result | canonical CBOR of the result | provider or plan changes that leave the result identical |

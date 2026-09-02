@@ -258,7 +258,7 @@ This supersedes the client-projection architecture recorded in the historical Mi
 
 Primary ownership:
 
-- [`spec/02-directory-format.md`](../../spec/02-directory-format.md)
+- [`spec/02-directory-format.md`](../../spec/03-directory-format.md)
 - [`docs/arborsync-api.md`](../../docs/arborsync-api.md)
 - [`packages/editor/src/directory-document.ts`](../../packages/editor/src/directory-document.ts)
 - [`packages/fs/src/workspace-fs.ts`](../../packages/fs/src/workspace-fs.ts)
@@ -339,10 +339,10 @@ Delivered:
 Contract and reference documentation:
 
 - [`spec/04-wire.md`](../../spec/01-data-model.md)
-- [`spec/03-locators.md`](../../spec/03-locators.md)
+- [`spec/03-locators.md`](../../spec/04-locators.md)
 - [`docs/client.md`](../../docs/client.md)
 - [`docs/cli.md`](../../docs/cli.md)
-- [`spec/05-configuration.md`](../../spec/04-accounts-and-devices.md)
+- [`spec/05-configuration.md`](../../spec/05-accounts-and-devices.md)
 - [`docs/arborsync-api.md`](../../docs/arborsync-api.md)
 
 The delivered slice intentionally does not claim end-user device pairing, claim recovery/dispute resolution, multiple active local identities, nested or cross-community groups, boundary moves/aliases, or production hosting administration. Those follow-ups have their own position in the forward roadmap rather than keeping the foundation permanently partial.

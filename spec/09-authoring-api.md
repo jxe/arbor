@@ -1,9 +1,9 @@
 # Authoring API
-*Part of the [Arbor spec](../spec.md): the `arbor/react` and `arbor/data` packages an executable document is written against. This is a library contract versioned with those packages; the execution model it exposes is defined by [executable documents](07-executable-documents.md).*
+*Part of the [Arbor spec](../spec.md): the `arbor/react` and `arbor/data` packages an executable document is written against. This is a library contract versioned with those packages; the execution model it exposes is defined by [executable documents](08-executable-documents.md).*
 
-*Owns: the `arbor/react` and `arbor/data` exports and their React behavior. References: [executable documents](07-executable-documents.md) for every semantic guarantee.*
+*Owns: the `arbor/react` and `arbor/data` exports and their React behavior. References: [executable documents](08-executable-documents.md) for every semantic guarantee.*
 
-Package names are part of the authored portability surface: a compatible runtime provides these two modules with these exports, so the same source runs anywhere the [execution model](07-executable-documents.md#11-portability-and-limits) allows.
+Package names are part of the authored portability surface: a compatible runtime provides these two modules with these exports, so the same source runs anywhere the [execution model](08-executable-documents.md#11-portability-and-limits) allows.
 
 ## 1. Packages
 

@@ -257,7 +257,7 @@ I've avoided saying how synchronization actually works. Here's the sketch — an
 The wire deals in two planes. **A ref** is one tiny live statement per tree: *TreeID → current root hash*. **Objects** are immutable, content-addressed nodes and blobs: each directory node lists its children by hash, so paths live inside one Merkle graph rather than becoming thousands of separately mutable refs. Four routes cover it:
 
 ```text
-GET  /.arbor/trees/{TreeID}/ref     # where is the tip?
+GET  /.arbor/trees/{TreeID}         # where is the tip?
 POST /.arbor/trees/{TreeID}/updates # submit against an accepted base; Canopy accepts or merges
 GET  /.arbor/trees/{TreeID}/watch   # tell me when it moves
 GET  /.arbor/objects/{hash}         # give me this immutable object

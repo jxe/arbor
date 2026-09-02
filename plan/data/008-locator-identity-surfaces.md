@@ -13,7 +13,7 @@
 ## Target result
 
 A stable key appears in exactly one encoding per surface, every surface is listed in one
-table in [locators](../../spec/03-locators.md), and everything attached to a path segment
+table in [locators](../../spec/04-locators.md), and everything attached to a path segment
 uses the single `;arbor-<name>=<value>` parameter mechanism. A reader of the spec can answer
 "where can a key show up, and how is it spelled there" from that table alone.
 
@@ -23,7 +23,7 @@ The same canonical key JSON (`[["id","x7f3q2"]]`) has five surfaces:
 
 | Surface | Spelling | Owner |
 |---|---|---|
-| `NodeRef.stableKey` | canonical key JSON text | wire §3.2 |
+| `NodeRef.stableKey` | canonical key JSON text | data model §7 |
 | Final path segment | `;arbor-key=<base64url of the JSON>` | locators |
 | Markdown relative link | `#arbor-key=<base64url>` fragment alias, translated by Arbor renderers | directory format, locators |
 | Row child segment | the raw single string key when it is a valid path component, otherwise `~row-<base64url>` | stores |
@@ -59,7 +59,7 @@ and the `~row-` segment rule.
   `native/Packages/ArborClient/Sources/ArborClient/LogicalURL.swift` change together;
   `conformance/url-resolution.json` is the shared contract and gains a case per surface.
 - Renderers: the Markdown alias translation in `arbor/react`'s `Markdown`, the HTTP
-  projection redirect rule (wire §7), and link healing in arborsync all read the table.
+  projection redirect rule (locators §6), and link healing in arborsync all read the table.
 - Row segments: `rowPathSegment` in `packages/stores` and its Swift replica counterpart.
 - Spec: the table replaces the prose in 03 §Stable keys and the alias paragraphs in 02;
   06 §Row identity references the table instead of restating the `~row-` rule.

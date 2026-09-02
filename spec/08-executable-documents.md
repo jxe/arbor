@@ -1,7 +1,7 @@
 # Executable documents
-*Part of the [Arbor spec](../spec.md): the execution model for portable MDX/TSX documents and agents: named handles, queries, mutations, Arbor user identity, hosting, confinement, consent, and transcripts. The `arbor/react` and `arbor/data` packages a document is written against are the [authoring API](08-authoring-api.md).*
+*Part of the [Arbor spec](../spec.md): the execution model for portable MDX/TSX documents and agents: named handles, queries, mutations, Arbor user identity, hosting, confinement, consent, and transcripts. The `arbor/react` and `arbor/data` packages a document is written against are the [authoring API](09-authoring-api.md).*
 
-*Owns: handle identity, query and mutation semantics and their routes, user context, compilation, hosting, confinement, the consent statement, the no-ambient-authority rule, and agents. References: the [data model](01-data-model.md) for tree synchronization and the [authoring API](08-authoring-api.md) for package surfaces.*
+*Owns: handle identity, query and mutation semantics and their routes, user context, compilation, hosting, confinement, the consent statement, the no-ambient-authority rule, and agents. References: the [data model](01-data-model.md) for tree synchronization and the [authoring API](09-authoring-api.md) for package surfaces.*
 
 Arbor does not add an application object, application identifier, entry component, route table, or location language. A website is an Arbor tree containing ordinary related documents. A host that supports execution may render an authored `.mdx` or `.tsx` document at that document's ordinary canonical Arbor location.
 
@@ -27,10 +27,10 @@ Links are ordinary authored links:
 <a href={`Practice?id=${encodeURIComponent(practice.id)}&edit`}>Edit</a>
 ```
 
-Relative resolution and extensionless canonicalization follow [format](02-directory-format.md) and [locators](03-locators.md). A same-tree host may intercept an ordinary link for client navigation, but the link must remain correct as an ordinary HTTP navigation with JavaScript absent. Back, forward, reload, open-in-new-tab, and copying the URL use browser semantics rather than a parallel application history.
+Relative resolution and extensionless canonicalization follow [format](03-directory-format.md) and [locators](04-locators.md). A same-tree host may intercept an ordinary link for client navigation, but the link must remain correct as an ordinary HTTP navigation with JavaScript absent. Back, forward, reload, open-in-new-tab, and copying the URL use browser semantics rather than a parallel application history.
 
 The query string belongs to the addressed document, which receives it as an
-ordinary search-parameter value ([authoring API](08-authoring-api.md#2-documents)).
+ordinary search-parameter value ([authoring API](09-authoring-api.md#2-documents)).
 
 The optional path-attached `;arbor-key=...` identity suffix is consumed before
 document routing and never appears in `search`. It can therefore heal or
@@ -53,7 +53,7 @@ component output hoisted during server rendering and client updates; there is
 no parallel metadata export or metadata read lifecycle, and the server supplies
 the canonical Arbor URL independently, so an authored document need not
 rediscover it merely to emit the canonical link. Styling and Markdown
-rendering facilities belong to the [authoring API](08-authoring-api.md#2-documents);
+rendering facilities belong to the [authoring API](09-authoring-api.md#2-documents);
 the pinned compiler version is part of the coherent document version.
 
 Structured editors that cannot preserve MDX or TSX source exactly must use a raw/code-capable mode. They never rewrite executable source as ordinary Markdown.
@@ -68,7 +68,7 @@ A source tree is identified by its existing `TreeID`; Arbor adds no application-
 
 For each exported handle, compilation exposes stable function identity, input validation, code version, declared or inferred tree access, and public result metadata without disclosing privileged implementation code. Literal tree paths contribute precise prefixes; computed paths require explicit declarations. Compilation fails when code can address an undeclared path, closes over UI-only state, or imports ambient host authority.
 
-A handle may declare an input schema in the [authoring API](08-authoring-api.md#3-handles)'s
+A handle may declare an input schema in the [authoring API](09-authoring-api.md#3-handles)'s
 Standard Schema form. The handle's call input is the schema input type; the
 query plan or mutation handler receives its validated, transformed output, and
 validation occurs before data access.
@@ -240,7 +240,7 @@ presents its own session UI before user-dependent queries mount, and an
 authored tree never receives credentials or implements authentication. A query
 plan may dereference the nullable user profile, or declare that anonymous
 execution must fail before data access even when the handle is invoked outside
-a component ([authoring API](08-authoring-api.md#5-user)).
+a component ([authoring API](09-authoring-api.md#5-user)).
 
 Anonymous, Arbor-user, and tree-principal executions are separate cache and subscription contexts. User-dependent queries record the identity and access decision as dependencies. Public executions may be shared only when their inputs, authorization, capabilities, and output are genuinely user-independent.
 
@@ -250,7 +250,7 @@ The host resolves the requested Arbor path, loads one coherent executable-docume
 
 Live query requests, complete replacement results, authorization, reconnection, and cross-server mutation delivery follow the [wire protocol](#121-evaluate-and-stream-named-queries) and its separate named-mutation operation.
 
-Mutation handles are callable as form actions as well as typed imperative handles. The [authoring API](08-authoring-api.md#4-actions-and-forms)'s action adapter validates form input through the handle's schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. Successful return commits the runner-owned transaction; throwing rolls it back.
+Mutation handles are callable as form actions as well as typed imperative handles. The [authoring API](09-authoring-api.md#4-actions-and-forms)'s action adapter validates form input through the handle's schema, supplies a stable mutation identity, and exposes a typed result, durable receipt, or sanitized public error. Successful return commits the runner-owned transaction; throwing rolls it back.
 
 Server exceptions, database diagnostics, private values, and stack traces never become action state. Expected public errors have stable codes, safe messages, retryability, and optional field errors. The durable receipt and authoritative query result may arrive in either order and are correlated idempotently. Optimistic presentation never displaces the subscribed result as the source of truth.
 
@@ -283,7 +283,7 @@ Content-Type: application/json
 Accept: text/event-stream
 ```
 
-An execution host may serve a reviewed [executable document](07-executable-documents.md)
+An execution host may serve a reviewed [executable document](08-executable-documents.md)
 while its permitted data lives on the same or another Arbor server. The request
 completely describes the coherent document version and its currently mounted
 query graph. A server without an executable-document runtime, or without
@@ -478,9 +478,9 @@ domains, and `watch` has retained replay identity while `queries` deliberately
 has none. Consolidation is shared machinery, not one polymorphic endpoint.
 
 Query streaming is derived-result delivery, not tree history. A mutation of an
-Arbor-canonical data tree advances that data tree's ordinary accepted ref and
-therefore also causes a `tree.ref` watch event; it does not change the
-executable document's source-tree ref. A mutation of a shared external store can
+Arbor-canonical data tree advances that data tree's ordinary accepted root and
+therefore also causes a `tree.update` watch event; it does not change the
+executable document's source-tree root. A mutation of a shared external store can
 update query results without an Arbor data-tree update. Neither execution nor
 network reachability grants historical-object access, broadens the readable tree graph,
 or exposes raw stores, credentials, private handler source, unrelated rows, or

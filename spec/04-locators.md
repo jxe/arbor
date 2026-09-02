@@ -3,7 +3,7 @@
 TreeID identity, tree-relative paths, revisions, and DNS/Canopy canonical
 lookup.*
 
-*Owns: locator grammar, parsing, resolution, the routes that find trees, and the public HTTP projection. References: row segments ([stores](06-stores.md)).*
+*Owns: locator grammar, parsing, resolution, the routes that find trees, and the public HTTP projection. References: row segments ([stores](07-stores.md)).*
 
 ## 1. Forms
 
@@ -167,7 +167,7 @@ Authenticated account and tree-list reads use explicit envelopes carrying
 `observedThrough`; bare arrays and descriptors are not mutable responses. The
 same snapshot-then-observe rule as the core tree API applies. For an ordinary
 tree, its accepted-update ID is its `observedThrough` cursor unless a later
-non-ref event advances that tree's observation stream; `tree.update` remains
+event other than an accepted update advances that tree's observation stream; `tree.update` remains
 the content synchronization base.
 
 Well-known and canonical-path resolution return `LocatorResolution`, using the

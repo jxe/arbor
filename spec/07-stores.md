@@ -1,7 +1,7 @@
 # Stores and collections
 *Part of the [Arbor spec](../spec.md): backing-independent child behavior over Markdown, CSV, JSON, JSONL, SQLite, external stores, and placement projections.*
 
-*Owns: the collection contract, row identity and ordering, observation precision, file, SQLite, and Postgres backings, placement projections, and migration. References: the query language ([executable documents](07-executable-documents.md)) and the property write ([data model §5](01-data-model.md#5-change-and-equivalence)).*
+*Owns: the collection contract, row identity and ordering, observation precision, file, SQLite, and Postgres backings, placement projections, and migration. References: the query language ([executable documents](08-executable-documents.md)) and the property write ([data model §5](01-data-model.md#5-change-and-equivalence)).*
 
 ## 1. Common collection contract
 
@@ -63,7 +63,7 @@ The query language—its portable baseline of predicate filtering, explicit fiel
 picking, and cardinality; its capability extensions for relationships, joins,
 aggregates, authored ordering, and pagination; plan-callback confinement; and
 the one-transaction-per-mutation rule—is specified once in
-[executable documents](07-executable-documents.md#4-queries). A database relation
+[executable documents](08-executable-documents.md#4-queries). A database relation
 or schema-governed collection is a typed node set within that language, not a
 separate query universe. A provider may compile a plan to SQL or another native
 plan but cannot change its meaning, and an unsupported extension fails before
@@ -76,7 +76,7 @@ This specification adds only the facts a store owns:
   serializable, and independent of row position, SQLite `rowid`, display
   label, or query plan. A row's third reference component is its canonical key
   JSON as defined by
-  [locators](03-locators.md#2-stable-keys-revisions-and-fragments); each key
+  [locators](04-locators.md#2-stable-keys-revisions-and-fragments); each key
   field's Standard Schema output must be a JSON string, boolean, or finite
   number, and a backing value not exactly representable in one of those forms
   is normalized to a string by the schema first. Changing a key is observed as
@@ -150,7 +150,7 @@ Mutation retry identity and its completed result are recorded in the same
 transaction domain as the data effects, or by an equivalent crash-recoverable
 mechanism that can distinguish a completed commit from an unexecuted intent
 after restart. The identity itself is defined by
-[executable documents §12.2](07-executable-documents.md#122-execute-named-mutations).
+[executable documents §12.2](08-executable-documents.md#122-execute-named-mutations).
 
 ## 2. File-backed collections
 
@@ -209,7 +209,7 @@ to collection invalidation. Reordering lines does not change identity.
 
 Mixing backing shapes produces a diagnostic and disables collection-level interpretation without making the underlying files inaccessible. Invalid rows are diagnostics, not daemon crashes or silent deletion.
 
-The schema evaluator accepts the authored schema and its declared schema-library import under the [no-ambient-authority rule](07-executable-documents.md#2-authored-component-forms), with finite resource bounds. This specification does not prescribe evaluator technology or generated-file layout.
+The schema evaluator accepts the authored schema and its declared schema-library import under the [no-ambient-authority rule](08-executable-documents.md#2-authored-component-forms), with finite resource bounds. This specification does not prescribe evaluator technology or generated-file layout.
 
 ## 3. SQLite
 
@@ -253,7 +253,7 @@ mutations in Postgres transactions, and observes committed changes; the authored
 tree synchronizes the safe descriptor rather than a database copy.
 
 A device placement may instead request a private SQLite projection in its
-[configuration](04-accounts-and-devices.md):
+[configuration](05-accounts-and-devices.md):
 
 ```yaml
 projection:

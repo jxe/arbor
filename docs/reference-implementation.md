@@ -35,7 +35,7 @@ Current private paths include `workspaces.json`, per-workspace directories under
 
 The exact journal records, replay-window size, retry count, temporary filenames, watcher classifications, recovery database schema, and credential reference layout are tuning/implementation choices. They must still satisfy durable acknowledgement, idempotent retry, lossless resync, secrecy, and last-valid control-file behavior.
 
-The synchronized [`trees.yaml`](../spec/04-accounts-and-devices.md#3-configuration-yaml) contract is normative. `${ARBOR_DATA_HOME:-~/.arbor}`, private paths, and platform credential storage are reference choices documented in [the local system](local-system.md).
+The synchronized [`trees.yaml`](../spec/05-accounts-and-devices.md#3-configuration-yaml) contract is normative. `${ARBOR_DATA_HOME:-~/.arbor}`, private paths, and platform credential storage are reference choices documented in [the local system](local-system.md).
 
 ## Wire encoding, reconciliation, and hosting
 
@@ -50,7 +50,7 @@ keeping `_store.*` and `schema.ts` out of child navigation. The Swift replica
 currently preserves these objects losslessly but does not project their rows
 while fully offline.
 
-For a state-changing update, Canopy canonicalizes the semantic value `{ version: "updates-v1", tree, base, candidate }` ([data model §11](../spec/01-data-model.md#11-submit-a-candidate-state)) and hashes its canonical CBOR encoding with SHA-256, the same encoding and hash rule that addresses wire objects. The successful accepted row stores that digest for replay. Supplied object envelopes are transport aids and do not change identity; `current` and conflict outcomes remain stateless. Rejected candidates and complete conflict drafts are returned to and retained by the client, not stored as Canopy history.
+For a state-changing update, Canopy canonicalizes the semantic value `{ version: "updates-v1", tree, base, candidate }` ([synchronization §3](../spec/02-synchronization.md#3-updating-a-tree)) and hashes its canonical CBOR encoding with SHA-256, the same encoding and hash rule that addresses wire objects. The successful accepted row stores that digest for replay. Supplied object envelopes are transport aids and do not change identity; `current` and conflict outcomes remain stateless. Rejected candidates and complete conflict drafts are returned to and retained by the client, not stored as Canopy history.
 
 The reference `canopyd` can run locally or behind a deployment provider. Provider environment detection, volume paths, Railway/Hetzner recipes, bootstrap migration variables, credential rotation, backup/restore commands, and operator reset procedures belong in deployment documentation, not the CLI or wire spec.
 

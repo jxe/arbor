@@ -41,8 +41,8 @@ Durable product contracts live in the topic specifications:
   partial availability, trees, nodes, identities, properties, content, children,
   derived references/relationships, the secondary canonical URL index,
   structured-data interpretation, and equivalence;
-- [directory projection](../spec/02-directory-format.md) and
-  [locators](../spec/03-locators.md) own exact filesystem/Markdown source,
+- [directory projection](../spec/03-directory-format.md) and
+  [locators](../spec/04-locators.md) own exact filesystem/Markdown source,
   `_index.md`, frontmatter, child placement, tree-relative references,
   canonical names, raw TreeID fallback, schema-stable keys, application-query
   separation, content fragments, and immutable revision selection;
@@ -50,8 +50,8 @@ Durable product contracts live in the topic specifications:
   exact projection objects, canonical boundaries, promotion, profiles, claims,
   access, refs, updates, watch/retry/resync, query/mutate transport, secrets, and
   HTTP projection;
-- [configuration](../spec/04-accounts-and-devices.md) owns synchronized account, tree, device, placement, ACL, and governance data;
-- [stores](../spec/06-stores.md), [executable documents](../spec/07-executable-documents.md), and the [authoring API](../spec/08-authoring-api.md) own their respective authored contracts;
+- [configuration](../spec/05-accounts-and-devices.md) owns synchronized account, tree, device, placement, ACL, and governance data;
+- [stores](../spec/07-stores.md), [executable documents](../spec/08-executable-documents.md), and the [authoring API](../spec/09-authoring-api.md) own their respective authored contracts;
 - the [reference documentation](../docs/reference-implementation.md) owns the Local Arbor REST API, CLI, data home, client interaction design, runtime algorithms, and platform behavior.
 
 ## Milestone 2 — live data documents

@@ -15,7 +15,7 @@ REST v1 reuses the wire's transport-neutral values—`TreeID`, `LogicalPath`,
 `ReadWriteAccess`, `TreeKind`, `TreeDescriptor`, `RemoteTreeDescriptor`,
 `AccessSubject`, `AccessRule`, `SafeAccessSubject`, `AccessEntry`, `NodeRef`,
 `ArborError`, and `ObservationEvent`—exactly as defined in
-[data model §8](../spec/01-data-model.md#8-shared-wire-values).
+[data model §7](../spec/01-data-model.md#7-shared-values).
 It adds only the following:
 
 ```ts
@@ -54,10 +54,10 @@ resolution does not duplicate a `writable` flag.
 ## 2. Access and errors
 
 Access subjects, levels, and the `none` removal rule are defined once in
-[configuration](../spec/04-accounts-and-devices.md#3-configuration-yaml). Configuration
+[configuration](../spec/05-accounts-and-devices.md#3-configuration-yaml). Configuration
 and mutation requests use the wire's `AccessRule`; safe administrative
 responses use `AccessEntry`, whose link subject exposes neither raw secret nor
-digest ([data model §8](../spec/01-data-model.md#8-shared-wire-values)).
+digest ([data model §7](../spec/01-data-model.md#7-shared-values)).
 
 Every non-2xx JSON error uses the wire's `ArborError` envelope with
 `tree?: TreeRef`. Shared codes are `invalid-request`, `unauthenticated`,
@@ -125,7 +125,7 @@ state. Child pages contain `NodeSummary` values and are fetched explicitly;
 
 Logical-node rules come from the [data model](../spec/01-data-model.md); exact
 directory source, `_index.md`, frontmatter, and child-placement rules come from
-the portable [directory projection](../spec/02-directory-format.md).
+the portable [directory projection](../spec/03-directory-format.md).
 Children are also the table/row browsing API: child summaries carry projected
 row properties and schema capability without a collection-specific endpoint.
 Children, search, backlinks, recovery entries, mounted boundaries, events, and
@@ -228,7 +228,7 @@ and content operations are addressed separately even when their capability
 revisions name the same exact source bytes. A `ChildRepresentationSummary`
 describes the observed placement; it does not make backing or projection
 topology part of node identity. The exact synchronized rollup form remains the
-wire's [`RollupDescriptor`](../spec/01-data-model.md#7-the-canonical-encoding-of-a-tree).
+wire's [`RollupDescriptor`](../spec/01-data-model.md#6-the-canonical-encoding-of-a-tree).
 
 The REST routes carry `NodeRef` without inventing a second locator shape. Node
 reads take it as the `tree`, `path`, and `stableKey` query parameters described
@@ -286,8 +286,8 @@ type WriteProperties = {
 Its semantics—complete map, omitted keys as deletions, explicit `null` as a
 value, immutable identity properties, and exact Markdown body preservation—are
 specified once in the
-[directory format](../spec/02-directory-format.md#3-properties-markdown-content-and-identity);
-rollup and database row writes follow [stores](../spec/06-stores.md).
+[directory format](../spec/03-directory-format.md#3-properties-markdown-content-and-identity);
+rollup and database row writes follow [stores](../spec/07-stores.md).
 Identity-less rows and file-rollup membership remain read-only. Named
 executable mutations remain the surface for authorization, multi-row work,
 cascades, and business invariants.

@@ -4,7 +4,7 @@
 
 - **Priority:** P0
 - **Effort:** L
-- **State:** PLANNED — the spec side is written ([wire §1.4](../../spec/01-data-model.md#11-submit-a-candidate-state),
+- **State:** PLANNED — the spec side is written ([synchronization §3](../../spec/02-synchronization.md#3-updating-a-tree),
   [data model §5](../../spec/01-data-model.md#5-change-and-equivalence)); no code has changed.
 - **Depends on:** the `arbor://<TreeID>` locator change (landed 2026-09-02). Ships through
   [migrations/001](../../migrations/001-if-match-and-model-hash/README.md) using [the migration procedure](../../migrations/README.md).
@@ -51,8 +51,8 @@ the three format-specific mergers survive only as merge rules for two changes to
 8. **Clients.** arborsync's submit path (`packages/arborsync/src/tree-sync.ts`) and the Swift
    replica send `ifMatch: "modelHash"` and apply a result's `reconciliation` with their watch
    transition code, deleting the snapshot apply path; activation and the configuration tree send what
-   [wire §6.2](../../spec/04-accounts-and-devices.md#5-declaring-and-activating-a-tree) and
-   [configuration §3](../../spec/04-accounts-and-devices.md#6-governed-account-tree) say.
+   [accounts §5](../../spec/05-accounts-and-devices.md#5-declaring-and-activating-a-tree) and
+   [configuration §3](../../spec/05-accounts-and-devices.md#6-governed-account-tree) say.
 9. **Stamp-triggered re-place in arborsync.** The daemon records the schema version it last
    ran against in `.state`; on start, a stamp older than its own discards the rebuildable state
    (`sync`, `refs`, `replicas`, indexes) and re-places every placement from a snapshot,

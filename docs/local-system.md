@@ -1,6 +1,6 @@
 # Arbor local system reference
 
-This document records replaceable local filesystem, daemon-state, and credential-storage choices in the current Arbor implementation. The synchronized cross-server configuration contract is normative in [configuration](../spec/04-accounts-and-devices.md); the loopback API is documented separately in [Local Arbor REST API](arborsync-api.md).
+This document records replaceable local filesystem, daemon-state, and credential-storage choices in the current Arbor implementation. The synchronized cross-server configuration contract is normative in [configuration](../spec/05-accounts-and-devices.md); the loopback API is documented separately in [Local Arbor REST API](arborsync-api.md).
 
 ## Data home
 
