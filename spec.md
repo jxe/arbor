@@ -49,7 +49,7 @@ Ordinary unpromoted files are browsable without gaining a durable Arbor identity
 
 | File | Public contract | Status |
 |---|---|---|
-| [data model](spec/01-data-model.md) | Global TreeID lookup, trees and nodes, DNS/Canopy/path canonical lookup, structured data, projections/materializations, and equivalence | Definitional |
+| [data model](spec/01-data-model.md) | Global TreeID lookup, trees and nodes, DNS/Canopy/path canonical lookup, structured data, projections/materializations, revisions, and equivalence | Definitional |
 | [directory format](spec/02-directory-format.md) | Filesystem/Markdown projection, `_index.md`, frontmatter, bounded child placement, profile documents, and reserved names | Conformance-backed |
 | [locators](spec/03-locators.md) | Uniform tree/path/stable-key references, canonical and relative resolution, revisions, application queries, content fragments, and the public HTTP projection | Conformance-backed |
 | [wire](spec/04-wire.md) | Arbor server identity, claims, access, deterministic objects, sync, watch, and executable-document data and effects | Conformance-backed for values, objects, deltas, update identity, endpoints, SSE, and errors; described for queries, mutations, claims, and pairing |

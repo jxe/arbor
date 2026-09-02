@@ -12,9 +12,9 @@ differently while preserving the same model and the projection-specific fidelity
 guarantees it advertises.
 
 The directory projection preserves exact authored source in addition to modeled
-state. File bytes, frontmatter spelling/order/comments, and reserved rollup bytes
-therefore have exact representation revisions even when their decoded logical
-values are unchanged.
+state, so its writes are guarded by [source revisions](01-data-model.md#6-revisions-and-equivalence):
+file bytes, frontmatter spelling/order/comments, and reserved rollup bytes
+change the source revision even when the model digest is unchanged.
 
 ## Mapping files and directories to nodes
 
@@ -79,13 +79,11 @@ placement and child membership are distinct:
 
 Reading an implicit body or marker does not materialize it. The first authored
 content/property/placement write persists only the exact authored source; it
-does not serialize the marker's remainder. The directory projection's
-`placementRevision` covers the exact stored source bytes plus the provider's
-stable immediate-child generation. Child add/remove/relocate/identity changes
+does not serialize the marker's remainder. A placement write is guarded by the parent's source revision together with the
+children cursor it observed. Child add/remove/relocate/identity changes
 invalidate a concurrent placement write; property or content changes within an
 existing child do not change parent membership unless they also change its
-location or identity. This projection revision is extra observation detail and
-does not collapse the data model's separate content and children revisions.
+location or identity.
 
 Link ordering, nesting, labels, and deletion are ordinary source edits. Removing
 an explicit child link returns that child to the marker; it never deletes the

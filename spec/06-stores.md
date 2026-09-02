@@ -30,7 +30,7 @@ A conforming store supplies:
 
 Portable collection queries and mutations have the same meaning across backings. Backing-specific relational operations may exist only where the addressed database provides them and must be identified as backing-coupled.
 
-### Scoped model digests and physical representations
+### Physical representations
 
 Expanded child files and rolled-up child sets are representations of the same
 logical nodes. `_store.csv`, `_store.json`, and `_store.jsonl` represent the
@@ -39,22 +39,18 @@ represent a table's immediate rows or a database container's table/row subtree.
 The provider exposes those children through ordinary node and children APIs;
 reserved store files are not themselves row children.
 
-For expanded files and CSV/JSON/JSONL rollups, the exact representation
-revision and the schema-normalized, store-scoped model digest are separate.
-This digest is defined for the collection/subtree schema;
-it is not a universal serialization or hash for all Arbor trees. Reformatting
-JSON or CSV advances exact authored tree state without changing row identity or
-the scoped digest. A representation migration may preserve the digest while
-changing exact bytes. Updates name the complete candidate tree and may carry
+Reformatting JSON or CSV changes the source revision and not the model digest,
+and a representation migration may preserve the digest while changing every
+byte ([data model §6](01-data-model.md#6-revisions-and-equivalence)). Updates name the complete candidate tree and may carry
 compact patches to representation bytes, but the authority decodes
 base/current/candidate under quotas, merges by stable node identity where safe,
 validates the complete schema and constraints, and computes the accepted model
 digest itself.
 
-A live SQLite or Postgres database has no corresponding exact representation
-revision. Database reads instead carry a schema fingerprint, a provider-local
-transaction snapshot for the duration of the read, per-row CAS revisions, and
-an ordered committed-observation cursor. A database may export a canonical
+A live SQLite or Postgres database has no source revision. Database reads
+instead carry a schema fingerprint, a provider-local transaction snapshot for
+the duration of the read, each row's model digest as its write guard, and an
+ordered observation cursor. A database may export a canonical
 logical checkpoint for synchronization or recovery, but that checkpoint is not
 the revision of ordinary reads and never consists of database page, WAL, or
 provider storage bytes.
@@ -118,10 +114,10 @@ This specification adds only the facts a store owns:
 
 ### Revisions and committed change observation
 
-Every store read is associated with a coherent read boundary. File stores name
-an exact source revision. Database stores hold a provider-local transaction
-snapshot only for the read and return an ordered observation cursor; they do
-not expose a whole-database revision. A store observer yields changes only
+Every store read is associated with a coherent read boundary and returns the
+observation cursor it read through. File stores also name a source revision.
+Database stores hold a provider-local transaction snapshot only for the read;
+they do not expose a whole-database revision or digest. A store observer yields changes only
 after the corresponding transaction commits and supplies a cursor from which
 the runtime can establish a snapshot-then-follow boundary. Rollbacks and
 partial statements produce no visible change.
@@ -317,7 +313,6 @@ Schema information and explicit relationship declarations are mapped to canonica
 Replacing Markdown/CSV/JSON/JSONL rows with `_store.sqlite3`, or replacing one
 supported representation/provider with another, preserves the logical
 collection address, stable row identities, and portable operations when schema
-and primary-key values are preserved. Exact representation revisions may
-change while the scoped model digest remains equal. The transition is not atomic
+and primary-key values are preserved. Source revisions change while the model digest remains equal. The transition is not atomic
 across independent backing authorities unless the implementation actually
 provides that guarantee.

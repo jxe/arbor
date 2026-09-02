@@ -42,12 +42,10 @@ The operations have distinct relationships to the model:
 - `queries` derives current typed values from any reviewed logical nodes; and
 - `mutate` executes reviewed transactional model intent.
 
-The synchronized root identifies the exact Wire encoding of one accepted tree
-state and serves as its compare-and-swap key. It is not a universal logical
-hash: different roots may decode to model-state-equivalent trees when authored
-representation details differ. Equivalence of directory, store, and
-materialization projections is defined by the data model and their projection
-specs; Wire does not require one universal logical serialization or hash.
+The synchronized root is a [source revision](01-data-model.md#6-revisions-and-equivalence):
+it identifies the exact Wire encoding of one accepted tree state and serves as
+its compare-and-swap key. Different roots may decode to model-equivalent trees
+when authored representation details differ.
 
 ## 1. Accepted tree synchronization
 
@@ -290,12 +288,10 @@ draft until the result has been applied.
 When a candidate changes a recognized file child rollup, the submitted root
 names the exact lossless encoding of that candidate tree state. The authority
 decodes coherent base, current, and candidate representations under schema and
-resource bounds, recomputes logical row identities and the store codec's scoped
-model digest, merges disjoint changes by stable row identity, validates all
+resource bounds, recomputes logical row identities and the collection's model digest, merges disjoint changes by stable row identity, validates all
 keys, foreign keys, and constraints, and encodes the accepted representation.
-It never trusts a client-supplied model digest. Formatting-only changes may
-advance the accepted root without changing model-state equivalence or logical
-query dependencies. SQLite and Postgres changes use the database transaction,
+It never trusts a client-supplied model digest. Formatting-only changes advance the accepted root without changing the model
+digest, so they invalidate no logical query dependency. SQLite and Postgres changes use the database transaction,
 observation, and semantic-checkpoint protocol specified separately; live
 database storage bytes are never submitted or merged as a rollup object.
 
@@ -803,10 +799,11 @@ metadata. Schema execution shares the future isolation boundary with SSR,
 queries, mutations, and executable documents; it does not require a second
 authored schema. The descriptor lets remote resolution, paging, querying, search, and semantic
 merge address rolled-up children without converting them into Markdown files
-or making the reserved source file a visible row. A decoder recomputes schema
-and the codec/schema-scoped `modelDigest` from `source`; a mismatch is invalid.
-This is not a universal tree serialization or hash. Exact source bytes and
-model-state equivalence remain distinct. Names reject NUL,
+or making the reserved source file a visible row. A decoder recomputes `schema` and `modelDigest` from `source`; a mismatch is
+invalid. `modelDigest` is the collection node's
+[model digest](01-data-model.md#6-revisions-and-equivalence), computed over its
+schema-normalized rows in stable-key order as `{ key, path, properties }`
+entries. Names reject NUL,
 slashes, backslashes, dot segments, non-NFC text, and reserved ambiguity.
 Directory entries are canonically ordered; decoders reject noncanonical
 encodings and hash mismatches.

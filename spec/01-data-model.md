@@ -38,7 +38,7 @@ produces every other logical path.
 
 A property write is the one model-level mutation every projection must
 support identically. It submits a complete candidate property map together
-with the revision the writer observed: omitted keys are deleted, an explicit
+with the [write guard](#6-revisions-and-equivalence) the writer observed: omitted keys are deleted, an explicit
 JSON `null` is retained as a value, content and children are untouched, a
 stale revision is rejected, and a property selected by the applicable identity
 declaration cannot change. Projections add only what their representation
@@ -115,37 +115,51 @@ tree state through deterministic lossless encodings and observations.
 materializations. [Executable documents](07-executable-documents.md) defines
 queries and mutations over nodes rather than provider-specific rows.
 
-## 6. Equivalence
+## 6. Revisions and equivalence
 
-Arbor states equivalence at the level relevant to the claim. It does not require
-one universal serialized graph or one universal logical hash.
+The model is primary; files and databases implement it. A node's properties,
+content, children, and schema are the thing. A Markdown file with frontmatter,
+a `_store.csv`, a SQLite table, and a wire directory object are each one
+representation of that thing. Every rule in this specification addresses one
+of those two levels. Stable keys, queries and their dependencies, mutations,
+equivalence, store migration, placement projections, and the consent statement
+address the model. Wire synchronization, which must round-trip authored bytes
+exactly, frontmatter preservation, and the concurrency guard on an editor's
+write address a representation.
 
-### Identity equivalence
+Three primitives describe change, one per job:
 
-Two copies are the same logical tree when they have the same `TreeID`, even if
-their observed revisions have not settled. Two references identify the same
-keyed node when their TreeIDs, key-scope owners, and non-null keys agree. With a
-null key, TreeID and current path establish identity.
+| Primitive | Level | Definition | Job |
+|---|---|---|---|
+| **Source revision** | representation | The hash of an exact representation: a wire object hash, the wire root, a file's bytes. It exists only where bytes exist. | Compare-and-swap for byte-level synchronization; proof that authored source is untouched. |
+| **Model digest** | model | The Merkle hash of model state: the canonical CBOR of `{ schema, properties, content, children }`, where `children` maps each name to that child's digest. It is defined for every node, and a provider computes it wherever it can. | Proof of equality: skipping work, showing that a reformat or migration preserved the model, defining equivalence. |
+| **Observation cursor** | provider | An ordered position in a provider's committed-change stream. Every read returns the cursor it observed through. | The only way to follow change. A dependency is a provider, a cursor, and a precision scope. |
 
-### Model-state equivalence
+Two representations of one model state have different source revisions and
+the same model digest. That is expected, and it is why the wire root is not a
+logical hash. A database row's digest is cheap, so it is that row's write
+guard; a live database does not maintain a digest for a whole table and says
+so by returning a cursor instead. [Stores](06-stores.md#revisions-and-committed-change-observation)
+defines observation precision.
 
-Two tree states are model-state equivalent over a declared scope when their
-nodes have the same identities, properties, content, child names/membership,
-and schemas after schema-declared normalization.
+A write guard names a source revision when the write edits a representation,
+such as an editor saving Markdown or the wire's accepted base, and a model
+digest when it edits the model, such as a row mutation or a
+[property write](#2-trees-and-nodes) on a row. Equality and skipping use
+whichever level the claim is about. Invalidation uses cursors narrowed by
+precision, never hashes.
 
-### Projection equivalence
+Equivalence has two levels:
 
-Two projections are equivalent when decoding them produces model-state-
-equivalent nodes over the claimed scope.
-
-Expanded Markdown records, JSON, SQLite, and Postgres may therefore be
-equivalent representations of one collection even though none is the canonical
-serialization of the others.
-
-### Execution equivalence
-
-After synchronization and materialization settle, two application placements
-are execution-equivalent when the same source nodes, component/script versions,
-bound data-node state, schemas, trusted user, and inputs produce the same public
-query results, mutation validation/effects, constraints, and public errors.
-Physical provider choices and projection details are not application semantics.
+- **Identity.** Two copies are the same logical tree when they have the same
+  `TreeID`, even if their observed revisions have not settled. Two references
+  identify the same keyed node when their TreeIDs, key-scope owners, and
+  non-null keys agree. With a null key, TreeID and current path establish
+  identity.
+- **Model.** Two tree states, or two representations after decoding, are
+  model-equivalent over a declared scope when their model digests agree: their
+  nodes have the same identities, properties, content, child membership, and
+  schemas after schema-declared normalization. Expanded Markdown records,
+  JSON, SQLite, and Postgres may therefore be equivalent representations of
+  one collection even though none is the canonical serialization of the
+  others.

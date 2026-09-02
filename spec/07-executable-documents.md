@@ -149,20 +149,21 @@ authorized complete query-result states, never raw driver changes, with the
 no-gap, deduplication, and coalescing guarantees of
 [wire §2.1](04-wire.md#21-evaluate-and-stream-named-queries).
 
-A live dependency plan names the narrowest proved node revisions,
-child-membership generations, property/content fields, edges, schema
-fingerprints, mounted roots, profile/access facts, and provider revisions that
-can affect the result. Providers translate it into committed observation or
+A live dependency plan is a set of (provider, observation cursor, precision
+scope) entries: the narrowest proved nodes, child membership, property/content
+fields, edges, schema fingerprints, mounted roots, and profile/access facts
+that can affect the result, each bound to the cursor it was read through
+([data model §6](01-data-model.md#6-revisions-and-equivalence)). Providers translate it into committed observation or
 conservative subtree/store invalidation. Observation precision is an
 optimization and cannot change the result.
 
 For a `.children` source, execution samples the resolved parent before reading
-child pages and retains its children revision, schema revision, and
+child pages and retains its child membership, schema fingerprint, and
 `observedThrough` cursor as a membership dependency. Continuation cursors are
-bound to the membership revision used to create them. A subscriber follows or
+bound to the membership cursor used to create them. A subscriber follows or
 replays from the retained pre-read cursor; therefore an insertion or removal
 that races sampling or paging forces a rerun and cannot fall into a
-snapshot/observation gap. Per-child revisions may narrow property invalidation
+snapshot/observation gap. Per-child precision may narrow property invalidation
 but do not replace the parent membership dependency.
 
 A query whose nodes are not materialized locally may be hosted by the relevant
@@ -264,7 +265,7 @@ The same source document may be served by any compatible local runtime or
 server that provides its declared nodes, stores, and runtime features. A
 backing-independent handle cannot change meaning when expanded children,
 `_store.sqlite3`, `_store.yaml`, or a placement SQLite projection supplies its
-source; schema compatibility, store-scoped model digests, and data migration
+source; schema compatibility, model digests, and data migration
 are checked before the new handle version is used.
 
 For a query spanning transaction domains, the opaque `observedThrough` value represents the host's revision vector rather than inventing a global transaction. Cross-server execution requires explicit composition and never acquires authority merely through network reachability.
