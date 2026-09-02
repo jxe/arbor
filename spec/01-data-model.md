@@ -36,6 +36,15 @@ A tree also has independent history, a synchronization stream, and a whole-tree 
 The root node has logical path `/`. Looking up successive names in `children`
 produces every other logical path.
 
+A property write is the one model-level mutation every projection must
+support identically. It submits a complete candidate property map together
+with the revision the writer observed: omitted keys are deleted, an explicit
+JSON `null` is retained as a value, content and children are untouched, a
+stale revision is rejected, and a property selected by the applicable identity
+declaration cannot change. Projections add only what their representation
+requires, as the [directory format](02-directory-format.md#properties-markdown-content-and-identity)
+and [stores](06-stores.md#file-backed-collections) specify.
+
 Arbor trees can be mounted inside other arbor trees, but they remain a separate entry in the global TreeID map. A placement may present it below a node in another tree, but its
 nodes, history, access, and mutations are not copied into that parent.
 

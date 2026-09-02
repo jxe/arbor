@@ -149,7 +149,11 @@ The runtime must conservatively identify every committed change that may alter a
 
 For a runtime-owned mutation, the store driver normally knows exact affected collections, primary keys, and changed fields. External writers may provide less information. A conforming driver may degrade from row precision to collection or whole-store invalidation, but it must not miss an externally committed change. Observation precision is an optimization and cannot change query results.
 
-Mutation retry identity and its completed result are recorded in the same transaction domain as the data effects, or by an equivalent crash-recoverable mechanism that can distinguish a completed commit from an unexecuted intent after restart. Reusing one mutation identity with different handle code, caller, or validated input is a conflict. Generated IDs and captured mutation time remain stable across an exact retry.
+Mutation retry identity and its completed result are recorded in the same
+transaction domain as the data effects, or by an equivalent crash-recoverable
+mechanism that can distinguish a completed commit from an unexecuted intent
+after restart. The identity itself is defined by
+[wire §2.2](04-wire.md#22-execute-named-mutations).
 
 ## File-backed collections
 
@@ -192,10 +196,10 @@ driver locks and revision-checks the source, validates the complete key set and
 requested effects, writes and fsyncs a complete replacement, atomically renames
 it, fsyncs the containing directory where supported, and records retry
 completion in the same crash-recoverable workflow before acknowledgement.
-`writeProperties` additionally compares the sampled row-properties revision;
-the complete candidate property map must preserve its declared key. A logical
-no-op leaves the source byte-identical. A direct row-property write cannot add,
-remove, or reorder rows.
+The [model-level property write](01-data-model.md#2-trees-and-nodes) on a row
+compares the sampled row-properties revision and must preserve the declared
+key. A logical no-op leaves the source byte-identical. A direct row-property
+write cannot add, remove, or reorder rows.
 Multi-row mutations preserve row order unless the mutation
 explicitly changes ordered membership. JSONL drivers preserve untouched line
 bytes; JSON drivers preserve untouched value formatting where the source edit

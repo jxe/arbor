@@ -4,7 +4,27 @@
 An Arbor server represents one community. It owns accounts and profile
 claims, canonical tree boundaries, the private account-configuration trees,
 credential bindings, ACL enforcement, one mutable accepted ref per tree,
-immutable objects, and observation streams. It need not implement a local placement, filesystem replica, or UI.
+immutable objects, and observation streams. It need not implement a local
+placement, filesystem replica, or UI.
+
+Because it accepts complete candidate states and merges them itself, a
+conforming server is more than a content-addressed store. It implements:
+
+- the content-addressed object store, one compare-and-swap ref per tree, and
+  the ordered observation log with watch replay ([§1](#1-accepted-tree-synchronization));
+- the `account-config-v1` policy: parsing, validating, and semantically
+  merging the governed YAML tree ([§6](#6-governing-trees), [configuration](05-configuration.md));
+- the `markdown-additive-v1` three-way merge for concurrent Markdown edits
+  ([§1.4](#14-submit-a-candidate-state));
+- rollup decoding, `rollup-rows-v1` merge by stable row identity, and a
+  restricted runtime that executes `schema.ts` to recompute schema
+  fingerprints and model digests ([§3.3](#33-deterministic-lossless-encoding-and-tree-scoped-authorization));
+- profile claims, device pairing, access evaluation, and the public HTTP
+  projection ([§4](#4-finding-trees), [§5](#5-accounts-and-devices), [locators](03-locators.md#public-http-projection)).
+
+Hosting executable documents ([§2](#2-executable-document-operations)) is
+optional; a server without that runtime answers those routes with
+`422 unsupported-operation`.
 
 ## Protocol relationship to the data model
 
@@ -595,23 +615,11 @@ clients correlate them idempotently and treat the query result as authoritative.
 
 ### 2.3 Relationship to tree synchronization
 
-The four operations remain distinct even when their implementations share
-authentication, semantic digests, receipts, observation brokers, SSE framing,
-and tree-scoped authorization:
-
-- `POST .../updates` proposes a complete candidate tree state against an
-  accepted base and may merge or conflict;
-- `GET .../watch` replays accepted tree observations from a retained cursor;
-- `QUERY .../queries` safely derives a fresh user-dependent result over any
-  reviewed logical nodes and has no retained replay identity;
-- `POST .../mutate` executes one reviewed transactional procedure with
-  exactly-once retry semantics.
-
-Combining update and mutate payloads would obscure their different transaction
-and conflict domains. Combining watch and queries would either discard useful
-watch replay or invent durable query-subscription state. Endpoint
-consolidation therefore consists of shared conventions and implementation
-machinery, not one polymorphic mutation or stream endpoint.
+The four operations share authentication, semantic digests, receipts,
+observation brokers, SSE framing, and tree-scoped authorization, but not
+transaction or replay domains: `updates` and `mutate` have different conflict
+domains, and `watch` has retained replay identity while `queries` deliberately
+has none. Consolidation is shared machinery, not one polymorphic endpoint.
 
 Query streaming is derived-result delivery, not tree history. A mutation of an
 Arbor-canonical data tree advances that data tree's ordinary accepted ref and
@@ -931,21 +939,12 @@ is `account-config-v1`; all other trees use `ordinary`. There is no generic
 policy extension framework. The tree uses the ordinary object, snapshot,
 accepted-update, merge, replica, and watch machinery.
 
-The complete path, YAML, per-device write-rule, and semantic-merge contract is
-normative in [configuration](05-configuration.md#governed-account-tree). For
-every direct candidate and every automatic merge, the server:
-
-1. authenticates the submitting device using the current accepted root;
-2. parses and validates the complete candidate graph and semantic diff;
-3. enforces allowed paths and per-device/administrator write rules;
-4. rejects `.state`, aliases, duplicate keys, unknown fields, ambiguous IDs,
-   and an implicit config-tree declaration or placement; and
-5. accepts the new root and applies credential revocation, administrators,
-   existing-tree ACLs, and canonical boundaries in one transaction.
-
-Incompatible same-field edits return
-`conflict` with exact typed `account-configuration` details and a private draft
-snapshot; resolution is a later explicit candidate.
+The complete path, YAML, per-device write rule, and semantic-merge contract,
+including what the server validates and applies atomically with each accepted
+root, is normative in
+[configuration](05-configuration.md#governed-account-tree). Incompatible
+same-field edits return `conflict` with exact typed `account-configuration`
+details and a private draft snapshot; resolution is a later explicit candidate.
 
 ### 6.2 Declaring and activating a tree
 

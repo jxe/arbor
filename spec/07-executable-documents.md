@@ -143,7 +143,11 @@ the plan once at compilation and is not called per node. A backing-coupled query
 uses a separately declared escape hatch and carries that fact in its handle and
 consent statement.
 
-Live behavior is intrinsic to a query. A one-shot caller evaluates its current value once; a subscribing caller maintains that same value. The subscription is a stream of authorized complete query-result states, not raw driver changes. It establishes a race-free snapshot-then-follow boundary, never publishes a result already known to be stale, suppresses identical canonical output hashes, and may skip intermediate states for a slow client because it represents current state rather than an effect log.
+Live behavior is intrinsic to a query. A one-shot caller evaluates its current
+value once; a subscribing caller maintains that same value as a stream of
+authorized complete query-result states, never raw driver changes, with the
+no-gap, deduplication, and coalescing guarantees of
+[wire §2.1](04-wire.md#21-evaluate-and-stream-named-queries).
 
 A live dependency plan names the narrowest proved node revisions,
 child-membership generations, property/content fields, edges, schema
@@ -173,7 +177,12 @@ query discovery, delegated authorization, or server-to-server routing
 
 A mutation is validated code running against explicit write prefixes. The runner opens one transaction in the selected store and supplies it as `tx`. Returning commits; throwing rolls back. All reads, authorization checks, ordered operations, and writes through `tx` share that transaction. A mutation cannot silently span several transaction domains.
 
-The caller supplies one mutation identity and reuses it for an ambiguous retry. Durable lookup is scoped by source tree, authenticated subject, and mutation ID; a canonical request digest binds that identity to the handle, code version, validated input, and complete activated source bindings, so changed intent or changed store/schema resolution conflicts. The runtime captures one logical mutation time and deterministic generated-ID namespace before execution; exact retries observe the same values. A receipt includes the request digest and committed store/tree cursor needed to reconcile related live queries.
+The caller supplies one mutation identity and reuses it for an ambiguous retry;
+[wire §2.2](04-wire.md#22-execute-named-mutations) defines the request digest
+that binds it to the handle, code version, validated input, and activated
+source bindings, the replay scoping, and the receipt. The runtime captures one
+logical mutation time and deterministic generated-ID namespace before
+execution; exact retries observe the same values.
 
 `arbor/react` adapts a mutation handle to React Actions. Form conversion is shallow and deterministic: a name occurring once becomes its string or file value, a repeated name becomes an array in document order, and an omitted name is absent. Coercion belongs to the authored schema. Expected failures use `publicError(code, message, options?)` from `arbor/data`; other thrown values become a generic internal error without stack traces, SQL, paths, or private row data.
 
