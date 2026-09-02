@@ -10,8 +10,9 @@
 - **State:** IN PROGRESS — the normative specification, collection-file
   TypeScript and Swift cutover, collection-file conformance vectors,
   child-name rule, transition-payload code and conformance normalization, and
-  local tests are complete. Migration 002, its rehearsal/cutover gates, and
-  eventual removal of temporary decoder tolerance remain.
+  local tests are complete. Migration 002 has run against live Canopy and the
+  Mac; iPhone re-placement, eventual removal of temporary decoder tolerance,
+  and backup-age cleanup remain.
 - **Depends on:** the completed Data 002 common node contract and Data 009
   update reconciliation; migration 001 must remain unchanged and its cutover
   must be verified complete on every relevant client before migration 002 runs.
@@ -21,15 +22,12 @@
 
 ## Remaining work
 
-1. Restore a fresh live-volume archive into local `before` and `migrated`
-   copies and run migration 002 against the latter.
-2. Prove logical root equivalence, serve and verify the migrated copy, and
-   record the results in the migration rehearsal report.
-3. Complete the quiesced live cutover and Mac/iPhone re-placement checks.
-4. After every deployed sender emits both transition arrays and the
+1. Install the migration-002 iPhone build and verify its format-3 replica
+   re-placement and synchronization.
+2. After every deployed sender emits both transition arrays and the
    compatibility window closes, remove the temporary input-only tolerance for
    an omitted legacy `deltas` field from TypeScript and Swift decoders.
-5. After the two-week backup window, remove migration 002 and move this plan
+3. After the two-week backup window, remove migration 002 and move this plan
    to history. The tree-operations spec has its intended four-part structure,
    but its explanatory prose remains a separate follow-up editing task.
 

@@ -1,6 +1,7 @@
 # 002: collection-file Wire descriptors
 
-**Status:** implemented and locally rehearsed; live cutover has not run.
+**Status:** live Canopy and Mac cutover completed on 2026-09-02. The iPhone
+build/re-placement check and two-week backup cleanup remain.
 
 ## What changes on disk
 
@@ -43,3 +44,20 @@ Before live deployment:
 Rollback uses the schema-3 archive and previous image. After local clients
 re-place, also restore the saved local Arbor data home. Keep backups for two
 weeks; deleting backups and this migration directory is a person-owned step.
+
+## Live cutover
+
+On 2026-09-02, the schema-4 build entered maintenance mode over the schema-3
+volume, migration 002 produced the same report as the rehearsal, and the build
+reopened the migrated volume successfully. The live dataset contained no
+legacy collection-file directories, so all nine roots were unchanged; zero
+objects were rewritten, 128 remained reachable, and two history-only objects
+were pruned.
+
+Arbor Sync advanced its private-state version from 2 to 3, rebuilt its
+sync/ref state, and returned all five placements to idle. Server verification
+passed, and the 111-file authored manifest was unchanged. A temporary page on
+the Drift tree appeared at its canonical URL and then returned 404 after
+deletion, with an accepted update at each step. The live backup, local archive,
+restored copies, reports, authored manifests, and `dot-arbor.before` are under
+the locations recorded in [rehearsal.md](rehearsal.md).
