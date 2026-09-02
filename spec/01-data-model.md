@@ -408,7 +408,7 @@ and replay behavior:
 | Operation | Purpose | Durable effect | Replay boundary |
 |---|---|---|---|
 | `ref`, `snapshot`, `objects` | Read one accepted tree state | None | `observedThrough` starts a watch without a read/watch gap |
-| `updates` | Propose a complete candidate state, matching on its bytes hash or its model hashes, or activate a reserved tree with a null base | May append one accepted update | Semantic request identity recovers an ambiguous result |
+| `updates` | Propose a transition to a candidate state, matching on its bytes hash or its model hashes, or activate a reserved tree with a null base | May append one accepted update | Semantic request identity recovers an ambiguous result; a merged result carries the transition back |
 | `watch` | Follow ordered accepted transitions | None | An event cursor resumes retained observation history |
 
 The deterministic lossless graph is both the synchronization representation
@@ -539,14 +539,24 @@ base it observed, together with which hash must still match for the
 candidate to be accepted:
 
 ```ts
-type UpdateRequest = {
-  base: string | null;
-  candidate: Hash;  ifMatch: "bytesHash" | "modelHash";
-  onConflict?: "reject" | "merge";
+type TransitionPayload = {
   objects: ObjectEnvelope[];
   deltas?: ObjectDelta[];
 };
+
+type UpdateRequest = TransitionPayload & {
+  base: string | null;
+  candidate: Hash;
+  ifMatch: "bytesHash" | "modelHash";
+  onConflict?: "reject" | "merge";
+};
 ```
+
+An update proposes a transition from the accepted base to the candidate root;
+the authority accepts it, or merges and answers with the transition from the
+candidate to what it accepted; watch ([§12](#12-watch-accepted-transitions))
+delivers every accepted transition in order. One payload shape serves all
+three.
 
 `base` is the id of the retained accepted update the candidate was derived
 from; the authority knows that update's root, so the pair binds reconciliation
@@ -599,7 +609,7 @@ of these decisions:
    rule's output for any resolved node. Atomically accept it and return
    `201 merged`.
 5. Otherwise return `409 conflict` with the current update, structured reasons
-   naming each conflicting node, and a complete client-owned draft snapshot.
+   naming each conflicting node, and the `draft` transition the client keeps.
    Accepted state does not advance and the rejected candidate does not become
    history.
 
@@ -634,7 +644,7 @@ type UpdateResult = {
   update: AcceptedUpdate;
   requestDigest: Hash;
   observedThrough: EventCursor;
-  snapshot?: TreeSnapshot;
+  reconciliation?: TransitionPayload;
 };
 ```
 
@@ -642,15 +652,16 @@ type UpdateResult = {
 current one for `current`, or the newly accepted or merged one. `merge` is
 present only when a merge rule ran; a merge of disjoint nodes carries none. An accepted update's `id` is the decimal ordinal
 of the observation that recorded it, so it is also that update's `tree.ref`
-cursor and `observedThrough`. `snapshot` is present exactly when the accepted
-root differs from the submitted candidate: a superseded, merged, or replayed
-result returns the complete authoritative snapshot needed for immediate
-reconciliation, and an accepted candidate returns none.
+cursor and `observedThrough`. `reconciliation` is present exactly when the accepted root differs from the
+submitted candidate: it is the transition from the candidate root to
+`update.root` under the [sparse transfer](#10-sparse-graph-transfer) rules, so
+a superseded, merged, or replayed result is applied with the same code that
+applies a watch frame. An accepted candidate returns none.
 
 A conflict uses the shared `ArborError` envelope with
-`details.kind: "server-update" | "account-configuration"`. Its details include
-the current `AcceptedUpdate`, the base and candidate roots, a complete portable
-`draft`, structured conflict reasons, and the authoritative `currentSnapshot`.
+`details.kind: "server-update" | "account-configuration"`. Its details include the current `AcceptedUpdate`, the base and candidate
+roots, structured conflict reasons naming each conflicting node, and `draft`,
+the transition from the candidate root to the draft root the client keeps.
 
 Semantic request identity is the SHA-256 of the
 [canonical CBOR encoding](#7-the-canonical-encoding-of-a-tree)
@@ -692,10 +703,8 @@ Every frame satisfies `id === data.cursor` and `event === data.kind`. Its JSON
 body is:
 
 ```ts
-type AcceptedTransition = {
+type AcceptedTransition = TransitionPayload & {
   update: AcceptedUpdate;
-  objects: ObjectEnvelope[];
-  deltas?: ObjectDelta[];
   requestDigest?: Hash;
 };
 

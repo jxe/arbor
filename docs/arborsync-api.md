@@ -158,7 +158,7 @@ type ChildRepresentationSummary =
       type: "rollup";
       codec: "csv" | "json" | "jsonl" | "sqlite";
       scope: "children" | "subtree";
-      modelDigest: Hash;
+      modelHash: Hash;
     }
   | { type: "external"; driver: string };
 
