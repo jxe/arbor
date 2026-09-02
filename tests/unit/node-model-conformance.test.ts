@@ -7,7 +7,7 @@ import {
   decodeIdentityRule,
   decodeNodeCapabilities,
   decodeNodeSnapshot,
-  decodeRollupDescriptor,
+  decodeCollectionFileDescriptor,
 } from "@arbor/core/node-model";
 
 const conformance = join(import.meta.dir, "../../conformance");
@@ -23,7 +23,7 @@ interface NodeModelFixture {
   invalidIdentityRules: Array<{ name: string; value: unknown }>;
   snapshots: Array<{ name: string; value: unknown }>;
   childrenPages: Array<{ name: string; value: unknown }>;
-  rollups: unknown[];
+  collectionFiles: unknown[];
   forwardCompatibleSnapshot: Record<string, unknown>;
   invalidSnapshots: Array<{ name: string; value: unknown }>;
 }
@@ -59,24 +59,24 @@ describe("unified node-model conformance", () => {
     expect(stableKeyFromProperties(["id"], { id: Number.NaN })).toBeNull();
   });
 
-  test("decodes snapshots, summaries, capabilities, and rollups without kinds", async () => {
+  test("decodes snapshots, summaries, capabilities, and collection files without kinds", async () => {
     const value = await fixture();
     const snapshots = value.snapshots.map((item) => decodeNodeSnapshot(item.value));
     const pages = value.childrenPages.map((item) => decodeChildrenPage(item.value));
-    const rollups = value.rollups.map(decodeRollupDescriptor);
+    const collectionFiles = value.collectionFiles.map(decodeCollectionFileDescriptor);
 
     expect(snapshots.map((item) => item.ref.path)).toEqual(["/practices", "/data", "/assets/portrait.png"]);
     expect(snapshots[0]?.capabilities.content?.format).toBe("markdown");
-    expect(snapshots[0]?.capabilities.children?.representation).toEqual({ type: "expanded" });
-    expect(snapshots[1]?.capabilities.children?.representation).toEqual({ type: "external", driver: "postgres" });
+    expect(snapshots[0]?.capabilities.children?.backing).toEqual({ type: "expanded-files" });
+    expect(snapshots[1]?.capabilities.children?.backing).toEqual({ type: "external-store", driver: "postgres" });
     expect(snapshots[2]?.materialization).toBe("placeholder");
     expect(pages[0]?.items.every((item) => item.ref.stableKey !== null)).toBe(true);
     expect(pages[0]?.items.every((item) => !("kind" in item))).toBe(true);
-    expect(rollups.map((item) => item.codec)).toEqual(["csv", "json", "jsonl"]);
-    expect(new Set(rollups.map((item) => item.modelHash)).size).toBe(1);
-    expect(() => decodeRollupDescriptor({
-      ...rollups[0],
-      codec: "sqlite",
+    expect(collectionFiles.map((item) => item.format)).toEqual(["csv", "json", "jsonl"]);
+    expect(new Set(collectionFiles.map((item) => item.childSetHash)).size).toBe(1);
+    expect(() => decodeCollectionFileDescriptor({
+      ...collectionFiles[0],
+      format: "sqlite",
     })).toThrow();
   });
 

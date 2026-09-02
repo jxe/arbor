@@ -33,26 +33,31 @@
       "hash": "sha256:2c33ed526ed3f73ddc93a0107e374c5a69cb9c5588cbe3b4d0576527135efb2a"
     },
     {
-      "name": "directory-file-rollup",
+      "name": "directory-collection-file",
       "model": {
         "type": "directory",
         "entries": [
           {
             "name": "_store.json",
-            "rollup": {
-              "version": 1,
-              "codec": "json",
-              "source": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-              "schemaSource": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
-              "schema": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
-              "scope": "children",
-              "modelHash": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
-            }
+            "hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          {
+            "name": "schema.ts",
+            "hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
           }
-        ]
+        ],
+        "childrenSource": {
+          "version": 1,
+          "type": "collection-file",
+          "format": "json",
+          "source": "_store.json",
+          "schemaSource": "schema.ts",
+          "schemaFingerprint": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          "childSetHash": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        }
       },
-      "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgaJkbmFtZWtfc3RvcmUuanNvbmZyb2xsdXCnZWNvZGVjZGpzb25lc2NvcGVoY2hpbGRyZW5mc2NoZW1heEdzaGEyNTY6MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM2Zzb3VyY2V4R3NoYTI1NjoxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExZ3ZlcnNpb24BaW1vZGVsSGFzaHhHc2hhMjU2OjQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDRsc2NoZW1hU291cmNleEdzaGEyNTY6MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMg==",
-      "hash": "sha256:cdec22f85df7c3f1f60fcda23d10a799da6e996ec76daafd5f5dbf9be50df6e1"
+      "canonicalCborBase64": "o2R0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgqJkaGFzaHhHc2hhMjU2OjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFkbmFtZWtfc3RvcmUuanNvbqJkaGFzaHhHc2hhMjU2OjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJkbmFtZWlzY2hlbWEudHNuY2hpbGRyZW5Tb3VyY2WnZHR5cGVvY29sbGVjdGlvbi1maWxlZmZvcm1hdGRqc29uZnNvdXJjZWtfc3RvcmUuanNvbmd2ZXJzaW9uAWxjaGlsZFNldEhhc2h4R3NoYTI1Njo0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0bHNjaGVtYVNvdXJjZWlzY2hlbWEudHNxc2NoZW1hRmluZ2VycHJpbnR4R3NoYTI1NjozMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMz",
+      "hash": "sha256:471656227eb27df5b6fabe1e69fba7047705a0da27363e3295c442b4681d1e9b"
     }
   ],
   "invalid": [

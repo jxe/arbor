@@ -6,10 +6,11 @@ import {
   type ObjectHash,
   type OnConflict,
   type UpdateConflict,
+  type WireDirectory,
   type WireDirectoryEntry,
   type WireObject,
 } from "@arbor/wire";
-import { frontmatter, markdownAdditiveV1, rollupRowsV1, type RuleContext } from "./merge-rules.ts";
+import { collectionFileRowsV1, frontmatter, markdownAdditiveV1, type CollectionFileMergeInput, type RuleContext } from "./merge-rules.ts";
 import { ModelHashes } from "./model-hash.ts";
 
 export interface MergeResult {
@@ -25,8 +26,7 @@ type Load = (hash: ObjectHash) => Promise<Uint8Array>;
 function entryEqual(left: WireDirectoryEntry | undefined, right: WireDirectoryEntry | undefined): boolean {
   return left?.name === right?.name
     && left?.hash === right?.hash
-    && left?.tree === right?.tree
-    && JSON.stringify(left?.rollup) === JSON.stringify(right?.rollup);
+    && left?.tree === right?.tree;
 }
 
 function sortedEntries(entries: WireDirectoryEntry[]): WireDirectoryEntry[] {
@@ -41,7 +41,7 @@ function conflictReason(
 ): UpdateConflict["reason"] {
   const present = [before, local, accepted].filter((entry): entry is WireDirectoryEntry => entry !== undefined);
   if (present.some((entry) => entry.tree)) return "nested-boundary-conflict";
-  const kinds = new Set(present.map((entry) => entry.rollup ? "rollup" : entry.hash ? "object" : "none"));
+  const kinds = new Set(present.map((entry) => entry.hash ? "object" : "none"));
   if (kinds.size > 1) return "path-kind-conflict";
   if (local?.hash && accepted?.hash && !local.name.endsWith(".md")) return "binary-conflict";
   return "node-conflict";
@@ -86,12 +86,12 @@ export async function mergeWireTrees(
   let approximatePlacements = 0;
   let mergedRows = 0;
   let sawMarkdownRule = false;
-  let sawRollupRule = false;
+  let sawCollectionFileRule = false;
 
-  const directoryEntries = async (entry: WireDirectoryEntry | undefined): Promise<Map<string, WireDirectoryEntry> | null> => {
+  const directoryObject = async (entry: WireDirectoryEntry | undefined): Promise<WireDirectory | null> => {
     if (!entry?.hash) return null;
     const object = await context.object(entry.hash);
-    return object.type === "directory" ? new Map(object.entries.map((child) => [child.name, child])) : null;
+    return object.type === "directory" ? object : null;
   };
 
   /** Resolve one conflicting node with its representation's rule; undefined when it has none. */
@@ -107,12 +107,6 @@ export async function mergeWireTrees(
       sawMarkdownRule = true;
       approximatePlacements += merged.approximate;
       return { name: local.name, hash: merged.hash };
-    }
-    if (before?.rollup && local.rollup && accepted.rollup) {
-      const merged = await rollupRowsV1(path, before.rollup, local.rollup, accepted.rollup, context);
-      sawRollupRule = true;
-      mergedRows += merged.mergedRows;
-      return { name: local.name, rollup: merged.descriptor };
     }
     return undefined;
   };
@@ -152,9 +146,9 @@ export async function mergeWireTrees(
     accepted: WireDirectoryEntry | undefined,
   ): Promise<WireDirectoryEntry | null> => {
     const path = childPath(parentPath, name);
-    const [localChildren, acceptedChildren] = await Promise.all([directoryEntries(local), directoryEntries(accepted)]);
+    const [localChildren, acceptedChildren] = await Promise.all([directoryObject(local), directoryObject(accepted)]);
     if (localChildren && acceptedChildren) {
-      const baseChildren = (await directoryEntries(before)) ?? new Map<string, WireDirectoryEntry>();
+      const baseChildren = (await directoryObject(before)) ?? { type: "directory" as const, entries: [] };
       return { name, hash: await mergeDirectory(path, baseChildren, localChildren, acceptedChildren) };
     }
     const [baseModel, currentModel] = await Promise.all([hashes.entry(before), hashes.entry(accepted)]);
@@ -170,12 +164,57 @@ export async function mergeWireTrees(
 
   const mergeDirectory = async (
     parentPath: string,
-    baseEntries: Map<string, WireDirectoryEntry>,
-    candidateEntries: Map<string, WireDirectoryEntry>,
-    currentEntries: Map<string, WireDirectoryEntry>,
+    baseDirectory: WireDirectory,
+    candidateDirectory: WireDirectory,
+    currentDirectory: WireDirectory,
   ): Promise<ObjectHash> => {
+    const baseEntries = new Map(baseDirectory.entries.map((entry) => [entry.name, entry]));
+    const candidateEntries = new Map(candidateDirectory.entries.map((entry) => [entry.name, entry]));
+    const currentEntries = new Map(currentDirectory.entries.map((entry) => [entry.name, entry]));
     const entries: WireDirectoryEntry[] = [];
     const handled = new Set<string>();
+    const descriptorState = (directory: WireDirectory): string | null => directory.childrenSource
+      ? JSON.stringify(directory.childrenSource)
+      : null;
+    const collectionInput = (directory: WireDirectory): CollectionFileMergeInput | null => {
+      const descriptor = directory.childrenSource;
+      if (!descriptor) return null;
+      const source = directory.entries.find((entry) => entry.name === descriptor.source)?.hash;
+      const schemaSource = directory.entries.find((entry) => entry.name === descriptor.schemaSource)?.hash;
+      return source && schemaSource ? { descriptor, source, schemaSource } : null;
+    };
+    const baseCollection = collectionInput(baseDirectory);
+    const candidateCollection = collectionInput(candidateDirectory);
+    const currentCollection = collectionInput(currentDirectory);
+    let selectedCollection: CollectionFileMergeInput | null = null;
+    if (baseDirectory.childrenSource || candidateDirectory.childrenSource || currentDirectory.childrenSource) {
+      const baseState = descriptorState(baseDirectory);
+      const candidateState = descriptorState(candidateDirectory);
+      const currentState = descriptorState(currentDirectory);
+      if (candidateState === baseState) selectedCollection = currentCollection;
+      else if (currentState === baseState || candidateState === currentState) selectedCollection = candidateCollection;
+      else if (onConflict === "merge" && baseCollection && candidateCollection && currentCollection) {
+        const merged = await collectionFileRowsV1(parentPath, baseCollection, candidateCollection, currentCollection, context);
+        selectedCollection = merged;
+        sawCollectionFileRule = true;
+        mergedRows += merged.mergedRows;
+      } else {
+        conflicts.push({ path: parentPath, reason: "collection-file-schema-conflict" });
+        selectedCollection = candidateCollection;
+      }
+      for (const directory of [baseDirectory, candidateDirectory, currentDirectory]) {
+        if (directory.childrenSource) {
+          handled.add(directory.childrenSource.source);
+          handled.add(directory.childrenSource.schemaSource);
+        }
+      }
+      if (selectedCollection) {
+        entries.push(
+          { name: selectedCollection.descriptor.source, hash: selectedCollection.source },
+          { name: selectedCollection.descriptor.schemaSource, hash: selectedCollection.schemaSource },
+        );
+      }
+    }
     const [basePages, candidatePages, currentPages] = await Promise.all([
       pagesByID(baseEntries), pagesByID(candidateEntries), pagesByID(currentEntries),
     ]);
@@ -217,17 +256,21 @@ export async function mergeWireTrees(
       const resolved = await resolveNode(parentPath, name, before, local, accepted);
       if (resolved) entries.push(resolved);
     }
-    return context.store({ type: "directory", entries: sortedEntries(entries) });
+    return context.store({
+      type: "directory",
+      entries: sortedEntries(entries),
+      ...(selectedCollection ? { childrenSource: selectedCollection.descriptor } : {}),
+    });
   };
 
-  const rootEntries = async (hash: ObjectHash) => {
+  const rootDirectory = async (hash: ObjectHash): Promise<WireDirectory> => {
     const object = await context.object(hash);
     if (object.type !== "directory") throw new Error("Tree root is not a directory object");
-    return new Map(object.entries.map((entry) => [entry.name, entry]));
+    return object;
   };
-  const root = await mergeDirectory("/", await rootEntries(base), await rootEntries(candidate), await rootEntries(current));
-  const summary: MergeSummary | undefined = sawRollupRule
-    ? { version: "rollup-rows-v1", mergedRows }
+  const root = await mergeDirectory("/", await rootDirectory(base), await rootDirectory(candidate), await rootDirectory(current));
+  const summary: MergeSummary | undefined = sawCollectionFileRule
+    ? { version: "collection-file-rows-v1", mergedRows }
     : sawMarkdownRule ? { version: "markdown-additive-v1", approximatePlacements } : undefined;
   return { root, objects: generated, conflicts, ...(summary ? { summary } : {}) };
 }

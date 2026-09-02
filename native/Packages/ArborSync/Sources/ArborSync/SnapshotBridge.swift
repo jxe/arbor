@@ -25,7 +25,7 @@ enum SnapshotBridge {
         }
 
         func visitDirectory(_ hash: String, path: String) throws {
-            guard case let .directory(entries)? = objects[hash] else {
+            guard case let .directory(entries, childrenSource)? = objects[hash] else {
                 throw ArborWireValidationError.incompleteGraph(hash)
             }
             var source: String?
@@ -36,28 +36,26 @@ enum SnapshotBridge {
                 }
                 source = decoded
             }
-            nodes.append(ReplicaSystemNode(path: path, content: .directory(source: source)))
+            nodes.append(ReplicaSystemNode(
+                path: path,
+                content: .directory(source: source),
+                childrenSource: childrenSource.map {
+                    ReplicaCollectionFileDescriptor(
+                        version: $0.version,
+                        type: $0.type,
+                        format: $0.format,
+                        source: $0.source,
+                        schemaSource: $0.schemaSource,
+                        schemaFingerprint: $0.schemaFingerprint,
+                        childSetHash: $0.childSetHash
+                    )
+                }
+            ))
 
             for entry in entries where entry.name != "_index.md" {
                 let destination = childPath(entry.name, parent: path)
                 if let nestedTree = entry.tree {
                     nodes.append(ReplicaSystemNode(path: destination, content: .boundary(tree: TreeID(rawValue: nestedTree))))
-                    continue
-                }
-                if let rollup = entry.rollup {
-                    nodes.append(ReplicaSystemNode(
-                        path: destination,
-                        content: .file(bytes: try fileBytes(rollup.source)),
-                        rollup: ReplicaRollupDescriptor(
-                            version: rollup.version,
-                            codec: rollup.codec,
-                            source: rollup.source,
-                            schemaSource: rollup.schemaSource,
-                            schema: rollup.schema,
-                            scope: rollup.scope,
-                            modelHash: rollup.modelHash
-                        )
-                    ))
                     continue
                 }
                 guard let childHash = entry.hash, let object = objects[childHash] else {

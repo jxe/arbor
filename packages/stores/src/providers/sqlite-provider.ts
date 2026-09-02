@@ -1,7 +1,6 @@
 import { dirname, join } from "node:path";
-import { canonicalCBORHash } from "@arbor/core";
 import { Database } from "bun:sqlite";
-import type { Diagnostic, Hash, JSONValue } from "@arbor/core";
+import type { Diagnostic, JSONValue } from "@arbor/core";
 import {
   stableJSONString,
   parseCanonicalStableKey,
@@ -16,7 +15,7 @@ import {
   decodeProviderCursor,
   encodeProviderCursor,
   ProjectionProviderError,
-  representationFor,
+  backingFor,
   type LoadedProjectionSlice,
   type PreparedProviderPropertyWrite,
   type ProjectionDefinition,
@@ -28,7 +27,6 @@ interface LoadedSQLiteTable {
   columns: string[];
   rows: ProviderChildRecord[];
   revision: string;
-  modelHash: string;
   diagnostics: Diagnostic[];
   identityRule?: { properties: string[] };
 }
@@ -37,7 +35,6 @@ interface LoadedSQLiteStore {
   tables: Record<string, LoadedSQLiteTable>;
   schemaVersion: number;
   revision: string;
-  modelHash: string;
 }
 export class SQLiteProjectionDriver implements ProjectionProvider {
   readonly kinds = ["sqlite"] as const;
@@ -47,10 +44,9 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
       columns: [],
       revision: loaded.revision,
       schemaRevision: loaded.schema.fingerprint,
-      modelHash: loaded.modelHash,
       diagnostics: definition.diagnostics,
       editable: false,
-      representation: representationFor("sqlite", loaded.modelHash as Hash, "subtree"),
+      backing: backingFor("sqlite", undefined, "subtree"),
       total: Object.keys(loaded.tables).length,
       tables: Object.keys(loaded.tables).sort(),
     };
@@ -64,10 +60,9 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
       ...(table.identityRule ? { identityRule: table.identityRule } : {}),
       revision: table.revision,
       schemaRevision: loaded.schema.fingerprint,
-      modelHash: table.modelHash,
       diagnostics: table.diagnostics,
       editable: Boolean(table.identityRule),
-      representation: representationFor("sqlite", table.modelHash as Hash, "children"),
+      backing: backingFor("sqlite", undefined, "children"),
       total: table.rows.length,
     };
   }
@@ -302,16 +297,14 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
         const logicalRows = [...rows]
           .sort((left, right) => (left.stableKey ?? left.path).localeCompare(right.stableKey ?? right.path))
           .map((row) => ({ key: row.stableKey, properties: row.values }));
-        const modelHash = canonicalCBORHash(logicalRows);
         tables[relation.name] = {
-          columns, rows, modelHash,
+          columns, rows,
           revision: revisionOf(stableJSONString({ schema: schema.fingerprint, relation: relation.name, rows: logicalRows })),
           diagnostics, ...(identityRule ? { identityRule } : {}),
         };
       }
-      const logicalStore = Object.fromEntries(Object.entries(tables).sort(([left], [right]) => left.localeCompare(right)).map(([name, table]) => [name, table.modelHash]));
-      const modelHash = canonicalCBORHash(logicalStore);
-      return { schema, tables, schemaVersion, modelHash, revision: revisionOf(stableJSONString({ schema: schema.fingerprint, tables: logicalStore })) };
+      const observedTables = Object.fromEntries(Object.entries(tables).sort(([left], [right]) => left.localeCompare(right)).map(([name, table]) => [name, table.revision]));
+      return { schema, tables, schemaVersion, revision: revisionOf(stableJSONString({ schema: schema.fingerprint, tables: observedTables })) };
     } finally {
       database.exec("rollback");
       database.close();

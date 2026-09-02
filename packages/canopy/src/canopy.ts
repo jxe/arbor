@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { stableJSONString, generateArborID, isGeneratedArborID, sha256, type AccessLevel, type AccessRule, type ReadWriteAccess } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
-import { decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
+import { decodeWireCollectionFile, SchemaSandbox } from "@arbor/stores";
 import {
   decodeWireObject,
   encodeWireObject,
@@ -1387,21 +1387,23 @@ export class CanopyDaemon implements AsyncDisposable {
         ) throw new Error(`Invalid or duplicate directory entry: ${entry.name}`);
         names.add(entry.name);
         pending.push(...wireEntryObjectHashes(entry));
-        if (entry.rollup) {
-          const loadFile = async (target: ObjectHash): Promise<Uint8Array> => {
-            const targetBytes = await this.objects.find(target, proposed);
-            if (!targetBytes || hashObject(targetBytes) !== target) throw new Error(`Missing rollup object: ${target}`);
-            const targetObject = decodeWireObject(targetBytes);
-            if (targetObject.type !== "file") throw new Error(`Rollup target is not a file: ${target}`);
-            return targetObject.bytes;
-          };
-          await decodeWireFileRollup(
-            entry.rollup,
-            await loadFile(entry.rollup.source),
-            await loadFile(entry.rollup.schemaSource),
-            this.wireSchemas,
-          );
-        }
+      }
+      if (object.childrenSource) {
+        const loadFile = async (name: string): Promise<Uint8Array> => {
+          const target = object.entries.find((entry) => entry.name === name)?.hash;
+          if (!target) throw new Error(`Missing collection-file entry: ${name}`);
+          const targetBytes = await this.objects.find(target, proposed);
+          if (!targetBytes || hashObject(targetBytes) !== target) throw new Error(`Missing collection-file object: ${target}`);
+          const targetObject = decodeWireObject(targetBytes);
+          if (targetObject.type !== "file") throw new Error(`Collection-file source is not a file: ${target}`);
+          return targetObject.bytes;
+        };
+        await decodeWireCollectionFile(
+          object.childrenSource,
+          await loadFile(object.childrenSource.source),
+          await loadFile(object.childrenSource.schemaSource),
+          this.wireSchemas,
+        );
       }
     }
     await this.cacheRootProfile(root, proposed);

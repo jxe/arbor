@@ -38,7 +38,7 @@ beforeAll(async () => {
 
   await mkdir(join(root, "mixed"));
   await writeFile(join(root, "mixed", "schema.ts"), schema);
-  await writeFile(join(root, "mixed", "_store.json"), '[{"id":"rollup","title":"Rollup"}]\n');
+  await writeFile(join(root, "mixed", "_store.json"), '[{"id":"collectionFile","title":"CollectionFile"}]\n');
   await writeFile(join(root, "mixed", "one.md"), "---\nid: physical\ntitle: Physical\n---\nBody.\n");
 
   await mkdir(join(root, "sqlite"));
@@ -61,19 +61,19 @@ afterAll(async () => {
 
 describe("NodeProviderRouter conformance", () => {
   const cases = [
-    { name: "expanded", parent: "/expanded", child: "/expanded/one", keyed: false, representation: { type: "expanded" } },
-    { name: "Markdown records", parent: "/markdown", child: "/markdown/one", keyed: true, representation: { type: "expanded" } },
-    { name: "CSV rollup", parent: "/csv", child: "/csv/one", keyed: true, representation: { type: "rollup", codec: "csv" } },
-    { name: "JSON rollup", parent: "/json", child: "/json/one", keyed: true, representation: { type: "rollup", codec: "json" } },
-    { name: "JSONL rollup", parent: "/jsonl", child: "/jsonl/one", keyed: true, representation: { type: "rollup", codec: "jsonl" } },
-    { name: "nested JSON mount", parent: "/outer/deep/nested", child: "/outer/deep/nested/one", keyed: true, representation: { type: "rollup", codec: "json" } },
-    { name: "SQLite table", parent: "/sqlite/items", child: "/sqlite/items/one", keyed: true, representation: { type: "rollup", codec: "sqlite", scope: "children" } },
+    { name: "expanded", parent: "/expanded", child: "/expanded/one", keyed: false, backing: { type: "expanded-files" } },
+    { name: "Markdown records", parent: "/markdown", child: "/markdown/one", keyed: true, backing: { type: "expanded-files" } },
+    { name: "CSV collection file", parent: "/csv", child: "/csv/one", keyed: true, backing: { type: "collection-file", format: "csv" } },
+    { name: "JSON collection file", parent: "/json", child: "/json/one", keyed: true, backing: { type: "collection-file", format: "json" } },
+    { name: "JSONL collection file", parent: "/jsonl", child: "/jsonl/one", keyed: true, backing: { type: "collection-file", format: "jsonl" } },
+    { name: "nested JSON mount", parent: "/outer/deep/nested", child: "/outer/deep/nested/one", keyed: true, backing: { type: "collection-file", format: "json" } },
+    { name: "SQLite table", parent: "/sqlite/items", child: "/sqlite/items/one", keyed: true, backing: { type: "database", driver: "sqlite", scope: "children" } },
   ] as const;
 
   for (const item of cases) {
     test(`${item.name} exposes the shared snapshot and child-page contract`, async () => {
       const parent = await workspace.snapshot({ tree: workspace.tree, path: item.parent, stableKey: null });
-      expect(parent.capabilities.children?.representation).toMatchObject(item.representation);
+      expect(parent.capabilities.children?.backing).toMatchObject(item.backing);
       expect(parent.enclosingTree).toMatchObject({ id: workspace.tree, osPath: workspace.root });
 
       const page = await workspace.children(parent.ref);
@@ -108,14 +108,14 @@ describe("NodeProviderRouter conformance", () => {
 
   test("ambiguous provider claims stay physical and report the existing diagnostic", async () => {
     const parent = await workspace.snapshot({ tree: workspace.tree, path: "/mixed", stableKey: null });
-    expect(parent.capabilities.children?.representation).toEqual({ type: "expanded" });
+    expect(parent.capabilities.children?.backing).toEqual({ type: "expanded-files" });
     expect(parent.diagnostics.some((item) => item.code === "mixed-collection-backing")).toBe(true);
     const page = await workspace.children(parent.ref);
     expect(page.items.some((item) => item.ref.path === "/mixed/one")).toBe(true);
     expect((await workspace.snapshot({ tree: workspace.tree, path: "/mixed/one", stableKey: null })).properties.title).toBe("Physical");
   });
 
-  test("file rollups mutate through one provider transaction contract", async () => {
+  test("collection files mutate through one provider transaction contract", async () => {
     for (const name of ["csv", "json", "jsonl"] as const) {
       const key = canonicalStableKey([["id", "one"]]);
       const before = await workspace.snapshot({ tree: workspace.tree, path: `/${name}/stale`, stableKey: key });

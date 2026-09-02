@@ -193,8 +193,8 @@ export class Workspace implements AsyncDisposable {
     };
   }
 
-  describeWireRollup(directory: string, sourceName: string) {
-    return this.provider.fileRollupDescriptor(directory, sourceName);
+  describeWireCollectionFile(directory: string, sourceName: string) {
+    return this.provider.collectionFileDescriptor(directory, sourceName);
   }
 
   updateTreeDescriptor(descriptor: Partial<LocalTreeDescriptor>): void {

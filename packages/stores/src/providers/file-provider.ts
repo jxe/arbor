@@ -2,19 +2,19 @@ import { toJSONValue } from "@arbor/core";
 import { canonicalCBORHash } from "@arbor/core";
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
-import { stableJSONString, revisionOf, rowPathSegment, stableKeyFromProperties } from "@arbor/core";
+import { stableJSONString, revisionOf, stableKeyFromProperties } from "@arbor/core";
 import type { Diagnostic, Hash, JSONValue } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { commitPrepared, prepareAtomic, readRevision, removeIfExists } from "@arbor/fs";
-import { replaceFileRollupRow } from "../file-rollup-writes.ts";
-import { SchemaSandbox, type SchemaDescription } from "../schema.ts";
-import { decodeFileRollupSource } from "./file-rollup-codec.ts";
+import { replaceCollectionFileRow } from "../collection-file-writes.ts";
+import { logicalChildName, SchemaSandbox, type SchemaDescription } from "../schema.ts";
+import { decodeCollectionFileSource } from "./collection-file-codec.ts";
 import {
   type ProjectionProvider,
   decodeProviderCursor,
   encodeProviderCursor,
   ProjectionProviderError,
-  representationFor,
+  backingFor,
   type LoadedProjectionSlice,
   type PreparedProviderPropertyWrite,
   type ProjectionDefinition,
@@ -27,7 +27,7 @@ interface LoadedFileProjection {
   rows: ProviderChildRecord[];
   revision: string;
   sourceRevision: string;
-  modelHash: string;
+  childSetHash: string;
   diagnostics: Diagnostic[];
   identityRule?: { properties: string[] };
   editable: boolean;
@@ -44,30 +44,27 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       ...(loaded.identityRule ? { identityRule: loaded.identityRule } : {}),
       revision: loaded.revision,
       schemaRevision: loaded.description.revision,
-      modelHash: loaded.modelHash,
       diagnostics: loaded.diagnostics,
       total: loaded.rows.length,
       editable: definition.provider === "markdown" && loaded.editable,
-      representation: representationFor(definition.provider, loaded.modelHash as Hash),
+      backing: backingFor(definition.provider, loaded.childSetHash as Hash),
       ...(definition.provider === "markdown" ? { rowContent: "markdown" as const } : {}),
     };
   }
-  async fileRollupDescriptor(definition: ProjectionDefinition, sourceName: string): Promise<{
-    codec: "csv" | "json" | "jsonl";
-    schema: Hash;
-    scope: "children";
-    modelHash: Hash;
+  async collectionFileDescriptor(definition: ProjectionDefinition, sourceName: string): Promise<{
+    format: "csv" | "json" | "jsonl";
+    schemaFingerprint: Hash;
+    childSetHash: Hash;
   } | null> {
     if (!definition.storePath || !definition.schemaPath || basename(definition.storePath) !== sourceName
       || !(definition.provider === "csv" || definition.provider === "json" || definition.provider === "jsonl")
       || definition.diagnostics.some((item) => item.severity === "error")) return null;
     const loaded = await this.load(definition);
-    if (loaded.diagnostics.some((item) => item.severity === "error")) return null;
+    if (!loaded.editable || loaded.diagnostics.some((item) => item.severity === "error")) return null;
     return {
-      codec: definition.provider,
-      schema: loaded.description.revision as Hash,
-      scope: "children",
-      modelHash: loaded.modelHash as Hash,
+      format: definition.provider,
+      schemaFingerprint: loaded.description.revision as Hash,
+      childSetHash: loaded.childSetHash as Hash,
     };
   }
   async page(
@@ -177,21 +174,21 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
   ): Promise<PreparedProviderPropertyWrite> {
     if (!definition.storePath || !definition.schemaPath
       || !(definition.provider === "csv" || definition.provider === "json" || definition.provider === "jsonl")) {
-      throw new ProjectionProviderError("invalid-write", `${target.parentPath} is not a writable file rollup`);
+      throw new ProjectionProviderError("invalid-write", `${target.parentPath} is not a writable collection file`);
     }
     const loaded = await this.load(definition);
     const current = loaded.rows.find((row) => target.stableKey
       ? row.stableKey === target.stableKey
       : row.path === target.path.slice(target.path.lastIndexOf("/") + 1));
-    if (!current) throw new ProjectionProviderError("invalid-write", "No rollup row owns the supplied reference");
+    if (!current) throw new ProjectionProviderError("invalid-write", "No collection-file row owns the supplied reference");
     if (current.revision !== basePropertiesRevision) {
       throw new ProjectionProviderError("stale-properties", "The row properties changed since they were read", current);
     }
     if (target.sourceRevision !== loaded.sourceRevision) {
-      throw new ProjectionProviderError("stale-source", "The exact rollup source changed while the row write was being prepared");
+      throw new ProjectionProviderError("stale-source", "The exact collection-file source changed while the row write was being prepared");
     }
     if (!loaded.editable || !loaded.identityRule || !current.stableKey) {
-      throw new ProjectionProviderError("invalid-write", "The complete rollup must be schema-valid with unique stable keys before it can be edited");
+      throw new ProjectionProviderError("invalid-write", "The complete collection file must be schema-valid with unique stable keys before it can be edited");
     }
 
     const validation = await this.schemas.validate(definition.schemaPath, properties);
@@ -200,7 +197,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       return `${field}${item.message}`;
     }).join("; "));
     if (!validation.value || typeof validation.value !== "object" || Array.isArray(validation.value)) {
-      throw new ProjectionProviderError("invalid-write", "Rollup properties must validate to an object");
+      throw new ProjectionProviderError("invalid-write", "CollectionFile properties must validate to an object");
     }
     const candidate = (toJSONValue(validation.value) ?? {}) as Record<string, JSONValue>;
     if (stableKeyFromProperties(loaded.identityRule.properties, candidate) !== current.stableKey) {
@@ -209,13 +206,13 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
 
     const source = await readFile(definition.storePath, "utf8");
     if (revisionOf(source) !== loaded.sourceRevision) {
-      throw new ProjectionProviderError("stale-source", "The exact rollup source changed while the row write was being prepared");
+      throw new ProjectionProviderError("stale-source", "The exact collection-file source changed while the row write was being prepared");
     }
     let temporaryPath: string | undefined;
     try {
       const output = stableJSONString(current.values) === stableJSONString(candidate)
         ? source
-        : replaceFileRollupRow(definition.provider, source, current.key, candidate);
+        : replaceCollectionFileRow(definition.provider, source, current.key, candidate);
       temporaryPath = await prepareAtomic(definition.storePath, output);
       const prepared = await this.load({ ...definition, storePath: temporaryPath });
       const preparedRow = prepared.rows.find((row) => row.stableKey === current.stableKey);
@@ -247,7 +244,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
             try {
               const exact = await readRevision(storePath);
               if (exact.revision !== loaded.sourceRevision) {
-                throw new ProjectionProviderError("stale-source", "The exact rollup source changed before the prepared write could commit");
+                throw new ProjectionProviderError("stale-source", "The exact collection-file source changed before the prepared write could commit");
               }
               await commitPrepared(finalTemporaryPath, storePath);
               completed = true;
@@ -316,7 +313,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
   private async loadUncached(definition: ProjectionDefinition): Promise<LoadedFileProjection> {
     const description = definition.schemaPath
       ? await this.schemas.compile(definition.schemaPath)
-      : { jsonSchema: {}, columns: [], primaryKey: null, revision: revisionOf("") };
+      : { jsonSchema: {}, columns: [], primaryKey: null, childName: { from: "primaryKey" as const }, revision: revisionOf("") };
     const loaded = definition.provider === "csv" || definition.provider === "json" || definition.provider === "jsonl"
       ? await this.sourceRows(definition)
       : await this.markdownRows(definition);
@@ -335,16 +332,31 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
         code: "invalid-row-key", message: `Row does not have a valid ${identityRule.properties.join(", ")} stable key.`,
         path: definition.storePath ?? row.path, row: index, severity: "error",
       });
+      const properties = (toJSONValue(values) ?? {}) as Record<string, JSONValue>;
+      let path = definition.provider === "markdown" ? row.path : `~row-${index + 1}`;
+      if (definition.provider !== "markdown" && stableKey) {
+        try {
+          path = logicalChildName(description, properties, stableKey);
+        } catch (error) {
+          diagnostics.push({
+            code: "invalid-child-name",
+            message: error instanceof Error ? error.message : String(error),
+            path: definition.storePath ?? row.path,
+            row: index,
+            severity: "error",
+          });
+        }
+      }
       return {
         ...row,
-        path: definition.provider === "markdown" ? row.path : stableKey ? rowPathSegment(stableKey) : `~row-${index + 1}`,
+        path,
         stableKey,
         revision: row.revision ?? revisionOf(stableJSONString(values)), values, diagnostics,
       } satisfies ProviderChildRecord;
     }));
     const counts = new Map<string, number>();
     for (const row of validated) if (row.stableKey) counts.set(row.stableKey, (counts.get(row.stableKey) ?? 0) + 1);
-    const rows = validated.map((row, index) => !row.stableKey || counts.get(row.stableKey) === 1 ? row : ({
+    const keyedRows = validated.map((row, index) => !row.stableKey || counts.get(row.stableKey) === 1 ? row : ({
       ...row,
       path: definition.provider === "markdown" ? row.path : `~row-${index + 1}`,
       stableKey: null,
@@ -353,12 +365,25 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
         path: definition.storePath ?? row.path, row: index, severity: "error" as const,
       }],
     }));
+    const nameCounts = new Map<string, number>();
+    if (definition.provider !== "markdown") {
+      for (const row of keyedRows) nameCounts.set(row.path, (nameCounts.get(row.path) ?? 0) + 1);
+    }
+    const rows = keyedRows.map((row, index) => definition.provider === "markdown" || nameCounts.get(row.path) === 1 ? row : ({
+      ...row,
+      path: `~row-${index + 1}`,
+      stableKey: null,
+      diagnostics: [...row.diagnostics, {
+        code: "duplicate-child-name", message: "The schema-derived child name is duplicated in this collection.",
+        path: definition.storePath ?? row.path, row: index, severity: "error" as const,
+      }],
+    }));
     const revision = revisionOf(`${loaded.revision}\0${description.revision}\0${JSON.stringify({ columns: description.columns, primaryKey: identityProperties })}`);
-    const modelHash = canonicalCBORHash([...rows]
+    const childSetHash = canonicalCBORHash([...rows]
       .sort((left, right) => (left.stableKey ?? left.path).localeCompare(right.stableKey ?? right.path))
-      .map((row) => ({ key: row.stableKey, path: row.path, properties: row.values })));
+      .map((row) => ({ key: row.stableKey, name: row.path, properties: row.values })));
     return {
-      description, rows, revision, sourceRevision: loaded.revision, modelHash,
+      description, rows, revision, sourceRevision: loaded.revision, childSetHash,
       diagnostics: [...definition.diagnostics, ...loaded.diagnostics],
       ...(identityRule ? { identityRule } : {}),
       editable: definition.provider === "markdown" || Boolean(identityRule
@@ -369,7 +394,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
 
   private async sourceRows(definition: ProjectionDefinition): Promise<{ rows: ProviderChildRecord[]; revision: string; diagnostics: Diagnostic[] }> {
     const source = await readFile(definition.storePath!, "utf8");
-    const decoded = decodeFileRollupSource(definition.provider as "csv" | "json" | "jsonl", source, definition.storePath!);
+    const decoded = decodeCollectionFileSource(definition.provider as "csv" | "json" | "jsonl", source, definition.storePath!);
     return { ...decoded, revision: revisionOf(source) };
   }
 

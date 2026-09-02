@@ -1,4 +1,4 @@
-import { compareUTF8, compareUTF8Bytes, decodeCBOR, decodeRollupDescriptor, encodeCanonicalCBOR, sha256, type Hash, type RollupDescriptor } from "@arbor/core";
+import { compareUTF8, compareUTF8Bytes, decodeCBOR, decodeCollectionFileDescriptor, encodeCanonicalCBOR, sha256, type CollectionFileDescriptor } from "@arbor/core";
 
 export type ObjectHash = string;
 
@@ -11,17 +11,16 @@ export interface WireDirectoryEntry {
   name: string;
   hash?: ObjectHash;
   tree?: string;
-  rollup?: RollupDescriptor;
 }
 
 export interface WireDirectory {
   type: "directory";
   entries: WireDirectoryEntry[];
+  childrenSource?: CollectionFileDescriptor;
 }
 
 export function wireEntryObjectHashes(entry: WireDirectoryEntry): ObjectHash[] {
   if (entry.hash) return [entry.hash];
-  if (entry.rollup) return [entry.rollup.source, entry.rollup.schemaSource];
   return [];
 }
 
@@ -57,7 +56,10 @@ export function decodeWireObject(bytes: Uint8Array): WireObject {
   if (record.type === "file" && record.bytes instanceof Uint8Array && keys.length === 2 && keys.includes("type") && keys.includes("bytes")) {
     return { type: "file", bytes: record.bytes };
   }
-  if (record.type === "directory" && Array.isArray(record.entries) && keys.length === 2 && keys.includes("type") && keys.includes("entries")) {
+  if (record.type === "directory" && Array.isArray(record.entries)
+    && (keys.length === 2 || keys.length === 3)
+    && keys.includes("type") && keys.includes("entries")
+    && keys.every((key) => key === "type" || key === "entries" || key === "childrenSource")) {
     let previousName: Uint8Array | undefined;
     const names = new Set<string>();
     const entries = record.entries.map((entry) => {
@@ -67,16 +69,16 @@ export function decodeWireObject(bytes: Uint8Array): WireObject {
       if (
         typeof item.name !== "string"
         || item.name.length === 0
+        || item.name !== item.name.normalize("NFC")
         || item.name === "."
         || item.name === ".."
         || /[\\/\0]/.test(item.name)
-        || (typeof item.hash !== "string" && typeof item.tree !== "string" && item.rollup === undefined)
-        || [item.hash, item.tree, item.rollup].filter((target) => target !== undefined).length !== 1
+        || (typeof item.hash !== "string" && typeof item.tree !== "string")
+        || [item.hash, item.tree].filter((target) => target !== undefined).length !== 1
         || itemKeys.length !== 2
       ) throw new Error("Invalid directory entry");
       if (typeof item.hash === "string" && !/^sha256:[a-f0-9]{64}$/.test(item.hash)) throw new Error("Invalid directory entry hash");
       if (typeof item.tree === "string" && item.tree.length === 0) throw new Error("Invalid directory entry tree");
-      const rollup = item.rollup === undefined ? undefined : decodeRollupDescriptor(item.rollup);
       if (names.has(item.name)) throw new Error("Duplicate directory entry name");
       names.add(item.name);
       const encodedName = new TextEncoder().encode(item.name);
@@ -88,10 +90,21 @@ export function decodeWireObject(bytes: Uint8Array): WireObject {
         name: item.name,
         ...(typeof item.hash === "string" ? { hash: item.hash } : {}),
         ...(typeof item.tree === "string" ? { tree: item.tree } : {}),
-        ...(rollup ? { rollup } : {}),
       };
     });
-    return { type: "directory", entries };
+    const childrenSource = record.childrenSource === undefined
+      ? undefined
+      : decodeCollectionFileDescriptor(record.childrenSource);
+    if (childrenSource) {
+      const source = entries.find((entry) => entry.name === childrenSource.source);
+      const schema = entries.find((entry) => entry.name === childrenSource.schemaSource);
+      if (!source?.hash || !schema?.hash) throw new Error("Collection-file sources must be ordinary file entries");
+      const allowed = new Set([childrenSource.source, childrenSource.schemaSource, "_index.md"]);
+      if (entries.some((entry) => !allowed.has(entry.name))) {
+        throw new Error("Collection-file directory mixes immediate-child backings");
+      }
+    }
+    return { type: "directory", entries, ...(childrenSource ? { childrenSource } : {}) };
   }
   throw new Error("Unknown wire object");
 }
@@ -150,6 +163,7 @@ export async function resolveWireLogicalNode(
 
   for (const [index, part] of parts.entries()) {
     if (object.type !== "directory") return null;
+    if (part === object.childrenSource?.source || part === object.childrenSource?.schemaSource) return null;
     const exact = object.entries.find((entry) => entry.name === part);
     const sibling = object.entries.find((entry) => entry.name === `${part}.md`);
     const last = index === parts.length - 1;

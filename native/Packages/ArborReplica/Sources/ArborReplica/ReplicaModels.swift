@@ -53,31 +53,31 @@ public struct ReplicaStoredObject: Codable, Equatable, Sendable {
     }
 }
 
-public struct ReplicaRollupDescriptor: Codable, Equatable, Sendable {
+public struct ReplicaCollectionFileDescriptor: Codable, Equatable, Sendable {
     public var version: Int
-    public var codec: String
+    public var type: String
+    public var format: String
     public var source: String
     public var schemaSource: String
-    public var schema: String
-    public var scope: String
-    public var modelHash: String
+    public var schemaFingerprint: String
+    public var childSetHash: String
 
     public init(
         version: Int = 1,
-        codec: String,
+        type: String = "collection-file",
+        format: String,
         source: String,
         schemaSource: String,
-        schema: String,
-        scope: String,
-        modelHash: String
+        schemaFingerprint: String,
+        childSetHash: String
     ) {
         self.version = version
-        self.codec = codec
+        self.type = type
+        self.format = format
         self.source = source
         self.schemaSource = schemaSource
-        self.schema = schema
-        self.scope = scope
-        self.modelHash = modelHash
+        self.schemaFingerprint = schemaFingerprint
+        self.childSetHash = childSetHash
     }
 }
 
@@ -146,13 +146,13 @@ public struct ReplicaSystemNode: Sendable, Equatable {
     public var path: String
     public var pageID: String?
     public var content: ReplicaSystemNodeContent
-    public var rollup: ReplicaRollupDescriptor?
+    public var childrenSource: ReplicaCollectionFileDescriptor?
 
-    public init(path: String, pageID: String? = nil, content: ReplicaSystemNodeContent, rollup: ReplicaRollupDescriptor? = nil) {
+    public init(path: String, pageID: String? = nil, content: ReplicaSystemNodeContent, childrenSource: ReplicaCollectionFileDescriptor? = nil) {
         self.path = path
         self.pageID = pageID
         self.content = content
-        self.rollup = rollup
+        self.childrenSource = childrenSource
     }
 }
 
@@ -186,7 +186,7 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
     var mediaType: String?
     var trashedFrom: String?
     var boundaryTree: String?
-    var rollup: ReplicaRollupDescriptor?
+    var childrenSource: ReplicaCollectionFileDescriptor?
 
     init(
         path: String,
@@ -197,7 +197,7 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
         mediaType: String? = nil,
         trashedFrom: String? = nil,
         boundaryTree: String? = nil,
-        rollup: ReplicaRollupDescriptor? = nil
+        childrenSource: ReplicaCollectionFileDescriptor? = nil
     ) {
         self.path = path
         self.pageID = pageID
@@ -207,7 +207,7 @@ struct ReplicaNodeRecord: Codable, Equatable, Sendable {
         self.mediaType = mediaType
         self.trashedFrom = trashedFrom
         self.boundaryTree = boundaryTree
-        self.rollup = rollup
+        self.childrenSource = childrenSource
     }
 }
 

@@ -21,7 +21,6 @@ export class ModelHashes {
   entry(entry: WireDirectoryEntry | undefined): Promise<Hash | null> {
     if (!entry) return Promise.resolve(null);
     if (entry.tree) return Promise.resolve(canonicalCBORHash({ tree: entry.tree }));
-    if (entry.rollup) return Promise.resolve(canonicalCBORHash({ rollup: entry.rollup.modelHash, schema: entry.rollup.schema }));
     return this.object(entry.hash!, entry.name.endsWith(".md"));
   }
 
@@ -50,8 +49,20 @@ export class ModelHashes {
       }
       return canonicalCBORHash({ content: object.bytes });
     }
+    const bodyEntry = object.entries.find((entry) => entry.name === "_index.md");
+    const body = bodyEntry ? await this.entry(bodyEntry) : null;
+    if (object.childrenSource) {
+      return canonicalCBORHash({
+        body,
+        childSchema: object.childrenSource.schemaFingerprint,
+        childSet: object.childrenSource.childSetHash,
+      });
+    }
     const children: Record<string, Hash> = {};
-    for (const entry of object.entries) children[entry.name] = (await this.entry(entry))!;
-    return canonicalCBORHash({ children });
+    for (const entry of object.entries) {
+      if (entry.name === "_index.md") continue;
+      children[entry.name] = (await this.entry(entry))!;
+    }
+    return canonicalCBORHash({ body, children });
   }
 }

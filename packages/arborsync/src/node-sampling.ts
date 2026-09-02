@@ -64,7 +64,7 @@ function capabilities(node: ExpandedNode, writable: boolean): NodeCapabilities {
   if (node.kind === "directory") {
     result.children = {
       revision: node.childrenRevision ?? node.revision,
-      representation: { type: "expanded" },
+      backing: { type: "expanded-files" },
       ...(node.children ? { total: node.children.length } : {}),
       writable,
     };

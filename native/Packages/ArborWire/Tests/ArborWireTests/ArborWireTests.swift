@@ -28,25 +28,24 @@ struct WireObjectTests {
                 object = .file(try #require(Data(base64Encoded: base64)))
             } else {
                 let entries = try #require(model["entries"] as? [[String: Any]])
-                object = .directory(entries.map {
-                    let rollup = ($0["rollup"] as? [String: Any]).map { value in
-                        WireRollupDescriptor(
+                let childrenSource = (model["childrenSource"] as? [String: Any]).map { value in
+                    WireCollectionFileDescriptor(
                             version: value["version"] as! Int,
-                            codec: value["codec"] as! String,
+                            type: value["type"] as! String,
+                            format: value["format"] as! String,
                             source: value["source"] as! String,
                             schemaSource: value["schemaSource"] as! String,
-                            schema: value["schema"] as! String,
-                            scope: value["scope"] as! String,
-                            modelHash: value["modelHash"] as! String
+                            schemaFingerprint: value["schemaFingerprint"] as! String,
+                            childSetHash: value["childSetHash"] as! String
                         )
-                    }
+                }
+                object = .directory(entries.map {
                     return WireDirectoryEntry(
                         name: $0["name"] as! String,
                         hash: $0["hash"] as? String,
-                        tree: $0["tree"] as? String,
-                        rollup: rollup
+                        tree: $0["tree"] as? String
                     )
-                })
+                }, childrenSource: childrenSource)
             }
             let bytes = try WireObjectCodec.encode(object)
             #expect(bytes.base64EncodedString() == vector["canonicalCborBase64"] as? String)
@@ -108,12 +107,12 @@ struct UpdateProtocolTests {
         }
     }
 
-    @Test("Merge summaries recognize semantic rollup row merges")
-    func rollupMergeSummary() throws {
-        let value = WireMergeSummary(version: "rollup-rows-v1", mergedRows: 3)
+    @Test("Merge summaries recognize semantic collection-file row merges")
+    func collectionFileMergeSummary() throws {
+        let value = WireMergeSummary(version: "collection-file-rows-v1", mergedRows: 3)
         #expect(try value.validated() == value)
         #expect(throws: ArborWireValidationError.self) {
-            _ = try WireMergeSummary(version: "rollup-rows-v1").validated()
+            _ = try WireMergeSummary(version: "collection-file-rows-v1").validated()
         }
     }
 

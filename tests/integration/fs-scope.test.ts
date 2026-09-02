@@ -142,7 +142,7 @@ describe("the local filesystem scope", () => {
   test("browses untracked SQLite tables and stable rows through ordinary nodes", async () => {
     const databasePath = join(outer, "stray", "database");
     const container = await client.node({ tree: "local", path: databasePath, stableKey: null });
-    expect(container.capabilities.children?.representation).toMatchObject({ type: "rollup", codec: "sqlite", scope: "subtree" });
+    expect(container.capabilities.children?.backing).toMatchObject({ type: "database", driver: "sqlite", scope: "subtree" });
     const tables = await client.children(container.ref);
     const tableRef = tables.items.find((item) => item.ref.path === join(databasePath, "items"))?.ref;
     expect(tableRef).toBeDefined();

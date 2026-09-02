@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import type { Hash, RollupDescriptor } from "@arbor/core";
+import type { CollectionFileDescriptor, Hash } from "@arbor/core";
 import {
   compareWireNames,
   decodeWireObject,
@@ -13,17 +13,16 @@ import {
 } from "@arbor/wire";
 import { IGNORED_WORKSPACE_DIRECTORIES } from "./discovery.ts";
 
-export interface SnapshotRollupDescription {
-  codec: RollupDescriptor["codec"];
-  schema: Hash;
-  scope: RollupDescriptor["scope"];
-  modelHash: Hash;
+export interface SnapshotCollectionFileDescription {
+  format: CollectionFileDescriptor["format"];
+  schemaFingerprint: Hash;
+  childSetHash: Hash;
 }
 
-export type DescribeSnapshotRollup = (
+export type DescribeSnapshotCollectionFile = (
   directory: string,
   sourceName: string,
-) => Promise<SnapshotRollupDescription | null>;
+) => Promise<SnapshotCollectionFileDescription | null>;
 
 export class UnavailableCloudContentError extends Error {
   constructor(readonly path: string) {
@@ -44,7 +43,7 @@ export async function snapshotDirectory(
   inputRoot: string,
   boundaries: ReadonlyMap<string, string> = new Map(),
   excludedRoots: readonly string[] = [],
-  describeRollup?: DescribeSnapshotRollup,
+  describeCollectionFile?: DescribeSnapshotCollectionFile,
 ): Promise<TreeSnapshot> {
   const resolvedInputRoot = resolve(inputRoot);
   const root = await realpath(inputRoot);
@@ -64,6 +63,7 @@ export async function snapshotDirectory(
 
   const store = (object: WireObject): ObjectHash => {
     const bytes = encodeWireObject(object);
+    decodeWireObject(bytes);
     const hash = hashObject(bytes);
     objects.set(hash, bytes);
     return hash;
@@ -71,6 +71,7 @@ export async function snapshotDirectory(
 
   const walk = async (directory: string): Promise<ObjectHash> => {
     const entries: WireDirectoryEntry[] = [];
+    let childrenSource: CollectionFileDescriptor | undefined;
     const seen = new Set<string>();
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => compareWireNames(a.name, b.name))) {
       if (privateTransactionName(entry.name)) continue;
@@ -88,19 +89,20 @@ export async function snapshotDirectory(
         seen.add(entry.name);
       } else if (entry.isFile()) {
         const source = store({ type: "file", bytes: await readFile(absolute) });
-        const description = describeRollup && ["_store.csv", "_store.json", "_store.jsonl"].includes(entry.name)
-          ? await describeRollup(directory, entry.name)
+        const description = describeCollectionFile && ["_store.csv", "_store.json", "_store.jsonl"].includes(entry.name)
+          ? await describeCollectionFile(directory, entry.name)
           : null;
         if (description) {
-          const schemaPath = join(directory, "schema.ts");
-          const schemaSource = store({ type: "file", bytes: await readFile(schemaPath) });
-          entries.push({
-            name: entry.name,
-            rollup: { version: 1, source: source as Hash, schemaSource: schemaSource as Hash, ...description },
-          });
-        } else {
-          entries.push({ name: entry.name, hash: source });
+          if (childrenSource) throw new Error(`Directory has more than one collection file: ${directory}`);
+          childrenSource = {
+            version: 1,
+            type: "collection-file",
+            source: entry.name as CollectionFileDescriptor["source"],
+            schemaSource: "schema.ts",
+            ...description,
+          };
         }
+        entries.push({ name: entry.name, hash: source });
         seen.add(entry.name);
       }
     }
@@ -117,7 +119,11 @@ export async function snapshotDirectory(
         ? { name, tree }
         : { name, hash: await walkVirtual(join(directory, name)) });
     }
-    return store({ type: "directory", entries: entries.sort((a, b) => compareWireNames(a.name, b.name)) });
+    return store({
+      type: "directory",
+      entries: entries.sort((a, b) => compareWireNames(a.name, b.name)),
+      ...(childrenSource ? { childrenSource } : {}),
+    });
   };
 
   const walkVirtual = async (directory: string): Promise<ObjectHash> => {
@@ -188,7 +194,6 @@ export async function materializeTree(
       const target = contained(canonicalDestination, join(path, entry.name));
       if (isExcluded(target)) continue;
       if (entry.tree) await onBoundary?.(target, entry.tree);
-      else if (entry.rollup) await visit(target, entry.rollup.source);
       else if (entry.hash) await visit(target, entry.hash);
     }
   };

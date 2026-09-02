@@ -9,7 +9,7 @@ import {
   hashObject,
 } from "@arbor/wire";
 import { canonicalCBORHash, decodeCBOR, encodeCanonicalCBOR } from "@arbor/core";
-import { ProjectionProviderHost, decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
+import { ProjectionProviderHost, decodeWireCollectionFile, SchemaSandbox } from "@arbor/stores";
 import { materializeTree, snapshotDirectory } from "@arbor/fs";
 
 describe("canonical tree objects", () => {
@@ -18,7 +18,8 @@ describe("canonical tree objects", () => {
       objects: Array<{
         model: { type: "file"; bytesBase64: string } | {
           type: "directory";
-          entries: Array<{ name: string; hash?: string; tree?: string; rollup?: import("@arbor/core").RollupDescriptor }>;
+          entries: Array<{ name: string; hash?: string; tree?: string }>;
+          childrenSource?: import("@arbor/core").CollectionFileDescriptor;
         };
         canonicalCborBase64: string;
         hash: string;
@@ -75,6 +76,44 @@ describe("canonical tree objects", () => {
     expect(() => decodeCBOR(deep)).toThrow("CBOR nesting too deep");
   });
 
+  test("rejects legacy, missing, and mixed collection-file directory shapes", () => {
+    const hash = `sha256:${"1".repeat(64)}`;
+    expect(() => decodeWireObject(encodeCanonicalCBOR({
+      type: "directory",
+      entries: [{ name: "_store.json", rollup: { version: 1 } }],
+    }))).toThrow("Invalid directory entry");
+    expect(() => decodeWireObject(encodeCanonicalCBOR({
+      type: "directory",
+      entries: [{ name: "_store.json", hash }],
+      childrenSource: {
+        version: 1,
+        type: "collection-file",
+        format: "json",
+        source: "_store.json",
+        schemaSource: "schema.ts",
+        schemaFingerprint: hash,
+        childSetHash: hash,
+      },
+    }))).toThrow("ordinary file entries");
+    expect(() => decodeWireObject(encodeCanonicalCBOR({
+      type: "directory",
+      entries: [
+        { name: "_store.json", hash },
+        { name: "extra.md", hash },
+        { name: "schema.ts", hash },
+      ],
+      childrenSource: {
+        version: 1,
+        type: "collection-file",
+        format: "json",
+        source: "_store.json",
+        schemaSource: "schema.ts",
+        schemaFingerprint: hash,
+        childSetHash: hash,
+      },
+    }))).toThrow("mixes immediate-child backings");
+  });
+
   test("snapshots files once and represents nested trees as boundaries", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-wire-objects-"));
     try {
@@ -96,30 +135,31 @@ describe("canonical tree objects", () => {
     }
   });
 
-  test("snapshots exact file rollups as source-and-schema reachable targets", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-wire-rollup-"));
-    const destination = await mkdtemp(join(tmpdir(), "arbor-wire-rollup-materialized-"));
+  test("snapshots exact collection files as ordinary source-and-schema entries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-wire-collection-file-"));
+    const destination = await mkdtemp(join(tmpdir(), "arbor-wire-collection-file-materialized-"));
     try {
       const schemaSource = "export const schema = z.object({ id: z.string() });\nexport const primaryKey = [\"id\"];\n";
       const storeSource = "[{\"id\":\"one\"}]\n";
       await writeFile(join(root, "schema.ts"), schemaSource);
       await writeFile(join(root, "_store.json"), storeSource);
       const snapshot = await snapshotDirectory(root, new Map(), [], async (_directory, sourceName) => ({
-        codec: sourceName === "_store.json" ? "json" : "csv",
-        schema: `sha256:${"3".repeat(64)}`,
-        scope: "children",
-        modelHash: `sha256:${"4".repeat(64)}`,
+        format: sourceName === "_store.json" ? "json" : "csv",
+        schemaFingerprint: `sha256:${"3".repeat(64)}`,
+        childSetHash: `sha256:${"4".repeat(64)}`,
       }));
       const object = decodeWireObject(snapshot.objects.get(snapshot.root)!);
       if (object.type !== "directory") throw new Error("Expected a directory");
-      const descriptor = object.entries.find((entry) => entry.name === "_store.json")?.rollup;
-      expect(descriptor).toEqual(expect.objectContaining({ codec: "json", scope: "children" }));
-      expect(descriptor?.source).not.toBe(descriptor?.schemaSource);
-      expect(decodeWireObject(snapshot.objects.get(descriptor!.source)!)).toEqual({
+      const descriptor = object.childrenSource!;
+      expect(descriptor).toEqual(expect.objectContaining({ type: "collection-file", format: "json" }));
+      const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.hash!;
+      const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.hash!;
+      expect(sourceHash).not.toBe(schemaHash);
+      expect(decodeWireObject(snapshot.objects.get(sourceHash)!)).toEqual({
         type: "file",
         bytes: new TextEncoder().encode(storeSource),
       });
-      expect(decodeWireObject(snapshot.objects.get(descriptor!.schemaSource)!)).toEqual({
+      expect(decodeWireObject(snapshot.objects.get(schemaHash)!)).toEqual({
         type: "file",
         bytes: new TextEncoder().encode(schemaSource),
       });
@@ -152,14 +192,16 @@ describe("canonical tree objects", () => {
         ].join("\n"));
         await writeFile(join(root, `_store.${codec}`), source);
         const snapshot = await snapshotDirectory(root, new Map(), [], (directory, name) =>
-          collections.fileRollupDescriptor(directory, name));
+          collections.collectionFileDescriptor(directory, name));
         const object = decodeWireObject(snapshot.objects.get(snapshot.root)!);
-        if (object.type !== "directory") throw new Error("Expected a rollup directory");
-        const descriptor = object.entries.find((entry) => entry.rollup)?.rollup!;
-        const sourceObject = decodeWireObject(snapshot.objects.get(descriptor.source)!);
-        const schemaObject = decodeWireObject(snapshot.objects.get(descriptor.schemaSource)!);
-        if (sourceObject.type !== "file" || schemaObject.type !== "file") throw new Error("Expected rollup files");
-        const decoded = await decodeWireFileRollup(descriptor, sourceObject.bytes, schemaObject.bytes, schemas);
+        if (object.type !== "directory") throw new Error("Expected a collection-file directory");
+        const descriptor = object.childrenSource!;
+        const sourceHash = object.entries.find((entry) => entry.name === descriptor.source)!.hash!;
+        const schemaHash = object.entries.find((entry) => entry.name === descriptor.schemaSource)!.hash!;
+        const sourceObject = decodeWireObject(snapshot.objects.get(sourceHash)!);
+        const schemaObject = decodeWireObject(snapshot.objects.get(schemaHash)!);
+        if (sourceObject.type !== "file" || schemaObject.type !== "file") throw new Error("Expected collection files");
+        const decoded = await decodeWireCollectionFile(descriptor, sourceObject.bytes, schemaObject.bytes, schemas);
         expect(decoded.rows.map((row) => row.properties), codec).toEqual([
           { id: "one", title: "One" },
           { id: "two", title: "Two" },

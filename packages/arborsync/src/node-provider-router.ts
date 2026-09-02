@@ -79,7 +79,7 @@ export class NodeProviderRouter implements AsyncDisposable {
         children: {
           revision: childrenRevision,
           ...(descriptor.schemaRevision ? { schema: descriptor.schemaRevision as Hash } : {}),
-          representation: descriptor.representation,
+          backing: descriptor.backing,
           ...(descriptor.total === undefined ? {} : { total: descriptor.total }),
           writable: descriptor.editable && await this.physical.writable(mount.mountPath),
         },
@@ -152,8 +152,8 @@ export class NodeProviderRouter implements AsyncDisposable {
     if (!session) throw new Error("The projection provider disappeared while the write was being prepared");
     return session.preparePropertyWrite(target, basePropertiesRevision, properties, mutation);
   }
-  fileRollupDescriptor(directory: string, sourceName: string) {
-    return this.providers.fileRollupDescriptor(directory, sourceName);
+  collectionFileDescriptor(directory: string, sourceName: string) {
+    return this.providers.collectionFileDescriptor(directory, sourceName);
   }
   schemaTypes(directory: string) { return this.providers.schemaTypes(directory); }
   async [Symbol.asyncDispose](): Promise<void> { await this.providers[Symbol.asyncDispose](); }

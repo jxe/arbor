@@ -217,9 +217,9 @@ public struct WireMergeSummary: Codable, Sendable, Equatable {
             guard let mergedFields, mergedFields >= 0 else {
                 throw ArborWireValidationError.invalidValue("Malformed account configuration merge summary")
             }
-        } else if version == "rollup-rows-v1" {
+        } else if version == "collection-file-rows-v1" {
             guard let mergedRows, mergedRows >= 0 else {
-                throw ArborWireValidationError.invalidValue("Malformed rollup merge summary")
+                throw ArborWireValidationError.invalidValue("Malformed collection-file merge summary")
             }
         } else { throw ArborWireValidationError.invalidValue("Unknown merge summary") }
         return self

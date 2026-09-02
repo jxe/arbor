@@ -50,7 +50,7 @@ export function directoryPlacementDiagnostics(
  * Authored standalone links claim their first matching child. Unclaimed
  * children are virtual blocks at the explicit marker, or after authored source
  * when the marker is absent. Virtual blocks carry `arborGenerated` and the
- * Markdown serializer omits them, so paging a large rollup never expands its
+ * Markdown serializer omits them, so paging a large collection file never expands its
  * `_index.md`. Moving a virtual block through the managed-row operation clears
  * that flag and makes the link an authored placement.
  */

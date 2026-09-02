@@ -1,31 +1,31 @@
 import CryptoKit
 import Foundation
 
-public struct WireRollupDescriptor: Hashable, Codable, Sendable {
+public struct WireCollectionFileDescriptor: Hashable, Codable, Sendable {
     public var version: Int
-    public var codec: String
+    public var type: String
+    public var format: String
     public var source: String
     public var schemaSource: String
-    public var schema: String
-    public var scope: String
-    public var modelHash: String
+    public var schemaFingerprint: String
+    public var childSetHash: String
 
     public init(
         version: Int = 1,
-        codec: String,
+        type: String = "collection-file",
+        format: String,
         source: String,
         schemaSource: String,
-        schema: String,
-        scope: String,
-        modelHash: String
+        schemaFingerprint: String,
+        childSetHash: String
     ) {
         self.version = version
-        self.codec = codec
+        self.type = type
+        self.format = format
         self.source = source
         self.schemaSource = schemaSource
-        self.schema = schema
-        self.scope = scope
-        self.modelHash = modelHash
+        self.schemaFingerprint = schemaFingerprint
+        self.childSetHash = childSetHash
     }
 }
 
@@ -33,19 +33,17 @@ public struct WireDirectoryEntry: Hashable, Codable, Sendable {
     public var name: String
     public var hash: String?
     public var tree: String?
-    public var rollup: WireRollupDescriptor?
 
-    public init(name: String, hash: String? = nil, tree: String? = nil, rollup: WireRollupDescriptor? = nil) {
+    public init(name: String, hash: String? = nil, tree: String? = nil) {
         self.name = name
         self.hash = hash
         self.tree = tree
-        self.rollup = rollup
     }
 }
 
 public enum WireObject: Hashable, Sendable {
     case file(Data)
-    case directory([WireDirectoryEntry])
+    case directory([WireDirectoryEntry], childrenSource: WireCollectionFileDescriptor? = nil)
 }
 
 public enum WireObjectCodec {
@@ -55,18 +53,19 @@ public enum WireObjectCodec {
         switch object {
         case let .file(bytes):
             value = .map([("type", .text("file")), ("bytes", .bytes(bytes))])
-        case let .directory(entries):
-            value = .map([
+        case let .directory(entries, childrenSource):
+            var fields: [(String, CanonicalCBORValue)] = [
                 ("type", .text("directory")),
                 ("entries", .array(entries.map { entry in
                     .map([
                         ("name", .text(entry.name)),
                         entry.hash.map { ("hash", .text($0)) }
-                            ?? entry.tree.map { ("tree", .text($0)) }
-                            ?? ("rollup", rollupValue(entry.rollup!))
+                            ?? ("tree", .text(entry.tree!))
                     ])
                 }))
-            ])
+            ]
+            if let childrenSource { fields.append(("childrenSource", collectionFileValue(childrenSource))) }
+            value = .map(fields)
         }
         return CanonicalCBOR.encode(value)
     }
@@ -76,7 +75,7 @@ public enum WireObjectCodec {
             throw ArborWireValidationError.invalidCBOR("Wire object is not a map")
         }
         let values = Dictionary(uniqueKeysWithValues: entries)
-        guard values.count == 2, case let .text(type)? = values["type"] else {
+        guard case let .text(type)? = values["type"] else {
             throw ArborWireValidationError.invalidCBOR("Wire object fields are invalid")
         }
         let object: WireObject
@@ -87,7 +86,9 @@ public enum WireObjectCodec {
             }
             object = .file(bytes)
         case "directory":
-            guard Set(values.keys) == ["type", "entries"], case let .array(encodedEntries)? = values["entries"] else {
+            guard Set(values.keys).isSubset(of: ["type", "entries", "childrenSource"]),
+                  values.count == (values["childrenSource"] == nil ? 2 : 3),
+                  case let .array(encodedEntries)? = values["entries"] else {
                 throw ArborWireValidationError.invalidCBOR("Directory object fields are invalid")
             }
             let decoded = try encodedEntries.map { value -> WireDirectoryEntry in
@@ -96,13 +97,13 @@ public enum WireObjectCodec {
                 guard case let .text(name)? = item["name"] else { throw ArborWireValidationError.invalidCBOR("Directory entry name is missing") }
                 let hash = item["hash"].flatMap { if case let .text(value) = $0 { value } else { nil } }
                 let tree = item["tree"].flatMap { if case let .text(value) = $0 { value } else { nil } }
-                let rollup = try item["rollup"].map(decodeRollup)
-                guard item.count == 2, [hash != nil, tree != nil, rollup != nil].filter({ $0 }).count == 1 else {
+                guard item.count == 2, [hash != nil, tree != nil].filter({ $0 }).count == 1 else {
                     throw ArborWireValidationError.invalidCBOR("Directory entry target is invalid")
                 }
-                return WireDirectoryEntry(name: name, hash: hash, tree: tree, rollup: rollup)
+                return WireDirectoryEntry(name: name, hash: hash, tree: tree)
             }
-            object = .directory(decoded)
+            let childrenSource = try values["childrenSource"].map(decodeCollectionFile)
+            object = .directory(decoded, childrenSource: childrenSource)
         default:
             throw ArborWireValidationError.invalidCBOR("Unknown wire object type")
         }
@@ -120,51 +121,52 @@ public enum WireObjectCodec {
         return WireObjectEnvelope(hash: hash(bytes), bytes: bytes)
     }
 
-    private static func rollupValue(_ rollup: WireRollupDescriptor) -> CanonicalCBORValue {
+    private static func collectionFileValue(_ descriptor: WireCollectionFileDescriptor) -> CanonicalCBORValue {
         .map([
-            ("version", .unsigned(rollup.version)),
-            ("codec", .text(rollup.codec)),
-            ("source", .text(rollup.source)),
-            ("schemaSource", .text(rollup.schemaSource)),
-            ("schema", .text(rollup.schema)),
-            ("scope", .text(rollup.scope)),
-            ("modelHash", .text(rollup.modelHash)),
+            ("version", .unsigned(descriptor.version)),
+            ("type", .text(descriptor.type)),
+            ("format", .text(descriptor.format)),
+            ("source", .text(descriptor.source)),
+            ("schemaSource", .text(descriptor.schemaSource)),
+            ("schemaFingerprint", .text(descriptor.schemaFingerprint)),
+            ("childSetHash", .text(descriptor.childSetHash)),
         ])
     }
 
-    private static func decodeRollup(_ value: CanonicalCBORValue) throws -> WireRollupDescriptor {
+    private static func decodeCollectionFile(_ value: CanonicalCBORValue) throws -> WireCollectionFileDescriptor {
         guard case let .map(fields) = value else {
-            throw ArborWireValidationError.invalidCBOR("Rollup descriptor is not a map")
+            throw ArborWireValidationError.invalidCBOR("Collection-file descriptor is not a map")
         }
         let item = Dictionary(uniqueKeysWithValues: fields)
         guard item.count == 7,
               case let .unsigned(version)? = item["version"],
-              case let .text(codec)? = item["codec"],
+              case let .text(type)? = item["type"],
+              case let .text(format)? = item["format"],
               case let .text(source)? = item["source"],
               case let .text(schemaSource)? = item["schemaSource"],
-              case let .text(schema)? = item["schema"],
-              case let .text(scope)? = item["scope"],
-              case let .text(modelHash)? = item["modelHash"] else {
-            throw ArborWireValidationError.invalidCBOR("Rollup descriptor fields are invalid")
+              case let .text(schemaFingerprint)? = item["schemaFingerprint"],
+              case let .text(childSetHash)? = item["childSetHash"] else {
+            throw ArborWireValidationError.invalidCBOR("Collection-file descriptor fields are invalid")
         }
-        return WireRollupDescriptor(
+        return WireCollectionFileDescriptor(
             version: version,
-            codec: codec,
+            type: type,
+            format: format,
             source: source,
             schemaSource: schemaSource,
-            schema: schema,
-            scope: scope,
-            modelHash: modelHash
+            schemaFingerprint: schemaFingerprint,
+            childSetHash: childSetHash
         )
     }
 
     private static func validate(_ object: WireObject) throws {
-        guard case let .directory(entries) = object else { return }
+        guard case let .directory(entries, childrenSource) = object else { return }
         var previous: Data?
         var names = Set<String>()
         for entry in entries {
             let name = entry.name
             guard !name.isEmpty, name != ".", name != "..",
+                  name == name.precomposedStringWithCanonicalMapping,
                   !name.contains("/"), !name.contains("\\"), !name.contains("\0") else {
                 throw ArborWireValidationError.invalidValue("Invalid directory entry name")
             }
@@ -174,20 +176,30 @@ public enum WireObjectCodec {
                 throw ArborWireValidationError.invalidValue("Directory entries are not sorted by UTF-8 bytes")
             }
             previous = utf8
-            guard [entry.hash != nil, entry.tree != nil, entry.rollup != nil].filter({ $0 }).count == 1 else {
+            guard [entry.hash != nil, entry.tree != nil].filter({ $0 }).count == 1 else {
                 throw ArborWireValidationError.invalidValue("Directory entry must have exactly one target")
             }
             if let hash = entry.hash { try validateObjectHash(hash) }
             if let tree = entry.tree, tree.isEmpty { throw ArborWireValidationError.invalidValue("Nested tree ID is empty") }
-            if let rollup = entry.rollup {
-                guard rollup.version == 1,
-                      ["csv", "json", "jsonl"].contains(rollup.codec),
-                      ["children", "subtree"].contains(rollup.scope) else {
-                    throw ArborWireValidationError.invalidValue("Invalid rollup descriptor")
-                }
-                for hash in [rollup.source, rollup.schemaSource, rollup.schema, rollup.modelHash] {
-                    try validateObjectHash(hash)
-                }
+        }
+        if let childrenSource {
+            guard childrenSource.version == 1,
+                  childrenSource.type == "collection-file",
+                  ["csv", "json", "jsonl"].contains(childrenSource.format),
+                  childrenSource.source == "_store.\(childrenSource.format)",
+                  childrenSource.schemaSource == "schema.ts" else {
+                throw ArborWireValidationError.invalidValue("Invalid collection-file descriptor")
+            }
+            try validateObjectHash(childrenSource.schemaFingerprint)
+            try validateObjectHash(childrenSource.childSetHash)
+            let entriesByName = Dictionary(uniqueKeysWithValues: entries.map { ($0.name, $0) })
+            guard entriesByName[childrenSource.source]?.hash != nil,
+                  entriesByName[childrenSource.schemaSource]?.hash != nil else {
+                throw ArborWireValidationError.invalidValue("Collection-file sources must be ordinary file entries")
+            }
+            let allowed = Set([childrenSource.source, childrenSource.schemaSource, "_index.md"])
+            guard entries.allSatisfy({ allowed.contains($0.name) }) else {
+                throw ArborWireValidationError.invalidValue("Collection-file directory mixes immediate-child backings")
             }
         }
     }
@@ -221,13 +233,9 @@ public enum WireObjectGraph {
             if visited.contains(hash) { return }
             guard let object = objects[hash] else { throw ArborWireValidationError.incompleteGraph(hash) }
             visiting.insert(hash)
-            if case let .directory(entries) = object {
+            if case let .directory(entries, _) = object {
                 for entry in entries {
                     if let child = entry.hash { try visit(child) }
-                    if let rollup = entry.rollup {
-                        try visit(rollup.source)
-                        try visit(rollup.schemaSource)
-                    }
                 }
             }
             visiting.remove(hash)

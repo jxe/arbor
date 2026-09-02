@@ -102,7 +102,7 @@ export class ProjectionReadSession {
         children: {
           revision,
           schema,
-          representation: descriptor.representation,
+          backing: descriptor.backing,
           ...(descriptor.total === undefined ? {} : { total: descriptor.total }),
           writable: descriptor.editable && context.writable,
         },
@@ -242,11 +242,11 @@ export class ProjectionProviderHost implements AsyncDisposable {
   async descriptor(directory: string): Promise<ProjectionDescriptor | null> {
     return (await this.open(directory))?.descriptor() ?? null;
   }
-  async fileRollupDescriptor(directory: string, sourceName: string) {
+  async collectionFileDescriptor(directory: string, sourceName: string) {
     const definition = await detectProjection(directory);
     if (!definition) return null;
     const provider = this.provider(definition.provider);
-    return provider.fileRollupDescriptor ? provider.fileRollupDescriptor(definition, sourceName) : null;
+    return provider.collectionFileDescriptor ? provider.collectionFileDescriptor(definition, sourceName) : null;
   }
   async schemaTypes(directory: string) {
     return (await this.open(directory))?.schemaTypes() ?? null;

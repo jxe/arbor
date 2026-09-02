@@ -111,13 +111,9 @@ public actor ArborWireClient {
             let bytes = try await object(tree: tree, hash: hash)
             let object = try WireObjectCodec.decode(bytes)
             loaded[hash] = WireObjectEnvelope(hash: hash, bytes: bytes)
-            if case let .directory(entries) = object {
+            if case let .directory(entries, _) = object {
                 for entry in entries {
                     if let hash = entry.hash { pending.append(hash) }
-                    if let rollup = entry.rollup {
-                        pending.append(rollup.source)
-                        pending.append(rollup.schemaSource)
-                    }
                 }
             }
         }

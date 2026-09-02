@@ -1,5 +1,5 @@
 import type {
-  ChildRepresentationSummary,
+  ChildBackingSummary,
   Diagnostic,
   Hash,
   IdentityRule,
@@ -9,16 +9,15 @@ import type {
 } from "@arbor/core";
 import { revisionOf, semanticRequestDigest } from "@arbor/core";
 export type ProjectionProviderKind = "csv" | "json" | "jsonl" | "markdown" | "sqlite" | "postgres";
-/** Provider discovery metadata, already expressed in the public representation vocabulary. */
+/** Provider discovery metadata, already expressed in the public backing vocabulary. */
 export interface ProjectionDescriptor {
   columns: string[];
   identityRule?: IdentityRule;
   revision?: string;
   schemaRevision?: string;
-  modelHash?: string;
   diagnostics?: Diagnostic[];
   editable: boolean;
-  representation: ChildRepresentationSummary;
+  backing: ChildBackingSummary;
   total?: number;
   tables?: string[];
   rowContent?: "markdown";
@@ -122,11 +121,10 @@ export interface ProjectionProvider {
     definition: ProjectionDefinition,
     properties: Record<string, JSONValue>,
   ): Promise<{ properties: Record<string, JSONValue>; identityRule?: { properties: string[] } }>;
-  fileRollupDescriptor?(definition: ProjectionDefinition, sourceName: string): Promise<{
-    codec: "csv" | "json" | "jsonl";
-    schema: Hash;
-    scope: "children";
-    modelHash: Hash;
+  collectionFileDescriptor?(definition: ProjectionDefinition, sourceName: string): Promise<{
+    format: "csv" | "json" | "jsonl";
+    schemaFingerprint: Hash;
+    childSetHash: Hash;
   } | null>;
   schema?(definition: ProjectionDefinition): Promise<Record<string, Record<string, string>>>;
   [Symbol.asyncDispose]?(): Promise<void>;
@@ -178,17 +176,18 @@ export function invalidDescriptor(definition: ProjectionDefinition): ProjectionD
     schemaRevision: revisionOf("invalid-collection-schema"),
     diagnostics: definition.diagnostics,
     editable: false,
-    representation: representationFor(definition.provider),
+    backing: backingFor(definition.provider),
   };
 }
-export function representationFor(
+export function backingFor(
   provider: ProjectionProviderKind,
-  modelHash: Hash = semanticRequestDigest({ provider }),
+  childSetHash: Hash = semanticRequestDigest({ provider }),
   scope: "children" | "subtree" = provider === "sqlite" ? "subtree" : "children",
-): ChildRepresentationSummary {
-  if (provider === "postgres") return { type: "external", driver: "postgres" };
-  if (provider === "markdown") return { type: "expanded" };
-  return { type: "rollup", codec: provider, scope, modelHash };
+): ChildBackingSummary {
+  if (provider === "postgres") return { type: "external-store", driver: "postgres" };
+  if (provider === "markdown") return { type: "expanded-files" };
+  if (provider === "sqlite") return { type: "database", driver: "sqlite", scope };
+  return { type: "collection-file", format: provider, childSetHash };
 }
 export function encodeProviderCursor(value: StoredCursor): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url");

@@ -4,7 +4,7 @@ export * from "./account-config.ts";
 export * from "./connections.ts";
 export * from "./server-config.ts";
 export * from "./schema.ts";
-export * from "./wire-file-rollup.ts";
+export * from "./wire-collection-file.ts";
 export * from "./projection-provider-host.ts";
 export * from "./providers/discovery.ts";
 export * from "./providers/types.ts";

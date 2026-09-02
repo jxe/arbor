@@ -69,12 +69,7 @@ export async function buildAcceptedTransitionPayload(
       const beforeEntries = before?.object.type === "directory" ? before.object.entries : [];
       for (const entry of after.object.entries) {
         const prior = matchingEntry(entry, beforeEntries);
-        if (entry.hash) {
-          await visit(prior?.hash, entry.hash);
-        } else if (entry.rollup) {
-          await visit(prior?.rollup?.source, entry.rollup.source);
-          await visit(prior?.rollup?.schemaSource, entry.rollup.schemaSource);
-        }
+        if (entry.hash) await visit(prior?.hash, entry.hash);
       }
     }
   };

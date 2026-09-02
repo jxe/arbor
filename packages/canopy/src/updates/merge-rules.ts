@@ -5,13 +5,13 @@ import {
   type UpdateConflict,
   type WireObject,
 } from "@arbor/wire";
-import { canonicalCBORHash, stableJSONString, type Hash, type RollupDescriptor } from "@arbor/core";
+import { canonicalCBORHash, stableJSONString, type CollectionFileDescriptor } from "@arbor/core";
 import {
-  decodeWireFileRollup,
-  encodeWireFileRollup,
+  decodeWireCollectionFile,
+  encodeWireCollectionFile,
   SchemaSandbox,
-  WireFileRollupError,
-  type WireFileRollupRow,
+  WireCollectionFileError,
+  type WireCollectionFileRow,
 } from "@arbor/stores";
 
 /**
@@ -180,59 +180,74 @@ export async function markdownAdditiveV1(
   return { hash: context.store({ type: "file", bytes: new TextEncoder().encode(source) }), approximate: merged.approximate };
 }
 
-/** `rollup-rows-v1`: merge two changes to one file rollup by stable row identity. */
-export async function rollupRowsV1(
+export interface CollectionFileMergeInput {
+  descriptor: CollectionFileDescriptor;
+  source: ObjectHash;
+  schemaSource: ObjectHash;
+}
+
+/** `collection-file-rows-v1`: merge two collection-file changes by stable row identity. */
+export async function collectionFileRowsV1(
   path: string,
-  baseDescriptor: RollupDescriptor,
-  candidateDescriptor: RollupDescriptor,
-  currentDescriptor: RollupDescriptor,
+  base: CollectionFileMergeInput,
+  candidate: CollectionFileMergeInput,
+  current: CollectionFileMergeInput,
   context: RuleContext,
-): Promise<{ descriptor: RollupDescriptor; mergedRows: number }> {
-  const rollupFile = async (hash: ObjectHash): Promise<Uint8Array> => {
+): Promise<{ descriptor: CollectionFileDescriptor; source: ObjectHash; schemaSource: ObjectHash; mergedRows: number }> {
+  const collectionFile = async (hash: ObjectHash): Promise<Uint8Array> => {
     const value = await context.object(hash);
-    if (value.type !== "file") throw new WireFileRollupError("source", "Rollup target is not a file object");
+    if (value.type !== "file") throw new WireCollectionFileError("source", "Collection-file source is not a file object");
     return value.bytes;
   };
-  const rowEqual = (left: WireFileRollupRow | undefined, right: WireFileRollupRow | undefined): boolean =>
+  const rowEqual = (left: WireCollectionFileRow | undefined, right: WireCollectionFileRow | undefined): boolean =>
     left === undefined ? right === undefined
       : right !== undefined && stableJSONString(left.properties) === stableJSONString(right.properties);
-  const schemaState = (value: RollupDescriptor) => stableJSONString({
-    version: value.version, codec: value.codec, schemaSource: value.schemaSource, schema: value.schema, scope: value.scope,
+  const schemaState = (value: CollectionFileMergeInput) => stableJSONString({
+    version: value.descriptor.version,
+    type: value.descriptor.type,
+    format: value.descriptor.format,
+    source: value.descriptor.source,
+    schemaSource: value.descriptor.schemaSource,
+    schemaFingerprint: value.descriptor.schemaFingerprint,
+    schemaObject: value.schemaSource,
   });
-  if (schemaState(baseDescriptor) !== schemaState(candidateDescriptor) || schemaState(baseDescriptor) !== schemaState(currentDescriptor)) {
-    context.conflicts.push({ path, reason: "rollup-schema-conflict" });
-    return { descriptor: candidateDescriptor, mergedRows: 0 };
+  if (schemaState(base) !== schemaState(candidate) || schemaState(base) !== schemaState(current)) {
+    context.conflicts.push({ path, reason: "collection-file-schema-conflict" });
+    return { ...candidate, mergedRows: 0 };
   }
   const schemas = new SchemaSandbox();
   let mergedRows = 0;
   try {
-    const decode = async (descriptor: RollupDescriptor) => decodeWireFileRollup(
-      descriptor, await rollupFile(descriptor.source), await rollupFile(descriptor.schemaSource), schemas,
+    const decode = async (value: CollectionFileMergeInput) => decodeWireCollectionFile(
+      value.descriptor,
+      await collectionFile(value.source),
+      await collectionFile(value.schemaSource),
+      schemas,
     );
-    const [baseRollup, candidateRollup, currentRollup] = [await decode(baseDescriptor), await decode(candidateDescriptor), await decode(currentDescriptor)];
-    const baseRows = new Map(baseRollup.rows.map((row) => [row.stableKey, row]));
-    const candidateRows = new Map(candidateRollup.rows.map((row) => [row.stableKey, row]));
-    const currentRows = new Map(currentRollup.rows.map((row) => [row.stableKey, row]));
-    const selected = new Map<string, WireFileRollupRow>();
+    const [baseFile, candidateFile, currentFile] = [await decode(base), await decode(candidate), await decode(current)];
+    const baseRows = new Map(baseFile.rows.map((row) => [row.stableKey, row]));
+    const candidateRows = new Map(candidateFile.rows.map((row) => [row.stableKey, row]));
+    const currentRows = new Map(currentFile.rows.map((row) => [row.stableKey, row]));
+    const selected = new Map<string, WireCollectionFileRow>();
     for (const key of new Set([...baseRows.keys(), ...candidateRows.keys(), ...currentRows.keys()])) {
       const before = baseRows.get(key);
       const candidate = candidateRows.get(key);
       const current = currentRows.get(key);
-      let row: WireFileRollupRow | undefined;
+      let row: WireCollectionFileRow | undefined;
       if (rowEqual(candidate, current)) row = candidate;
       else if (rowEqual(candidate, before)) row = current;
       else if (rowEqual(current, before)) {
         row = candidate;
         mergedRows += 1;
       } else {
-        const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
-        context.conflicts.push({ path: `${parentPath};arbor-key=${Buffer.from(key).toString("base64url")}`, reason: "rollup-row-conflict" });
+        const name = candidate?.path ?? current?.path ?? before?.path ?? "row";
+        context.conflicts.push({ path: `${path === "/" ? "" : path}/${name};arbor-key=${Buffer.from(key).toString("base64url")}`, reason: "collection-file-row-conflict" });
         row = candidate;
       }
       if (row) selected.set(key, row);
     }
-    const ordered: WireFileRollupRow[] = [];
-    for (const row of [...currentRollup.rows, ...candidateRollup.rows]) {
+    const ordered: WireCollectionFileRow[] = [];
+    for (const row of [...currentFile.rows, ...candidateFile.rows]) {
       const selectedRow = selected.get(row.stableKey);
       if (selectedRow) {
         ordered.push(selectedRow);
@@ -240,18 +255,23 @@ export async function rollupRowsV1(
       }
     }
     ordered.push(...[...selected.values()].sort((left, right) => left.stableKey < right.stableKey ? -1 : 1));
-    const modelHash = canonicalCBORHash([...ordered]
+    const childSetHash = canonicalCBORHash([...ordered]
       .sort((left, right) => left.stableKey < right.stableKey ? -1 : left.stableKey > right.stableKey ? 1 : 0)
-      .map((row) => ({ key: row.stableKey, path: row.path, properties: row.properties })));
+      .map((row) => ({ key: row.stableKey, name: row.path, properties: row.properties })));
     const source = context.store({
       type: "file",
-      bytes: encodeWireFileRollup(currentDescriptor.codec, currentRollup.schema, ordered),
-    }) as Hash;
-    return { descriptor: { ...currentDescriptor, source, modelHash }, mergedRows };
+      bytes: encodeWireCollectionFile(current.descriptor.format, currentFile.schema, ordered),
+    });
+    return {
+      descriptor: { ...current.descriptor, childSetHash },
+      source,
+      schemaSource: current.schemaSource,
+      mergedRows,
+    };
   } catch (error) {
-    if (error instanceof WireFileRollupError) {
-      context.conflicts.push({ path, reason: error.kind === "schema" ? "rollup-schema-conflict" : "rollup-constraint-conflict" });
-      return { descriptor: candidateDescriptor, mergedRows: 0 };
+    if (error instanceof WireCollectionFileError) {
+      context.conflicts.push({ path, reason: error.kind === "schema" ? "collection-file-schema-conflict" : "collection-file-constraint-conflict" });
+      return { ...candidate, mergedRows: 0 };
     }
     throw error;
   } finally {

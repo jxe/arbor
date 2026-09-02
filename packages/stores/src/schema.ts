@@ -2,13 +2,38 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getQuickJS, type QuickJSContext, type QuickJSRuntime } from "quickjs-emscripten";
 import type { Diagnostic } from "@arbor/core";
-import { revisionOf } from "@arbor/core";
+import { revisionOf, rowPathSegment, type JSONValue } from "@arbor/core";
+
+export type ChildNameRule =
+  | { from: "primaryKey" }
+  | { from: "property"; property: string };
 
 export interface SchemaDescription {
   jsonSchema: Record<string, unknown>;
   columns: string[];
   primaryKey: string[] | null;
+  childName: ChildNameRule;
   revision: string;
+}
+
+const RESERVED_CHILD_NAMES = new Set([
+  "_index.md", "schema.ts", "_store.csv", "_store.json", "_store.jsonl",
+  "_store.sqlite3", "_store.yaml",
+]);
+
+export function logicalChildName(
+  schema: Pick<SchemaDescription, "childName">,
+  properties: Record<string, JSONValue>,
+  stableKey: string,
+): string {
+  if (schema.childName.from === "primaryKey") return rowPathSegment(stableKey);
+  const value = properties[schema.childName.property];
+  if (typeof value !== "string" || !value || value !== value.normalize("NFC")
+    || value === "." || value === ".." || /[\\/\0]/.test(value)
+    || value.startsWith("~row-") || RESERVED_CHILD_NAMES.has(value)) {
+    throw new Error(`childName property ${schema.childName.property} is not a valid logical name`);
+  }
+  return value;
 }
 
 interface CompiledSchema {
@@ -37,6 +62,7 @@ export class SchemaSandbox implements AsyncDisposable {
       .replace(/import\s*\{\s*z\s*\}\s*from\s*["']zod["'];?/g, "")
       .replace(/export\s+const\s+schema\b/, "const schema")
       .replace(/export\s+const\s+primaryKey\b/, "const primaryKey")
+      .replace(/export\s+const\s+childName\b/, "const childName")
       .replace(/export\s+type\s+/g, "type ")
       .replace(/export\s*\{[^}]*\};?/g, "");
     if (!/\bconst\s+schema\s*=/.test(schemaBody)) throw new Error("schema.ts must export `const schema = z.object(...)`");
@@ -45,6 +71,7 @@ export class SchemaSandbox implements AsyncDisposable {
       schemaBody,
       `globalThis.__ARBOR_SCHEMA = JSON.stringify(z.toJSONSchema(schema));`,
       `globalThis.__ARBOR_PRIMARY_KEY = typeof primaryKey === "undefined" ? "null" : JSON.stringify(primaryKey);`,
+      `globalThis.__ARBOR_CHILD_NAME = typeof childName === "undefined" ? JSON.stringify({ from: "primaryKey" }) : JSON.stringify(childName);`,
       `globalThis.__ARBOR_VALIDATE = (text) => {`,
       `  const result = schema.safeParse(JSON.parse(text));`,
       `  return JSON.stringify(result.success ? { ok: true, value: result.data } : { ok: false, issues: result.error.issues });`,
@@ -84,6 +111,10 @@ export class SchemaSandbox implements AsyncDisposable {
     const primaryKeySerialized = context.dump(primaryKeyHandle) as string;
     primaryKeyHandle.dispose();
     const declaredPrimaryKey = JSON.parse(primaryKeySerialized) as unknown;
+    const childNameHandle = context.getProp(context.global, "__ARBOR_CHILD_NAME");
+    const childNameSerialized = context.dump(childNameHandle) as string;
+    childNameHandle.dispose();
+    const declaredChildName = JSON.parse(childNameSerialized) as unknown;
     const columns = Object.keys((jsonSchema.properties as Record<string, unknown> | undefined) ?? {});
     const required = new Set(Array.isArray(jsonSchema.required) ? jsonSchema.required : []);
     if (declaredPrimaryKey !== null && (
@@ -96,10 +127,25 @@ export class SchemaSandbox implements AsyncDisposable {
       runtime.dispose();
       throw new Error("primaryKey must name unique required schema properties");
     }
+    const childNameSource = declaredChildName && typeof declaredChildName === "object" && !Array.isArray(declaredChildName)
+      ? declaredChildName as Record<string, unknown>
+      : null;
+    const validChildName = childNameSource?.from === "primaryKey"
+      ? Object.keys(childNameSource).length === 1
+      : childNameSource?.from === "property"
+        && typeof childNameSource.property === "string"
+        && columns.includes(childNameSource.property)
+        && Object.keys(childNameSource).length === 2;
+    if (!validChildName) {
+      context.dispose();
+      runtime.dispose();
+      throw new Error("childName must derive from primaryKey or name one schema property");
+    }
     const description = {
       jsonSchema,
       columns,
       primaryKey: declaredPrimaryKey as string[] | null,
+      childName: childNameSource as ChildNameRule,
       revision: revisionOf(source),
     };
     cached?.context.dispose();

@@ -44,7 +44,7 @@
           "children": {
             "revision": "children:r-practices-4",
             "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "representation": { "type": "expanded" },
+            "backing": { "type": "expanded-files" },
             "total": 2,
             "writable": true
           }
@@ -69,7 +69,7 @@
           "properties": { "revision": "store-schema:12", "writable": false },
           "children": {
             "revision": "store:commit-918",
-            "representation": { "type": "external", "driver": "postgres" },
+            "backing": { "type": "external-store", "driver": "postgres" },
             "total": 7,
             "writable": true
           }
@@ -156,33 +156,33 @@
       }
     }
   ],
-  "rollups": [
+  "collectionFiles": [
     {
       "version": 1,
-      "codec": "csv",
-      "source": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      "schemaSource": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "scope": "children",
-      "modelHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      "type": "collection-file",
+      "format": "csv",
+      "source": "_store.csv",
+      "schemaSource": "schema.ts",
+      "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
     {
       "version": 1,
-      "codec": "json",
-      "source": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-      "schemaSource": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "scope": "children",
-      "modelHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      "type": "collection-file",
+      "format": "json",
+      "source": "_store.json",
+      "schemaSource": "schema.ts",
+      "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
     {
       "version": 1,
-      "codec": "jsonl",
-      "source": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-      "schemaSource": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "scope": "children",
-      "modelHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      "type": "collection-file",
+      "format": "jsonl",
+      "source": "_store.jsonl",
+      "schemaSource": "schema.ts",
+      "schemaFingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "childSetHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     }
   ],
   "forwardCompatibleSnapshot": {

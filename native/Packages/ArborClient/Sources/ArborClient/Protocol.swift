@@ -192,18 +192,18 @@ public struct ContentCapability: Codable, Sendable, Equatable {
     public var writable: Bool
 }
 
-public struct ChildRepresentationSummary: Codable, Sendable, Equatable {
+public struct ChildBackingSummary: Codable, Sendable, Equatable {
     public var type: String
-    public var codec: String?
+    public var format: String?
+    public var childSetHash: String?
     public var scope: String?
-    public var modelHash: String?
     public var driver: String?
 }
 
 public struct ChildrenCapability: Codable, Sendable, Equatable {
     public var revision: String
     public var schema: String?
-    public var representation: ChildRepresentationSummary?
+    public var backing: ChildBackingSummary?
     public var total: Int?
     public var writable: Bool
 }

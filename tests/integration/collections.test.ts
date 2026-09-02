@@ -76,6 +76,9 @@ beforeAll(async () => {
   await mkdir(join(root, "json"));
   await writeFile(join(root, "json", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string() }); export const primaryKey = ["id"] as const;\n');
   await writeFile(join(root, "json", "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
+  await mkdir(join(root, "named"));
+  await writeFile(join(root, "named", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), slug: z.string(), title: z.string() }); export const primaryKey = ["id"] as const; export const childName = { from: "property", property: "slug" } as const;\n');
+  await writeFile(join(root, "named", "_store.json"), '[{"id":"opaque-1","slug":"first-practice","title":"First"}]\n');
   await mkdir(join(root, "markdown"));
   await writeFile(join(root, "markdown", "schema.ts"), 'import { z } from "zod"; export const schema = z.object({ id: z.string(), title: z.string(), status: z.enum(["draft", "done"]) });\n');
   await writeFile(join(root, "markdown", "one.md"), "---\nid: abc123\ntitle: One\nstatus: draft\n---\nBody\n");
@@ -151,8 +154,26 @@ describe("file-backed collections", () => {
     await writeFile(join(root, "json", "_store.json"), '[\n  { "id": "b", "title": "Second" },\n  { "id": "a", "title": "First" }\n]\n');
     const afterFormatting = await collections.descriptor(join(root, "json"));
     expect(afterFormatting?.revision).not.toBe(beforeFormatting?.revision);
-    expect(afterFormatting?.modelHash).toBe(beforeFormatting?.modelHash);
+    expect(afterFormatting?.backing).toEqual(beforeFormatting?.backing);
     await expect(childrenOf(collections, join(root, "json"), "/json", first.nextCursor, 1)).rejects.toThrow("another revision");
+  });
+
+  test("keeps stable identity separate from a schema-derived childName", async () => {
+    const providers = new ProjectionProviderHost();
+    const page = await childrenOf(providers, join(root, "named"), "/named");
+    expect(page.items[0]?.ref).toEqual({
+      tree: "tr_test",
+      path: "/named/first-practice",
+      stableKey: canonicalStableKey([["id", "opaque-1"]]),
+    });
+    const descriptor = await providers.collectionFileDescriptor(join(root, "named"), "_store.json");
+    expect(descriptor).toMatchObject({ format: "json", childSetHash: expect.stringMatching(/^sha256:/) });
+
+    await writeFile(join(root, "named", "_store.json"), '[{"id":"opaque-1","slug":"same","title":"First"},{"id":"opaque-2","slug":"same","title":"Second"}]\n');
+    expect(await providers.collectionFileDescriptor(join(root, "named"), "_store.json")).toBeNull();
+    const duplicate = await childrenOf(providers, join(root, "named"), "/named");
+    expect(duplicate.items.every((row) => row.diagnostics.some((item) => item.code === "duplicate-child-name"))).toBe(true);
+    await providers[Symbol.asyncDispose]();
   });
 
   test("never falls back from duplicate or nullable declared identity", async () => {
@@ -299,7 +320,7 @@ describe("file-backed collections", () => {
     const summary = await collections.descriptor(directory);
     expect(summary).toMatchObject({
       tables: ["items", "memberships"],
-      representation: { type: "rollup", codec: "sqlite", scope: "subtree" },
+      backing: { type: "database", driver: "sqlite", scope: "subtree" },
       editable: false,
     });
     expect(summary?.schemaRevision).toMatch(/^sha256:/);
@@ -308,7 +329,7 @@ describe("file-backed collections", () => {
     expect(table).toMatchObject({
       columns: ["id", "title", "active"],
       identityRule: { properties: ["id"] },
-      representation: { type: "rollup", codec: "sqlite", scope: "children" },
+      backing: { type: "database", driver: "sqlite", scope: "children" },
       total: 2,
     });
 

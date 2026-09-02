@@ -15,15 +15,15 @@ export interface IdentityRule {
   properties: string[];
 }
 
-export type ChildRepresentationSummary =
-  | { type: "expanded" }
+export type ChildBackingSummary =
+  | { type: "expanded-files" }
   | {
-    type: "rollup";
-    codec: "csv" | "json" | "jsonl" | "sqlite";
-    scope: "children" | "subtree";
-    modelHash: Hash;
+    type: "collection-file";
+    format: "csv" | "json" | "jsonl";
+    childSetHash: Hash;
   }
-  | { type: "external"; driver: string };
+  | { type: "database"; driver: "sqlite"; scope: "children" | "subtree" }
+  | { type: "external-store"; driver: string };
 
 export interface NodeCapabilities {
   properties?: { revision: string; schema?: Hash; writable: boolean };
@@ -36,7 +36,7 @@ export interface NodeCapabilities {
   children?: {
     revision: string;
     schema?: Hash;
-    representation?: ChildRepresentationSummary;
+    backing?: ChildBackingSummary;
     total?: number;
     writable: boolean;
   };
@@ -76,14 +76,14 @@ export interface ChildrenPage {
   observedThrough: EventCursor;
 }
 
-export interface RollupDescriptor {
+export interface CollectionFileDescriptor {
   version: 1;
-  codec: "csv" | "json" | "jsonl";
-  source: Hash;
-  schemaSource: Hash;
-  schema: Hash;
-  scope: "children" | "subtree";
-  modelHash: Hash;
+  type: "collection-file";
+  format: "csv" | "json" | "jsonl";
+  source: "_store.csv" | "_store.json" | "_store.jsonl";
+  schemaSource: "schema.ts";
+  schemaFingerprint: Hash;
+  childSetHash: Hash;
 }
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
@@ -177,18 +177,23 @@ export function decodeIdentityRule(value: unknown): IdentityRule {
   return { properties };
 }
 
-function decodeRepresentation(value: unknown): ChildRepresentationSummary {
-  const source = object(value, "capabilities.children.representation");
-  if (source.type === "expanded") return { type: "expanded" };
-  if (source.type === "external") return { type: "external", driver: string(source.driver, "representation.driver") };
-  if (source.type !== "rollup") throw new TypeError("children representation type is invalid");
-  if (!["csv", "json", "jsonl", "sqlite"].includes(source.codec as string)) throw new TypeError("rollup codec is invalid");
-  if (source.scope !== "children" && source.scope !== "subtree") throw new TypeError("rollup scope is invalid");
+function decodeBacking(value: unknown): ChildBackingSummary {
+  const source = object(value, "capabilities.children.backing");
+  if (source.type === "expanded-files") return { type: "expanded-files" };
+  if (source.type === "external-store") {
+    return { type: "external-store", driver: string(source.driver, "backing.driver") };
+  }
+  if (source.type === "database") {
+    if (source.driver !== "sqlite") throw new TypeError("database backing driver is invalid");
+    if (source.scope !== "children" && source.scope !== "subtree") throw new TypeError("database backing scope is invalid");
+    return { type: "database", driver: "sqlite", scope: source.scope };
+  }
+  if (source.type !== "collection-file") throw new TypeError("children backing type is invalid");
+  if (!["csv", "json", "jsonl"].includes(source.format as string)) throw new TypeError("collection-file format is invalid");
   return {
-    type: "rollup",
-    codec: source.codec as "csv" | "json" | "jsonl" | "sqlite",
-    scope: source.scope,
-    modelHash: hash(source.modelHash, "representation.modelHash"),
+    type: "collection-file",
+    format: source.format as "csv" | "json" | "jsonl",
+    childSetHash: hash(source.childSetHash, "backing.childSetHash"),
   };
 }
 
@@ -216,13 +221,16 @@ export function decodeNodeCapabilities(value: unknown): NodeCapabilities {
   }
   if (source.children !== undefined) {
     const capability = object(source.children, "capabilities.children");
+    if (capability.representation !== undefined) {
+      throw new TypeError("capabilities.children.representation was replaced by backing");
+    }
     if (capability.total !== undefined && (!Number.isSafeInteger(capability.total) || (capability.total as number) < 0)) {
       throw new TypeError("capabilities.children.total must be a nonnegative integer");
     }
     result.children = {
       revision: string(capability.revision, "capabilities.children.revision"),
       ...(capability.schema === undefined ? {} : { schema: hash(capability.schema, "capabilities.children.schema") }),
-      ...(capability.representation === undefined ? {} : { representation: decodeRepresentation(capability.representation) }),
+      ...(capability.backing === undefined ? {} : { backing: decodeBacking(capability.backing) }),
       ...(capability.total === undefined ? {} : { total: capability.total as number }),
       writable: boolean(capability.writable, "capabilities.children.writable"),
     };
@@ -307,19 +315,22 @@ export function decodeChildrenPage(value: unknown): ChildrenPage {
   };
 }
 
-export function decodeRollupDescriptor(value: unknown): RollupDescriptor {
-  const source = object(value, "rollup");
-  if (source.version !== 1) throw new TypeError("rollup.version must be 1");
-  if (!["csv", "json", "jsonl"].includes(source.codec as string)) throw new TypeError("rollup.codec is invalid");
-  if (source.scope !== "children" && source.scope !== "subtree") throw new TypeError("rollup.scope is invalid");
+export function decodeCollectionFileDescriptor(value: unknown): CollectionFileDescriptor {
+  const source = object(value, "childrenSource");
+  if (source.version !== 1) throw new TypeError("childrenSource.version must be 1");
+  if (source.type !== "collection-file") throw new TypeError("childrenSource.type is invalid");
+  if (!["csv", "json", "jsonl"].includes(source.format as string)) throw new TypeError("childrenSource.format is invalid");
+  const format = source.format as "csv" | "json" | "jsonl";
+  if (source.source !== `_store.${format}`) throw new TypeError("childrenSource.source does not match its format");
+  if (source.schemaSource !== "schema.ts") throw new TypeError("childrenSource.schemaSource must be schema.ts");
   return {
     version: 1,
-    codec: source.codec as "csv" | "json" | "jsonl",
-    source: hash(source.source, "rollup.source"),
-    schemaSource: hash(source.schemaSource, "rollup.schemaSource"),
-    schema: hash(source.schema, "rollup.schema"),
-    scope: source.scope,
-    modelHash: hash(source.modelHash, "rollup.modelHash"),
+    type: "collection-file",
+    format,
+    source: source.source as CollectionFileDescriptor["source"],
+    schemaSource: "schema.ts",
+    schemaFingerprint: hash(source.schemaFingerprint, "childrenSource.schemaFingerprint"),
+    childSetHash: hash(source.childSetHash, "childrenSource.childSetHash"),
   };
 }
 

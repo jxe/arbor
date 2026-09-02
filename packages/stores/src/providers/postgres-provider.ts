@@ -6,7 +6,7 @@ import {
   type ProjectionProvider,
   decodeProviderCursor,
   encodeProviderCursor,
-  representationFor,
+  backingFor,
   type LoadedProjectionSlice,
   type ProjectionDefinition,
   type ProjectionDescriptor,
@@ -18,7 +18,7 @@ export class PostgresProjectionDriver implements ProjectionProvider {
     const reference = await this.reference(definition.storePath!);
     const connection = await this.connections.get(connectionName(reference.connection));
     if (!connection) return {
-      columns: [], editable: false, tables: [], representation: representationFor("postgres"),
+      columns: [], editable: false, tables: [], backing: backingFor("postgres"),
     };
     const sql = new Bun.SQL(connection.dsn);
     try {
@@ -26,7 +26,7 @@ export class PostgresProjectionDriver implements ProjectionProvider {
       return {
         columns: [], editable: false,
         tables: rows.map((row: Record<string, unknown>) => String(row.table_name)),
-        representation: representationFor("postgres"),
+        backing: backingFor("postgres"),
       };
     } finally { await sql.close(); }
   }

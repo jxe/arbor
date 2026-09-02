@@ -84,7 +84,7 @@ describe("REST v1 protocol fault recovery", () => {
     }
   });
 
-  test("recovers an exact-source rollup committed before its materialization record", async () => {
+  test("recovers an exact-source collection file committed before its materialization record", async () => {
     const { root, state } = await directories();
     process.env.ARBOR_DATA_HOME = state;
     const collection = join(root, "records");
@@ -104,7 +104,7 @@ describe("REST v1 protocol fault recovery", () => {
     const key = canonicalStableKey([["id", "one"]]);
     const row = await first.snapshot({ tree, path: "/records/one", stableKey: key });
     const request: MutationRequest = {
-      mutationID: "fault-file-rollup-commit",
+      mutationID: "fault-collection-file-commit",
       operations: [{
         op: "writeProperties",
         ref: row.ref,

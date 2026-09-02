@@ -75,13 +75,9 @@ public enum WireTransitionReplay {
             guard let bytes = bytesByHash[hash] else { throw ArborWireValidationError.incompleteGraph(hash) }
             let object = try WireObjectCodec.decode(bytes)
             visiting.insert(hash)
-            if case let .directory(entries) = object {
+            if case let .directory(entries, _) = object {
                 for entry in entries {
                     if let child = entry.hash { try visit(child) }
-                    if let rollup = entry.rollup {
-                        try visit(rollup.source)
-                        try visit(rollup.schemaSource)
-                    }
                 }
             }
             visiting.remove(hash)

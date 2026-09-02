@@ -5,7 +5,7 @@ import type {
   LocalTreeDescriptor,
   NodeResponse,
   NodeSummary,
-  RollupDescriptor,
+  CollectionFileDescriptor,
   TreeRef,
 } from "@arbor/core";
 import {
@@ -19,16 +19,17 @@ import {
 } from "@arbor/core";
 import { directoryPlacementDiagnostics, parseMarkdown } from "@arbor/editor";
 import {
-  decodeWireFileRollup,
+  decodeWireCollectionFile,
   SchemaSandbox,
-  type DecodedWireFileRollup,
-  type WireFileRollupRow,
+  type DecodedWireCollectionFile,
+  type WireCollectionFileRow,
 } from "@arbor/stores";
 import {
   decodeWireObject,
   resolveWireLogicalNode,
   type ObjectHash,
   type ResolvedWireLogicalNode,
+  type WireDirectory,
 } from "@arbor/wire";
 
 export interface WireProjectionOptions {
@@ -43,7 +44,7 @@ export interface WireProjectionOptions {
 
 export type WireResolution =
   | { kind: "node"; path: string; node: ResolvedWireLogicalNode }
-  | { kind: "rollup-row"; path: string; row: WireFileRollupRow; descriptor: RollupDescriptor }
+  | { kind: "collection-file-row"; path: string; row: WireCollectionFileRow; descriptor: CollectionFileDescriptor }
   | { kind: "missing"; path: string };
 
 export interface WireNodeProjection {
@@ -59,18 +60,18 @@ export function wireNodeStableKey(node: ResolvedWireLogicalNode): string | null 
   return isPageID(id) ? pageIDStableKey(id) : null;
 }
 
-export function wireRollupRowTitle(row: WireFileRollupRow): string {
+export function wireCollectionFileRowTitle(row: WireCollectionFileRow): string {
   return typeof row.properties.title === "string" ? row.properties.title
     : typeof row.properties.name === "string" ? row.properties.name
     : typeof row.properties.slug === "string" ? row.properties.slug
     : row.path;
 }
 
-export function wireRollupRowMarkdown(row: WireFileRollupRow): string {
+export function wireCollectionFileRowMarkdown(row: WireCollectionFileRow): string {
   const json = JSON.stringify(row.properties, null, 2);
   const longest = Math.max(2, ...[...json.matchAll(/`+/g)].map((match) => match[0].length));
   const fence = "`".repeat(longest + 1);
-  return `# ${wireRollupRowTitle(row).replaceAll(/\r?\n/g, " ")}\n\n${fence}json\n${json}\n${fence}\n`;
+  return `# ${wireCollectionFileRowTitle(row).replaceAll(/\r?\n/g, " ")}\n\n${fence}json\n${json}\n${fence}\n`;
 }
 
 function properties(value: unknown): Record<string, JSONValue> {
@@ -81,14 +82,19 @@ function properties(value: unknown): Record<string, JSONValue> {
 export class WireProjection {
   constructor(private readonly options: WireProjectionOptions) {}
 
-  async rollup(descriptor: RollupDescriptor): Promise<DecodedWireFileRollup> {
+  async collectionFile(directory: WireDirectory): Promise<DecodedWireCollectionFile | null> {
+    const descriptor = directory.childrenSource;
+    if (!descriptor) return null;
+    const sourceHash = directory.entries.find((entry) => entry.name === descriptor.source)?.hash;
+    const schemaHash = directory.entries.find((entry) => entry.name === descriptor.schemaSource)?.hash;
+    if (!sourceHash || !schemaHash) throw new Error("Collection-file sources are missing");
     const [source, schema] = await Promise.all([
-      this.options.load(descriptor.source).then(decodeWireObject),
-      this.options.load(descriptor.schemaSource).then(decodeWireObject),
+      this.options.load(sourceHash).then(decodeWireObject),
+      this.options.load(schemaHash).then(decodeWireObject),
     ]);
-    if (source.type !== "file" || schema.type !== "file") throw new Error("Wire rollup targets must be file objects");
+    if (source.type !== "file" || schema.type !== "file") throw new Error("Collection-file sources must be file objects");
     const sandbox = new SchemaSandbox();
-    try { return await decodeWireFileRollup(descriptor, source.bytes, schema.bytes, sandbox); }
+    try { return await decodeWireCollectionFile(descriptor, source.bytes, schema.bytes, sandbox); }
     finally { await sandbox[Symbol.asyncDispose](); }
   }
 
@@ -97,8 +103,8 @@ export class WireProjection {
     let node = await resolveWireLogicalNode(this.options.root, path, this.options.load);
     if (node && (!stableKey || wireNodeStableKey(node) === stableKey)) return { kind: "node", path, node };
 
-    const rollupRow = await this.findRollupRow(path, stableKey);
-    if (rollupRow) return rollupRow;
+    const collectionFileRow = await this.findCollectionFileRow(path, stableKey);
+    if (collectionFileRow) return collectionFileRow;
     if (!stableKey) return { kind: "missing", path };
 
     const healed = await this.findNodeByStableKey(stableKey);
@@ -108,10 +114,10 @@ export class WireProjection {
   async project(requestedPath: string, stableKey: string | null = null): Promise<WireNodeProjection | null> {
     const resolution = await this.resolve(requestedPath, stableKey);
     if (resolution.kind === "missing") return null;
-    if (resolution.kind === "rollup-row") {
-      return { resolution, snapshot: this.rollupRowSummary(
+    if (resolution.kind === "collection-file-row") {
+      return { resolution, snapshot: this.collectionFileRowSummary(
         resolution.path.slice(0, resolution.path.lastIndexOf("/")) || "/",
-        resolution.descriptor.schema,
+        resolution.descriptor.schemaFingerprint,
         resolution.row,
       ), children: [] };
     }
@@ -150,10 +156,12 @@ export class WireProjection {
     }
 
     const source = node.body ? new TextDecoder().decode(node.body.bytes) : "";
-    const rollupDescriptor = object.entries.find((entry) => entry.rollup)?.rollup;
-    const rollup = rollupDescriptor ? await this.rollup(rollupDescriptor) : null;
+    const collectionFileDescriptor = object.childrenSource;
+    const collectionFile = await this.collectionFile(object);
     const children = (await Promise.all(object.entries
-      .filter((entry) => entry.name !== "_index.md" && !entry.rollup && !(rollupDescriptor && entry.name === "schema.ts"))
+      .filter((entry) => entry.name !== "_index.md"
+        && entry.name !== collectionFileDescriptor?.source
+        && entry.name !== collectionFileDescriptor?.schemaSource)
       .map(async (entry) => {
         const childObject = entry.hash ? decodeWireObject(await this.options.load(entry.hash)) : null;
         const markdown = childObject?.type === "file" && entry.name.endsWith(".md");
@@ -180,10 +188,10 @@ export class WireProjection {
         };
         return { summary, descriptor: { path: childPath, kind, pageID: document?.frontmatter.id ?? null } };
       }))).filter((child): child is NonNullable<typeof child> => child !== null);
-    if (rollup && rollupDescriptor) {
-      for (const row of rollup.rows) {
+    if (collectionFile && collectionFileDescriptor) {
+      for (const row of collectionFile.rows) {
         children.push({
-          summary: this.rollupRowSummary(path, rollupDescriptor.schema, row),
+          summary: this.collectionFileRowSummary(path, collectionFileDescriptor.schemaFingerprint, row),
           descriptor: { path: canonicalNodePath(`${path === "/" ? "" : path}/${row.path}`), kind: "file", pageID: null },
         });
       }
@@ -202,18 +210,17 @@ export class WireProjection {
       capabilities: {
         properties: { revision, writable: false },
         content: { revision, mediaType: "text/markdown", format: "markdown", writable: false },
-        children: rollup && rollupDescriptor ? {
-          revision: rollupDescriptor.source,
-          schema: rollupDescriptor.schema,
-          representation: {
-            type: "rollup",
-            codec: rollupDescriptor.codec,
-            scope: rollupDescriptor.scope,
-            modelHash: rollupDescriptor.modelHash,
+        children: collectionFile && collectionFileDescriptor ? {
+          revision: object.entries.find((entry) => entry.name === collectionFileDescriptor.source)!.hash!,
+          schema: collectionFileDescriptor.schemaFingerprint,
+          backing: {
+            type: "collection-file",
+            format: collectionFileDescriptor.format,
+            childSetHash: collectionFileDescriptor.childSetHash,
           },
-          total: rollup.rows.length,
+          total: collectionFile.rows.length,
           writable: false,
-        } : { revision, representation: { type: "expanded" }, total: children.length, writable: false },
+        } : { revision, backing: { type: "expanded-files" }, total: children.length, writable: false },
       },
       content: {
         source: document.source,
@@ -240,12 +247,12 @@ export class WireProjection {
     };
   }
 
-  private rollupRowSummary(parentPath: string, schema: Hash, row: WireFileRollupRow): NodeResponse {
+  private collectionFileRowSummary(parentPath: string, schema: Hash, row: WireCollectionFileRow): NodeResponse {
     const revision = revisionOf(stableJSONString({ schema, properties: row.properties }));
     return this.response({
       path: canonicalNodePath(`${parentPath === "/" ? "" : parentPath}/${row.path}`),
       stableKey: row.stableKey,
-      name: wireRollupRowTitle(row),
+      name: wireCollectionFileRowTitle(row),
       revision,
       properties: row.properties,
       capabilities: { properties: { revision, schema, writable: false } },
@@ -253,20 +260,21 @@ export class WireProjection {
     });
   }
 
-  private async findRollupRow(path: string, stableKey: string | null): Promise<Extract<WireResolution, { kind: "rollup-row" }> | null> {
+  private async findCollectionFileRow(path: string, stableKey: string | null): Promise<Extract<WireResolution, { kind: "collection-file-row" }> | null> {
     if (path === "/") return null;
     const parentPath = path.slice(0, path.lastIndexOf("/")) || "/";
     const parent = await resolveWireLogicalNode(this.options.root, parentPath, this.options.load);
     if (parent?.object.type !== "directory") return null;
-    const descriptor = parent.object.entries.find((entry) => entry.rollup)?.rollup;
+    const descriptor = parent.object.childrenSource;
     if (!descriptor) return null;
-    const projection = await this.rollup(descriptor);
+    const projection = await this.collectionFile(parent.object);
+    if (!projection) return null;
     const segment = path.split("/").at(-1)!;
     const row = projection.rows.find((candidate) => stableKey
       ? candidate.stableKey === stableKey
       : candidate.path === segment);
     return row ? {
-      kind: "rollup-row",
+      kind: "collection-file-row",
       path: canonicalNodePath(`${parentPath === "/" ? "" : parentPath}/${row.path}`),
       row,
       descriptor,

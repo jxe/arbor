@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mergeWireTrees } from "@arbor/canopy";
-import { ProjectionProviderHost, decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
+import { ProjectionProviderHost, decodeWireCollectionFile, SchemaSandbox } from "@arbor/stores";
 import {
   decodeWireObject,
   encodeWireObject,
@@ -77,8 +77,8 @@ function namedMarkdownSnapshot(name: string, source: string, objects: Map<string
   return { root: root([{ name, hash: file }], objects), objects };
 }
 
-async function jsonRollupSnapshot(rows: unknown[]): Promise<TreeSnapshot> {
-  const directory = await mkdtemp(join(tmpdir(), "arbor-rollup-merge-"));
+async function jsonCollectionFileSnapshot(rows: unknown[]): Promise<TreeSnapshot> {
+  const directory = await mkdtemp(join(tmpdir(), "arbor-collection-file-merge-"));
   const collections = new ProjectionProviderHost();
   try {
     await writeFile(join(directory, "schema.ts"), `
@@ -87,7 +87,7 @@ async function jsonRollupSnapshot(rows: unknown[]): Promise<TreeSnapshot> {
       export const primaryKey = ["id"];
     `);
     await writeFile(join(directory, "_store.json"), `${JSON.stringify(rows, null, 2)}\n`);
-    return await snapshotDirectory(directory, new Map(), [], (root, name) => collections.fileRollupDescriptor(root, name));
+    return await snapshotDirectory(directory, new Map(), [], (root, name) => collections.collectionFileDescriptor(root, name));
   } finally {
     await collections[Symbol.asyncDispose]();
     await rm(directory, { recursive: true, force: true });
@@ -179,24 +179,24 @@ const fixtures = JSON.parse(
 describe("reference Canopy merge fixtures", () => {
   test("disjoint stable-row changes merge semantically", async () => {
     const [base, candidate, remote] = await Promise.all([
-      jsonRollupSnapshot([{ id: "a", title: "A" }, { id: "b", title: "B" }]),
-      jsonRollupSnapshot([{ id: "a", title: "Candidate A" }, { id: "b", title: "B" }]),
-      jsonRollupSnapshot([{ id: "a", title: "A" }, { id: "b", title: "Remote B" }]),
+      jsonCollectionFileSnapshot([{ id: "a", title: "A" }, { id: "b", title: "B" }]),
+      jsonCollectionFileSnapshot([{ id: "a", title: "Candidate A" }, { id: "b", title: "B" }]),
+      jsonCollectionFileSnapshot([{ id: "a", title: "A" }, { id: "b", title: "Remote B" }]),
     ]);
     const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
     const result = await mergeWireTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
     expect(result.conflicts).toEqual([]);
-    expect(result.summary).toEqual({ version: "rollup-rows-v1", mergedRows: 1 });
+    expect(result.summary).toEqual({ version: "collection-file-rows-v1", mergedRows: 1 });
     const load = (hash: string) => result.objects.get(hash) ?? objects.get(hash)!;
     const rootObject = decodeWireObject(load(result.root));
-    if (rootObject.type !== "directory") throw new Error("Expected rollup root");
-    const descriptor = rootObject.entries.find((entry) => entry.rollup)?.rollup!;
-    const source = decodeWireObject(load(descriptor.source));
-    const schema = decodeWireObject(load(descriptor.schemaSource));
-    if (source.type !== "file" || schema.type !== "file") throw new Error("Expected rollup files");
+    if (rootObject.type !== "directory") throw new Error("Expected collection-file root");
+    const descriptor = rootObject.childrenSource!;
+    const source = decodeWireObject(load(rootObject.entries.find((entry) => entry.name === descriptor.source)!.hash!));
+    const schema = decodeWireObject(load(rootObject.entries.find((entry) => entry.name === descriptor.schemaSource)!.hash!));
+    if (source.type !== "file" || schema.type !== "file") throw new Error("Expected collection files");
     const sandbox = new SchemaSandbox();
     try {
-      const decoded = await decodeWireFileRollup(descriptor, source.bytes, schema.bytes, sandbox);
+      const decoded = await decodeWireCollectionFile(descriptor, source.bytes, schema.bytes, sandbox);
       expect(decoded.rows.map((row) => row.properties)).toEqual([
         { id: "a", title: "Candidate A" },
         { id: "b", title: "Remote B" },
@@ -208,14 +208,14 @@ describe("reference Canopy merge fixtures", () => {
 
   test("divergent changes to one stable row conflict", async () => {
     const [base, candidate, remote] = await Promise.all([
-      jsonRollupSnapshot([{ id: "a", title: "A" }]),
-      jsonRollupSnapshot([{ id: "a", title: "Candidate" }]),
-      jsonRollupSnapshot([{ id: "a", title: "Remote" }]),
+      jsonCollectionFileSnapshot([{ id: "a", title: "A" }]),
+      jsonCollectionFileSnapshot([{ id: "a", title: "Candidate" }]),
+      jsonCollectionFileSnapshot([{ id: "a", title: "Remote" }]),
     ]);
     const objects = new Map([...base.objects, ...candidate.objects, ...remote.objects]);
     const result = await mergeWireTrees(base.root, candidate.root, remote.root, async (hash) => objects.get(hash)!);
     expect(result.conflicts).toEqual([
-      expect.objectContaining({ reason: "rollup-row-conflict" }),
+      expect.objectContaining({ reason: "collection-file-row-conflict" }),
     ]);
   });
 

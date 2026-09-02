@@ -80,11 +80,11 @@ async function readWatchFrames(url: string, count: number) {
   });
 }
 
-async function snapshotWithRollups(path: string) {
+async function snapshotWithCollectionFiles(path: string) {
   const stores = new ProjectionProviderHost();
   try {
     return await snapshotDirectory(path, new Map(), [], (directory, sourceName) =>
-      stores.fileRollupDescriptor(directory, sourceName));
+      stores.collectionFileDescriptor(directory, sourceName));
   } finally {
     await stores[Symbol.asyncDispose]();
   }
@@ -259,11 +259,11 @@ describe("governed account-configuration Canopy server", () => {
       export const primaryKey = ["id"];
     `);
     await writeFile(join(peoplePath, "_store.json"), '[{"id":"alice","name":"Alice","email":"alice@example.test"}]\n');
-    const beforeRollup = await client.descriptor(treeID);
+    const beforeCollectionFile = await client.descriptor(treeID);
     await client.submitUpdate(
       treeID,
-      beforeRollup.tree.update,
-      await snapshotWithRollups(treePath),
+      beforeCollectionFile.tree.update,
+      await snapshotWithCollectionFiles(treePath),
     );
     const rowKey = canonicalStableKey([["id", "alice"]]);
     const rowPath = rowPathSegment(rowKey);
@@ -315,7 +315,7 @@ describe("governed account-configuration Canopy server", () => {
     const remoteAccepted = await client.submitUpdate(
       treeID,
       mergeBase.tree.update,
-      await snapshotWithRollups(treePath),
+      await snapshotWithCollectionFiles(treePath),
     );
     expect(remoteAccepted.outcome).toBe("accepted");
     if (remoteAccepted.outcome !== "accepted") throw new Error("Expected an accepted update");
@@ -323,7 +323,7 @@ describe("governed account-configuration Canopy server", () => {
     const merged = await client.submitUpdate(
       treeID,
       mergeBase.tree.update,
-      await snapshotWithRollups(treePath),
+      await snapshotWithCollectionFiles(treePath),
     );
     expect(merged.outcome).toBe("merged");
     if (merged.outcome !== "merged") throw new Error("Expected a merged update");
@@ -333,14 +333,14 @@ describe("governed account-configuration Canopy server", () => {
       previousRoot: remoteAccepted.update.root,
     });
     // The result carries the transition from the candidate to the accepted root.
-    const mergedCandidate = await snapshotWithRollups(treePath);
+    const mergedCandidate = await snapshotWithCollectionFiles(treePath);
     expect(merged.reconciliation).toBeDefined();
     const reconciled = applyTransitionPayload(mergedCandidate.objects, merged.reconciliation!);
     expect(reconciled.has(merged.update.root)).toBe(true);
 
     // A bytesHash match refuses any concurrent change and answers with the candidate as the draft.
     await writeFile(renamedPath, `${mergeBaseSource}\nExact line\n`);
-    const exact = await snapshotWithRollups(treePath);
+    const exact = await snapshotWithCollectionFiles(treePath);
     const rejected = await client.submitUpdate(treeID, mergeBase.tree.update, exact, { ifMatch: "bytesHash" }).catch((error) => error);
     expect(rejected).toBeInstanceOf(WireUpdateConflict);
     expect((rejected as WireUpdateConflict).result.details.draft.root).toBe(exact.root);

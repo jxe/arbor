@@ -24,7 +24,7 @@ import {
   type RemoteAccountDescriptor,
 } from "@arbor/wire";
 import { escapeHTML, renderPublicDataPage, renderPublicMarkdownPage, type PublicPageChild } from "./public-page.ts";
-import { WireProjection, wireRollupRowMarkdown, wireRollupRowTitle } from "@arbor/wire-projection";
+import { WireProjection, wireCollectionFileRowMarkdown, wireCollectionFileRowTitle } from "@arbor/wire-projection";
 
 
 function json(value: unknown, status = 200): Response {
@@ -593,17 +593,17 @@ export async function serveCanopy(options: {
             if (!location) return new Response("Not found", { status: 404 });
             return new Response(null, { status: 308, headers: { location } });
           }
-          const rollupRow = resolution.kind === "rollup-row" ? resolution : null;
+          const collectionFileRow = resolution.kind === "collection-file-row" ? resolution : null;
           const logical = resolution.kind === "node" ? resolution.node : null;
           const canonicalPath = tree.canonicalPath!;
-          if (rollupRow) {
-            const title = wireRollupRowTitle(rollupRow.row);
+          if (collectionFileRow) {
+            const title = wireCollectionFileRowTitle(collectionFileRow.row);
             if (request.headers.get("accept")?.includes("text/markdown")) {
-              return new Response(wireRollupRowMarkdown(rollupRow.row), {
+              return new Response(wireCollectionFileRowMarkdown(collectionFileRow.row), {
                 headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" },
               });
             }
-            return html(renderPublicDataPage(title, rollupRow.row.properties));
+            return html(renderPublicDataPage(title, collectionFileRow.row.properties));
           }
           if (!logical) return new Response("Not found", { status: 404 });
           const objectValue = logical.object;
@@ -638,10 +638,12 @@ export async function serveCanopy(options: {
           if (request.headers.get("accept")?.includes("text/markdown")) {
             return new Response(source, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-cache" } });
           }
-          const rollupDescriptor = objectValue.entries.find((entry) => entry.rollup)?.rollup;
-          const rollup = rollupDescriptor ? await wireProjection.rollup(rollupDescriptor) : null;
+          const collectionFileDescriptor = objectValue.childrenSource;
+          const collectionFile = await wireProjection.collectionFile(objectValue);
           const physicalChildren = (await Promise.all(objectValue.entries
-            .filter((entry) => entry.name !== "_index.md" && !entry.rollup && !(rollupDescriptor && entry.name === "schema.ts"))
+            .filter((entry) => entry.name !== "_index.md"
+              && entry.name !== collectionFileDescriptor?.source
+              && entry.name !== collectionFileDescriptor?.schemaSource)
             .map(async (entry): Promise<PublicPageChild | null> => {
               if (entry.tree) {
                 const nested = canopy.get(entry.tree);
@@ -656,15 +658,15 @@ export async function serveCanopy(options: {
                 kind: entry.tree || object?.type === "directory" ? "folder" : markdown ? "document" : "file",
               };
             }))).filter((child): child is PublicPageChild => child !== null);
-          const rollupChildren: PublicPageChild[] = (rollup?.rows ?? []).map((row) => ({
-            name: wireRollupRowTitle(row),
+          const collectionFileChildren: PublicPageChild[] = (collectionFile?.rows ?? []).map((row) => ({
+            name: wireCollectionFileRowTitle(row),
             href: buildNetworkLocator(`${prefix}/${encodeURIComponent(row.path)}`, {
               stableKey: row.stableKey,
               applicationQuery: requestLocator.applicationQuery,
             }),
             kind: "document",
           }));
-          const children = [...physicalChildren, ...rollupChildren]
+          const children = [...physicalChildren, ...collectionFileChildren]
             .sort((left, right) => left.name.localeCompare(right.name));
           return html(renderPublicMarkdownPage({
             source,

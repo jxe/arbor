@@ -61,30 +61,29 @@ struct ArborSyncTests {
         #expect(try payload.validated() == payload)
     }
 
-    @Test("Native materialization preserves exact Wire rollup descriptors")
-    func rollupDescriptorRoundTrip() async throws {
+    @Test("Native materialization preserves exact Wire collection-file descriptors")
+    func collectionFileDescriptorRoundTrip() async throws {
         try await withTemporaryRoot { root in
             let source = try WireObjectCodec.object(.file(Data(#"[{"id":"one"}]"#.utf8)))
             let schema = try WireObjectCodec.object(.file(Data("export const schema = value\n".utf8)))
-            let descriptor = WireRollupDescriptor(
-                codec: "json",
-                source: source.hash,
-                schemaSource: schema.hash,
-                schema: "sha256:" + String(repeating: "3", count: 64),
-                scope: "children",
-                modelHash: "sha256:" + String(repeating: "4", count: 64)
+            let descriptor = WireCollectionFileDescriptor(
+                format: "json",
+                source: "_store.json",
+                schemaSource: "schema.ts",
+                schemaFingerprint: "sha256:" + String(repeating: "3", count: 64),
+                childSetHash: "sha256:" + String(repeating: "4", count: 64)
             )
             let directory = try WireObjectCodec.object(.directory([
-                .init(name: "_store.json", rollup: descriptor),
+                .init(name: "_store.json", hash: source.hash),
                 .init(name: "schema.ts", hash: schema.hash),
-            ]))
+            ], childrenSource: descriptor))
             let snapshot = WireSnapshot(root: directory.hash, objects: [directory, schema, source])
             let replacement = try SnapshotBridge.replacement(
                 snapshot: snapshot,
-                tree: TreeID(rawValue: "tr_rollup"),
-                update: "up_rollup"
+                tree: TreeID(rawValue: "tr_collection"),
+                update: "up_collection"
             )
-            let replica = try await ArborReplica.open(at: root.appending(path: "rollup"), tree: TreeID(rawValue: "tr_rollup"))
+            let replica = try await ArborReplica.open(at: root.appending(path: "collection"), tree: TreeID(rawValue: "tr_collection"))
             try await replica.initializeFromSystem(replacement)
             let rebuilt = try await replica.currentSnapshot()
             #expect(rebuilt.root == snapshot.root)
@@ -629,13 +628,9 @@ private func completeCandidate(_ request: WireUpdateRequest, retained: WireSnaps
         if !visited.insert(hash).inserted { continue }
         let envelope = try #require(envelopes[hash])
         objects.append(envelope)
-        if case let .directory(entries) = try WireObjectCodec.decode(envelope.bytes) {
+        if case let .directory(entries, _) = try WireObjectCodec.decode(envelope.bytes) {
             for entry in entries {
                 if let hash = entry.hash { pending.append(hash) }
-                if let rollup = entry.rollup {
-                    pending.append(rollup.source)
-                    pending.append(rollup.schemaSource)
-                }
             }
         }
     }

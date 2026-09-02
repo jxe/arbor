@@ -30,29 +30,33 @@ enum ReplicaWireCodec {
         encode(.map([("type", .text("file")), ("bytes", .bytes(bytes))]))
     }
 
-    static func directory(_ entries: [(name: String, hash: String?, tree: String?, rollup: ReplicaRollupDescriptor?)]) -> Data {
-        encode(.map([
+    static func directory(
+        _ entries: [(name: String, hash: String?, tree: String?)],
+        childrenSource: ReplicaCollectionFileDescriptor? = nil
+    ) -> Data {
+        var fields: [(String, ReplicaWireValue)] = [
             ("type", .text("directory")),
             ("entries", .array(entries.map { entry in
                 .map([
                     ("name", .text(entry.name)),
                     entry.hash.map { ("hash", .text($0)) }
-                        ?? entry.tree.map { ("tree", .text($0)) }
-                        ?? ("rollup", rollup(entry.rollup!))
+                        ?? ("tree", .text(entry.tree!))
                 ])
             }))
-        ]))
+        ]
+        if let childrenSource { fields.append(("childrenSource", collectionFile(childrenSource))) }
+        return encode(.map(fields))
     }
 
-    private static func rollup(_ value: ReplicaRollupDescriptor) -> ReplicaWireValue {
+    private static func collectionFile(_ value: ReplicaCollectionFileDescriptor) -> ReplicaWireValue {
         .map([
             ("version", .unsigned(value.version)),
-            ("codec", .text(value.codec)),
+            ("type", .text(value.type)),
+            ("format", .text(value.format)),
             ("source", .text(value.source)),
             ("schemaSource", .text(value.schemaSource)),
-            ("schema", .text(value.schema)),
-            ("scope", .text(value.scope)),
-            ("modelHash", .text(value.modelHash)),
+            ("schemaFingerprint", .text(value.schemaFingerprint)),
+            ("childSetHash", .text(value.childSetHash)),
         ])
     }
 
@@ -76,34 +80,28 @@ enum ReplicaWireCodec {
             guard let node = byPath[path], node.kind == .directory else {
                 throw ReplicaError.corruptState("Missing directory at \(path)")
             }
-            var entries: [(name: String, hash: String?, tree: String?, rollup: ReplicaRollupDescriptor?)] = []
-            if let source = node.source { entries.append(("_index.md", store(file(Data(source.utf8))), nil, nil)) }
+            var entries: [(name: String, hash: String?, tree: String?)] = []
+            if let source = node.source { entries.append(("_index.md", store(file(Data(source.utf8))), nil)) }
             let children = active.filter { ReplicaSemantics.parent(of: $0.path) == path }
                 .sorted { ReplicaSemantics.compareUTF8(ReplicaSemantics.name(of: $0.path), ReplicaSemantics.name(of: $1.path)) }
             for child in children {
                 let name = ReplicaSemantics.name(of: child.path)
                 switch child.kind {
                 case .directory:
-                    entries.append((name, try buildDirectory(at: child.path), nil, nil))
+                    entries.append((name, try buildDirectory(at: child.path), nil))
                 case .markdown:
-                    entries.append((name + ".md", store(file(Data((child.source ?? "").utf8))), nil, nil))
+                    entries.append((name + ".md", store(file(Data((child.source ?? "").utf8))), nil))
                 case .file:
-                    let source = store(file(child.bytes ?? Data()))
-                    if var rollup = child.rollup {
-                        rollup.source = source
-                        entries.append((name, nil, nil, rollup))
-                    } else {
-                        entries.append((name, source, nil, nil))
-                    }
+                    entries.append((name, store(file(child.bytes ?? Data())), nil))
                 case .boundary:
                     guard let tree = child.boundaryTree, !tree.isEmpty else {
                         throw ReplicaError.corruptState("Nested tree boundary is empty")
                     }
-                    entries.append((name, nil, tree, nil))
+                    entries.append((name, nil, tree))
                 }
             }
             entries.sort { ReplicaSemantics.compareUTF8($0.name, $1.name) }
-            return store(Self.directory(entries))
+            return store(Self.directory(entries, childrenSource: node.childrenSource))
         }
 
         let root = try buildDirectory(at: "/")

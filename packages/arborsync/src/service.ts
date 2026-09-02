@@ -363,7 +363,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
           if (value.version !== 1 || value.source !== sourceRevision || !Number.isSafeInteger(value.offset) || (value.offset as number) < 0) throw new Error();
           offset = value.offset as number;
         } catch {
-          throw new ProtocolError("invalid-cursor", "Remote child cursor is invalid or belongs to another rollup revision", 400);
+          throw new ProtocolError("invalid-cursor", "Remote child cursor is invalid or belongs to another collection-file revision", 400);
         }
       }
       const items = projection.children.slice(offset, offset + 100);
@@ -737,7 +737,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       workspace.root,
       this.canonicalBoundariesFor(workspace, listed),
       this.trees.excludedMountsWithin(workspace.root),
-      (directory, sourceName) => workspace.describeWireRollup(directory, sourceName),
+      (directory, sourceName) => workspace.describeWireCollectionFile(directory, sourceName),
     );
   }
 
@@ -753,7 +753,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       workspace.root,
       this.trees.sharedBoundariesWithin(workspace.root),
       this.trees.excludedMountsWithin(workspace.root),
-      (directory, sourceName) => workspace.describeWireRollup(directory, sourceName),
+      (directory, sourceName) => workspace.describeWireCollectionFile(directory, sourceName),
     );
     if (snapshot.root === placement.ref) return;
     const retainedHashes = new Set(retained.hashes);

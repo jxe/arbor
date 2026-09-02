@@ -81,7 +81,7 @@ private struct FrozenContentCapability: Decodable, Equatable {
 private struct FrozenChildrenCapability: Decodable, Equatable {
     var revision: String
     var schema: String?
-    var representation: JSONValue?
+    var backing: JSONValue?
     var total: Int?
     var writable: Bool
 }
@@ -169,14 +169,14 @@ private struct FrozenChildrenPage: Decodable {
     var observedThrough: String
 }
 
-private struct FrozenRollup: Decodable {
+private struct FrozenCollectionFile: Decodable {
     var version: Int
-    var codec: String
+    var type: String
+    var format: String
     var source: String
     var schemaSource: String
-    var schema: String
-    var scope: String
-    var modelHash: String
+    var schemaFingerprint: String
+    var childSetHash: String
 }
 
 private struct FrozenNamed<Value: Decodable>: Decodable {
@@ -190,7 +190,7 @@ private struct FrozenNodeModelFixture: Decodable {
     var invalidIdentityRules: [FrozenNamed<JSONValue>]
     var snapshots: [FrozenNamed<FrozenNodeSnapshot>]
     var childrenPages: [FrozenNamed<FrozenChildrenPage>]
-    var rollups: [FrozenRollup]
+    var collectionFiles: [FrozenCollectionFile]
     var forwardCompatibleSnapshot: FrozenNodeSnapshot
     var invalidSnapshots: [FrozenNamed<JSONValue>]
 }
@@ -213,8 +213,8 @@ final class NodeModelConformanceTests: XCTestCase {
         XCTAssertEqual(value.snapshots.map(\.value.ref.path), ["/practices", "/data", "/assets/portrait.png"])
         XCTAssertEqual(value.childrenPages.first?.value.items.count, 2)
         XCTAssertTrue(value.childrenPages.first?.value.items.allSatisfy { $0.ref.stableKey != nil } ?? false)
-        XCTAssertEqual(value.rollups.map(\.codec), ["csv", "json", "jsonl"])
-        XCTAssertEqual(Set(value.rollups.map(\.modelHash)).count, 1)
+        XCTAssertEqual(value.collectionFiles.map(\.format), ["csv", "json", "jsonl"])
+        XCTAssertEqual(Set(value.collectionFiles.map(\.childSetHash)).count, 1)
 
         for item in value.identityRules {
             let pairs = try item.rule.properties.map { property in

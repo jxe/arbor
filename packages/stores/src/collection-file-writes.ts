@@ -1,7 +1,7 @@
 import { parse as parseCSV } from "csv-parse/sync";
 import type { JSONValue } from "@arbor/core";
 
-export type WritableFileRollup = "csv" | "json" | "jsonl";
+export type WritableCollectionFile = "csv" | "json" | "jsonl";
 
 function rowIndex(key: string, prefix: string, offset: number): number {
   const match = new RegExp(`^${prefix}:(\\d+)$`).exec(key);
@@ -148,8 +148,8 @@ function replaceCSV(source: string, key: string, properties: Record<string, JSON
   return `${source.slice(0, start)}${replacement}${source.slice(start + target.raw.length)}`;
 }
 
-export function replaceFileRollupRow(
-  backing: WritableFileRollup,
+export function replaceCollectionFileRow(
+  backing: WritableCollectionFile,
   source: string,
   rowKey: string,
   properties: Record<string, JSONValue>,

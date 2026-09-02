@@ -102,26 +102,26 @@ afterAll(async () => {
 });
 
 describe("primary CLI sync forms", () => {
-  test("unplaced remote browsing projects synchronized JSON rollup rows", async () => {
-    const rollupState = join(sandbox, "remote-rollup-state");
-    const browserState = join(sandbox, "remote-rollup-browser-state");
-    await Promise.all([mkdir(rollupState), mkdir(browserState)]);
-    await arbor(["connect", host.url], rollupState);
+  test("unplaced remote browsing projects synchronized JSON collection-file rows", async () => {
+    const collectionFileState = join(sandbox, "remote-collection-file-state");
+    const browserState = join(sandbox, "remote-collection-file-browser-state");
+    await Promise.all([mkdir(collectionFileState), mkdir(browserState)]);
+    await arbor(["connect", host.url], collectionFileState);
     await arbor(["connect", host.url], browserState);
-    const rollupSource = join(sandbox, "remote-rollup-source");
-    await mkdir(rollupSource);
-    await writeFile(join(rollupSource, "schema.ts"), [
+    const collectionFileSource = join(sandbox, "remote-collection-file-source");
+    await mkdir(collectionFileSource);
+    await writeFile(join(collectionFileSource, "schema.ts"), [
       'import { z } from "zod";',
       'export const schema = z.object({ id: z.string(), title: z.string() });',
       'export const primaryKey = ["id"];',
       "",
     ].join("\n"));
-    await writeFile(join(rollupSource, "_store.json"), `${JSON.stringify([
+    await writeFile(join(collectionFileSource, "_store.json"), `${JSON.stringify([
       { id: "one", title: "Remote one" },
       { id: "two", title: "Remote two" },
     ], null, 2)}\n`);
-    const canonical = `${host.url}/~owner/remote-rollup`;
-    expect(await arbor(["sync", "--access", "public=read", rollupSource, canonical], rollupState)).toContain("remote-rollup");
+    const canonical = `${host.url}/~owner/remote-collection-file`;
+    expect(await arbor(["sync", "--access", "public=read", collectionFileSource, canonical], collectionFileState)).toContain("remote-collection-file");
 
     process.env.ARBOR_DATA_HOME = browserState;
     const browserRoot = join(sandbox, "remote-browser-root");
@@ -129,7 +129,7 @@ describe("primary CLI sync forms", () => {
     const service = await ArborSyncDaemon.open(browserRoot);
     try {
       const parent = await service.remoteSnapshot(canonical);
-      expect(parent.capabilities.children?.representation).toMatchObject({ type: "rollup", codec: "json" });
+      expect(parent.capabilities.children?.backing).toMatchObject({ type: "collection-file", format: "json" });
       const children = await service.children(parent.ref);
       expect(children.items.map((item) => item.name)).toEqual(["Remote one", "Remote two"]);
       expect(children.items.every((item) => item.ref.stableKey !== null)).toBe(true);

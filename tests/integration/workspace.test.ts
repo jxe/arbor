@@ -134,7 +134,7 @@ describe("workspace service", () => {
     await writeFile(join(collection, "_store.json"), '[{"id":"b","title":"Second"},{"id":"a","title":"First"}]\n');
 
     const parent = await workspace.snapshot({ tree: workspace.tree, path: "/rolled", stableKey: null });
-    expect(parent.capabilities.children?.representation).toMatchObject({ type: "rollup", codec: "json" });
+    expect(parent.capabilities.children?.backing).toMatchObject({ type: "collection-file", format: "json" });
     expect(parent.capabilities.children?.writable).toBe(false);
     const children = await workspace.children(parent.ref);
     expect(children.items.map((item) => item.ref.path)).toEqual(["/rolled/a", "/rolled/b"]);
@@ -172,7 +172,7 @@ describe("workspace service", () => {
     database.close();
 
     const container = await workspace.snapshot({ tree: workspace.tree, path: "/database", stableKey: null });
-    expect(container.capabilities.children?.representation).toMatchObject({ type: "rollup", codec: "sqlite", scope: "subtree" });
+    expect(container.capabilities.children?.backing).toMatchObject({ type: "database", driver: "sqlite", scope: "subtree" });
     const tables = await workspace.children(container.ref);
     expect(tables.items).toContainEqual(expect.objectContaining({
       ref: expect.objectContaining({ path: "/database/items", stableKey: null }),
@@ -180,7 +180,7 @@ describe("workspace service", () => {
     }));
 
     const table = await workspace.snapshot({ tree: workspace.tree, path: "/database/items", stableKey: null });
-    expect(table.capabilities.children?.representation).toMatchObject({ type: "rollup", codec: "sqlite", scope: "children" });
+    expect(table.capabilities.children?.backing).toMatchObject({ type: "database", driver: "sqlite", scope: "children" });
     const rows = await workspace.children(table.ref);
     expect(rows.items.map((item) => item.ref.path)).toEqual(["/database/items/a", "/database/items/b"]);
 

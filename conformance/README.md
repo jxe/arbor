@@ -19,5 +19,5 @@ invalid and cannot grant behavior.
 valid case pairs a JSON value with its exact encoding and `sha256:` hash, and
 every invalid case is a byte sequence a decoder must reject. Every hashed
 identity (object hashes, `updates-v1` and `mutate-v1` digests, query output
-hashes, rollup model digests, schema fingerprints) uses this encoding;
+hashes, collection-file child-set hashes, and schema fingerprints) uses this encoding;
 `wire-update-intent.json` shows the update digest derived from it.

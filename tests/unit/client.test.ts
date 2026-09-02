@@ -17,7 +17,7 @@ function directorySnapshot(): NodeSnapshot {
     capabilities: {
       properties: { revision: "sha256:dir", writable: true },
       content: { revision: "sha256:dir", mediaType: "text/markdown", format: "markdown", writable: true },
-      children: { revision: "sha256:dir", representation: { type: "expanded" }, writable: true },
+      children: { revision: "sha256:dir", backing: { type: "expanded-files" }, writable: true },
     },
     materialization: "available",
     content: { source: "[child](child)\n\n", representation: { state: "implicit" } },

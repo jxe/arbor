@@ -2,17 +2,17 @@ import type { Diagnostic } from "@arbor/core";
 import { parse } from "csv-parse/sync";
 import type { ProjectionProviderKind, ProviderChildRecord } from "./types.ts";
 
-type FileRollupCodec = Extract<ProjectionProviderKind, "csv" | "json" | "jsonl">;
-export interface DecodedFileRollupSource {
+type CollectionFileFormat = Extract<ProjectionProviderKind, "csv" | "json" | "jsonl">;
+export interface DecodedCollectionFileSource {
   rows: ProviderChildRecord[];
   diagnostics: Diagnostic[];
 }
 /** Pure local/Wire source decoding. Validation, quotas, and trust policy stay with each caller. */
-export function decodeFileRollupSource(
-  codec: FileRollupCodec,
+export function decodeCollectionFileSource(
+  codec: CollectionFileFormat,
   source: string,
   sourcePath: string,
-): DecodedFileRollupSource {
+): DecodedCollectionFileSource {
   if (codec === "csv") {
     const records = parse(source, {
       columns: true,

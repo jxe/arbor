@@ -29,7 +29,10 @@ struct ReplicaFixtureTests {
             switch vector.model.type {
             case "file": bytes = ReplicaWireCodec.file(Data(base64Encoded: vector.model.bytesBase64!)!)
             case "directory":
-                bytes = ReplicaWireCodec.directory(vector.model.entries!.map { ($0.name, $0.hash, $0.tree, $0.rollup) })
+                bytes = ReplicaWireCodec.directory(
+                    vector.model.entries!.map { ($0.name, $0.hash, $0.tree) },
+                    childrenSource: vector.model.childrenSource
+                )
             default: throw ReplicaError.corruptState("Unknown fixture object")
             }
             #expect(bytes.base64EncodedString() == vector.canonicalCborBase64)
@@ -507,11 +510,11 @@ private struct WireFixture: Decodable {
                 var name: String
                 var hash: String?
                 var tree: String?
-                var rollup: ReplicaRollupDescriptor?
             }
             var type: String
             var bytesBase64: String?
             var entries: [Entry]?
+            var childrenSource: ReplicaCollectionFileDescriptor?
         }
         var model: Model
         var canonicalCborBase64: String
