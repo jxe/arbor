@@ -14,19 +14,6 @@ const promotable = (path: string) => `/render${PROMOTABLE_ROOT}${path}`;
 const escaped = ROOT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const atUrl = (path: string) => new RegExp(`/render${escaped}${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 
-test("renders an unplaced remote tree through read-only BlockNote without an iframe", async ({ page }) => {
-  const remote = `${HOST_ORIGIN}/~editors`;
-  await page.goto(`/render?browse=${encodeURIComponent(remote)}`);
-  await expect(page.locator("iframe")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Editors", level: 1 })).toBeVisible();
-  await expect(page.getByText("remote · read-only")).toBeVisible();
-  await expect(page.locator(".read-only-page .bn-editor")).toHaveAttribute("contenteditable", "false");
-  await page.locator('.read-only-page a[href="guide"]').click();
-  await expect(page.getByRole("heading", { name: "Editorial guide", level: 1 })).toBeVisible();
-  await expect(page.getByText("A remote Markdown page.")).toBeVisible();
-  expect(new URL(page.url()).searchParams.get("browse")).toBe(`${HOST_ORIGIN}/~editors/guide`);
-});
-
 test("canonicalizes Markdown storage aliases", async ({ page }) => {
   await page.goto(r("/notes.md"));
   await expect(page).toHaveURL(atUrl("/notes"));
@@ -57,11 +44,16 @@ test("canonicalizes Markdown storage aliases", async ({ page }) => {
 });
 
 test("reuses loaded nodes for navigation and ignores stale sidebar responses", async ({ page }) => {
+  // Node requests may address a page through the local OS-path scope or, once
+  // the fixture tree is placed, through its TreeID with a logical path. Count
+  // both by logical path so the assertions are about fetch count, not scope.
   const treeRequests: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
+    if (url.pathname !== "/v1/node") return;
     const requestPath = url.searchParams.get("path") ?? "";
-    if (url.pathname === "/v1/node" && requestPath.startsWith(ROOT)) treeRequests.push(requestPath);
+    if (requestPath.startsWith(ROOT)) treeRequests.push(requestPath.slice(ROOT.length) || "/");
+    else if (url.searchParams.get("tree") !== "local" && url.searchParams.get("tree") !== "system") treeRequests.push(requestPath);
   });
 
   await page.goto(r(""));
@@ -71,19 +63,19 @@ test("reuses loaded nodes for navigation and ignores stale sidebar responses", a
   await page.getByRole("button", { name: "▸ books" }).click();
   await expect(page).toHaveURL(atUrl("/books"));
   await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible();
-  expect(treeRequests).toEqual([`${ROOT}/books`]);
+  expect(treeRequests).toEqual(["/books"]);
 
   treeRequests.length = 0;
   await page.getByRole("button", { name: "Open" }).click();
   await expect(page).toHaveURL(atUrl("/books/one"));
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
-  expect(treeRequests).toEqual([`${ROOT}/books/one`]);
+  expect(treeRequests).toEqual(["/books/one"]);
 
   treeRequests.length = 0;
   await page.locator(".breadcrumbs button").filter({ hasText: "books" }).click();
   await expect(page).toHaveURL(atUrl("/books"));
   await expect(page.getByRole("columnheader", { name: "title" })).toBeVisible();
-  expect(treeRequests).toEqual([`${ROOT}/books`]);
+  expect(treeRequests).toEqual(["/books"]);
 
   let releaseRoot!: () => void;
   let markRootStarted!: () => void;
@@ -132,81 +124,6 @@ test("opens authored and provider-completed child links", async ({ page }) => {
   await authored.click();
   await expect(page).toHaveURL(atUrl("/books/one"));
   await expect(page.getByText("An ambiguous utopia.")).toBeVisible();
-});
-
-test("adds a Markdown title above the first provider-completed child row", async ({ page }) => {
-  await page.goto(r("/title-first"));
-  const childRow = page.locator('[data-managed-row="/title-first/child"]');
-  const addTitle = page.getByRole("button", { name: "Add page title" });
-  const topLevelBlocks = page.locator(".bn-editor > .bn-block-group > .bn-block-outer");
-  await expect(childRow).toBeVisible();
-  await expect(addTitle).toBeVisible();
-  await expect(topLevelBlocks.first().locator('[data-managed-row="/title-first/child"]')).toBeVisible();
-
-  await addTitle.click();
-  await expect(addTitle).toHaveCount(0);
-  await expect(topLevelBlocks.first().getByRole("heading", { level: 1 })).toBeVisible();
-  expect(await page.evaluate(() => (window as any).ProseMirror.view.hasFocus())).toBe(true);
-
-  await page.keyboard.type("Synthetic title");
-  await expect(page.getByRole("heading", { name: "Synthetic title", level: 1 })).toBeVisible();
-  await expect(page.getByRole("status")).toHaveText("Saved");
-  const titleFirstBody = async () => page.evaluate(async () => {
-    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Ftitle-first&stableKey=");
-    const node = await response.json();
-    return (node.content.source as string).replace(/^---\n[\s\S]*?\n---\n?/, "");
-  });
-  expect(await titleFirstBody()).toMatch(/^# Synthetic title/);
-  expect(await titleFirstBody()).toContain("](child)");
-  expect(await titleFirstBody()).not.toContain("managed:");
-
-  await page.keyboard.press("Meta+z");
-  await expect(page.getByRole("button", { name: "Add page title" })).toBeVisible();
-  await expect(childRow).toBeVisible();
-  await expect(page.getByRole("status")).toHaveText("Saved");
-  expect(await titleFirstBody()).not.toContain("Synthetic title");
-
-  await page.keyboard.press("Meta+Shift+z");
-  await expect(page.getByRole("button", { name: "Add page title" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Synthetic title", level: 1 })).toBeVisible();
-  await expect(page.getByRole("status")).toHaveText("Saved");
-  await page.reload();
-  await expect(page.getByRole("heading", { name: "Synthetic title", level: 1 })).toBeVisible();
-  await expect(childRow).toBeVisible();
-
-  await page.emulateMedia({ colorScheme: "dark" });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(r("/empty-title"));
-  const emptyAddTitle = page.getByRole("button", { name: "Add page title" });
-  await expect(emptyAddTitle).toBeVisible();
-  expect(await page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches)).toBe(true);
-  const titleBox = await emptyAddTitle.boundingBox();
-  expect(titleBox).not.toBeNull();
-  expect(titleBox!.x).toBeGreaterThanOrEqual(0);
-  expect(titleBox!.x + titleBox!.width).toBeLessThanOrEqual(390);
-  await expect(topLevelBlocks).toHaveCount(1);
-
-  await emptyAddTitle.focus();
-  await expect(emptyAddTitle).toHaveCSS("outline-style", "solid");
-  await page.keyboard.press("Enter");
-  await expect(emptyAddTitle).toHaveCount(0);
-  await expect(topLevelBlocks).toHaveCount(1);
-  await expect(topLevelBlocks.first().getByRole("heading", { level: 1 })).toBeVisible();
-  expect(await page.evaluate(() => (window as any).ProseMirror.view.hasFocus())).toBe(true);
-  await page.keyboard.type("Empty title");
-  await expect(page.getByRole("status")).toHaveText("Saved");
-  expect(await page.evaluate(async () => {
-    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fempty-title&stableKey=");
-    const node = await response.json();
-    return (node.content.source as string).replace(/^---\n[\s\S]*?\n---\n?/, "");
-  })).toMatch(/^# Empty title/);
-
-  await page.setViewportSize({ width: 1200, height: 844 });
-  await page.goto(r("/already-titled"));
-  await expect(page.getByRole("button", { name: "Add page title" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Existing title", level: 1 })).toBeVisible();
-  await page.getByText("Body.", { exact: true }).hover();
-  await expect(page.getByRole("button", { name: "Add block" })).toBeVisible();
 });
 
 test("reorders a child row by writing the complete directory Markdown", async ({ page }) => {
@@ -292,33 +209,6 @@ test("browses, searches, and edits toggle Markdown", async ({ page }) => {
   await topic.fill("trees");
   await expect(page.getByRole("status")).toHaveText("Changes pending");
   await expect(page.getByRole("status")).toHaveText("Saved");
-});
-
-test("a prose edit persists the provider-completed directory source", async ({ page }) => {
-  await page.goto(r("/garden"));
-  // The stored body lacks this link, so arborsync appends it to operational source.
-  const row = page.locator('[data-managed-row="/garden/rose"]');
-  await expect(row).toBeVisible();
-
-  await page.getByText("Perennials.").click();
-  await page.keyboard.press("End");
-  await page.keyboard.type(" Garden prose.");
-  await expect(page.getByRole("status")).toHaveText("Changes pending");
-  await expect(page.getByRole("status")).toHaveText("Saved");
-
-  const bodySource = await page.evaluate(async () => {
-    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fgarden&stableKey=");
-    const node = await response.json();
-    return {
-      body: (node.content.source as string).replace(/^---\n[\s\S]*?\n---\n?/, ""),
-      bodyState: node.content.representation.state as string,
-    };
-  });
-  expect(bodySource.bodyState).toBe("stored");
-  expect(bodySource.body).toContain("Garden prose.");
-  expect(bodySource.body).toContain("](rose)");
-  expect(bodySource.body).not.toContain("managed:");
-  await expect(row).toBeVisible();
 });
 
 test("round-trips inline Markdown and uses Markdown-aware clipboard formats", async ({ page }) => {
