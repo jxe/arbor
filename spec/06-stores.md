@@ -1,7 +1,7 @@
 # Stores and collections
 *Part of the [Arbor spec](../spec.md): backing-independent child behavior over Markdown, CSV, JSON, JSONL, SQLite, external stores, and placement projections.*
 
-*Owns: the collection contract, row identity and ordering, observation precision, file, SQLite, and Postgres backings, placement projections, and migration. References: the query language ([executable documents](07-executable-documents.md)) and the property write ([data model](01-data-model.md)).*
+*Owns: the collection contract, row identity and ordering, observation precision, file, SQLite, and Postgres backings, placement projections, and migration. References: the query language ([executable documents](07-executable-documents.md)) and the property write ([data model §5](01-data-model.md#5-revisions-and-equivalence)).*
 
 ## 1. Common collection contract
 
@@ -43,7 +43,7 @@ reserved store files are not themselves row children.
 
 Reformatting JSON or CSV changes the source revision and not the model digest,
 and a representation migration may preserve the digest while changing every
-byte ([data model §6](01-data-model.md#6-revisions-and-equivalence)). Updates name the complete candidate tree and may carry
+byte ([data model §5](01-data-model.md#5-revisions-and-equivalence)). Updates name the complete candidate tree and may carry
 compact patches to representation bytes, but the authority decodes
 base/current/candidate under quotas, merges by stable node identity where safe,
 validates the complete schema and constraints, and computes the accepted model
@@ -194,9 +194,8 @@ driver locks and revision-checks the source, validates the complete key set and
 requested effects, writes and fsyncs a complete replacement, atomically renames
 it, fsyncs the containing directory where supported, and records retry
 completion in the same crash-recoverable workflow before acknowledgement.
-The [model-level property write](01-data-model.md#2-trees-and-nodes) on a row
-compares the sampled row-properties revision and must preserve the declared
-key. A logical no-op leaves the source byte-identical. A direct row-property
+A [property write](01-data-model.md#5-revisions-and-equivalence) on a row is
+guarded by the row's model digest and must preserve the declared key. A logical no-op leaves the source byte-identical. A direct row-property
 write cannot add, remove, or reorder rows.
 Multi-row mutations preserve row order unless the mutation
 explicitly changes ordered membership. JSONL drivers preserve untouched line

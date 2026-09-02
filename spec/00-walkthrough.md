@@ -55,7 +55,7 @@ current equal to base and answers `201 accepted` with the new update's id and
 the request digest ([sparse transfer](04-wire.md#13-sparse-graph-transfer),
 [submit](04-wire.md#14-submit-a-candidate-state)). The root that changed is a
 source revision; the model digest of every node Joe did not touch is unchanged
-([revisions](01-data-model.md#6-revisions-and-equivalence)).
+([revisions](01-data-model.md#5-revisions-and-equivalence)).
 
 ## 5. Follow from a second device
 
@@ -132,4 +132,4 @@ Joe changes `canonicalPath` to `/~joe/atlas-2026` in `trees.yaml`. The
 `TreeID`, every stable key, every object, and the accepted history are
 unchanged; only the secondary lookup moved. `arbor://tr_…/practices/walking;arbor-key=…`
 still resolves, and Alice's placement keeps following the same tree
-([canonical lookup](01-data-model.md#3-canonical-url-lookup), [glossary](01-data-model.md#7-identities-and-revisions)).
+([canonical lookup](01-data-model.md#3-canonical-url-lookup), [glossary](01-data-model.md#6-identities-and-revisions)).

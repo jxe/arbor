@@ -2,7 +2,7 @@
 *Part of the [Arbor spec](../spec.md): the global TreeID space, trees, nodes,
 structured data, projections, and equivalence.*
 
-*Owns: the TreeID space, nodes, canonical lookup, the property write, revisions, equivalence, and the glossary of identities. References: every projection.*
+*Owns: the TreeID space, nodes, canonical lookup, revisions, equivalence, and the glossary of identities. References: every projection.*
 
 ## 1. The global TreeID space
 
@@ -38,15 +38,6 @@ A tree also has independent history, a synchronization stream, and a whole-tree 
 The root node has logical path `/`. Looking up successive names in `children`
 produces every other logical path.
 
-A property write is the one model-level mutation every projection must
-support identically. It submits a complete candidate property map together
-with the [write guard](#6-revisions-and-equivalence) the writer observed: omitted keys are deleted, an explicit
-JSON `null` is retained as a value, content and children are untouched, a
-stale revision is rejected, and a property selected by the applicable identity
-declaration cannot change. Projections add only what their representation
-requires, as the [directory format](02-directory-format.md#3-properties-markdown-content-and-identity)
-and [stores](06-stores.md#2-file-backed-collections) specify.
-
 Arbor trees can be mounted inside other arbor trees, but they remain a separate entry in the global TreeID map. A placement may present it below a node in another tree, but its
 nodes, history, access, and mutations are not copied into that parent.
 
@@ -66,92 +57,98 @@ URL nesting does not imply common storage, history, ownership, or access. If one
 
 Canonical placement is mutable naming at both levels. Replacing the DNS name of a Canopy placement, moving a tree boundary within that Canopy, or renaming a node changes canonical URLs without changing TreeID or stable key. Moving the physical server behind an unchanged DNS origin changes neither. A raw `arbor://<TreeID>/...` locator addresses the primary namespace when a canonical name is absent, unknown, inaccessible, or changing.
 
-## 4. Representing structured data
+## 4. One node shape for every kind of data
 
-Ordinary application data uses the same nodes:
+A node has three parts: properties, optional content, and children. Arbor has
+no second shape for records, tables, files, or documents. Each of those is a
+way of reading the same three parts, and one node can be read several ways at
+once.
 
-| Data role | Node interpretation |
+| Reading | Which part carries it |
 |---|---|
-| Record | Fields are node properties |
-| Collection | Records are child nodes governed by a shared schema |
-| Row | One child node, usually with a stable-key rule declared by its parent |
-| File | A node projected primarily through content bytes |
-| Directory | A projection of a node's children |
-| Document | A node presented primarily through its content |
-| Executable document or agent | A node whose content receives reviewed execution capabilities |
+| Document | content, with properties as its frontmatter |
+| File | content bytes |
+| Directory | children |
+| Record | properties as fields |
+| Collection | children that share a schema |
+| Row | one child of a collection, keyed by a rule its parent declares |
+| Executable document or agent | content that has been granted reviewed execution capabilities |
 
-Inserting a database row creates a child node. Updating columns changes that
-node's properties. Deleting the row removes the child. Rows may also have
-content and children because they remain ordinary nodes.
+The readings compose because they use different parts. A Markdown page with
+frontmatter is a document and a record. A folder of such pages that share a
+schema is a directory and a collection, and each page in it is a row that
+still has a body and may have children of its own. Inserting a database row
+creates a child node, updating a column changes that child's properties, and
+deleting the row removes the child; nothing about the row stops it from also
+being a document.
 
-Markdown frontmatter and record fields project properties. A Markdown body and
-a content column or file project content. Expanded child files,
-CSV/JSON/JSONL, SQLite, and Postgres can represent the same schema-governed
-children. An ordinary `something.json` is still a content node; `_store.json`
-is specifically a collection-child projection.
+Because the readings are defined on the model, the representation is free to
+vary, and several representations of the same nodes may exist at once. The
+same schema-governed children may be expanded Markdown files, one
+`_store.csv`, `_store.json`, or `_store.jsonl`, a SQLite table, or a Postgres
+relation; a Canopy may read them from Postgres while a laptop keeps a SQLite
+copy for offline use; an `_index.md` presents a node's children as a Markdown
+document. A query or link that addresses the nodes does not change when their
+representation does ([stores](06-stores.md)). A file named `something.json`
+is a content node; only the reserved `_store.json` name means "these are the
+collection's children".
 
-Schemas define property and content types, stable-key rules, allowed child
-shapes, discriminated unions, references, relationships, uniqueness, ordering,
-and foreign-key behavior. A development compiler can use the schema at a
-literal Arbor location to generate TypeScript types without inferring them from
-sample values.
+A schema is what turns a set of children into a collection. It declares
+property and content types, the stable-key rule that gives each child its
+identity, allowed child shapes and discriminated unions, references and
+relationships, uniqueness, ordering, and foreign-key behavior. A development
+compiler can read the schema at a literal Arbor location and generate types
+from it rather than inferring them from sample values.
 
-## 5. Projections and materializations
+## 5. Revisions and equivalence
 
-A projection expresses some model nodes as editable, stored, transported, or
-presented data. A materialization maintains such a form for execution or
-performance.
+Section 4 separated the model from its representations. That separation
+means there are two different questions a reader can ask about change, and a
+third about time. Arbor answers each with one token and never blurs them.
 
-Examples include:
+### 5.1 Did the bytes change? The source revision
 
-- an `_index.md` is a Markdown projection of a node's children;
-- `_store.csv`, `_store.json`, `_store.jsonl`, and `_store.sqlite3` are equivalent projections of the same collection children;
-- canopy might have access to a postgres database, but sync a copy of the same collection children into a local SQLite projection for offline use;
+A source revision is the hash of an exact representation: a wire object, the
+wire root, a file's bytes. It exists only where bytes exist. Reformatting a
+CSV, reordering frontmatter keys, or re-encoding a directory changes it even
+though nothing in the model moved. Its job is compare-and-swap for byte-level
+synchronization and proof that authored source is untouched.
 
-The [directory projection](02-directory-format.md) defines how ordinary files,
-`_index.md`, frontmatter, and child presentation map to nodes.
-[Locators](03-locators.md) encode TreeID, path, stable key, revision,
-application query, and content fragment. [Wire](04-wire.md) transports accepted
-tree state through deterministic lossless encodings and observations.
-[Stores](06-stores.md) defines rollups, database providers, and placement
-materializations. [Executable documents](07-executable-documents.md) defines
-queries and mutations over nodes rather than provider-specific rows.
+### 5.2 Did the data change? The model digest
 
-## 6. Revisions and equivalence
+A model digest is the hash of model state: the canonical CBOR of a node's
+schema, properties, content, and the digests of its children. It is defined
+for every node, and a provider computes it wherever it can. Two
+representations of one model state have different source revisions and the
+same model digest; that is why the wire root is not a logical hash. Its job is
+proof of equality: skipping work, showing that a reformat or migration
+preserved the data, and defining equivalence. A database row's digest is
+cheap, so it serves as the row's write guard. A live database does not
+maintain a digest for a whole table, and says so by returning a cursor
+instead.
 
-The model is primary; files and databases implement it. A node's properties,
-content, children, and schema are the thing. A Markdown file with frontmatter,
-a `_store.csv`, a SQLite table, and a wire directory object are each one
-representation of that thing. Every rule in this specification addresses one
-of those two levels. Stable keys, queries and their dependencies, mutations,
-equivalence, store migration, placement projections, and the consent statement
-address the model. Wire synchronization, which must round-trip authored bytes
-exactly, frontmatter preservation, and the concurrency guard on an editor's
-write address a representation.
+### 5.3 What changed since I looked? The observation cursor
 
-Three primitives describe change, one per job:
+An observation cursor is an ordered position in a provider's committed-change
+stream. Every read returns the cursor it observed through, and every
+dependency is a provider, a cursor, and a precision scope
+([stores](06-stores.md#13-revisions-and-committed-change-observation)).
+Cursors are the only way to follow change; hashes never are.
 
-| Primitive | Level | Definition | Job |
-|---|---|---|---|
-| **Source revision** | representation | The hash of an exact representation: a wire object hash, the wire root, a file's bytes. It exists only where bytes exist. | Compare-and-swap for byte-level synchronization; proof that authored source is untouched. |
-| **Model digest** | model | The Merkle hash of model state: the canonical CBOR of `{ schema, properties, content, children }`, where `children` maps each name to that child's digest. It is defined for every node, and a provider computes it wherever it can. | Proof of equality: skipping work, showing that a reformat or migration preserved the model, defining equivalence. |
-| **Observation cursor** | provider | An ordered position in a provider's committed-change stream. Every read returns the cursor it observed through. | The only way to follow change. A dependency is a provider, a cursor, and a precision scope. |
+### 5.4 Which one a rule uses
 
-Two representations of one model state have different source revisions and
-the same model digest. That is expected, and it is why the wire root is not a
-logical hash. A database row's digest is cheap, so it is that row's write
-guard; a live database does not maintain a digest for a whole table and says
-so by returning a cursor instead. [Stores](06-stores.md#13-revisions-and-committed-change-observation)
-defines observation precision.
+A write is guarded by the token of the level it edits: a source revision when
+it edits a representation, such as an editor saving Markdown or the wire's
+accepted base, and a model digest when it edits the model, such as a row
+mutation. A claim of equality uses whichever level the claim is about.
+Invalidation uses cursors, narrowed by precision.
 
-A write guard names a source revision when the write edits a representation,
-such as an editor saving Markdown or the wire's accepted base, and a model
-digest when it edits the model, such as a row mutation or a
-[property write](#2-trees-and-nodes) on a row. Equality and skipping use
-whichever level the claim is about. Invalidation uses cursors narrowed by
-precision, never hashes.
+A node's properties are one map however they are edited: a property write
+replaces the complete map under the guard it observed, cannot change the
+property selected by the applicable identity declaration, and leaves content
+and children alone.
 
-Equivalence has two levels:
+### 5.5 When two things are the same
 
 - **Identity.** Two copies are the same logical tree when they have the same
   `TreeID`, even if their observed revisions have not settled. Two references
@@ -159,18 +156,17 @@ Equivalence has two levels:
   non-null keys agree. With a null key, TreeID and current path establish
   identity.
 - **Model.** Two tree states, or two representations after decoding, are
-  model-equivalent over a declared scope when their model digests agree: their
-  nodes have the same identities, properties, content, child membership, and
-  schemas after schema-declared normalization. Expanded Markdown records,
-  JSON, SQLite, and Postgres may therefore be equivalent representations of
-  one collection even though none is the canonical serialization of the
-  others.
+  model-equivalent over a declared scope when their model digests agree:
+  their nodes have the same identities, properties, content, child
+  membership, and schemas after schema-declared normalization. Expanded
+  Markdown records, JSON, SQLite, and Postgres may therefore be equivalent
+  representations of one collection even though none is the canonical
+  serialization of the others.
 
-## 7. Identities and revisions
+## 6. Identities and revisions
 
-Every identifier and change token the specification uses, in one place. The
-[revisions](#6-revisions-and-equivalence) section defines the three change
-primitives; this table says who mints each token, where it travels, and what
+Every identifier and change token the specification uses, in one place. [Section 5](#5-revisions-and-equivalence) defines the three change
+tokens; this table says who mints each token, where it travels, and what
 it survives.
 
 | Token | Identifies | Minted by | Appears in | Survives |

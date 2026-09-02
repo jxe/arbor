@@ -1,7 +1,7 @@
 # Arbor Wire API
 *Part of the [Arbor spec](../spec.md): the portable wire protocol for community identity, governed configuration, immutable trees, synchronization, executable-document data, access, and observation.*
 
-*Owns: every endpoint, wire value, encoding, digest, and how the server enforces the account-configuration policy. References: the configuration YAML contract ([configuration](05-configuration.md)) and revisions ([data model §6](01-data-model.md#6-revisions-and-equivalence)).*
+*Owns: every endpoint, wire value, encoding, digest, and how the server enforces the account-configuration policy. References: the configuration YAML contract ([configuration](05-configuration.md)) and revisions ([data model §5](01-data-model.md#5-revisions-and-equivalence)).*
 
 An Arbor server represents one community. It owns accounts and profile
 claims, canonical tree boundaries, the private account-configuration trees,
@@ -44,7 +44,7 @@ The operations have distinct relationships to the model:
 - `queries` derives current typed values from any reviewed logical nodes; and
 - `mutate` executes reviewed transactional model intent.
 
-The synchronized root is a [source revision](01-data-model.md#6-revisions-and-equivalence):
+The synchronized root is a [source revision](01-data-model.md#5-revisions-and-equivalence):
 it identifies the exact Wire encoding of one accepted tree state and serves as
 its compare-and-swap key. Different roots may decode to model-equivalent trees
 when authored representation details differ.
@@ -804,7 +804,7 @@ authored schema. The descriptor lets remote resolution, paging, querying, search
 merge address rolled-up children without converting them into Markdown files
 or making the reserved source file a visible row. A decoder recomputes `schema` and `modelDigest` from `source`; a mismatch is
 invalid. `modelDigest` is the collection node's
-[model digest](01-data-model.md#6-revisions-and-equivalence), computed over its
+[model digest](01-data-model.md#5-revisions-and-equivalence), computed over its
 schema-normalized rows in stable-key order as `{ key, path, properties }`
 entries. Names reject NUL,
 slashes, backslashes, dot segments, non-NFC text, and reserved ambiguity.
