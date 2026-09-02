@@ -9,7 +9,7 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * offline migration tool, which sets the stamp). "1" is the implicit stamp of
  * every database created before the profile-kind columns were removed.
  */
-export const CANOPY_SCHEMA_VERSION = "2";
+export const CANOPY_SCHEMA_VERSION = "3";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],

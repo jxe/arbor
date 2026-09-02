@@ -98,7 +98,7 @@ export async function migrateCanopy(dataRoot: string): Promise<CanopyMigrationRe
   const db = new Database(join(dataRoot, "canopy.sqlite3"));
   try {
     const stamp = (db.query("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | null)?.value ?? null;
-    if (stamp === CANOPY_SCHEMA_VERSION) throw new Error(`Canopy data root is already at schema version ${stamp}`);
+    if (stamp === "2") throw new Error(`Canopy data root is already at schema version ${stamp}`);
     if (stamp !== null) throw new Error(`Canopy data root has unknown schema version ${stamp}`);
     const objects = new ObjectStore(join(dataRoot, "objects"));
     const trees = db.query("SELECT id, ref, policy FROM trees ORDER BY rowid").all() as Array<{ id: string; ref: ObjectHash; policy: string }>;
@@ -132,7 +132,7 @@ export async function migrateCanopy(dataRoot: string): Promise<CanopyMigrationRe
         store.insert({ tree: tree.id, root: ref, previousRoot: null, kind: "restored", acceptedAt: now });
         db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [tree.id, ref, now]);
       }
-      db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [CANOPY_SCHEMA_VERSION]);
+      db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", ["2"]);
     })();
 
     // Prune objects that only history reached.

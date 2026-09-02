@@ -13,8 +13,8 @@ dependency column controls execution order.
 | [006](006-native-offline-rollup-row-projection.md) | Present synchronized CSV/JSON/JSONL rows through native offline replicas | P2 | DEFERRED — preserve Wire rollups losslessly until native offline row browsing is required | 002; Applications 003 execution decisions |
 | [007](007-provider-runtime-ownership.md) | Give every projection backing one runtime owner and make Arbor Sync provider-neutral | P0 | COMPLETE | 002 |
 | [008](008-locator-identity-surfaces.md) | Give the stable key one spelling per surface and one segment-parameter grammar, listed in one table | P2 | PLANNED — decide the Markdown alias, row-segment, and legacy-input questions first | 003; remove-later 001 |
-| [009](009-update-if-match.md) | Put `ifMatch` and `onConflict` on updates, merge disjoint nodes from model hashes, keep format mergers as merge rules, rename `modelDigest` to `modelHash` | P0 | PLANNED — spec written, code pending | ships via `migrations/001` |
-| [010](010-index-body-precedence.md) | Prefer `x/_index.md` over a sibling body and report the sibling as shadowed instead of blocking | P1 | PLANNED — spec written, code pending | none |
+| [009](009-update-if-match.md) | Put `ifMatch` and `onConflict` on updates, merge disjoint nodes from model hashes, keep format mergers as merge rules, rename `modelDigest` to `modelHash` | P0 | IMPLEMENTED — awaiting the `migrations/001` cutover | ships via `migrations/001` |
+| [010](010-index-body-precedence.md) | Prefer `x/_index.md` over a sibling body and report the sibling as shadowed instead of blocking | P1 | IMPLEMENTED | none |
 
 Historical [Data 002](../history/data/002-reconcile-node-data-model.md) and
 completed [Data 007](007-provider-runtime-ownership.md) are the architectural

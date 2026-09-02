@@ -1,16 +1,4 @@
-import {
-  chmod,
-  lstat,
-  mkdir,
-  readdir,
-  readFile,
-  realpath,
-  rename,
-  rm,
-  rmdir,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { Diagnostic } from "@arbor/core";
@@ -75,7 +63,47 @@ export async function prepareArborDataRoot(): Promise<Diagnostic[]> {
   await chmod(target, 0o700).catch(() => {});
   await mkdir(arborPrivateRoot(), { recursive: true, mode: 0o700 });
   await migratePrivateState(target);
+  await reconcilePrivateStateVersion(arborPrivateRoot());
   return [];
+}
+
+/**
+ * The private-state version this build writes. It changes whenever the wire
+ * format or the daemon's rebuildable state changes shape, and is the client
+ * half of the schema stamp Canopy asserts at startup.
+ */
+export const ARBOR_SYNC_STATE_VERSION = "2";
+
+const REBUILDABLE_PRIVATE_ENTRIES = ["sync", "refs"] as const;
+
+/**
+ * A private state written by an older build discards what can be rebuilt,
+ * the per-tree sync journals, placement refs, and workspace indexes, so every
+ * placement re-places itself from a snapshot on the next pass; authored files
+ * are compared byte for byte before anything is rewritten. Credentials,
+ * device identity, and system records are kept.
+ */
+async function reconcilePrivateStateVersion(state: string): Promise<void> {
+  const stampPath = join(state, "version");
+  const stamp = await readFile(stampPath, "utf8").then((value) => value.trim()).catch(() => null);
+  if (stamp === ARBOR_SYNC_STATE_VERSION) return;
+  // An unstamped state that already holds placement refs was written by a build
+  // before the stamp existed; an unstamped state without them is new.
+  const olderBuild = stamp !== null || await pathKind(join(state, "refs")) !== "missing";
+  if (olderBuild) {
+    for (const name of REBUILDABLE_PRIVATE_ENTRIES) await rm(join(state, name), { recursive: true, force: true });
+    const workspaces = join(state, "workspaces");
+    if (await pathKind(workspaces) === "directory") {
+      for (const id of await readdir(workspaces)) {
+        const directory = join(workspaces, id);
+        if (await pathKind(directory) !== "directory") continue;
+        for (const name of await readdir(directory)) {
+          if (name.startsWith("index")) await rm(join(directory, name), { recursive: true, force: true });
+        }
+      }
+    }
+  }
+  await writeFile(stampPath, `${ARBOR_SYNC_STATE_VERSION}\n`, { mode: 0o600 });
 }
 
 const LEGACY_PRIVATE_ENTRIES = [
