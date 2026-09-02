@@ -274,10 +274,10 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
                 surface = .markdown(source: content.source, contentRevision: revision)
             }
         } else if let childrenCapability {
-            if childrenCapability.schema != nil || childrenCapability.representation?.type != "expanded" {
+            if childrenCapability.schema != nil || childrenCapability.backing?.type != "expanded-files" {
                 surface = .collection(
-                    kind: childrenCapability.representation?.codec
-                        ?? childrenCapability.representation?.driver
+                    kind: childrenCapability.backing?.format
+                        ?? childrenCapability.backing?.driver
                         ?? "structured",
                     rowCount: childrenCapability.total
                 )
