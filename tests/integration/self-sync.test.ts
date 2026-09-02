@@ -236,7 +236,7 @@ describe("private self-sync", () => {
       globalThis.fetch = fallbackFetch;
     }
     const fallbackBody = fallbackBodies.find((body) => Array.isArray(body.objects) && body.objects.length > 0)!;
-    expect(fallbackBody.deltas).toBeUndefined();
+    expect(fallbackBody.deltas).toEqual([]);
     await fallback.running.service.synchronizeNow();
     await fallback.close();
   }, 20_000);
@@ -488,6 +488,7 @@ describe("private self-sync", () => {
         { hash: emptyDirectoryHash, bytes: Buffer.from(emptyDirectory).toString("base64") },
         { hash: staleRootHash, bytes: Buffer.from(staleRoot).toString("base64") },
       ],
+      deltas: [],
     });
 
     const service = await ArborSyncDaemon.openControl({ autoSync: false });

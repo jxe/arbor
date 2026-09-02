@@ -285,7 +285,7 @@ export class WireClient {
       ifMatch: options.ifMatch ?? (base === null ? "bytesHash" : "modelHash"),
       ...(options.onConflict !== undefined ? { onConflict: options.onConflict } : {}),
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
-      ...(options.deltas?.length ? { deltas: options.deltas } : {}),
+      deltas: options.deltas ?? [],
     };
     const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
       method: "POST",

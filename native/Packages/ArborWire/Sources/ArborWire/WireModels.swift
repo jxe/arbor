@@ -554,7 +554,7 @@ public struct WireUpdateRequest: Codable, Sendable, Equatable {
     /// Under modelHash, what to do with a node changed in both places; nil means merge.
     public var onConflict: String?
     public var objects: [WireObjectEnvelope]
-    public var deltas: [WireObjectDelta]?
+    public var deltas: [WireObjectDelta]
 
     public init(
         base: String?,
@@ -569,7 +569,7 @@ public struct WireUpdateRequest: Codable, Sendable, Equatable {
         self.ifMatch = ifMatch ?? (base == nil ? "bytesHash" : "modelHash")
         self.onConflict = onConflict
         self.objects = objects
-        self.deltas = deltas.isEmpty ? nil : deltas
+        self.deltas = deltas
     }
 
     public init(
@@ -604,29 +604,28 @@ public struct WireUpdateRequest: Codable, Sendable, Equatable {
             throw ArborWireValidationError.invalidValue("Activation matches on bytesHash")
         }
         objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
-        deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas)
-        if base == nil, let deltas, !deltas.isEmpty {
+        // Temporary input-only compatibility with senders predating required empty arrays.
+        deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas) ?? []
+        if base == nil, !deltas.isEmpty {
             throw ArborWireValidationError.invalidValue("Activation has no base to apply deltas against")
         }
-        if let deltas {
-            let instructionCount = deltas.reduce(0) { $0 + $1.instructions.count }
-            let insertedBytes = deltas.reduce(0) { partial, delta in
-                partial + delta.instructions.reduce(0) { total, instruction in
-                    if case let .insert(bytes) = instruction { return total + bytes.count }
-                    return total
-                }
+        let instructionCount = deltas.reduce(0) { $0 + $1.instructions.count }
+        let insertedBytes = deltas.reduce(0) { partial, delta in
+            partial + delta.instructions.reduce(0) { total, instruction in
+                if case let .insert(bytes) = instruction { return total + bytes.count }
+                return total
             }
-            guard deltas.count <= 10_000, instructionCount <= 100_000, insertedBytes <= 64 * 1024 * 1024 else {
-                throw ArborWireValidationError.invalidValue("Object deltas exceed transport quotas")
-            }
-            let results = deltas.map(\.result)
-            guard Set(results).count == results.count else {
-                throw ArborWireValidationError.invalidValue("Duplicate object delta result")
-            }
-            let complete = Set(objects.map(\.hash))
-            guard results.allSatisfy({ !complete.contains($0) }) else {
-                throw ArborWireValidationError.invalidValue("Object delta result also supplied as complete object")
-            }
+        }
+        guard deltas.count <= 10_000, instructionCount <= 100_000, insertedBytes <= 64 * 1024 * 1024 else {
+            throw ArborWireValidationError.invalidValue("Object deltas exceed transport quotas")
+        }
+        let results = deltas.map(\.result)
+        guard Set(results).count == results.count else {
+            throw ArborWireValidationError.invalidValue("Duplicate object delta result")
+        }
+        let complete = Set(objects.map(\.hash))
+        guard results.allSatisfy({ !complete.contains($0) }) else {
+            throw ArborWireValidationError.invalidValue("Object delta result also supplied as complete object")
         }
     }
 
@@ -638,7 +637,7 @@ public struct WireUpdateRequest: Codable, Sendable, Equatable {
         try values.encode(ifMatch, forKey: .ifMatch)
         try values.encodeIfPresent(onConflict, forKey: .onConflict)
         try values.encode(objects, forKey: .objects)
-        try values.encodeIfPresent(deltas, forKey: .deltas)
+        try values.encode(deltas, forKey: .deltas)
     }
 }
 
@@ -677,6 +676,7 @@ public struct WireTransitionPayload: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
+        // Temporary input-only compatibility with senders predating required empty arrays.
         deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas) ?? []
         _ = try validated()
     }
@@ -684,7 +684,7 @@ public struct WireTransitionPayload: Codable, Sendable, Equatable {
     public func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(objects, forKey: .objects)
-        if !deltas.isEmpty { try values.encode(deltas, forKey: .deltas) }
+        try values.encode(deltas, forKey: .deltas)
     }
 
     public func validated() throws -> Self {
@@ -724,6 +724,7 @@ public struct WireConflictDraft: Codable, Sendable, Equatable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         root = try values.decode(String.self, forKey: .root)
         objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
+        // Temporary input-only compatibility with senders predating required empty arrays.
         deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas) ?? []
     }
 
@@ -731,7 +732,7 @@ public struct WireConflictDraft: Codable, Sendable, Equatable {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(root, forKey: .root)
         try values.encode(objects, forKey: .objects)
-        if !deltas.isEmpty { try values.encode(deltas, forKey: .deltas) }
+        try values.encode(deltas, forKey: .deltas)
     }
 
     public var payload: WireTransitionPayload { WireTransitionPayload(objects: objects, deltas: deltas) }

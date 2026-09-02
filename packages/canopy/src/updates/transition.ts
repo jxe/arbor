@@ -59,7 +59,7 @@ export async function buildAcceptedTransitionPayload(
     let delta: ObjectDelta | undefined;
     if (before && before.bytes.byteLength <= MAX_DELTA_SOURCE_BYTES && after.bytes.byteLength <= MAX_DELTA_SOURCE_BYTES) {
       const candidate: ObjectDelta = { base: beforeHash!, result: afterHash, instructions: objectDelta(before.bytes, after.bytes) };
-      const complete = encodedSize({ objects: [{ hash: afterHash, bytes: after.bytes }] });
+      const complete = encodedSize({ objects: [{ hash: afterHash, bytes: after.bytes }], deltas: [] });
       if (encodedSize({ objects: [], deltas: [candidate] }) < complete) delta = candidate;
     }
     if (delta) deltas.push(delta);
@@ -77,7 +77,7 @@ export async function buildAcceptedTransitionPayload(
   await visit(previousRoot, targetRoot);
   const payload: AcceptedTransitionPayload = {
     objects,
-    ...(deltas.length ? { deltas } : {}),
+    deltas,
   };
   // Exercise the exact persisted/wire encoding here; generated objects and
   // delta results were already hash-checked while walking the canonical graph.

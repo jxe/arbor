@@ -86,6 +86,7 @@ export function pendingFromSnapshot(
     candidate: snapshot.root,
     ifMatch: base === null ? "bytesHash" : "modelHash",
     objects: encodeObjectEnvelopes([...snapshot.objects].filter(([hash]) => !retained.has(hash))),
+    deltas: [],
   };
 }
 
@@ -93,8 +94,8 @@ export function snapshotFromPending(pending: PendingTreeUpdate): TreeSnapshot {
   return decodeTreeSnapshotJSON({ root: pending.candidate, objects: pending.objects });
 }
 
-export function deltasFromPending(pending: PendingTreeUpdate): ObjectDelta[] | undefined {
-  return pending.deltas ? decodeObjectDeltas(pending.deltas) : undefined;
+export function deltasFromPending(pending: PendingTreeUpdate): ObjectDelta[] {
+  return decodeObjectDeltas(pending.deltas ?? []);
 }
 
 export function withDelta(pending: PendingTreeUpdate, delta: ObjectDelta): PendingTreeUpdate {

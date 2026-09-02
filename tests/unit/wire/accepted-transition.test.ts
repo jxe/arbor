@@ -26,6 +26,12 @@ describe("accepted transition wire encoding", () => {
     expect(decodeTransitionPayloadJSON(encodeTransitionPayloadJSON(payload))).toEqual(payload);
   });
 
+  test("always emits both arrays while decoding the temporary legacy omission", () => {
+    const payload = { objects: [], deltas: [] };
+    expect(encodeTransitionPayloadJSON(payload)).toEqual(payload);
+    expect(decodeTransitionPayloadJSON({ objects: [] })).toEqual(payload);
+  });
+
   test("rejects duplicate results, ambiguous instructions, and retired representations", () => {
     const hash = `sha256:${"a".repeat(64)}`;
     expect(() => decodeTransitionPayloadJSON({

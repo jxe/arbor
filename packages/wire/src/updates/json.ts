@@ -31,12 +31,12 @@ export interface UpdateRequestJSON {
   ifMatch: IfMatch;
   onConflict?: OnConflict;
   objects: ObjectEnvelopeJSON[];
-  deltas?: ObjectDeltaJSON[];
+  deltas: ObjectDeltaJSON[];
 }
 
 export interface TransitionPayloadJSON {
   objects: ObjectEnvelopeJSON[];
-  deltas?: ObjectDeltaJSON[];
+  deltas: ObjectDeltaJSON[];
 }
 
 export interface AcceptedTransitionJSON extends TransitionPayloadJSON {
@@ -140,9 +140,9 @@ export function encodeObjectDeltaJSON(delta: ObjectDelta): ObjectDeltaJSON {
   };
 }
 
-function assertDistinctResults(objects: Array<{ hash: ObjectHash }>, deltas: ObjectDelta[] | undefined, message: string): void {
+function assertDistinctResults(objects: Array<{ hash: ObjectHash }>, deltas: ObjectDelta[], message: string): void {
   const results = new Set(objects.map(({ hash }) => hash));
-  for (const delta of deltas ?? []) {
+  for (const delta of deltas) {
     if (results.has(delta.result)) throw new Error(`${message}: ${delta.result}`);
     results.add(delta.result);
   }
@@ -152,18 +152,16 @@ export function decodeTransitionPayloadJSON(value: unknown): AcceptedTransitionP
   if (!value || typeof value !== "object") throw new Error("Transition payload must be an object");
   const record = value as Record<string, unknown> & { objects?: unknown; deltas?: unknown };
   const objects = decodeObjectEnvelopes(record.objects);
-  const deltas = record.deltas === undefined ? undefined : decodeObjectDeltas(record.deltas);
+  // Temporary input-only compatibility with senders predating required empty arrays.
+  const deltas = record.deltas === undefined ? [] : decodeObjectDeltas(record.deltas);
   assertDistinctResults(objects, deltas, "Transition result supplied more than once");
-  return {
-    objects,
-    ...(deltas?.length ? { deltas } : {}),
-  };
+  return { objects, deltas };
 }
 
 export function encodeTransitionPayloadJSON(payload: AcceptedTransitionPayload): TransitionPayloadJSON {
   return {
     objects: payload.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
-    ...(payload.deltas?.length ? { deltas: payload.deltas.map(encodeObjectDeltaJSON) } : {}),
+    deltas: payload.deltas.map(encodeObjectDeltaJSON),
   };
 }
 
@@ -236,16 +234,17 @@ export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
   if (body.ifMatch === "bytesHash" && body.onConflict === "merge") throw new Error("A bytesHash match cannot merge");
   if (body.base === null && body.ifMatch !== "bytesHash") throw new Error("Activation matches on bytesHash");
   const objects = decodeObjectEnvelopes(body.objects);
-  const deltas = body.deltas === undefined ? undefined : decodeObjectDeltas(body.deltas);
+  // Temporary input-only compatibility with senders predating required empty arrays.
+  const deltas = body.deltas === undefined ? [] : decodeObjectDeltas(body.deltas);
   assertDistinctResults(objects, deltas, "Object delta result also supplied as a complete object");
-  if (body.base === null && deltas?.length) throw new Error("Activation has no base to apply deltas against");
+  if (body.base === null && deltas.length) throw new Error("Activation has no base to apply deltas against");
   return {
     base: body.base,
     candidate: body.candidate as ObjectHash,
     ifMatch: body.ifMatch,
     ...(body.onConflict !== undefined ? { onConflict: body.onConflict } : {}),
     objects,
-    ...(deltas ? { deltas } : {}),
+    deltas,
   };
 }
 
@@ -256,7 +255,7 @@ export function encodeUpdateRequestJSON(request: UpdateRequest): UpdateRequestJS
     ifMatch: request.ifMatch,
     ...(request.onConflict !== undefined ? { onConflict: request.onConflict } : {}),
     objects: request.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
-    ...(request.deltas?.length ? { deltas: request.deltas.map(encodeObjectDeltaJSON) } : {}),
+    deltas: request.deltas.map(encodeObjectDeltaJSON),
   };
 }
 

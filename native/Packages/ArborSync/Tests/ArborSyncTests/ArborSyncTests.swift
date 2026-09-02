@@ -171,7 +171,7 @@ struct ArborSyncTests {
             }
             let firstPrepared = try #require(await transport.requests.first)
             let first = try JSONDecoder().decode(WireUpdateRequest.self, from: firstPrepared.body)
-            let delta = try #require(first.deltas?.first)
+            let delta = try #require(first.deltas.first)
             #expect(delta.instructions.contains(.insert(Data("Edited".utf8))))
             #expect(delta.instructions.contains(where: { if case .copy = $0 { return true } else { return false } }))
             #expect(!first.objects.contains(where: { $0.hash == delta.result }))
@@ -191,7 +191,7 @@ struct ArborSyncTests {
             }
             let secondPrepared = try #require(await transport.requests.dropFirst().first)
             let second = try JSONDecoder().decode(WireUpdateRequest.self, from: secondPrepared.body)
-            #expect(second.deltas == nil)
+            #expect(second.deltas.isEmpty)
             #expect(!second.objects.isEmpty)
             #expect(try await replica.heads().pendingRoot == nil)
         }

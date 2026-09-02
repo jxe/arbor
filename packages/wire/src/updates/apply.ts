@@ -49,7 +49,7 @@ export function applyTransitionPayload(
     if (hashObject(object.bytes) !== object.hash) throw new Error(`Transition object hash mismatch: ${object.hash}`);
     objects.set(object.hash, object.bytes);
   }
-  for (const delta of payload.deltas ?? []) {
+  for (const delta of payload.deltas) {
     const base = objects.get(delta.base);
     if (!base) throw new Error(`Object delta base is not available: ${delta.base}`);
     const bytes = applyObjectDelta(base, delta);

@@ -44,14 +44,14 @@ describe("accepted-update transaction store", () => {
       candidateRoot: B,
       remoteRoot: A,
       requestDigest: "sha256:request",
-      transition: { objects: [{ hash: B, bytes }] },
+      transition: { objects: [{ hash: B, bytes }], deltas: [] },
     });
     expect(accepted?.id).toBe(String(Number(store.list("tr_test")[0]!.id) + 1));
     expect((db.query("SELECT ref FROM trees WHERE id = 'tr_test'").get() as { ref: string }).ref).toBe(B);
     expect(db.query("SELECT * FROM reflog").all()).toHaveLength(1);
     expect(store.list("tr_test")).toHaveLength(2);
     expect(store.list("tr_test").map((update) => Number(update.id))).toEqual(store.list("tr_test").map((update) => Number(update.id)).sort((a, b) => a - b));
-    expect(store.transition(accepted!.id)).toEqual({ objects: [{ hash: B, bytes }] });
+    expect(store.transition(accepted!.id)).toEqual({ objects: [{ hash: B, bytes }], deltas: [] });
     expect(store.acceptedRequest("tr_test", "device:one", "sha256:request")).toEqual({
       status: 201,
       result: { outcome: "accepted", update: accepted!, requestDigest: "sha256:request", observedThrough: accepted!.id },

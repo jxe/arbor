@@ -78,7 +78,7 @@ export interface ObjectDelta {
  */
 export interface TransitionPayload {
   objects: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
-  deltas?: ObjectDelta[];
+  deltas: ObjectDelta[];
 }
 
 export type AcceptedTransitionPayload = TransitionPayload;

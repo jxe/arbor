@@ -9,9 +9,9 @@
   and deployment state must change together.
 - **State:** IN PROGRESS — the normative specification, collection-file
   TypeScript and Swift cutover, collection-file conformance vectors,
-  child-name rule, and local tests are complete. Transition-payload code and
-  conformance normalization, migration 002, and its rehearsal/cutover gates
-  remain.
+  child-name rule, transition-payload code and conformance normalization, and
+  local tests are complete. Migration 002, its rehearsal/cutover gates, and
+  eventual removal of temporary decoder tolerance remain.
 - **Depends on:** the completed Data 002 common node contract and Data 009
   update reconciliation; migration 001 must remain unchanged and its cutover
   must be verified complete on every relevant client before migration 002 runs.
@@ -21,17 +21,14 @@
 
 ## Remaining work
 
-1. Normalize TypeScript and Swift transition encoders and conformance fixtures
-   to emit required `objects` and `deltas` arrays while accepting an omitted
-   legacy `deltas` field as empty. This is a Wire-shape compatibility change
-   and requires no retained-state rewrite. Record that decoder tolerance as
-   explicit temporary technical debt, then remove it after every deployed
-   sender emits both fields and the compatibility window closes.
-2. Restore a fresh live-volume archive into local `before` and `migrated`
+1. Restore a fresh live-volume archive into local `before` and `migrated`
    copies and run migration 002 against the latter.
-3. Prove logical root equivalence, serve and verify the migrated copy, and
+2. Prove logical root equivalence, serve and verify the migrated copy, and
    record the results in the migration rehearsal report.
-4. Complete the quiesced live cutover and Mac/iPhone re-placement checks.
+3. Complete the quiesced live cutover and Mac/iPhone re-placement checks.
+4. After every deployed sender emits both transition arrays and the
+   compatibility window closes, remove the temporary input-only tolerance for
+   an omitted legacy `deltas` field from TypeScript and Swift decoders.
 5. After the two-week backup window, remove migration 002 and move this plan
    to history. The tree-operations spec has its intended four-part structure,
    but its explanatory prose remains a separate follow-up editing task.

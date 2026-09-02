@@ -20,14 +20,14 @@ function graph(name: string, payload: Uint8Array) {
 function results(payload: AcceptedTransitionPayload): Set<ObjectHash> {
   return new Set([
     ...payload.objects.map(({ hash }) => hash),
-    ...(payload.deltas ?? []).map(({ result }) => result),
+    ...payload.deltas.map(({ result }) => result),
   ]);
 }
 
 function reconstruct(payload: AcceptedTransitionPayload, retained: Map<ObjectHash, Uint8Array>): Map<ObjectHash, Uint8Array> {
   const objects = new Map(retained);
   for (const object of payload.objects) objects.set(object.hash, object.bytes);
-  for (const delta of payload.deltas ?? []) {
+  for (const delta of payload.deltas) {
     const base = objects.get(delta.base);
     if (!base) throw new Error(`Delta base is not retained: ${delta.base}`);
     const bytes = applyObjectDelta(base, delta);
@@ -51,7 +51,7 @@ describe("accepted transition derivation", () => {
     const transition = await buildAcceptedTransitionPayload(before.root, after.root, async (hash) => objects.get(hash)!);
 
     expect(results(transition)).toEqual(new Set([after.root, after.file]));
-    expect(transition.deltas?.some((delta) => delta.base === before.file && delta.result === after.file)).toBe(true);
+    expect(transition.deltas.some((delta) => delta.base === before.file && delta.result === after.file)).toBe(true);
     expect(encodedBytes(transition)).toBeLessThan(1_000);
     const rebuilt = reconstruct(transition, before.objects);
     expect(rebuilt.get(after.file)).toEqual(after.objects.get(after.file));
@@ -67,7 +67,7 @@ describe("accepted transition derivation", () => {
     const objects = new Map([...before.objects, ...after.objects]);
 
     const transition = await buildAcceptedTransitionPayload(before.root, after.root, async (hash) => objects.get(hash)!);
-    expect(transition.deltas?.some((delta) => delta.base === before.file && delta.result === after.file)).toBe(true);
+    expect(transition.deltas.some((delta) => delta.base === before.file && delta.result === after.file)).toBe(true);
     expect(encodedBytes(transition)).toBeLessThan(2_000);
     expect(reconstruct(transition, before.objects).get(after.file)).toEqual(after.objects.get(after.file));
 
@@ -75,7 +75,7 @@ describe("accepted transition derivation", () => {
     const emptyRoot = hashObject(emptyRootBytes);
     objects.set(emptyRoot, emptyRootBytes);
     const creation = await buildAcceptedTransitionPayload(emptyRoot, after.root, async (hash) => objects.get(hash)!);
-    expect(creation.deltas).toBeUndefined();
+    expect(creation.deltas).toEqual([]);
     expect(new Set(creation.objects.map(({ hash }) => hash))).toEqual(new Set([after.root, after.file]));
   });
 
@@ -99,8 +99,8 @@ describe("accepted transition derivation", () => {
     const transition = await buildAcceptedTransitionPayload(hashObject(beforeRoot), hashObject(afterRoot), async (hash) => objects.get(hash)!);
 
     expect(results(transition)).toEqual(new Set([hashObject(afterRoot), hashObject(changed)]));
-    expect(transition.deltas?.some((delta) => delta.base === hashObject(beforeRoot) && delta.result === hashObject(afterRoot))).toBe(true);
-    expect(encodedBytes({ objects: [{ hash: hashObject(afterRoot), bytes: afterRoot }] })).toBeGreaterThan(20_000);
+    expect(transition.deltas.some((delta) => delta.base === hashObject(beforeRoot) && delta.result === hashObject(afterRoot))).toBe(true);
+    expect(encodedBytes({ objects: [{ hash: hashObject(afterRoot), bytes: afterRoot }], deltas: [] })).toBeGreaterThan(20_000);
     expect(encodedBytes(transition)).toBeLessThan(1_500);
     const rebuilt = reconstruct(transition, new Map([[hashObject(shared), shared], [hashObject(beforeRoot), beforeRoot]]));
     expect(rebuilt.get(hashObject(afterRoot))).toEqual(afterRoot);

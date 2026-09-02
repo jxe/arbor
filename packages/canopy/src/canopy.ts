@@ -834,7 +834,7 @@ export class CanopyDaemon implements AsyncDisposable {
         ? replay
         : { ...replay, result: await this.withReconciliation(replay.result, request.candidate, proposed) };
     }
-    const reconstructed = await this.objects.reconstructDeltas(baseRoot, request.deltas ?? [], proposed);
+    const reconstructed = await this.objects.reconstructDeltas(baseRoot, request.deltas, proposed);
     for (const object of reconstructed) {
       if (!await this.objects.contains(request.candidate, object.hash, proposed)) {
         throw new Error(`Object delta result is not reachable from candidate: ${object.hash}`);
