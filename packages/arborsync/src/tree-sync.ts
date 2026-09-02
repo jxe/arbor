@@ -38,7 +38,7 @@ export interface TreeSyncDeps {
   requestSync(): Promise<void>;
 }
 
-type TreeRefWatchEvent = Extract<WatchEvent, { kind: "tree.ref" }>;
+type TreeRefWatchEvent = Extract<WatchEvent, { kind: "tree.update" }>;
 
 const INITIAL_WATCH_BACKOFF_MS = 1_000;
 const MAX_WATCH_BACKOFF_MS = 30_000;
@@ -58,7 +58,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 
 /**
  * Per-tree reconciliation between a placed workspace and its Wire authority.
- * Each shared placement keeps one open watch; delivered `tree.ref` batches are
+ * Each shared placement keeps one open watch; delivered `tree.update` batches are
  * queued and applied by the daemon's serialized synchronization pass, so watch
  * events only ever hint or supply payload and never mutate state themselves.
  */
@@ -102,7 +102,7 @@ export class TreeSynchronizer {
       try {
         for await (const event of client.watch(tree, placement.update, { signal: connection.signal })) {
           backoff = INITIAL_WATCH_BACKOFF_MS;
-          if (event.kind === "tree.ref" && "transitions" in event) {
+          if (event.kind === "tree.update" && "transitions" in event) {
             const queue = this.queued.get(tree) ?? [];
             queue.push(event);
             this.queued.set(tree, queue);
@@ -170,16 +170,16 @@ export class TreeSynchronizer {
   ): Promise<void> {
     const current = await client.currentSnapshot(workspace.tree);
     await this.materialize(workspace, {
-      root: current.tree.ref,
+      root: current.tree.root,
       objects: current.snapshot.objects,
     });
     await this.deps.trees.updateSyncMetadata({
       ...placement,
-      ref: current.tree.ref,
+      ref: current.tree.root,
       update: current.tree.update,
       access: current.tree.access === "none" ? "read" : current.tree.access,
     });
-    await this.confirmMaterialized(workspace, client, remoteTrees, current.tree.ref, "Materialized placement does not match its server root");
+    await this.confirmMaterialized(workspace, client, remoteTrees, current.tree.root, "Materialized placement does not match its server root");
   }
 
   /**
@@ -222,7 +222,7 @@ export class TreeSynchronizer {
       return false;
     }
     const descriptor = events.at(-1)!.descriptor;
-    if (descriptor.ref !== final.update.root || descriptor.update !== final.update.id) return false;
+    if (descriptor.root !== final.update.root || descriptor.update !== final.update.id) return false;
 
     await this.materialize(workspace, { root: final.update.root, objects });
     await this.deps.trees.updateSyncMetadata({
@@ -245,16 +245,16 @@ export class TreeSynchronizer {
     trees.setSyncState(workspace.tree, "syncing");
     let placement = initialPlacement;
     if (await this.applyQueuedTransitions(workspace, placement, client, remoteTrees)) return;
-    const remote = (await client.ref(workspace.tree)).snapshot;
+    const remote = (await client.descriptor(workspace.tree)).tree;
     if (!remote.update) throw new Error("Server does not advertise accepted updates for this tree");
     if (
       placement.access !== remote.access
-      || (placement.ref === remote.ref && placement.update !== remote.update)
+      || (placement.ref === remote.root && placement.update !== remote.update)
     ) {
       placement = {
         ...placement,
         access: remote.access === "none" ? "read" : remote.access,
-        ...(placement.ref === remote.ref ? { update: remote.update } : {}),
+        ...(placement.ref === remote.root ? { update: remote.update } : {}),
       };
       await trees.updateSyncMetadata(placement);
     }
@@ -266,8 +266,8 @@ export class TreeSynchronizer {
     let pending = await pendingTreeUpdate(workspace.tree);
     let local = await this.deps.snapshotWorkspace(workspace, client, remoteTrees);
     if (!placement.ref || !placement.update) {
-      if (local.root === remote.ref) {
-        await trees.updateSyncMetadata({ ...placement, ref: remote.ref, update: remote.update });
+      if (local.root === remote.root) {
+        await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update });
         await saveAcceptedTreeObjects(workspace.tree, local);
         trees.setSyncState(workspace.tree, "idle");
         this.conflicts.delete(workspace.tree);
@@ -284,8 +284,8 @@ export class TreeSynchronizer {
       await this.pullCurrent(workspace, placement, client, remoteTrees);
       return;
     }
-    if (local.root === remote.ref) {
-      await trees.updateSyncMetadata({ ...placement, ref: remote.ref, update: remote.update });
+    if (local.root === remote.root) {
+      await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update });
       await saveAcceptedTreeObjects(workspace.tree, local);
       if (pending) await clearPendingTreeUpdate(workspace.tree);
       trees.setSyncState(workspace.tree, "idle");

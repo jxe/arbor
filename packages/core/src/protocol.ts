@@ -138,7 +138,8 @@ export interface LocalTreeDescriptor extends TreeDescriptor {
 }
 
 export interface RemoteTreeDescriptor extends TreeDescriptor {
-  ref: Hash;
+  /** The bytes hash of the current accepted tree state: the wire root. */
+  root: Hash;
   update: string;
 }
 

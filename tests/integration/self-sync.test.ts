@@ -44,7 +44,7 @@ async function installDataHome(
   }
   process.env.ARBOR_DATA_HOME = home;
   await saveCurrentDeviceID(device);
-  const configuration = await new WireClient(host.url, credential).ref(account.account.configuration.id);
+  const configuration = await new WireClient(host.url, credential).descriptor(account.account.configuration.id);
   await new CommunityConfigStore().set(host.url, credential, {
     id: account.account.id,
     handle: account.account.handle,
@@ -53,8 +53,8 @@ async function installDataHome(
     communityTree: account.account.community.id,
     communityURL: canonicalArborLocator(account.account.community.canonical!),
     configurationTree: account.account.configuration.id,
-    configurationRef: configuration.snapshot.ref,
-    configurationUpdate: configuration.snapshot.update,
+    configurationRef: configuration.tree.root,
+    configurationUpdate: configuration.tree.update,
   });
 }
 
@@ -103,7 +103,7 @@ beforeAll(async () => {
   const initialAccount = await owner.account();
   let configuration = await owner.currentSnapshot(initialAccount.account.configuration.id);
   let graph = readAccountConfigGraph({
-    root: configuration.snapshot.root,
+    root: configuration.tree.root,
     objects: configuration.snapshot.objects,
   }, initialAccount.account.configuration.id);
   deviceA = graph.account.admins[0]!;
@@ -134,7 +134,7 @@ beforeAll(async () => {
   }, { [tree]: { server: new URL(host.url).origin, path: treeB } });
   configuration = await owner.currentSnapshot(initialAccount.account.configuration.id);
   graph = readAccountConfigGraph({
-    root: configuration.snapshot.root,
+    root: configuration.tree.root,
     objects: configuration.snapshot.objects,
   }, initialAccount.account.configuration.id);
   const account = await owner.account();
@@ -472,7 +472,7 @@ describe("private self-sync", () => {
     const owner = new WireClient(host.url, token);
     const account = await owner.account();
     const configurationTree = account.account.configuration.id;
-    const remote = await owner.ref(configurationTree);
+    const remote = await owner.descriptor(configurationTree);
     const emptyDirectory = encodeWireObject({ type: "directory", entries: [] });
     const emptyDirectoryHash = hashObject(emptyDirectory);
     const staleRoot = encodeWireObject({
@@ -481,7 +481,7 @@ describe("private self-sync", () => {
     });
     const staleRootHash = hashObject(staleRoot);
     await savePendingTreeUpdate(configurationTree, {
-      base: remote.snapshot.update!,
+      base: remote.tree.update!,
       candidate: staleRootHash,
       ifMatch: "modelHash",
       objects: [
@@ -495,7 +495,7 @@ describe("private self-sync", () => {
       await service.synchronizeNow();
       expect(await pendingTreeUpdate(configurationTree)).toBeUndefined();
       expect((await service.trees.descriptors()).find(({ id }) => id === configurationTree)?.sync).toBe("idle");
-      expect((await owner.ref(configurationTree)).snapshot).toEqual(remote.snapshot);
+      expect((await owner.descriptor(configurationTree)).tree).toEqual(remote.tree);
     } finally {
       await service[Symbol.asyncDispose]();
     }

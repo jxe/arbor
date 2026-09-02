@@ -138,14 +138,14 @@ export class AcceptedUpdateStore {
     return row?.transition_json ? decodeTransitionPayloadJSON(JSON.parse(row.transition_json)) : null;
   }
 
-  /** Record one accepted update and its `tree.ref` observation atomically. */
+  /** Record one accepted update and its `tree.update` observation atomically. */
   insert(input: AcceptedUpdateInput): AcceptedUpdate {
     return this.db.transaction(() => this.insertWithinTransaction(input))();
   }
 
-  /** The accepted update's id is the ordinal of the `tree.ref` observation that records it. */
+  /** The accepted update's id is the ordinal of the `tree.update` observation that records it. */
   private insertWithinTransaction(input: AcceptedUpdateInput): AcceptedUpdate {
-    const observation = this.observations.append({ tree: input.tree, kind: "tree.ref", createdAt: input.acceptedAt });
+    const observation = this.observations.append({ tree: input.tree, kind: "tree.update", createdAt: input.acceptedAt });
     const id = observation.cursor;
     this.db.run(`
       INSERT INTO accepted_updates

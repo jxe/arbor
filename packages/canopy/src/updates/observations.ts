@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 
 /**
  * One row of a tree's ordered observation log. Accepted updates are recorded
- * as `tree.ref` rows whose cursor is the accepted-update ID; every other kind
+ * as `tree.update` rows whose cursor is the accepted-update ID; every other kind
  * carries its change payload. `ordinal` is the single authority for order.
  */
 export interface ObservationRecord {

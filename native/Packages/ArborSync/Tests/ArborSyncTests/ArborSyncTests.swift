@@ -349,7 +349,7 @@ struct ArborSyncTests {
             let eventTree = WireTreeDescriptor(
                 id: tree,
                 kind: "ordinary",
-                ref: request.candidate,
+                root: request.candidate,
                 access: "write",
                 canonical: WireCanonicalDescriptor(
                     path: "/~owner/watch-digest",
@@ -576,7 +576,7 @@ struct LiveNativePeerTests {
               let treeID = ProcessInfo.processInfo.environment["ARBOR_WIRE_TEST_TREE"] else { return }
         try await withTemporaryRoot { root in
             let client = ArborWireClient(origin: origin, credential: token, retryDelay: { _ in })
-            let tree = try await client.ref(tree: treeID).snapshot
+            let tree = try await client.descriptor(tree: treeID).tree
             let transport = ArborWireReplicaTransport(client: client)
             let mac = try await ReplicaPlacementService.place(
                 tree: tree,
@@ -603,9 +603,9 @@ struct LiveNativePeerTests {
             #expect(merged.state == .autoMerged || merged.state == .approximatePlacement)
             _ = try await macSync.syncOnce()
 
-            let remote = try await client.ref(tree: tree.id).snapshot
-            #expect(try await mac.heads().materializedRoot == remote.ref)
-            #expect(try await tablet.heads().materializedRoot == remote.ref)
+            let remote = try await client.descriptor(tree: tree.id).tree
+            #expect(try await mac.heads().materializedRoot == remote.root)
+            #expect(try await tablet.heads().materializedRoot == remote.root)
             let source = (try await macSession.snapshot()).source
             #expect(source.contains("Mac addition"))
             #expect(source.contains("Tablet addition"))
@@ -646,7 +646,7 @@ private func descriptor(tree: String, snapshot: WireSnapshot, update: String) ->
     WireTreeDescriptor(
         id: tree,
         kind: "ordinary",
-        ref: snapshot.root,
+        root: snapshot.root,
         access: "write",
         canonical: WireCanonicalDescriptor(
             path: "/~owner/\(tree)",

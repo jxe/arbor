@@ -69,7 +69,8 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
     public var kind: String
     public var access: String
     public var canonical: WireCanonicalDescriptor?
-    public var ref: String
+    /// The bytes hash of the current accepted tree state: the wire root.
+    public var root: String
     public var update: String
 
     public var canonicalPath: String? { canonical?.path }
@@ -80,7 +81,7 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
     public init(
         id: String,
         kind: String,
-        ref: String,
+        root: String,
         access: String,
         canonical: WireCanonicalDescriptor?,
         update: String
@@ -89,13 +90,13 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
         self.kind = kind
         self.access = access
         self.canonical = canonical
-        self.ref = ref
+        self.root = root
         self.update = update
     }
 
     public func validated() throws -> Self {
         guard !id.isEmpty else { throw ArborWireValidationError.invalidValue("Tree ID is empty") }
-        try validateObjectHash(ref)
+        try validateObjectHash(root)
         guard ["ordinary", "account-configuration"].contains(kind) else {
             throw ArborWireValidationError.invalidValue("Unknown tree kind")
         }
@@ -298,6 +299,26 @@ public struct WireSnapshot: Codable, Sendable, Equatable {
     }
 }
 
+/// The tree resource: its current descriptor and the cursor to watch after.
+public struct WireCurrentTree: Codable, Sendable, Equatable {
+    public var tree: WireTreeDescriptor
+    public var observedThrough: String
+
+    public init(tree: WireTreeDescriptor, observedThrough: String) {
+        self.tree = tree
+        self.observedThrough = observedThrough
+    }
+
+    public func validated(expectedTree: String? = nil) throws -> Self {
+        let tree = try tree.validated()
+        guard !tree.update.isEmpty, !observedThrough.isEmpty, expectedTree == nil || tree.id == expectedTree else {
+            throw ArborWireValidationError.invalidValue("Tree descriptor does not match its tree")
+        }
+        return self
+    }
+}
+
+/// The current snapshot: the transition from nothing to the current root, flattened beside its descriptor.
 public struct WireCurrentSnapshot: Codable, Sendable, Equatable {
     public var tree: WireTreeDescriptor
     public var snapshot: WireSnapshot
@@ -309,10 +330,30 @@ public struct WireCurrentSnapshot: Codable, Sendable, Equatable {
         self.observedThrough = observedThrough
     }
 
+    private enum CodingKeys: String, CodingKey { case tree, root, objects, observedThrough }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        tree = try values.decode(WireTreeDescriptor.self, forKey: .tree)
+        snapshot = WireSnapshot(
+            root: try values.decode(String.self, forKey: .root),
+            objects: try values.decode([WireObjectEnvelope].self, forKey: .objects)
+        )
+        observedThrough = try values.decode(String.self, forKey: .observedThrough)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(tree, forKey: .tree)
+        try values.encode(snapshot.root, forKey: .root)
+        try values.encode(snapshot.objects, forKey: .objects)
+        try values.encode(observedThrough, forKey: .observedThrough)
+    }
+
     public func validated(expectedTree: String? = nil) throws -> Self {
         let tree = try tree.validated()
         _ = try WireObjectGraph.validate(snapshot)
-        guard tree.ref == snapshot.root,
+        guard tree.root == snapshot.root,
               !tree.update.isEmpty,
               !observedThrough.isEmpty,
               expectedTree == nil || tree.id == expectedTree else {

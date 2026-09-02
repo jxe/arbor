@@ -503,11 +503,11 @@ final class ArborClientTests: XCTestCase {
         let wireSnapshot = try wireSnapshot("object")
         let root = try XCTUnwrap(wireSnapshot.objects.first { $0.hash == wireSnapshot.root })
         let descriptor = """
-        {"snapshot":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://canopy.test","parentTree":null},"ref":"\(wireSnapshot.root)","update":"up_1"},"observedThrough":"up_1"}
+        {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://canopy.test","parentTree":null},"root":"\(wireSnapshot.root)","update":"up_1"},"observedThrough":"up_1"}
         """
         await URLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {
-            case ("GET", "/.arbor/trees/tr_atlas/ref"): (200, Data(descriptor.utf8))
+            case ("GET", "/.arbor/trees/tr_atlas"): (200, Data(descriptor.utf8))
             case ("GET", "/.arbor/trees/tr_atlas/objects/\(wireSnapshot.root)"): (200, root.bytes)
             default: (404, Data(#"{"error":"not-found"}"#.utf8))
             }
@@ -517,9 +517,9 @@ final class ArborClientTests: XCTestCase {
             credential: "device-token",
             session: stubSession()
         )
-        let ref = try await client.ref(tree: "tr_atlas")
+        let ref = try await client.descriptor(tree: "tr_atlas")
         let object = try await client.object(tree: "tr_atlas", hash: wireSnapshot.root)
-        XCTAssertEqual(ref.snapshot.update, "up_1")
+        XCTAssertEqual(ref.tree.update, "up_1")
         XCTAssertEqual(ref.observedThrough, "up_1")
         XCTAssertEqual(object, root.bytes)
     }

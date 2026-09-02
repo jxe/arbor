@@ -9,15 +9,15 @@
       "endpoint": "https://community.example/.arbor/trees/tr_atlas",
       "parentTree": "tr_alice"
     },
-    "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-    "update": "1"
+    "update": "1",
+    "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b"
   },
   "cases": [
     {
       "name": "read-ref",
       "request": {
         "method": "GET",
-        "path": "/.arbor/trees/tr_atlas/ref",
+        "path": "/.arbor/trees/tr_atlas",
         "headers": {
           "Authorization": "Bearer <account-device-token>"
         }
@@ -25,7 +25,7 @@
       "response": {
         "status": 200,
         "body": {
-          "snapshot": {
+          "tree": {
             "id": "tr_atlas",
             "kind": "ordinary",
             "access": "write",
@@ -34,8 +34,8 @@
               "endpoint": "https://community.example/.arbor/trees/tr_atlas",
               "parentTree": "tr_alice"
             },
-            "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-            "update": "1"
+            "update": "1",
+            "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b"
           },
           "observedThrough": "1"
         }
@@ -118,7 +118,7 @@
       "name": "link-read",
       "request": {
         "method": "GET",
-        "path": "/.arbor/trees/tr_atlas/ref",
+        "path": "/.arbor/trees/tr_atlas",
         "headers": {
           "Arbor-Access-Link": "<raw-link-secret>"
         }
@@ -126,7 +126,7 @@
       "response": {
         "status": 200,
         "body": {
-          "snapshot": {
+          "tree": {
             "id": "tr_atlas",
             "kind": "ordinary",
             "access": "read",
@@ -135,8 +135,8 @@
               "endpoint": "https://community.example/.arbor/trees/tr_atlas",
               "parentTree": "tr_alice"
             },
-            "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-            "update": "1"
+            "update": "1",
+            "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b"
           },
           "observedThrough": "1"
         }
@@ -154,7 +154,7 @@
       "response": {
         "status": 200,
         "contentType": "text/event-stream; charset=utf-8",
-        "frame": "id: 2\nevent: tree.ref\ndata: {\"cursor\":\"2\",\"tree\":\"tr_atlas\",\"kind\":\"tree.ref\",\"change\":{\"descriptor\":{\"id\":\"tr_atlas\",\"kind\":\"ordinary\",\"access\":\"write\",\"canonical\":{\"path\":\"/~alice/atlas\",\"endpoint\":\"https://community.example/.arbor/trees/tr_atlas\",\"parentTree\":\"tr_alice\"},\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"update\":\"2\"}}}\n\n"
+        "frame": "id: 2\nevent: tree.update\ndata: {\"cursor\":\"2\",\"tree\":\"tr_atlas\",\"kind\":\"tree.update\",\"change\":{\"descriptor\":{\"id\":\"tr_atlas\",\"kind\":\"ordinary\",\"access\":\"write\",\"canonical\":{\"path\":\"/~alice/atlas\",\"endpoint\":\"https://community.example/.arbor/trees/tr_atlas\",\"parentTree\":\"tr_alice\"},\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"update\":\"2\"}}}\n\n"
       }
     },
     {

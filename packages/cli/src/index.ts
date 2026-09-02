@@ -323,7 +323,7 @@ async function connectCommand(args: string[]): Promise<void> {
     communityTree: account.community.id,
     communityURL: canonicalArborLocator(account.community.canonical!),
     configurationTree: account.configuration.id,
-    configurationRef: account.configuration.ref,
+    configurationRef: account.configuration.root,
     configurationUpdate: account.configuration.update,
   });
   const record = await store.safe();

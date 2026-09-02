@@ -52,7 +52,7 @@ function descriptor(origin: string, tree: CanopyTree, access: AccessLevel = "rea
       endpoint: `${origin}/.arbor/trees/${encodeURIComponent(tree.id)}`,
       parentTree: tree.parentTree,
     },
-    ref: tree.ref as RemoteTreeDescriptor["ref"],
+    root: tree.ref as RemoteTreeDescriptor["root"],
     update: "",
   };
 }
@@ -70,7 +70,7 @@ function descriptorWithUpdate(
 ): RemoteTreeDescriptor {
   const update = canopy.currentUpdate(tree.id);
   if (!update) throw new Error(`Tree has no accepted update: ${tree.id}`);
-  return { ...descriptor(origin, tree, access), ref: update.root as RemoteTreeDescriptor["ref"], update: update.id };
+  return { ...descriptor(origin, tree, access), root: update.root as RemoteTreeDescriptor["root"], update: update.id };
 }
 
 function watchDescriptor(
@@ -78,13 +78,13 @@ function watchDescriptor(
   tree: CanopyTree,
   transitions: AcceptedTransition[],
   access: ReadWriteAccess,
-): ObservationEvent<"tree.ref", { descriptor: RemoteTreeDescriptor; transitions: unknown[]; requestDigest?: ObjectHash }> {
+): ObservationEvent<"tree.update", { descriptor: RemoteTreeDescriptor; transitions: unknown[]; requestDigest?: ObjectHash }> {
   const final = transitions.at(-1);
   if (!final) throw new Error("Tree ref frame requires at least one accepted transition");
   return {
     cursor: final.update.id,
     tree: tree.id,
-    kind: "tree.ref",
+    kind: "tree.update",
     change: {
       descriptor: { ...descriptor(origin, { ...tree, ref: final.update.root }, access), update: final.update.id },
       transitions: transitions.map(encodeAcceptedTransitionJSON),
@@ -366,17 +366,17 @@ export async function serveCanopy(options: {
             observedThrough: canopy.observedThrough(resolved.tree.id),
           } satisfies LocatorResolution);
         }
-        const ref = /^\/\.arbor\/trees\/([^/]+)\/ref$/.exec(url.pathname);
+        const ref = /^\/\.arbor\/trees\/([^/]+)$/.exec(url.pathname);
         if (ref && request.method === "GET") {
           const tree = canopy.get(decodeURIComponent(ref[1]!));
           if (!tree || !canopy.canRead(account, tree.id, linkDigest(request))) return new Response("Not found", { status: 404 });
-          const snapshot = descriptorWithUpdate(
+          const current = descriptorWithUpdate(
             publicOrigin,
             canopy,
             tree,
             canopy.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read",
           );
-          return json({ snapshot, observedThrough: canopy.observedThrough(tree.id) });
+          return json({ tree: current, observedThrough: canopy.observedThrough(tree.id) });
         }
         const currentSnapshot = /^\/\.arbor\/trees\/([^/]+)\/snapshot$/.exec(url.pathname);
         if (currentSnapshot && request.method === "GET") {
@@ -402,10 +402,8 @@ export async function serveCanopy(options: {
               ),
               update: current.id,
             },
-            snapshot: {
-              root: snapshot.root,
-              objects: encodeObjectEnvelopes(snapshot.objects),
-            },
+            root: snapshot.root,
+            objects: encodeObjectEnvelopes(snapshot.objects),
             observedThrough,
           });
         }
@@ -446,7 +444,7 @@ export async function serveCanopy(options: {
             return wireError("invalid-request", "after and Last-Event-ID disagree", 400);
           }
           const lastEventID = queryCursor ?? headerCursor;
-          /** Encode a contiguous run of accepted updates as bounded `tree.ref` frames, or null when any transition is unavailable. */
+          /** Encode a contiguous run of accepted updates as bounded `tree.update` frames, or null when any transition is unavailable. */
           const refFrames = (updateIDs: string[]): string[] | null => {
             const current = canopy.get(tree.id) ?? tree;
             const transitions: AcceptedTransition[] = [];
@@ -459,7 +457,7 @@ export async function serveCanopy(options: {
             let batch: AcceptedTransition[] = [];
             const frame = (items: AcceptedTransition[]) => encodeSSEFrame({
               id: items.at(-1)!.update.id,
-              event: "tree.ref",
+              event: "tree.update",
               data: watchDescriptor(publicOrigin, current, items, access),
             });
             for (const transition of transitions) {

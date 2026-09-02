@@ -99,7 +99,7 @@ public actor ReplicaSyncCoordinator {
     ) async throws -> WorkspaceSyncPresentation {
         guard let final = event.transitions.last,
               final.update.id == event.tree.update,
-              final.update.root == event.tree.ref else {
+              final.update.root == event.tree.root else {
             throw ArborWireValidationError.invalidValue("Watch transition batch does not match its descriptor")
         }
         let local = try await replica.currentSnapshot()

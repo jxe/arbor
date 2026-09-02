@@ -36,6 +36,11 @@ import { updateRequestDigest } from "./updates/intent.ts";
 
 export type { RemoteTreeDescriptor } from "@arbor/core";
 
+export interface CurrentTree {
+  tree: RemoteTreeDescriptor;
+  observedThrough: EventCursor;
+}
+
 export interface CurrentTreeSnapshot {
   tree: RemoteTreeDescriptor;
   snapshot: TreeSnapshot;
@@ -86,10 +91,10 @@ export interface PairingClaimResult {
 
 export type RemoteAccessEntry = AccessEntry;
 
-/** One decoded frame of a tree watch. `tree.ref` carries a verified, contiguous transition batch. */
+/** One decoded frame of a tree watch. `tree.update` carries a verified, contiguous transition batch. */
 export type WatchEvent =
   | {
-    kind: "tree.ref";
+    kind: "tree.update";
     cursor: EventCursor;
     tree: TreeID;
     descriptor: RemoteTreeDescriptor;
@@ -99,12 +104,12 @@ export type WatchEvent =
   | { kind: "resync-required"; cursor: EventCursor; tree: TreeID; reason?: string }
   | { kind: string; cursor: EventCursor; tree: TreeID; change: unknown };
 
-function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown): Extract<WatchEvent, { kind: "tree.ref" }> {
-  if (!value || typeof value !== "object") throw new Error("Malformed tree.ref change");
+function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown): Extract<WatchEvent, { kind: "tree.update" }> {
+  if (!value || typeof value !== "object") throw new Error("Malformed tree.update change");
   const change = value as { descriptor?: RemoteTreeDescriptor; transitions?: unknown; requestDigest?: unknown };
   const descriptor = change.descriptor;
   if (!descriptor || descriptor.id !== tree || !Array.isArray(change.transitions) || !change.transitions.length) {
-    throw new Error("Malformed tree.ref change");
+    throw new Error("Malformed tree.update change");
   }
   const transitions = change.transitions.map(decodeAcceptedTransitionJSON);
   let previous: AcceptedTransition | undefined;
@@ -116,15 +121,15 @@ function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown):
     previous = transition;
   }
   const final = transitions.at(-1)!;
-  if (final.update.id !== descriptor.update || final.update.root !== descriptor.ref || final.update.id !== cursor) {
+  if (final.update.id !== descriptor.update || final.update.root !== descriptor.root || final.update.id !== cursor) {
     throw new Error("Watch descriptor does not end at its final transition");
   }
   const requestDigest = change.requestDigest;
   if (requestDigest !== undefined && (typeof requestDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(requestDigest))) {
-    throw new Error("Malformed tree.ref request digest");
+    throw new Error("Malformed tree.update request digest");
   }
   return {
-    kind: "tree.ref",
+    kind: "tree.update",
     cursor,
     tree,
     descriptor,
@@ -228,11 +233,12 @@ export class WireClient {
     return response.json();
   }
 
-  async ref(tree: string): Promise<SnapshotEnvelope<RemoteTreeDescriptor>> {
-    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/ref`, {
-      headers: this.headers(),
-    }));
-    return response.json();
+  /** The tree resource itself: its current descriptor and the cursor to watch after. */
+  async descriptor(tree: string): Promise<CurrentTree> {
+    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}`, { headers: this.headers() }));
+    const value = await response.json() as { tree: RemoteTreeDescriptor; observedThrough: EventCursor };
+    if (value.tree?.id !== tree || typeof value.tree.root !== "string" || !value.tree.update) throw new Error("Tree descriptor does not match its tree");
+    return { tree: value.tree, observedThrough: value.observedThrough };
   }
 
   async currentSnapshot(tree: string): Promise<CurrentTreeSnapshot> {
@@ -242,11 +248,12 @@ export class WireClient {
     ));
     const value = await response.json() as {
       tree: RemoteTreeDescriptor;
-      snapshot: { root: ObjectHash; objects: Array<{ hash: ObjectHash; bytes: string }> };
+      root: ObjectHash;
+      objects: Array<{ hash: ObjectHash; bytes: string }>;
       observedThrough: EventCursor;
     };
-    const snapshot = verifyTreeSnapshotGraph(decodeTreeSnapshotJSON(value.snapshot));
-    if (value.tree.id !== tree || value.tree.ref !== snapshot.root || !value.tree.update) {
+    const snapshot = verifyTreeSnapshotGraph(decodeTreeSnapshotJSON({ root: value.root, objects: value.objects }));
+    if (value.tree.id !== tree || value.tree.root !== snapshot.root || !value.tree.update) {
       throw new Error("Current snapshot descriptor does not match its graph");
     }
     return { tree: value.tree, snapshot, observedThrough: value.observedThrough };
@@ -324,7 +331,7 @@ export class WireClient {
         || frame.id !== decoded.cursor || frame.event !== decoded.kind) {
         throw new Error("Malformed Arbor watch event");
       }
-      if (decoded.kind === "tree.ref") {
+      if (decoded.kind === "tree.update") {
         yield decodeTreeRefChange(tree, decoded.cursor, decoded.change);
       } else if (decoded.kind === "resync-required") {
         const reason = (decoded.change as { reason?: unknown } | null)?.reason;

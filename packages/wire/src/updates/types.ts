@@ -42,7 +42,7 @@ export interface PairingOffer {
 
 /**
  * One accepted tree state. `id` is the decimal observation ordinal that
- * recorded it, so it is also the update's `tree.ref` watch cursor and orders
+ * recorded it, so it is also the update's `tree.update` watch cursor and orders
  * accepted updates within their tree.
  */
 export interface AcceptedUpdate {

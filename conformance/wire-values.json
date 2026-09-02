@@ -26,13 +26,33 @@
         "endpoint": "https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "parentTree": "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"
       },
-      "ref": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-      "update": "up_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "update": "up_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "root": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     },
     "accessEntries": [
-      { "id": "everyone", "subject": { "kind": "everyone" }, "access": "read" },
-      { "id": "profile:joe", "subject": { "kind": "profile", "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "locator": "arbor://community.example/~joe" }, "access": "write" },
-      { "id": "opaque-link-entry", "subject": { "kind": "link" }, "access": "read" }
+      {
+        "id": "everyone",
+        "subject": {
+          "kind": "everyone"
+        },
+        "access": "read"
+      },
+      {
+        "id": "profile:joe",
+        "subject": {
+          "kind": "profile",
+          "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "locator": "arbor://community.example/~joe"
+        },
+        "access": "write"
+      },
+      {
+        "id": "opaque-link-entry",
+        "subject": {
+          "kind": "link"
+        },
+        "access": "read"
+      }
     ],
     "error": {
       "error": "conflict",
@@ -40,10 +60,19 @@
       "retryable": false,
       "tree": "tr_cccccccccccccccccccccccccc",
       "path": "/trees.yaml",
-      "details": { "kind": "account-configuration", "fields": ["/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa/canonicalPath"] }
+      "details": {
+        "kind": "account-configuration",
+        "fields": [
+          "/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa/canonicalPath"
+        ]
+      }
     },
     "resolution": {
-      "ref": { "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "path": "/notes", "stableKey": "[[\"id\",\"page-1\"]]" },
+      "ref": {
+        "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "/notes",
+        "stableKey": "[[\"id\",\"page-1\"]]"
+      },
       "enclosingTree": {
         "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
         "kind": "ordinary",
@@ -59,9 +88,44 @@
     }
   },
   "invalid": [
-    { "name": "descriptor-for-local", "value": { "id": "local", "kind": "ordinary", "access": "write", "canonical": null } },
-    { "name": "ordinary-tree-without-canonical", "value": { "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "kind": "ordinary", "access": "read", "canonical": null } },
-    { "name": "link-entry-leaks-digest", "value": { "id": "link", "subject": { "kind": "link", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000" }, "access": "read" } },
-    { "name": "resolution-omits-tree", "value": { "ref": { "path": "/notes" }, "historical": false, "observedThrough": "up_aaaaaaaaaaaaaaaaaaaaaaaaaa" } }
+    {
+      "name": "descriptor-for-local",
+      "value": {
+        "id": "local",
+        "kind": "ordinary",
+        "access": "write",
+        "canonical": null
+      }
+    },
+    {
+      "name": "ordinary-tree-without-canonical",
+      "value": {
+        "id": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "ordinary",
+        "access": "read",
+        "canonical": null
+      }
+    },
+    {
+      "name": "link-entry-leaks-digest",
+      "value": {
+        "id": "link",
+        "subject": {
+          "kind": "link",
+          "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "access": "read"
+      }
+    },
+    {
+      "name": "resolution-omits-tree",
+      "value": {
+        "ref": {
+          "path": "/notes"
+        },
+        "historical": false,
+        "observedThrough": "up_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
   ]
 }

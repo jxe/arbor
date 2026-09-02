@@ -152,7 +152,7 @@ describe("REST v1 protocol fixtures", () => {
   test("observation-events.sse frames satisfy id === cursor and event === kind", async () => {
     const source = await readFile(join(conformance, "observation-events.sse"), "utf8");
     const frames = await Array.fromAsync(parseSSEStream(new Response(source).body!));
-    expect(frames.map((frame) => frame.event)).toEqual(["tree.ref", "tree.activation"]);
+    expect(frames.map((frame) => frame.event)).toEqual(["tree.update", "tree.activation"]);
     for (const frame of frames) {
       const data = JSON.parse(frame.data) as { cursor: string; tree: string; kind: string; change: unknown };
       expect(frame.id).toBe(data.cursor);
@@ -203,7 +203,7 @@ describe("REST v1 protocol fixtures", () => {
       expect(descriptor.canonical?.endpoint).toBe(`https://community.example/.arbor/trees/${descriptor.id}`);
     }
     expect(validateTreeDescriptor(valid.accountConfigurationDescriptor).canonical).toBeNull();
-    expect(valid.remoteTreeDescriptor.ref).toStartWith("sha256:");
+    expect(valid.remoteTreeDescriptor.root).toStartWith("sha256:");
     expect(valid.accessEntries.map((entry) => validateAccessEntry(entry).subject.kind)).toEqual(["everyone", "profile", "link"]);
     expect(decodeNodeRef(valid.resolution.ref)).toEqual({ tree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", path: "/notes", stableKey: '[["id","page-1"]]' });
     expect(valid.error.tree).not.toBe("local");
@@ -260,7 +260,7 @@ describe("REST v1 protocol fixtures", () => {
     const tree = validateTreeDescriptor(endpoints.tree);
     expect(tree.canonical?.endpoint).toBe("https://community.example/.arbor/trees/tr_atlas");
     for (const name of ["read-ref", "link-read"]) {
-      const snapshot = validateTreeDescriptor(byName.get(name)!.response.body!.snapshot) as RemoteTreeDescriptor;
+      const snapshot = validateTreeDescriptor(byName.get(name)!.response.body!.tree) as RemoteTreeDescriptor;
       expect(snapshot.canonical).toEqual(tree.canonical);
       expect(byName.get(name)!.response.body!.observedThrough).toBe(snapshot.update);
     }

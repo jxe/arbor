@@ -57,7 +57,7 @@ const authorityClient = new WireClient(host.url, "e2e-owner-token");
 const account = await authorityClient.account();
 let configuration = await authorityClient.currentSnapshot(account.account.configuration.id);
 const graph = readAccountConfigGraph({
-  root: configuration.snapshot.root,
+  root: configuration.tree.root,
   objects: configuration.snapshot.objects,
 }, account.account.configuration.id);
 const device = graph.account.admins[0]!;
@@ -90,13 +90,13 @@ await authorityClient.submitUpdate(editorsTree, null, await snapshotDirectory(ed
 await authorityClient.submitUpdate(fixtureTree, null, await snapshotDirectory(root));
 configuration = await authorityClient.currentSnapshot(account.account.configuration.id);
 const acceptedGraph = readAccountConfigGraph({
-  root: configuration.snapshot.root,
+  root: configuration.tree.root,
   objects: configuration.snapshot.objects,
 }, account.account.configuration.id);
 await mkdir(join(state, "devices"), { recursive: true });
 for (const [path, source] of Object.entries(acceptedGraph.sources)) await writeFile(join(state, path), source);
 await saveCurrentDeviceID(device);
-const configurationRef = await authorityClient.ref(account.account.configuration.id);
+const configurationRef = await authorityClient.descriptor(account.account.configuration.id);
 await new CommunityConfigStore().set(host.url, "e2e-owner-token", {
   id: account.account.id,
   handle: account.account.handle,
@@ -105,8 +105,8 @@ await new CommunityConfigStore().set(host.url, "e2e-owner-token", {
   communityTree: account.account.community.id,
   communityURL: canonicalArborLocator(account.account.community.canonical!),
   configurationTree: account.account.configuration.id,
-  configurationRef: configurationRef.snapshot.ref,
-  configurationUpdate: configurationRef.snapshot.update,
+  configurationRef: configurationRef.tree.root,
+  configurationUpdate: configurationRef.tree.update,
 });
 const running = await serveArborSync(root, { port });
 console.log(running.url);

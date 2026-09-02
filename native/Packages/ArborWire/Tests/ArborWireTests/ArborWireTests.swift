@@ -364,13 +364,13 @@ struct LiveWireTests {
         let configuration = account.account.configuration
         #expect(configuration.kind == "account-configuration")
         #expect(configuration.canonical == nil)
-        let ref = try await client.ref(tree: configuration.id)
-        #expect(ref.snapshot.ref == configuration.ref)
+        let ref = try await client.descriptor(tree: configuration.id)
+        #expect(ref.tree.root == configuration.root)
         #expect(!ref.observedThrough.isEmpty)
         let current = try await client.currentSnapshot(tree: configuration.id)
         #expect(current.tree.id == configuration.id)
-        #expect(current.snapshot.root == configuration.ref)
-        #expect(try await client.snapshot(tree: configuration.id, root: configuration.ref) == current.snapshot.sorted())
+        #expect(current.snapshot.root == configuration.root)
+        #expect(try await client.snapshot(tree: configuration.id, root: configuration.root) == current.snapshot.sorted())
 
         let offer = try await client.createPairing()
         let pairedToken = "swift-paired-device-token"
@@ -394,7 +394,7 @@ struct LiveWireTests {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (_, response) = try await URLSession.shared.data(for: request)
         #expect((response as? HTTPURLResponse)?.statusCode == 405)
-        let historicalObject = origin.appending(path: ".arbor/objects/\(configuration.ref)")
+        let historicalObject = origin.appending(path: ".arbor/objects/\(configuration.root)")
         let (_, historicalResponse) = try await URLSession.shared.data(for: URLRequest(url: historicalObject))
         #expect((historicalResponse as? HTTPURLResponse)?.statusCode == 404)
     }
@@ -536,7 +536,7 @@ struct WireValueVectorTests {
         var parser = ArborSSEParser()
         var frames = try parser.append(Data(semantic.utf8))
         frames.append(contentsOf: try parser.finish())
-        #expect(frames.map(\.event) == ["tree.ref", "tree.activation"])
+        #expect(frames.map(\.event) == ["tree.update", "tree.activation"])
         for frame in frames {
             let payload = try #require(JSONSerialization.jsonObject(with: Data(frame.data.utf8)) as? [String: Any])
             #expect(frame.id == payload["cursor"] as? String)

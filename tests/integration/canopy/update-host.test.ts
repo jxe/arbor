@@ -105,9 +105,9 @@ describe("governed account-configuration Canopy server", () => {
     const configuration = await client.currentSnapshot(account.account.configuration.id);
     const bytes = await client.object(account.account.configuration.id, configuration.snapshot.root);
     expect(bytes.byteLength).toBeGreaterThan(0);
-    const unrelated = account.account.community.ref;
+    const unrelated = account.account.community.root;
     await expect(client.object(account.account.configuration.id, unrelated)).rejects.toThrow("not-found");
-    expect((await client.ref(account.account.configuration.id)).observedThrough).toBeTruthy();
+    expect((await client.descriptor(account.account.configuration.id)).observedThrough).toBeTruthy();
   });
 
   test("replays consecutive accepted updates as one ordered transition batch", async () => {
@@ -165,7 +165,7 @@ describe("governed account-configuration Canopy server", () => {
     expect(Number(event.change.transitions[1]!.update.id)).toBeGreaterThan(Number(event.change.transitions[0]!.update.id));
     expect(event.change.transitions[1]!.update.previousRoot).toBe(event.change.transitions[0]!.update.root);
     expect(event.cursor).toBe(second.update.id);
-    expect(event.change.descriptor).toMatchObject({ update: second.update.id, ref: second.update.root });
+    expect(event.change.descriptor).toMatchObject({ update: second.update.id, root: second.update.root });
   });
 
   test("reserves a client-generated tree through YAML, then activates it idempotently", async () => {
@@ -224,12 +224,12 @@ describe("governed account-configuration Canopy server", () => {
       subject: { kind: "link" },
       access: "read",
     });
-    const refURL = `${running.url}/.arbor/trees/${treeID}/ref`;
+    const refURL = `${running.url}/.arbor/trees/${treeID}`;
     expect((await fetch(refURL)).status).toBe(404);
     expect((await fetch(refURL, { headers: { "X-Arbor-Access": linkSecret } })).status).toBe(404);
     const linkResponse = await fetch(refURL, { headers: { "Arbor-Access-Link": linkSecret } });
     expect(linkResponse.status).toBe(200);
-    expect(await linkResponse.json()).toMatchObject({ snapshot: { id: treeID, access: "read" } });
+    expect(await linkResponse.json()).toMatchObject({ tree: { id: treeID, access: "read" } });
     const keyedOldPath = buildNetworkLocator("/~owner/new-shared-tree/note", {
       stableKey: pageIDStableKey("x7f3q2"),
     });
@@ -237,10 +237,10 @@ describe("governed account-configuration Canopy server", () => {
       headers: { "Arbor-Access-Link": linkSecret },
     })).status).toBe(200);
     await rename(join(treePath, "note.md"), join(treePath, "renamed.md"));
-    const beforeRename = await client.ref(treeID);
+    const beforeRename = await client.descriptor(treeID);
     await client.submitUpdate(
       treeID,
-      beforeRename.snapshot.update,
+      beforeRename.tree.update,
       await snapshotDirectory(treePath),
     );
     const healed = await fetch(`${running.url}${keyedOldPath}`, {
@@ -259,10 +259,10 @@ describe("governed account-configuration Canopy server", () => {
       export const primaryKey = ["id"];
     `);
     await writeFile(join(peoplePath, "_store.json"), '[{"id":"alice","name":"Alice","email":"alice@example.test"}]\n');
-    const beforeRollup = await client.ref(treeID);
+    const beforeRollup = await client.descriptor(treeID);
     await client.submitUpdate(
       treeID,
-      beforeRollup.snapshot.update,
+      beforeRollup.tree.update,
       await snapshotWithRollups(treePath),
     );
     const rowKey = canonicalStableKey([["id", "alice"]]);
@@ -388,7 +388,7 @@ describe("governed account-configuration Canopy server", () => {
       `${running.url}/.arbor/trees/${baseline.current.tree.id}/watch?after=${baseline.current.observedThrough}`,
       3,
     );
-    expect(frames.map((frame) => frame.event)).toEqual(["tree.ref", "tree.activation", "tree.ref"]);
+    expect(frames.map((frame) => frame.event)).toEqual(["tree.update", "tree.activation", "tree.update"]);
     expect(frames.every((frame) => frame.id === frame.data.cursor)).toBe(true);
     expect(frames[0]!.data.change.transitions!.map(({ update }) => update.id)).toEqual([first.update.id, declared.update.id]);
     expect(frames[1]!.data.change).toEqual({ tree: treeID, status: "active" });

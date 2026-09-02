@@ -311,7 +311,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     let remotePath: string;
     try {
       const resolution = await client.resolve(canonicalPath || "/");
-      if (!resolution.enclosingTree || !("ref" in resolution.enclosingTree) || !("update" in resolution.enclosingTree)) {
+      if (!resolution.enclosingTree || !("root" in resolution.enclosingTree) || !("update" in resolution.enclosingTree)) {
         throw new Error("Server resolution omitted its enclosing tree");
       }
       remote = resolution.enclosingTree as RemoteTreeDescriptor;
@@ -336,7 +336,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     };
     const projection = await new WireProjection({
       tree: remote.id,
-      root: remote.ref,
+      root: remote.root,
       load: (hash) => client.object(remote.id, hash),
       rootName: canonical.path.split("/").filter(Boolean).at(-1) ?? "community",
       observedThrough,
@@ -644,23 +644,23 @@ export class ArborSyncDaemon implements AsyncDisposable {
       configured?.record.origin === placement.endpoint ? configured.accountToken : undefined,
     );
     if (choice === "remote") {
-      const remote = (await client.ref(tree)).snapshot;
+      const remote = (await client.descriptor(tree)).tree;
       if (!remote.update) throw new Error("Server does not advertise accepted updates for this tree");
       await materializeTree(
         workspace.root,
-        remote.ref,
+        remote.root,
         (hash) => client.object(tree, hash),
         undefined,
         this.trees.excludedMountsWithin(workspace.root),
       );
       await this.trees.updateSyncMetadata({
         ...placement,
-        ref: remote.ref,
+        ref: remote.root,
         update: remote.update,
         access: remote.access === "none" ? "read" : remote.access,
       });
       const acceptedLocal = await this.snapshotWorkspace(workspace, client);
-      if (acceptedLocal.root !== remote.ref) throw new Error("Materialized remote tree does not match its server root");
+      if (acceptedLocal.root !== remote.root) throw new Error("Materialized remote tree does not match its server root");
       await saveAcceptedTreeObjects(tree, acceptedLocal);
       await clearPendingTreeUpdate(tree);
       await clearTreeConflict(tree);

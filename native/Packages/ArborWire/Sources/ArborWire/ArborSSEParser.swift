@@ -81,7 +81,7 @@ public struct WireWatchEvent: Equatable, Sendable {
     public init(id: String, tree: WireTreeDescriptor, requestDigest: String? = nil, transitions: [WireAcceptedTransition] = []) {
         self.id = id
         self.cursor = id
-        self.kind = "tree.ref"
+        self.kind = "tree.update"
         self.treeID = tree.id
         self.tree = tree
         self.requestDigest = requestDigest

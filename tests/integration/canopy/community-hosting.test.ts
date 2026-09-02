@@ -41,14 +41,14 @@ beforeAll(async () => {
   owner = new WireClient(running.url, ownerToken);
 
   const account = await owner.account();
-  const community = await owner.ref(account.account.community.id);
+  const community = await owner.descriptor(account.account.community.id);
   const ownerLocator = `arbor://${new URL(running.url).host}/~owner`;
   const aliceLocator = `arbor://${new URL(running.url).host}/~alice`;
   const source = await profileFolder("community", "group", [ownerLocator, aliceLocator]);
   const next = await snapshotDirectory(source, new Map([[join(source, "~owner"), account.account.profileTree!]]));
   await owner.submitUpdate(
-    community.snapshot.id,
-    community.snapshot.update,
+    community.tree.id,
+    community.tree.update,
     next,
   );
 });
@@ -141,11 +141,11 @@ describe("client-generated profile and account-configuration bootstrap", () => {
 
 describe("profile invariants derived from root frontmatter", () => {
   async function submitRoot(tree: string, source: string) {
-    const current = await owner.ref(tree);
+    const current = await owner.descriptor(tree);
     const nested = new Map(running.canopy.list()
       .filter((candidate) => candidate.parentTree === tree && candidate.canonicalPath)
       .map((candidate) => [join(source, candidate.canonicalPath!.split("/").filter(Boolean).at(-1)!), candidate.id]));
-    return owner.submitUpdate(tree, current.snapshot.update, await snapshotDirectory(source, nested));
+    return owner.submitUpdate(tree, current.tree.update, await snapshotDirectory(source, nested));
   }
 
   test("a person profile listing members does not expand as a group ACL subject", async () => {

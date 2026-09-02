@@ -70,7 +70,7 @@ export function accountMetadata(account: RemoteAccountDescriptor) {
     communityTree: account.community.id,
     communityURL: canonicalArborLocator(account.community.canonical!),
     configurationTree: account.configuration.id,
-    configurationRef: account.configuration.ref,
+    configurationRef: account.configuration.root,
     configurationUpdate: account.configuration.update,
   };
 }

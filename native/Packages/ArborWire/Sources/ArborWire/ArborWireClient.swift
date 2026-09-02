@@ -66,9 +66,10 @@ public actor ArborWireClient {
         return WireSnapshotEnvelope(snapshot: try value.snapshot.map { try $0.validated() }, observedThrough: value.observedThrough)
     }
 
-    public func ref(tree: String) async throws -> WireSnapshotEnvelope<WireTreeDescriptor> {
-        let value: WireSnapshotEnvelope<WireTreeDescriptor> = try await get(path: "/.arbor/trees/\(component(tree))/ref")
-        return WireSnapshotEnvelope(snapshot: try value.snapshot.validated(), observedThrough: value.observedThrough)
+    /// The tree resource itself: its current descriptor and the cursor to watch after.
+    public func descriptor(tree: String) async throws -> WireCurrentTree {
+        let value: WireCurrentTree = try await get(path: "/.arbor/trees/\(component(tree))")
+        return try value.validated(expectedTree: tree)
     }
 
     public func currentSnapshot(tree: String) async throws -> WireCurrentSnapshot {
@@ -259,7 +260,7 @@ public actor ArborWireClient {
                                 }
                                 throw WireHTTPError(status: 409, code: "resync-required", message: event.change.reason, retryable: true)
                             }
-                            guard kind == "tree.ref" else { continue }
+                            guard kind == "tree.update" else { continue }
                             let event = try JSONDecoder().decode(WireTreeRefObservation.self, from: Data(frame.data.utf8))
                             guard event.cursor == id, event.kind == kind, event.tree == tree else {
                                 throw ArborWireValidationError.malformedSSE("Observation frame fields disagree")
@@ -268,7 +269,7 @@ public actor ArborWireClient {
                             let transitions = event.change.transitions
                             guard !transitions.isEmpty,
                                   transitions.last?.update.id == descriptor.update,
-                                  transitions.last?.update.root == descriptor.ref else {
+                                  transitions.last?.update.root == descriptor.root else {
                                 throw ArborWireValidationError.malformedSSE("Tree ref transition batch does not end at its descriptor")
                             }
                             for (index, transition) in transitions.enumerated() {
