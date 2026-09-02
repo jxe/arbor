@@ -17,6 +17,17 @@
   [Data 006](006-native-offline-collection-file-projection.md) native offline
   collection-file child projection.
 
+## Remaining work
+
+1. Restore a fresh live-volume archive into local `before` and `migrated`
+   copies and run migration 002 against the latter.
+2. Prove logical root equivalence, serve and verify the migrated copy, and
+   record the results in the migration rehearsal report.
+3. Complete the quiesced live cutover and Mac/iPhone re-placement checks.
+4. After the two-week backup window, remove migration 002 and move this plan
+   to history. The tree-operations spec has its intended four-part structure,
+   but its explanatory prose remains a separate follow-up editing task.
+
 ## Target result
 
 The implementation uses the same three layers as the specification:
