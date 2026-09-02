@@ -82,12 +82,8 @@ try {
           } },
         },
       });
-      await owner.submitUpdate(
-        current.tree.id,
-        { root: current.tree.ref, update: current.tree.update },
-        configured,
-      );
-      await owner.activateTree(nativeTreeID, await snapshotDirectory(nativeTreeRoot));
+      await owner.submitUpdate(current.tree.id, current.tree.update, configured);
+      await owner.submitUpdate(nativeTreeID, null, await snapshotDirectory(nativeTreeRoot));
       await run(
         ["swift", "test", "--package-path", "native/Packages/ArborWire"],
         {

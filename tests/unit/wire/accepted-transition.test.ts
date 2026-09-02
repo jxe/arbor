@@ -36,7 +36,5 @@ describe("accepted transition wire encoding", () => {
       objects: [],
       deltas: [{ base: hash, result: `sha256:${"b".repeat(64)}`, instructions: [{ copy: { offset: 0, length: 1 }, insert: "YQ==" }] }],
     })).toThrow("exactly one operation");
-    expect(() => decodeTransitionPayloadJSON({ objects: [], filePatches: [] })).toThrow("no longer a supported");
-    expect(() => decodeTransitionPayloadJSON({ objects: [], fileDeltas: [] })).toThrow("no longer a supported");
   });
 });

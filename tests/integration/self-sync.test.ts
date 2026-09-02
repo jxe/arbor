@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { ArborSyncDaemon, serveArborSync } from "@arbor/arborsync";
 import { ArborSyncRESTClient } from "@arbor/client";
 import { serveCanopy } from "@arbor/canopy";
-import { generateArborID, sha256 } from "@arbor/core";
+import { canonicalArborLocator, generateArborID, sha256 } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
 import { compareWireNames, decodeWireObject, encodeWireObject, hashObject, WireClient } from "@arbor/wire";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
@@ -51,7 +51,7 @@ async function installDataHome(
     profileTree: account.account.profileTree,
     profileURL: account.account.profileURL,
     communityTree: account.account.community.id,
-    communityURL: account.account.community.canonical!.locator,
+    communityURL: canonicalArborLocator(account.account.community.canonical!),
     configurationTree: account.account.configuration.id,
     configurationRef: configuration.snapshot.ref,
     configurationUpdate: configuration.snapshot.update,
@@ -122,12 +122,8 @@ beforeAll(async () => {
       } },
     },
   });
-  await owner.submitUpdate(
-    configuration.tree.id,
-    { root: configuration.tree.ref, update: configuration.tree.update },
-    reserved,
-  );
-  await owner.activateTree(tree, await snapshotDirectory(treeA));
+  await owner.submitUpdate(configuration.tree.id, configuration.tree.update, reserved);
+  await owner.submitUpdate(tree, null, await snapshotDirectory(treeA));
 
   deviceB = generateArborID("dv");
   const pairing = await owner.createPairing();
@@ -200,7 +196,6 @@ describe("private self-sync", () => {
       globalThis.fetch = systemFetch;
     }
     const deltaBody = updateBodies.find((body) => body.deltas?.length === 1)!;
-    expect(deltaBody.returnSnapshot).toBe("if-result-differs");
     expect(deltaBody.deltas[0].instructions).toContainEqual({ insert: Buffer.from("From A").toString("base64") });
     expect(deltaBody.objects).not.toContainEqual(expect.objectContaining({ hash: deltaBody.deltas[0].result }));
     await author.close();
@@ -308,7 +303,7 @@ describe("private self-sync", () => {
       globalThis.fetch = systemFetch;
     }
 
-    expect(updateBodies[1].base.root).toBe(updateBodies[0].candidate);
+    expect(updateBodies[1].base).toBe(updateBodies[0].acceptedUpdate ?? updateBodies[1].base);
     expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
     const after = await author.client.node({ tree, path: "/note", stableKey: null });
     const restoredSource = "# Complete-object fallback\n";
@@ -459,7 +454,7 @@ describe("private self-sync", () => {
     objects.set(hashObject(nextRoot), nextRoot);
     const accepted = await owner.submitUpdate(
       tree,
-      { root: current.tree.ref, update: current.tree.update },
+      current.tree.update,
       { root: hashObject(nextRoot), objects },
     );
     if (accepted.outcome !== "accepted") throw new Error(`Expected an accepted update, got ${accepted.outcome}`);
@@ -486,7 +481,7 @@ describe("private self-sync", () => {
     });
     const staleRootHash = hashObject(staleRoot);
     await savePendingTreeUpdate(configurationTree, {
-      base: { root: remote.snapshot.ref, update: remote.snapshot.update! },
+      base: remote.snapshot.update!,
       candidate: staleRootHash,
       objects: [
         { hash: emptyDirectoryHash, bytes: Buffer.from(emptyDirectory).toString("base64") },

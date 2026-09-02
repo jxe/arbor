@@ -5,14 +5,12 @@
     "kind": "ordinary",
     "access": "write",
     "canonical": {
-      "locator": "arbor://community.example/~alice/atlas",
       "path": "/~alice/atlas",
       "endpoint": "https://community.example/.arbor/trees/tr_atlas",
-      "httpURL": "https://community.example/~alice/atlas",
       "parentTree": "tr_alice"
     },
     "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-    "update": "up_atlas1"
+    "update": "1"
   },
   "cases": [
     {
@@ -30,16 +28,14 @@
             "kind": "ordinary",
             "access": "write",
             "canonical": {
-              "locator": "arbor://community.example/~alice/atlas",
               "path": "/~alice/atlas",
               "endpoint": "https://community.example/.arbor/trees/tr_atlas",
-              "httpURL": "https://community.example/~alice/atlas",
               "parentTree": "tr_alice"
             },
             "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-            "update": "up_atlas1"
+            "update": "1"
           },
-          "observedThrough": "up_atlas1"
+          "observedThrough": "1"
         }
       }
     },
@@ -49,12 +45,9 @@
         "method": "POST",
         "path": "/.arbor/trees/tr_atlas/updates",
         "headers": { "Authorization": "Bearer <account-device-token>" },
-        "derivedRequestDigest": "sha256:3520dcc432f07c09c8cf31d55cbc726e3a117078918412e7222e60da0d9d3827",
+        "derivedRequestDigest": "sha256:2d8306b2ac67f3f4e0f91e413d2c75fe49670221cd9f74bb8b6f8e1573818e88",
         "body": {
-          "base": {
-            "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-            "update": "up_atlas1"
-          },
+          "base": "1",
           "candidate": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
           "objects": []
         }
@@ -63,18 +56,48 @@
         "status": 200,
         "body": {
           "outcome": "current",
-          "requestDigest": "sha256:3520dcc432f07c09c8cf31d55cbc726e3a117078918412e7222e60da0d9d3827",
-          "current": {
-            "id": "up_atlas1",
+          "requestDigest": "sha256:2d8306b2ac67f3f4e0f91e413d2c75fe49670221cd9f74bb8b6f8e1573818e88",
+          "update": {
+            "id": "1",
             "tree": "tr_atlas",
-            "sequence": 1,
             "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
             "previousRoot": null,
             "kind": "initial",
             "acceptedAt": 1787529600000,
             "subject": null
           },
-          "observedThrough": "up_atlas1"
+          "observedThrough": "1"
+        }
+      }
+    },
+    {
+      "name": "activate-with-null-base",
+      "request": {
+        "method": "POST",
+        "path": "/.arbor/trees/tr_new/updates",
+        "headers": { "Authorization": "Bearer <administrator-device-token>" },
+        "derivedRequestDigest": "sha256:bff6a5d61d021c70368df0008edb87693923982e7261e662c04d0bdca78c5310",
+        "body": {
+          "base": null,
+          "candidate": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+          "objects": [{ "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f", "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA==" }]
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "outcome": "accepted",
+          "requestDigest": "sha256:bff6a5d61d021c70368df0008edb87693923982e7261e662c04d0bdca78c5310",
+          "update": {
+            "id": "3",
+            "tree": "tr_new",
+            "root": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+            "previousRoot": null,
+            "kind": "initial",
+            "acceptedAt": 1787529700000,
+            "subject": "device:dv_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "observedThrough": "3"
         }
       }
     },
@@ -93,16 +116,14 @@
             "kind": "ordinary",
             "access": "read",
             "canonical": {
-              "locator": "arbor://community.example/~alice/atlas",
               "path": "/~alice/atlas",
               "endpoint": "https://community.example/.arbor/trees/tr_atlas",
-              "httpURL": "https://community.example/~alice/atlas",
               "parentTree": "tr_alice"
             },
             "ref": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-            "update": "up_atlas1"
+            "update": "1"
           },
-          "observedThrough": "up_atlas1"
+          "observedThrough": "1"
         }
       }
     },
@@ -111,12 +132,12 @@
       "request": {
         "method": "GET",
         "path": "/.arbor/trees/tr_atlas/watch",
-        "headers": { "Last-Event-ID": "up_previous" }
+        "headers": { "Last-Event-ID": "1" }
       },
       "response": {
         "status": 200,
         "contentType": "text/event-stream; charset=utf-8",
-        "frame": "id: up_atlas1\nevent: tree.ref\ndata: {\"cursor\":\"up_atlas1\",\"tree\":\"tr_atlas\",\"kind\":\"tree.ref\",\"change\":{\"descriptor\":{\"id\":\"tr_atlas\",\"kind\":\"ordinary\",\"access\":\"write\",\"canonical\":{\"locator\":\"arbor://community.example/~alice/atlas\",\"path\":\"/~alice/atlas\",\"endpoint\":\"https://community.example/.arbor/trees/tr_atlas\",\"httpURL\":\"https://community.example/~alice/atlas\",\"parentTree\":\"tr_alice\"},\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"update\":\"up_atlas1\"}}}\n\n"
+        "frame": "id: 2\nevent: tree.ref\ndata: {\"cursor\":\"2\",\"tree\":\"tr_atlas\",\"kind\":\"tree.ref\",\"change\":{\"descriptor\":{\"id\":\"tr_atlas\",\"kind\":\"ordinary\",\"access\":\"write\",\"canonical\":{\"path\":\"/~alice/atlas\",\"endpoint\":\"https://community.example/.arbor/trees/tr_atlas\",\"parentTree\":\"tr_alice\"},\"ref\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"update\":\"2\"}}}\n\n"
       }
     },
     {

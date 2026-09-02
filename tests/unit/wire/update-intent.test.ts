@@ -14,7 +14,7 @@ interface IntentFixtures {
   version: number;
   identity: {
     tree: string;
-    base: { root: ObjectHash; update: string };
+    base: string;
     candidate: ObjectHash;
     canonicalCBORBase64: string;
     digest: string;
@@ -49,8 +49,8 @@ describe("updates-v1 JSON identity", () => {
     const identity = fixtures.identity;
     const changed = [
       ["other-tree", identity.base, identity.candidate],
-      [identity.tree, { ...identity.base, update: "up_other" }, identity.candidate],
-      [identity.tree, { ...identity.base, root: `${identity.base.root.slice(0, -1)}0` as ObjectHash }, identity.candidate],
+      [identity.tree, `${identity.base}0`, identity.candidate],
+      [identity.tree, null, identity.candidate],
       [identity.tree, identity.base, `${identity.candidate.slice(0, -1)}0` as ObjectHash],
     ] as const;
     for (const [tree, base, candidate] of changed) {
@@ -74,17 +74,17 @@ describe("updates-v1 JSON identity", () => {
     ])).toThrow("different bytes");
     expect(() => decodeObjectEnvelopes([{ hash, bytes: "YQ" }])).toThrow("padded base64");
     expect(() => decodeUpdateRequestJSON({
-      base: fixtures.identity.base,
+      base: { root: fixtures.identity.candidate, update: fixtures.identity.base },
       candidate: fixtures.identity.candidate,
       objects: [],
-      returnSnapshot: "yes",
-    })).toThrow('returnSnapshot must be true or "if-result-differs"');
-    expect(decodeUpdateRequestJSON({
-      base: fixtures.identity.base,
+    })).toThrow("base update id or null");
+    expect(decodeUpdateRequestJSON({ base: null, candidate: fixtures.identity.candidate, objects: [] }).base).toBeNull();
+    expect(() => decodeUpdateRequestJSON({
+      base: null,
       candidate: fixtures.identity.candidate,
       objects: [],
-      returnSnapshot: "if-result-differs",
-    }).returnSnapshot).toBe("if-result-differs");
+      deltas: [{ base: fixtures.identity.candidate, result: `${fixtures.identity.candidate.slice(0, -1)}0`, instructions: [{ insert: "eA==" }] }],
+    })).toThrow("no base to apply deltas");
   });
 
   test("validates canonical object-delta envelopes before server use", () => {
@@ -107,11 +107,5 @@ describe("updates-v1 JSON identity", () => {
       objects: [{ hash: result, bytes: "eA==" }],
       deltas: [{ base, result, instructions: [{ insert: "eA==" }] }],
     })).toThrow("also supplied as a complete object");
-    expect(() => decodeUpdateRequestJSON({
-      base: fixtures.identity.base,
-      candidate: fixtures.identity.candidate,
-      objects: [],
-      filePatches: [],
-    })).toThrow("no longer a supported");
   });
 });

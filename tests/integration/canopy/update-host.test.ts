@@ -52,7 +52,7 @@ async function submitConfiguration(
   const snapshot = snapshotAccountConfig(graph);
   return client.submitUpdate(
     current.tree.id,
-    { root: current.tree.ref, update: current.tree.update },
+    current.tree.update,
     snapshot,
   );
 }
@@ -158,11 +158,11 @@ describe("governed account-configuration Canopy server", () => {
       id?: string;
       cursor: string;
       change: { descriptor: { update: string; ref: string }; transitions: Array<{
-        update: { id: string; sequence: number; previousRoot: string; root: string };
+        update: { id: string; previousRoot: string; root: string };
       }> };
     };
     expect(event.change.transitions.map(({ update }) => update.id)).toEqual([first.update.id, second.update.id]);
-    expect(event.change.transitions[1]!.update.sequence).toBe(event.change.transitions[0]!.update.sequence + 1);
+    expect(Number(event.change.transitions[1]!.update.id)).toBeGreaterThan(Number(event.change.transitions[0]!.update.id));
     expect(event.change.transitions[1]!.update.previousRoot).toBe(event.change.transitions[0]!.update.root);
     expect(event.cursor).toBe(second.update.id);
     expect(event.change.descriptor).toMatchObject({ update: second.update.id, ref: second.update.root });
@@ -207,14 +207,18 @@ describe("governed account-configuration Canopy server", () => {
     await mkdir(treePath);
     await writeFile(join(treePath, "note.md"), "---\nid: x7f3q2\n---\n\n# Activated\n");
     const initial = await snapshotDirectory(treePath);
-    const activated = await client.activateTree(treeID, initial);
-    expect(activated.snapshot).toMatchObject({
+    const activated = await client.submitUpdate(treeID, null, initial);
+    expect(activated.outcome).toBe("accepted");
+    expect(activated.update).toMatchObject({ tree: treeID, root: initial.root, previousRoot: null, kind: "initial" });
+    expect(running.canopy.get(treeID)).toMatchObject({
       id: treeID,
       kind: "ordinary",
-      canonical: { path: "/~owner/new-shared-tree" },
+      canonicalPath: "/~owner/new-shared-tree",
       ref: initial.root,
     });
-    expect(await client.activateTree(treeID, initial)).toEqual(activated);
+    const replayed = await client.submitUpdate(treeID, null, initial);
+    expect(replayed.outcome).toBe("current");
+    expect(replayed.update).toEqual(activated.update);
     expect((await client.access(treeID)).snapshot).toContainEqual({
       id: expect.any(String),
       subject: { kind: "link" },
@@ -236,7 +240,7 @@ describe("governed account-configuration Canopy server", () => {
     const beforeRename = await client.ref(treeID);
     await client.submitUpdate(
       treeID,
-      { root: beforeRename.snapshot.ref, update: beforeRename.snapshot.update },
+      beforeRename.snapshot.update,
       await snapshotDirectory(treePath),
     );
     const healed = await fetch(`${running.url}${keyedOldPath}`, {
@@ -258,7 +262,7 @@ describe("governed account-configuration Canopy server", () => {
     const beforeRollup = await client.ref(treeID);
     await client.submitUpdate(
       treeID,
-      { root: beforeRollup.snapshot.ref, update: beforeRollup.snapshot.update },
+      beforeRollup.snapshot.update,
       await snapshotWithRollups(treePath),
     );
     const rowKey = canonicalStableKey([["id", "alice"]]);
@@ -310,7 +314,7 @@ describe("governed account-configuration Canopy server", () => {
     await writeFile(renamedPath, `${mergeBaseSource}\nRemote line\n`);
     const remoteAccepted = await client.submitUpdate(
       treeID,
-      { root: mergeBase.tree.ref, update: mergeBase.tree.update },
+      mergeBase.tree.update,
       await snapshotWithRollups(treePath),
     );
     expect(remoteAccepted.outcome).toBe("accepted");
@@ -318,7 +322,7 @@ describe("governed account-configuration Canopy server", () => {
     await writeFile(renamedPath, `${mergeBaseSource}\nCandidate line\n`);
     const merged = await client.submitUpdate(
       treeID,
-      { root: mergeBase.tree.ref, update: mergeBase.tree.update },
+      mergeBase.tree.update,
       await snapshotWithRollups(treePath),
     );
     expect(merged.outcome).toBe("merged");
@@ -332,7 +336,7 @@ describe("governed account-configuration Canopy server", () => {
     const changedPath = join(dataRoot, "incompatible-tree");
     await mkdir(changedPath);
     await writeFile(join(changedPath, "note.md"), "Different\n");
-    await expect(client.activateTree(treeID, await snapshotDirectory(changedPath))).rejects.toThrow("tree-id-conflict");
+    await expect(client.submitUpdate(treeID, null, await snapshotDirectory(changedPath))).rejects.toThrow("conflict");
 
     const account = await client.account();
     expect(account.observedThrough).not.toBe(accepted.observedThrough);
@@ -375,7 +379,7 @@ describe("governed account-configuration Canopy server", () => {
     if (declared.outcome !== "accepted" && declared.outcome !== "merged") throw new Error("Expected an accepted update");
     await mkdir(treePath);
     await writeFile(join(treePath, "note.md"), "# Log order\n");
-    await client.activateTree(treeID, await snapshotDirectory(treePath));
+    await client.submitUpdate(treeID, null, await snapshotDirectory(treePath));
     const afterActivation = await currentConfig();
     const third = await submitConfiguration(afterActivation.current, relabel(afterActivation.graph, "Log order three"));
     if (third.outcome !== "accepted" && third.outcome !== "merged") throw new Error("Expected an accepted update");

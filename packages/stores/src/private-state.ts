@@ -4,16 +4,14 @@ import {
   mkdir,
   readdir,
   readFile,
-  readlink,
   realpath,
   rename,
   rm,
   rmdir,
   stat,
-  symlink,
   writeFile,
 } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import type { Diagnostic } from "@arbor/core";
 import { sha256 } from "@arbor/core";
@@ -43,8 +41,6 @@ export class AmbiguousWorkspaceIdentityError extends Error {
 
 type StoredWorkspaceRegistry = Record<string, string | WorkspaceRegistryRecord>;
 
-let dataHomeDiagnostics: Diagnostic[] = [];
-
 /** Arbor's one default local state home. Tests and isolated runs may override it. */
 export function arborDataRoot(): string {
   return process.env.ARBOR_DATA_HOME || join(homedir(), ".arbor");
@@ -52,14 +48,6 @@ export function arborDataRoot(): string {
 
 export function arborPrivateRoot(): string {
   return join(arborDataRoot(), ".state");
-}
-
-export function legacyArborDataRoot(): string {
-  if (process.platform === "darwin") return join(homedir(), "Library", "Application Support", "Arbor");
-  if (process.platform === "win32") {
-    return join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "Arbor");
-  }
-  return join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), "arbor");
 }
 
 function rootIDForInitialPath(path: string): string {
@@ -77,35 +65,17 @@ async function pathKind(path: string): Promise<"missing" | "directory" | "symlin
   }
 }
 
-async function pointsTo(path: string, target: string): Promise<boolean> {
-  try {
-    if ((await pathKind(path)) !== "symlink") return false;
-    const linked = await readlink(path);
-    return await realpath(isAbsolute(linked) ? linked : join(dirname(path), linked)) === await realpath(target);
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Prepare the selected data home. An explicit ARBOR_DATA_HOME is isolated:
- * it never consults or migrates the user's default state.
+ * it never consults the user's default state.
  */
 export async function prepareArborDataRoot(): Promise<Diagnostic[]> {
   const target = arborDataRoot();
-  dataHomeDiagnostics = [];
-  if (process.env.ARBOR_DATA_HOME) {
-    await mkdir(target, { recursive: true, mode: 0o700 });
-    await chmod(target, 0o700).catch(() => {});
-    await mkdir(arborPrivateRoot(), { recursive: true, mode: 0o700 });
-    await migratePrivateState(target);
-    return [];
-  }
-
-  dataHomeDiagnostics = await relocateArborDataRoot(target, legacyArborDataRoot());
+  await mkdir(target, { recursive: true, mode: 0o700 });
+  await chmod(target, 0o700).catch(() => {});
   await mkdir(arborPrivateRoot(), { recursive: true, mode: 0o700 });
   await migratePrivateState(target);
-  return [...dataHomeDiagnostics];
+  return [];
 }
 
 const LEGACY_PRIVATE_ENTRIES = [
@@ -146,48 +116,6 @@ async function migratePrivateState(dataHome: string): Promise<void> {
   // cache has moved. Removing only an empty duplicate keeps restart migration
   // idempotent without merging or discarding private state.
   for (const source of emptyLegacyDirectories) await rmdir(source);
-}
-
-/** Testable relocation core; callers choose the concrete old and new homes. */
-export async function relocateArborDataRoot(target: string, legacy: string): Promise<Diagnostic[]> {
-  const diagnostics: Diagnostic[] = [];
-  const [targetKind, legacyKind] = await Promise.all([pathKind(target), pathKind(legacy)]);
-  if (targetKind === "missing" && legacyKind === "directory") {
-    await rename(legacy, target);
-    await chmod(target, 0o700).catch(() => {});
-    try {
-      await symlink(target, legacy, process.platform === "win32" ? "junction" : "dir");
-    } catch (error) {
-      diagnostics.push({
-        code: "legacy-data-home-link-failed",
-        message: `Arbor moved its state to ${target}, but could not create the compatibility link at ${legacy}: ${error instanceof Error ? error.message : String(error)}`,
-        path: legacy,
-        severity: "warning",
-      });
-    }
-    return diagnostics;
-  }
-
-  if (targetKind === "missing") {
-    await mkdir(target, { recursive: true, mode: 0o700 });
-  } else if (targetKind !== "directory") {
-    throw new Error(`Arbor data home is not a directory: ${target}`);
-  }
-  await chmod(target, 0o700).catch(() => {});
-
-  if (legacyKind !== "missing" && !(await pointsTo(legacy, target))) {
-    diagnostics.push({
-      code: "legacy-data-home-conflict",
-      message: `Arbor is using ${target}; legacy state also exists at ${legacy} and was not merged`,
-      path: legacy,
-      severity: "warning",
-    });
-  }
-  return diagnostics;
-}
-
-export function arborDataHomeDiagnostics(): Diagnostic[] {
-  return [...dataHomeDiagnostics];
 }
 
 async function directoryFingerprint(path: string): Promise<{ device?: string; inode?: string }> {

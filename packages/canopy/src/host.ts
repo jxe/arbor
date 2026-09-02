@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { decodeTreeSnapshotJSON, encodeUpdateConflictJSON, encodeUpdateResultJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResult } from "@arbor/wire";
-import { buildNetworkLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@arbor/core";
+import { buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@arbor/core";
 import type { AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@arbor/core";
 import { treeMutationResponse, treeQueryResponse } from "@arbor/data/host";
 import {
@@ -9,7 +9,6 @@ import {
   ReservedBoundaryConflictError,
   UpdateProtocolError,
   CanopyDaemon,
-  TreeIDConflictError,
   type CanopyAccount,
   type CanopyTree,
   type CanopyBootstrapAccount,
@@ -44,24 +43,23 @@ function wireError(
 }
 
 function descriptor(origin: string, tree: CanopyTree, access: AccessLevel = "read"): RemoteTreeDescriptor {
-  const encodedPath = tree.canonicalPath === null || tree.canonicalPath === "/"
-    ? ""
-    : `/${tree.canonicalPath.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
-  const host = new URL(origin).host;
   return {
     id: tree.id,
     kind: tree.kind,
     access,
     canonical: tree.canonicalPath === null ? null : {
-      locator: `arbor://${host}${encodedPath || "/"}`,
       path: tree.canonicalPath,
       endpoint: `${origin}/.arbor/trees/${encodeURIComponent(tree.id)}`,
-      httpURL: `${origin}${encodedPath || "/"}`,
       parentTree: tree.parentTree,
     },
     ref: tree.ref as RemoteTreeDescriptor["ref"],
     update: "",
   };
+}
+
+/** The `arbor://` locator of a canonical tree descriptor, or null for a noncanonical tree. */
+function arborLocator(tree: RemoteTreeDescriptor): string | null {
+  return tree.canonical ? canonicalArborLocator(tree.canonical) : null;
 }
 
 function descriptorWithUpdate(
@@ -110,7 +108,7 @@ function accountDescriptor(origin: string, canopy: CanopyDaemon, account: Canopy
     id: account.id,
     handle: account.handle,
     profileTree: account.profileTree,
-    profileURL: profile ? descriptorWithUpdate(origin, canopy, profile, "write").canonical?.locator ?? null : null,
+    profileURL: profile ? arborLocator(descriptorWithUpdate(origin, canopy, profile, "write")) : null,
     community: descriptorWithUpdate(origin, canopy, canopy.community(), canopy.canWrite(account, canopy.community().id) ? "write" : "read"),
     configuration: descriptorWithUpdate(origin, canopy, configuration, "write"),
     writableProfiles: canopy.writableProfiles(account).map((tree) => descriptorWithUpdate(origin, canopy, tree, "write")),
@@ -322,13 +320,6 @@ export async function serveCanopy(options: {
             configuration: descriptorWithUpdate(publicOrigin, canopy, result.configuration, "write"),
           }, 201);
         }
-        const activation = /^\/\.arbor\/trees\/([^/]+)$/.exec(url.pathname);
-        if (activation && request.method === "PUT") {
-          if (!authentication) throw new Error("Account authentication is required");
-          const body = await request.json() as { root?: unknown; objects?: unknown };
-          const tree = await canopy.activateTree(authentication, decodeURIComponent(activation[1]!), bodySnapshot(body));
-          return json({ snapshot: descriptorWithUpdate(publicOrigin, canopy, tree, "write"), observedThrough: canopy.observedThrough(tree.id) });
-        }
         const access = /^\/\.arbor\/trees\/([^/]+)\/access$/.exec(url.pathname);
         if (access) {
           const treeID = decodeURIComponent(access[1]!);
@@ -340,9 +331,10 @@ export async function serveCanopy(options: {
               .map((entry) => {
               if (entry.subjectKind === "profile") {
                 const profile = canopy.get(entry.subject);
+                const locator = profile ? arborLocator(descriptor(publicOrigin, profile)) : null;
                 return {
                   id: entry.id,
-                  subject: { kind: "profile" as const, tree: entry.subject, ...(profile ? { locator: descriptor(publicOrigin, profile).canonical?.locator } : {}) },
+                  subject: { kind: "profile" as const, tree: entry.subject, ...(locator ? { locator } : {}) },
                   access: entry.access,
                 };
               }
@@ -418,34 +410,33 @@ export async function serveCanopy(options: {
         }
         const updates = /^\/\.arbor\/trees\/([^/]+)\/updates$/.exec(url.pathname);
         if (updates) {
+          if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
           const treeID = decodeURIComponent(updates[1]!);
+          const update = decodeUpdateRequestJSON(await request.json());
           const tree = canopy.get(treeID);
-          if (!tree || !canopy.canWrite(account, treeID, linkDigest(request))) return new Response("Not found", { status: 404 });
-          if (request.method === "POST") {
-            const update = decodeUpdateRequestJSON(await request.json());
-            const result = await canopy.submitUpdate(
-              treeID,
-              update,
-              account,
-              linkDigest(request),
-              authentication?.subject,
-            );
-            if (!update.returnSnapshot) return json(updateJSON(result.result), result.status);
-            if ("error" in result.result) {
-              const currentSnapshot = await canopy.snapshotForUpdate(treeID, result.result.details.current.id);
-              return json(updateJSON({ ...result.result, details: {
-                ...result.result.details,
-                currentSnapshot,
-              } }), result.status);
-            }
-            const accepted = result.result.outcome === "current" ? result.result.current : result.result.update;
-            if (update.returnSnapshot === "if-result-differs" && accepted.root === update.candidate) {
-              return json(updateJSON(result.result), result.status);
-            }
-            const snapshot = await canopy.snapshotForUpdate(treeID, accepted.id);
-            return json(updateJSON({ ...result.result, snapshot }), result.status);
+          // A null base activates a reserved tree, which has no descriptor yet;
+          // Canopy checks the reservation and the administrator device.
+          const permitted = tree
+            ? canopy.canWrite(account, treeID, linkDigest(request))
+            : update.base === null && authentication !== null;
+          if (!permitted) return new Response("Not found", { status: 404 });
+          const result = await canopy.submitUpdate(
+            treeID,
+            update,
+            account,
+            linkDigest(request),
+            authentication?.subject,
+            authentication ?? undefined,
+          );
+          if ("error" in result.result) {
+            const currentSnapshot = await canopy.snapshotForUpdate(treeID, result.result.details.current.id);
+            return json(updateJSON({ ...result.result, details: { ...result.result.details, currentSnapshot } }), result.status);
           }
-          return new Response("Method not allowed", { status: 405 });
+          // The complete accepted snapshot travels only when it differs from
+          // the submitted candidate: a superseded, merged, or replayed result.
+          if (result.result.update.root === update.candidate) return json(updateJSON(result.result), result.status);
+          const snapshot = await canopy.snapshotForUpdate(treeID, result.result.update.id);
+          return json(updateJSON({ ...result.result, snapshot }), result.status);
         }
         const watch = /^\/\.arbor\/trees\/([^/]+)\/watch$/.exec(url.pathname);
         if (watch && request.method === "GET") {
@@ -710,9 +701,6 @@ export async function serveCanopy(options: {
         }
         if (error instanceof AlreadyClaimedError) {
           return wireError("already-claimed", `Profile ~${error.handle} is already claimed`, 409, false, { handle: error.handle });
-        }
-        if (error instanceof TreeIDConflictError) {
-          return wireError("tree-id-conflict", error.message, 409, false, { tree: error.tree });
         }
         if (error instanceof ReservedBoundaryConflictError) {
           return wireError("conflict", "The update would change an independently versioned tree boundary", 409, false, {

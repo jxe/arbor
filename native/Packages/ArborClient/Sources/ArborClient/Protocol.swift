@@ -1,3 +1,4 @@
+import ArborWire
 import Foundation
 
 public enum JSONValue: Codable, Sendable, Equatable {
@@ -91,11 +92,14 @@ public struct NodeRef: Codable, Sendable, Equatable {
 }
 
 public struct CanonicalTreeDescriptor: Codable, Sendable, Equatable {
-    public var locator: String
     public var path: String
     public var endpoint: String
-    public var httpURL: String
     public var parentTree: String?
+
+    /// The public HTTP URL: the endpoint's origin followed by the encoded canonical path.
+    public var httpURL: String { canonicalHTTPURL(endpoint: endpoint, path: path) }
+    /// The `arbor://` locator: the endpoint's host followed by the encoded canonical path.
+    public var arborURL: String { canonicalArborLocator(endpoint: endpoint, path: path) }
 }
 
 public struct SnapshotEnvelope<Value: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {

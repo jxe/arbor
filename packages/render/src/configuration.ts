@@ -1,4 +1,5 @@
 import type { AccessEntry } from "@arbor/core";
+import { canonicalArborLocator } from "@arbor/core";
 import { sha256 } from "@arbor/core/hash";
 import { ArborSyncRESTClient } from "@arbor/client";
 import { parseDocument, type Document } from "yaml";
@@ -107,7 +108,7 @@ export async function configurationAccessEntries(client: ArborSyncRESTClient, tr
     client.file({ tree, path: "/trees.yaml", stableKey: null }),
     client.trees(),
   ]);
-  const locators = new Map(descriptors.snapshot.map((descriptor) => [descriptor.id, descriptor.canonical?.locator]));
+  const locators = new Map(descriptors.snapshot.map((descriptor) => [descriptor.id, descriptor.canonical ? canonicalArborLocator(descriptor.canonical) : undefined]));
   const value = parseDocument(new TextDecoder().decode(file.bytes), { uniqueKeys: true }).toJS() as any;
   const declaration = value?.trees?.[treeID];
   if (!declaration) throw new Error(`Unknown tree ${treeID}`);

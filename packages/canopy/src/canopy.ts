@@ -116,7 +116,7 @@ const AUTHORITY_SCHEMA = {
   boundaries: ["path", "tree_id", "parent_tree"],
   reflog: ["tree_id", "ref", "previous_ref", "changed_at"],
   accepted_updates: [
-    "id", "tree_id", "sequence", "root", "previous_root", "kind", "accepted_at", "subject",
+    "id", "tree_id", "root", "previous_root", "kind", "accepted_at", "subject",
     "base_root", "candidate_root", "remote_root", "merge_summary", "request_digest", "transition_json",
   ],
   accounts: ["id", "handle", "profile_tree", "config_tree", "token_digest", "enabled", "claim_digest"],
@@ -218,68 +218,6 @@ function createCanopySchema(db: Database): void {
   db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?)", [CANOPY_SCHEMA_VERSION]);
 }
 
-function migrateCanopySchema(db: Database): void {
-  const columns = (table: string) => new Set((db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(({ name }) => name));
-  if (!columns("trees").has("policy")) db.run("ALTER TABLE trees ADD COLUMN policy TEXT NOT NULL DEFAULT 'ordinary'");
-  if (!columns("trees").has("status")) db.run("ALTER TABLE trees ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
-  if (!columns("trees").has("account_id")) db.run("ALTER TABLE trees ADD COLUMN account_id TEXT");
-  if (!columns("accounts").has("config_tree")) db.run("ALTER TABLE accounts ADD COLUMN config_tree TEXT");
-  if (!columns("accounts").has("claim_digest")) db.run("ALTER TABLE accounts ADD COLUMN claim_digest TEXT");
-  if (!columns("pairings").has("claimed_device")) db.run("ALTER TABLE pairings ADD COLUMN claimed_device TEXT");
-  if (!columns("accepted_updates").has("sequence")) db.run("ALTER TABLE accepted_updates ADD COLUMN sequence INTEGER");
-  if (!columns("accepted_updates").has("transition_json")) db.run("ALTER TABLE accepted_updates ADD COLUMN transition_json TEXT");
-  db.run(`
-    WITH ranked AS (
-      SELECT rowid, ROW_NUMBER() OVER (PARTITION BY tree_id ORDER BY accepted_at, rowid) AS sequence
-      FROM accepted_updates
-    )
-    UPDATE accepted_updates
-    SET sequence = (SELECT ranked.sequence FROM ranked WHERE ranked.rowid = accepted_updates.rowid)
-    WHERE sequence IS NULL
-  `);
-  db.run("DROP INDEX IF EXISTS accepted_updates_tree_order");
-  db.run("CREATE UNIQUE INDEX accepted_updates_tree_order ON accepted_updates(tree_id, sequence)");
-  // Transitions recorded before the single object-delta rule are not
-  // replayable; a watch that needs one receives resync-required instead.
-  db.run(`
-    UPDATE accepted_updates SET transition_json = NULL
-    WHERE transition_json LIKE '%"filePatches"%' OR transition_json LIKE '%"fileDeltas"%'
-  `);
-  db.run(`CREATE TABLE IF NOT EXISTS tree_reservations (
-    id TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL REFERENCES accounts(id),
-    canonical_path TEXT NOT NULL UNIQUE,
-    status TEXT NOT NULL,
-    error TEXT
-  )`);
-  migrateObservationLog(db);
-}
-
-/**
- * Fold the former accepted-updates and observation-events timelines into the
- * single ordered observation log. Their relative order was previously derived
- * from timestamps at read time; this replays that rule exactly once so retained
- * cursors keep their meaning, after which ordinals alone define order.
- */
-function migrateObservationLog(db: Database): void {
-  const tableExists = (name: string) => Boolean(db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
-  if (tableExists("observations")) return;
-  ObservationLog.createSchema(db);
-  const legacyEvents = tableExists("observation_events");
-  db.run(`
-    INSERT INTO observations (cursor, tree_id, kind, update_id, change_json, created_at)
-    SELECT cursor, tree_id, kind, update_id, change_json, created_at FROM (
-      SELECT id AS cursor, tree_id, 'tree.ref' AS kind, id AS update_id, NULL AS change_json,
-        accepted_at AS created_at, 0 AS tie, sequence AS ordering, '' AS tiebreak
-      FROM accepted_updates
-      ${legacyEvents ? `UNION ALL
-      SELECT cursor, tree_id, kind, NULL, change_json, created_at, 1, 0, cursor
-      FROM observation_events` : ""}
-    ) ORDER BY created_at, tie, ordering, tiebreak
-  `);
-  if (legacyEvents) db.run("DROP TABLE observation_events");
-}
-
 /** Refuse a data root written by a different schema version before touching it. */
 export function assertCanopySchemaVersion(db: Database): void {
   const hasMeta = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
@@ -299,20 +237,12 @@ export function assertCurrentCanopySchema(db: Database): void {
   const issues: string[] = [];
   for (const [table, expected] of Object.entries(AUTHORITY_SCHEMA)) {
     const actual = (db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(({ name }) => name);
-    // ALTER TABLE appends columns, so a migrated SQLite table can have the
-    // exact current schema in a different physical order than a newly created
-    // table. Queries name every column; reject missing or extra columns, not
-    // harmless storage order.
+    // Queries name every column; reject missing or extra columns, not storage order.
     if (actual.length !== expected.length || expected.some((name) => !actual.includes(name))) {
       issues.push(`${table} columns`);
     }
   }
-  for (const obsolete of ["legacy_trees", "update_replays", "observation_events"]) {
-    if (db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(obsolete)) {
-      issues.push(`obsolete ${obsolete} table`);
-    }
-  }
-  for (const index of ["accepted_updates_tree_order", "accepted_updates_request", "observations_tree_order"]) {
+  for (const index of ["accepted_updates_request", "observations_tree_order"]) {
     if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(index)) {
       issues.push(`missing ${index} index`);
     }
@@ -363,7 +293,7 @@ export class RefConflictError extends Error {
 }
 
 export class UpdateProtocolError extends Error {
-  constructor(readonly code: "base-not-retained" | "server-busy", message: string) {
+  constructor(readonly code: "base-not-retained" | "server-busy" | "activation-conflict", message: string) {
     super(message);
     this.name = "UpdateProtocolError";
   }
@@ -380,13 +310,6 @@ export class ReservedBoundaryConflictError extends Error {
   constructor(readonly path: string, readonly tree: string) {
     super(`Canonical boundary must remain mounted at ${path}`);
     this.name = "ReservedBoundaryConflictError";
-  }
-}
-
-export class TreeIDConflictError extends Error {
-  constructor(readonly tree: string) {
-    super(`TreeID is already active with different content: ${tree}`);
-    this.name = "TreeIDConflictError";
   }
 }
 
@@ -425,7 +348,6 @@ export class CanopyDaemon implements AsyncDisposable {
     try {
       if (databaseExists) {
         assertCanopySchemaVersion(db);
-        db.transaction(() => migrateCanopySchema(db))();
         assertCurrentCanopySchema(db);
       }
       else db.transaction(() => createCanopySchema(db))();
@@ -664,7 +586,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const configTree = this.get(account.configTree!)!;
     const transition = await this.acceptedTransitionPayload(configTree.ref, nextSnapshot.root);
     const now = Date.now();
-    const accepted = this.acceptedStore.commit(generateArborID("up"), {
+    const accepted = this.acceptedStore.commit({
       tree: configTree.id,
       root: nextSnapshot.root,
       previousRoot: configTree.ref,
@@ -836,7 +758,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const existing = this.get(treeID);
     if (existing) {
       if (existing.ref === snapshot.root) return existing;
-      throw new TreeIDConflictError(treeID);
+      throw new UpdateProtocolError("activation-conflict", `TreeID is already active with different content: ${treeID}`);
     }
     const reservation = this.db.query("SELECT * FROM tree_reservations WHERE id = ?").get(treeID) as {
       account_id: string; canonical_path: string; status: string;
@@ -1003,7 +925,7 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   private insertAcceptedUpdate(input: AcceptedUpdateInput): AcceptedUpdate {
-    return this.acceptedStore.insert(generateArborID("up"), input);
+    return this.acceptedStore.insert(input);
   }
 
   private acceptedTransitionPayload(previousRoot: ObjectHash, root: ObjectHash): Promise<AcceptedTransitionPayload> {
@@ -1020,6 +942,7 @@ export class CanopyDaemon implements AsyncDisposable {
     account: CanopyAccount | null = null,
     linkDigest?: string,
     credentialSubject?: string,
+    authentication?: CanopyAuthentication,
   ): Promise<StoredUpdateResponse> {
     const previous = this.updateLocks.get(treeID) ?? Promise.resolve();
     let release!: () => void;
@@ -1034,6 +957,7 @@ export class CanopyDaemon implements AsyncDisposable {
         account,
         linkDigest,
         credentialSubject,
+        authentication,
       );
     } finally {
       release();
@@ -1047,23 +971,26 @@ export class CanopyDaemon implements AsyncDisposable {
     account: CanopyAccount | null = null,
     linkDigest?: string,
     credentialSubject?: string,
+    authentication?: CanopyAuthentication,
   ): Promise<StoredUpdateResponse> {
+    const requestDigest = updateRequestDigest(treeID, request);
+    if (request.base === null) return this.activateFromUpdate(treeID, request, requestDigest, authentication);
     const tree = this.get(treeID);
     if (!tree) throw new Error(`Unknown tree: ${treeID}`);
     if (!this.canWrite(account, treeID, linkDigest)) throw new Error("Write access is not allowed");
+    const baseUpdate = this.update(request.base);
+    if (!baseUpdate || baseUpdate.tree !== treeID) {
+      throw new UpdateProtocolError("base-not-retained", "Base update is not retained for this tree");
+    }
+    const baseRoot = baseUpdate.root;
     const policy = tree.policy === "account-config-v1"
-      ? this.accountConfigPolicy(tree, request, account, credentialSubject)
+      ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
     const { subject } = policy;
-    const requestDigest = updateRequestDigest(treeID, request);
     const replay = this.acceptedRequest(treeID, subject, requestDigest);
     if (replay) return replay;
-    const baseUpdate = this.update(request.base.update);
-    if (!baseUpdate || baseUpdate.tree !== treeID || baseUpdate.root !== request.base.root) {
-      throw new UpdateProtocolError("base-not-retained", "Base update is not retained for this tree and root");
-    }
     const proposed = new Map(request.objects.map(({ hash, bytes }) => [hash, bytes]));
-    const reconstructed = await this.objects.reconstructDeltas(request.base.root, request.deltas ?? [], proposed);
+    const reconstructed = await this.objects.reconstructDeltas(baseRoot, request.deltas ?? [], proposed);
     for (const object of reconstructed) {
       if (!await this.objects.contains(request.candidate, object.hash, proposed)) {
         throw new Error(`Object delta result is not reachable from candidate: ${object.hash}`);
@@ -1079,14 +1006,14 @@ export class CanopyDaemon implements AsyncDisposable {
         throw new UpdateProtocolError("base-not-retained", "Current tree has not been migrated to accepted updates");
       }
       const reconciled = await reconcileUpdate(
-        request.base.root,
+        baseRoot,
         request.candidate,
         remoteTree.ref,
         (hash) => this.objects.load(hash, proposed),
         policy.merge,
       );
       if (reconciled.outcome === "current") {
-        return { status: 200, result: { outcome: "current", current: remoteUpdate, requestDigest, observedThrough: remoteUpdate.id } };
+        return { status: 200, result: { outcome: "current", update: remoteUpdate, requestDigest, observedThrough: remoteUpdate.id } };
       }
       const nextRoot = reconciled.root;
       const kind: AcceptedUpdate["kind"] = reconciled.outcome;
@@ -1104,7 +1031,7 @@ export class CanopyDaemon implements AsyncDisposable {
             details: {
               kind: policy.conflict.kind,
               current: remoteUpdate,
-              base: request.base.root,
+              base: baseRoot,
               candidate: request.candidate,
               draft,
               conflicts: reconciled.conflicts,
@@ -1119,7 +1046,7 @@ export class CanopyDaemon implements AsyncDisposable {
       const now = Date.now();
       const prepared = await policy.prepareCommit(remoteTree, nextRoot, now);
       const transition = await this.acceptedTransitionPayload(remoteTree.ref, nextRoot);
-      const accepted = this.acceptedStore.commit(generateArborID("up"), {
+      const accepted = this.acceptedStore.commit({
         tree: treeID,
         root: nextRoot,
         previousRoot: remoteTree.ref,
@@ -1127,7 +1054,7 @@ export class CanopyDaemon implements AsyncDisposable {
         kind,
         acceptedAt: now,
         subject,
-        baseRoot: request.base.root,
+        baseRoot,
         candidateRoot: request.candidate,
         remoteRoot: remoteTree.ref,
         ...(merge ? { merge } : {}),
@@ -1137,11 +1064,36 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!accepted) continue;
       prepared.afterCommit?.(accepted);
       this.notifyAccepted(accepted);
-      return kind === "merged"
-        ? { status: 201, result: { outcome: "merged", update: accepted, merge: merge!, requestDigest, observedThrough: accepted.id } }
-        : { status: 201, result: { outcome: "accepted", update: accepted, requestDigest, observedThrough: accepted.id } };
+      return { status: 201, result: { outcome: kind === "merged" ? "merged" : "accepted", update: accepted, requestDigest, observedThrough: accepted.id } };
     }
     throw new UpdateProtocolError("server-busy", "Server update changed repeatedly during merge");
+  }
+
+  /**
+   * A null base is the first update of a reserved tree: the complete initial
+   * snapshot, admitted through the same request identity, replay, and result
+   * shape as every later update.
+   */
+  private async activateFromUpdate(
+    treeID: string,
+    request: UpdateRequest,
+    requestDigest: ObjectHash,
+    authentication: CanopyAuthentication | undefined,
+  ): Promise<StoredUpdateResponse> {
+    if (!authentication) throw new Error("Account authentication is required to activate a tree");
+    const existing = this.get(treeID);
+    if (existing) {
+      const current = this.currentUpdate(treeID);
+      if (existing.ref === request.candidate && current) {
+        return { status: 200, result: { outcome: "current", update: current, requestDigest, observedThrough: current.id } };
+      }
+      throw new UpdateProtocolError("activation-conflict", `TreeID is already active with different content: ${treeID}`);
+    }
+    const snapshot: TreeSnapshot = { root: request.candidate, objects: new Map(request.objects.map(({ hash, bytes }) => [hash, bytes])) };
+    const tree = await this.activateTree(authentication, treeID, snapshot);
+    const update = this.currentUpdate(tree.id);
+    if (!update) throw new Error("Activation recorded no accepted update");
+    return { status: 201, result: { outcome: "accepted", update, requestDigest, observedThrough: update.id } };
   }
 
   /** Ordinary trees: graph and boundary validation, the Wire three-way merge, and community reconciliation. */
@@ -1181,6 +1133,7 @@ export class CanopyDaemon implements AsyncDisposable {
   private accountConfigPolicy(
     tree: CanopyTree,
     request: UpdateRequest,
+    baseRoot: ObjectHash,
     account: CanopyAccount | null,
     credentialSubject: string | undefined,
   ): UpdatePolicy {
@@ -1199,7 +1152,7 @@ export class CanopyDaemon implements AsyncDisposable {
       conflict: { kind: "account-configuration", message: "The account configuration contains incompatible same-field edits" },
       validateCandidate: async (root, objects) => {
         candidateGraph = await graphAt(root, objects);
-        baseGraph = await graphAt(request.base.root);
+        baseGraph = await graphAt(baseRoot);
         const current = this.currentUpdate(tree.id);
         if (!current) throw new Error("Account configuration has no accepted update");
         authorizeAccountConfigTransition(await graphAt(current.root), candidateGraph, deviceID, baseGraph);
@@ -1272,7 +1225,7 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   private recordObservation(tree: string, kind: string, change: unknown): ObservationRecord {
-    return this.observations.append({ cursor: generateArborID("ob"), tree, kind, change, createdAt: Date.now() });
+    return this.observations.append({ tree, kind, change, createdAt: Date.now() });
   }
 
   private notifyObservation(record: ObservationRecord): void {

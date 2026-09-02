@@ -19,7 +19,7 @@ describe("accepted-update transaction store", () => {
     AcceptedUpdateStore.createSchema(db);
     store = new AcceptedUpdateStore(db);
     db.run("INSERT INTO trees (id, ref, updated_at) VALUES ('tr_test', ?, 1)", [A]);
-    store.insert("up_initial", {
+    store.insert({
       tree: "tr_test",
       root: A,
       previousRoot: null,
@@ -32,7 +32,7 @@ describe("accepted-update transaction store", () => {
 
   test("commits the ref, reflog, accepted row, and digest as one result", () => {
     const bytes = encodeWireObject({ type: "directory", entries: [] });
-    const accepted = store.commit("up_next", {
+    const accepted = store.commit({
       tree: "tr_test",
       root: B,
       previousRoot: A,
@@ -46,21 +46,20 @@ describe("accepted-update transaction store", () => {
       requestDigest: "sha256:request",
       transition: { objects: [{ hash: B, bytes }] },
     });
-    expect(accepted?.id).toBe("up_next");
-    expect(accepted?.sequence).toBe(2);
+    expect(accepted?.id).toBe(String(Number(store.list("tr_test")[0]!.id) + 1));
     expect((db.query("SELECT ref FROM trees WHERE id = 'tr_test'").get() as { ref: string }).ref).toBe(B);
     expect(db.query("SELECT * FROM reflog").all()).toHaveLength(1);
     expect(store.list("tr_test")).toHaveLength(2);
-    expect(store.list("tr_test").map((update) => update.sequence)).toEqual([1, 2]);
-    expect(store.transition("up_next")).toEqual({ objects: [{ hash: B, bytes }] });
+    expect(store.list("tr_test").map((update) => Number(update.id))).toEqual(store.list("tr_test").map((update) => Number(update.id)).sort((a, b) => a - b));
+    expect(store.transition(accepted!.id)).toEqual({ objects: [{ hash: B, bytes }] });
     expect(store.acceptedRequest("tr_test", "device:one", "sha256:request")).toEqual({
       status: 201,
-      result: { outcome: "accepted", update: accepted!, requestDigest: "sha256:request", observedThrough: "up_next" },
+      result: { outcome: "accepted", update: accepted!, requestDigest: "sha256:request", observedThrough: accepted!.id },
     });
   });
 
   test("a failed compare-and-swap changes no authority state", () => {
-    const accepted = store.commit("up_stale", {
+    const accepted = store.commit({
       tree: "tr_test",
       root: C,
       previousRoot: B,
@@ -70,7 +69,7 @@ describe("accepted-update transaction store", () => {
       requestDigest: "sha256:stale",
     });
     expect(accepted).toBeNull();
-    expect(store.list("tr_test").map((update) => update.id)).toEqual(["up_initial"]);
+    expect(store.list("tr_test")).toHaveLength(1);
     expect(db.query("SELECT * FROM reflog").all()).toHaveLength(0);
     expect((db.query("SELECT ref FROM trees WHERE id = 'tr_test'").get() as { ref: string }).ref).toBe(A);
   });

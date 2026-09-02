@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFil
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { serveArborSync, serveArborSyncControl } from "@arbor/arborsync";
 import { ArborSyncRESTClient } from "@arbor/client";
+import { canonicalArborLocator } from "@arbor/core";
 import {
   ConnectionStore,
   CommunityConfigStore,
@@ -320,7 +321,7 @@ async function connectCommand(args: string[]): Promise<void> {
     profileTree: account.profileTree,
     profileURL: account.profileURL,
     communityTree: account.community.id,
-    communityURL: account.community.canonical!.locator,
+    communityURL: canonicalArborLocator(account.community.canonical!),
     configurationTree: account.configuration.id,
     configurationRef: account.configuration.ref,
     configurationUpdate: account.configuration.update,
@@ -574,7 +575,7 @@ async function syncCommand(args: string[]): Promise<void> {
       ));
     }
     await service.synchronizeNow();
-    console.log(`${descriptor.canonical.locator} ↔ ${destination} (${descriptor.access})`);
+    console.log(`${canonicalArborLocator(descriptor.canonical)} ↔ ${destination} (${descriptor.access})`);
   });
 }
 

@@ -301,7 +301,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
             surface: surface,
             provenance: WorkspaceProvenance(
                 authority: writable ? .local : .historical,
-                sourceDescription: snapshot.enclosingTree?.canonical?.locator ?? snapshot.enclosingTree?.name ?? "Local arborsync",
+                sourceDescription: snapshot.enclosingTree?.canonical?.arborURL ?? snapshot.enclosingTree?.name ?? "Local arborsync",
                 physicalURL: physicalURL,
                 treeRootURL: treeRootURL,
                 contentRevision: snapshot.capabilities.content?.revision

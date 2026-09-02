@@ -48,7 +48,7 @@ beforeAll(async () => {
   const next = await snapshotDirectory(source, new Map([[join(source, "~owner"), account.account.profileTree!]]));
   await owner.submitUpdate(
     community.snapshot.id,
-    { root: community.snapshot.ref, update: community.snapshot.update },
+    community.snapshot.update,
     next,
   );
 });
@@ -145,7 +145,7 @@ describe("profile invariants derived from root frontmatter", () => {
     const nested = new Map(running.canopy.list()
       .filter((candidate) => candidate.parentTree === tree && candidate.canonicalPath)
       .map((candidate) => [join(source, candidate.canonicalPath!.split("/").filter(Boolean).at(-1)!), candidate.id]));
-    return owner.submitUpdate(tree, { root: current.snapshot.ref, update: current.snapshot.update }, await snapshotDirectory(source, nested));
+    return owner.submitUpdate(tree, current.snapshot.update, await snapshotDirectory(source, nested));
   }
 
   test("a person profile listing members does not expand as a group ACL subject", async () => {

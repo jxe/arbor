@@ -122,9 +122,8 @@ struct UpdateProtocolTests {
         let data = try Data(contentsOf: fixtures.appending(path: "wire-update-intent.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let identity = try #require(fixture["identity"] as? [String: Any])
-        let base = try #require(identity["base"] as? [String: Any])
-        let value = WireUpdateBase(root: base["root"] as! String, update: base["update"] as! String)
         let candidate = identity["candidate"] as! String
+        let value = WireUpdateBase(root: candidate, update: try #require(identity["base"] as? String))
         let tree = identity["tree"] as! String
         #expect(canonicalUpdateIntent(tree: tree, base: value, candidate: candidate).base64EncodedString() == identity["canonicalCBORBase64"] as? String)
         #expect(updateRequestDigest(tree: tree, base: value, candidate: candidate) == identity["digest"] as? String)
@@ -185,19 +184,20 @@ struct UpdateProtocolTests {
             base: base,
             candidate: "sha256:" + String(repeating: "1", count: 64),
             objects: [],
-            deltas: [delta],
-            returnSnapshot: .ifResultDiffers
+            deltas: [delta]
         )
         let encoded = try JSONEncoder().encode(request)
         let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        #expect(json["returnSnapshot"] as? String == "if-result-differs")
+        #expect(json["base"] as? String == "up_base")
         #expect((json["deltas"] as? [[String: Any]])?.count == 1)
+        let activation = try JSONEncoder().encode(WireUpdateRequest(base: nil, candidate: request.candidate, objects: []))
+        #expect(try #require(JSONSerialization.jsonObject(with: activation) as? [String: Any])["base"] is NSNull)
 
         let invalid = try #require(fixture["invalid"] as? [[String: Any]])
         for vector in invalid {
             let deltas = try #require(vector["deltas"] as? [[String: Any]])
             let body: [String: Any] = [
-                "base": ["root": base.root, "update": base.update],
+                "base": base.update,
                 "candidate": "sha256:" + String(repeating: "1", count: 64),
                 "objects": [],
                 "deltas": deltas,
@@ -219,7 +219,7 @@ struct UpdateProtocolTests {
         let body = try JSONSerialization.data(withJSONObject: try #require(response["body"] as? [String: Any]))
         let result = try JSONDecoder().decode(WireUpdateResult.self, from: body)
         guard case let .current(update) = result else { Issue.record("Expected current result"); return }
-        #expect(update.id == "up_atlas1")
+        #expect(update.id == "1")
     }
 
     @Test("Ordered accepted transitions apply object deltas through a merge")
@@ -231,11 +231,11 @@ struct UpdateProtocolTests {
         let finalFile = try WireObjectCodec.object(.file(Data("abXYef!".utf8)))
         let finalRoot = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: finalFile.hash)]))
         let firstUpdate = WireAcceptedUpdate(
-            id: "up_first", tree: "tr_notes", sequence: 2, root: firstRoot.hash,
+            id: "2", tree: "tr_notes", root: firstRoot.hash,
             previousRoot: baseRoot.hash, kind: "accepted", acceptedAt: 1
         )
         let finalUpdate = WireAcceptedUpdate(
-            id: "up_merge", tree: "tr_notes", sequence: 3, root: finalRoot.hash,
+            id: "3", tree: "tr_notes", root: finalRoot.hash,
             previousRoot: firstRoot.hash, kind: "merged", acceptedAt: 2,
             merge: .init(version: "markdown-additive-v1", approximatePlacements: 0)
         )
@@ -322,7 +322,7 @@ struct UpdateProtocolTests {
             candidate: root.hash
         )
         let response = Data("""
-        {"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","sequence":2,"root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"},"observedThrough":"up_retry"}
+        {"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"},"observedThrough":"up_retry"}
         """.utf8)
         await WireURLProtocolStub.state.install { _, attempt in
             attempt == 1
@@ -479,6 +479,8 @@ struct WireValueVectorTests {
         let remoteData = try JSONSerialization.data(withJSONObject: try #require(valid["remoteTreeDescriptor"]))
         let remote = try decoder.decode(WireTreeDescriptor.self, from: remoteData).validated()
         #expect(remote.canonical?.endpoint == "https://community.example/.arbor/trees/\(remote.id)")
+        #expect(remote.canonical?.httpURL == "https://community.example/~joe")
+        #expect(remote.canonical?.arborURL == "arbor://community.example/~joe")
         #expect(remote.update == "up_aaaaaaaaaaaaaaaaaaaaaaaaaa")
         // TODO: `treeDescriptor`, `accountConfigurationDescriptor`, and `resolution.enclosingTree`
         // are plain `TreeDescriptor`s without `ref`/`update`. ArborWire models only the remote

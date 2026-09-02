@@ -88,15 +88,6 @@ public actor ArborWireClient {
         return value
     }
 
-    public func activateTree(tree: String, snapshot: WireSnapshot) async throws -> WireSnapshotEnvelope<WireTreeDescriptor> {
-        _ = try WireObjectGraph.validate(snapshot)
-        let value: WireSnapshotEnvelope<WireTreeDescriptor> = try await put(
-            path: "/.arbor/trees/\(component(tree))",
-            body: snapshot
-        )
-        return WireSnapshotEnvelope(snapshot: try value.snapshot.validated(), observedThrough: value.observedThrough)
-    }
-
     public func object(tree: String, hash: String) async throws -> Data {
         try validateObjectHash(hash)
         var request = try await authorizedRequest(path: "/.arbor/trees/\(component(tree))/objects/\(component(hash))")
@@ -137,8 +128,7 @@ public actor ArborWireClient {
     public func prepareUpdate(
         tree: String,
         base: WireUpdateBase,
-        snapshot: WireSnapshot,
-        returnSnapshot: Bool = false
+        snapshot: WireSnapshot
     ) throws -> PreparedWireUpdate {
         guard !tree.isEmpty, !base.update.isEmpty else { throw ArborWireValidationError.invalidValue("Update identity is empty") }
         try validateObjectHash(base.root)
@@ -146,8 +136,7 @@ public actor ArborWireClient {
         let request = WireUpdateRequest(
             base: base,
             candidate: snapshot.root,
-            objects: snapshot.objects,
-            returnSnapshot: returnSnapshot
+            objects: snapshot.objects
         )
         return PreparedWireUpdate(
             tree: tree,
@@ -285,8 +274,7 @@ public actor ArborWireClient {
                                 }
                                 if index > 0 {
                                     let previous = transitions[index - 1].update
-                                    guard transition.update.sequence == previous.sequence + 1,
-                                          transition.update.previousRoot == previous.root else {
+                                    guard transition.update.previousRoot == previous.root else {
                                         throw ArborWireValidationError.malformedSSE("Tree ref transition batch is not contiguous")
                                     }
                                 }
@@ -392,7 +380,7 @@ public func canonicalUpdateIntent(tree: String, base: WireUpdateBase, candidate:
     CanonicalCBOR.encode(.map([
         ("version", .text("updates-v1")),
         ("tree", .text(tree)),
-        ("base", .map([("root", .text(base.root)), ("update", .text(base.update))])),
+        ("base", .text(base.update)),
         ("candidate", .text(candidate)),
     ]))
 }

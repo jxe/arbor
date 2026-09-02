@@ -11,7 +11,7 @@ import type {
   WorkspaceEvent,
   WorkspaceOperation,
 } from "@arbor/core";
-import { stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
+import { canonicalArborLocator, canonicalHTTPURL, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
 import type { AccessEntry, NodeResponse, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
 import { WireClient, decodeAcceptedUpdateJSON, decodeUpdateRequestJSON, updateRequestDigest } from "@arbor/wire";
 import { nodeDocument } from "../helpers/node-snapshot.ts";
@@ -31,7 +31,7 @@ function validateTreeDescriptor(value: unknown): TreeDescriptor {
   } else {
     const canonical = descriptor.canonical;
     if (!canonical || !canonical.path.startsWith("/")) throw new TypeError("ordinary trees need canonical data");
-    for (const url of [canonical.locator, canonical.endpoint, canonical.httpURL]) new URL(url);
+    for (const url of [canonical.endpoint, canonicalHTTPURL(canonical), canonicalArborLocator(canonical)]) new URL(url);
     if (canonical.parentTree !== null && typeof canonical.parentTree !== "string") throw new TypeError("parentTree must be a TreeID or null");
   }
   return descriptor as TreeDescriptor;
@@ -247,12 +247,13 @@ describe("REST v1 protocol fixtures", () => {
     expect(endpoints.cases.map((item) => item.name)).toEqual([
       "read-ref",
       "submit-current-update",
+      "activate-with-null-base",
       "link-read",
       "watch-ref",
       "query-derived-model-state",
       "mutate-reviewed-model-intent",
     ]);
-    expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 200, 200, 200, 200, 200]);
+    expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 200, 201, 200, 200, 200, 200]);
 
     // Decode each response body with the matching wire decoder where one exists.
     const byName = new Map(endpoints.cases.map((item) => [item.name, item]));
@@ -263,12 +264,18 @@ describe("REST v1 protocol fixtures", () => {
       expect(snapshot.canonical).toEqual(tree.canonical);
       expect(byName.get(name)!.response.body!.observedThrough).toBe(snapshot.update);
     }
+    const activate = byName.get("activate-with-null-base")!;
+    const activation = decodeUpdateRequestJSON(activate.request.body);
+    expect(activation.base).toBeNull();
+    expect(updateRequestDigest("tr_new", activation)).toBe(activate.request.derivedRequestDigest!);
+    expect(activate.response.body!.requestDigest).toBe(activate.request.derivedRequestDigest);
+    expect(decodeAcceptedUpdateJSON(activate.response.body!.update)).toMatchObject({ tree: "tr_new", root: activation.candidate, previousRoot: null, kind: "initial" });
     const submit = byName.get("submit-current-update")!;
     const request = decodeUpdateRequestJSON(submit.request.body);
     expect(updateRequestDigest("tr_atlas", request)).toBe(submit.request.derivedRequestDigest!);
     expect(submit.response.body!.requestDigest).toBe(submit.request.derivedRequestDigest);
-    const current = decodeAcceptedUpdateJSON(submit.response.body!.current);
-    expect(current).toMatchObject({ id: "up_atlas1", tree: "tr_atlas", sequence: 1, kind: "initial", previousRoot: null });
+    const current = decodeAcceptedUpdateJSON(submit.response.body!.update);
+    expect(current).toMatchObject({ id: "1", tree: "tr_atlas", kind: "initial", previousRoot: null });
     expect(current.root).toBe(request.candidate);
     const watch = parseSSEFrame(byName.get("watch-ref")!.response.frame!.trim())!;
     const watched = JSON.parse(watch.data) as { cursor: string; tree: string; kind: string; change: { descriptor: unknown } };
@@ -290,5 +297,56 @@ describe("REST v1 protocol fixtures", () => {
       "same-intent-different-object-envelope",
       "different-candidate-has-different-digest",
     ]);
+  });
+});
+
+describe("canonical descriptor helpers", () => {
+  // The exact strings the retired `canonical.locator` / `canonical.httpURL`
+  // fields carried when Canopy's `descriptor()` produced them.
+  function canopyDescriptorStrings(origin: string, canonicalPath: string, id: string) {
+    const encodedPath = canonicalPath === "/"
+      ? ""
+      : `/${canonicalPath.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
+    const host = new URL(origin).host;
+    return {
+      locator: `arbor://${host}${encodedPath || "/"}`,
+      endpoint: `${origin}/.arbor/trees/${encodeURIComponent(id)}`,
+      httpURL: `${origin}${encodedPath || "/"}`,
+    };
+  }
+
+  test("derive exactly the strings the Canopy descriptor producer emitted", () => {
+    const cases = [
+      ["https://community.example", "/", "tr_root"],
+      ["https://community.example", "/~joe", "tr_a"],
+      ["https://community.example", "/~alice/atlas", "tr_atlas"],
+      ["http://127.0.0.1:8787", "/~owner/garden", "tr_garden"],
+      ["https://community.example", "/~joe/my notes/ünïcode/a&b?c#d", "tr_odd"],
+    ] as const;
+    for (const [origin, path, id] of cases) {
+      const legacy = canopyDescriptorStrings(origin, path, id);
+      const canonical = { path, endpoint: legacy.endpoint, parentTree: null };
+      expect(canonicalHTTPURL(canonical), path).toBe(legacy.httpURL);
+      expect(canonicalArborLocator(canonical), path).toBe(legacy.locator);
+    }
+  });
+
+  test("derive the strings the arborsync placement producer emitted from a bare server origin", () => {
+    // tree-manager built `httpURL` as `${placement.endpoint}${path}` and stores
+    // built the locator as `arbor://${new URL(endpoint).host}${path}`.
+    const placement = { endpoint: "https://notes.example", canonicalPath: "/~joe/notes" };
+    const canonical = { path: placement.canonicalPath, endpoint: placement.endpoint, parentTree: null };
+    expect(canonicalHTTPURL(canonical)).toBe(`${placement.endpoint}${placement.canonicalPath}`);
+    expect(canonicalArborLocator(canonical)).toBe(`arbor://${new URL(placement.endpoint).host}${placement.canonicalPath}`);
+  });
+
+  test("agree with the shared conformance vectors", async () => {
+    const values = await conformanceJSON<{ valid: { remoteTreeDescriptor: RemoteTreeDescriptor } }>("wire-values.json");
+    const canonical = values.valid.remoteTreeDescriptor.canonical!;
+    expect(canonicalHTTPURL(canonical)).toBe("https://community.example/~joe");
+    expect(canonicalArborLocator(canonical)).toBe("arbor://community.example/~joe");
+    const fixture = JSON.parse(await readFile(join(fixtures, "node.json"), "utf8")) as NodeResponse;
+    expect(canonicalHTTPURL(fixture.enclosingTree!.canonical!)).toBe("https://notes.example/~joe/notes");
+    expect(canonicalArborLocator(fixture.enclosingTree!.canonical!)).toBe("arbor://notes.example/~joe/notes");
   });
 });

@@ -3,6 +3,7 @@ import { PanelLeft, Share } from "lucide-react";
 import type { AccessEntry, RecoveryEntry, SearchResult, NodeSummary, LocalTreeDescriptor } from "@arbor/core";
 import type { CommunityPairingOffer, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
+import { canonicalArborLocator, canonicalHTTPURL } from "@arbor/core";
 import { api } from "./api.ts";
 import { CollectionView } from "./CollectionView.tsx";
 import { PageEditor } from "./PageEditor.tsx";
@@ -826,7 +827,7 @@ export function App() {
   }, [reloadTreeAccess, server.communityURL, server.origin]);
 
   const createLink = useCallback(async (tree: TreeDescriptor, access: AccessPermission): Promise<boolean> => {
-    if (!tree.canonical?.httpURL) return false;
+    if (!tree.canonical) return false;
     const secret = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
     try {
       setTreeBusy(true);
@@ -837,7 +838,7 @@ export function App() {
         subject: { kind: "link", secret },
         access,
       });
-      const url = new URL(tree.canonical?.httpURL);
+      const url = new URL(canonicalHTTPURL(tree.canonical));
       url.hash = `arbor-access=${encodeURIComponent(secret)}`;
       setLinkURL(url.toString());
       setLinkSecret(secret);
@@ -976,7 +977,7 @@ export function App() {
         tree: tree.id,
         path: destination,
         ...(tree.canonical?.endpoint ? { endpoint: tree.canonical?.endpoint } : {}),
-        ...(tree.canonical ? { canonical: tree.canonical.locator } : {}),
+        ...(tree.canonical ? { canonical: canonicalArborLocator(tree.canonical) } : {}),
       });
       await refreshSystem();
       navigate(destination);
@@ -1042,8 +1043,9 @@ export function App() {
     ? home ? `${home}${query.slice(1)}` : null
     : query.startsWith("system:") ? `/${query}` : query;
   const navigateRemote = useCallback((targetPath: string) => {
-    const boundary = remoteNode?.enclosingTree?.canonical?.httpURL;
-    if (!boundary) return;
+    const canonical = remoteNode?.enclosingTree?.canonical;
+    if (!canonical) return;
+    const boundary = canonicalHTTPURL(canonical);
     const suffix = targetPath === "/"
       ? ""
       : `/${targetPath.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
@@ -1156,7 +1158,7 @@ export function App() {
               <strong>{tree.name}</strong>
               <small>{tree.osPath
                 ? home && tree.osPath.startsWith(home) ? `~${tree.osPath.slice(home.length)}` : tree.osPath
-                : tree.canonical?.locator ?? tree.id}</small>
+                : tree.canonical ? canonicalArborLocator(tree.canonical) : tree.id}</small>
             </button>
             <span className={`scope-chip ${tree.canonical === null ? "session" : "tracked"}`}>
               {tree.missing ? "missing" : tree.canonical === null ? "not shared" : tree.osPath ? tree.access === "write" ? "writable" : "read-only" : "remote"}
@@ -1176,10 +1178,8 @@ export function App() {
               kind: "ordinary",
               access: "read",
               canonical: visit.canonical ? {
-                locator: visit.canonical,
-                path: new URL(visit.canonical).pathname,
-                endpoint: new URL(visit.locator).origin,
-                httpURL: visit.canonical,
+                path: `/${new URL(visit.canonical).pathname.split("/").filter(Boolean).map(decodeURIComponent).join("/")}`,
+                endpoint: new URL(visit.canonical).origin,
                 parentTree: null,
               } : null,
               placement: "remote",
@@ -1360,8 +1360,8 @@ export function App() {
           <button className="modal-close" aria-label="Close" onClick={() => setTreeControl(null)}>×</button>
         </div>
         <div className="canonical-addresses">
-          {treeControl.tree.canonical?.httpURL && <div><span>Web</span><a href={treeControl.tree.canonical?.httpURL} target="_blank" rel="noreferrer">{treeControl.tree.canonical?.httpURL}</a><button onClick={() => void navigator.clipboard.writeText(treeControl.tree!.canonical?.httpURL!)}>Copy</button></div>}
-          {treeControl.tree.canonical && <div><span>Arbor</span><code>{treeControl.tree.canonical.locator}</code><button onClick={() => void navigator.clipboard.writeText(treeControl.tree!.canonical!.locator)}>Copy</button></div>}
+          {treeControl.tree.canonical && <div><span>Web</span><a href={canonicalHTTPURL(treeControl.tree.canonical)} target="_blank" rel="noreferrer">{canonicalHTTPURL(treeControl.tree.canonical)}</a><button onClick={() => void navigator.clipboard.writeText(canonicalHTTPURL(treeControl.tree!.canonical!))}>Copy</button></div>}
+          {treeControl.tree.canonical && <div><span>Arbor</span><code>{canonicalArborLocator(treeControl.tree.canonical)}</code><button onClick={() => void navigator.clipboard.writeText(canonicalArborLocator(treeControl.tree!.canonical!))}>Copy</button></div>}
           <div><span>Identity</span><code>arbor://tree/{treeControl.tree.id}</code><button onClick={() => void navigator.clipboard.writeText(`arbor://tree/${treeControl.tree!.id}`)}>Copy</button></div>
         </div>
         <div className="sync-status">
@@ -1403,7 +1403,7 @@ export function App() {
                 <option value="">Choose an audience…</option>
                 <option value="everyone" disabled={everyoneAccess(treeControl.tree) !== "none"}>Everyone</option>
                 <option value="profile">A person or group</option>
-                <option value="link" disabled={!treeControl.tree.canonical?.httpURL}>Anyone with a private link</option>
+                <option value="link" disabled={!treeControl.tree.canonical}>Anyone with a private link</option>
               </select>
               {accessDraftKind === "profile" && <input aria-label="Person or group" placeholder="~alice or ~editors" value={profileLocator} onChange={(event) => setProfileLocator(event.target.value)} />}
             </div>

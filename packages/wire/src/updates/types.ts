@@ -36,10 +36,14 @@ export interface PairingOffer {
   expiresAt: number;
 }
 
+/**
+ * One accepted tree state. `id` is the decimal observation ordinal that
+ * recorded it, so it is also the update's `tree.ref` watch cursor and orders
+ * accepted updates within their tree.
+ */
 export interface AcceptedUpdate {
   id: string;
   tree: string;
-  sequence: number;
   root: ObjectHash;
   previousRoot: ObjectHash | null;
   kind: "initial" | "accepted" | "merged" | "restored";
@@ -74,18 +78,26 @@ export interface AcceptedTransition extends AcceptedTransitionPayload {
 }
 
 export interface UpdateRequest {
-  base: { root: ObjectHash; update: string };
+  /** The accepted update the candidate was derived from, or null to activate a reserved tree. */
+  base: string | null;
   candidate: ObjectHash;
   objects: Array<{ hash: ObjectHash; bytes: Uint8Array }>;
   deltas?: ObjectDelta[];
-  /** Transport hint only; excluded from the updates-v1 semantic request digest. */
-  returnSnapshot?: true | "if-result-differs";
 }
 
-export type UpdateResult =
-  | { outcome: "current"; current: AcceptedUpdate; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshot }
-  | { outcome: "accepted"; update: AcceptedUpdate; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshot }
-  | { outcome: "merged"; update: AcceptedUpdate; merge: MergeSummary; requestDigest: ObjectHash; observedThrough: string; snapshot?: TreeSnapshot };
+/**
+ * The authority's answer to a candidate. `update` is the accepted update that
+ * now stands: the untouched current one for `current`, or the newly accepted
+ * or merged one, whose `merge` summary describes any merge. `snapshot` is
+ * present whenever the accepted root differs from the submitted candidate.
+ */
+export interface UpdateResult {
+  outcome: "current" | "accepted" | "merged";
+  update: AcceptedUpdate;
+  requestDigest: ObjectHash;
+  observedThrough: string;
+  snapshot?: TreeSnapshot;
+}
 
 export interface UpdateConflictResult {
   error: "conflict";

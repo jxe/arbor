@@ -9,17 +9,12 @@ public enum WireTransitionReplay {
             throw ArborWireValidationError.invalidValue("Accepted transition batch is empty")
         }
         var snapshot = basis
-        var previousSequence: Int?
         var tree: String?
         for transition in transitions {
             if let tree, transition.update.tree != tree {
                 throw ArborWireValidationError.invalidValue("Accepted transition batch crosses trees")
             }
-            if let previousSequence, transition.update.sequence != previousSequence + 1 {
-                throw ArborWireValidationError.invalidValue("Accepted transition sequence has a gap")
-            }
             snapshot = try applying(transition, to: snapshot)
-            previousSequence = transition.update.sequence
             tree = transition.update.tree
         }
         return snapshot

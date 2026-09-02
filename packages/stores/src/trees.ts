@@ -129,14 +129,6 @@ export async function deleteTreePlacement(_path: string): Promise<never> {
   throw new Error("Tree placements are removed by editing the current device YAML file");
 }
 
-export async function legacySystemRootsExist(): Promise<boolean> {
-  try {
-    return (await stat(join(arborPrivateRoot(), "system", "roots"))).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 export async function watchTreeRegistry(onChange: () => void): Promise<() => void> {
   return watchAccountConfiguration(onChange);
 }

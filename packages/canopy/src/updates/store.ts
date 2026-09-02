@@ -47,7 +47,6 @@ export class AcceptedUpdateStore {
       CREATE TABLE IF NOT EXISTS accepted_updates (
         id TEXT PRIMARY KEY,
         tree_id TEXT NOT NULL REFERENCES trees(id),
-        sequence INTEGER NOT NULL,
         root TEXT NOT NULL,
         previous_root TEXT,
         kind TEXT NOT NULL,
@@ -61,7 +60,6 @@ export class AcceptedUpdateStore {
         transition_json TEXT
       )
     `);
-    db.run("CREATE UNIQUE INDEX IF NOT EXISTS accepted_updates_tree_order ON accepted_updates(tree_id, sequence)");
     db.run(`
       CREATE UNIQUE INDEX IF NOT EXISTS accepted_updates_request
       ON accepted_updates(tree_id, subject, request_digest)
@@ -75,7 +73,6 @@ export class AcceptedUpdateStore {
     const record = value as {
       id: string;
       tree_id: string;
-      sequence: number;
       root: ObjectHash;
       previous_root: ObjectHash | null;
       kind: AcceptedUpdate["kind"];
@@ -86,7 +83,6 @@ export class AcceptedUpdateStore {
     return {
       id: record.id,
       tree: record.tree_id,
-      sequence: record.sequence,
       root: record.root,
       previousRoot: record.previous_root,
       kind: record.kind,
@@ -98,7 +94,7 @@ export class AcceptedUpdateStore {
 
   current(tree: string): AcceptedUpdate | null {
     return this.row(this.db.query(
-      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY sequence DESC LIMIT 1",
+      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY rowid DESC LIMIT 1",
     ).get(tree));
   }
 
@@ -108,7 +104,7 @@ export class AcceptedUpdateStore {
 
   list(tree: string): AcceptedUpdate[] {
     return (this.db.query(
-      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY sequence",
+      "SELECT * FROM accepted_updates WHERE tree_id = ? ORDER BY rowid",
     ).all(tree) as unknown[]).map((row) => this.row(row)!);
   }
 
@@ -118,10 +114,15 @@ export class AcceptedUpdateStore {
       WHERE tree_id = ? AND subject = ? AND request_digest = ?
     `).get(tree, subject, digest));
     if (!accepted) return null;
-    if (accepted.kind === "merged" && accepted.merge) {
-      return { status: 201, result: { outcome: "merged", update: accepted, merge: accepted.merge, requestDigest: digest as ObjectHash, observedThrough: accepted.id } };
-    }
-    return { status: 201, result: { outcome: "accepted", update: accepted, requestDigest: digest as ObjectHash, observedThrough: accepted.id } };
+    return {
+      status: 201,
+      result: {
+        outcome: accepted.kind === "merged" ? "merged" : "accepted",
+        update: accepted,
+        requestDigest: digest as ObjectHash,
+        observedThrough: accepted.id,
+      },
+    };
   }
 
   matchingRequestDigest(update: string, subject: string): ObjectHash | null {
@@ -138,22 +139,21 @@ export class AcceptedUpdateStore {
   }
 
   /** Record one accepted update and its `tree.ref` observation atomically. */
-  insert(id: string, input: AcceptedUpdateInput): AcceptedUpdate {
-    return this.db.transaction(() => this.insertWithinTransaction(id, input))();
+  insert(input: AcceptedUpdateInput): AcceptedUpdate {
+    return this.db.transaction(() => this.insertWithinTransaction(input))();
   }
 
-  private insertWithinTransaction(id: string, input: AcceptedUpdateInput): AcceptedUpdate {
-    const sequence = (this.db.query(
-      "SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM accepted_updates WHERE tree_id = ?",
-    ).get(input.tree) as { sequence: number }).sequence;
+  /** The accepted update's id is the ordinal of the `tree.ref` observation that records it. */
+  private insertWithinTransaction(input: AcceptedUpdateInput): AcceptedUpdate {
+    const observation = this.observations.append({ tree: input.tree, kind: "tree.ref", createdAt: input.acceptedAt });
+    const id = observation.cursor;
     this.db.run(`
       INSERT INTO accepted_updates
-        (id, tree_id, sequence, root, previous_root, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary, request_digest, transition_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, tree_id, root, previous_root, kind, accepted_at, subject, base_root, candidate_root, remote_root, merge_summary, request_digest, transition_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       id,
       input.tree,
-      sequence,
       input.root,
       input.previousRoot,
       input.kind,
@@ -166,11 +166,11 @@ export class AcceptedUpdateStore {
       input.requestDigest ?? null,
       input.transition ? JSON.stringify(encodeTransitionPayloadJSON(input.transition)) : null,
     ]);
-    this.observations.append({ cursor: id, tree: input.tree, kind: "tree.ref", updateID: id, createdAt: input.acceptedAt });
+    this.observations.bindUpdate(id, id);
     return this.get(id)!;
   }
 
-  commit(id: string, input: AcceptedCommitInput, withinTransaction?: () => void): AcceptedUpdate | null {
+  commit(input: AcceptedCommitInput, withinTransaction?: () => void): AcceptedUpdate | null {
     let accepted: AcceptedUpdate | null = null;
     this.db.transaction(() => {
       const result = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
@@ -187,7 +187,7 @@ export class AcceptedUpdateStore {
         input.acceptedAt,
       ]);
       withinTransaction?.();
-      accepted = this.insertWithinTransaction(id, input);
+      accepted = this.insertWithinTransaction(input);
     })();
     return accepted;
   }

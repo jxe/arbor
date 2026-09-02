@@ -61,11 +61,14 @@ export class ObservationLog {
     db.run("CREATE INDEX IF NOT EXISTS observations_tree_order ON observations(tree_id, ordinal)");
   }
 
-  append(input: { cursor: string; tree: string; kind: string; updateID?: string; change?: unknown; createdAt: number }): ObservationRecord {
-    this.db.run(
-      "INSERT INTO observations (cursor, tree_id, kind, update_id, change_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+  /**
+   * Append one observation. Its cursor is its decimal ordinal, so the log's
+   * order and every cursor derive from one counter.
+   */
+  append(input: { tree: string; kind: string; updateID?: string; change?: unknown; createdAt: number }): ObservationRecord {
+    const inserted = this.db.run(
+      "INSERT INTO observations (cursor, tree_id, kind, update_id, change_json, created_at) VALUES ('', ?, ?, ?, ?, ?)",
       [
-        input.cursor,
         input.tree,
         input.kind,
         input.updateID ?? null,
@@ -73,7 +76,14 @@ export class ObservationLog {
         input.createdAt,
       ],
     );
-    return this.get(input.cursor)!;
+    const cursor = String(inserted.lastInsertRowid);
+    this.db.run("UPDATE observations SET cursor = ? WHERE ordinal = ?", [cursor, Number(inserted.lastInsertRowid)]);
+    return this.get(cursor)!;
+  }
+
+  /** Bind an accepted update to the observation that recorded it. */
+  bindUpdate(cursor: string, updateID: string): void {
+    this.db.run("UPDATE observations SET update_id = ? WHERE cursor = ?", [updateID, cursor]);
   }
 
   get(cursor: string): ObservationRecord | null {

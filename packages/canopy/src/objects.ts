@@ -68,7 +68,6 @@ export class ObjectStore {
     root: ObjectHash,
     proposed: ReadonlyMap<ObjectHash, Uint8Array>,
     visit: (hash: ObjectHash, bytes: Uint8Array) => boolean | void,
-    options: { allowLegacyDirectoryOrder?: boolean } = {},
   ): Promise<{ complete: boolean; stopped: boolean }> {
     const pending = [root];
     const seen = new Set<ObjectHash>();
@@ -79,7 +78,7 @@ export class ObjectStore {
       const bytes = await this.find(hash, proposed);
       if (!bytes) return { complete: false, stopped: false };
       if (visit(hash, bytes) === false) return { complete: true, stopped: true };
-      const object = decodeWireObject(bytes, options);
+      const object = decodeWireObject(bytes);
       if (object.type === "directory") {
         for (const entry of object.entries) pending.push(...wireEntryObjectHashes(entry));
       }
@@ -101,17 +100,11 @@ export class ObjectStore {
     return { root, objects };
   }
 
-  /**
-   * Confirm every object reachable from the given roots is present and
-   * hash-consistent. Canopy releases before the portable wire foundation
-   * retained some accepted historical directory objects in host-locale order;
-   * current graphs and every public decoder remain strict UTF-8, but those
-   * private immutable history objects must stay traversable here.
-   */
+  /** Confirm every object reachable from the given roots is present and hash-consistent. */
   async verifyReachable(roots: ObjectHash[]): Promise<void> {
     const seen = new Set<ObjectHash>();
     for (const root of roots) {
-      const { complete } = await this.walk(root, new Map(), (hash) => { seen.add(hash); }, { allowLegacyDirectoryOrder: true });
+      const { complete } = await this.walk(root, new Map(), (hash) => { seen.add(hash); });
       if (!complete) throw new Error(`Retained history is missing an object under ${root}`);
     }
   }

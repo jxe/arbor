@@ -7,6 +7,7 @@ import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extens
 import { TextSelection } from "@tiptap/pm/state";
 import { FormattingToolbarController, SideMenuController, SuggestionMenuController } from "@blocknote/react";
 import type { ArborBlock, BacklinkEntry, NodeSummary, RecoveryEntry } from "@arbor/core";
+import { canonicalArborLocator } from "@arbor/core";
 import type {
   NodeRef,
   NodeSnapshot,
@@ -1201,7 +1202,7 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
 
   const keys = Object.keys(frontmatter);
   const propertyKeys = frontmatter.type === "group" && !("members" in frontmatter) ? [...keys, "members"] : keys;
-  const memberOrigin = communityArborOrigin(node.enclosingTree?.canonical?.locator);
+  const memberOrigin = communityArborOrigin(node.enclosingTree?.canonical ? canonicalArborLocator(node.enclosingTree.canonical) : undefined);
   const openInternalLink = (event: React.MouseEvent) => {
     const anchor = (event.target as Element).closest("a");
     const href = anchor?.getAttribute("href");

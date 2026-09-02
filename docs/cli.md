@@ -17,8 +17,8 @@ through arborsync or a server and never edits guessed private `.state` files.
   account mutation.
 - `arbor sync [--access <subject>=<level> ...] [--clear-access] <local-path>
   <canonical-locator>` generates a `TreeID`, adds a `trees.yaml` declaration,
-  and adds the current device's filesystem placement. Activation follows the
-  server's two-stage protocol.
+  and adds the current device's filesystem placement. Activation is the tree's
+  first update, submitted with a null base.
 - `arbor sync <tree-locator> <local-path>` adds or changes the current device's
   placement for an existing tree. A pathless-placement option creates a durable
   private writable replica. Historical locators cannot be placed.

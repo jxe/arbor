@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { serveArborSync } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
 import { WireClient } from "@arbor/wire";
-import { generateArborID } from "@arbor/core";
+import { canonicalArborLocator, generateArborID } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 import { build } from "vite";
@@ -85,13 +85,9 @@ const configured = snapshotAccountConfig({
     },
   } },
 });
-await authorityClient.submitUpdate(
-  configuration.tree.id,
-  { root: configuration.tree.ref, update: configuration.tree.update },
-  configured,
-);
-await authorityClient.activateTree(editorsTree, await snapshotDirectory(editorsProfile));
-await authorityClient.activateTree(fixtureTree, await snapshotDirectory(root));
+await authorityClient.submitUpdate(configuration.tree.id, configuration.tree.update, configured);
+await authorityClient.submitUpdate(editorsTree, null, await snapshotDirectory(editorsProfile));
+await authorityClient.submitUpdate(fixtureTree, null, await snapshotDirectory(root));
 configuration = await authorityClient.currentSnapshot(account.account.configuration.id);
 const acceptedGraph = readAccountConfigGraph({
   root: configuration.snapshot.root,
@@ -107,7 +103,7 @@ await new CommunityConfigStore().set(host.url, "e2e-owner-token", {
   profileTree: account.account.profileTree,
   profileURL: account.account.profileURL,
   communityTree: account.account.community.id,
-  communityURL: account.account.community.canonical!.locator,
+  communityURL: canonicalArborLocator(account.account.community.canonical!),
   configurationTree: account.account.configuration.id,
   configurationRef: configurationRef.snapshot.ref,
   configurationUpdate: configurationRef.snapshot.update,

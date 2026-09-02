@@ -4,8 +4,6 @@ import { canonicalNodePath, type Diagnostic, type LocalTreeDescriptor } from "@a
 import {
   AmbiguousWorkspaceIdentityError,
   arborPrivateRoot,
-  arborDataHomeDiagnostics,
-  legacySystemRootsExist,
   loadTreeRegistry,
   type TreePlacement,
   watchTreeRegistry,
@@ -31,13 +29,7 @@ interface CandidateRoot extends KnownRoot {
 function descriptorCanonical(placement: TreePlacement, parentTree: string | null = null): LocalTreeDescriptor["canonical"] {
   if (!placement.canonical) return null;
   const path = placement.canonicalPath ?? new URL(placement.canonical).pathname;
-  return {
-    locator: placement.canonical,
-    path,
-    httpURL: `${placement.endpoint}${path}`,
-    endpoint: placement.endpoint,
-    parentTree,
-  };
+  return { path, endpoint: placement.endpoint, parentTree };
 }
 
 /**
@@ -68,15 +60,7 @@ export class TreeManager implements AsyncDisposable {
 
   async init(): Promise<void> {
     const snapshot = await loadTreeRegistry();
-    this.recordDiagnostics = [...arborDataHomeDiagnostics(), ...snapshot.diagnostics];
-    if (await legacySystemRootsExist()) {
-      this.recordDiagnostics.push({
-        code: "legacy-system-roots",
-        message: "Legacy system/roots/*.md records are unsupported; migrate them into trees.yaml and the current device's placements",
-        path: "system:diagnostics",
-        severity: "warning",
-      });
-    }
+    this.recordDiagnostics = [...snapshot.diagnostics];
     if (!snapshot.diagnostics.length) await this.applyPlacements(snapshot.placements, false);
     this.stopWatching = await watchTreeRegistry(() => {
       this.reloadTail = this.reloadTail.then(() => this.reloadFromDisk()).catch(() => {});
@@ -226,15 +210,7 @@ export class TreeManager implements AsyncDisposable {
       if (!root) throw new Error(`Could not rebind the active session to ${reboundSession.id}`);
       await this.open(reboundSession.id, root);
     }
-    this.recordDiagnostics = [...arborDataHomeDiagnostics()];
-    if (await legacySystemRootsExist()) {
-      this.recordDiagnostics.push({
-        code: "legacy-system-roots",
-        message: "Legacy system/roots/*.md records are unsupported; migrate them into trees.yaml and the current device's placements",
-        path: "system:diagnostics",
-        severity: "warning",
-      });
-    }
+    this.recordDiagnostics = [];
     if (publish) {
       this.events.emit({ tree: "system", kind: "updated", ref: { tree: "system", path: "/diagnostics", stableKey: null }, origin: "external" });
     }
@@ -245,7 +221,7 @@ export class TreeManager implements AsyncDisposable {
   private async reloadFromDisk(): Promise<void> {
     const snapshot = await loadTreeRegistry();
     if (snapshot.diagnostics.length) {
-      this.recordDiagnostics = [...arborDataHomeDiagnostics(), ...snapshot.diagnostics];
+      this.recordDiagnostics = [...snapshot.diagnostics];
       this.events.emit({ tree: "system", kind: "diagnostic", ref: { tree: "system", path: "/diagnostics", stableKey: null }, origin: "external" });
       return;
     }

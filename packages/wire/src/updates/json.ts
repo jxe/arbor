@@ -23,11 +23,10 @@ export interface ObjectDeltaJSON {
 }
 
 export interface UpdateRequestJSON {
-  base: { root: ObjectHash; update: string };
+  base: string | null;
   candidate: ObjectHash;
   objects: ObjectEnvelopeJSON[];
   deltas?: ObjectDeltaJSON[];
-  returnSnapshot?: true | "if-result-differs";
 }
 
 export interface TransitionPayloadJSON {
@@ -44,8 +43,6 @@ const HASH = /^sha256:[a-f0-9]{64}$/;
 const MAX_DELTAS = 10_000;
 const MAX_DELTA_INSTRUCTIONS = 100_000;
 const MAX_DELTA_INSERT_BYTES = 64 * 1024 * 1024;
-/** Representations retired before the single object-delta rule; a stored or received payload naming them is unusable. */
-const RETIRED_SPARSE_FIELDS = ["filePatches", "fileDeltas"] as const;
 
 export function encodeBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64");
@@ -62,12 +59,6 @@ export function decodeBase64(value: string): Uint8Array {
 
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return left.length === right.length && left.every((byte, index) => byte === right[index]);
-}
-
-function rejectRetiredFields(record: Record<string, unknown>): void {
-  for (const field of RETIRED_SPARSE_FIELDS) {
-    if (record[field] !== undefined) throw new Error(`${field} is no longer a supported sparse representation`);
-  }
 }
 
 export function decodeObjectEnvelopes(value: unknown): Array<{ hash: ObjectHash; bytes: Uint8Array }> {
@@ -155,7 +146,6 @@ function assertDistinctResults(objects: Array<{ hash: ObjectHash }>, deltas: Obj
 export function decodeTransitionPayloadJSON(value: unknown): AcceptedTransitionPayload {
   if (!value || typeof value !== "object") throw new Error("Transition payload must be an object");
   const record = value as Record<string, unknown> & { objects?: unknown; deltas?: unknown };
-  rejectRetiredFields(record);
   const objects = decodeObjectEnvelopes(record.objects);
   const deltas = record.deltas === undefined ? undefined : decodeObjectDeltas(record.deltas);
   assertDistinctResults(objects, deltas, "Transition result supplied more than once");
@@ -186,7 +176,6 @@ export function decodeAcceptedUpdateJSON(value: unknown): AcceptedUpdate {
   if (!value || typeof value !== "object") throw new Error("Accepted update must be an object");
   const record = value as Record<string, unknown>;
   if (typeof record.id !== "string" || !record.id || typeof record.tree !== "string" || !record.tree
-    || !Number.isSafeInteger(record.sequence) || (record.sequence as number) < 1
     || typeof record.root !== "string" || !HASH.test(record.root)
     || (record.previousRoot !== null && (typeof record.previousRoot !== "string" || !HASH.test(record.previousRoot)))
     || typeof record.kind !== "string" || !ACCEPTED_KINDS.has(record.kind)
@@ -198,7 +187,6 @@ export function decodeAcceptedUpdateJSON(value: unknown): AcceptedUpdate {
   return {
     id: record.id,
     tree: record.tree,
-    sequence: record.sequence as number,
     root: record.root as ObjectHash,
     previousRoot: record.previousRoot as ObjectHash | null,
     kind: record.kind as AcceptedUpdate["kind"],
@@ -229,24 +217,20 @@ export function decodeAcceptedTransitionJSON(value: unknown): AcceptedTransition
 
 export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
   if (!value || typeof value !== "object") throw new Error("Update body must be a JSON object");
-  const body = value as Record<string, unknown> & { base?: unknown; candidate?: unknown; objects?: unknown; deltas?: unknown; returnSnapshot?: unknown };
-  rejectRetiredFields(body);
-  const base = body.base as { root?: unknown; update?: unknown } | null;
-  if (!base || typeof base.root !== "string" || typeof base.update !== "string" || typeof body.candidate !== "string") {
-    throw new Error("Update requires base root/update and candidate root");
+  const body = value as Record<string, unknown> & { base?: unknown; candidate?: unknown; objects?: unknown; deltas?: unknown };
+  if (body.base !== null && (typeof body.base !== "string" || !body.base)) {
+    throw new Error("Update requires a base update id or null for activation");
   }
-  if (body.returnSnapshot !== undefined && body.returnSnapshot !== true && body.returnSnapshot !== "if-result-differs") {
-    throw new Error('returnSnapshot must be true or "if-result-differs" when present');
-  }
+  if (typeof body.candidate !== "string" || !HASH.test(body.candidate)) throw new Error("Update requires a candidate root");
   const objects = decodeObjectEnvelopes(body.objects);
   const deltas = body.deltas === undefined ? undefined : decodeObjectDeltas(body.deltas);
   assertDistinctResults(objects, deltas, "Object delta result also supplied as a complete object");
+  if (body.base === null && deltas?.length) throw new Error("Activation has no base to apply deltas against");
   return {
-    base: { root: base.root, update: base.update },
-    candidate: body.candidate,
+    base: body.base,
+    candidate: body.candidate as ObjectHash,
     objects,
     ...(deltas ? { deltas } : {}),
-    ...(body.returnSnapshot ? { returnSnapshot: body.returnSnapshot } : {}),
   };
 }
 
@@ -256,7 +240,6 @@ export function encodeUpdateRequestJSON(request: UpdateRequest): UpdateRequestJS
     candidate: request.candidate,
     objects: request.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
     ...(request.deltas?.length ? { deltas: request.deltas.map(encodeObjectDeltaJSON) } : {}),
-    ...(request.returnSnapshot ? { returnSnapshot: request.returnSnapshot } : {}),
   };
 }
 
@@ -265,9 +248,7 @@ export interface TreeSnapshotJSON {
   objects: ObjectEnvelopeJSON[];
 }
 
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
-
-export type UpdateResultJSON = DistributiveOmit<UpdateResult, "snapshot"> & { snapshot?: TreeSnapshotJSON };
+export type UpdateResultJSON = Omit<UpdateResult, "snapshot"> & { snapshot?: TreeSnapshotJSON };
 
 export type UpdateConflictJSON = Omit<UpdateConflictResult, "details"> & {
   details: Omit<UpdateConflictResult["details"], "draft" | "currentSnapshot"> & {
@@ -370,7 +351,7 @@ export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
 
 export function encodeUpdateResultJSON(result: UpdateResult): UpdateResultJSON {
   const { snapshot, ...rest } = result;
-  return { ...rest, ...(snapshot ? { snapshot: encodeTreeSnapshotJSON(snapshot) } : {}) } as UpdateResultJSON;
+  return { ...rest, ...(snapshot ? { snapshot: encodeTreeSnapshotJSON(snapshot) } : {}) };
 }
 
 const OUTCOMES = new Set(["current", "accepted", "merged"]);
@@ -383,11 +364,13 @@ export function decodeUpdateResultJSON(value: unknown): UpdateResult {
     || typeof record.observedThrough !== "string") {
     throw new Error("Invalid update result");
   }
-  const snapshot = record.snapshot === undefined ? {} : { snapshot: decodeVerifiedSnapshot(record.snapshot) };
-  const shared = { requestDigest: record.requestDigest as ObjectHash, observedThrough: record.observedThrough, ...snapshot };
-  if (record.outcome === "current") return { outcome: "current", current: decodeAcceptedUpdateJSON(record.current), ...shared };
   const update = decodeAcceptedUpdateJSON(record.update);
-  if (record.outcome === "accepted") return { outcome: "accepted", update, ...shared };
-  if (!record.merge || typeof record.merge !== "object") throw new Error("Merged update result requires a merge summary");
-  return { outcome: "merged", update, merge: record.merge as MergeSummary, ...shared };
+  if (record.outcome === "merged" && !update.merge) throw new Error("Merged update result requires a merge summary");
+  return {
+    outcome: record.outcome as UpdateResult["outcome"],
+    update,
+    requestDigest: record.requestDigest as ObjectHash,
+    observedThrough: record.observedThrough,
+    ...(record.snapshot === undefined ? {} : { snapshot: decodeVerifiedSnapshot(record.snapshot) }),
+  };
 }

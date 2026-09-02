@@ -305,8 +305,7 @@ public actor ReplicaSyncCoordinator {
             base: base,
             candidate: snapshot.root,
             objects: sparseObjects,
-            deltas: delta.map { [$0] } ?? [],
-            returnSnapshot: .ifResultDiffers
+            deltas: delta.map { [$0] } ?? []
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

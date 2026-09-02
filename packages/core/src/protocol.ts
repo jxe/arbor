@@ -105,12 +105,28 @@ export interface TreeDescriptor {
   kind: TreeKind;
   access: AccessLevel;
   canonical: {
-    locator: string;
     path: LogicalPath;
     endpoint: string;
-    httpURL: string;
     parentTree: TreeID | null;
   } | null;
+}
+
+export type CanonicalTreeDescriptor = NonNullable<TreeDescriptor["canonical"]>;
+
+/** Percent-encode a decoded canonical path segment by segment; the root encodes as `""`. */
+function encodedCanonicalPath(path: string): string {
+  const segments = path.split("/").filter(Boolean);
+  return segments.length ? `/${segments.map(encodeURIComponent).join("/")}` : "";
+}
+
+/** The public HTTP URL of a canonical tree: the endpoint's origin followed by its encoded path. */
+export function canonicalHTTPURL(canonical: Pick<CanonicalTreeDescriptor, "path" | "endpoint">): string {
+  return `${new URL(canonical.endpoint).origin}${encodedCanonicalPath(canonical.path) || "/"}`;
+}
+
+/** The `arbor://` locator of a canonical tree: the endpoint's host followed by its encoded path. */
+export function canonicalArborLocator(canonical: Pick<CanonicalTreeDescriptor, "path" | "endpoint">): string {
+  return `arbor://${new URL(canonical.endpoint).host}${encodedCanonicalPath(canonical.path) || "/"}`;
 }
 
 export interface LocalTreeDescriptor extends TreeDescriptor {
@@ -362,7 +378,6 @@ export type ArborErrorCode =
   | "quota-exceeded"
   | "internal-error"
   | "already-claimed"
-  | "tree-id-conflict"
   | (string & {});
 
 /** The single error envelope shared by Arbor Wire and the local REST surface. */

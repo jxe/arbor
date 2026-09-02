@@ -11,10 +11,8 @@
     "name": "notes",
     "osPath": "/Users/joe/notes",
     "canonical": {
-      "locator": "arbor://notes.example/~joe/notes",
       "path": "/~joe/notes",
       "endpoint": "https://notes.example",
-      "httpURL": "https://notes.example/~joe/notes",
       "parentTree": null
     },
     "placement": "placed",

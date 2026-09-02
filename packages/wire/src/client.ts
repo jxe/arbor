@@ -108,7 +108,7 @@ function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown):
   let previous: AcceptedTransition | undefined;
   for (const transition of transitions) {
     if (transition.update.tree !== tree) throw new Error("Watch transition names another tree");
-    if (previous && (transition.update.sequence !== previous.update.sequence + 1 || transition.update.previousRoot !== previous.update.root)) {
+    if (previous && transition.update.previousRoot !== previous.update.root) {
       throw new Error("Watch transitions are not contiguous");
     }
     previous = transition;
@@ -250,14 +250,6 @@ export class WireClient {
     return { tree: value.tree, snapshot, observedThrough: value.observedThrough };
   }
 
-  async activateTree(tree: TreeID, snapshot: TreeSnapshot): Promise<SnapshotEnvelope<RemoteTreeDescriptor>> {
-    const response = await this.checked(await this.request(`/.arbor/trees/${encodeURIComponent(tree)}`, {
-      method: "PUT",
-      headers: this.headers(true),
-      body: JSON.stringify(encodeTreeSnapshotJSON(snapshot)),
-    }));
-    return response.json();
-  }
 
   async resolve(path: string): Promise<LocatorResolution> {
     const canonical = path === "/" ? "" : `/${path.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
@@ -267,18 +259,22 @@ export class WireClient {
     return response.json();
   }
 
+  /**
+   * Submit a complete candidate against the accepted update it was derived
+   * from. A null base activates a reserved tree with its initial snapshot; the
+   * response then carries the first accepted update.
+   */
   async submitUpdate(
     tree: string,
-    base: { root: ObjectHash; update: string },
+    base: string | null,
     snapshot: TreeSnapshot,
-    options: { returnSnapshot?: true | "if-result-differs"; deltas?: ObjectDelta[] } = {},
+    options: { deltas?: ObjectDelta[] } = {},
   ): Promise<UpdateResult> {
     const request: UpdateRequest = {
       base,
       candidate: snapshot.root,
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
       ...(options.deltas?.length ? { deltas: options.deltas } : {}),
-      ...(options.returnSnapshot ? { returnSnapshot: options.returnSnapshot } : {}),
     };
     const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
       method: "POST",

@@ -100,8 +100,7 @@ struct ArborSyncTests {
             let transport = ClosureTransport(initial: initial) { prepared, _ in
                 let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
                 let candidate = try completeCandidate(request, retained: initial)
-                let update = accepted(id: "up_local", tree: tree, root: candidate.root, base: request.base.root, candidate: candidate.root)
-                #expect(request.returnSnapshot == .ifResultDiffers)
+                let update = accepted(id: "up_local", tree: tree, root: candidate.root, base: initial.root, candidate: candidate.root)
                 return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: nil, observedThrough: update.id)
             }
             let replica = try await ReplicaPlacementService.place(
@@ -135,7 +134,7 @@ struct ArborSyncTests {
                     id: "up_patch_\(call)",
                     tree: tree,
                     root: request.candidate,
-                    base: request.base.root,
+                    base: initial.root,
                     candidate: request.candidate
                 )
                 return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: nil, observedThrough: update.id)
@@ -174,7 +173,6 @@ struct ArborSyncTests {
             let firstPrepared = try #require(await transport.requests.first)
             let first = try JSONDecoder().decode(WireUpdateRequest.self, from: firstPrepared.body)
             let delta = try #require(first.deltas?.first)
-            #expect(first.returnSnapshot == .ifResultDiffers)
             #expect(delta.instructions.contains(.insert(Data("Edited".utf8))))
             #expect(delta.instructions.contains(where: { if case .copy = $0 { return true } else { return false } }))
             #expect(!first.objects.contains(where: { $0.hash == delta.result }))
@@ -250,7 +248,6 @@ struct ArborSyncTests {
             let update = WireAcceptedUpdate(
                 id: "up_remote",
                 tree: tree,
-                sequence: 2,
                 root: remote.root,
                 previousRoot: initial.root,
                 kind: "accepted",
@@ -325,7 +322,7 @@ struct ArborSyncTests {
                     id: "up_local",
                     tree: tree,
                     root: request.candidate,
-                    base: request.base.root,
+                    base: initial.root,
                     candidate: request.candidate
                 )
                 return WireUpdateResponse(
@@ -355,10 +352,8 @@ struct ArborSyncTests {
                 ref: request.candidate,
                 access: "write",
                 canonical: WireCanonicalDescriptor(
-                    locator: "arbor://example.test/~owner/watch-digest",
                     path: "/~owner/watch-digest",
-                    endpoint: "https://example.test",
-                    httpURL: "https://example.test/~owner/watch-digest"
+                    endpoint: "https://example.test"
                 ),
                 update: "up_local"
             )
@@ -397,7 +392,7 @@ struct ArborSyncTests {
                     _ = try await session.admit(source: current.source + "Tail\n", baseContentRevision: current.contentRevision)
                 }
                 let returned = try completeCandidate(request, retained: initial)
-                let update = accepted(id: "up_\(call)", tree: tree, root: returned.root, base: request.base.root, candidate: returned.root)
+                let update = accepted(id: "up_\(call)", tree: tree, root: returned.root, base: initial.root, candidate: returned.root)
                 return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: returned, observedThrough: update.id)
             }
             let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)
@@ -416,8 +411,7 @@ struct ArborSyncTests {
             let secondRequest = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
             #expect(first.acceptedRoot == firstRequest.candidate)
             #expect(firstRequest.candidate != secondRequest.candidate)
-            #expect(secondRequest.base.root == firstRequest.candidate)
-            #expect(secondRequest.base.update == "up_1")
+            #expect(secondRequest.base == "up_1")
             #expect(candidate.contentRevision != (try await session.snapshot()).contentRevision)
         }
     }
@@ -460,8 +454,7 @@ struct ArborSyncTests {
 
             let accepting = ClosureTransport(initial: initial) { prepared, _ in
                 let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
-                #expect(request.base.root == remote.root)
-                #expect(request.base.update == "up_remote")
+                #expect(request.base == "up_remote")
                 let candidate = try completeCandidate(request, retained: initial)
                 return WireUpdateResponse(
                     result: .accepted(accepted(id: "up_resolved", tree: tree, root: candidate.root, base: remote.root, candidate: candidate.root)),
@@ -485,7 +478,7 @@ struct ArborSyncTests {
                     let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
                     let candidate = try completeCandidate(request, retained: initial)
                     return WireUpdateResponse(
-                        result: .accepted(accepted(id: "up_done", tree: tree, root: candidate.root, base: request.base.root, candidate: candidate.root)),
+                        result: .accepted(accepted(id: "up_done", tree: tree, root: candidate.root, base: initial.root, candidate: candidate.root)),
                         requestDigest: prepared.requestDigest,
                         snapshot: candidate,
                         observedThrough: "up_done"
@@ -513,7 +506,6 @@ struct ArborSyncTests {
                 #expect(try await resumed.syncOnce().state == .current)
                 let requests = await transport.requests
                 let frozen = try JSONDecoder().decode(WireUpdateRequest.self, from: try #require(requests.first).body)
-                #expect(frozen.returnSnapshot == .ifResultDiffers)
                 #expect(frozen.objects.count < (try await replica.currentSnapshot()).objects.count)
                 if requests.count > 1 {
                     #expect(Set(requests.map(\.requestDigest)).count == 1)
@@ -540,7 +532,7 @@ struct ArborSyncTests {
                         previousRoot: initial.root,
                         kind: "merged",
                         acceptedAt: 1_800_000_000_000,
-                        baseRoot: request.base.root,
+                        baseRoot: initial.root,
                         candidateRoot: request.candidate,
                         remoteRoot: initial.root,
                         merge: summary
@@ -660,10 +652,8 @@ private func descriptor(tree: String, snapshot: WireSnapshot, update: String) ->
         ref: snapshot.root,
         access: "write",
         canonical: WireCanonicalDescriptor(
-            locator: "arbor://arbor.example/~owner/\(tree)",
             path: "/~owner/\(tree)",
-            endpoint: "https://arbor.example",
-            httpURL: "https://arbor.example/~owner/\(tree)"
+            endpoint: "https://arbor.example"
         ),
         update: update
     )

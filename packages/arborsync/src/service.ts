@@ -19,7 +19,7 @@ import type {
   TreeRef,
   WorkspaceOperation,
 } from "@arbor/core";
-import { LOCAL_TREE, SYSTEM_TREE, canonicalNodePath, generateArborID, pageIDFromStableKey, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
+import { LOCAL_TREE, SYSTEM_TREE, canonicalArborLocator, canonicalHTTPURL, canonicalNodePath, generateArborID, pageIDFromStableKey, revisionOf, sha256, siblingMarkdownTreePath } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { FsConflictError } from "@arbor/fs";
 import { CommunityConfigStore, VisitedTreeStore, arborDataRoot, arborPrivateRoot, saveCurrentDeviceID } from "@arbor/stores";
@@ -301,7 +301,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const configured = await this.communityConfig.get();
     const resolution = await new WireClient(origin, configured?.record.origin === origin ? configured.accountToken : undefined).resolve(path || "/");
     if (resolution.enclosingTree?.canonical) {
-      this.remoteAuthorities.set(resolution.enclosingTree.id, { locator: resolution.enclosingTree.canonical.locator, endpoint: origin });
+      this.remoteAuthorities.set(resolution.enclosingTree.id, { locator: canonicalArborLocator(resolution.enclosingTree.canonical), endpoint: origin });
     }
     const local = (await this.trees.descriptors()).find((tree) => tree.id === resolution.ref.tree);
     return { ...resolution, ...(local ? { enclosingTree: local } : {}) };
@@ -363,7 +363,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       }
       remote = resolution.enclosingTree as RemoteTreeDescriptor;
       remotePath = resolution.ref.path;
-      this.remoteAuthorities.set(remote.id, { locator: remote.canonical!.locator, endpoint: origin });
+      this.remoteAuthorities.set(remote.id, { locator: canonicalArborLocator(remote.canonical!), endpoint: origin });
     }
     catch (error) {
       if (error instanceof TypeError) throw error;
@@ -830,8 +830,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
       `name: ${JSON.stringify(tree.name)}`,
       `placement: ${tree.placement}`,
       ...(tree.osPath ? [`path: ${JSON.stringify(tree.osPath)}`] : []),
-      ...(tree.canonical ? [`canonical: ${JSON.stringify(tree.canonical.locator)}`] : []),
-      ...(tree.canonical ? [`http: ${JSON.stringify(tree.canonical.httpURL)}`] : []),
+      ...(tree.canonical ? [`canonical: ${JSON.stringify(canonicalArborLocator(tree.canonical))}`] : []),
+      ...(tree.canonical ? [`http: ${JSON.stringify(canonicalHTTPURL(tree.canonical))}`] : []),
       ...(tree.canonical ? [`endpoint: ${JSON.stringify(tree.canonical.endpoint)}`] : []),
       ...(tree.canonical ? [`canonicalPath: ${JSON.stringify(tree.canonical.path)}`] : []),
       `access: ${tree.access}`,
@@ -922,7 +922,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       profileTree: account.profileTree,
       profileURL: account.profileURL,
       communityTree: account.community.id,
-      communityURL: account.community.canonical!.locator,
+      communityURL: canonicalArborLocator(account.community.canonical!),
       configurationTree: account.configuration.id,
       configurationRef: account.configuration.ref,
       configurationUpdate: account.configuration.update,
@@ -1123,7 +1123,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     await savePendingTreeUpdate(
       tree,
       pendingFromSnapshot(
-        { root: conflict.details.current.root, update: conflict.details.current.id },
+        conflict.details.current.id,
         candidate,
       ),
     );
@@ -1182,11 +1182,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     );
     if (snapshot.root === placement.ref) return;
     const retainedHashes = new Set(retained.hashes);
-    let pending = pendingFromSnapshot(
-      { root: placement.ref, update: placement.update },
-      snapshot,
-      retainedHashes,
-    );
+    let pending = pendingFromSnapshot(placement.update, snapshot, retainedHashes);
 
     const baseBytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(admission.baseSource) });
     const resultBytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(admission.resultSource) });
@@ -1233,12 +1229,12 @@ export class ArborSyncDaemon implements AsyncDisposable {
             const remoteTrees = await listed;
             if (!remoteTrees.some((tree) => tree.id === placement.tree)) {
               const initial = await this.snapshotWorkspace(workspace, client, remoteTrees);
-              const activated = await client.activateTree(placement.tree, initial);
+              const activated = await client.submitUpdate(placement.tree, null, initial);
               await this.trees.updateSyncMetadata({
                 ...placement,
-                ref: activated.snapshot.ref,
-                update: activated.snapshot.update,
-                access: activated.snapshot.access === "none" ? "write" : activated.snapshot.access,
+                ref: activated.update.root,
+                update: activated.update.id,
+                access: "write",
               });
               await saveAcceptedTreeObjects(placement.tree, initial);
               this.trees.setSyncState(placement.tree, "idle");

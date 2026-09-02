@@ -53,7 +53,8 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(node.content?.source, "---\nid: abc123\ntitle: Today\n---\nHello\n")
         XCTAssertEqual(node.ref.tree, "tr_notes7f3q2ab7c")
         XCTAssertEqual(node.enclosingTree?.osPath, "/Users/joe/notes")
-        XCTAssertEqual(node.enclosingTree?.canonical?.locator, "arbor://notes.example/~joe/notes")
+        XCTAssertEqual(node.enclosingTree?.canonical?.arborURL, "arbor://notes.example/~joe/notes")
+        XCTAssertEqual(node.enclosingTree?.canonical?.httpURL, "https://notes.example/~joe/notes")
         XCTAssertEqual(untracked.ref.tree, "local")
         XCTAssertNil(untracked.enclosingTree)
         XCTAssertEqual(systemTree.ref.tree, "system")
@@ -412,7 +413,7 @@ final class ArborClientTests: XCTestCase {
             candidate: wireSnapshot.root
         )
         let response = Data("""
-        {"outcome":"current","requestDigest":"\(requestDigest)","current":{"id":"up_atlas1","tree":"tr_atlas","sequence":1,"root":"\(wireSnapshot.root)","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null},"observedThrough":"up_atlas1"}
+        {"outcome":"current","requestDigest":"\(requestDigest)","update":{"id":"1","tree":"tr_atlas","root":"\(wireSnapshot.root)","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null},"observedThrough":"1"}
         """.utf8)
         await URLProtocolStub.state.install { _, attempt in
             attempt == 1
@@ -433,7 +434,7 @@ final class ArborClientTests: XCTestCase {
         let result = try await client.submitUpdate(prepared)
         guard case .current(let current) = result else { return XCTFail("Expected current") }
         let snapshot = await URLProtocolStub.state.snapshot()
-        XCTAssertEqual(current.id, "up_atlas1")
+        XCTAssertEqual(current.id, "1")
         XCTAssertEqual(snapshot.count, 2)
         XCTAssertEqual(snapshot.bodies[0], snapshot.bodies[1])
         XCTAssertEqual(snapshot.requests[0].authorization, "Bearer device-token")
@@ -448,7 +449,7 @@ final class ArborClientTests: XCTestCase {
         let remote = "sha256:" + String(repeating: "1", count: 64)
         let draftObjects = draft.objects.map { "{\"hash\":\"\($0.hash)\",\"bytes\":\"\($0.bytes.base64EncodedString())\"}" }.joined(separator: ",")
         let response = Data("""
-        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","current":{"id":"up_remote","tree":"tr_atlas","sequence":2,"root":"\(remote)","previousRoot":"\(base)","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
+        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previousRoot":"\(base)","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
         """.utf8)
         await URLProtocolStub.state.install { _, _ in (409, response) }
         let client = ArborWireClient(
@@ -502,7 +503,7 @@ final class ArborClientTests: XCTestCase {
         let wireSnapshot = try wireSnapshot("object")
         let root = try XCTUnwrap(wireSnapshot.objects.first { $0.hash == wireSnapshot.root })
         let descriptor = """
-        {"snapshot":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"locator":"arbor://canopy.test/~alice/atlas","path":"/~alice/atlas","endpoint":"https://canopy.test","httpURL":"https://canopy.test/~alice/atlas","parentTree":null},"ref":"\(wireSnapshot.root)","update":"up_1"},"observedThrough":"up_1"}
+        {"snapshot":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://canopy.test","parentTree":null},"ref":"\(wireSnapshot.root)","update":"up_1"},"observedThrough":"up_1"}
         """
         await URLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {
@@ -546,7 +547,7 @@ final class ArborClientTests: XCTestCase {
     }
 
     func testRemoteBrowsingResolvesThenUsesExplicitTreeScope() async throws {
-        let response = Data(#"{"ref":{"tree":"tr_notes7f3q2ab7c","path":"/notes/today","stableKey":"[[\"id\",\"abc123\"]]"},"enclosingTree":{"id":"tr_notes7f3q2ab7c","kind":"ordinary","access":"read","canonical":{"locator":"arbor://example.test/~alice/notes","path":"/~alice/notes","endpoint":"https://example.test","httpURL":"https://example.test/~alice/notes","parentTree":null}},"historical":false,"observedThrough":"up_notes"}"#.utf8)
+        let response = Data(#"{"ref":{"tree":"tr_notes7f3q2ab7c","path":"/notes/today","stableKey":"[[\"id\",\"abc123\"]]"},"enclosingTree":{"id":"tr_notes7f3q2ab7c","kind":"ordinary","access":"read","canonical":{"path":"/~alice/notes","endpoint":"https://example.test","parentTree":null}},"historical":false,"observedThrough":"up_notes"}"#.utf8)
         await URLProtocolStub.state.install { request, _ in
             request.url?.path == "/v1/resolve"
                 ? (200, response)

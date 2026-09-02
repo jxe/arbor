@@ -40,7 +40,7 @@ and replay behavior:
 | Operation | Purpose | Durable effect | Replay boundary |
 |---|---|---|---|
 | `ref`, `snapshot`, `objects` | Read one accepted tree state | None | `observedThrough` starts a watch without a read/watch gap |
-| `updates` | Propose a complete candidate state | May append one accepted update | Semantic request identity recovers an ambiguous result |
+| `updates` | Propose a complete candidate state, or activate a reserved tree with a null base | May append one accepted update | Semantic request identity recovers an ambiguous result |
 | `watch` | Follow ordered accepted transitions | None | An event cursor resumes retained observation history |
 
 The deterministic lossless graph is both the synchronization representation
@@ -173,19 +173,18 @@ it previously observed:
 
 ```ts
 type UpdateRequest = {
-  base: {
-    root: Hash;
-    update: string;
-  };
+  base: string | null;
   candidate: Hash;
   objects: ObjectEnvelope[];
   deltas?: ObjectDelta[];
-  returnSnapshot?: true | "if-result-differs";
 };
 ```
 
-`base.root` and `base.update` bind reconciliation to one retained accepted
-event, including the case where the same root appears again later. `candidate`
+`base` is the id of the retained accepted update the candidate was derived
+from; the authority knows that update's root, so the pair binds reconciliation
+to one accepted event even when the same root appears again later. A `null`
+base activates a reserved tree ([§6.2](#62-declaring-and-activating-a-tree))
+with its complete initial snapshot and carries no deltas. `candidate`
 names the exact Wire root encoding the desired complete candidate tree state.
 The authority decodes and validates its modeled state and all
 projection-specific fidelity required by that encoding. `objects` supplies
@@ -221,7 +220,6 @@ A successful response is:
 type AcceptedUpdate = {
   id: string;
   tree: TreeID;
-  sequence: number;
   root: Hash;
   previousRoot: Hash | null;
   kind: "initial" | "accepted" | "merged" | "restored";
@@ -235,48 +233,33 @@ type MergeSummary =
   | { version: "account-config-v1"; mergedFields: number }
   | { version: "rollup-rows-v1"; mergedRows: number };
 
-type UpdateResult =
-  | {
-      outcome: "current";
-      current: AcceptedUpdate;
-      requestDigest: Hash;
-      observedThrough: EventCursor;
-      snapshot?: TreeSnapshot;
-    }
-  | {
-      outcome: "accepted";
-      update: AcceptedUpdate;
-      requestDigest: Hash;
-      observedThrough: EventCursor;
-      snapshot?: TreeSnapshot;
-    }
-  | {
-      outcome: "merged";
-      update: AcceptedUpdate;
-      merge: MergeSummary;
-      requestDigest: Hash;
-      observedThrough: EventCursor;
-      snapshot?: TreeSnapshot;
-    };
+type UpdateResult = {
+  outcome: "current" | "accepted" | "merged";
+  update: AcceptedUpdate;
+  requestDigest: Hash;
+  observedThrough: EventCursor;
+  snapshot?: TreeSnapshot;
+};
 ```
+
+`update` is the accepted update that stands after the decision: the untouched
+current one for `current`, or the newly accepted or merged one, whose `merge`
+summary describes any merge. An accepted update's `id` is the decimal ordinal
+of the observation that recorded it, so it is also that update's `tree.ref`
+cursor and `observedThrough`. `snapshot` is present exactly when the accepted
+root differs from the submitted candidate: a superseded, merged, or replayed
+result returns the complete authoritative snapshot needed for immediate
+reconciliation, and an accepted candidate returns none.
 
 A conflict uses the shared `ArborError` envelope with
 `details.kind: "server-update" | "account-configuration"`. Its details include
-the current `AcceptedUpdate`, submitted base and candidate roots, a complete
-portable `draft`, structured conflict reasons, and `currentSnapshot` when the
-request asked the server to return an authoritative snapshot.
-
-For an ordinary accepted ref change, `observedThrough` is that accepted
-update's watch cursor. `returnSnapshot` is a transport-only response hint. With
-`true`, the server returns the complete accepted snapshot. With
-`"if-result-differs"`, it omits the snapshot only when the accepted root equals
-the submitted candidate; a remote-current, merged, or conflicted result returns
-the complete authoritative snapshot needed for immediate reconciliation.
+the current `AcceptedUpdate`, the base and candidate roots, a complete portable
+`draft`, structured conflict reasons, and the authoritative `currentSnapshot`.
 
 Semantic request identity is the SHA-256 of the
 [canonical CBOR encoding](#33-deterministic-lossless-encoding-and-tree-scoped-authorization)
 of `{ version: "updates-v1", tree, base, candidate }`, scoped to the
-authenticated credential. `objects`, `deltas`, their ordering, and `returnSnapshot` are
+authenticated credential. `objects`, `deltas`, and their ordering are
 transport choices and are excluded. An ambiguous retry may therefore replace a
 delta with complete bytes without changing identity. Exact accepted or merged
 replay returns the original result and creates no duplicate accepted update.
@@ -331,9 +314,10 @@ type TreeRefEvent = {
 };
 ```
 
-Accepted updates have a gap-free, one-based `sequence` within their tree. The
-sequence orders accepted content only; `EventCursor` continues to order the
-combined observation stream. Initial accepted updates have no transition.
+Accepted updates are ordered within their tree by their `id`, the observation
+ordinal that recorded them; the same ordinal orders the combined observation
+stream, so one counter yields update ids and event cursors. Initial accepted
+updates have no transition.
 Every later accepted update durably records one replay payload from its exact
 `previousRoot` to `root`, regardless of whether the authority directly accepted,
 merged, or restored that result.
@@ -352,8 +336,8 @@ representations later without changing accepted history or observable Wire
 semantics. Content-addressed objects and accepted roots remain canonical;
 transition chains are replay acceleration and never the sole recovery source.
 
-`transitions` is nonempty, contiguous by `sequence`, chains exactly by root, and
-ends at `change.descriptor.update` and `change.descriptor.ref`. The frame ID is
+`transitions` is nonempty, chains exactly by root (each `previousRoot` is the
+preceding `root`), and ends at `change.descriptor.update` and `change.descriptor.ref`. The frame ID is
 the final transition's update ID. Live delivery normally has one entry. Replay
 groups consecutive retained accepted-update events into bounded batches without
 crossing another observation event; it does not structurally simplify or
@@ -393,7 +377,7 @@ This non-normative example shows how the preceding operations compose:
    `{ root, update }` base.
 2. It builds the complete candidate graph, omitting unchanged objects and using
    an `ObjectDelta` when that is smaller than the complete changed object.
-3. It submits the candidate with `returnSnapshot: "if-result-differs"`. The
+3. It submits the candidate against its accepted base update id. The
    authority validates it, performs any merge, and atomically records at most
    one accepted update.
 4. The response and the corresponding `tree.ref` event may arrive in either
@@ -696,10 +680,8 @@ type TreeDescriptor = {
   kind: TreeKind;
   access: AccessLevel;
   canonical: {
-    locator: string;
     path: LogicalPath;
     endpoint: string;
-    httpURL: string;
     parentTree: TreeID | null;
   } | null;
 };
@@ -773,9 +755,13 @@ may remain valid during migration, but activation and pairing require the new
 form. Generating an ID neither reserves it nor contacts the server.
 
 Server resolution always supplies `enclosingTree`. Ordinary hosted trees
-have complete non-null canonical data. The authenticated account-configuration
-tree is returned only to its account and has `kind: "account-configuration"`
-and `canonical: null`.
+have complete non-null canonical data: the decoded canonical `path`, the
+tree-scoped `endpoint` (`{origin}/.arbor/trees/{TreeID}`), and the enclosing
+`parentTree`. The tree's public HTTP URL and `arbor://` locator are not carried
+on the wire; clients derive them as the endpoint's origin (respectively its
+host) followed by the canonical path percent-encoded segment by segment. The
+authenticated account-configuration tree is returned only to its account and
+has `kind: "account-configuration"` and `canonical: null`.
 
 Every tree operation, result, event, effect, and relevant error names its `TreeID`. `local` and `system` are not wire values. Writability is derived from effective access and historical state.
 
@@ -878,7 +864,7 @@ authorize a transition.
 ### 3.5 Errors
 
 The shared error envelope and common codes are normative. Narrow server-only
-codes include `already-claimed` and `tree-id-conflict`. Base/update mismatch,
+codes include `already-claimed`. Base/update mismatch,
 reserved boundaries, policy failures, and merge conflicts use `conflict` with
 discriminated `server-update` or `account-configuration` details where
 applicable.
@@ -973,19 +959,23 @@ placements must name it. Pending trees are unreadable, unresolved, and
 unattached.
 
 An eligible administrator snapshots its filesystem placement or pathless
-replica and calls:
+replica and submits it as the tree's first update:
 
 ```text
-PUT /.arbor/trees/{TreeID}
+POST /.arbor/trees/{TreeID}/updates
+{ "base": null, "candidate": <root>, "objects": [...] }
 ```
 
-The request contains the complete initial snapshot. The server validates
-the graph and applicable profile schema, creates the first accepted update,
-applies the declared ACL and parent boundary, marks the tree active, and emits
-observation events atomically. First valid activation wins; an identical replay
-succeeds and incompatible content is `tree-id-conflict`. Removing the pending
-declaration cancels the reservation. Pending, activating, active, and error
-status remains derived private state and events, never YAML.
+Activation is an ordinary update whose base is `null`: it has the same request
+identity, replay, and `UpdateResult` as every later update. The server requires
+the submitting administrator device to have placed the reserved tree, validates
+the graph and the applicable profile invariant, creates the first accepted
+update, applies the declared ACL and parent boundary, marks the tree active,
+and emits `tree.activation` on the account's configuration tree atomically.
+First valid activation wins: an identical replay returns `current`, and a
+different snapshot for an already active TreeID is `conflict`. Removing the
+pending declaration cancels the reservation. Pending, activating, active, and
+error status remains derived private state and events, never YAML.
 
 ### 6.3 Access
 

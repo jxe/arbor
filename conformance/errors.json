@@ -7,6 +7,5 @@
   { "error": "read-only", "message": "Historical node is read only", "retryable": false, "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", "path": "/readonly" },
   { "error": "resync-required", "message": "Read a new snapshot", "retryable": true, "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa" },
   { "error": "already-claimed", "message": "Profile already claimed", "retryable": false },
-  { "error": "tree-id-conflict", "message": "Tree identity already has different content", "retryable": false, "tree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa" },
   { "error": "future-error-code", "message": "Future", "retryable": false, "details": { "futureDetail": 1 } }
 ]

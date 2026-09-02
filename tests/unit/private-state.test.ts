@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, readFile, readlink, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   AmbiguousWorkspaceIdentityError,
   arborDataRoot,
   prepareArborDataRoot,
-  relocateArborDataRoot,
   workspaceIdentity,
   workspaceState,
 } from "@arbor/stores";
@@ -27,36 +26,7 @@ afterEach(async () => {
 });
 
 describe("Arbor private state", () => {
-  test("relocates a legacy home and leaves a compatibility symlink", async () => {
-    const outer = await temp("arbor-data-home-");
-    const legacy = join(outer, "Legacy", "Arbor");
-    const target = join(outer, ".arbor");
-    await mkdir(legacy, { recursive: true });
-    await writeFile(join(legacy, "workspaces.json"), "{}\n");
-
-    expect(await relocateArborDataRoot(target, legacy)).toEqual([]);
-    expect(await readFile(join(target, "workspaces.json"), "utf8")).toBe("{}\n");
-    expect((await lstat(target)).mode & 0o777).toBe(0o700);
-    expect((await lstat(legacy)).isSymbolicLink()).toBe(true);
-    expect(await readlink(legacy)).toBe(target);
-  });
-
-  test("uses the new home without merging a populated legacy home", async () => {
-    const outer = await temp("arbor-data-conflict-");
-    const legacy = join(outer, "Legacy", "Arbor");
-    const target = join(outer, ".arbor");
-    await mkdir(legacy, { recursive: true });
-    await mkdir(target);
-    await writeFile(join(legacy, "old"), "old");
-    await writeFile(join(target, "new"), "new");
-
-    const diagnostics = await relocateArborDataRoot(target, legacy);
-    expect(diagnostics.map((item) => item.code)).toContain("legacy-data-home-conflict");
-    expect(await readFile(join(legacy, "old"), "utf8")).toBe("old");
-    expect(await readFile(join(target, "new"), "utf8")).toBe("new");
-  });
-
-  test("an explicit data home bypasses default relocation and upgrades registry identity", async () => {
+  test("an explicit data home is used as-is and upgrades registry identity", async () => {
     const state = await temp("arbor-data-override-");
     process.env.ARBOR_DATA_HOME = state;
     await prepareArborDataRoot();

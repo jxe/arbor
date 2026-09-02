@@ -3,7 +3,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { canonicalCBORHash, encodeCanonicalCBOR } from "@arbor/core";
-import { canonicalUpdateIntent, updateRequestDigest } from "@arbor/wire";
+import { canonicalUpdateIntent, encodeWireObject, hashObject, updateRequestDigest } from "@arbor/wire";
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 const intentPath = "conformance/wire-update-intent.json";
@@ -15,10 +15,22 @@ identity.canonicalCBORBase64 = b64(canonicalUpdateIntent(intent.identity.tree, r
 identity.digest = updateRequestDigest(intent.identity.tree, request);
 intent.identity = { tree: identity.tree, base: identity.base, candidate: identity.candidate, canonicalCBORBase64: identity.canonicalCBORBase64, digest: identity.digest };
 await writeFile(intentPath, JSON.stringify(intent, null, 2) + "\n");
+// Endpoint cases carry `__DIGEST:<case>__` placeholders (or a stale digest)
+// for the request identity their body implies; fill them from the encoder.
 const endpointsPath = "conformance/wire-endpoints.json";
-const endpoints = await readFile(endpointsPath, "utf8");
-if (!endpoints.includes(oldDigest)) throw new Error("expected old digest in wire-endpoints.json");
-await writeFile(endpointsPath, endpoints.replaceAll(oldDigest, identity.digest));
+let endpoints = await readFile(endpointsPath, "utf8");
+const emptyDirectory = encodeWireObject({ type: "directory", entries: [] });
+endpoints = endpoints.replaceAll("__EMPTY_DIRECTORY_HASH__", hashObject(emptyDirectory)).replaceAll("__EMPTY_DIRECTORY_BYTES__", b64(emptyDirectory));
+const parsed = JSON.parse(endpoints) as { cases: Array<{ name: string; request: { path: string; body?: { base?: string | null; candidate?: string } } }> };
+for (const entry of parsed.cases) {
+  const body = entry.request.body;
+  if (!body || body.candidate === undefined || body.base === undefined) continue;
+  const tree = decodeURIComponent(entry.request.path.split("/")[3]!);
+  const digest = updateRequestDigest(tree, { base: body.base, candidate: body.candidate as `sha256:${string}` });
+  endpoints = endpoints.replaceAll(`__DIGEST:${entry.name}__`, digest);
+}
+if (endpoints.includes(oldDigest)) endpoints = endpoints.replaceAll(oldDigest, identity.digest);
+await writeFile(endpointsPath, endpoints);
 
 const valid = [
   { name: "null", value: null },

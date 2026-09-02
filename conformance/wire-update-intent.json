@@ -2,13 +2,10 @@
   "version": 1,
   "identity": {
     "tree": "tr_atlas",
-    "base": {
-      "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-      "update": "up_atlas1"
-    },
+    "base": "1",
     "candidate": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-    "canonicalCBORBase64": "pGRiYXNlomRyb290eEdzaGEyNTY6YWQwYWU1YmMyYzFkZmJlNDlkMzFiNGNjNWY5ZjExOTE2ODhlN2JmYTY2YTI2OGFkY2MzOWYyNzg1NmEzY2QwYmZ1cGRhdGVpdXBfYXRsYXMxZHRyZWVodHJfYXRsYXNndmVyc2lvbmp1cGRhdGVzLXYxaWNhbmRpZGF0ZXhHc2hhMjU2OmFkMGFlNWJjMmMxZGZiZTQ5ZDMxYjRjYzVmOWYxMTkxNjg4ZTdiZmE2NmEyNjhhZGNjMzlmMjc4NTZhM2NkMGI=",
-    "digest": "sha256:3520dcc432f07c09c8cf31d55cbc726e3a117078918412e7222e60da0d9d3827"
+    "canonicalCBORBase64": "pGRiYXNlYTFkdHJlZWh0cl9hdGxhc2d2ZXJzaW9uanVwZGF0ZXMtdjFpY2FuZGlkYXRleEdzaGEyNTY6YWQwYWU1YmMyYzFkZmJlNDlkMzFiNGNjNWY5ZjExOTE2ODhlN2JmYTY2YTI2OGFkY2MzOWYyNzg1NmEzY2QwYg==",
+    "digest": "sha256:2d8306b2ac67f3f4e0f91e413d2c75fe49670221cd9f74bb8b6f8e1573818e88"
   },
   "replayCases": [
     {

@@ -8,6 +8,7 @@
   "dependencies": {
     "@arbor/arborsync": "workspace:*",
     "@arbor/client": "workspace:*",
+    "@arbor/core": "workspace:*",
     "@arbor/stores": "workspace:*",
     "@arbor/wire": "workspace:*",
     "yaml": "2.8.2"

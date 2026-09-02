@@ -312,7 +312,7 @@ export class TreeSynchronizer {
     if (!pending) {
       const retained = await acceptedTreeObjects(workspace.tree);
       const retainedHashes = retained?.root === placement.ref ? new Set(retained.hashes) : new Set<ObjectHash>();
-      pending = pendingFromSnapshot({ root: placement.ref, update: placement.update }, local, retainedHashes);
+      pending = pendingFromSnapshot(placement.update, local, retainedHashes);
       await savePendingTreeUpdate(workspace.tree, pending);
     }
 
@@ -322,12 +322,9 @@ export class TreeSynchronizer {
           workspace.tree,
           pending.base,
           snapshotFromPending(pending),
-          {
-            returnSnapshot: "if-result-differs",
-            deltas: deltasFromPending(pending),
-          },
+          { deltas: deltasFromPending(pending) },
         );
-        const accepted = result.outcome === "current" ? result.current : result.update;
+        const accepted = result.update;
         local = await this.deps.snapshotWorkspace(workspace, client, remoteTrees);
         if (local.root !== pending.candidate) {
           if (accepted.root === pending.candidate) {
@@ -351,14 +348,10 @@ export class TreeSynchronizer {
               root: accepted.root,
               hashes: [...retainedHashes],
             });
-            pending = pendingFromSnapshot(
-              { root: accepted.root, update: accepted.id },
-              local,
-              retainedHashes,
-            );
+            pending = pendingFromSnapshot(accepted.id, local, retainedHashes);
           } else {
             const retained = await acceptedTreeObjects(workspace.tree);
-            const retainedHashes = retained?.root === pending.base.root
+            const retainedHashes = retained && retained.root === placement.ref
               ? new Set(retained.hashes)
               : new Set<ObjectHash>();
             pending = pendingFromSnapshot(pending.base, local, retainedHashes);

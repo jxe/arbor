@@ -1,12 +1,12 @@
 : keepalive
 
-id: up_aaaaaaaaaaaaaaaaaaaaaaaaaa
+id: 1
 event: tree.ref
-data: {"cursor":"up_aaaaaaaaaaaaaaaaaaaaaaaaaa","tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"tree.ref","change":{"descriptor":{"id":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"ordinary","access":"read","canonical":{"locator":"arbor://community.example/~joe/shared","path":"/~joe/shared","endpoint":"https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","httpURL":"https://community.example/~joe/shared","parentTree":null},"ref":"sha256:0000000000000000000000000000000000000000000000000000000000000000","update":"up_aaaaaaaaaaaaaaaaaaaaaaaaaa"}}}
+data: {"cursor":"1","tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"tree.ref","change":{"descriptor":{"id":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"ordinary","access":"read","canonical":{"path":"/~joe/shared","endpoint":"https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","parentTree":null},"ref":"sha256:0000000000000000000000000000000000000000000000000000000000000000","update":"1"}}}
 
-id: up_bbbbbbbbbbbbbbbbbbbbbbbbbb
+id: 2
 event: tree.activation
-data: {"cursor":"up_bbbbbbbbbbbbbbbbbbbbbbbbbb","tree":"tr_cccccccccccccccccccccccccc","kind":"tree.activation","change":{"tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+data: {"cursor":"2","tree":"tr_cccccccccccccccccccccccccc","kind":"tree.activation","change":{"tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
 data: "status":"active"}}
 
 : end of fixture

@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { NodeResponse } from "@arbor/core";
-import { sha256 } from "@arbor/core";
+import { canonicalHTTPURL, sha256 } from "@arbor/core";
 import { arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
 export interface VisitedTreeRecord {
@@ -30,7 +30,7 @@ export class VisitedTreeStore {
       locator,
       tree: String(snapshot.ref.tree ?? snapshot.enclosingTree?.id ?? ""),
       name: snapshot.enclosingTree?.name ?? snapshot.name,
-      canonical: snapshot.enclosingTree?.canonical?.httpURL ?? snapshot.enclosingTree?.canonical?.locator,
+      canonical: snapshot.enclosingTree?.canonical ? canonicalHTTPURL(snapshot.enclosingTree.canonical) : undefined,
       visitedAt: new Date().toISOString(),
       snapshot,
     };

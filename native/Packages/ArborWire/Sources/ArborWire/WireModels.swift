@@ -12,19 +12,56 @@ public enum ArborWireValidationError: Error, Equatable, Sendable {
 }
 
 public struct WireCanonicalDescriptor: Codable, Sendable, Equatable {
-    public var locator: String
     public var path: String
     public var endpoint: String
-    public var httpURL: String
     public var parentTree: String?
 
-    public init(locator: String, path: String, endpoint: String, httpURL: String, parentTree: String? = nil) {
-        self.locator = locator
+    public init(path: String, endpoint: String, parentTree: String? = nil) {
         self.path = path
         self.endpoint = endpoint
-        self.httpURL = httpURL
         self.parentTree = parentTree
     }
+
+    /// The public HTTP URL: the endpoint's origin followed by the encoded canonical path.
+    public var httpURL: String { canonicalHTTPURL(endpoint: endpoint, path: path) }
+    /// The `arbor://` locator: the endpoint's host followed by the encoded canonical path.
+    public var arborURL: String { canonicalArborLocator(endpoint: endpoint, path: path) }
+}
+
+/// Characters `encodeURIComponent` leaves unencoded; every other byte is percent-encoded.
+private let canonicalSegmentAllowed = CharacterSet(
+    charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
+)
+
+/// Percent-encode a decoded canonical path segment by segment; the root encodes as `/`.
+private func encodedCanonicalPath(_ path: String) -> String {
+    let segments = path.split(separator: "/").map { segment in
+        String(segment).addingPercentEncoding(withAllowedCharacters: canonicalSegmentAllowed) ?? String(segment)
+    }
+    return segments.isEmpty ? "/" : "/" + segments.joined(separator: "/")
+}
+
+/// The endpoint's scheme and authority as a WHATWG origin would render them
+/// (lowercase host, default port omitted), or nil when the endpoint has no host.
+private func endpointOrigin(_ endpoint: String) -> (scheme: String, authority: String)? {
+    guard let components = URLComponents(string: endpoint),
+          let scheme = components.scheme?.lowercased(),
+          let host = components.host?.lowercased(), !host.isEmpty else { return nil }
+    let defaultPort: Int? = scheme == "https" ? 443 : scheme == "http" ? 80 : nil
+    let port = components.port.flatMap { $0 == defaultPort ? nil : ":\($0)" } ?? ""
+    return (scheme, host + port)
+}
+
+/// The public HTTP URL of a canonical tree, derived from its endpoint and decoded path.
+public func canonicalHTTPURL(endpoint: String, path: String) -> String {
+    guard let origin = endpointOrigin(endpoint) else { return endpoint + encodedCanonicalPath(path) }
+    return "\(origin.scheme)://\(origin.authority)\(encodedCanonicalPath(path))"
+}
+
+/// The `arbor://` locator of a canonical tree, derived from its endpoint and decoded path.
+public func canonicalArborLocator(endpoint: String, path: String) -> String {
+    guard let origin = endpointOrigin(endpoint) else { return "arbor://" + encodedCanonicalPath(path) }
+    return "arbor://\(origin.authority)\(encodedCanonicalPath(path))"
 }
 
 public struct WireTreeDescriptor: Codable, Sendable, Equatable {
@@ -38,7 +75,7 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
     public var canonicalPath: String? { canonical?.path }
     public var parentTree: String? { canonical?.parentTree }
     public var httpURL: String? { canonical?.httpURL }
-    public var arborURL: String? { canonical?.locator }
+    public var arborURL: String? { canonical?.arborURL }
 
     public init(
         id: String,
@@ -68,8 +105,7 @@ public struct WireTreeDescriptor: Codable, Sendable, Equatable {
         if kind == "account-configuration" {
             guard canonical == nil else { throw ArborWireValidationError.invalidValue("Account configuration must be noncanonical") }
         } else {
-            guard let canonical, canonical.path.hasPrefix("/"), URL(string: canonical.httpURL) != nil,
-                  URL(string: canonical.locator) != nil, URL(string: canonical.endpoint) != nil else {
+            guard let canonical, canonical.path.hasPrefix("/"), URL(string: canonical.endpoint) != nil else {
                 throw ArborWireValidationError.invalidValue("Malformed canonical descriptor")
             }
         }
@@ -192,7 +228,6 @@ public struct WireMergeSummary: Codable, Sendable, Equatable {
 public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
     public var id: String
     public var tree: String
-    public var sequence: Int
     public var root: String
     public var previousRoot: String?
     public var kind: String
@@ -206,7 +241,6 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
     public init(
         id: String,
         tree: String,
-        sequence: Int = 1,
         root: String,
         previousRoot: String? = nil,
         kind: String,
@@ -219,7 +253,6 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
     ) {
         self.id = id
         self.tree = tree
-        self.sequence = sequence
         self.root = root
         self.previousRoot = previousRoot
         self.kind = kind
@@ -232,7 +265,7 @@ public struct WireAcceptedUpdate: Codable, Sendable, Equatable {
     }
 
     public func validated() throws -> Self {
-        guard !id.isEmpty, !tree.isEmpty, sequence > 0, acceptedAt.isFinite else {
+        guard !id.isEmpty, !tree.isEmpty, acceptedAt.isFinite else {
             throw ArborWireValidationError.invalidValue("Malformed accepted update identity")
         }
         try validateObjectHash(root)
@@ -471,65 +504,35 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
     }
 }
 
-public enum WireSnapshotReturn: Sendable, Equatable, Codable {
-    case always
-    case ifResultDiffers
-
-    public init(from decoder: Decoder) throws {
-        let value = try decoder.singleValueContainer()
-        if let boolean = try? value.decode(Bool.self), boolean { self = .always; return }
-        if let string = try? value.decode(String.self), string == "if-result-differs" { self = .ifResultDiffers; return }
-        throw ArborWireValidationError.invalidValue("Invalid returnSnapshot mode")
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var value = encoder.singleValueContainer()
-        switch self {
-        case .always: try value.encode(true)
-        case .ifResultDiffers: try value.encode("if-result-differs")
-        }
-    }
-}
-
 public struct WireUpdateRequest: Codable, Sendable, Equatable {
-    public var base: WireUpdateBase
+    /// The accepted update id the candidate derives from; nil activates a reserved tree.
+    public var base: String?
     public var candidate: String
     public var objects: [WireObjectEnvelope]
     public var deltas: [WireObjectDelta]?
-    public var returnSnapshot: WireSnapshotReturn?
 
-    public init(
-        base: WireUpdateBase,
-        candidate: String,
-        objects: [WireObjectEnvelope],
-        deltas: [WireObjectDelta] = [],
-        returnSnapshot: WireSnapshotReturn? = nil
-    ) {
+    public init(base: String?, candidate: String, objects: [WireObjectEnvelope], deltas: [WireObjectDelta] = []) {
         self.base = base
         self.candidate = candidate
         self.objects = objects
         self.deltas = deltas.isEmpty ? nil : deltas
-        self.returnSnapshot = returnSnapshot
     }
 
-    public init(base: WireUpdateBase, candidate: String, objects: [WireObjectEnvelope], returnSnapshot: Bool) {
-        self.init(
-            base: base,
-            candidate: candidate,
-            objects: objects,
-            returnSnapshot: returnSnapshot ? .always : nil
-        )
+    public init(base: WireUpdateBase, candidate: String, objects: [WireObjectEnvelope], deltas: [WireObjectDelta] = []) {
+        self.init(base: base.update, candidate: candidate, objects: objects, deltas: deltas)
     }
 
-    private enum CodingKeys: String, CodingKey { case base, candidate, objects, deltas, returnSnapshot }
+    private enum CodingKeys: String, CodingKey { case base, candidate, objects, deltas }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        base = try values.decode(WireUpdateBase.self, forKey: .base)
+        base = try values.decodeIfPresent(String.self, forKey: .base)
         candidate = try values.decode(String.self, forKey: .candidate)
         objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
         deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas)
-        returnSnapshot = try values.decodeIfPresent(WireSnapshotReturn.self, forKey: .returnSnapshot)
+        if base == nil, let deltas, !deltas.isEmpty {
+            throw ArborWireValidationError.invalidValue("Activation has no base to apply deltas against")
+        }
         if let deltas {
             let instructionCount = deltas.reduce(0) { $0 + $1.instructions.count }
             let insertedBytes = deltas.reduce(0) { partial, delta in
@@ -550,6 +553,15 @@ public struct WireUpdateRequest: Codable, Sendable, Equatable {
                 throw ArborWireValidationError.invalidValue("Object delta result also supplied as complete object")
             }
         }
+    }
+
+    /// A nil base is written as an explicit JSON null: activation is a request, not an omission.
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(base, forKey: .base)
+        try values.encode(candidate, forKey: .candidate)
+        try values.encode(objects, forKey: .objects)
+        try values.encodeIfPresent(deltas, forKey: .deltas)
     }
 }
 
@@ -690,17 +702,19 @@ public struct WireUpdateResponse: Sendable, Equatable, Decodable {
 }
 
 extension WireUpdateResult: Decodable {
-    private enum CodingKeys: String, CodingKey { case outcome, current, update, merge }
+    private enum CodingKeys: String, CodingKey { case outcome, update }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        let update = try values.decode(WireAcceptedUpdate.self, forKey: .update).validated()
         switch try values.decode(String.self, forKey: .outcome) {
-        case "current": self = .current(try values.decode(WireAcceptedUpdate.self, forKey: .current).validated())
-        case "accepted": self = .accepted(try values.decode(WireAcceptedUpdate.self, forKey: .update).validated())
-        case "merged": self = .merged(
-            try values.decode(WireAcceptedUpdate.self, forKey: .update).validated(),
-            try values.decode(WireMergeSummary.self, forKey: .merge).validated()
-        )
+        case "current": self = .current(update)
+        case "accepted": self = .accepted(update)
+        case "merged":
+            guard let merge = update.merge else {
+                throw DecodingError.dataCorruptedError(forKey: .update, in: values, debugDescription: "Merged update carries no merge summary")
+            }
+            self = .merged(update, merge)
         default:
             throw DecodingError.dataCorruptedError(forKey: .outcome, in: values, debugDescription: "Unknown server update outcome")
         }

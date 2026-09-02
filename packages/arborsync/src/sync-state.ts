@@ -75,7 +75,7 @@ async function save(tree: string, state: TreeSyncState): Promise<void> {
 }
 
 export function pendingFromSnapshot(
-  base: { root: ObjectHash; update: string },
+  base: string | null,
   snapshot: TreeSnapshot,
   retained: ReadonlySet<ObjectHash> = new Set(),
 ): PendingTreeUpdate {

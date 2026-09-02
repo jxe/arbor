@@ -92,10 +92,8 @@ struct ArborAppTests {
             ref: "sha256:\(String(repeating: "a", count: 64))",
             access: "write",
             canonical: WireCanonicalDescriptor(
-                locator: "arbor://arbor.example/~joe/todos",
                 path: "/~joe/todos",
-                endpoint: "https://arbor.example",
-                httpURL: "https://arbor.example/~joe/todos"
+                endpoint: "https://arbor.example"
             ),
             update: "up_native"
         )
