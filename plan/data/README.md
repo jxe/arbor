@@ -12,8 +12,9 @@ can actually happen next.
 | [011](011-collection-file-wire.md) | Separate logical child sets, child backings, and collection-file Wire interpretation; migrate schema-3 retained state | P0 | IN PROGRESS | completed Data 002 and 009; migration 001 complete |
 
 Data 011 owns the current terminology, canonical collection-file object shape,
-TypeScript/Swift cutover, conformance checkpoint, and migration 002. No other
-active plan should extend the legacy rollup encoding.
+TypeScript/Swift cutover, conformance checkpoint, and migration 002. Its code
+checkpoint is complete; the schema-3 rewrite and live cutover remain. No other
+active plan should extend the legacy encoding.
 
 ## Representation and identity
 

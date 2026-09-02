@@ -22,7 +22,7 @@ Primary ownership:
 - [`packages/core/src/protocol.ts`](../../packages/core/src/protocol.ts)
 - [`packages/core/src/sse.ts`](../../packages/core/src/sse.ts)
 - [`packages/wire/src/updates/intent.ts`](../../packages/wire/src/updates/intent.ts)
-- [`spec/04-wire.md`](../../spec/01-model-and-wire.md)
+- [`spec/04-wire.md`](../../spec/01-tree-operations.md)
 - [`tests/integration/supplies-mutations.test.ts`](../../tests/integration/supplies-mutations.test.ts)
 
 Intentional limits:
@@ -338,7 +338,7 @@ Delivered:
 
 Contract and reference documentation:
 
-- [`spec/04-wire.md`](../../spec/01-model-and-wire.md)
+- [`spec/04-wire.md`](../../spec/01-tree-operations.md)
 - [`spec/03-locators.md`](../../spec/04-locators.md)
 - [`docs/client.md`](../../docs/client.md)
 - [`docs/cli.md`](../../docs/cli.md)

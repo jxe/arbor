@@ -1,7 +1,7 @@
 # Accounts and devices
 *Part of the [Arbor spec](../spec.md): communities, profiles, the private account-configuration tree, devices, placements, and how a tree is declared and activated.*
 
-*Owns: profile documents, the profile claim, the configuration graph and YAML, device pairing, placements and projections, tree activation, and the `account-config-v1` write rules and merge rule. References: [access control](06-access-control.md) for subjects, rules, and credentials, and the [data model](01-model-and-wire.md) for synchronization.*
+*Owns: profile documents, the profile claim, the configuration graph and YAML, device pairing, placements and projections, tree activation, and the `account-config-v1` write rules and merge rule. References: [access control](06-access-control.md) for subjects, rules, and credentials, and the [data model](01-tree-operations.md) for synchronization.*
 
 ## 1. Accounts and profiles
 

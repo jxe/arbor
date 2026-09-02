@@ -7,9 +7,9 @@ This is the aspirational public contract for Arbor. It describes behavior an imp
 
 The specification contains only behavior that must remain portable across independently implemented Arbor components. The [reference documentation](docs/reference-implementation.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Arbor requirements.
 
-The normative surface begins with the logical model and its canonical lossless
-Wire encoding; then synchronization routes that read, update, and watch a tree;
-then the directory projection, locators and their public HTTP projection,
+The normative surface begins with tree reads, updates, watching, and editor
+round trips, introducing the logical model and canonical lossless Wire values
+inside those operations; then the directory projection, locators and their public HTTP projection,
 accounts and devices, access control, child backings,
 executable documents and agents, and the authoring API. Every route is listed
 in the [route index](#route-index). Local
@@ -43,7 +43,7 @@ Five concepts organize the system:
 
 1. The **global TreeID space** maps stable tree identities to logical trees without requiring one global store or discovery service.
 2. An **Arbor tree** is an independent `TreeID`, rooted hierarchy of nodes, history, synchronization stream, and whole-tree permission boundary.
-3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other roles listed in the [model](spec/01-model-and-wire.md#3-one-node-shape-for-every-kind-of-data) are roles rather than competing kinds, while expanded files, collection files, databases, and external stores are interchangeable backings where their represented model agrees.
+3. A **node** has properties, optional authored content, and a logical child set; document, directory, collection, row, file, and the other roles listed in the [model](spec/01-tree-operations.md#13-one-node-shape-for-every-kind-of-data) are roles rather than competing kinds, while expanded files, collection files, databases, and external stores are interchangeable backings where their represented model agrees.
 4. A **canonical URL lookup** first uses DNS to place a Canopy authority, then resolves that Canopy's longest readable registered boundary back to TreeID and path.
 5. An **executable document** or **agent** is a node whose reviewed capabilities bound its reads, writes, tools, and effects.
 
@@ -55,8 +55,7 @@ New readers should start with the non-normative [walkthrough](spec/00-walkthroug
 
 | File | Public contract | Status |
 |---|---|---|
-| [model and Wire encoding](spec/01-model-and-wire.md) | TreeID, logical trees, nodes and child sets, change and equivalence, accepted-state boundaries, physical entries and collection-file interpretation, canonical CBOR, deltas, and shared values | Definitional for the model; conformance-backed for encoding, deltas, and shared values |
-| [synchronization](spec/02-synchronization.md) | Server requirements, reads, updates, transitions and replay, streams, and errors over the canonical encoding | Conformance-backed for update identity, endpoints, SSE, and errors |
+| [tree operations](spec/01-tree-operations.md) | Logical and exact-byte reads; updates and writes; watching and replay; editor round trips; and the model and Wire types each operation needs | Definitional for the model; conformance-backed for encoding, updates, endpoints, SSE, errors, and shared values |
 | [directory format](spec/03-directory-format.md) | Filesystem/Markdown projection, `_index.md`, frontmatter, bounded child placement, and reserved names | Conformance-backed |
 | [locators](spec/04-locators.md) | Uniform tree/path/stable-key references, canonical and relative resolution, revisions, application queries, content fragments, the routes that find trees, and the public HTTP projection | Conformance-backed |
 | [accounts and devices](spec/05-accounts-and-devices.md) | Profiles, the profile claim, the governed account-configuration tree and its YAML, device pairing, placements, tree activation, and the `account-config-v1` merge rule | Conformance-backed for the YAML; described for claims and pairing |
@@ -82,16 +81,16 @@ Every HTTP route an Arbor server exposes, and the section that defines it.
 | Route | Defined in |
 |---|---|
 | `GET /.arbor/health`, `GET /.arbor/account`, `GET /.arbor/trees`, `GET /.well-known/arbor[/{path}]` | [locators §5](spec/04-locators.md#5-finding-trees) |
-| `GET /.arbor/trees/{TreeID}/ref`, `/snapshot`, `/objects/{hash}` | [synchronization §2](spec/02-synchronization.md#2-reading-a-tree) |
-| `POST /.arbor/trees/{TreeID}/updates` | [synchronization §3](spec/02-synchronization.md#3-updating-a-tree) |
-| `GET /.arbor/trees/{TreeID}/watch` | [synchronization §4](spec/02-synchronization.md#4-watching-a-tree) |
+| `GET /.arbor/trees/{TreeID}/ref`, `/snapshot`, `/objects/{hash}` | [tree reads §1.8](spec/01-tree-operations.md#18-reading-a-tree) |
+| `POST /.arbor/trees/{TreeID}/updates` | [updates §2.2](spec/01-tree-operations.md#22-updating-a-tree) |
+| `GET /.arbor/trees/{TreeID}/watch` | [watching §3.1](spec/01-tree-operations.md#31-watching-a-tree) |
 | `QUERY /.arbor/trees/{TreeID}/queries` | [executable documents §12.1](spec/08-executable-documents.md#121-evaluate-and-stream-named-queries) |
 | `POST /.arbor/trees/{TreeID}/mutate` | [executable documents §12.2](spec/08-executable-documents.md#122-execute-named-mutations) |
 | `GET /.arbor/trees/{TreeID}/access` | [access control §4](spec/06-access-control.md#4-reading-access) |
 | `PUT /.arbor/claims/{handle}` | [accounts §1.1](spec/05-accounts-and-devices.md#11-profile-claim) |
 | `POST /.arbor/pairings`, `PUT /.arbor/pairings/{PairingID}/claim` | [accounts §4](spec/05-accounts-and-devices.md#4-device-pairing) |
 
-Authentication headers apply to every route ([access control §2](spec/06-access-control.md#2-authentication-and-secrets)); shared values, SSE framing, and the error envelope are in [model and Wire §6](spec/01-model-and-wire.md#6-shared-values) and [synchronization §5](spec/02-synchronization.md#5-streams-and-errors).
+Authentication headers apply to every route ([access control §2](spec/06-access-control.md#2-authentication-and-secrets)); shared values are introduced with [tree reads §1.6](spec/01-tree-operations.md#16-shared-foundation-values), while SSE framing and the error envelope are in [watching §3.2](spec/01-tree-operations.md#32-streams-and-errors).
 
 ## Component roles
 
@@ -115,9 +114,9 @@ mention links here; the [roadmap](plan/roadmap.md) owns their sequencing.
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](spec/08-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](spec/08-executable-documents.md#4-queries)).
 3. **External side effects and cross-domain workflows** need an effect and consent contract distinct from deterministic collection mutations ([executable documents](spec/08-executable-documents.md#5-mutations)).
 4. **Bidirectional placement projections**: the full-duplex contract behind `mode: bidirectional` ([child backings](spec/07-child-backings.md#4-postgres-and-placement-projections)).
-5. **Database change-log and checkpoint format** for synchronizing SQLite and Postgres placements ([model and Wire §5](spec/01-model-and-wire.md#5-accepted-state-and-canonical-wire-encoding)).
+5. **Database change-log and checkpoint format** for synchronizing SQLite and Postgres placements ([model and Wire §5](spec/01-tree-operations.md#15-accepted-state-and-canonical-wire-encoding)).
 6. **Agent frontmatter**: the portable key set for model policy, tools, context, and transcript destination ([executable documents](spec/08-executable-documents.md#131-agent-files)).
 7. **A relative Markdown link carrying both a stable key and a content fragment** ([locators](spec/04-locators.md#2-stable-keys-revisions-and-fragments)).
 8. **Portable authored ordering, relationships, joins, aggregates, and pagination** in the query language; today they are capability extensions ([executable documents](spec/08-executable-documents.md#4-queries)).
 9. **A capability field that may reference a `system:` address** without making it a content locator ([locators](spec/04-locators.md#1-forms)).
-10. **A write grant limited to `ifMatch: "modelHash"`.** An update matching on the bytes hash can replace a tree's exact state; one matching on model hashes can only contribute to it. `AccessLevel` does not yet distinguish the two ([synchronization §3](spec/02-synchronization.md#3-updating-a-tree), [access control §4](spec/06-access-control.md#4-reading-access)).
+10. **A write grant limited to `ifMatch: "modelHash"`.** An update matching on the bytes hash can replace a tree's exact state; one matching on model hashes can only contribute to it. `AccessLevel` does not yet distinguish the two ([synchronization §3](spec/01-tree-operations.md#22-updating-a-tree), [access control §4](spec/06-access-control.md#4-reading-access)).

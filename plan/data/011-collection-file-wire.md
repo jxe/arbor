@@ -7,8 +7,9 @@
 - **Risk:** HIGH — every collection-file directory object and ancestor receives
   a new hash, and TypeScript, Swift, Canopy, Arbor Sync, replicas, conformance,
   and deployment state must change together.
-- **State:** PLANNED — the normative specification is written; implementation
-  and migration 002 have not started.
+- **State:** IN PROGRESS — the normative specification, TypeScript and Swift
+  cutover, shared conformance vectors, child-name rule, and local tests are
+  complete. Migration 002 and its rehearsal/cutover gates remain.
 - **Depends on:** the completed Data 002 common node contract and Data 009
   update reconciliation; migration 001 must remain unchanged and its cutover
   must be verified complete on every relevant client before migration 002 runs.

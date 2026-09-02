@@ -15,7 +15,7 @@ REST v1 reuses the wire's transport-neutral values—`TreeID`, `LogicalPath`,
 `ReadWriteAccess`, `TreeKind`, `TreeDescriptor`, `RemoteTreeDescriptor`,
 `AccessSubject`, `AccessRule`, `SafeAccessSubject`, `AccessEntry`, `NodeRef`,
 `ArborError`, and `ObservationEvent`—exactly as defined in
-[model and Wire §6](../spec/01-model-and-wire.md#6-shared-values).
+[model and Wire §6](../spec/01-tree-operations.md#16-shared-foundation-values).
 It adds only the following:
 
 ```ts
@@ -57,7 +57,7 @@ Access subjects, levels, and the `none` removal rule are defined once in
 [configuration](../spec/05-accounts-and-devices.md#3-configuration-yaml). Configuration
 and mutation requests use the wire's `AccessRule`; safe administrative
 responses use `AccessEntry`, whose link subject exposes neither raw secret nor
-digest ([model and Wire §6](../spec/01-model-and-wire.md#6-shared-values)).
+digest ([model and Wire §6](../spec/01-tree-operations.md#16-shared-foundation-values)).
 
 Every non-2xx JSON error uses the wire's `ArborError` envelope with
 `tree?: TreeRef`. Shared codes are `invalid-request`, `unauthenticated`,
@@ -123,7 +123,7 @@ optional exact-source content, materialization, diagnostics, and observation
 state. Child pages contain `NodeSummary` values and are fetched explicitly;
 `GET /v1/node` never hydrates or drains children.
 
-Logical-node rules come from the [data model](../spec/01-model-and-wire.md); exact
+Logical-node rules come from the [data model](../spec/01-tree-operations.md); exact
 directory source, `_index.md`, frontmatter, and child-placement rules come from
 the portable [directory projection](../spec/03-directory-format.md).
 Children are also the table/row browsing API: child summaries carry projected
@@ -131,9 +131,9 @@ row properties and schema capability without a collection-specific endpoint.
 Children, search, backlinks, recovery entries, mounted boundaries, events, and
 effects all retain explicit tree scope.
 
-For file-backed rollups, `_store.csv`, `_store.json`, and `_store.jsonl` rows
+For collection-file backings, `_store.csv`, `_store.json`, and `_store.jsonl` rows
 receive durable references only when `schema.ts` declares a valid primary key.
-Their child pages use a cursor bound to the exact rollup/schema revision and
+Their child pages use a cursor bound to the exact source/schema revision and
 advance by stable key. Missing, invalid, or duplicate declared keys leave the
 affected rows explicitly identity-less and read-only; the server never
 substitutes a row offset as durable identity. Markdown rows may derive the same
@@ -152,15 +152,15 @@ type IdentityRule = {
   properties: string[];
 };
 
-type ChildRepresentationSummary =
-  | { type: "expanded" }
+type ChildBackingSummary =
+  | { type: "expanded-files" }
   | {
-      type: "rollup";
-      codec: "csv" | "json" | "jsonl" | "sqlite";
-      scope: "children" | "subtree";
-      modelHash: Hash;
+      type: "collection-file";
+      format: "csv" | "json" | "jsonl";
+      childSetHash: Hash;
     }
-  | { type: "external"; driver: string };
+  | { type: "database"; driver: "sqlite"; scope: "children" | "subtree" }
+  | { type: "external-store"; driver: string };
 
 type NodeCapabilities = {
   properties?: { revision: string; schema?: Hash; writable: boolean };
@@ -173,7 +173,7 @@ type NodeCapabilities = {
   children?: {
     revision: string;
     schema?: Hash;
-    representation?: ChildRepresentationSummary;
+    backing?: ChildBackingSummary;
     total?: number;
     writable: boolean;
   };
@@ -225,12 +225,12 @@ never grants editing, execution, traversal, or file access.
 Clients may derive a parsed Markdown document from exact `NodeContent.source`;
 that derived representation is not a second authored value. Markdown property
 and content operations are addressed separately even when their capability
-revisions name the same exact source bytes. A `ChildRepresentationSummary`
+revisions name the same exact source bytes. A `ChildBackingSummary`
 describes the observed placement; it does not make backing or projection
-topology part of node identity. The current implementation's exact synchronized
-form is the legacy `RollupDescriptor`; the normative replacement and its
-post-001 migration are tracked in
-[Data 011](../plan/data/011-collection-file-wire.md).
+topology part of node identity. The exact synchronized collection-file form is
+the directory-level `CollectionFileDescriptor` defined by
+[tree reads](../spec/01-tree-operations.md#151-physical-entries-and-child-set-interpretation);
+SQLite remains a distinct database backing.
 
 The REST routes carry `NodeRef` without inventing a second locator shape. Node
 reads take it as the `tree`, `path`, and `stableKey` query parameters described
@@ -290,7 +290,7 @@ value, immutable identity properties, and exact Markdown body preservation—are
 specified once in the
 [directory format](../spec/03-directory-format.md#3-properties-markdown-content-and-identity);
 collection-file and database row writes follow [child backings](../spec/07-child-backings.md).
-Identity-less rows and file-rollup membership remain read-only. Named
+Identity-less rows and collection-file membership remain read-only. Named
 executable mutations remain the surface for authorization, multi-row work,
 cascades, and business invariants.
 Structural operations guard the relevant directory revisions. Multipart assets

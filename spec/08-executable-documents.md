@@ -1,7 +1,7 @@
 # Executable documents
 *Part of the [Arbor spec](../spec.md): the execution model for portable MDX/TSX documents and agents: named handles, queries, mutations, Arbor user identity, hosting, confinement, consent, and transcripts. The `arbor/react` and `arbor/data` packages a document is written against are the [authoring API](09-authoring-api.md).*
 
-*Owns: handle identity, query and mutation semantics and their routes, user context, compilation, hosting, confinement, the consent statement, the no-ambient-authority rule, and agents. References: the [model and Wire encoding](01-model-and-wire.md) for synchronized values and the [authoring API](09-authoring-api.md) for package surfaces.*
+*Owns: handle identity, query and mutation semantics and their routes, user context, compilation, hosting, confinement, the consent statement, the no-ambient-authority rule, and agents. References: the [model and Wire encoding](01-tree-operations.md) for synchronized values and the [authoring API](09-authoring-api.md) for package surfaces.*
 
 Arbor does not add an application object, application identifier, entry component, route table, or location language. A website is an Arbor tree containing ordinary related documents. A host that supports execution may render an authored `.mdx` or `.tsx` document at that document's ordinary canonical Arbor location.
 
@@ -149,7 +149,7 @@ A live dependency plan is a set of (provider, observation cursor, precision
 scope) entries: the narrowest proved nodes, child membership, property/content
 fields, edges, schema fingerprints, mounted roots, and profile/access facts
 that can affect the result, each bound to the cursor it was read through
-([model §4](01-model-and-wire.md#4-change-and-equivalence)). Providers translate it into committed observation or
+([model §4](01-tree-operations.md#14-change-and-equivalence)). Providers translate it into committed observation or
 conservative subtree/store invalidation. Observation precision is an
 optimization and cannot change the result.
 

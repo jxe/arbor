@@ -18,7 +18,7 @@
   conversion, Postgres, durable database observation/synchronization, native
   offline rollup-row projection, and compiler/editor tooling continue in their
   dedicated plans.
-- **Depends on:** accepted specification in `spec/01-model-and-wire.md`,
+- **Depends on:** accepted specification in `spec/01-tree-operations.md`,
   `spec/02-directory-format.md`, `spec/03-locators.md`, `spec/04-wire.md`, and
   `spec/06-stores.md`
 - **Unblocks:** Data 001 read-only projection, Data 003 representation migration, Data 004 Postgres,
@@ -873,7 +873,7 @@ from this plan's completion gate.
   backlog items superseded by this work.
 - Keep historical outcome evidence truthful: describe its old POST/collection
   implementation as historical rather than rewriting what previously shipped.
-- Use the normative `spec/01-model-and-wire.md` projection/equivalence sections as
+- Use the normative `spec/01-tree-operations.md` projection/equivalence sections as
   the architecture decision for capabilities versus provider representations
   and rollup semantics; do not create a competing implementation-only model.
 

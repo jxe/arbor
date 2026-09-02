@@ -20,7 +20,7 @@ Arbor web uses React and BlockNote. Markdown remains canonical: arborsync return
 
 The shared public data boundary is capability-based `NodeSnapshot`,
 `NodeSummary`, and `ChildrenPage`. Managed and untracked filesystem adapters
-delegate expanded directories, Markdown records, CSV/JSON/JSONL rollups, and
+delegate expanded directories, Markdown records, CSV/JSON/JSONL collection files, and
 SQLite table/row subtrees through one `NodeProviderRouter`; there is no collection
 page or private parallel node ontology. Representation loaders remain private
 store records.
@@ -41,16 +41,17 @@ The synchronized [`trees.yaml`](../spec/05-accounts-and-devices.md#3-configurati
 
 The canonical CBOR codec and `canonicalCBORHash` live in `@arbor/core`; the TypeScript wire package implements the object model, SHA-256 addressing, strict update JSON/base64, canonical semantic request identity, shared result types, and the Wire client, while filesystem snapshots and materialization live in `@arbor/fs`. Any use of JavaScript `localeCompare`, platform enumeration order, or noncanonical CBOR would be a conformance bug; the wire requires lexicographic UTF-8 entry ordering.
 
-The server-only Canopy package implements access and claims, public HTTP projection, graph validation, accepted-update reconciliation, the sole three-way merge engine, and private storage. Update handling is separated into small decision, reconciliation, merge, and transactional store modules even though they run in one process. Table definitions, the schema version stamp, and the startup schema assertion live in a separate `schema.ts` module that opens the database. Canopy's validation profile bounds one exact file rollup to 16 MiB, `schema.ts` to 1 MiB, and the normalized row set to 100,000 rows. Canopy retains every accepted root and its reachable objects indefinitely. Accepted history is internal: the HTTP surface exposes neither an accepted-history collection nor non-current objects, including to writers.
+The server-only Canopy package implements access and claims, public HTTP projection, graph validation, accepted-update reconciliation, the sole three-way merge engine, and private storage. Update handling is separated into small decision, reconciliation, merge, and transactional store modules even though they run in one process. Table definitions, the schema version stamp, and the startup schema assertion live in a separate `schema.ts` module that opens the database. Canopy's validation profile bounds one exact collection file to 16 MiB, `schema.ts` to 1 MiB, and the normalized row set to 100,000 rows. Canopy retains every accepted root and its reachable objects indefinitely. Accepted history is internal: the HTTP surface exposes neither an accepted-history collection nor non-current objects, including to writers.
 
-Wire directory objects can reference exact CSV/JSON/JSONL rollup and schema
-objects. Canopy validates those graphs, merges disjoint rows by stable identity,
+Wire directory objects carry ordinary CSV/JSON/JSONL source and schema file
+entries plus a directory-level `childrenSource` descriptor that interprets
+them as one child set. Canopy validates those graphs, merges disjoint rows by stable identity,
 and projects logical rows at ordinary public HTML/Markdown locators while
 keeping `_store.*` and `schema.ts` out of child navigation. The Swift replica
 currently preserves these objects losslessly but does not project their rows
 while fully offline.
 
-For a state-changing update, Canopy canonicalizes the semantic value `{ version: "updates-v1", tree, base, candidate, ifMatch, onConflict }`, with `onConflict` at its effective value ([synchronization §3](../spec/02-synchronization.md#3-updating-a-tree)), and hashes its canonical CBOR encoding with SHA-256, the same encoding and hash rule that addresses wire objects. The successful accepted row stores that digest for replay. Supplied object envelopes are transport aids and do not change identity; `current` and conflict outcomes remain stateless. Rejected candidates and complete conflict drafts are returned to and retained by the client, not stored as Canopy history.
+For a state-changing update, Canopy canonicalizes the semantic value `{ version: "updates-v1", tree, base, candidate, ifMatch, onConflict }`, with `onConflict` at its effective value ([synchronization §3](../spec/01-tree-operations.md#22-updating-a-tree)), and hashes its canonical CBOR encoding with SHA-256, the same encoding and hash rule that addresses wire objects. The successful accepted row stores that digest for replay. Supplied object envelopes are transport aids and do not change identity; `current` and conflict outcomes remain stateless. Rejected candidates and complete conflict drafts are returned to and retained by the client, not stored as Canopy history.
 
 The reference `canopyd` can run locally or behind a deployment provider. Provider environment detection, volume paths, Railway/Hetzner recipes, bootstrap migration variables, credential rotation, backup/restore commands, and operator reset procedures belong in deployment documentation, not the CLI or wire spec.
 

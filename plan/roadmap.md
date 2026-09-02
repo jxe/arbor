@@ -37,7 +37,7 @@ repeat their executor instructions.
 
 Durable product contracts live in the topic specifications:
 
-- the [data model](../spec/01-model-and-wire.md) owns the global TreeID space,
+- the [data model](../spec/01-tree-operations.md) owns the global TreeID space,
   partial availability, trees, nodes, identities, properties, content, children,
   derived references/relationships, the secondary canonical URL index,
   structured-data interpretation, and equivalence;
@@ -46,9 +46,9 @@ Durable product contracts live in the topic specifications:
   `_index.md`, frontmatter, child placement, tree-relative references,
   canonical names, raw TreeID fallback, schema-stable keys, application-query
   separation, content fragments, and immutable revision selection;
-- the [model and Wire encoding](../spec/01-model-and-wire.md) owns accepted-state
+- the [model and Wire encoding](../spec/01-tree-operations.md) owns accepted-state
   objects and shared synchronized values;
-- [synchronization](../spec/02-synchronization.md), [locators](../spec/04-locators.md),
+- [synchronization](../spec/01-tree-operations.md), [locators](../spec/04-locators.md),
   [accounts](../spec/05-accounts-and-devices.md), and
   [access control](../spec/06-access-control.md) own hosting, discovery,
   transitions, observation, identity, and authorization;
