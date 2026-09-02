@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "valid": [
+    {
+      "name": "null",
+      "value": null,
+      "canonicalCBORBase64": "9g==",
+      "hash": "sha256:b0b2988b6bbe724bacda5e9e524736de0bc7dae41c46b4213c50e1d35d4e5f13"
+    },
+    {
+      "name": "booleans",
+      "value": [
+        false,
+        true
+      ],
+      "canonicalCBORBase64": "gvT1",
+      "hash": "sha256:636c204df026912e90bc8e1c6d8afa40b028d6307eb40097f3bb8d5665245ae1"
+    },
+    {
+      "name": "empty-containers",
+      "value": [
+        [],
+        {}
+      ],
+      "canonicalCBORBase64": "goCg",
+      "hash": "sha256:d31dbcef74c10b604d6097c9c7046c8908e26d6c250ee169d3b452e789c87223"
+    },
+    {
+      "name": "integer-widths",
+      "value": [
+        0,
+        23,
+        24,
+        255,
+        256,
+        65535,
+        65536,
+        4294967295,
+        4294967296,
+        9007199254740991
+      ],
+      "canonicalCBORBase64": "igAXGBgY/xkBABn//xoAAQAAGv////8bAAAAAQAAAAAbAB////////8=",
+      "hash": "sha256:6f67ffcbe816b98cd05129533416f31cc840337aba19af81899488220a15ad8f"
+    },
+    {
+      "name": "negative-integers",
+      "value": [
+        -1,
+        -24,
+        -25,
+        -256,
+        -257,
+        -4294967297
+      ],
+      "canonicalCBORBase64": "hiA3OBg4/zkBADsAAAABAAAAAA==",
+      "hash": "sha256:6a0051ae51ca091996f0b4ef226e735a85c413821ee5ac5dc31506eb26ed4e67"
+    },
+    {
+      "name": "floats-are-float64",
+      "value": [
+        1.5,
+        0.1,
+        -2.5,
+        1e+21,
+        1e-7
+      ],
+      "canonicalCBORBase64": "hfs/+AAAAAAAAPs/uZmZmZmZmvvABAAAAAAAAPtESxrk1uLvUPs+etfymryvSA==",
+      "hash": "sha256:3aa7c453d2f0687d7994e93c5799a8970560a5755c8c789dc51776c84c2abf1c"
+    },
+    {
+      "name": "text-utf8",
+      "value": [
+        "",
+        "a",
+        "é",
+        "日本",
+        "😀"
+      ],
+      "canonicalCBORBase64": "hWBhYWLDqWbml6XmnKxk8J+YgA==",
+      "hash": "sha256:7240190541c287bb70822cb8930ed7d3175ed8b8d91b0ed1ac01c6f09311bcec"
+    },
+    {
+      "name": "map-keys-in-byte-order",
+      "value": {
+        "b": 1,
+        "a": {
+          "y": true,
+          "x": null
+        },
+        "é": "last",
+        "aa": "after a"
+      },
+      "canonicalCBORBase64": "pGFhomF49mF59WFiAWJhYWdhZnRlciBhYsOpZGxhc3Q=",
+      "hash": "sha256:0f7e6ae6ed5b60a4e00460876cac71674c42392af3c6bf56a1f3a0c41f6f663b"
+    },
+    {
+      "name": "update-intent-shape",
+      "value": {
+        "version": "updates-v1",
+        "tree": "tr_atlas",
+        "base": {
+          "root": "sha256:00",
+          "update": "1"
+        },
+        "candidate": "sha256:11"
+      },
+      "canonicalCBORBase64": "pGRiYXNlomRyb290aXNoYTI1NjowMGZ1cGRhdGVhMWR0cmVlaHRyX2F0bGFzZ3ZlcnNpb25qdXBkYXRlcy12MWljYW5kaWRhdGVpc2hhMjU2OjEx",
+      "hash": "sha256:f8f43cec307e189a9ce8c4d148294a07c1565149540d98c7c42aa911205cc9da"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unsorted-map-keys",
+      "canonicalCBORBase64": "omFiAWFhAg==",
+      "reason": "map keys are not in canonical byte order"
+    },
+    {
+      "name": "duplicate-map-key",
+      "canonicalCBORBase64": "omFhAWFhAg==",
+      "reason": "duplicate map key"
+    },
+    {
+      "name": "non-minimal-length",
+      "canonicalCBORBase64": "GAU=",
+      "reason": "integer 5 must use the one-byte head"
+    },
+    {
+      "name": "trailing-bytes",
+      "canonicalCBORBase64": "AQI=",
+      "reason": "one value only"
+    },
+    {
+      "name": "indefinite-length-array",
+      "canonicalCBORBase64": "nwH/",
+      "reason": "indefinite lengths are not canonical"
+    },
+    {
+      "name": "non-text-map-key",
+      "canonicalCBORBase64": "oQEC",
+      "reason": "map keys must be text"
+    }
+  ]
+}

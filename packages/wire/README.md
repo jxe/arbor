@@ -6,6 +6,6 @@ The `updates/` directory is the complete public update boundary:
 
 - `types.ts` — request, result, conflict, access, pairing, and accepted-update values;
 - `json.ts` — strict JSON/base64 transport encoding and decoding;
-- `intent.ts` — RFC 8785-compatible semantic JSON and derived request digest.
+- `intent.ts` — the canonical CBOR semantic intent and its derived request digest.
 
 Server-only behavior belongs in `@arbor/canopy`.

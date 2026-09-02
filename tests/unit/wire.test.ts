@@ -4,12 +4,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   compareWireNames,
-  decodeCBOR,
   decodeWireObject,
-  encodeCanonicalCBOR,
   encodeWireObject,
   hashObject,
 } from "@arbor/wire";
+import { canonicalCBORHash, decodeCBOR, encodeCanonicalCBOR } from "@arbor/core";
 import { ProjectionProviderHost, decodeWireFileRollup, SchemaSandbox } from "@arbor/stores";
 import { materializeTree, snapshotDirectory } from "@arbor/fs";
 
@@ -228,5 +227,29 @@ describe("canonical tree objects", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+const cborVectors = JSON.parse(await readFile(join(import.meta.dir, "../../conformance/canonical-cbor-values.json"), "utf8")) as {
+  valid: Array<{ name: string; value: unknown; canonicalCBORBase64: string; hash: `sha256:${string}` }>;
+  invalid: Array<{ name: string; canonicalCBORBase64: string }>;
+};
+
+describe("canonical CBOR value vectors", () => {
+  const fixture = cborVectors;
+  test("encodes and hashes every valid vector", () => {
+    for (const entry of fixture.valid) {
+      const encoded = encodeCanonicalCBOR(entry.value);
+      expect(Buffer.from(encoded).toString("base64"), entry.name).toBe(entry.canonicalCBORBase64);
+      expect(canonicalCBORHash(entry.value), entry.name).toBe(entry.hash);
+      expect(decodeCBOR(encoded), entry.name).toEqual(entry.value);
+    }
+  });
+  test("rejects every invalid vector and non-finite numbers", () => {
+    for (const entry of fixture.invalid) {
+      expect(() => decodeCBOR(new Uint8Array(Buffer.from(entry.canonicalCBORBase64, "base64"))), entry.name).toThrow();
+    }
+    expect(() => encodeCanonicalCBOR(Number.NaN)).toThrow("Non-finite");
+    expect(() => encodeCanonicalCBOR([Number.POSITIVE_INFINITY])).toThrow("Non-finite");
   });
 });

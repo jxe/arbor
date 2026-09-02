@@ -385,17 +385,25 @@ public actor ArborWireClient {
     }
 }
 
-public func canonicalUpdateIntent(tree: String, base: WireUpdateBase, candidate: String) -> String {
-    func quoted(_ value: String) -> String {
-        let data = try! JSONEncoder().encode(value)
-        return String(decoding: data, as: UTF8.self)
-    }
-    return "{\"base\":{\"root\":\(quoted(base.root)),\"update\":\(quoted(base.update))},\"candidate\":\(quoted(candidate)),\"tree\":\(quoted(tree)),\"version\":\"updates-v1\"}"
+/// The semantic identity of an update request as canonical CBOR bytes; the
+/// same encoding that addresses wire objects, so every Arbor identity uses one
+/// hash rule.
+public func canonicalUpdateIntent(tree: String, base: WireUpdateBase, candidate: String) -> Data {
+    CanonicalCBOR.encode(.map([
+        ("version", .text("updates-v1")),
+        ("tree", .text(tree)),
+        ("base", .map([("root", .text(base.root)), ("update", .text(base.update))])),
+        ("candidate", .text(candidate)),
+    ]))
 }
 
 public func updateRequestDigest(tree: String, base: WireUpdateBase, candidate: String) -> String {
-    let data = Data(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate).utf8)
-    return "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    canonicalCBORHash(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate))
+}
+
+/// `sha256:<hex>` of already canonical CBOR bytes.
+func canonicalCBORHash(_ encoded: Data) -> String {
+    "sha256:" + SHA256.hash(data: encoded).map { String(format: "%02x", $0) }.joined()
 }
 
 private struct EmptyBody: Encodable {}

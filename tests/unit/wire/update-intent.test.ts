@@ -16,7 +16,7 @@ interface IntentFixtures {
     tree: string;
     base: { root: ObjectHash; update: string };
     candidate: ObjectHash;
-    canonicalJSON: string;
+    canonicalCBORBase64: string;
     digest: string;
   };
   replayCases: Array<{
@@ -39,9 +39,9 @@ const deltaFixtures = JSON.parse(await readFile(
 };
 
 describe("updates-v1 JSON identity", () => {
-  test("matches the language-neutral canonical JSON and digest vector", () => {
+  test("matches the language-neutral canonical CBOR and digest vector", () => {
     const identity = fixtures.identity;
-    expect(canonicalUpdateIntent(identity.tree, identity)).toBe(identity.canonicalJSON);
+    expect(Buffer.from(canonicalUpdateIntent(identity.tree, identity)).toString("base64")).toBe(identity.canonicalCBORBase64);
     expect(updateRequestDigest(identity.tree, identity)).toBe(identity.digest);
   });
 

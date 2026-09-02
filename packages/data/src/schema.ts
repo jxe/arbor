@@ -1,7 +1,8 @@
 import { readFile, realpath } from "node:fs/promises";
+import { canonicalCBORHash } from "@arbor/core";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
-import { canonicalJSONString, sha256 } from "@arbor/core";
+import { stableJSONString, sha256 } from "@arbor/core";
 
 export type FieldType = "string" | "number" | "boolean" | "bytes" | "unknown";
 
@@ -247,7 +248,7 @@ export function introspectSQLiteDatabase(source: string | Database): StoreSchema
       version: 1,
       relations,
       relationships: {},
-      fingerprint: `sha256:${sha256(canonicalJSONString(fingerprintInput))}`,
+      fingerprint: canonicalCBORHash(fingerprintInput),
     };
   } finally {
     if (owned) database.close();
@@ -267,7 +268,7 @@ function sameSQLiteShape(left: Record<string, RelationMetadata>, right: Record<s
     indexes: relation.indexes,
     foreignKeys: relation.foreignKeys,
   }]));
-  return canonicalJSONString(shape(left)) === canonicalJSONString(shape(right));
+  return stableJSONString(shape(left)) === stableJSONString(shape(right));
 }
 
 function sqliteDefinitions(database: Database): Record<string, string> {
@@ -349,7 +350,7 @@ export async function introspectStoreSchema(
   const fixtureDefinitions = sqliteDefinitions(fixture);
   if (!fixtureDatabase) fixture.close();
   if (!sameSQLiteShape(authoredRelations, fixtureRelations)
-    || canonicalJSONString(authoredDefinitions) !== canonicalJSONString(fixtureDefinitions)) {
+    || stableJSONString(authoredDefinitions) !== stableJSONString(fixtureDefinitions)) {
     throw new Error("_store.sqlite3 does not match schema.sql");
   }
 
@@ -387,5 +388,5 @@ export async function introspectStoreSchema(
   }
 
   const fingerprintInput = { version: 1, schemaSQL, relations, relationships };
-  return { version: 1, relations, relationships, fingerprint: `sha256:${sha256(canonicalJSONString(fingerprintInput))}` };
+  return { version: 1, relations, relationships, fingerprint: canonicalCBORHash(fingerprintInput) };
 }

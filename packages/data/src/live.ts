@@ -1,4 +1,4 @@
-import { canonicalJSONString, type QueryHandleRef, type QueryStreamEvent, type QueryStreamRequest, type QueryStreamRuntime } from "@arbor/core";
+import { stableJSONString, type QueryHandleRef, type QueryStreamEvent, type QueryStreamRequest, type QueryStreamRuntime } from "@arbor/core";
 import { liveQueryStream, type LiveQueryAdapter, type LiveQueryContext, type MountedQuery } from "./live-stream.ts";
 
 export type { MountedQuery } from "./live-stream.ts";
@@ -213,7 +213,7 @@ export class RegisteredQueryRuntime implements QueryStreamRuntime {
   }
 
   stream(request: QueryStreamRequest, context: { signal: AbortSignal; user: ArborUser | null }): ReadableStream<QueryStreamEvent> {
-    if (canonicalJSONString(request.document) !== canonicalJSONString(this.document)) throw new Error("The mounted document version is not active");
+    if (stableJSONString(request.document) !== stableJSONString(this.document)) throw new Error("The mounted document version is not active");
     if (!Array.isArray(request.queries)) throw new Error("queries must be an array");
     const ids = new Set<string>();
     const mounts = request.queries.map((mount): MountedQuery => {

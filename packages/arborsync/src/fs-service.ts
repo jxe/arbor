@@ -12,7 +12,7 @@ import type {
 import {
   LOCAL_TREE,
   applySourceEdits,
-  canonicalJSONString,
+  stableJSONString,
   canonicalNodePath,
   isPageID,
   normalizeTreePath,
@@ -238,7 +238,7 @@ export class FilesystemService implements AsyncDisposable {
         });
       }
     }
-    const requestHash = sha256(canonicalJSONString(request));
+    const requestHash = sha256(stableJSONString(request));
     const existing = this.receipts.get(request.mutationID);
     if (existing) {
       if (existing.requestHash !== requestHash) {

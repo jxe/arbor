@@ -1,5 +1,4 @@
-import { compareUTF8, compareUTF8Bytes, decodeRollupDescriptor, sha256, type Hash, type RollupDescriptor } from "@arbor/core";
-import { decodeCBOR, encodeCanonicalCBOR } from "./cbor.ts";
+import { compareUTF8, compareUTF8Bytes, decodeCBOR, decodeRollupDescriptor, encodeCanonicalCBOR, sha256, type Hash, type RollupDescriptor } from "@arbor/core";
 
 export type ObjectHash = string;
 

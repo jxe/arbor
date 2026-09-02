@@ -21,7 +21,7 @@ import type {
   WorkspaceOperation,
 } from "@arbor/core";
 import {
-  canonicalJSONString,
+  stableJSONString,
   canonicalNodePath,
   applySourceEdits,
   isPageID,
@@ -356,7 +356,7 @@ export class Workspace implements AsyncDisposable {
       );
     }
     await this.prepareSourcePatch(request.operations);
-    const requestHash = sha256(canonicalJSONString(request));
+    const requestHash = sha256(stableJSONString(request));
     const existing = await this.mutations.prepare(request.mutationID, requestHash, request);
     await this.protocolFault("protocol:intent-recorded");
     if (existing.requestHash !== requestHash) {
@@ -914,7 +914,7 @@ export class Workspace implements AsyncDisposable {
     ) => Promise<MutationEffect[]>,
   ): Promise<MutationReceipt> {
     if (!mutationID) throw new ProtocolError("invalid-reference", "A mutation ID is required", 400);
-    const requestHash = sha256(canonicalJSONString({ mutationID, request }));
+    const requestHash = sha256(stableJSONString({ mutationID, request }));
     const existing = await this.mutations.prepare(mutationID, requestHash, request);
     await this.protocolFault("protocol:intent-recorded");
     if (existing.requestHash !== requestHash) {

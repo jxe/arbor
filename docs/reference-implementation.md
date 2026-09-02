@@ -39,7 +39,7 @@ The synchronized [`trees.yaml`](../spec/05-configuration.md#configuration-yaml) 
 
 ## Wire encoding, reconciliation, and hosting
 
-The TypeScript wire package implements deterministic CBOR objects, SHA-256 addressing, filesystem snapshots, strict update JSON/base64, canonical semantic request identity, shared result types, and the Wire client. Any use of JavaScript `localeCompare`, platform enumeration order, or noncanonical CBOR would be a conformance bug; the wire requires lexicographic UTF-8 entry ordering.
+The canonical CBOR codec and `canonicalCBORHash` live in `@arbor/core`; the TypeScript wire package implements the object model, SHA-256 addressing, strict update JSON/base64, canonical semantic request identity, shared result types, and the Wire client, while filesystem snapshots and materialization live in `@arbor/fs`. Any use of JavaScript `localeCompare`, platform enumeration order, or noncanonical CBOR would be a conformance bug; the wire requires lexicographic UTF-8 entry ordering.
 
 The server-only Canopy package implements access and claims, public HTTP projection, graph validation, accepted-update reconciliation, the sole three-way merge engine, and private storage. Update handling is separated into small decision, reconciliation, merge, and transactional store modules even though they run in one process. Canopy retains every accepted root and its reachable objects indefinitely. Accepted history is internal: the HTTP surface exposes neither an accepted-history collection nor non-current objects, including to writers.
 
@@ -50,7 +50,7 @@ keeping `_store.*` and `schema.ts` out of child navigation. The Swift replica
 currently preserves these objects losslessly but does not project their rows
 while fully offline.
 
-For a state-changing update, Canopy canonicalizes the semantic value `{ version: "updates-v1", tree, base, candidate }` ([wire §1.4](../spec/04-wire.md#14-submit-a-candidate-state)) and hashes its RFC 8785 UTF-8 JSON with SHA-256. The successful accepted row stores that digest for replay. Supplied object envelopes are transport aids and do not change identity; `current` and conflict outcomes remain stateless. Rejected candidates and complete conflict drafts are returned to and retained by the client, not stored as Canopy history.
+For a state-changing update, Canopy canonicalizes the semantic value `{ version: "updates-v1", tree, base, candidate }` ([wire §1.4](../spec/04-wire.md#14-submit-a-candidate-state)) and hashes its canonical CBOR encoding with SHA-256, the same encoding and hash rule that addresses wire objects. The successful accepted row stores that digest for replay. Supplied object envelopes are transport aids and do not change identity; `current` and conflict outcomes remain stateless. Rejected candidates and complete conflict drafts are returned to and retained by the client, not stored as Canopy history.
 
 The reference `canopyd` can run locally or behind a deployment provider. Provider environment detection, volume paths, Railway/Hetzner recipes, bootstrap migration variables, credential rotation, backup/restore commands, and operator reset procedures belong in deployment documentation, not the CLI or wire spec.
 

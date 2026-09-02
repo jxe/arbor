@@ -1,5 +1,5 @@
 import type { Diagnostic, SearchResult } from "./types.ts";
-import { sha256 } from "./hash.ts";
+import { canonicalCBORHash } from "./cbor.ts";
 import type { JSONValue, NodeRef, NodeSnapshot } from "./node-model.ts";
 import type { ContentRevision, DirectoryRevision, EventCursor, Hash, LogicalPath, TreeID, TreeRef } from "./identifiers.ts";
 
@@ -387,14 +387,18 @@ export interface ObservationEvent<TKind extends string = string, TChange = unkno
   change: TChange;
 }
 
-export function canonicalJSONString(value: unknown): string {
+/**
+ * Deterministic JSON text for local equality comparison and private receipts.
+ * It is not a wire identity: every hashed identity uses `canonicalCBORHash`.
+ */
+export function stableJSONString(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJSONString).join(",")}]`;
+  if (Array.isArray(value)) return `[${value.map(stableJSONString).join(",")}]`;
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
     .filter((key) => record[key] !== undefined)
     .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJSONString(record[key])}`)
+    .map((key) => `${JSON.stringify(key)}:${stableJSONString(record[key])}`)
     .join(",")}}`;
 }
 
@@ -403,5 +407,5 @@ export function canonicalJSONString(value: unknown): string {
  * details must be removed by the caller before constructing this value.
  */
 export function semanticRequestDigest(identity: unknown): Hash {
-  return `sha256:${sha256(canonicalJSONString(identity))}`;
+  return canonicalCBORHash(identity);
 }

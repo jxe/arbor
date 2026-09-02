@@ -7,19 +7,25 @@
       "update": "up_atlas1"
     },
     "candidate": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-    "canonicalJSON": "{\"base\":{\"root\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"update\":\"up_atlas1\"},\"candidate\":\"sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b\",\"tree\":\"tr_atlas\",\"version\":\"updates-v1\"}",
-    "digest": "sha256:a6e2c7c02cd1cf6e094b115a95fc4c454ed22c9ce9270fc2a3060fcd0a1f4ba5"
+    "canonicalCBORBase64": "pGRiYXNlomRyb290eEdzaGEyNTY6YWQwYWU1YmMyYzFkZmJlNDlkMzFiNGNjNWY5ZjExOTE2ODhlN2JmYTY2YTI2OGFkY2MzOWYyNzg1NmEzY2QwYmZ1cGRhdGVpdXBfYXRsYXMxZHRyZWVodHJfYXRsYXNndmVyc2lvbmp1cGRhdGVzLXYxaWNhbmRpZGF0ZXhHc2hhMjU2OmFkMGFlNWJjMmMxZGZiZTQ5ZDMxYjRjYzVmOWYxMTkxNjg4ZTdiZmE2NmEyNjhhZGNjMzlmMjc4NTZhM2NkMGI=",
+    "digest": "sha256:3520dcc432f07c09c8cf31d55cbc726e3a117078918412e7222e60da0d9d3827"
   },
   "replayCases": [
     {
       "name": "same-intent-different-object-envelope",
       "sameIntent": true,
-      "expected": {"sameStatus": true, "sameBody": true, "additionalAcceptedUpdates": 0}
+      "expected": {
+        "sameStatus": true,
+        "sameBody": true,
+        "additionalAcceptedUpdates": 0
+      }
     },
     {
       "name": "different-candidate-has-different-digest",
       "sameIntent": false,
-      "expected": {"differentDigest": true}
+      "expected": {
+        "differentDigest": true
+      }
     }
   ]
 }

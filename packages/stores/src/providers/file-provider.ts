@@ -1,7 +1,8 @@
 import { toJSONValue } from "@arbor/core";
+import { canonicalCBORHash } from "@arbor/core";
 import { readFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
-import { canonicalJSONString, revisionOf, rowPathSegment, stableKeyFromProperties } from "@arbor/core";
+import { stableJSONString, revisionOf, rowPathSegment, stableKeyFromProperties } from "@arbor/core";
 import type { Diagnostic, Hash, JSONValue } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { commitPrepared, prepareAtomic, readRevision, removeIfExists } from "@arbor/fs";
@@ -212,7 +213,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
     }
     let temporaryPath: string | undefined;
     try {
-      const output = canonicalJSONString(current.values) === canonicalJSONString(candidate)
+      const output = stableJSONString(current.values) === stableJSONString(candidate)
         ? source
         : replaceFileRollupRow(definition.provider, source, current.key, candidate);
       temporaryPath = await prepareAtomic(definition.storePath, output);
@@ -227,8 +228,8 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
         properties: (toJSONValue(row.values) ?? {}) as Record<string, JSONValue>,
       }));
       if (!prepared.editable || !preparedRow
-        || canonicalJSONString(expectedRows) !== canonicalJSONString(actualRows)
-        || canonicalJSONString(preparedRow.values) !== canonicalJSONString(candidate)) {
+        || stableJSONString(expectedRows) !== stableJSONString(actualRows)
+        || stableJSONString(preparedRow.values) !== stableJSONString(candidate)) {
         throw new ProjectionProviderError("invalid-write", "The exact-source edit did not round-trip to the complete candidate collection");
       }
       const finalTemporaryPath = temporaryPath;
@@ -305,7 +306,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
         throw error;
       }
     }));
-    return `${dirname(definition.storePath ?? definition.schemaPath ?? definition.markdownPaths?.[0] ?? "/")}\0${revisionOf(canonicalJSONString(states))}`;
+    return `${dirname(definition.storePath ?? definition.schemaPath ?? definition.markdownPaths?.[0] ?? "/")}\0${revisionOf(stableJSONString(states))}`;
   }
 
   private invalidate(directory: string): void {
@@ -338,7 +339,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
         ...row,
         path: definition.provider === "markdown" ? row.path : stableKey ? rowPathSegment(stableKey) : `~row-${index + 1}`,
         stableKey,
-        revision: row.revision ?? revisionOf(canonicalJSONString(values)), values, diagnostics,
+        revision: row.revision ?? revisionOf(stableJSONString(values)), values, diagnostics,
       } satisfies ProviderChildRecord;
     }));
     const counts = new Map<string, number>();
@@ -353,9 +354,9 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       }],
     }));
     const revision = revisionOf(`${loaded.revision}\0${description.revision}\0${JSON.stringify({ columns: description.columns, primaryKey: identityProperties })}`);
-    const modelDigest = revisionOf(canonicalJSONString([...rows]
+    const modelDigest = canonicalCBORHash([...rows]
       .sort((left, right) => (left.stableKey ?? left.path).localeCompare(right.stableKey ?? right.path))
-      .map((row) => ({ key: row.stableKey, path: row.path, properties: row.values }))));
+      .map((row) => ({ key: row.stableKey, path: row.path, properties: row.values })));
     return {
       description, rows, revision, sourceRevision: loaded.revision, modelDigest,
       diagnostics: [...definition.diagnostics, ...loaded.diagnostics],

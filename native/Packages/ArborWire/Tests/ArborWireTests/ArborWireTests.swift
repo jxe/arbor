@@ -117,7 +117,7 @@ struct UpdateProtocolTests {
         }
     }
 
-    @Test("Canonical semantic intent matches the shared RFC 8785 fixture")
+    @Test("Canonical semantic intent matches the shared canonical CBOR fixture")
     func requestIdentity() throws {
         let data = try Data(contentsOf: fixtures.appending(path: "wire-update-intent.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -126,8 +126,49 @@ struct UpdateProtocolTests {
         let value = WireUpdateBase(root: base["root"] as! String, update: base["update"] as! String)
         let candidate = identity["candidate"] as! String
         let tree = identity["tree"] as! String
-        #expect(canonicalUpdateIntent(tree: tree, base: value, candidate: candidate) == identity["canonicalJSON"] as? String)
+        #expect(canonicalUpdateIntent(tree: tree, base: value, candidate: candidate).base64EncodedString() == identity["canonicalCBORBase64"] as? String)
         #expect(updateRequestDigest(tree: tree, base: value, candidate: candidate) == identity["digest"] as? String)
+    }
+
+    @Test("Swift encodes and rejects the shared canonical CBOR value vectors")
+    func canonicalCBORValueVectors() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "canonical-cbor-values.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        for entry in try #require(fixture["valid"] as? [[String: Any]]) {
+            let name = entry["name"] as? String ?? "?"
+            let expected = try #require(Data(base64Encoded: entry["canonicalCBORBase64"] as! String), "\(name)")
+            let encoded = CanonicalCBOR.encode(try cborValue(entry["value"] ?? NSNull()))
+            #expect(encoded == expected, "\(name)")
+            #expect(canonicalCBORHash(encoded) == entry["hash"] as? String, "\(name)")
+            #expect(CanonicalCBOR.encode(try CanonicalCBOR.decode(expected)) == expected, "\(name)")
+        }
+        for entry in try #require(fixture["invalid"] as? [[String: Any]]) {
+            let name = entry["name"] as? String ?? "?"
+            let bytes = try #require(Data(base64Encoded: entry["canonicalCBORBase64"] as! String), "\(name)")
+            #expect(throws: (any Error).self, "\(name)") { try CanonicalCBOR.decode(bytes) }
+        }
+    }
+
+    /// Maps a JSONSerialization value onto Arbor's canonical CBOR subset.
+    private func cborValue(_ value: Any) throws -> CanonicalCBORValue {
+        if value is NSNull { return .null }
+        if let number = value as? NSNumber {
+            if CFGetTypeID(number) == CFBooleanGetTypeID() { return .bool(number.boolValue) }
+            let objCType = String(cString: number.objCType)
+            if objCType == "d" || objCType == "f" {
+                let double = number.doubleValue
+                // JSONSerialization parses integral literals as integers, so any
+                // double here was written with a fraction or exponent and is a float.
+                return .float(double)
+            }
+            return .integer(number.intValue)
+        }
+        if let text = value as? String { return .text(text) }
+        if let array = value as? [Any] { return .array(try array.map(cborValue)) }
+        if let object = value as? [String: Any] {
+            return .map(try object.keys.sorted().map { ($0, try cborValue(object[$0]!)) })
+        }
+        throw ArborWireValidationError.invalidValue("Unsupported vector value")
     }
 
     @Test("Swift consumes the shared object-delta and conditional-snapshot fixtures")

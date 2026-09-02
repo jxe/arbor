@@ -9,7 +9,7 @@ import type {
   TreeRef,
 } from "@arbor/core";
 import {
-  canonicalJSONString,
+  stableJSONString,
   canonicalNodePath,
   mediaTypeForPath,
   toJSONValue,
@@ -241,7 +241,7 @@ export class WireProjection {
   }
 
   private rollupRowSummary(parentPath: string, schema: Hash, row: WireFileRollupRow): NodeResponse {
-    const revision = revisionOf(canonicalJSONString({ schema, properties: row.properties }));
+    const revision = revisionOf(stableJSONString({ schema, properties: row.properties }));
     return this.response({
       path: canonicalNodePath(`${parentPath === "/" ? "" : parentPath}/${row.path}`),
       stableKey: row.stableKey,

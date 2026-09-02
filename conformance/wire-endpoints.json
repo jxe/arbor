@@ -49,7 +49,7 @@
         "method": "POST",
         "path": "/.arbor/trees/tr_atlas/updates",
         "headers": { "Authorization": "Bearer <account-device-token>" },
-        "derivedRequestDigest": "sha256:a6e2c7c02cd1cf6e094b115a95fc4c454ed22c9ce9270fc2a3060fcd0a1f4ba5",
+        "derivedRequestDigest": "sha256:3520dcc432f07c09c8cf31d55cbc726e3a117078918412e7222e60da0d9d3827",
         "body": {
           "base": {
             "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
@@ -63,7 +63,7 @@
         "status": 200,
         "body": {
           "outcome": "current",
-          "requestDigest": "sha256:a6e2c7c02cd1cf6e094b115a95fc4c454ed22c9ce9270fc2a3060fcd0a1f4ba5",
+          "requestDigest": "sha256:3520dcc432f07c09c8cf31d55cbc726e3a117078918412e7222e60da0d9d3827",
           "current": {
             "id": "up_atlas1",
             "tree": "tr_atlas",

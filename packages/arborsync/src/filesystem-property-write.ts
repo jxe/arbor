@@ -6,7 +6,7 @@ import type {
   NodeResponse,
   NodeWriteRequest,
 } from "@arbor/core";
-import { canonicalJSONString, isPageID, parseCanonicalStableKey } from "@arbor/core";
+import { stableJSONString, isPageID, parseCanonicalStableKey } from "@arbor/core";
 import { replaceFrontmatter } from "@arbor/editor";
 import type { FsWriteResult, WorkspaceFS } from "@arbor/fs";
 import {
@@ -126,14 +126,14 @@ export async function writeFilesystemProperties(
 
   if (target) {
     for (const name of identityProperties) {
-      if (canonicalJSONString(properties[name]) !== canonicalJSONString(target.properties[name])) {
+      if (stableJSONString(properties[name]) !== stableJSONString(target.properties[name])) {
         throw fail("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
       }
     }
   }
   const identity = operation.ref.stableKey ? parseCanonicalStableKey(operation.ref.stableKey) : null;
   for (const [name, value] of identity ?? []) {
-    if (canonicalJSONString(properties[name]) !== canonicalJSONString(value)) {
+    if (stableJSONString(properties[name]) !== stableJSONString(value)) {
       throw fail("invalid-reference", `Identity property ${name} is immutable`, 422, { path });
     }
   }

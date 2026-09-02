@@ -1,4 +1,3 @@
-export * from "./cbor.ts";
 export * from "./objects.ts";
 export * from "./updates/types.ts";
 export * from "./updates/intent.ts";

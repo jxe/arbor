@@ -8,7 +8,7 @@ import {
   type WireDirectoryEntry,
   type WireObject,
 } from "@arbor/wire";
-import { canonicalJSONString, revisionOf, type Hash, type RollupDescriptor } from "@arbor/core";
+import { canonicalCBORHash, stableJSONString, revisionOf, type Hash, type RollupDescriptor } from "@arbor/core";
 import {
   decodeWireFileRollup,
   encodeWireFileRollup,
@@ -179,7 +179,7 @@ export async function mergeWireTrees(
 
   const rowEqual = (left: WireFileRollupRow | undefined, right: WireFileRollupRow | undefined): boolean =>
     left === undefined ? right === undefined
-      : right !== undefined && canonicalJSONString(left.properties) === canonicalJSONString(right.properties);
+      : right !== undefined && stableJSONString(left.properties) === stableJSONString(right.properties);
 
   const mergeRollup = async (
     path: string,
@@ -188,7 +188,7 @@ export async function mergeWireTrees(
     remoteDescriptor: RollupDescriptor,
   ): Promise<RollupDescriptor> => {
     sawRollupMerge = true;
-    const schemaState = (value: RollupDescriptor) => canonicalJSONString({
+    const schemaState = (value: RollupDescriptor) => stableJSONString({
       version: value.version,
       codec: value.codec,
       schemaSource: value.schemaSource,
@@ -257,9 +257,9 @@ export async function mergeWireTrees(
         }
       }
       ordered.push(...[...selected.values()].sort((left, right) => left.stableKey < right.stableKey ? -1 : 1));
-      const modelDigest = revisionOf(canonicalJSONString([...ordered]
+      const modelDigest = canonicalCBORHash([...ordered]
         .sort((left, right) => left.stableKey < right.stableKey ? -1 : left.stableKey > right.stableKey ? 1 : 0)
-        .map((row) => ({ key: row.stableKey, path: row.path, properties: row.properties })))) as Hash;
+        .map((row) => ({ key: row.stableKey, path: row.path, properties: row.properties })));
       const source = store({
         type: "file",
         bytes: encodeWireFileRollup(remoteDescriptor.codec, remoteRollup.schema, ordered),

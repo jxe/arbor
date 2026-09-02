@@ -112,10 +112,11 @@ afterAll(async () => {
   await rm(state, { recursive: true, force: true });
 });
 
-async function settleEvents(): Promise<void> {
+/** Wait until the workspace observation stream has been quiet for a while (watcher echoes from earlier writes). */
+async function settleEvents(quietMs = 200): Promise<void> {
   let cursor = workspace.events.currentCursor();
   for (;;) {
-    await Bun.sleep(50);
+    await Bun.sleep(quietMs);
     const next = workspace.events.currentCursor();
     if (next === cursor) return;
     cursor = next;
@@ -254,6 +255,7 @@ describe("portable arbor() node queries", () => {
   });
 
   test("re-evaluates a racing child event before publishing the first live result", async () => {
+    await settleEvents();
     const raceDirectory = join(root, "race-live");
     await mkdir(raceDirectory);
     await writeFile(join(raceDirectory, "one.md"), "---\nid: one\ntitle: Alpha\n---\n");

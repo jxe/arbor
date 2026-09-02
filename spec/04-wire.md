@@ -273,9 +273,10 @@ update's watch cursor. `returnSnapshot` is a transport-only response hint. With
 the submitted candidate; a remote-current, merged, or conflicted result returns
 the complete authoritative snapshot needed for immediate reconciliation.
 
-Semantic request identity is the SHA-256 of RFC 8785 canonical JSON for
-`{ version: "updates-v1", tree, base, candidate }`, scoped to the authenticated
-credential. `objects`, `deltas`, their ordering, and `returnSnapshot` are
+Semantic request identity is the SHA-256 of the
+[canonical CBOR encoding](#33-deterministic-lossless-encoding-and-tree-scoped-authorization)
+of `{ version: "updates-v1", tree, base, candidate }`, scoped to the
+authenticated credential. `objects`, `deltas`, their ordering, and `returnSnapshot` are
 transport choices and are excluded. An ambiguous retry may therefore replace a
 delta with complete bytes without changing identity. Exact accepted or merged
 replay returns the original result and creates no duplicate accepted update.
@@ -465,8 +466,8 @@ request and events are independent of whether those nodes are expanded files,
 rollups, SQLite, Postgres, mounted trees, or remote providers. A
 `knownOutputHash` permits omission of unchanged bytes only after fresh
 authorization and reevaluation; it is neither
-authorization nor evidence of current state. Output hashes are SHA-256 of RFC
-8785 canonical JSON for the complete public result.
+authorization nor evidence of current state. Output hashes are SHA-256 of the
+canonical CBOR encoding of the complete public result.
 
 Every provider translates the reviewed query into conservative logical
 sensitivities. An ordinary `.children` query depends on its resolved parent's
@@ -585,7 +586,7 @@ type MutationResultReceipt<Result = unknown> = {
 
 `document.tree` must equal the route `SourceTreeID`. The host validates the
 document/handle versions and input before opening the transaction domain.
-Mutation semantic identity is the SHA-256 of RFC 8785 canonical JSON for
+Mutation semantic identity is the SHA-256 of the canonical CBOR encoding of
 `{ version: "mutate-v1", handle, input, sources }`, where `sources` is the
 activated handle's complete, authored-path-sorted set of
 `{ authoredPath, tree, path, schemaFingerprint }` bindings. The bindings are
@@ -818,6 +819,18 @@ merge address rolled-up children without converting them into Markdown files
 or making the reserved source file a visible row. A decoder recomputes schema
 and the codec/schema-scoped `modelDigest` from `source`; a mismatch is invalid.
 This is not a universal tree serialization or hash. Exact source bytes and
+Arbor has one canonical encoding and one hash rule. The canonical CBOR subset
+is: `null`; booleans; integers in the safe 53-bit range as CBOR integers with
+minimal-length heads; every other finite number as a 64-bit float; UTF-8 text;
+byte strings; arrays; and maps whose keys are text, unique, and ordered by the
+bytes of their encoded form. Non-finite numbers, indefinite lengths, tags, and
+non-text keys are invalid. Object hashes, the `updates-v1` and `mutate-v1`
+semantic digests, query output hashes, rollup `modelDigest` values, and schema
+fingerprints are all `sha256:` of this encoding of the identified value;
+nothing on the wire is identified by a canonical JSON text. The
+[`canonical-cbor-values`](../conformance/canonical-cbor-values.json) vectors
+freeze valid encodings and rejected byte sequences for every language binding.
+
 model-state equivalence remain distinct. Names reject NUL,
 slashes, backslashes, dot segments, non-NFC text, and reserved ambiguity.
 Directory entries are canonically ordered; decoders reject noncanonical

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { serveArborSyncControl, serveArborSync } from "@arbor/arborsync";
 import { ArborSyncRESTClient, type MutationRequest, type WorkspaceEvent } from "@arbor/client";
-import { canonicalJSONString, canonicalStableKey, pageIDFromStableKey, pageIDStableKey, sha256 } from "@arbor/core";
+import { stableJSONString, canonicalStableKey, pageIDFromStableKey, pageIDStableKey, sha256 } from "@arbor/core";
 import type { Workspace } from "@arbor/arborsync";
 
 let root: string;
@@ -590,7 +590,7 @@ describe("arborsync REST v1", () => {
       mutationID: "materialized-before-crash",
       operations: [{ op: "createDirectory", tree: scope, path: "/recovered-effect" }],
     };
-    const recoveredHash = sha256(canonicalJSONString(recoveredRequest));
+    const recoveredHash = sha256(stableJSONString(recoveredRequest));
     await activeWorkspace.mutations.prepare(recoveredRequest.mutationID, recoveredHash, recoveredRequest);
     await activeWorkspace.mutations.markMaterialized(recoveredRequest.mutationID, recoveredHash, [{
       kind: "created",
@@ -606,7 +606,7 @@ describe("arborsync REST v1", () => {
         source: nodeDocument(written)!.source,
       }],
     };
-    const recoveredWriteHash = sha256(canonicalJSONString(recoveredWriteRequest));
+    const recoveredWriteHash = sha256(stableJSONString(recoveredWriteRequest));
     await activeWorkspace.mutations.prepare(recoveredWriteRequest.mutationID, recoveredWriteHash, recoveredWriteRequest);
     await activeWorkspace.mutations.markExpected(recoveredWriteRequest.mutationID, recoveredWriteHash, [{
       kind: "updated",

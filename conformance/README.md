@@ -14,3 +14,10 @@ live protocol cutover. Positive and negative cases are decoded independently by
 TypeScript and Swift. Unknown fields are forward-compatible, but legacy
 identity/location fields and incomplete known capabilities are explicitly
 invalid and cannot grant behavior.
+
+`canonical-cbor-values.json` freezes Arbor's canonical CBOR subset: every
+valid case pairs a JSON value with its exact encoding and `sha256:` hash, and
+every invalid case is a byte sequence a decoder must reject. Every hashed
+identity (object hashes, `updates-v1` and `mutate-v1` digests, query output
+hashes, rollup model digests, schema fingerprints) uses this encoding;
+`wire-update-intent.json` shows the update digest derived from it.

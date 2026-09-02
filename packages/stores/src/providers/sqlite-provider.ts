@@ -1,8 +1,9 @@
 import { dirname, join } from "node:path";
+import { canonicalCBORHash } from "@arbor/core";
 import { Database } from "bun:sqlite";
 import type { Diagnostic, Hash, JSONValue } from "@arbor/core";
 import {
-  canonicalJSONString,
+  stableJSONString,
   parseCanonicalStableKey,
   revisionOf,
   rowPathSegment,
@@ -205,7 +206,7 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
   ): ProviderChildRecord {
     const keyPairs = parseCanonicalStableKey(stableKey)!;
     const columns = Object.keys(relation.fields);
-    const requestHash = sha256(canonicalJSONString({ tableName, stableKey, basePropertiesRevision, properties }));
+    const requestHash = sha256(stableJSONString({ tableName, stableKey, basePropertiesRevision, properties }));
     const database = new Database(definition.storePath!, { strict: true });
     database.exec("pragma foreign_keys = on");
     database.exec("begin immediate");
@@ -246,7 +247,7 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
       if (!savedRaw) throw new ProjectionProviderError("invalid-write", "The SQLite row disappeared while it was being written");
       const saved = sqliteRow(loaded.schema, relation, savedRaw);
       database.query("insert into __arbor_property_receipts (scope, mutation_id, request_hash, result_json) values (?, ?, ?, ?)")
-        .run(mutation.scope, mutation.id, requestHash, canonicalJSONString(saved));
+        .run(mutation.scope, mutation.id, requestHash, stableJSONString(saved));
       database.exec("commit");
       return saved;
     } catch (error) {
@@ -290,7 +291,7 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
             key: stableKey ?? `row:${index}`,
             path: stableKey ? rowPathSegment(stableKey) : `~row-${index + 1}`,
             stableKey,
-            revision: revisionOf(canonicalJSONString({ schema: schema.fingerprint, relation: relation.name, values })),
+            revision: revisionOf(stableJSONString({ schema: schema.fingerprint, relation: relation.name, values })),
             values,
             diagnostics: identityRule && !stableKey ? [{
               code: "invalid-row-key", message: `SQLite row does not have a valid ${identityRule.properties.join(", ")} stable key.`,
@@ -301,16 +302,16 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
         const logicalRows = [...rows]
           .sort((left, right) => (left.stableKey ?? left.path).localeCompare(right.stableKey ?? right.path))
           .map((row) => ({ key: row.stableKey, properties: row.values }));
-        const modelDigest = revisionOf(canonicalJSONString(logicalRows));
+        const modelDigest = canonicalCBORHash(logicalRows);
         tables[relation.name] = {
           columns, rows, modelDigest,
-          revision: revisionOf(canonicalJSONString({ schema: schema.fingerprint, relation: relation.name, rows: logicalRows })),
+          revision: revisionOf(stableJSONString({ schema: schema.fingerprint, relation: relation.name, rows: logicalRows })),
           diagnostics, ...(identityRule ? { identityRule } : {}),
         };
       }
       const logicalStore = Object.fromEntries(Object.entries(tables).sort(([left], [right]) => left.localeCompare(right)).map(([name, table]) => [name, table.modelDigest]));
-      const modelDigest = revisionOf(canonicalJSONString(logicalStore));
-      return { schema, tables, schemaVersion, modelDigest, revision: revisionOf(canonicalJSONString({ schema: schema.fingerprint, tables: logicalStore })) };
+      const modelDigest = canonicalCBORHash(logicalStore);
+      return { schema, tables, schemaVersion, modelDigest, revision: revisionOf(stableJSONString({ schema: schema.fingerprint, tables: logicalStore })) };
     } finally {
       database.exec("rollback");
       database.close();
@@ -359,7 +360,7 @@ function sqliteRow(schema: StoreSchema, relation: StoreSchema["relations"][strin
   if (!stableKey) throw new ProjectionProviderError("invalid-write", `SQLite row does not have a valid ${relation.primaryKey.join(", ")} stable key`);
   return {
     key: stableKey, path: rowPathSegment(stableKey), stableKey,
-    revision: revisionOf(canonicalJSONString({ schema: schema.fingerprint, relation: relation.name, values })),
+    revision: revisionOf(stableJSONString({ schema: schema.fingerprint, relation: relation.name, values })),
     values, diagnostics: [],
   };
 }

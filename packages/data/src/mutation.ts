@@ -1,4 +1,4 @@
-import { canonicalJSONString, semanticRequestDigest, sha256, type Hash, type MutationCallRequest, type MutationCallRuntime, type MutationHandleRef, type MutationResultReceipt } from "@arbor/core";
+import { stableJSONString, semanticRequestDigest, sha256, type Hash, type MutationCallRequest, type MutationCallRuntime, type MutationHandleRef, type MutationResultReceipt } from "@arbor/core";
 import { Database } from "bun:sqlite";
 import { posix } from "node:path";
 import {
@@ -229,11 +229,11 @@ export class SQLiteMutationTransaction {
         rewrite([...current.map((row) => row[options.key]), value[options.key]]);
       },
       replace: (keys: unknown[]) => {
-        const distinct = new Set(keys.map((key) => canonicalJSONString(key)));
+        const distinct = new Set(keys.map((key) => stableJSONString(key)));
         if (distinct.size !== keys.length) throw new TypeError("Ordered replacement contains duplicate keys");
         const current = rows();
-        const existing = new Set(current.map((row) => canonicalJSONString(row[options.key])));
-        if (keys.length !== current.length || keys.some((key) => !existing.has(canonicalJSONString(key)))) {
+        const existing = new Set(current.map((row) => stableJSONString(row[options.key])));
+        if (keys.length !== current.length || keys.some((key) => !existing.has(stableJSONString(key)))) {
           throw new TypeError("Ordered replacement must contain every current key exactly once");
         }
         rewrite(keys);
@@ -298,7 +298,7 @@ export class SQLiteMutationBroker {
     const bindings = new Map<string, ResolvedArborSource>();
     for (const source of call.sources) {
       const existing = bindings.get(source.authoredPath);
-      if (existing && canonicalJSONString(existing) !== canonicalJSONString(source)) {
+      if (existing && stableJSONString(existing) !== stableJSONString(source)) {
         throw new MutationCallError({ code: "conflict", message: `Authored source ${source.authoredPath} resolves ambiguously`, retryable: false });
       }
       if (source.schemaFingerprint !== this.schema.fingerprint || source.tree !== this.source.tree) {
@@ -311,8 +311,8 @@ export class SQLiteMutationBroker {
       throw new MutationCallError({ code: "conflict", message: "The mutation's arbor() source does not resolve to this store", retryable: false });
     }
     const input = await validateInput(handle.schema, call.input);
-    const inputJSON = canonicalJSONString(input);
-    const handleJSON = canonicalJSONString(call.handle);
+    const inputJSON = stableJSONString(input);
+    const handleJSON = stableJSONString(call.handle);
     if (typeof inputJSON !== "string" || typeof handleJSON !== "string") {
       throw new MutationCallError({ code: "invalid-input", message: "Mutation input must be canonical JSON", retryable: false });
     }
@@ -347,7 +347,7 @@ export class SQLiteMutationBroker {
           return deterministicUUID(`${call.scope}\0${call.mutationID}\0${requestDigest}\0${call.user?.profile ?? ""}\0${label}\0${index}`);
         };
         const result = await handle.handler({ user: call.user, tx, id, now: mutationNow }, input) as Result;
-        const resultJSON = canonicalJSONString(result);
+        const resultJSON = stableJSONString(result);
         if (typeof resultJSON !== "string") throw new TypeError("Mutation results must be canonical JSON");
         const observedThrough = control.reserveCursor();
         database.query("insert into __arbor_mutation_receipts(scope, subject, mutation_id, request_digest, handle_json, input_json, mutation_now, observed_through, result_json) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -389,7 +389,7 @@ export class RegisteredMutationRuntime implements MutationCallRuntime {
   }
 
   call(request: MutationCallRequest, context: { user: ArborUser | null }): Promise<MutationResultReceipt> {
-    if (canonicalJSONString(request.document) !== canonicalJSONString(this.document)) {
+    if (stableJSONString(request.document) !== stableJSONString(this.document)) {
       throw new MutationCallError({ code: "conflict", message: "The mounted document version is not active", retryable: false });
     }
     const entry = this.handles.get(refKey(request.handle));

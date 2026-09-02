@@ -1,3 +1,6 @@
+import { sha256 } from "./hash.ts";
+import type { Hash } from "./identifiers.ts";
+
 const encoder = new TextEncoder();
 
 function head(major: number, value: number): number[] {
@@ -42,6 +45,7 @@ function parts(value: unknown): Uint8Array[] {
     return [Uint8Array.from(head(3, bytes.length)), bytes];
   }
   if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("Non-finite numbers have no canonical CBOR encoding");
     if (Number.isSafeInteger(value)) {
       return [Uint8Array.from(value >= 0 ? head(0, value) : head(1, -1 - value))];
     }
@@ -66,6 +70,12 @@ function parts(value: unknown): Uint8Array[] {
   throw new Error(`Unsupported CBOR value: ${typeof value}`);
 }
 
+/**
+ * Arbor's canonical CBOR subset: null, booleans, safe integers, other finite
+ * numbers as 64-bit floats, UTF-8 text, byte strings, arrays, and string-keyed
+ * maps with byte-ordered keys and minimal lengths. Object properties whose
+ * value is `undefined` are omitted, as in JSON.
+ */
 export function encodeCanonicalCBOR(value: unknown): Uint8Array {
   const encoded = parts(value);
   const length = encoded.reduce((total, part) => total + part.length, 0);
@@ -156,4 +166,9 @@ export function decodeCBOR(bytes: Uint8Array): unknown {
   const decoded = decodeAt(bytes, 0);
   if (decoded.offset !== bytes.length) throw new Error("Trailing CBOR bytes");
   return decoded.value;
+}
+
+/** SHA-256 of the canonical CBOR encoding: the one hash rule for every Arbor identity. */
+export function canonicalCBORHash(value: unknown): Hash {
+  return `sha256:${sha256(encodeCanonicalCBOR(value))}`;
 }

@@ -1,15 +1,32 @@
 import Foundation
 
+/// Arbor's canonical CBOR subset: null, booleans, integers, other finite
+/// numbers as 64-bit floats, UTF-8 text, byte strings, arrays, and text-keyed
+/// maps with byte-ordered keys and minimal lengths. `negative(n)` encodes the
+/// integer `-1 - n`, mirroring CBOR major type 1.
 indirect enum CanonicalCBORValue: Equatable {
+    case null
+    case bool(Bool)
     case unsigned(Int)
+    case negative(Int)
+    case float(Double)
     case bytes(Data)
     case text(String)
     case array([CanonicalCBORValue])
     case map([(String, CanonicalCBORValue)])
 
+    /// Convenience for any Swift integer, choosing the CBOR major type by sign.
+    static func integer(_ value: Int) -> CanonicalCBORValue {
+        value >= 0 ? .unsigned(value) : .negative(-1 - value)
+    }
+
     static func == (left: CanonicalCBORValue, right: CanonicalCBORValue) -> Bool {
         switch (left, right) {
+        case (.null, .null): true
+        case let (.bool(a), .bool(b)): a == b
         case let (.unsigned(a), .unsigned(b)): a == b
+        case let (.negative(a), .negative(b)): a == b
+        case let (.float(a), .float(b)): a.bitPattern == b.bitPattern
         case let (.bytes(a), .bytes(b)): a == b
         case let (.text(a), .text(b)): a == b
         case let (.array(a), .array(b)): a == b
@@ -23,7 +40,12 @@ indirect enum CanonicalCBORValue: Equatable {
 enum CanonicalCBOR {
     static func encode(_ value: CanonicalCBORValue) -> Data {
         switch value {
+        case .null: Data([0xf6])
+        case let .bool(flag): Data([flag ? 0xf5 : 0xf4])
         case let .unsigned(value): head(major: 0, value: value)
+        case let .negative(value): head(major: 1, value: value)
+        case let .float(value):
+            Data([0xfb] + (0..<8).reversed().map { UInt8((value.bitPattern >> UInt64($0 * 8)) & 0xff) })
         case let .bytes(bytes): head(major: 2, value: bytes.count) + bytes
         case let .text(string):
             head(major: 3, value: string.utf8.count) + Data(string.utf8)
@@ -80,15 +102,30 @@ enum CanonicalCBOR {
         mutating func decode(depth: Int) throws -> CanonicalCBORValue {
             guard depth <= 64 else { throw ArborWireValidationError.invalidCBOR("Maximum nesting depth exceeded") }
             let first = try byte()
+            switch first {
+            case 0xf4: return .bool(false)
+            case 0xf5: return .bool(true)
+            case 0xf6: return .null
+            case 0xfb:
+                let bytes = try take(8)
+                var bits: UInt64 = 0
+                for byte in bytes { bits = bits << 8 | UInt64(byte) }
+                let value = Double(bitPattern: bits)
+                guard value.isFinite else { throw ArborWireValidationError.invalidCBOR("Non-finite float") }
+                return .float(value)
+            default: break
+            }
             let major = first >> 5
             let additional = first & 31
-            guard major == 0 || major == 2 || major == 3 || major == 4 || major == 5 else {
+            guard major <= 5 else {
                 throw ArborWireValidationError.invalidCBOR("Unsupported CBOR major type")
             }
             let length = try readLength(additional)
             switch major {
             case 0:
                 return .unsigned(length)
+            case 1:
+                return .negative(length)
             case 2:
                 return .bytes(try take(length))
             case 3:

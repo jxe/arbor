@@ -11,7 +11,7 @@ import type {
   WorkspaceEvent,
   WorkspaceOperation,
 } from "@arbor/core";
-import { canonicalJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
+import { stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
 import type { AccessEntry, NodeResponse, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
 import { WireClient, decodeAcceptedUpdateJSON, decodeUpdateRequestJSON, updateRequestDigest } from "@arbor/wire";
 import { nodeDocument } from "../helpers/node-snapshot.ts";
@@ -131,8 +131,8 @@ describe("REST v1 protocol fixtures", () => {
   });
 
   test("canonical request encoding ignores object-key order", () => {
-    expect(canonicalJSONString({ b: 2, a: { y: 2, x: 1 } }))
-      .toBe(canonicalJSONString({ a: { x: 1, y: 2 }, b: 2 }));
+    expect(stableJSONString({ b: 2, a: { y: 2, x: 1 } }))
+      .toBe(stableJSONString({ a: { x: 1, y: 2 }, b: 2 }));
   });
 
   test("decodes the shared SSE data frame", async () => {

@@ -1,5 +1,6 @@
 import {
-  canonicalJSONString,
+  canonicalCBORHash,
+  stableJSONString,
   requireJSONValue,
   revisionOf,
   rowPathSegment,
@@ -98,9 +99,9 @@ export async function decodeWireFileRollup(
     keys.add(stableKey);
     rows.push({ stableKey, path: rowPathSegment(stableKey), properties });
   }
-  const modelDigest = revisionOf(canonicalJSONString([...rows]
+  const modelDigest = canonicalCBORHash([...rows]
     .sort((left, right) => left.stableKey < right.stableKey ? -1 : left.stableKey > right.stableKey ? 1 : 0)
-    .map((row) => ({ key: row.stableKey, path: row.path, properties: row.properties })))) as Hash;
+    .map((row) => ({ key: row.stableKey, path: row.path, properties: row.properties })));
   if (modelDigest !== descriptor.modelDigest) {
     throw new WireFileRollupError("constraint", "Rollup model digest does not match its schema-normalized rows");
   }
