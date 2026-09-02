@@ -5,3 +5,5 @@ export * from "./updates/decision.ts";
 export * from "./updates/reconcile.ts";
 export * from "./updates/store.ts";
 export * from "./updates/transition.ts";
+export * from "./migrate.ts";
+export * from "./profile.ts";

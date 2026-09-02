@@ -35,6 +35,7 @@ import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
 import { ObjectStore } from "./objects.ts";
 import { AccessControl } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
+import { rootProfileFacts } from "./profile.ts";
 import type { CanonicalBoundary, CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { openCanopyDatabase } from "./schema.ts";
@@ -1311,23 +1312,10 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   private async cacheRootProfile(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void> {
-    const directory = decodeWireObject(await this.objects.load(root, proposed));
-    if (directory.type !== "directory") return;
-    const index = directory.entries.find((entry) => entry.name === "_index.md");
-    if (!index?.hash) return;
-    const file = decodeWireObject(await this.objects.load(index.hash, proposed));
-    if (file.type !== "file") return;
-    const { frontmatter } = parseMarkdown(new TextDecoder().decode(file.bytes));
-    const type = frontmatter.type === "person" || frontmatter.type === "group" ? frontmatter.type : null;
-    const declared = Array.isArray(frontmatter.members) ? frontmatter.members : [];
-    const members = declared.flatMap((value) => {
-      if (typeof value !== "string") return [];
-      const match = /arbor:\/\/([^/\s"']+)\/~([a-z0-9][a-z0-9-]{0,62})/.exec(value);
-      return match ? [`${match[1]!.toLowerCase()}/~${match[2]!}`] : [];
-    });
+    const facts = await rootProfileFacts(root, (hash) => this.objects.load(hash, proposed));
     this.db.run(
       "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      [`profile:${root}`, JSON.stringify({ type, members: [...new Set(members)] })],
+      [`profile:${root}`, JSON.stringify(facts)],
     );
   }
 
