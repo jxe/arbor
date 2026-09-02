@@ -1,4 +1,5 @@
-import type { ObjectDelta } from "./types.ts";
+import type { ObjectDelta, TransitionPayload } from "./types.ts";
+import { hashObject, type ObjectHash } from "../objects.ts";
 
 const MAX_RESULT_BYTES = 1_000_000_000;
 
@@ -32,4 +33,28 @@ export function applyObjectDelta(base: Uint8Array, delta: ObjectDelta): Uint8Arr
     offset += chunk.byteLength;
   }
   return result;
+}
+
+/**
+ * Apply one transition payload to a basis graph: complete objects are added
+ * after their hashes are verified, and each delta is applied against an object
+ * already present, in order, with its result verified. Throws on any mismatch.
+ */
+export function applyTransitionPayload(
+  basis: ReadonlyMap<ObjectHash, Uint8Array>,
+  payload: TransitionPayload,
+): Map<ObjectHash, Uint8Array> {
+  const objects = new Map(basis);
+  for (const object of payload.objects) {
+    if (hashObject(object.bytes) !== object.hash) throw new Error(`Transition object hash mismatch: ${object.hash}`);
+    objects.set(object.hash, object.bytes);
+  }
+  for (const delta of payload.deltas ?? []) {
+    const base = objects.get(delta.base);
+    if (!base) throw new Error(`Object delta base is not available: ${delta.base}`);
+    const bytes = applyObjectDelta(base, delta);
+    if (hashObject(bytes) !== delta.result) throw new Error(`Object delta result hash mismatch: ${delta.result}`);
+    objects.set(delta.result, bytes);
+  }
+  return objects;
 }

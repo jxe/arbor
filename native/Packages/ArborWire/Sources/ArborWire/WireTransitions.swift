@@ -25,15 +25,28 @@ public enum WireTransitionReplay {
         to basis: WireSnapshot
     ) throws -> WireSnapshot {
         _ = try transition.validated()
-        let basisObjects = try WireObjectGraph.validate(basis)
         guard transition.update.previousRoot == basis.root else {
             throw ArborWireValidationError.invalidValue("Accepted transition basis root mismatch")
         }
+        return try applying(
+            WireTransitionPayload(objects: transition.objects, deltas: transition.deltas),
+            to: basis,
+            root: transition.update.root
+        )
+    }
+
+    /// Apply one transition payload to a basis graph and require the result to be the complete graph at `root`.
+    public static func applying(
+        _ payload: WireTransitionPayload,
+        to basis: WireSnapshot,
+        root: String
+    ) throws -> WireSnapshot {
+        let basisObjects = try WireObjectGraph.validate(basis)
         var bytesByHash = Dictionary(uniqueKeysWithValues: basis.objects.map { ($0.hash, $0.bytes) })
         let basisHashes = Set(basisObjects.keys)
         var suppliedResults = Set<String>()
 
-        for envelope in transition.objects {
+        for envelope in payload.objects {
             if let existing = bytesByHash[envelope.hash], existing != envelope.bytes {
                 throw ArborWireValidationError.invalidValue("Transition object changes immutable bytes")
             }
@@ -41,7 +54,7 @@ public enum WireTransitionReplay {
             suppliedResults.insert(envelope.hash)
         }
 
-        for delta in transition.deltas {
+        for delta in payload.deltas {
             guard basisHashes.contains(delta.base), let base = bytesByHash[delta.base] else {
                 throw ArborWireValidationError.invalidValue("Object delta base is not reachable from the transition basis")
             }
@@ -74,12 +87,12 @@ public enum WireTransitionReplay {
             visiting.remove(hash)
             visited.insert(hash)
         }
-        try visit(transition.update.root)
+        try visit(root)
         if let unreachable = suppliedResults.subtracting(visited).sorted().first {
             throw ArborWireValidationError.unreachableObject(unreachable)
         }
         let result = WireSnapshot(
-            root: transition.update.root,
+            root: root,
             objects: visited.sorted().map { WireObjectEnvelope(hash: $0, bytes: bytesByHash[$0]!) }
         )
         _ = try WireObjectGraph.validate(result)

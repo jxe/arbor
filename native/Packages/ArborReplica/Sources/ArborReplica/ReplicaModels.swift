@@ -60,7 +60,7 @@ public struct ReplicaRollupDescriptor: Codable, Equatable, Sendable {
     public var schemaSource: String
     public var schema: String
     public var scope: String
-    public var modelDigest: String
+    public var modelHash: String
 
     public init(
         version: Int = 1,
@@ -69,7 +69,7 @@ public struct ReplicaRollupDescriptor: Codable, Equatable, Sendable {
         schemaSource: String,
         schema: String,
         scope: String,
-        modelDigest: String
+        modelHash: String
     ) {
         self.version = version
         self.codec = codec
@@ -77,7 +77,7 @@ public struct ReplicaRollupDescriptor: Codable, Equatable, Sendable {
         self.schemaSource = schemaSource
         self.schema = schema
         self.scope = scope
-        self.modelDigest = modelDigest
+        self.modelHash = modelHash
     }
 }
 

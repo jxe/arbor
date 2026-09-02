@@ -29,6 +29,7 @@ import {
   type AccountConfigGraph,
 } from "./account-policy.ts";
 import { reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
+import { effectiveOnConflict } from "@arbor/wire";
 import { AcceptedUpdateStore, type AcceptedUpdateInput } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
@@ -756,6 +757,17 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.acceptedStore.insert(input);
   }
 
+  /** Attach the transition from the candidate root to the accepted root whenever the two differ. */
+  private async withReconciliation(
+    result: UpdateResult,
+    candidate: ObjectHash,
+    proposed: ReadonlyMap<ObjectHash, Uint8Array>,
+  ): Promise<UpdateResult> {
+    if (result.update.root === candidate) return result;
+    const reconciliation = await buildAcceptedTransitionPayload(candidate, result.update.root, (hash) => this.objects.load(hash, proposed));
+    return { ...result, reconciliation };
+  }
+
   private acceptedTransitionPayload(previousRoot: ObjectHash, root: ObjectHash): Promise<AcceptedTransitionPayload> {
     return buildAcceptedTransitionPayload(previousRoot, root, (hash) => this.object(hash));
   }
@@ -815,9 +827,13 @@ export class CanopyDaemon implements AsyncDisposable {
       ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
     const { subject } = policy;
-    const replay = this.acceptedRequest(treeID, subject, requestDigest);
-    if (replay) return replay;
     const proposed = new Map(request.objects.map(({ hash, bytes }) => [hash, bytes]));
+    const replay = this.acceptedRequest(treeID, subject, requestDigest);
+    if (replay) {
+      return "error" in replay.result
+        ? replay
+        : { ...replay, result: await this.withReconciliation(replay.result, request.candidate, proposed) };
+    }
     const reconstructed = await this.objects.reconstructDeltas(baseRoot, request.deltas ?? [], proposed);
     for (const object of reconstructed) {
       if (!await this.objects.contains(request.candidate, object.hash, proposed)) {
@@ -838,17 +854,27 @@ export class CanopyDaemon implements AsyncDisposable {
         request.candidate,
         remoteTree.ref,
         (hash) => this.objects.load(hash, proposed),
-        policy.merge,
+        { ifMatch: request.ifMatch, onConflict: effectiveOnConflict(request), merge: policy.merge },
       );
       if (reconciled.outcome === "current") {
-        return { status: 200, result: { outcome: "current", update: remoteUpdate, requestDigest, observedThrough: remoteUpdate.id } };
+        return {
+          status: 200,
+          result: await this.withReconciliation(
+            { outcome: "current", update: remoteUpdate, requestDigest, observedThrough: remoteUpdate.id },
+            request.candidate,
+            proposed,
+          ),
+        };
       }
       const nextRoot = reconciled.root;
-      const kind: AcceptedUpdate["kind"] = reconciled.outcome;
+      const kind: AcceptedUpdate["kind"] = reconciled.outcome === "merged" ? "merged" : "accepted";
       const merge = reconciled.outcome === "merged" ? reconciled.merge : undefined;
       const objects = new Map([...proposed, ...reconciled.generated]);
-      if (reconciled.outcome === "merged" && reconciled.conflicts.length) {
-        const draft = await this.objects.completeSnapshot(reconciled.root, objects);
+      if (reconciled.outcome === "rejected" || (reconciled.outcome === "merged" && reconciled.conflicts.length)) {
+        const draft = {
+          root: reconciled.root,
+          ...(await buildAcceptedTransitionPayload(request.candidate, reconciled.root, (hash) => this.objects.load(hash, objects))),
+        };
         return {
           status: 409,
           result: {
@@ -892,7 +918,14 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!accepted) continue;
       prepared.afterCommit?.(accepted);
       this.notifyAccepted(accepted);
-      return { status: 201, result: { outcome: kind === "merged" ? "merged" : "accepted", update: accepted, requestDigest, observedThrough: accepted.id } };
+      return {
+        status: 201,
+        result: await this.withReconciliation(
+          { outcome: kind === "merged" ? "merged" : "accepted", update: accepted, requestDigest, observedThrough: accepted.id },
+          request.candidate,
+          proposed,
+        ),
+      };
     }
     throw new UpdateProtocolError("server-busy", "Server update changed repeatedly during merge");
   }
@@ -985,7 +1018,7 @@ export class CanopyDaemon implements AsyncDisposable {
         if (!current) throw new Error("Account configuration has no accepted update");
         authorizeAccountConfigTransition(await graphAt(current.root), candidateGraph, deviceID, baseGraph);
       },
-      merge: async (_base, _candidate, current) => {
+      merge: async (_base, _candidate, current, _load, _onConflict) => {
         const merged = mergeAccountConfigGraphs(baseGraph, candidateGraph, await graphAt(current));
         const snapshot = snapshotAccountConfig(merged.graph);
         return {

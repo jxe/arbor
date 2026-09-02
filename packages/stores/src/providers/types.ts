@@ -15,7 +15,7 @@ export interface ProjectionDescriptor {
   identityRule?: IdentityRule;
   revision?: string;
   schemaRevision?: string;
-  modelDigest?: string;
+  modelHash?: string;
   diagnostics?: Diagnostic[];
   editable: boolean;
   representation: ChildRepresentationSummary;
@@ -126,7 +126,7 @@ export interface ProjectionProvider {
     codec: "csv" | "json" | "jsonl";
     schema: Hash;
     scope: "children";
-    modelDigest: Hash;
+    modelHash: Hash;
   } | null>;
   schema?(definition: ProjectionDefinition): Promise<Record<string, Record<string, string>>>;
   [Symbol.asyncDispose]?(): Promise<void>;
@@ -183,12 +183,12 @@ export function invalidDescriptor(definition: ProjectionDefinition): ProjectionD
 }
 export function representationFor(
   provider: ProjectionProviderKind,
-  modelDigest: Hash = semanticRequestDigest({ provider }),
+  modelHash: Hash = semanticRequestDigest({ provider }),
   scope: "children" | "subtree" = provider === "sqlite" ? "subtree" : "children",
 ): ChildRepresentationSummary {
   if (provider === "postgres") return { type: "external", driver: "postgres" };
   if (provider === "markdown") return { type: "expanded" };
-  return { type: "rollup", codec: provider, scope, modelDigest };
+  return { type: "rollup", codec: provider, scope, modelHash };
 }
 export function encodeProviderCursor(value: StoredCursor): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url");

@@ -2,7 +2,7 @@ import type { CommunityConfigStore, SharedTreePlacement } from "@arbor/stores";
 import {
   WireClient,
   WireUpdateConflict,
-  applyObjectDelta,
+  applyTransitionPayload,
   decodeWireObject,
   hashObject,
   type ObjectHash,
@@ -210,19 +210,12 @@ export class TreeSynchronizer {
     const local = await this.deps.snapshotWorkspace(workspace, client, remoteTrees);
     if (local.root !== placement.ref) return false;
 
-    const objects = new Map(local.objects);
+    let objects: Map<ObjectHash, Uint8Array> = new Map(local.objects);
     let expected: ObjectHash = placement.ref;
     try {
       for (const transition of transitions) {
         if (transition.update.previousRoot !== expected) return false;
-        for (const object of transition.objects) objects.set(object.hash, object.bytes);
-        for (const delta of transition.deltas ?? []) {
-          const base = objects.get(delta.base);
-          if (!base) return false;
-          const bytes = applyObjectDelta(base, delta);
-          if (hashObject(bytes) !== delta.result) return false;
-          objects.set(delta.result, bytes);
-        }
+        objects = applyTransitionPayload(objects, transition);
         expected = transition.update.root;
       }
     } catch {
@@ -360,10 +353,10 @@ export class TreeSynchronizer {
           continue;
         }
         if (accepted.root !== pending.candidate) {
-          if (!result.snapshot) throw new Error("Server omitted a required accepted snapshot");
+          if (!result.reconciliation) throw new Error("Server omitted a required reconciliation transition");
           await this.materialize(workspace, {
             root: accepted.root,
-            objects: result.snapshot.objects,
+            objects: applyTransitionPayload(local.objects, result.reconciliation),
           });
         }
         await trees.updateSyncMetadata({

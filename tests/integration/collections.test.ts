@@ -151,7 +151,7 @@ describe("file-backed collections", () => {
     await writeFile(join(root, "json", "_store.json"), '[\n  { "id": "b", "title": "Second" },\n  { "id": "a", "title": "First" }\n]\n');
     const afterFormatting = await collections.descriptor(join(root, "json"));
     expect(afterFormatting?.revision).not.toBe(beforeFormatting?.revision);
-    expect(afterFormatting?.modelDigest).toBe(beforeFormatting?.modelDigest);
+    expect(afterFormatting?.modelHash).toBe(beforeFormatting?.modelHash);
     await expect(childrenOf(collections, join(root, "json"), "/json", first.nextCursor, 1)).rejects.toThrow("another revision");
   });
 

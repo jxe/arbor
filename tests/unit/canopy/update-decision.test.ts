@@ -8,12 +8,14 @@ const C = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 describe("updates-v1 identity decision table", () => {
   test.each([
-    [A, A, A, "current"],
-    [A, A, B, "current"],
-    [A, B, B, "current"],
-    [A, B, A, "accept"],
-    [A, B, C, "merge"],
-  ] as const)("base=%s candidate=%s current=%s chooses %s", (base, candidate, current, expected) => {
-    expect(decideUpdate(base, candidate, current)).toBe(expected);
+    [A, A, A, "modelHash", "current"],
+    [A, A, B, "modelHash", "current"],
+    [A, B, B, "modelHash", "current"],
+    [A, B, A, "modelHash", "accept"],
+    [A, B, C, "modelHash", "reconcile"],
+    [A, B, A, "bytesHash", "accept"],
+    [A, B, C, "bytesHash", "reject"],
+  ] as const)("base=%s candidate=%s current=%s ifMatch=%s chooses %s", (base, candidate, current, ifMatch, expected) => {
+    expect(decideUpdate(base, candidate, current, ifMatch)).toBe(expected);
   });
 });

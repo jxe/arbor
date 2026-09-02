@@ -128,7 +128,9 @@ public actor ArborWireClient {
     public func prepareUpdate(
         tree: String,
         base: WireUpdateBase,
-        snapshot: WireSnapshot
+        snapshot: WireSnapshot,
+        ifMatch: String = "modelHash",
+        onConflict: String? = nil
     ) throws -> PreparedWireUpdate {
         guard !tree.isEmpty, !base.update.isEmpty else { throw ArborWireValidationError.invalidValue("Update identity is empty") }
         try validateObjectHash(base.root)
@@ -136,12 +138,14 @@ public actor ArborWireClient {
         let request = WireUpdateRequest(
             base: base,
             candidate: snapshot.root,
+            ifMatch: ifMatch,
+            onConflict: onConflict,
             objects: snapshot.objects
         )
         return PreparedWireUpdate(
             tree: tree,
             body: try encoder.encode(request),
-            requestDigest: updateRequestDigest(tree: tree, base: base, candidate: snapshot.root)
+            requestDigest: updateRequestDigest(tree: tree, base: base, candidate: snapshot.root, ifMatch: ifMatch, onConflict: onConflict)
         )
     }
 
@@ -376,17 +380,31 @@ public actor ArborWireClient {
 /// The semantic identity of an update request as canonical CBOR bytes; the
 /// same encoding that addresses wire objects, so every Arbor identity uses one
 /// hash rule.
-public func canonicalUpdateIntent(tree: String, base: WireUpdateBase, candidate: String) -> Data {
+public func canonicalUpdateIntent(
+    tree: String,
+    base: WireUpdateBase,
+    candidate: String,
+    ifMatch: String = "modelHash",
+    onConflict: String? = nil
+) -> Data {
     CanonicalCBOR.encode(.map([
         ("version", .text("updates-v1")),
         ("tree", .text(tree)),
         ("base", .text(base.update)),
         ("candidate", .text(candidate)),
+        ("ifMatch", .text(ifMatch)),
+        ("onConflict", .text(onConflict ?? "merge")),
     ]))
 }
 
-public func updateRequestDigest(tree: String, base: WireUpdateBase, candidate: String) -> String {
-    canonicalCBORHash(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate))
+public func updateRequestDigest(
+    tree: String,
+    base: WireUpdateBase,
+    candidate: String,
+    ifMatch: String = "modelHash",
+    onConflict: String? = nil
+) -> String {
+    canonicalCBORHash(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict))
 }
 
 /// `sha256:<hex>` of already canonical CBOR bytes.

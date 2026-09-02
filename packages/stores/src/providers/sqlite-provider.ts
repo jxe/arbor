@@ -28,7 +28,7 @@ interface LoadedSQLiteTable {
   columns: string[];
   rows: ProviderChildRecord[];
   revision: string;
-  modelDigest: string;
+  modelHash: string;
   diagnostics: Diagnostic[];
   identityRule?: { properties: string[] };
 }
@@ -37,7 +37,7 @@ interface LoadedSQLiteStore {
   tables: Record<string, LoadedSQLiteTable>;
   schemaVersion: number;
   revision: string;
-  modelDigest: string;
+  modelHash: string;
 }
 export class SQLiteProjectionDriver implements ProjectionProvider {
   readonly kinds = ["sqlite"] as const;
@@ -47,10 +47,10 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
       columns: [],
       revision: loaded.revision,
       schemaRevision: loaded.schema.fingerprint,
-      modelDigest: loaded.modelDigest,
+      modelHash: loaded.modelHash,
       diagnostics: definition.diagnostics,
       editable: false,
-      representation: representationFor("sqlite", loaded.modelDigest as Hash, "subtree"),
+      representation: representationFor("sqlite", loaded.modelHash as Hash, "subtree"),
       total: Object.keys(loaded.tables).length,
       tables: Object.keys(loaded.tables).sort(),
     };
@@ -64,10 +64,10 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
       ...(table.identityRule ? { identityRule: table.identityRule } : {}),
       revision: table.revision,
       schemaRevision: loaded.schema.fingerprint,
-      modelDigest: table.modelDigest,
+      modelHash: table.modelHash,
       diagnostics: table.diagnostics,
       editable: Boolean(table.identityRule),
-      representation: representationFor("sqlite", table.modelDigest as Hash, "children"),
+      representation: representationFor("sqlite", table.modelHash as Hash, "children"),
       total: table.rows.length,
     };
   }
@@ -302,16 +302,16 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
         const logicalRows = [...rows]
           .sort((left, right) => (left.stableKey ?? left.path).localeCompare(right.stableKey ?? right.path))
           .map((row) => ({ key: row.stableKey, properties: row.values }));
-        const modelDigest = canonicalCBORHash(logicalRows);
+        const modelHash = canonicalCBORHash(logicalRows);
         tables[relation.name] = {
-          columns, rows, modelDigest,
+          columns, rows, modelHash,
           revision: revisionOf(stableJSONString({ schema: schema.fingerprint, relation: relation.name, rows: logicalRows })),
           diagnostics, ...(identityRule ? { identityRule } : {}),
         };
       }
-      const logicalStore = Object.fromEntries(Object.entries(tables).sort(([left], [right]) => left.localeCompare(right)).map(([name, table]) => [name, table.modelDigest]));
-      const modelDigest = canonicalCBORHash(logicalStore);
-      return { schema, tables, schemaVersion, modelDigest, revision: revisionOf(stableJSONString({ schema: schema.fingerprint, tables: logicalStore })) };
+      const logicalStore = Object.fromEntries(Object.entries(tables).sort(([left], [right]) => left.localeCompare(right)).map(([name, table]) => [name, table.modelHash]));
+      const modelHash = canonicalCBORHash(logicalStore);
+      return { schema, tables, schemaVersion, modelHash, revision: revisionOf(stableJSONString({ schema: schema.fingerprint, tables: logicalStore })) };
     } finally {
       database.exec("rollback");
       database.close();

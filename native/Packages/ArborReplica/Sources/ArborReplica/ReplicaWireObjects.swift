@@ -52,7 +52,7 @@ enum ReplicaWireCodec {
             ("schemaSource", .text(value.schemaSource)),
             ("schema", .text(value.schema)),
             ("scope", .text(value.scope)),
-            ("modelDigest", .text(value.modelDigest)),
+            ("modelHash", .text(value.modelHash)),
         ])
     }
 

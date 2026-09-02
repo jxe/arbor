@@ -4,8 +4,10 @@
     "tree": "tr_atlas",
     "base": "1",
     "candidate": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-    "canonicalCBORBase64": "pGRiYXNlYTFkdHJlZWh0cl9hdGxhc2d2ZXJzaW9uanVwZGF0ZXMtdjFpY2FuZGlkYXRleEdzaGEyNTY6YWQwYWU1YmMyYzFkZmJlNDlkMzFiNGNjNWY5ZjExOTE2ODhlN2JmYTY2YTI2OGFkY2MzOWYyNzg1NmEzY2QwYg==",
-    "digest": "sha256:2d8306b2ac67f3f4e0f91e413d2c75fe49670221cd9f74bb8b6f8e1573818e88"
+    "canonicalCBORBase64": "pmRiYXNlYTFkdHJlZWh0cl9hdGxhc2dpZk1hdGNoaW1vZGVsSGFzaGd2ZXJzaW9uanVwZGF0ZXMtdjFpY2FuZGlkYXRleEdzaGEyNTY6YWQwYWU1YmMyYzFkZmJlNDlkMzFiNGNjNWY5ZjExOTE2ODhlN2JmYTY2YTI2OGFkY2MzOWYyNzg1NmEzY2QwYmpvbkNvbmZsaWN0ZW1lcmdl",
+    "digest": "sha256:ec69538f559cbde299b86032eb56f2a00d4452e18390f678f4b41f62a24eac4b",
+    "ifMatch": "modelHash",
+    "onConflict": "merge"
   },
   "replayCases": [
     {

@@ -680,7 +680,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
           { path: `/trees/${tree}` },
         );
       }
-      candidate = snapshotFromConflictDraft(conflict);
+      candidate = snapshotFromConflictDraft(conflict, local);
       await materializeTree(
         workspace.root,
         candidate.root,

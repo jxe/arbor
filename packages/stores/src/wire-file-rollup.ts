@@ -22,7 +22,7 @@ export interface DecodedWireFileRollup {
   codec: RollupDescriptor["codec"];
   schema: SchemaDescription;
   rows: WireFileRollupRow[];
-  modelDigest: Hash;
+  modelHash: Hash;
 }
 
 export class WireFileRollupError extends Error {
@@ -99,13 +99,13 @@ export async function decodeWireFileRollup(
     keys.add(stableKey);
     rows.push({ stableKey, path: rowPathSegment(stableKey), properties });
   }
-  const modelDigest = canonicalCBORHash([...rows]
+  const modelHash = canonicalCBORHash([...rows]
     .sort((left, right) => left.stableKey < right.stableKey ? -1 : left.stableKey > right.stableKey ? 1 : 0)
     .map((row) => ({ key: row.stableKey, path: row.path, properties: row.properties })));
-  if (modelDigest !== descriptor.modelDigest) {
+  if (modelHash !== descriptor.modelHash) {
     throw new WireFileRollupError("constraint", "Rollup model digest does not match its schema-normalized rows");
   }
-  return { codec: descriptor.codec, schema, rows, modelDigest };
+  return { codec: descriptor.codec, schema, rows, modelHash };
 }
 
 function csvCell(value: JSONValue | undefined): string {

@@ -7,6 +7,9 @@ import type {
   ObjectDelta,
   UpdateConflict,
   UpdateConflictResult,
+  IfMatch,
+  OnConflict,
+  TransitionPayload,
   UpdateRequest,
   UpdateResult,
 } from "./types.ts";
@@ -25,6 +28,8 @@ export interface ObjectDeltaJSON {
 export interface UpdateRequestJSON {
   base: string | null;
   candidate: ObjectHash;
+  ifMatch: IfMatch;
+  onConflict?: OnConflict;
   objects: ObjectEnvelopeJSON[];
   deltas?: ObjectDeltaJSON[];
 }
@@ -217,11 +222,19 @@ export function decodeAcceptedTransitionJSON(value: unknown): AcceptedTransition
 
 export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
   if (!value || typeof value !== "object") throw new Error("Update body must be a JSON object");
-  const body = value as Record<string, unknown> & { base?: unknown; candidate?: unknown; objects?: unknown; deltas?: unknown };
+  const body = value as Record<string, unknown> & {
+    base?: unknown; candidate?: unknown; ifMatch?: unknown; onConflict?: unknown; objects?: unknown; deltas?: unknown;
+  };
   if (body.base !== null && (typeof body.base !== "string" || !body.base)) {
     throw new Error("Update requires a base update id or null for activation");
   }
   if (typeof body.candidate !== "string" || !HASH.test(body.candidate)) throw new Error("Update requires a candidate root");
+  if (body.ifMatch !== "bytesHash" && body.ifMatch !== "modelHash") throw new Error("Update requires ifMatch of bytesHash or modelHash");
+  if (body.onConflict !== undefined && body.onConflict !== "reject" && body.onConflict !== "merge") {
+    throw new Error("onConflict must be reject or merge");
+  }
+  if (body.ifMatch === "bytesHash" && body.onConflict === "merge") throw new Error("A bytesHash match cannot merge");
+  if (body.base === null && body.ifMatch !== "bytesHash") throw new Error("Activation matches on bytesHash");
   const objects = decodeObjectEnvelopes(body.objects);
   const deltas = body.deltas === undefined ? undefined : decodeObjectDeltas(body.deltas);
   assertDistinctResults(objects, deltas, "Object delta result also supplied as a complete object");
@@ -229,6 +242,8 @@ export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
   return {
     base: body.base,
     candidate: body.candidate as ObjectHash,
+    ifMatch: body.ifMatch,
+    ...(body.onConflict !== undefined ? { onConflict: body.onConflict } : {}),
     objects,
     ...(deltas ? { deltas } : {}),
   };
@@ -238,6 +253,8 @@ export function encodeUpdateRequestJSON(request: UpdateRequest): UpdateRequestJS
   return {
     base: request.base,
     candidate: request.candidate,
+    ifMatch: request.ifMatch,
+    ...(request.onConflict !== undefined ? { onConflict: request.onConflict } : {}),
     objects: request.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
     ...(request.deltas?.length ? { deltas: request.deltas.map(encodeObjectDeltaJSON) } : {}),
   };
@@ -248,14 +265,22 @@ export interface TreeSnapshotJSON {
   objects: ObjectEnvelopeJSON[];
 }
 
-export type UpdateResultJSON = Omit<UpdateResult, "snapshot"> & { snapshot?: TreeSnapshotJSON };
+export type UpdateResultJSON = Omit<UpdateResult, "reconciliation"> & { reconciliation?: TransitionPayloadJSON };
 
 export type UpdateConflictJSON = Omit<UpdateConflictResult, "details"> & {
-  details: Omit<UpdateConflictResult["details"], "draft" | "currentSnapshot"> & {
-    draft: TreeSnapshotJSON;
-    currentSnapshot?: TreeSnapshotJSON;
+  details: Omit<UpdateConflictResult["details"], "draft"> & {
+    draft: TransitionPayloadJSON & { root: ObjectHash };
   };
 };
+
+/** Decode a transition payload, verifying every complete object's hash. */
+function decodeVerifiedTransitionPayload(value: unknown): TransitionPayload {
+  const payload = decodeTransitionPayloadJSON(value);
+  for (const object of payload.objects) {
+    if (hashObject(object.bytes) !== object.hash) throw new Error(`Transition object hash mismatch: ${object.hash}`);
+  }
+  return payload;
+}
 
 export function encodeTreeSnapshotJSON(snapshot: TreeSnapshot): TreeSnapshotJSON {
   return { root: snapshot.root, objects: encodeObjectEnvelopes(snapshot.objects) };
@@ -299,18 +324,20 @@ export function verifyTreeSnapshotGraph(snapshot: TreeSnapshot): TreeSnapshot {
   return snapshot;
 }
 
-function decodeVerifiedSnapshot(value: unknown): TreeSnapshot {
-  return verifyTreeSnapshotGraph(decodeTreeSnapshotJSON(value));
+function decodeDraft(value: unknown): UpdateConflictResult["details"]["draft"] {
+  if (!value || typeof value !== "object") throw new Error("Conflict draft must be an object");
+  const record = value as { root?: unknown };
+  if (typeof record.root !== "string" || !HASH.test(record.root)) throw new Error("Conflict draft root hash is invalid");
+  return { root: record.root as ObjectHash, ...decodeVerifiedTransitionPayload(value) };
 }
 
 export function encodeUpdateConflictJSON(conflict: UpdateConflictResult): UpdateConflictJSON {
-  const { draft, currentSnapshot, ...details } = conflict.details;
+  const { draft, ...details } = conflict.details;
   return {
     ...conflict,
     details: {
       ...details,
-      draft: encodeTreeSnapshotJSON(draft),
-      ...(currentSnapshot ? { currentSnapshot: encodeTreeSnapshotJSON(currentSnapshot) } : {}),
+      draft: { root: draft.root, ...encodeTransitionPayloadJSON(draft) },
     },
   };
 }
@@ -342,16 +369,15 @@ export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
       current: decodeAcceptedUpdateJSON(details.current),
       base: details.base as ObjectHash,
       candidate: details.candidate as ObjectHash,
-      draft: decodeVerifiedSnapshot(details.draft),
-      ...(details.currentSnapshot !== undefined ? { currentSnapshot: decodeVerifiedSnapshot(details.currentSnapshot) } : {}),
+      draft: decodeDraft(details.draft),
       conflicts: details.conflicts as UpdateConflict[],
     },
   };
 }
 
 export function encodeUpdateResultJSON(result: UpdateResult): UpdateResultJSON {
-  const { snapshot, ...rest } = result;
-  return { ...rest, ...(snapshot ? { snapshot: encodeTreeSnapshotJSON(snapshot) } : {}) };
+  const { reconciliation, ...rest } = result;
+  return { ...rest, ...(reconciliation ? { reconciliation: encodeTransitionPayloadJSON(reconciliation) } : {}) };
 }
 
 const OUTCOMES = new Set(["current", "accepted", "merged"]);
@@ -365,12 +391,11 @@ export function decodeUpdateResultJSON(value: unknown): UpdateResult {
     throw new Error("Invalid update result");
   }
   const update = decodeAcceptedUpdateJSON(record.update);
-  if (record.outcome === "merged" && !update.merge) throw new Error("Merged update result requires a merge summary");
   return {
     outcome: record.outcome as UpdateResult["outcome"],
     update,
     requestDigest: record.requestDigest as ObjectHash,
     observedThrough: record.observedThrough,
-    ...(record.snapshot === undefined ? {} : { snapshot: decodeVerifiedSnapshot(record.snapshot) }),
+    ...(record.reconciliation === undefined ? {} : { reconciliation: decodeVerifiedTransitionPayload(record.reconciliation) }),
   };
 }

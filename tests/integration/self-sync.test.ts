@@ -483,6 +483,7 @@ describe("private self-sync", () => {
     await savePendingTreeUpdate(configurationTree, {
       base: remote.snapshot.update!,
       candidate: staleRootHash,
+      ifMatch: "modelHash",
       objects: [
         { hash: emptyDirectoryHash, bytes: Buffer.from(emptyDirectory).toString("base64") },
         { hash: staleRootHash, bytes: Buffer.from(staleRoot).toString("base64") },

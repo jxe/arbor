@@ -235,9 +235,13 @@ describe("reference Canopy merge fixtures", () => {
       expect(repeated.source).toBe(source);
       expectNoAddedLineOmitted(fixture.base, fixture.candidate, fixture.remote, source);
       if (fixture.expected.approximatePlacements !== undefined) {
-        expect(result.summary.version).toBe("markdown-additive-v1");
-        if (result.summary.version === "markdown-additive-v1") {
-          expect(result.summary.approximatePlacements).toBe(fixture.expected.approximatePlacements);
+        if (fixture.expected.approximatePlacements === 0 && !result.summary) {
+          // Disjoint nodes merge without a rule and carry no summary.
+        } else {
+          expect(result.summary?.version).toBe("markdown-additive-v1");
+          if (result.summary?.version === "markdown-additive-v1") {
+            expect(result.summary.approximatePlacements).toBe(fixture.expected.approximatePlacements);
+          }
         }
       }
       for (const value of fixture.expected.contains ?? []) expect(source).toContain(value);

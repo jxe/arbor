@@ -164,7 +164,7 @@
       "schemaSource": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "scope": "children",
-      "modelDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      "modelHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
     {
       "version": 1,
@@ -173,7 +173,7 @@
       "schemaSource": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "scope": "children",
-      "modelDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      "modelHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
     {
       "version": 1,
@@ -182,7 +182,7 @@
       "schemaSource": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "schema": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "scope": "children",
-      "modelDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      "modelHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     }
   ],
   "forwardCompatibleSnapshot": {

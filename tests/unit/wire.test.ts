@@ -108,7 +108,7 @@ describe("canonical tree objects", () => {
         codec: sourceName === "_store.json" ? "json" : "csv",
         schema: `sha256:${"3".repeat(64)}`,
         scope: "children",
-        modelDigest: `sha256:${"4".repeat(64)}`,
+        modelHash: `sha256:${"4".repeat(64)}`,
       }));
       const object = decodeWireObject(snapshot.objects.get(snapshot.root)!);
       if (object.type !== "directory") throw new Error("Expected a directory");

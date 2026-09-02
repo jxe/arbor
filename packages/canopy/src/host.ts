@@ -429,15 +429,7 @@ export async function serveCanopy(options: {
             authentication?.subject,
             authentication ?? undefined,
           );
-          if ("error" in result.result) {
-            const currentSnapshot = await canopy.snapshotForUpdate(treeID, result.result.details.current.id);
-            return json(updateJSON({ ...result.result, details: { ...result.result.details, currentSnapshot } }), result.status);
-          }
-          // The complete accepted snapshot travels only when it differs from
-          // the submitted candidate: a superseded, merged, or replayed result.
-          if (result.result.update.root === update.candidate) return json(updateJSON(result.result), result.status);
-          const snapshot = await canopy.snapshotForUpdate(treeID, result.result.update.id);
-          return json(updateJSON({ ...result.result, snapshot }), result.status);
+          return json(updateJSON(result.result), result.status);
         }
         const watch = /^\/\.arbor\/trees\/([^/]+)\/watch$/.exec(url.pathname);
         if (watch && request.method === "GET") {

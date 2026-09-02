@@ -21,7 +21,7 @@ export type ChildRepresentationSummary =
     type: "rollup";
     codec: "csv" | "json" | "jsonl" | "sqlite";
     scope: "children" | "subtree";
-    modelDigest: Hash;
+    modelHash: Hash;
   }
   | { type: "external"; driver: string };
 
@@ -83,7 +83,7 @@ export interface RollupDescriptor {
   schemaSource: Hash;
   schema: Hash;
   scope: "children" | "subtree";
-  modelDigest: Hash;
+  modelHash: Hash;
 }
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
@@ -188,7 +188,7 @@ function decodeRepresentation(value: unknown): ChildRepresentationSummary {
     type: "rollup",
     codec: source.codec as "csv" | "json" | "jsonl" | "sqlite",
     scope: source.scope,
-    modelDigest: hash(source.modelDigest, "representation.modelDigest"),
+    modelHash: hash(source.modelHash, "representation.modelHash"),
   };
 }
 
@@ -319,7 +319,7 @@ export function decodeRollupDescriptor(value: unknown): RollupDescriptor {
     schemaSource: hash(source.schemaSource, "rollup.schemaSource"),
     schema: hash(source.schema, "rollup.schema"),
     scope: source.scope,
-    modelDigest: hash(source.modelDigest, "rollup.modelDigest"),
+    modelHash: hash(source.modelHash, "rollup.modelHash"),
   };
 }
 

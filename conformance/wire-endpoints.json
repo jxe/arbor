@@ -18,7 +18,9 @@
       "request": {
         "method": "GET",
         "path": "/.arbor/trees/tr_atlas/ref",
-        "headers": { "Authorization": "Bearer <account-device-token>" }
+        "headers": {
+          "Authorization": "Bearer <account-device-token>"
+        }
       },
       "response": {
         "status": 200,
@@ -44,19 +46,22 @@
       "request": {
         "method": "POST",
         "path": "/.arbor/trees/tr_atlas/updates",
-        "headers": { "Authorization": "Bearer <account-device-token>" },
-        "derivedRequestDigest": "sha256:2d8306b2ac67f3f4e0f91e413d2c75fe49670221cd9f74bb8b6f8e1573818e88",
+        "headers": {
+          "Authorization": "Bearer <account-device-token>"
+        },
+        "derivedRequestDigest": "sha256:ec69538f559cbde299b86032eb56f2a00d4452e18390f678f4b41f62a24eac4b",
         "body": {
           "base": "1",
           "candidate": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-          "objects": []
+          "objects": [],
+          "ifMatch": "modelHash"
         }
       },
       "response": {
         "status": 200,
         "body": {
           "outcome": "current",
-          "requestDigest": "sha256:2d8306b2ac67f3f4e0f91e413d2c75fe49670221cd9f74bb8b6f8e1573818e88",
+          "requestDigest": "sha256:ec69538f559cbde299b86032eb56f2a00d4452e18390f678f4b41f62a24eac4b",
           "update": {
             "id": "1",
             "tree": "tr_atlas",
@@ -75,19 +80,27 @@
       "request": {
         "method": "POST",
         "path": "/.arbor/trees/tr_new/updates",
-        "headers": { "Authorization": "Bearer <administrator-device-token>" },
-        "derivedRequestDigest": "sha256:bff6a5d61d021c70368df0008edb87693923982e7261e662c04d0bdca78c5310",
+        "headers": {
+          "Authorization": "Bearer <administrator-device-token>"
+        },
+        "derivedRequestDigest": "sha256:f0b56eaecb1a942d7faeb4814f69bbcda854f7b4cd07da33d661819a784a4ecb",
         "body": {
           "base": null,
           "candidate": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
-          "objects": [{ "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f", "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA==" }]
+          "objects": [
+            {
+              "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA=="
+            }
+          ],
+          "ifMatch": "bytesHash"
         }
       },
       "response": {
         "status": 201,
         "body": {
           "outcome": "accepted",
-          "requestDigest": "sha256:bff6a5d61d021c70368df0008edb87693923982e7261e662c04d0bdca78c5310",
+          "requestDigest": "sha256:f0b56eaecb1a942d7faeb4814f69bbcda854f7b4cd07da33d661819a784a4ecb",
           "update": {
             "id": "3",
             "tree": "tr_new",
@@ -106,7 +119,9 @@
       "request": {
         "method": "GET",
         "path": "/.arbor/trees/tr_atlas/ref",
-        "headers": { "Arbor-Access-Link": "<raw-link-secret>" }
+        "headers": {
+          "Arbor-Access-Link": "<raw-link-secret>"
+        }
       },
       "response": {
         "status": 200,
@@ -132,7 +147,9 @@
       "request": {
         "method": "GET",
         "path": "/.arbor/trees/tr_atlas/watch",
-        "headers": { "Last-Event-ID": "1" }
+        "headers": {
+          "Last-Event-ID": "1"
+        }
       },
       "response": {
         "status": 200,
@@ -165,7 +182,9 @@
                 "export": "practice",
                 "version": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
               },
-              "input": { "id": "p_123" }
+              "input": {
+                "id": "p_123"
+              }
             }
           ]
         }
@@ -201,7 +220,10 @@
             "version": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
           },
           "mutationID": "mutation-client-41",
-          "input": { "id": "p_123", "name": "Long walk" }
+          "input": {
+            "id": "p_123",
+            "name": "Long walk"
+          }
         }
       },
       "response": {
@@ -210,7 +232,10 @@
           "mutationID": "mutation-client-41",
           "requestDigest": "sha256:1010101010101010101010101010101010101010101010101010101010101010",
           "observedThrough": "query:42",
-          "result": { "id": "p_123", "name": "Long walk" }
+          "result": {
+            "id": "p_123",
+            "name": "Long walk"
+          }
         }
       }
     }

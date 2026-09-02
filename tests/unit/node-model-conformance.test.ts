@@ -73,7 +73,7 @@ describe("unified node-model conformance", () => {
     expect(pages[0]?.items.every((item) => item.ref.stableKey !== null)).toBe(true);
     expect(pages[0]?.items.every((item) => !("kind" in item))).toBe(true);
     expect(rollups.map((item) => item.codec)).toEqual(["csv", "json", "jsonl"]);
-    expect(new Set(rollups.map((item) => item.modelDigest)).size).toBe(1);
+    expect(new Set(rollups.map((item) => item.modelHash)).size).toBe(1);
     expect(() => decodeRollupDescriptor({
       ...rollups[0],
       codec: "sqlite",

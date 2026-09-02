@@ -13,6 +13,8 @@ import {
   type UpdateConflictJSON,
   type UpdateConflictResult,
   type UpdateRequestJSON,
+  applyTransitionPayload,
+  decodeUpdateConflictJSON,
 } from "@arbor/wire";
 
 /** The durable pending update is exactly the wire request body it will become. */
@@ -82,6 +84,7 @@ export function pendingFromSnapshot(
   return {
     base,
     candidate: snapshot.root,
+    ifMatch: base === null ? "bytesHash" : "modelHash",
     objects: encodeObjectEnvelopes([...snapshot.objects].filter(([hash]) => !retained.has(hash))),
   };
 }
@@ -102,8 +105,10 @@ export function withDelta(pending: PendingTreeUpdate, delta: ObjectDelta): Pendi
   };
 }
 
-export function snapshotFromConflictDraft(conflict: StoredTreeConflict): TreeSnapshot {
-  return decodeTreeSnapshotJSON(conflict.details.draft);
+/** The draft the conflict describes, reconstructed by applying its transition to the candidate graph. */
+export function snapshotFromConflictDraft(conflict: StoredTreeConflict, candidate: TreeSnapshot): TreeSnapshot {
+  const draft = decodeUpdateConflictJSON(conflict).details.draft;
+  return { root: draft.root, objects: applyTransitionPayload(candidate.objects, draft) };
 }
 
 export function pendingTreeUpdate(tree: string): Promise<PendingTreeUpdate | undefined> {
@@ -156,8 +161,7 @@ export function clearPendingTreeUpdate(tree: string): Promise<void> {
 export function saveTreeConflict(tree: string, conflict: UpdateConflictResult): Promise<void> {
   return serialized(tree, async () => {
     const state = await load(tree);
-    const { currentSnapshot: _omitted, ...details } = conflict.details;
-    await save(tree, { ...state, conflict: encodeUpdateConflictJSON({ ...conflict, details }) });
+    await save(tree, { ...state, conflict: encodeUpdateConflictJSON(conflict) });
   });
 }
 

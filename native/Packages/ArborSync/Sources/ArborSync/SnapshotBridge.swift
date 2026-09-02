@@ -55,7 +55,7 @@ enum SnapshotBridge {
                             schemaSource: rollup.schemaSource,
                             schema: rollup.schema,
                             scope: rollup.scope,
-                            modelDigest: rollup.modelDigest
+                            modelHash: rollup.modelHash
                         )
                     ))
                     continue

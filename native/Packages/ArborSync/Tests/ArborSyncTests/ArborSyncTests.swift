@@ -72,7 +72,7 @@ struct ArborSyncTests {
                 schemaSource: schema.hash,
                 schema: "sha256:" + String(repeating: "3", count: 64),
                 scope: "children",
-                modelDigest: "sha256:" + String(repeating: "4", count: 64)
+                modelHash: "sha256:" + String(repeating: "4", count: 64)
             )
             let directory = try WireObjectCodec.object(.directory([
                 .init(name: "_store.json", rollup: descriptor),
@@ -101,7 +101,7 @@ struct ArborSyncTests {
                 let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
                 let candidate = try completeCandidate(request, retained: initial)
                 let update = accepted(id: "up_local", tree: tree, root: candidate.root, base: initial.root, candidate: candidate.root)
-                return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: nil, observedThrough: update.id)
+                return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, observedThrough: update.id)
             }
             let replica = try await ReplicaPlacementService.place(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -137,7 +137,7 @@ struct ArborSyncTests {
                     base: initial.root,
                     candidate: request.candidate
                 )
-                return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: nil, observedThrough: update.id)
+                return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, observedThrough: update.id)
             }
             let replica = try await ReplicaPlacementService.place(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -328,7 +328,7 @@ struct ArborSyncTests {
                 return WireUpdateResponse(
                     result: .accepted(update),
                     requestDigest: prepared.requestDigest,
-                    snapshot: nil,
+                    reconciliation: nil,
                     observedThrough: update.id
                 )
             }
@@ -393,7 +393,7 @@ struct ArborSyncTests {
                 }
                 let returned = try completeCandidate(request, retained: initial)
                 let update = accepted(id: "up_\(call)", tree: tree, root: returned.root, base: initial.root, candidate: returned.root)
-                return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, snapshot: returned, observedThrough: update.id)
+                return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, reconciliation: WireTransitionPayload(objects: returned.objects), observedThrough: update.id)
             }
             let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root)
             let first = try await coordinator.syncOnce()
@@ -440,8 +440,7 @@ struct ArborSyncTests {
                 current: current,
                 base: initial.root,
                 candidate: try await replica.currentSnapshot().root,
-                draft: draft,
-                currentSnapshot: remote,
+                draft: WireConflictDraft(root: draft.root, objects: draft.objects),
                 conflicts: [.init(path: "/note.md", reason: "frontmatter-conflict")]
             )
             let conflictTransport = ClosureTransport(initial: initial) { _, _ in
@@ -459,7 +458,6 @@ struct ArborSyncTests {
                 return WireUpdateResponse(
                     result: .accepted(accepted(id: "up_resolved", tree: tree, root: candidate.root, base: remote.root, candidate: candidate.root)),
                     requestDigest: prepared.requestDigest,
-                    snapshot: candidate,
                     observedThrough: "up_resolved"
                 )
             }
@@ -480,8 +478,7 @@ struct ArborSyncTests {
                     return WireUpdateResponse(
                         result: .accepted(accepted(id: "up_done", tree: tree, root: candidate.root, base: initial.root, candidate: candidate.root)),
                         requestDigest: prepared.requestDigest,
-                        snapshot: candidate,
-                        observedThrough: "up_done"
+                            observedThrough: "up_done"
                     )
                 }
                 let replica = try await ReplicaPlacementService.place(
@@ -537,7 +534,7 @@ struct ArborSyncTests {
                         remoteRoot: initial.root,
                         merge: summary
                     )
-                    return WireUpdateResponse(result: .merged(update, summary), requestDigest: prepared.requestDigest, snapshot: merged, observedThrough: update.id)
+                    return WireUpdateResponse(result: .merged(update, summary), requestDigest: prepared.requestDigest, reconciliation: WireTransitionPayload(objects: merged.objects), observedThrough: update.id)
                 }
                 let replica = try await ReplicaPlacementService.place(
                     tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),

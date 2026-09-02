@@ -37,7 +37,7 @@ struct WireObjectTests {
                             schemaSource: value["schemaSource"] as! String,
                             schema: value["schema"] as! String,
                             scope: value["scope"] as! String,
-                            modelDigest: value["modelDigest"] as! String
+                            modelHash: value["modelHash"] as! String
                         )
                     }
                     return WireDirectoryEntry(
@@ -125,8 +125,10 @@ struct UpdateProtocolTests {
         let candidate = identity["candidate"] as! String
         let value = WireUpdateBase(root: candidate, update: try #require(identity["base"] as? String))
         let tree = identity["tree"] as! String
-        #expect(canonicalUpdateIntent(tree: tree, base: value, candidate: candidate).base64EncodedString() == identity["canonicalCBORBase64"] as? String)
-        #expect(updateRequestDigest(tree: tree, base: value, candidate: candidate) == identity["digest"] as? String)
+        let ifMatch = identity["ifMatch"] as! String
+        let onConflict = identity["onConflict"] as? String
+        #expect(canonicalUpdateIntent(tree: tree, base: value, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict).base64EncodedString() == identity["canonicalCBORBase64"] as? String)
+        #expect(updateRequestDigest(tree: tree, base: value, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict) == identity["digest"] as? String)
     }
 
     @Test("Swift encodes and rejects the shared canonical CBOR value vectors")

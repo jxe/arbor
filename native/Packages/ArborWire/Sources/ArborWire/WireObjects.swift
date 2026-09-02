@@ -8,7 +8,7 @@ public struct WireRollupDescriptor: Hashable, Codable, Sendable {
     public var schemaSource: String
     public var schema: String
     public var scope: String
-    public var modelDigest: String
+    public var modelHash: String
 
     public init(
         version: Int = 1,
@@ -17,7 +17,7 @@ public struct WireRollupDescriptor: Hashable, Codable, Sendable {
         schemaSource: String,
         schema: String,
         scope: String,
-        modelDigest: String
+        modelHash: String
     ) {
         self.version = version
         self.codec = codec
@@ -25,7 +25,7 @@ public struct WireRollupDescriptor: Hashable, Codable, Sendable {
         self.schemaSource = schemaSource
         self.schema = schema
         self.scope = scope
-        self.modelDigest = modelDigest
+        self.modelHash = modelHash
     }
 }
 
@@ -128,7 +128,7 @@ public enum WireObjectCodec {
             ("schemaSource", .text(rollup.schemaSource)),
             ("schema", .text(rollup.schema)),
             ("scope", .text(rollup.scope)),
-            ("modelDigest", .text(rollup.modelDigest)),
+            ("modelHash", .text(rollup.modelHash)),
         ])
     }
 
@@ -144,7 +144,7 @@ public enum WireObjectCodec {
               case let .text(schemaSource)? = item["schemaSource"],
               case let .text(schema)? = item["schema"],
               case let .text(scope)? = item["scope"],
-              case let .text(modelDigest)? = item["modelDigest"] else {
+              case let .text(modelHash)? = item["modelHash"] else {
             throw ArborWireValidationError.invalidCBOR("Rollup descriptor fields are invalid")
         }
         return WireRollupDescriptor(
@@ -154,7 +154,7 @@ public enum WireObjectCodec {
             schemaSource: schemaSource,
             schema: schema,
             scope: scope,
-            modelDigest: modelDigest
+            modelHash: modelHash
         )
     }
 
@@ -185,7 +185,7 @@ public enum WireObjectCodec {
                       ["children", "subtree"].contains(rollup.scope) else {
                     throw ArborWireValidationError.invalidValue("Invalid rollup descriptor")
                 }
-                for hash in [rollup.source, rollup.schemaSource, rollup.schema, rollup.modelDigest] {
+                for hash in [rollup.source, rollup.schemaSource, rollup.schema, rollup.modelHash] {
                     try validateObjectHash(hash)
                 }
             }

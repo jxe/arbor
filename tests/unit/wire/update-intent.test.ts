@@ -16,6 +16,8 @@ interface IntentFixtures {
     tree: string;
     base: string;
     candidate: ObjectHash;
+    ifMatch: "bytesHash" | "modelHash";
+    onConflict?: "reject" | "merge";
     canonicalCBORBase64: string;
     digest: string;
   };
@@ -48,14 +50,19 @@ describe("updates-v1 JSON identity", () => {
   test("depends on every semantic field but not object-envelope ordering", () => {
     const identity = fixtures.identity;
     const changed = [
-      ["other-tree", identity.base, identity.candidate],
-      [identity.tree, `${identity.base}0`, identity.candidate],
-      [identity.tree, null, identity.candidate],
-      [identity.tree, identity.base, `${identity.candidate.slice(0, -1)}0` as ObjectHash],
+      ["other-tree", identity.base, identity.candidate, identity.ifMatch, identity.onConflict],
+      [identity.tree, `${identity.base}0`, identity.candidate, identity.ifMatch, identity.onConflict],
+      [identity.tree, null, identity.candidate, identity.ifMatch, identity.onConflict],
+      [identity.tree, identity.base, `${identity.candidate.slice(0, -1)}0` as ObjectHash, identity.ifMatch, identity.onConflict],
+      [identity.tree, identity.base, identity.candidate, "bytesHash", undefined],
+      [identity.tree, identity.base, identity.candidate, identity.ifMatch, "reject"],
     ] as const;
-    for (const [tree, base, candidate] of changed) {
-      expect(updateRequestDigest(tree, { base, candidate })).not.toBe(identity.digest);
+    for (const [tree, base, candidate, ifMatch, onConflict] of changed) {
+      expect(updateRequestDigest(tree, { base, candidate, ifMatch, onConflict })).not.toBe(identity.digest);
     }
+    // onConflict is digested at its effective value, so an omitted merge equals an explicit one.
+    expect(updateRequestDigest(identity.tree, { base: identity.base, candidate: identity.candidate, ifMatch: identity.ifMatch }))
+      .toBe(identity.digest);
     expect(fixtures.replayCases).toEqual(expect.arrayContaining([
       expect.objectContaining({ sameIntent: true, expected: expect.objectContaining({ additionalAcceptedUpdates: 0 }) }),
       expect.objectContaining({ sameIntent: false, expected: expect.objectContaining({ differentDigest: true }) }),
@@ -76,12 +83,15 @@ describe("updates-v1 JSON identity", () => {
     expect(() => decodeUpdateRequestJSON({
       base: { root: fixtures.identity.candidate, update: fixtures.identity.base },
       candidate: fixtures.identity.candidate,
+      ifMatch: "modelHash",
       objects: [],
     })).toThrow("base update id or null");
-    expect(decodeUpdateRequestJSON({ base: null, candidate: fixtures.identity.candidate, objects: [] }).base).toBeNull();
+    expect(decodeUpdateRequestJSON({ base: null, candidate: fixtures.identity.candidate,
+      ifMatch: "bytesHash", objects: [] }).base).toBeNull();
     expect(() => decodeUpdateRequestJSON({
       base: null,
       candidate: fixtures.identity.candidate,
+      ifMatch: "bytesHash",
       objects: [],
       deltas: [{ base: fixtures.identity.candidate, result: `${fixtures.identity.candidate.slice(0, -1)}0`, instructions: [{ insert: "eA==" }] }],
     })).toThrow("no base to apply deltas");
@@ -104,6 +114,7 @@ describe("updates-v1 JSON identity", () => {
     expect(() => decodeUpdateRequestJSON({
       base: fixtures.identity.base,
       candidate: fixtures.identity.candidate,
+      ifMatch: "modelHash",
       objects: [{ hash: result, bytes: "eA==" }],
       deltas: [{ base, result, instructions: [{ insert: "eA==" }] }],
     })).toThrow("also supplied as a complete object");

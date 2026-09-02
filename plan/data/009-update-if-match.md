@@ -43,9 +43,14 @@ the three format-specific mergers survive only as merge rules for two changes to
    current plus the candidate's touched nodes) and `merge-rules/` (`markdown-additive-v1`,
    `rollup-rows-v1`, `account-config-v1`), each invoked only for a conflicting node.
 7. **Reconcile and host.** `reconcile.ts` and `canopy/src/host.ts` return `merged` for both
-   disjoint merges and rule merges; conflict details name each conflicting node.
+   disjoint merges and rule merges; conflict details name each conflicting node. The result's
+   `snapshot` becomes `reconciliation`, the transition from the candidate root to the accepted
+   root, built by the transition builder with an arbitrary `from`; a conflict's `draft` is
+   likewise a transition from the candidate. `TransitionPayload` is the one named payload type
+   for requests, results, and watch frames.
 8. **Clients.** arborsync's submit path (`packages/arborsync/src/tree-sync.ts`) and the Swift
-   replica send `ifMatch: "modelHash"`; activation and the configuration tree send what
+   replica send `ifMatch: "modelHash"` and apply a result's `reconciliation` with their watch
+   transition code, deleting the snapshot apply path; activation and the configuration tree send what
    [wire §6.2](../../spec/04-accounts-and-devices.md#5-declaring-and-activating-a-tree) and
    [configuration §3](../../spec/04-accounts-and-devices.md#6-governed-account-tree) say.
 9. **Stamp-triggered re-place in arborsync.** The daemon records the schema version it last

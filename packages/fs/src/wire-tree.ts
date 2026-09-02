@@ -17,7 +17,7 @@ export interface SnapshotRollupDescription {
   codec: RollupDescriptor["codec"];
   schema: Hash;
   scope: RollupDescriptor["scope"];
-  modelDigest: Hash;
+  modelHash: Hash;
 }
 
 export type DescribeSnapshotRollup = (

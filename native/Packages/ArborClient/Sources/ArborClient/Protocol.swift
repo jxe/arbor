@@ -196,7 +196,7 @@ public struct ChildRepresentationSummary: Codable, Sendable, Equatable {
     public var type: String
     public var codec: String?
     public var scope: String?
-    public var modelDigest: String?
+    public var modelHash: String?
     public var driver: String?
 }
 

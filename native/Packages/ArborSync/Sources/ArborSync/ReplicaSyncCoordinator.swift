@@ -228,7 +228,6 @@ public actor ReplicaSyncCoordinator {
             return try await presentation()
         } catch let error as WireUpdateConflictError {
             let validated = try error.conflict.validated()
-            guard validated.currentSnapshot != nil else { throw ReplicaSyncError.conflictSnapshotMissing }
             control.conflict = DurableSyncConflict(response: validated, localRootAtConflict: attempt.candidate)
             control.attempt = nil
             control.presentation = WorkspaceSyncPresentation(
@@ -405,10 +404,7 @@ public actor ReplicaSyncCoordinator {
         case let .accepted(update): accepted = update; merge = nil
         case let .merged(update, summary): accepted = update; merge = summary
         }
-        if let snapshot = response.snapshot {
-            _ = try WireObjectGraph.validate(snapshot)
-            guard snapshot.root == accepted.root else { throw ReplicaSyncError.returnedSnapshotMismatch }
-        } else if accepted.root != attempt.candidate {
+        if response.reconciliation == nil, accepted.root != attempt.candidate {
             throw ReplicaSyncError.returnedSnapshotMissing
         }
         try faultInjector.reached(.duringGraphDownload)
@@ -457,7 +453,16 @@ public actor ReplicaSyncCoordinator {
             try faultInjector.reached(.beforeBaseAdvancement)
             try await replica.recordAccepted(root: accepted.root, update: accepted.id, cursor: accepted.id)
         } else {
-            guard let snapshot = response.snapshot else { throw ReplicaSyncError.returnedSnapshotMissing }
+            guard let reconciliation = response.reconciliation else { throw ReplicaSyncError.returnedSnapshotMissing }
+            // The materialized root is the candidate here, so the local graph is the basis the transition applies to.
+            let local = try await replica.currentSnapshot()
+            let basis = WireSnapshot(root: local.root, objects: local.objects.map { WireObjectEnvelope(hash: $0.hash, bytes: $0.bytes) })
+            let snapshot: WireSnapshot
+            do {
+                snapshot = try WireTransitionReplay.applying(reconciliation, to: basis, root: accepted.root)
+            } catch {
+                throw ReplicaSyncError.returnedSnapshotMismatch
+            }
             try faultInjector.reached(.duringMaterialization)
             let replacement = try SnapshotBridge.replacement(
                 snapshot: snapshot,

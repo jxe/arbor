@@ -176,7 +176,7 @@ private struct FrozenRollup: Decodable {
     var schemaSource: String
     var schema: String
     var scope: String
-    var modelDigest: String
+    var modelHash: String
 }
 
 private struct FrozenNamed<Value: Decodable>: Decodable {
@@ -214,7 +214,7 @@ final class NodeModelConformanceTests: XCTestCase {
         XCTAssertEqual(value.childrenPages.first?.value.items.count, 2)
         XCTAssertTrue(value.childrenPages.first?.value.items.allSatisfy { $0.ref.stableKey != nil } ?? false)
         XCTAssertEqual(value.rollups.map(\.codec), ["csv", "json", "jsonl"])
-        XCTAssertEqual(Set(value.rollups.map(\.modelDigest)).count, 1)
+        XCTAssertEqual(Set(value.rollups.map(\.modelHash)).count, 1)
 
         for item in value.identityRules {
             let pairs = try item.rule.properties.map { property in

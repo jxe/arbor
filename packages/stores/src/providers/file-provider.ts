@@ -27,7 +27,7 @@ interface LoadedFileProjection {
   rows: ProviderChildRecord[];
   revision: string;
   sourceRevision: string;
-  modelDigest: string;
+  modelHash: string;
   diagnostics: Diagnostic[];
   identityRule?: { properties: string[] };
   editable: boolean;
@@ -44,11 +44,11 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       ...(loaded.identityRule ? { identityRule: loaded.identityRule } : {}),
       revision: loaded.revision,
       schemaRevision: loaded.description.revision,
-      modelDigest: loaded.modelDigest,
+      modelHash: loaded.modelHash,
       diagnostics: loaded.diagnostics,
       total: loaded.rows.length,
       editable: definition.provider === "markdown" && loaded.editable,
-      representation: representationFor(definition.provider, loaded.modelDigest as Hash),
+      representation: representationFor(definition.provider, loaded.modelHash as Hash),
       ...(definition.provider === "markdown" ? { rowContent: "markdown" as const } : {}),
     };
   }
@@ -56,7 +56,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
     codec: "csv" | "json" | "jsonl";
     schema: Hash;
     scope: "children";
-    modelDigest: Hash;
+    modelHash: Hash;
   } | null> {
     if (!definition.storePath || !definition.schemaPath || basename(definition.storePath) !== sourceName
       || !(definition.provider === "csv" || definition.provider === "json" || definition.provider === "jsonl")
@@ -67,7 +67,7 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       codec: definition.provider,
       schema: loaded.description.revision as Hash,
       scope: "children",
-      modelDigest: loaded.modelDigest as Hash,
+      modelHash: loaded.modelHash as Hash,
     };
   }
   async page(
@@ -354,11 +354,11 @@ export class FileProjectionDriver implements ProjectionProvider, AsyncDisposable
       }],
     }));
     const revision = revisionOf(`${loaded.revision}\0${description.revision}\0${JSON.stringify({ columns: description.columns, primaryKey: identityProperties })}`);
-    const modelDigest = canonicalCBORHash([...rows]
+    const modelHash = canonicalCBORHash([...rows]
       .sort((left, right) => (left.stableKey ?? left.path).localeCompare(right.stableKey ?? right.path))
       .map((row) => ({ key: row.stableKey, path: row.path, properties: row.values })));
     return {
-      description, rows, revision, sourceRevision: loaded.revision, modelDigest,
+      description, rows, revision, sourceRevision: loaded.revision, modelHash,
       diagnostics: [...definition.diagnostics, ...loaded.diagnostics],
       ...(identityRule ? { identityRule } : {}),
       editable: definition.provider === "markdown" || Boolean(identityRule

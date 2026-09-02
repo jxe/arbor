@@ -508,26 +508,60 @@ public struct WireUpdateRequest: Codable, Sendable, Equatable {
     /// The accepted update id the candidate derives from; nil activates a reserved tree.
     public var base: String?
     public var candidate: String
+    /// Which hash must still match its value at base: "bytesHash" or "modelHash".
+    public var ifMatch: String
+    /// Under modelHash, what to do with a node changed in both places; nil means merge.
+    public var onConflict: String?
     public var objects: [WireObjectEnvelope]
     public var deltas: [WireObjectDelta]?
 
-    public init(base: String?, candidate: String, objects: [WireObjectEnvelope], deltas: [WireObjectDelta] = []) {
+    public init(
+        base: String?,
+        candidate: String,
+        ifMatch: String? = nil,
+        onConflict: String? = nil,
+        objects: [WireObjectEnvelope],
+        deltas: [WireObjectDelta] = []
+    ) {
         self.base = base
         self.candidate = candidate
+        self.ifMatch = ifMatch ?? (base == nil ? "bytesHash" : "modelHash")
+        self.onConflict = onConflict
         self.objects = objects
         self.deltas = deltas.isEmpty ? nil : deltas
     }
 
-    public init(base: WireUpdateBase, candidate: String, objects: [WireObjectEnvelope], deltas: [WireObjectDelta] = []) {
-        self.init(base: base.update, candidate: candidate, objects: objects, deltas: deltas)
+    public init(
+        base: WireUpdateBase,
+        candidate: String,
+        ifMatch: String? = nil,
+        onConflict: String? = nil,
+        objects: [WireObjectEnvelope],
+        deltas: [WireObjectDelta] = []
+    ) {
+        self.init(base: base.update, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict, objects: objects, deltas: deltas)
     }
 
-    private enum CodingKeys: String, CodingKey { case base, candidate, objects, deltas }
+    private enum CodingKeys: String, CodingKey { case base, candidate, ifMatch, onConflict, objects, deltas }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         base = try values.decodeIfPresent(String.self, forKey: .base)
         candidate = try values.decode(String.self, forKey: .candidate)
+        ifMatch = try values.decode(String.self, forKey: .ifMatch)
+        onConflict = try values.decodeIfPresent(String.self, forKey: .onConflict)
+        guard ifMatch == "bytesHash" || ifMatch == "modelHash" else {
+            throw ArborWireValidationError.invalidValue("Update requires ifMatch of bytesHash or modelHash")
+        }
+        if let onConflict, onConflict != "reject", onConflict != "merge" {
+            throw ArborWireValidationError.invalidValue("onConflict must be reject or merge")
+        }
+        if ifMatch == "bytesHash", onConflict == "merge" {
+            throw ArborWireValidationError.invalidValue("A bytesHash match cannot merge")
+        }
+        if base == nil, ifMatch != "bytesHash" {
+            throw ArborWireValidationError.invalidValue("Activation matches on bytesHash")
+        }
         objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
         deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas)
         if base == nil, let deltas, !deltas.isEmpty {
@@ -560,6 +594,8 @@ public struct WireUpdateRequest: Codable, Sendable, Equatable {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(base, forKey: .base)
         try values.encode(candidate, forKey: .candidate)
+        try values.encode(ifMatch, forKey: .ifMatch)
+        try values.encodeIfPresent(onConflict, forKey: .onConflict)
         try values.encode(objects, forKey: .objects)
         try values.encodeIfPresent(deltas, forKey: .deltas)
     }
@@ -584,13 +620,88 @@ public struct WireConflictReason: Codable, Sendable, Equatable {
     public init(path: String, reason: String) { self.path = path; self.reason = reason }
 }
 
+/// The one payload shape for a transition between two roots: complete objects
+/// plus deltas against objects reachable from the starting root.
+public struct WireTransitionPayload: Codable, Sendable, Equatable {
+    public var objects: [WireObjectEnvelope]
+    public var deltas: [WireObjectDelta]
+
+    public init(objects: [WireObjectEnvelope], deltas: [WireObjectDelta] = []) {
+        self.objects = objects
+        self.deltas = deltas
+    }
+
+    private enum CodingKeys: String, CodingKey { case objects, deltas }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
+        deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas) ?? []
+        _ = try validated()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(objects, forKey: .objects)
+        if !deltas.isEmpty { try values.encode(deltas, forKey: .deltas) }
+    }
+
+    public func validated() throws -> Self {
+        var results = Set<String>()
+        for envelope in objects {
+            try validateObjectHash(envelope.hash)
+            guard WireObjectCodec.hash(envelope.bytes) == envelope.hash else {
+                throw ArborWireValidationError.objectHashMismatch(expected: envelope.hash, actual: WireObjectCodec.hash(envelope.bytes))
+            }
+            guard results.insert(envelope.hash).inserted else { throw ArborWireValidationError.invalidValue("Duplicate transition result") }
+        }
+        for delta in deltas {
+            _ = try delta.validated()
+            guard results.insert(delta.result).inserted else {
+                throw ArborWireValidationError.invalidValue("Transition result supplied more than once")
+            }
+        }
+        return self
+    }
+}
+
+/// The transition from the candidate root to the draft root a conflict leaves the client with.
+public struct WireConflictDraft: Codable, Sendable, Equatable {
+    public var root: String
+    public var objects: [WireObjectEnvelope]
+    public var deltas: [WireObjectDelta]
+
+    public init(root: String, objects: [WireObjectEnvelope] = [], deltas: [WireObjectDelta] = []) {
+        self.root = root
+        self.objects = objects
+        self.deltas = deltas
+    }
+
+    private enum CodingKeys: String, CodingKey { case root, objects, deltas }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        root = try values.decode(String.self, forKey: .root)
+        objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
+        deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(root, forKey: .root)
+        try values.encode(objects, forKey: .objects)
+        if !deltas.isEmpty { try values.encode(deltas, forKey: .deltas) }
+    }
+
+    public var payload: WireTransitionPayload { WireTransitionPayload(objects: objects, deltas: deltas) }
+}
+
 public struct WireConflictDetails: Codable, Sendable, Equatable {
     public var kind: String
     public var current: WireAcceptedUpdate
     public var base: String
     public var candidate: String
-    public var draft: WireSnapshot
-    public var currentSnapshot: WireSnapshot?
+    public var draft: WireConflictDraft
     public var conflicts: [WireConflictReason]
 }
 
@@ -604,8 +715,7 @@ public struct WireUpdateConflict: Codable, Sendable, Equatable {
     public var current: WireAcceptedUpdate { details.current }
     public var base: String { details.base }
     public var candidate: String { details.candidate }
-    public var draft: WireSnapshot { details.draft }
-    public var currentSnapshot: WireSnapshot? { details.currentSnapshot }
+    public var draft: WireConflictDraft { details.draft }
     public var conflicts: [WireConflictReason] { details.conflicts }
 
     public init(
@@ -617,8 +727,7 @@ public struct WireUpdateConflict: Codable, Sendable, Equatable {
         current: WireAcceptedUpdate,
         base: String,
         candidate: String,
-        draft: WireSnapshot,
-        currentSnapshot: WireSnapshot? = nil,
+        draft: WireConflictDraft,
         conflicts: [WireConflictReason]
     ) {
         self.error = error
@@ -631,7 +740,6 @@ public struct WireUpdateConflict: Codable, Sendable, Equatable {
             base: base,
             candidate: candidate,
             draft: draft,
-            currentSnapshot: currentSnapshot,
             conflicts: conflicts
         )
     }
@@ -644,13 +752,8 @@ public struct WireUpdateConflict: Codable, Sendable, Equatable {
         _ = try details.current.validated()
         try validateObjectHash(details.base)
         try validateObjectHash(details.candidate)
-        _ = try WireObjectGraph.validate(details.draft)
-        if let currentSnapshot = details.currentSnapshot {
-            _ = try WireObjectGraph.validate(currentSnapshot)
-            guard currentSnapshot.root == details.current.root else {
-                throw ArborWireValidationError.invalidValue("Conflict current snapshot root mismatch")
-            }
-        }
+        try validateObjectHash(details.draft.root)
+        _ = try details.draft.payload.validated()
         guard details.conflicts.allSatisfy({ $0.path.hasPrefix("/") && !$0.reason.isEmpty }) else {
             throw ArborWireValidationError.invalidValue("Malformed conflict reason")
         }
@@ -667,15 +770,16 @@ public enum WireUpdateResult: Sendable, Equatable {
 public struct WireUpdateResponse: Sendable, Equatable, Decodable {
     public var result: WireUpdateResult
     public var requestDigest: String
-    public var snapshot: WireSnapshot?
+    /// The transition from the candidate root to the accepted root, present whenever they differ.
+    public var reconciliation: WireTransitionPayload?
     public var observedThrough: String
 
-    private enum CodingKeys: String, CodingKey { case requestDigest, snapshot, observedThrough }
+    private enum CodingKeys: String, CodingKey { case requestDigest, reconciliation, observedThrough }
 
-    public init(result: WireUpdateResult, requestDigest: String, snapshot: WireSnapshot?, observedThrough: String) {
+    public init(result: WireUpdateResult, requestDigest: String, reconciliation: WireTransitionPayload? = nil, observedThrough: String) {
         self.result = result
         self.requestDigest = requestDigest
-        self.snapshot = snapshot
+        self.reconciliation = reconciliation
         self.observedThrough = observedThrough
     }
 
@@ -686,18 +790,7 @@ public struct WireUpdateResponse: Sendable, Equatable, Decodable {
         try validateObjectHash(requestDigest)
         observedThrough = try values.decode(String.self, forKey: .observedThrough)
         guard !observedThrough.isEmpty else { throw ArborWireValidationError.invalidValue("Missing observation boundary") }
-        snapshot = try values.decodeIfPresent(WireSnapshot.self, forKey: .snapshot)
-        if let snapshot {
-            _ = try WireObjectGraph.validate(snapshot)
-            let acceptedRoot: String
-            switch result {
-            case let .current(update), let .accepted(update): acceptedRoot = update.root
-            case let .merged(update, _): acceptedRoot = update.root
-            }
-            guard snapshot.root == acceptedRoot else {
-                throw ArborWireValidationError.invalidValue("Returned snapshot root mismatch")
-            }
-        }
+        reconciliation = try values.decodeIfPresent(WireTransitionPayload.self, forKey: .reconciliation)
     }
 }
 
