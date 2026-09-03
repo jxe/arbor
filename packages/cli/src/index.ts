@@ -35,7 +35,7 @@ type ShareAudience =
 
 function usage(): never {
   console.error(`Usage:
-  arbor open [<locator>] [--port <number>]
+  arbor open [<locator>]
   arbor daemon <install|uninstall|start|stop|restart|status|logs>
   arbor connect <community-url>
   arbor sync [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
@@ -844,23 +844,16 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "open") {
-    const portIndex = args.indexOf("--port");
-    const portValue = portIndex >= 0 ? args[portIndex + 1] : undefined;
-    if (portIndex >= 0 && (!portValue || portValue.startsWith("--"))) throw new Error("--port requires a number");
-    const port = Number(portValue ?? ARBOR_SYNC_PORT);
-    if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("Arbor Sync port must be an integer from 0 through 65535");
-    const positionals = args.filter((arg, index) => !arg.startsWith("--") && index !== portIndex + 1);
-    const unknown = args.filter((arg) => arg.startsWith("--") && arg !== "--port");
-    if (unknown.length || positionals.length > 1) usage();
-    const input = positionals[0] ?? ".";
+    if (args.length > 1 || args.some((arg) => arg.startsWith("-"))) usage();
+    const input = args[0] ?? ".";
     const target = openTarget(input);
-    let attached = await attachedArborSyncURL(target, port);
-    if (!attached && !process.env.ARBOR_DATA_HOME && port === ARBOR_SYNC_PORT && process.platform === "darwin") {
+    let attached = await attachedArborSyncURL(target, ARBOR_SYNC_PORT);
+    if (!attached && !process.env.ARBOR_DATA_HOME && process.platform === "darwin") {
       const supervisor = arborDaemonSupervisor();
       const status = await supervisor.status();
       if (!status.installed) throw new Error("Arbor Sync is not running; run `arbor daemon install` first");
       await supervisor.start();
-      attached = await attachedArborSyncURL(target, port);
+      attached = await attachedArborSyncURL(target, ARBOR_SYNC_PORT);
       if (!attached) throw new Error(`Arbor Sync started but could not open ${input}`);
     }
     if (attached) {
@@ -870,11 +863,11 @@ async function main(): Promise<void> {
       return;
     }
     if (!process.env.ARBOR_DATA_HOME) {
-      throw new Error(`A compatible Arbor Sync is not reachable on port ${port}; run \`arbor daemon status\` for details`);
+      throw new Error(`A compatible Arbor Sync is not reachable on port ${ARBOR_SYNC_PORT}; run \`arbor daemon status\` for details`);
     }
     const running = target.remoteURL
-      ? await serveArborSyncControl({ port })
-      : await serveArborSync(target.path!, { port });
+      ? await serveArborSyncControl({ port: ARBOR_SYNC_PORT })
+      : await serveArborSync(target.path!, { port: ARBOR_SYNC_PORT });
     const { service, server, url } = running;
     let start = "";
     if (running.mode === "workspace") {

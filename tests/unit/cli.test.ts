@@ -7,6 +7,21 @@ import { resolveUserPath, serveArborSync } from "@arbor/arborsync";
 import { communityCredentialName } from "@arbor/stores";
 
 describe("arbor open operands", () => {
+  test("rejects the removed --port option", async () => {
+    const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "open", "--port", "4321"], {
+      cwd: join(import.meta.dir, "../.."),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exit, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stderr).text(),
+    ]);
+    expect(exit).toBe(2);
+    expect(stderr).toContain("arbor open [<locator>]");
+    expect(stderr).not.toContain("--port");
+  });
+
   test("resolves local filesystem paths", () => {
     expect(openTarget("notes", "/Users/alice")).toEqual({ path: "/Users/alice/notes" });
   });

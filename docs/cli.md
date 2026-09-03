@@ -50,7 +50,7 @@ with no locator to open the current directory.
 ### `arbor open`
 
 ```text
-arbor open [<locator>] [--port <number>]
+arbor open [<locator>]
 ```
 
 Open a local path, canonical remote URL, or `arbor://` locator in Arbor web. The
