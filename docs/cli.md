@@ -1,11 +1,34 @@
 # Arbor CLI reference
 
-This page documents the commands implemented by the current `arbor` executable.
-It is not a roadmap; commands that do not dispatch in the executable do not
-belong here.
+The Arbor CLI opens local or remote trees and connects local folders to a
+Canopy. Most of the time, you only need `arbor open` and `arbor sync`.
+`arbor daemon` is mainly for one-time setup or troubleshooting; the remaining
+commands handle less common migration and administration work.
 
-From a checkout, invoke the CLI as `bun run arbor -- <command>`. After `bun
-link`, the equivalent global form is `arbor <command>`.
+From a checkout, run `bun run arbor -- <command>`. After `bun link`, use the
+installed form shown below: `arbor <command>`.
+
+## Quick start
+
+```sh
+# One-time macOS setup, if the Arbor app is not already managing Arbor Sync.
+arbor daemon install
+
+# Open the current folder in Arbor.
+arbor open .
+
+# Browse a remote tree without first placing it locally.
+arbor open https://garden.example/~joe/notes
+
+# Publish a local folder at a canonical Canopy URL and keep it synchronized.
+arbor sync ./notes https://garden.example/~joe/notes
+
+# Place an existing remote tree in a local folder and keep it synchronized.
+arbor sync https://garden.example/~joe/notes ~/Documents/notes
+```
+
+If Arbor Sync is already running, skip `arbor daemon install`. Run `arbor open`
+with no locator to open the current directory.
 
 ## Conventions
 
@@ -22,47 +45,25 @@ link`, the equivalent global form is `arbor <command>`.
 - Successful commands exit `0`. Operational failures exit `1`; malformed usage
   exits `2` after printing the command synopsis.
 
-## `arbor open`
+## Commands you will usually use
+
+### `arbor open`
 
 ```text
 arbor open [<locator>] [--port <number>]
 ```
 
 Open a local path, canonical remote URL, or `arbor://` locator in Arbor web. The
-locator defaults to the current directory. If a
-compatible persistent daemon is available, the command attaches to it; an
-explicit `ARBOR_DATA_HOME` may instead start a foreground server that runs until
-interrupted.
+locator defaults to the current directory. If a compatible persistent daemon is
+available, the command attaches to it; an explicit `ARBOR_DATA_HOME` may instead
+start a foreground server that runs until interrupted.
 
 ```sh
 arbor open ~/Documents/notes
 arbor open https://garden.example/~joe/notes
 ```
 
-## `arbor daemon`
-
-```text
-arbor daemon <install|uninstall|start|stop|restart|status|logs>
-```
-
-Manage the default Arbor Sync user service. On macOS, CLI-owned installation
-uses launchd; a signed Arbor app may own the same service registration instead.
-`uninstall` removes only CLI-owned supervision and does not remove `~/.arbor`.
-Linux and Windows supervision adapters are not implemented.
-
-## `arbor connect`
-
-```text
-arbor connect <community-url>
-```
-
-Install an already-issued account/device credential and its configuration
-checkout into an unclaimed legacy single-account data home. The credential is
-read from `ARBOR_ACCOUNT_TOKEN` or an interactive prompt. This is a bootstrap
-compatibility command; it does not add another account to the plural account
-layout. New account claims and pairing use Arbor web or the native client.
-
-## `arbor sync`
+### `arbor sync`
 
 ```text
 arbor sync [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
@@ -88,7 +89,25 @@ arbor sync --access public=read ./handbook https://garden.example/~editors/handb
 arbor sync https://garden.example/~editors/handbook ~/Documents/handbook
 ```
 
-## `arbor mv`
+## Setup and troubleshooting
+
+### `arbor daemon`
+
+```text
+arbor daemon <install|uninstall|start|stop|restart|status|logs>
+```
+
+Manage the default Arbor Sync user service. On macOS, CLI-owned installation
+uses launchd; a signed Arbor app may own the same service registration instead.
+`uninstall` removes only CLI-owned supervision and does not remove `~/.arbor`.
+Linux and Windows supervision adapters are not implemented.
+
+## Other commands
+
+These commands are for moving placements, changing Canopies, disconnecting
+trees, legacy account bootstrap, and external database credentials.
+
+### `arbor mv`
 
 ```text
 arbor mv [--check] <placed-local-root> <new-local-path>
@@ -114,7 +133,7 @@ arbor mv --check ~/Documents/todos-f ~/Documents/todos
 arbor mv ~/Documents/todos-f ~/Documents/todos
 ```
 
-## `arbor rehome`
+### `arbor rehome`
 
 ```text
 arbor rehome [--check] <local-path|canonical-url|arbor://TreeID> <destination-canonical-url>
@@ -134,7 +153,7 @@ arbor rehome --check ~/Documents/todos https://arb.example/~joe/todos
 arbor rehome ~/Documents/todos https://arb.example/~joe/todos
 ```
 
-## `arbor unsync`
+### `arbor unsync`
 
 ```text
 arbor unsync <local-path> [<canonical-url>]
@@ -146,7 +165,19 @@ canonical URL adds an exact safety check. This command never deletes local
 files, remote data, identity, history, ACLs, canonical boundaries, or another
 device's placement. It currently refuses plural account layouts.
 
-## `arbor connection`
+### `arbor connect`
+
+```text
+arbor connect <community-url>
+```
+
+Install an already-issued account/device credential and its configuration
+checkout into an unclaimed legacy single-account data home. The credential is
+read from `ARBOR_ACCOUNT_TOKEN` or an interactive prompt. This is a bootstrap
+compatibility command; it does not add another account to the plural account
+layout. New account claims and pairing use Arbor web or the native client.
+
+### `arbor connection`
 
 ```text
 arbor connection set <name> [--dsn-stdin]
