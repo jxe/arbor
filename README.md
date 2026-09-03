@@ -59,7 +59,7 @@ Markdown page names are logical and extensionless in Arbor. A directory is a nod
 bun run arbor open sites/supplies
 ```
 
-The first three executable-runtime phases are implemented: `arbor/data` can lower and execute every checked-in Supplies query against its private SQLite fixture, keep complete authorized results current from committed SQLite/profile changes through a race-free stateless SSE stream shared by Local REST and Arbor Wire, and execute every checked-in mutation in one authorized transaction with ordered-relation operations and durable retry receipts. Mutation receipts reuse accepted tree updates' semantic `requestDigest`/`observedThrough` vocabulary without pretending SQLite row writes are file patches; query streams and tree watches share SSE framing while retaining distinct fresh-snapshot and replay contracts. Document compilation, React presentation, automatic runtime activation, and hosting are not implemented yet. [Application 001](plan/applications/001-supplies-executable-site.md) drives that remaining work end to end: local Arbor web, signed macOS Arbor, explicit Canopy activation at the tree's canonical website, and finally a repeatable migration of the real Meaning Supplies Postgres corpus into the private SQLite data tree.
+The first three executable-runtime phases are implemented: `arbor/data` can lower and execute every checked-in Supplies query against its private SQLite fixture, keep complete authorized results current from committed SQLite/profile changes through a race-free stateless SSE stream shared by Local REST and Arbor Wire, and execute every checked-in mutation in one authorized transaction with ordered-relation operations and durable retry receipts. Mutation receipts reuse accepted tree updates' semantic `requestDigest`/`observedThrough` vocabulary without pretending SQLite row writes are file patches; query streams and tree watches share SSE framing while retaining distinct fresh-snapshot and replay contracts. Document compilation, React presentation, automatic runtime activation, and hosting are not implemented yet. [Apps 001](plans/apps/001-supplies-executable-site.md) drives that remaining work end to end: local Arbor web, signed macOS Arbor, explicit Canopy activation at the tree's canonical website, and finally a repeatable migration of the real Meaning Supplies Postgres corpus into the private SQLite data tree.
 
 ## Testing
 
@@ -113,14 +113,14 @@ Working documents:
 
 - **[intro.md](intro.md)** — narrative introduction and pitch: from the agent-playground problems (sharing/syncing, human interface, containment) to a universal dynamic material that supersedes the web.
 - **[spec.md](spec.md)** — aspirational spec overview, v0.8, split into portable contracts for the logical model and its Wire form, synchronization, the directory format, locators, accounts and devices, access control, child backings, executable documents and agents, and the authoring API.
-- **[plan/](plan/README.md)** — active outcome and cross-cutting workstreams plus preserved planning history.
+- **[plans/](plans/README.md)** — active projects and cross-cutting themes plus completed planning records.
 - **[docs/client.md](docs/client.md)** — non-normative Arbor client interaction design.
 - **[docs/reference-implementation.md](docs/reference-implementation.md)** — replaceable Bun/TypeScript/Swift architecture, private-state mechanics, and verification details.
-- **[plan/roadmap.md](plan/roadmap.md)** — the forward roadmap, now led by the checked-in Supplies executable-site milestone.
-- **[plan/applications/](plan/applications/README.md)** — active authored-application and hosted-execution milestones.
-- **[plan/interfaces/](plan/interfaces/README.md)** — active native, web, CLI, and browser-facing milestones.
-- **[plan/insecure/](plan/insecure/README.md)**, **[plan/correctness-and-reliability/](plan/correctness-and-reliability/README.md)**, **[plan/slow/](plan/slow/README.md)**, and the other [cross-cutting indexes](plan/README.md#cross-cutting-workstreams) — focused quality and maintenance handoffs.
-- **[plan/history/](plan/history/README.md)** — completed, rejected, and superseded plans plus implementation evidence.
+- **[plans/roadmap.md](plans/roadmap.md)** — the forward roadmap, now led by the checked-in Supplies executable-site milestone.
+- **[plans/apps/](plans/apps/README.md)**, **[plans/postgres/](plans/postgres/README.md)**, and **[plans/canopy-storage/](plans/canopy-storage/README.md)** — the major active projects.
+- **[plans/smaller-projects/](plans/smaller-projects/README.md)** — bounded product and model outcomes that do not need a dedicated project folder yet.
+- **[plans/cleanups/](plans/cleanups/README.md)**, **[plans/security/](plans/security/README.md)**, **[plans/speed/](plans/speed/README.md)**, **[plans/reliability/](plans/reliability/README.md)**, and **[plans/testing/](plans/testing/README.md)** — cross-cutting maintenance themes.
+- **[plans/_done/](plans/_done/README.md)** — completed, rejected, and superseded plans plus implementation evidence.
 - **[docs/notes/social-networking.md](docs/notes/social-networking.md)** — a thought experiment: with Arbor ubiquitous and the wire lowered to the transport layer, what remains of atproto, and how relays, AppViews, feeds, and labelers collapse into trees, watches, and queries.
 - **[docs/archive/](docs/archive/arbord-projection-outline.md)** — completed implementation outlines kept for reference.
 

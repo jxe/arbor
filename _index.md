@@ -5,15 +5,15 @@ id: 6r6ov1
 
 [intro](intro)
 
-[editor-todo](plan/interfaces/002-web-editor)
+[editor-todo](plans/smaller-projects/005-web-editor)
 
 [README](README)
 
-[cross-cutting-work](plan/README)
+[plans](plans/README)
 
-[plan-native-history](plan/history/native/overview)
+[completed-native-plans](plans/_done/native/overview)
 
-[plan](plan/roadmap)
+[roadmap](plans/roadmap)
 
 [spec](spec)
 

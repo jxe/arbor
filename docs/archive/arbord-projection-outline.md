@@ -2,7 +2,7 @@
 id: pj4k7n
 ---
 # Directory projection implementation outline
-*Implemented companion to the projected-directory-document model in [spec/02-directory-format.md](../../spec/02-directory-format.md) §4 and the raw-vs-projected boundary in [docs/arborsync-api.md](../../docs/arborsync-api.md). The spec files own the behavior contract; this file records the delivered cutover and code-level details. Completion is recorded in [implemented outcomes](../../plan/history/outcomes.md).*
+*Implemented companion to the projected-directory-document model in [spec/02-directory-format.md](../../spec/02-directory-format.md) §4 and the raw-vs-projected boundary in [docs/arborsync-api.md](../../docs/arborsync-api.md). The spec files own the behavior contract; this file records the delivered cutover and code-level details. Completion is recorded in [implemented outcomes](../../plans/_done/outcomes.md).*
 
 The clean boundary is:
 

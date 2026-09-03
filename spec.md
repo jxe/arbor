@@ -3,7 +3,7 @@
 
 ## Specification stance
 
-This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [The roadmap](plan/roadmap.md) and [implemented outcomes](plan/history/outcomes.md) own implementation status, direction, and evidence; the [cross-cutting plan indexes](plan/README.md) record known conformance failures by reason.
+This is the aspirational public contract for Arbor. It describes behavior an implementation may conform to before that behavior exists in the reference implementation. [The roadmap](plans/roadmap.md) and [implemented outcomes](plans/_done/outcomes.md) own implementation status, direction, and evidence; the [planning index](plans/README.md) records active projects and known cross-cutting gaps.
 
 The specification contains only behavior that must remain portable across independently implemented Arbor components. The [reference documentation](docs/reference-implementation.md) describes the current daemon, CLI, clients, runtime architecture, local state, and operating choices without making them Arbor requirements.
 
@@ -119,7 +119,7 @@ The wire carries tree identity and revisions, including each account's private c
 ## Deferred
 
 These are the behaviors the specification names but does not yet define. Each inline
-mention links here; the [roadmap](plan/roadmap.md) owns their sequencing.
+mention links here; the [roadmap](plans/roadmap.md) owns their sequencing.
 
 1. **Remote tree deletion.** Removing an active remote tree declaration from `trees.yaml` is invalid until a deletion lifecycle exists ([configuration](spec/05-accounts-and-devices.md#3-configuration-yaml)).
 2. **Cross-server query discovery, delegated authorization, and server-to-server execution routing** ([executable documents §12.3](spec/08-executable-documents.md#123-relationship-to-tree-synchronization), [executable documents](spec/08-executable-documents.md#4-queries)).
