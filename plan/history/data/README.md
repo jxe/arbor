@@ -10,3 +10,4 @@ in the active queue.
 | [007](007-provider-runtime-ownership.md) | Gave every projection backing one runtime owner and made Arbor Sync provider-neutral | COMPLETE — 2026-08-28 |
 | [009](009-update-if-match.md) | Added `ifMatch`, `onConflict`, per-node model comparison, and merge rules | COMPLETE — 2026-09-02; migration 001 live cutover complete |
 | [010](010-index-body-precedence.md) | Made `_index.md` authoritative over a sibling body with a non-blocking diagnostic | COMPLETE — 2026-09-02 |
+| [011](011-collection-file-wire.md) | Separated logical child sets from their backing and migrated collection-file Wire encoding | COMPLETE — live Canopy, Mac, and iPhone cutover plus decoder closeout completed 2026-09-03 |

@@ -3,6 +3,67 @@
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
+## Plural Canopy accounts and account-local native pairing
+
+**Status: Implemented, migrated, and live-accepted on 2026-09-03.**
+
+One Arbor Sync now presents configuration-TreeID-keyed Canopy accounts with
+independent credentials, devices, declarations, configuration histories, and
+canonical namespaces. Each synchronized account checkout contains direct
+`account.yaml`, `trees.yaml`, and `devices.yaml` maps; operating-system paths
+remain local in `~/.arbor/placements.yaml`. A stable profile TreeID may be
+referenced by multiple Canopy accounts without making a handle the person's
+identity or requiring every Canopy to host the profile tree.
+
+Native pairing remains deliberately account-local: a Mac creates one existing
+version-1 QR offer for the selected account, and iOS adds that one account with
+its own DeviceID and configuration-TreeID-keyed credential before the person
+chooses any tree placement. Prepared claims survive uncertain outcomes without
+changing their identity or secret.
+
+The one-time migration converted the persistent Railway Canopy from schema 4
+to 5 and the default Mac home from private-state layout 3 to 4. Fresh archive
+restore/rehearsal, exact account-root comparison, public health, Mac restart,
+a reversible canonical Drift edit, 102-file authored-manifest equality, signed
+physical-iPhone installation, QR pairing, explicit placement, and iOS restart
+all passed. Checksummed rollback material is retained for the two-week
+observation window.
+
+Historical executor and cutover evidence:
+
+- [Interface 005](interfaces/005-multi-canopy-connections.md)
+- [Interface 006](interfaces/006-multi-canopy-pairing.md)
+- [Migration 003](../../migrations/003-multi-canopy-accounts/README.md)
+
+## Collection-file Wire encoding
+
+**Status: Implemented, migrated, and compatibility-closed on 2026-09-03.**
+
+Logical child sets, their physical backing, and collection-file Wire
+interpretation are separate. Directory objects retain ordinary source entries
+and a directory-level `childrenSource`; TypeScript, Swift, Canopy, Arbor Sync,
+replicas, conformance, and documentation use the same collection-file terms,
+hash semantics, and child-name rules. Migration 002 rewrote retained schema-3
+graphs to schema 4 while preserving logical rows, authored bytes, tree IDs,
+access, and canonical output. The Canopy, Mac, and iPhone cutover passed, and
+the temporary decoder tolerance was removed after client acceptance.
+
+Historical executor evidence is preserved in [Data
+011](data/011-collection-file-wire.md). Migration 002 remains only until its
+scheduled backup-retention cleanup on or after 2026-09-17.
+
+## Native exact-artifact acceptance
+
+**Status: User-confirmed complete on 2026-09-03.**
+
+The remaining macOS and iOS 27 hands-on acceptance for images and assets,
+title-driven rename, recovery and conflict presentation, accessibility, and
+platform fit is complete. The closed checklist is preserved as [historical
+Interface 003](interfaces/003-native-acceptance-audit.md); implementation and
+automated verification evidence remain in the [native plan
+history](native/README.md). This documentation closeout records the user's
+direct confirmation and does not invent missing artifact identifiers.
+
 ## Supplies transactional mutation runner
 
 **Status: Live data documents Phase 3 implemented and verified on 2026-08-27.**

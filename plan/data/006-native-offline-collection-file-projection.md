@@ -8,7 +8,7 @@
   offline browsing of collection-file children becomes a product requirement.
 - **Depends on:** historical
   [Data 002](../history/data/002-reconcile-node-data-model.md), the
-  [Data 011](011-collection-file-wire.md) exact-source Wire shape, and the
+  historical [Data 011](../history/data/011-collection-file-wire.md) exact-source Wire shape, and the
   shared authored-code execution decisions made by Application 003.
 
 ## Target result

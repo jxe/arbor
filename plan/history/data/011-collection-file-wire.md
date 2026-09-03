@@ -1,5 +1,8 @@
 # Data 011: Separate logical child sets, child backings, and collection-file Wire encoding
 
+> Historical executor record. Implementation, migration, decoder closeout, and
+> live client acceptance completed on 2026-09-03.
+
 ## Status
 
 - **Priority:** P0
@@ -7,29 +10,26 @@
 - **Risk:** HIGH — every collection-file directory object and ancestor receives
   a new hash, and TypeScript, Swift, Canopy, Arbor Sync, replicas, conformance,
   and deployment state must change together.
-- **State:** IN PROGRESS — the normative specification, collection-file
+- **State:** COMPLETE — the normative specification, collection-file
   TypeScript and Swift cutover, collection-file conformance vectors,
   child-name rule, transition-payload code and conformance normalization, and
   local tests are complete. Migration 002 has run against live Canopy and the
-  Mac; iPhone re-placement, eventual removal of temporary decoder tolerance,
-  and backup-age cleanup remain.
+  Mac, the iPhone build/re-placement was user-confirmed complete on 2026-09-03,
+  and the temporary decoder tolerance was then removed. Scheduled backup-age
+  cleanup is retention housekeeping rather than unfinished executor work.
 - **Depends on:** the completed Data 002 common node contract and Data 009
   update reconciliation; migration 001 must remain unchanged and its cutover
   must be verified complete on every relevant client before migration 002 runs.
 - **Unblocks:** Data 003 representation equivalence and
-  [Data 006](006-native-offline-collection-file-projection.md) native offline
+  [Data 006](../../data/006-native-offline-collection-file-projection.md) native offline
   collection-file child projection.
 
-## Remaining work
+## Scheduled retention cleanup
 
-1. Install the migration-002 iPhone build and verify its format-3 replica
-   re-placement and synchronization.
-2. After every deployed sender emits both transition arrays and the
-   compatibility window closes, remove the temporary input-only tolerance for
-   an omitted legacy `deltas` field from TypeScript and Swift decoders.
-3. After the two-week backup window, remove migration 002 and move this plan
-   to history. The tree-operations spec has its intended four-part structure,
-   but its explanatory prose remains a separate follow-up editing task.
+After the two-week backup window ends on 2026-09-17, remove migration 002 under
+the repository migration policy. This plan is already historical; the cleanup
+does not reopen it. The tree-operations spec has its intended four-part
+structure, while any further explanatory prose editing is a separate task.
 
 ## Target result
 
@@ -181,7 +181,7 @@ repository runbook and must not be amended or reused; its remaining client
 closeout is a gate, not an invitation to fold in another Wire change. Once its
 completion and resulting live schema stamp are verified, implementation creates
 `migrations/002-collection-file-wire/` from the template required by
-[`migrations/README.md`](../../migrations/README.md). It contains `README.md`,
+[`migrations/README.md`](../../../migrations/README.md). It contains `README.md`,
 an idempotent `run.ts`, `migrate.test.ts`, and the eventual rehearsal report.
 Do not create or deploy an incomplete migration directory.
 

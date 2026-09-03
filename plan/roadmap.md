@@ -106,18 +106,28 @@ Completion gate: one Arbor site publishes statically with working links/assets, 
 
 ## Milestone 5 — account lifecycle and hosting administration
 
-**Status: Later. These follow-ups do not block the forward workspace, data, or executable-document milestones.**
+**Status: Partially implemented. Historical Interfaces 005 and 006, including
+their persistent Canopy/Mac/iPhone cutover, are complete; recovery and
+persistent-host work remain later and do not block the forward workspace, data,
+or executable-document milestones.**
 
 Outcome: communities can recover identities and operate persistent hosts without relying on development escape hatches or manually transferred raw credentials.
 
 - Pair another device through an end-user flow while keeping raw credentials out of content and diagnostics.
-- Connect one local Arbor Sync to several Canopy accounts, project their trees
-  through one user-editable local `trees.yaml`, and pair selected accounts to an
-  iPhone with one QR bundle while retaining separate account credentials and
-  device identities. The executor plan is
-  [Interface 005](interfaces/005-multi-canopy-connections.md).
-- Switch among stored profiles within one account connection while retaining
-  one explicit active profile for that connection.
+- Connect one local Arbor Sync to several Canopy accounts, including several
+  accounts at one origin, while keeping one stable profile TreeID separable
+  from Canopy-local account allocation and membership. Each account has its actual
+  configuration checkout under `accounts/<ConfigurationTreeID>/`; local paths
+  live only in `placements.yaml`. Historical
+  [Interface 005](history/interfaces/005-multi-canopy-connections.md) records
+  the completed implementation and authorized persistent cutover.
+- From each Mac account, create one QR that adds that account to an iPhone;
+  repeat the scan per account while retaining a separate account-scoped
+  DeviceID and credential and durable exact retry. The executor plan is
+  historical [Interface
+  006](history/interfaces/006-multi-canopy-pairing.md), implemented with
+  automated and exact-artifact build gates and accepted on the live
+  Mac-to-iPhone primary path.
 - Define understandable claim recovery, dispute resolution, and administrator reset without changing profile `TreeID` identity.
 - Add confirmed removal and restoration flows for claimed community members.
 - Add historical/recovery UI for access changes and revocation.
@@ -125,12 +135,12 @@ Outcome: communities can recover identities and operate persistent hosts without
 
 Completion gate: an operator restores a persistent community on a replacement host, and a member with a lost device recovers the same profile identity onto a new device through an auditable user-facing flow.
 
-Nested groups, cross-community membership, cross-Canopy canonical boundaries,
-boundary moves/aliases, simultaneous profiles within one account connection,
-and production HA remain deferred unless this milestone explicitly adopts
-them. Interface 005 adopts several explicit Canopy account connections in one
-local data home without making their credentials, device identities, governed
-configuration trees, or remote namespaces interchangeable.
+Nested groups, account roles, cross-Canopy
+canonical boundaries, boundary moves/aliases, several profiles within one
+account, and production HA remain deferred unless this milestone explicitly
+adopts them. Interfaces 005 and 006 adopt several explicit Canopy accounts in
+one local data home without making their credentials, device identities,
+governed configuration trees, or remote namespaces interchangeable.
 
 ## Deferred workspace extensions
 
@@ -187,11 +197,14 @@ These are unresolved design questions, not hidden implementation status:
 
 The topic specs describe the complete intended product. This file records
 implementation order, temporary cuts, completion gates, and current status.
-[History](history/outcomes.md) records completed evidence; [Interface
-003](interfaces/003-native-acceptance-audit.md) contains the remaining
-acceptance audit for the already implemented native daily driver, while
-[Interface 005](interfaces/005-multi-canopy-connections.md) plans later native
-account and pairing work.
+[History](history/outcomes.md) records completed evidence, including the native
+daily-driver acceptance audit.
+Historical [Interface
+005](history/interfaces/005-multi-canopy-connections.md) records the implemented
+plural Canopy account storage, presentation, and completed migration/cutover.
+Historical [Interface
+006](history/interfaces/006-multi-canopy-pairing.md) records the repeatable
+one-account native QR flow and its accepted live primary path.
 
 - **Implemented** means the focused behavior and its acceptance checks pass in current source.
 - **Next** identifies the immediate substantial product milestone.

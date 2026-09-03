@@ -12,6 +12,8 @@ leaving them in the active queues.
   handoffs under their historical taxonomy and identifiers.
 - [`applications/`](applications/README.md) points from completed application
   phases to their durable outcome records.
+- [`interfaces/`](interfaces/README.md) preserves completed and explicitly
+  retired interface milestones after they leave the active queue.
 - [`audits/`](audits/README.md) preserves dated audit and backlog snapshots after
   their live items have been reconciled into current workstreams.
 

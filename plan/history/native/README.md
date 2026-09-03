@@ -1,9 +1,10 @@
 # Native Arbor plan history
 
 This index preserves the original native plan sequence and identifiers. It is
-historical evidence, not an active execution queue. The only remaining native
-acceptance work is now [Interface 003](../../interfaces/003-native-acceptance-audit.md),
-and the deferred browser test is [Interface 004](../../interfaces/004-device-management-browser-e2e.md).
+historical evidence, not an active execution queue. The native acceptance audit
+is complete and preserved as [historical Interface
+003](../interfaces/003-native-acceptance-audit.md). The deferred Interface 004
+browser plan was removed at the user's direction on 2026-09-03.
 
 Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quagmire `4049fd4` on 2026-08-23. Plans 012 and 013 were reconciled against clean Arbor `0c53964`; Plan 014 was reconciled after them at `3117f93`; Plans 015 and 016 were reconciled after Plan 014 at `01776d6`; Plan 017 was reconciled at `1def896` and completed on 2026-08-24. Plan 018's QuagmireExtras adoption and coordinated image work are implemented: Quagmire `adab6d6` is tagged `0.3.0`, Hunch `bc2d792` and Arbor consume the exact release, and Joe accepted voice, links, polishing, navigation, and menus. Plan 019's cutover is accepted complete. Later executors must still reconcile live source before relying on any snapshot.
 
@@ -20,7 +21,7 @@ Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quag
 | [007](007-define-server-assisted-sync.md) | Define server-assisted synchronization | P1 | M | 006 | DONE — accepted-update contract and shared merge fixtures verified |
 | [008](008-build-authority-sync.md) | Build accepted updates and authority synchronization | P1 | XL | 007 | DONE — live authority and clean-schema runtime verified |
 | [009](009-integrate-arbord-sync.md) | Integrate arbord synchronization | P1 | L | 008 | DONE — local two-placement sync and client-owned conflicts verified |
-| [010](010-add-device-pairing.md) | Add revocable device credentials and pairing | P1 | L | 008 | DONE — live pairing/revocation verified; browser hardening moved to 020 |
+| [010](010-add-device-pairing.md) | Add revocable device credentials and pairing | P1 | L | 008 | DONE — live pairing/revocation verified |
 | [011](011-migrate-railway-authority.md) | Upgrade the Railway authority | P1 | M | 009, 010 | DONE — clean live cutover, private smoke, and arbord reconnect verified |
 | [012](012-found-native-arbor.md) | Found the native Arbor shell | P1 | L | 006 | DONE — generated Arbor app, ArborKit contracts, and lifecycle tests verified |
 | [013](013-build-swift-arbor-wire.md) | Build the Swift ArborWire package | P1 | L | 007, 008, 010 | DONE — shared fixtures and disposable-authority conformance verified |
@@ -28,9 +29,9 @@ Plans were originally written against Arbor `dc34126`, Hunch `a1e8379`, and Quag
 | [015](015-sync-native-replicas.md) | Synchronize native replicas through Arbor | P1 | XL | 009, 011, 013, 014 | DONE — crash-safe returned-snapshot sync and native pairing/placement verified |
 | [016](016-bridge-quagmire.md) | Bridge Quagmire to Arbor documents | P1 | XL | 012, 014 | DONE — exact-source Quagmire bridge and unchanged-package gates verified |
 | [017](017-complete-daily-driver.md) | Complete the native daily-driver core | P1 | XL | 015, 016 | DONE — shared providers, signed sandboxed `arbord` helper, and daily-driver workflows verified |
-| [018](../../interfaces/003-native-acceptance-audit.md) | Port Hunch's native strengths | P1 | XL | 017 | IMPLEMENTED — remaining exact-artifact acceptance extracted as Interface 003 |
+| [018](../interfaces/003-native-acceptance-audit.md) | Port Hunch's native strengths | P1 | XL | 017 | DONE — implementation and user-confirmed exact-artifact acceptance complete |
 | [019](019-convert-hunch-workspace.md) | Rehearse Hunch conversion and record adopted cutover | P1 | L | 017 | DONE — copy-only tool and verified conversion complete; Joe accepted final cutover and removed backup-restoration gate |
-| [020](../../interfaces/004-device-management-browser-e2e.md) | Complete device-management browser E2E | P2 | S | 010 | DEFERRED — active as Interface 004 |
+| 020 | Complete device-management browser E2E | P2 | S | 010 | REMOVED — Interface 004 deleted at the user's direction on 2026-09-03 |
 | [021](021-add-wire-file-patches.md) | Send editor patches in immediate authority updates | P1 | L | 015, 016 | DONE — immediate verified patches, sparse fallback, and conditional snapshots verified |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
@@ -45,9 +46,10 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - 012 and 013 may be developed after their stated dependencies, but the recommended execution remains serial so each handoff starts from a verified main branch.
 - 014 proves local safety without a network; 015 adds synchronization without changing local durability.
 - 016 proves exact editor persistence independently of the broad product surface.
-- 018 consumed exact remote Quagmire `0.3.0` and `QuagmireExtras` while Arbor retained product identity, provider, destination, support-path, asset-placement, and byte-access ownership. Its named hands-on audit is now Interface 003.
+- 018 consumed exact remote Quagmire `0.3.0` and `QuagmireExtras` while Arbor retained product identity, provider, destination, support-path, asset-placement, and byte-access ownership. Its named hands-on audit is complete in historical Interface 003.
 - 019 is complete. Its retained tool is the only workflow allowed to read Hunch source data or create a future converted destination, and only when explicitly requested; it cannot write back or reopen the accepted cutover by implication.
-- 020 is later browser-surface hardening. It does not block the already verified device protocol, Railway migration, or native implementation sequence.
+- 020 was optional browser-surface hardening and was removed without reopening
+  the already verified device protocol, Railway migration, or native sequence.
 - 021 completes the first-alpha synchronization transport. Immediately after a durable local editor admission, it uses that just-verified patch when the authority base and sync scheduler are ready; otherwise it falls back to the ordinary sparse complete-object candidate. It also avoids downloading a returned snapshot when the authority accepted the submitted candidate unchanged.
 
 ## Decisions carried by the plan set

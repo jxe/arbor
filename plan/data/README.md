@@ -5,24 +5,19 @@ This workstream contains only unfinished work. Completed milestones live in
 not execution order; the groups and explicit dependencies below describe what
 can actually happen next.
 
-## Now
-
-| Plan | Outcome | Priority | Status | Depends on |
-|---|---|---:|---|---|
-| [011](011-collection-file-wire.md) | Separate logical child sets, child backings, and collection-file Wire interpretation; migrate schema-3 retained state | P0 | IN PROGRESS | completed Data 002 and 009; migration 001 complete |
-
-Data 011 owns the current terminology, canonical collection-file object shape,
-TypeScript/Swift cutover, conformance checkpoint, and migration 002. Its code
-checkpoint is complete; the schema-3 rewrite and live cutover remain. No other
-active plan should extend the legacy encoding.
+Historical [Data 011](../history/data/011-collection-file-wire.md) owns the
+current terminology, canonical collection-file object shape, TypeScript/Swift
+cutover, conformance checkpoint, migration 002, and decoder closeout. Its
+scheduled backup-age cleanup does not keep an executor plan active. No active
+plan should extend the legacy encoding.
 
 ## Representation and identity
 
 | Plan | Outcome | Priority | Status | Depends on |
 |---|---|---:|---|---|
-| [003](003-representation-equivalence.md) | Preserve stable identity, explicitly account for readable-name changes, and prove logical equivalence when a child set changes backing | P1 | PLANNED | 011 |
+| [003](003-representation-equivalence.md) | Preserve stable identity, explicitly account for readable-name changes, and prove logical equivalence when a child set changes backing | P1 | PLANNED | completed 011 |
 | [008](008-locator-identity-surfaces.md) | Give stable keys one spelling per surface and one segment-parameter grammar | P2 | PLANNED | 003; remove-later 001 |
-| [006](006-native-offline-collection-file-projection.md) | Present synchronized collection-file rows through native offline replicas | P2 | DEFERRED until product need | 011; Applications 003 execution decisions |
+| [006](006-native-offline-collection-file-projection.md) | Present synchronized collection-file rows through native offline replicas | P2 | DEFERRED until product need | completed 011; Applications 003 execution decisions |
 
 ## Database backings and projections
 
