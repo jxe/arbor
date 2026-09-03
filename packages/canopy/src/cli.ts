@@ -100,8 +100,8 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
     name: process.env.ARBOR_ACCOUNT_NAME ?? "Owner",
     communityWriter: true,
   }] : []);
-  const requestedCommunityHandle = option(args, "--community");
-  const requestedFirstWriterHandle = option(args, "--first-writer");
+  const requestedCommunityHandle = option(args, "--community") ?? process.env.ARBOR_COMMUNITY_HANDLE;
+  const requestedFirstWriterHandle = option(args, "--first-writer") ?? process.env.ARBOR_FIRST_WRITER_HANDLE;
   if (!existingCanopy && !accounts.length && !process.stdin.isTTY) {
     if (!requestedCommunityHandle) throw new Error("A new unattended community requires --community <handle>");
     if (!requestedFirstWriterHandle) throw new Error("A new unattended community requires --first-writer <handle>");

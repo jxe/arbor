@@ -22,6 +22,14 @@ through arborsync or a server and never edits guessed private `.state` files.
 - `arbor sync <tree-locator> <local-path>` adds or changes the current device's
   placement for an existing tree. A pathless-placement option creates a durable
   private writable replica. Historical locators cannot be placed.
+- `arbor rehome [--check] <local-path|canonical-locator|arbor://TreeID>
+  <destination-canonical-locator>` switches one present, idle tree placement to
+  another already-claimed Canopy account. It preserves the `TreeID`, current
+  authored snapshot, local path, and ACL while beginning a new accepted history
+  at the destination. `--check` performs the complete preflight without writing.
+  The source Canopy copy and declaration are retained for recovery; rehome does
+  not migrate history or permit two local writable placements. Trees with nested
+  placed boundaries are rejected until closure moves are implemented.
 - `arbor unsync <local-path-or-tree-locator>` removes only the current device's
   placement entry. It never deletes files, identity, history, ACLs, canonical
   boundaries, or another device's placement.

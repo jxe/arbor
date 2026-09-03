@@ -269,6 +269,7 @@ export class CanopyDaemon implements AsyncDisposable {
       null,
     );
     this.db.run("INSERT INTO meta (key, value) VALUES ('community_handle', ?)", [config.handle]);
+    this.db.run("INSERT INTO meta (key, value) VALUES ('community_name', ?)", [config.name]);
     if (config.firstWriter) {
       this.db.run("INSERT INTO meta (key, value) VALUES ('first_writer_handle', ?)", [config.firstWriter.handle]);
     }
@@ -693,6 +694,32 @@ export class CanopyDaemon implements AsyncDisposable {
     return reservation ? { handle: match[1]!, ...reservation } : null;
   }
 
+  private firstWriterHandle(): string | null {
+    const row = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'").get() as { value: string } | null;
+    return row?.value ?? null;
+  }
+
+  private async prepareFirstWriterMembership(handle: string, profileTree: string): Promise<{
+    tree: CanopyTree;
+    snapshot: TreeSnapshot;
+    transition: AcceptedTransitionPayload;
+  } | null> {
+    if (this.firstWriterHandle() !== handle) return null;
+    const tree = this.community();
+    const name = (this.db.query("SELECT value FROM meta WHERE key = 'community_name'").get() as { value: string } | null)?.value
+      ?? this.communityHandle();
+    const members = this.rootProfile(tree.ref).members.map((member) => ({
+      profile: member.profile,
+      ...(member.handle ? { handle: member.handle } : {}),
+    }));
+    members.push({ profile: `arbor://${profileTree}/`, handle });
+    const snapshot = directSnapshot(profileSource("group", name, members));
+    await this.cacheRootProfile(snapshot.root, snapshot.objects);
+    await this.objects.store([...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
+    const transition = await this.acceptedTransitionPayload(tree.ref, snapshot.root);
+    return { tree, snapshot, transition };
+  }
+
   setCommunityHost(host: string, allowTestPortChange = false): void {
     this.accounts.setCommunityHost(host, allowTestPortChange);
   }
@@ -1043,7 +1070,9 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new AlreadyClaimedError(input.handle);
     }
     if (this.boundary(`/~${input.handle}`)) throw new AlreadyClaimedError(input.handle);
-    if (!this.communityMemberHandles().has(input.handle)) throw new Error(`Profile is not reserved by the community: ~${input.handle}`);
+    if (!this.communityMemberHandles().has(input.handle) && this.firstWriterHandle() !== input.handle) {
+      throw new Error(`Profile is not reserved by the community: ~${input.handle}`);
+    }
     await this.validateGraph(input.configurationSnapshot.root, input.configurationSnapshot.objects);
     const config = readAccountConfigGraphV2(input.configurationSnapshot, input.configurationTree);
     this.validateCurrentCanopyAccountPaths(input.handle, config);
@@ -1055,6 +1084,7 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new Error("Initial configuration must contain exactly the joining device and matching label");
     }
     if (!config.devices[input.deviceID]!.administrator) throw new Error("The joining device must be the first administrator");
+    const firstWriterMembership = await this.prepareFirstWriterMembership(input.handle, input.profileTree);
     await this.objects.store([...input.configurationSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const accountID = generateArborID("ac");
     const now = Date.now();
@@ -1088,7 +1118,34 @@ export class CanopyDaemon implements AsyncDisposable {
           [id, accountID, new URL(declaration.canonical).pathname],
         );
       }
+      if (firstWriterMembership) {
+        const changed = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
+          firstWriterMembership.snapshot.root,
+          now,
+          firstWriterMembership.tree.id,
+          firstWriterMembership.tree.ref,
+        ]);
+        if (changed.changes !== 1) throw new RefConflictError(this.community().ref);
+        this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)", [
+          firstWriterMembership.tree.id,
+          firstWriterMembership.snapshot.root,
+          firstWriterMembership.tree.ref,
+          now,
+        ]);
+        this.insertAcceptedUpdate({
+          tree: firstWriterMembership.tree.id,
+          root: firstWriterMembership.snapshot.root,
+          previousRoot: firstWriterMembership.tree.ref,
+          kind: "accepted",
+          acceptedAt: now,
+          subject: `device:${input.deviceID}`,
+          transition: firstWriterMembership.transition,
+        });
+        this.access.set(firstWriterMembership.tree.id, "profile", input.profileTree, "write");
+        this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
+      }
     })();
+    if (firstWriterMembership) this.notifyAccepted(this.currentUpdate(firstWriterMembership.tree.id)!);
     return { account: this.account(accountID)!, configuration: this.get(input.configurationTree)! };
   }
 
@@ -1759,6 +1816,8 @@ export class CanopyDaemon implements AsyncDisposable {
         : undefined;
       reservations.set(handle, profile ? { profileTree: profile } : {});
     }
+    const firstWriter = this.firstWriterHandle();
+    if (firstWriter && !reservations.has(firstWriter)) reservations.set(firstWriter, {});
     return reservations;
   }
 

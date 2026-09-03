@@ -39,6 +39,35 @@ Railway volumes persist across deploys and restarts. Restart or redeploy the ser
 
 Railway references: [Docker/config-as-code](https://docs.railway.com/config-as-code/reference), [public domains and ports](https://docs.railway.com/public-networking), [custom-domain DNS](https://docs.railway.com/networking/domains/working-with-domains), and [persistent volumes](https://docs.railway.com/volumes).
 
+### Managed Railway Canopies
+
+For repeatable deployments, keep each Canopy's non-secret desired state in
+`deploy/canopies/<domain>.env` and use the repository lifecycle command:
+
+```sh
+bun run canopy:railway apply deploy/canopies/arb.nxhx.org.env
+bun run canopy:railway status deploy/canopies/arb.nxhx.org.env
+```
+
+`apply` is idempotent. It requires the checked-out revision to be published on
+the configured GitHub branch, then creates or reconciles a `canopy-*` Railway
+service in the linked project's production environment, attaches one `/data`
+volume, sets the public-domain and bootstrap-handle variables, adds the custom
+domain, connects the service to the repository, and prints the CNAME and TXT
+records that still need to be installed at the DNS provider. Railway remains
+the runtime registry; the checked-in file is the reviewable desired state and
+contains no credentials.
+
+Destruction is deliberately explicit and exact:
+
+```sh
+bun run canopy:railway destroy deploy/canopies/arb.nxhx.org.env --yes
+```
+
+It deletes only the manifest's `canopy-*` service and its attached volume. DNS
+records are external and must be removed separately. Do not put tokens,
+passwords, account credentials, or proof secrets in a Canopy deployment file.
+
 ## Claim through local Arbor web
 
 From this checkout on your own Mac:

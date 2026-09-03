@@ -17,6 +17,7 @@
     "arbor": "bun packages/cli/src/index.ts",
     "arborsync": "bun packages/arborsync/src/cli.ts",
     "canopyd": "bun packages/canopy/src/cli.ts",
+    "canopy:railway": "bun deploy/railway-canopy.ts",
     "dev": "bun run arbor -- open",
     "build": "bun run build:web && bun build packages/cli/src/index.ts --target=bun --outdir=dist/cli",
     "build:web": "vite build --config packages/render/vite.config.ts",
