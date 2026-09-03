@@ -842,7 +842,7 @@ private struct MacArborSyncAccountPanel: View {
                             LabeledContent("Mac credential", value: account.credentialAvailable ? "Connected" : "Missing")
                         } else {
                             LabeledContent("Community", value: "Not connected")
-                            Text("Connect this Mac with `arbor connect` to manage server trees, devices, and iPhone pairing.")
+                            Text("Claim or pair a Canopy account in Arbor to manage server trees and devices.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

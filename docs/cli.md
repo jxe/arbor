@@ -77,16 +77,19 @@ everyone subject, while `~handle` resolves the profile TreeID at the target
 Canopy. `--access` may be repeated or comma-separated. `none` removes a rule;
 `--clear-access` removes every explicit rule before applying new assignments.
 
-The canonical-first form places an existing remote tree at a local path. It
-does not accept audience options.
+The canonical URL selects the claimed Canopy account whose account address
+contains it. For example, `https://garden.example/~joe/notes` belongs to the
+account at `https://garden.example/~joe`. If account addresses are nested, Arbor
+uses the most specific match; equally specific matches fail instead of being
+guessed. Creating a tree requires the current device to administer that account.
 
-These forms currently edit the legacy single-account configuration and refuse
-to guess among plural accounts. Account-qualified plural creation and placement
-remain available through Arbor web/native surfaces.
+The canonical-first form places an existing tree declared by the matching
+claimed account at a local path. It does not accept audience options. Use
+`arbor open` to browse a tree outside one of your claimed account namespaces.
 
 ```sh
-arbor sync --access public=read ./handbook https://garden.example/~editors/handbook
-arbor sync https://garden.example/~editors/handbook ~/Documents/handbook
+arbor sync --access public=read ./handbook https://garden.example/~joe/handbook
+arbor sync https://garden.example/~joe/handbook ~/Documents/handbook
 ```
 
 ## Setup and troubleshooting
@@ -104,8 +107,7 @@ Linux and Windows supervision adapters are not implemented.
 
 ## Other commands
 
-These commands are for moving placements, changing Canopies, disconnecting
-trees, legacy account bootstrap, and external database credentials.
+These commands are for moving placements and changing Canopies.
 
 ### `arbor mv`
 
@@ -151,49 +153,6 @@ rejected. `rehome` never creates a second simultaneous local writable placement.
 ```sh
 arbor rehome --check ~/Documents/todos https://arb.example/~joe/todos
 arbor rehome ~/Documents/todos https://arb.example/~joe/todos
-```
-
-### `arbor unsync`
-
-```text
-arbor unsync <local-path> [<canonical-url>]
-arbor unsync <canonical-url> <local-path>
-```
-
-Remove the current device's legacy single-account placement entry. Supplying the
-canonical URL adds an exact safety check. This command never deletes local
-files, remote data, identity, history, ACLs, canonical boundaries, or another
-device's placement. It currently refuses plural account layouts.
-
-### `arbor connect`
-
-```text
-arbor connect <community-url>
-```
-
-Install an already-issued account/device credential and its configuration
-checkout into an unclaimed legacy single-account data home. The credential is
-read from `ARBOR_ACCOUNT_TOKEN` or an interactive prompt. This is a bootstrap
-compatibility command; it does not add another account to the plural account
-layout. New account claims and pairing use Arbor web or the native client.
-
-### `arbor connection`
-
-```text
-arbor connection set <name> [--dsn-stdin]
-arbor connection test <name>
-arbor connection remove <name>
-```
-
-Manage named private database connections used by external-store descriptors.
-`set` reads a PostgreSQL DSN interactively, or from standard input when
-`--dsn-stdin` is supplied, and stores the credential in the operating-system
-credential store. `test` runs `select 1`; `remove` deletes the named credential.
-
-```sh
-printf '%s\n' "$DATABASE_URL" | arbor connection set supplies --dsn-stdin
-arbor connection test supplies
-arbor connection remove supplies
 ```
 
 ## Related executables

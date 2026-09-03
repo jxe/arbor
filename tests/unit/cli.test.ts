@@ -22,6 +22,22 @@ describe("arbor open operands", () => {
     expect(stderr).not.toContain("--port");
   });
 
+  test("does not dispatch removed legacy and unfinished commands", async () => {
+    for (const command of ["connect", "unsync", "connection"]) {
+      const child = Bun.spawn(["bun", "packages/cli/src/index.ts", command], {
+        cwd: join(import.meta.dir, "../.."),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exit, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stderr).text(),
+      ]);
+      expect(exit).toBe(2);
+      expect(stderr).not.toContain(`arbor ${command}`);
+    }
+  });
+
   test("resolves local filesystem paths", () => {
     expect(openTarget("notes", "/Users/alice")).toEqual({ path: "/Users/alice/notes" });
   });

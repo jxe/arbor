@@ -101,27 +101,10 @@ For an existing Canopy server:
 3. Start the exact candidate revision against a separate restored copy. Require restart-idempotent schema/configuration migration and exact equivalence of identities, refs, history, boundaries, ACLs, public output, objects, accounts, and active devices.
 4. Rehearse each real local data home from a copy. Require preserved authored bytes and placement metadata, private-state relocation beneath `.state`, and a valid installed account-configuration checkout.
 5. Only after those rehearsals, deploy the exact tested commit. Verify the Canopy server before reconnecting clients.
-6. Run `arbor connect <community-origin>` in each real data home to install the configuration checkout and migrate legacy placements, then rebuild/restart packaged clients.
+6. Claim or pair each real device through Arbor to install its account configuration checkout, then rebuild/restart packaged clients.
 7. Wait for every placement to become idle with local refs equal to server refs, confirm that authored snapshots did not change, and run an isolated private synchronization/revocation smoke. Restore the complete backup and old image on any Canopy equivalence failure.
 
 Never put raw credentials, credential digests, access-link secrets, or user content in a migration report or shell history.
-
-### Development credential reset
-
-If a trial device credential is lost, the community operator can rotate that account's token without changing its profile tree or content:
-
-1. Generate a replacement locally and keep the resulting value private:
-
-   ```sh
-   printf 'arb_'; openssl rand -hex 32
-   ```
-
-2. Temporarily add two Railway service variables: `ARBOR_RESET_ACCOUNT=joe` and `ARBOR_ACCOUNT_TOKEN=<the replacement>`.
-3. Deploy the current Arbor version once. The server reports only that the credential was reset; it never prints the token.
-4. On the local device, run `arbor connect https://garden.example.com` and paste the replacement when prompted.
-5. Remove both temporary Railway variables and redeploy normally.
-
-This is an operator escape hatch for disposable development hosts, not a public recovery or claim-dispute protocol.
 
 ## VPS with Docker Compose
 

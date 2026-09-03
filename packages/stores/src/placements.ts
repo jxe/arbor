@@ -3,7 +3,7 @@ import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
 import type { Diagnostic, TreeID } from "@arbor/core";
 import { isAlias, isMap, isSeq, parseDocument, type Node } from "yaml";
-import { arborDataRoot } from "./private-state.ts";
+import { arborDataRoot, prepareArborDataRoot } from "./private-state.ts";
 import { configurationTreeID } from "./account-config-v2.ts";
 
 export interface LocalPlacement {
@@ -78,6 +78,41 @@ export async function loadLocalPlacements(): Promise<LocalPlacementsSnapshot> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { placements: [], source: "", diagnostics: [] };
     throw error;
+  }
+}
+
+/** Atomically add one exact local placement without replacing another tree or path. */
+export async function addLocalPlacement(placement: LocalPlacement): Promise<void> {
+  await prepareArborDataRoot();
+  const path = placementsFilePath();
+  let original: string;
+  try { original = await readFile(path, "utf8"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    original = "{}\n";
+  }
+  const parsed = parseLocalPlacements(original);
+  const exact = parsed.find((candidate) =>
+    candidate.configurationTree === placement.configurationTree
+    && candidate.path === placement.path
+    && candidate.tree === placement.tree
+  );
+  if (exact) return;
+  const occupiedPath = parsed.find((candidate) => candidate.path === placement.path);
+  if (occupiedPath) throw new Error(`Another tree is already placed at ${placement.path}`);
+  const placedTree = parsed.find((candidate) => candidate.tree === placement.tree);
+  if (placedTree) throw new Error(`Tree ${placement.tree} is already placed at ${placedTree.path}`);
+  const document = parseDocument(original, { uniqueKeys: true, keepSourceTokens: true });
+  if (document.errors.length) throw new Error(document.errors[0]!.message);
+  document.setIn([placement.configurationTree, placement.path], placement.tree);
+  const next = document.toString({ lineWidth: 0 });
+  parseLocalPlacements(next);
+  const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, next, { mode: 0o600, flag: "wx" });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true }).catch(() => {});
   }
 }
 

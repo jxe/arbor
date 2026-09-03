@@ -71,12 +71,12 @@ export async function configuredWire(deps: AccountBootstrapDeps): Promise<{ clie
     if (record) {
       throw new ProtocolError(
         "credential-unavailable",
-        `The credential for ~${record.handle} is unavailable. Run arbor connect ${record.origin} to restore it.`,
+        `The credential for ~${record.handle} is unavailable. Pair this device again from an active administrator device.`,
         409,
         { path: "system:credentials" },
       );
     }
-    throw new ProtocolError("not-found", "Connect to an Arbor community first", 409, { path: "system:community" });
+    throw new ProtocolError("not-found", "Claim or pair a Canopy account first", 409, { path: "system:community" });
   }
   return {
     client: new WireClient(configured.record.origin, configured.accountToken),

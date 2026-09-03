@@ -1,26 +1,20 @@
 #!/usr/bin/env bun
-import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
+import { mkdir, realpath, stat } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { serveArborSync, serveArborSyncControl } from "@arbor/arborsync";
 import { ArborSyncRESTClient } from "@arbor/client";
-import { canonicalArborLocator } from "@arbor/core";
+import { canonicalArborLocator, canonicalHTTPURL } from "@arbor/core";
 import {
+  addLocalPlacement,
   CanopyAccountStore,
-  ConnectionStore,
-  CommunityConfigStore,
   arborDataRoot,
   loadCanopyAccountConfigurations,
-  loadAccountConfiguration,
   loadLocalPlacements,
-  parseAccountConfiguration,
   parseHostedTreesConfiguration,
-  parseDeviceConfiguration,
-  parseTreesConfiguration,
   replaceLocalPlacement,
-  saveCurrentDeviceID,
-  savePlacementSyncMetadata,
+  type CanopyAccountConfigurationSnapshot,
 } from "@arbor/stores";
-import { decodeWireObject, WireClient } from "@arbor/wire";
+import { WireClient } from "@arbor/wire";
 import { parseDocument, type Document } from "yaml";
 import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
 
@@ -37,22 +31,11 @@ function usage(): never {
   console.error(`Usage:
   arbor open [<locator>]
   arbor daemon <install|uninstall|start|stop|restart|status|logs>
-  arbor connect <community-url>
   arbor sync [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
   arbor sync <canonical-url> <local-path>
   arbor mv [--check] <placed-local-root> <new-local-path>
-  arbor rehome [--check] <local-path|canonical-url|arbor://TreeID> <destination-canonical-url>
-  arbor unsync <local-path> [<canonical-url>]
-  arbor unsync <canonical-url> <local-path>
-  arbor connection set <name> [--dsn-stdin]
-  arbor connection test <name>
-  arbor connection remove <name>`);
+  arbor rehome [--check] <local-path|canonical-url|arbor://TreeID> <destination-canonical-url>`);
   process.exit(2);
-}
-
-async function readSecret(promptText: string): Promise<string> {
-  if (!process.stdin.isTTY) return (await Bun.stdin.text()).trim();
-  return (prompt(promptText) ?? "").trim();
 }
 
 async function openBrowser(url: string): Promise<void> {
@@ -139,12 +122,14 @@ export async function placedRemotePath(target: OpenTarget, client: ArborSyncREST
   if (!target.remoteURL) return null;
   try {
     const canonical = canonicalTarget(target.remoteURL);
-    const account = await new CommunityConfigStore().get();
-    const token = account?.record.origin === canonical.endpoint ? account.accountToken : undefined;
-    const remote = await new WireClient(canonical.endpoint, token).resolve(canonical.canonicalPath);
-    const placement = (await client.trees()).snapshot.find((tree) => tree.id === remote.ref.tree && tree.osPath);
-    if (!placement?.osPath) return null;
-    return `${placement.osPath}${remote.ref.path === "/" ? "" : remote.ref.path}`;
+    const placement = (await client.trees()).snapshot.filter((tree) =>
+      tree.osPath
+      && tree.canonical?.endpoint === canonical.endpoint
+      && sameOrDescendantPath(canonical.canonicalPath, tree.canonical.path)
+    ).sort((left, right) => right.canonical!.path.length - left.canonical!.path.length)[0];
+    if (!placement?.osPath || !placement.canonical) return null;
+    const relative = canonical.canonicalPath.slice(placement.canonical.path.length);
+    return `${placement.osPath}${relative}`;
   } catch {
     return null;
   }
@@ -240,7 +225,7 @@ async function withArborSync<T>(
   path: string,
   run: (
     client: ArborSyncRESTClient,
-    service: { synchronizeNow(): Promise<void>; communityConfig: CommunityConfigStore },
+    service: { synchronizeNow(): Promise<void> },
   ) => Promise<T>,
 ): Promise<T> {
   if (!process.env.ARBOR_DATA_HOME) {
@@ -263,7 +248,6 @@ async function withArborSync<T>(
     }
     await client.openSession(path);
     return run(client, {
-      communityConfig: new CommunityConfigStore(),
       async synchronizeNow() { await client.synchronizeNow(); },
     });
   }
@@ -274,21 +258,6 @@ async function withArborSync<T>(
     running.server.stop(true);
     await running.service[Symbol.asyncDispose]();
   }
-}
-
-async function editConfigurationYAML(
-  client: ArborSyncRESTClient,
-  path: string,
-  change: (document: Document) => void | Promise<void>,
-): Promise<void> {
-  const configuration = (await client.trees()).snapshot.find((tree) => tree.kind === "account-configuration");
-  if (!configuration) throw new Error("The account-configuration tree is unavailable");
-  const ref = { tree: configuration.id, path, stableKey: null } as const;
-  const file = await client.file(ref);
-  const document = parseDocument(new TextDecoder("utf-8", { fatal: true }).decode(file.bytes), { uniqueKeys: true, keepSourceTokens: true });
-  if (document.errors.length) throw new Error(document.errors[0]!.message);
-  await change(document);
-  await client.writeText(ref, file.revision, document.toString({ lineWidth: 0 }));
 }
 
 async function editAccountConfigurationYAML(
@@ -312,6 +281,51 @@ function sameOrDescendantPath(path: string, root: string): boolean {
   return path === (normalizedRoot || "/") || path.startsWith(`${normalizedRoot}/`);
 }
 
+interface SelectedCanopyAccount {
+  configuration: CanopyAccountConfigurationSnapshot & Required<Pick<CanopyAccountConfigurationSnapshot, "account" | "trees" | "currentDevice">>;
+  connection: NonNullable<Awaited<ReturnType<CanopyAccountStore["get"]>>>;
+}
+
+async function accountForCanonicalTarget(
+  target: CanonicalTarget,
+  options: { administrator: boolean },
+): Promise<SelectedCanopyAccount> {
+  const [configurations, records] = await Promise.all([
+    loadCanopyAccountConfigurations(),
+    CanopyAccountStore.list(),
+  ]);
+  const candidates = records.filter((record) =>
+    record.origin === target.endpoint
+    && sameOrDescendantPath(target.canonicalPath, new URL(record.account).pathname)
+  ).sort((left, right) => new URL(right.account).pathname.length - new URL(left.account).pathname.length);
+  if (!candidates.length) {
+    throw new Error(`No claimed Canopy account contains ${target.supplied}`);
+  }
+  if (candidates.length > 1) {
+    const firstLength = new URL(candidates[0]!.account).pathname.length;
+    const secondLength = new URL(candidates[1]!.account).pathname.length;
+    if (firstLength === secondLength) throw new Error(`Several claimed Canopy accounts contain ${target.supplied}`);
+  }
+  const record = candidates[0]!;
+  const configuration = configurations.find((candidate) => candidate.configurationTree === record.configurationTree);
+  if (!configuration) throw new Error(`Account ${record.configurationTree} has no configuration checkout`);
+  if (configuration.diagnostics.length || !configuration.account || !configuration.trees || !configuration.currentDevice) {
+    throw new Error(`Account ${record.configurationTree} is not valid: ${configuration.diagnostics[0]?.message ?? "incomplete checkout"}`);
+  }
+  if (configuration.account.canopy !== record.origin) {
+    throw new Error(`Account ${record.configurationTree} does not match its claimed Canopy connection`);
+  }
+  if (options.administrator && !configuration.currentDevice.administrator) {
+    throw new Error(`The current device is not an administrator of account ${record.configurationTree}`);
+  }
+  const connection = await new CanopyAccountStore(record.configurationTree).get();
+  if (!connection) throw new Error(`Account credential is unavailable for ${record.configurationTree}`);
+  return {
+    configuration: configuration as SelectedCanopyAccount["configuration"],
+    connection,
+  };
+}
+
 async function waitForRehomedPlacement(
   client: ArborSyncRESTClient,
   tree: string,
@@ -326,6 +340,24 @@ async function waitForRehomedPlacement(
     await Bun.sleep(25);
   }
   throw new Error("Arbor Sync did not adopt the destination placement");
+}
+
+async function waitForLocalPlacement(
+  client: ArborSyncRESTClient,
+  tree: string,
+  configurationTree: string,
+  path: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const descriptor = (await client.trees()).snapshot.find((candidate) =>
+      candidate.id === tree
+      && candidate.configurationTree === configurationTree
+      && candidate.osPath === path
+    );
+    if (descriptor) return;
+    await Bun.sleep(25);
+  }
+  throw new Error(`Arbor Sync did not adopt the placement at ${path}`);
 }
 
 async function mvCommand(args: string[]): Promise<void> {
@@ -403,27 +435,8 @@ async function rehomeCommand(args: string[]): Promise<void> {
     );
     if (nested) throw new Error(`Rehome does not yet move a nested tree closure: ${nested.path}`);
 
-    const records = new Map((await CanopyAccountStore.list()).map((record) => [record.configurationTree, record]));
-    const destinationCandidates = configurations.filter((configuration) => {
-      const record = records.get(configuration.configurationTree);
-      return configuration.account!.canopy === destination.endpoint
-        && record
-        && sameOrDescendantPath(destination.canonicalPath, new URL(record.account).pathname);
-    }).sort((left, right) => {
-      const leftPath = new URL(records.get(left.configurationTree)!.account).pathname;
-      const rightPath = new URL(records.get(right.configurationTree)!.account).pathname;
-      return rightPath.length - leftPath.length;
-    });
-    const destinationConfiguration = destinationCandidates[0];
-    if (!destinationConfiguration) throw new Error(`Claim an account containing ${destination.supplied} before rehoming there`);
-    if (destinationCandidates.length > 1) {
-      const first = new URL(records.get(destinationCandidates[0]!.configurationTree)!.account).pathname;
-      const second = new URL(records.get(destinationCandidates[1]!.configurationTree)!.account).pathname;
-      if (first.length === second.length) throw new Error(`Several accounts can host ${destination.supplied}`);
-    }
-    if (!destinationConfiguration.currentDevice!.administrator) {
-      throw new Error(`The current device is not an administrator of destination account ${destinationConfiguration.configurationTree}`);
-    }
+    const selectedDestination = await accountForCanonicalTarget(destination, { administrator: true });
+    const destinationConfiguration = selectedDestination.configuration;
     const destinationCanonical = `${destination.endpoint}${destination.canonicalPath}`;
     if (destinationConfiguration.configurationTree === sourceConfiguration.configurationTree) {
       if (sourceDeclaration.canonical === destinationCanonical) {
@@ -442,9 +455,8 @@ async function rehomeCommand(args: string[]): Promise<void> {
     }
 
     const sourceConnection = await new CanopyAccountStore(sourceConfiguration.configurationTree).get();
-    const destinationConnection = await new CanopyAccountStore(destinationConfiguration.configurationTree).get();
+    const destinationConnection = selectedDestination.connection;
     if (!sourceConnection) throw new Error(`Source credential is unavailable for ${sourceConfiguration.configurationTree}`);
-    if (!destinationConnection) throw new Error(`Destination credential is unavailable for ${destinationConfiguration.configurationTree}`);
     const localDescriptor = (await client.trees()).snapshot.find((candidate) =>
       candidate.id === sourcePlacement!.tree && candidate.configurationTree === sourceConfiguration.configurationTree
     );
@@ -493,20 +505,6 @@ async function rehomeCommand(args: string[]): Promise<void> {
   });
 }
 
-async function configurationContext() {
-  const plural = await loadCanopyAccountConfigurations();
-  if (plural.length) {
-    throw new Error(
-      "This pre-migration CLI command does not edit plural account layouts; use the account-qualified web or native surface",
-    );
-  }
-  const snapshot = await loadAccountConfiguration();
-  if (!snapshot.account || !snapshot.trees || !snapshot.currentDevice) {
-    throw new Error("A valid account.yaml, trees.yaml, and current device file are required");
-  }
-  return { snapshot, devicePath: `/devices/${snapshot.currentDevice.id}.yaml` };
-}
-
 async function accessRulesFor(client: WireClient, audience: ShareAudience) {
   const raw = audience.kind === "private" ? [] : audience.kind === "everyone"
     ? [{ subject: { kind: "everyone" as const }, access: audience.access }]
@@ -518,190 +516,6 @@ async function accessRulesFor(client: WireClient, audience: ShareAudience) {
     : rule));
 }
 
-async function connectCommand(args: string[]): Promise<void> {
-  if (args.length !== 1) usage();
-  if ((await loadCanopyAccountConfigurations()).length) {
-    throw new Error("connect does not add to the plural account layout; claim or pair the account through Arbor web or native");
-  }
-  const target = canonicalTarget(args[0]!);
-  const token = process.env.ARBOR_ACCOUNT_TOKEN ?? await readSecret(`Account/device credential for ${target.endpoint}: `);
-  if (!token) throw new Error("No account credential supplied");
-  const store = new CommunityConfigStore();
-  await store.storeProvisionalCredential(token);
-  const wire = new WireClient(target.endpoint, token);
-  const { account } = await wire.account();
-  if (!account.device) throw new Error("The server did not identify the authenticated device");
-  const configuration = await wire.currentSnapshot(account.configuration.id);
-  await installConfigurationCheckout(configuration, account.device.id);
-  await store.set(target.endpoint, token, {
-    id: account.id,
-    handle: account.handle!,
-    profileTree: account.profileTree,
-    profileURL: account.profileURL,
-    communityTree: account.community.id,
-    communityURL: canonicalArborLocator(account.community.canonical!),
-    configurationTree: account.configuration.id,
-    configurationRef: account.configuration.root,
-    configurationUpdate: account.configuration.update,
-  });
-  const record = await store.safe();
-  if (!record) throw new Error("The community connection was not saved");
-  console.log(`Connected as ~${record.handle} to ${record.communityURL ?? target.endpoint}`);
-}
-
-async function installConfigurationCheckout(
-  current: Awaited<ReturnType<WireClient["currentSnapshot"]>>,
-  deviceID: string,
-): Promise<void> {
-  const existing = await loadAccountConfiguration();
-  if (existing.account && existing.trees && existing.currentDevice) {
-    if (existing.currentDevice.id !== deviceID) throw new Error("This data home belongs to a different device");
-    return;
-  }
-  const objects = current.snapshot.objects;
-  const object = (hash: string, path: string) => {
-    const bytes = objects.get(hash as never);
-    if (!bytes) throw new Error(`Account configuration is missing ${path}`);
-    return decodeWireObject(bytes);
-  };
-  const root = object(current.snapshot.root, "/");
-  if (root.type !== "directory") throw new Error("Account configuration root must be a directory");
-  const names = root.entries.map((entry) => entry.name).sort();
-  if (JSON.stringify(names) !== JSON.stringify(["account.yaml", "devices", "trees.yaml"])) {
-    throw new Error("Account configuration contains unsupported root paths");
-  }
-  const source = (name: string): string => {
-    const entry = root.entries.find((candidate) => candidate.name === name);
-    if (!entry?.hash || entry.tree) throw new Error(`Account configuration requires ${name}`);
-    const value = object(entry.hash, name);
-    if (value.type !== "file") throw new Error(`${name} must be a file`);
-    return new TextDecoder("utf-8", { fatal: true }).decode(value.bytes);
-  };
-  const accountSource = source("account.yaml");
-  const treesSource = source("trees.yaml");
-  parseAccountConfiguration(accountSource);
-  parseTreesConfiguration(treesSource);
-  const devicesEntry = root.entries.find((entry) => entry.name === "devices")!;
-  if (!devicesEntry.hash || devicesEntry.tree) throw new Error("Account configuration requires devices/");
-  const devices = object(devicesEntry.hash, "devices");
-  if (devices.type !== "directory") throw new Error("devices must be a directory");
-  const deviceSources = new Map<string, string>();
-  for (const entry of devices.entries) {
-    const match = /^(dv_[a-z2-7]+)\.yaml$/.exec(entry.name);
-    if (!match || !entry.hash || entry.tree) throw new Error(`Unsupported account configuration path: devices/${entry.name}`);
-    const value = object(entry.hash, `devices/${entry.name}`);
-    if (value.type !== "file") throw new Error(`devices/${entry.name} must be a file`);
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(value.bytes);
-    parseDeviceConfiguration(text, match[1]!, `devices/${entry.name}`);
-    deviceSources.set(entry.name, text);
-  }
-  if (!deviceSources.has(`${deviceID}.yaml`)) throw new Error("Authenticated device is absent from the account configuration");
-
-  const home = arborDataRoot();
-  let existingTrees: string | undefined;
-  try {
-    existingTrees = await readFile(join(home, "trees.yaml"), "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  let legacyTrees: string | undefined;
-  if (existingTrees !== undefined) {
-    try {
-      parseTreesConfiguration(existingTrees);
-      if (existingTrees !== treesSource) throw new Error("Account configuration checkout collides with existing trees.yaml");
-      try {
-        legacyTrees = await readFile(join(home, ".state", "migration", "legacy-trees.yaml"), "utf8");
-      } catch (backupError) {
-        if ((backupError as NodeJS.ErrnoException).code !== "ENOENT") throw backupError;
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message === "Account configuration checkout collides with existing trees.yaml") throw error;
-      legacyTrees = existingTrees;
-    }
-  }
-  const legacyMetadata: Array<{ tree: string; ref?: string; update?: string; access?: "read" | "write" }> = [];
-  if (legacyTrees !== undefined) {
-    const document = parseDocument(legacyTrees, { uniqueKeys: true });
-    if (document.errors.length) throw new Error(`Legacy trees.yaml is invalid: ${document.errors[0]!.message}`);
-    const value = document.toJS() as unknown;
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Legacy trees.yaml must be a path-keyed mapping");
-    const declarations = parseTreesConfiguration(treesSource).trees;
-    const deviceDocument = parseDocument(deviceSources.get(`${deviceID}.yaml`)!, { uniqueKeys: true, keepSourceTokens: true });
-    const seen = new Set<string>();
-    for (const [path, raw] of Object.entries(value as Record<string, unknown>)) {
-      if (!isAbsolute(path) || normalize(path) !== path || !raw || typeof raw !== "object" || Array.isArray(raw)) {
-        throw new Error(`Legacy tree placement is invalid: ${path}`);
-      }
-      const placement = raw as Record<string, unknown>;
-      if (placement.source === "local") continue;
-      const tree = placement.tree;
-      const endpoint = placement.endpoint;
-      if (typeof tree !== "string" || typeof endpoint !== "string" || !declarations[tree]) {
-        throw new Error(`Legacy shared placement is not represented by the migrated server configuration: ${path}`);
-      }
-      if (seen.has(tree)) throw new Error(`Legacy trees.yaml places ${tree} more than once`);
-      seen.add(tree);
-      deviceDocument.setIn(["placements", tree], { server: new URL(endpoint).origin, path });
-      legacyMetadata.push({
-        tree,
-        ...(typeof placement.ref === "string" ? { ref: placement.ref } : {}),
-        ...(typeof placement.update === "string" ? { update: placement.update } : {}),
-        ...(placement.access === "read" || placement.access === "write" ? { access: placement.access } : {}),
-      });
-    }
-    const migratedDeviceSource = deviceDocument.toString({ lineWidth: 0 });
-    parseDeviceConfiguration(migratedDeviceSource, deviceID, `devices/${deviceID}.yaml`);
-    deviceSources.set(`${deviceID}.yaml`, migratedDeviceSource);
-  }
-  for (const name of ["account.yaml"]) {
-    try {
-      const existingSource = await readFile(join(home, name), "utf8");
-      if (existingSource !== accountSource) throw new Error(`Account configuration checkout collides with existing ${name}`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-  }
-  try {
-    const entries = await readdir(join(home, "devices"));
-    for (const name of entries) {
-      const expected = deviceSources.get(name);
-      const existingSource = await readFile(join(home, "devices", name), "utf8");
-      if (expected === undefined || existingSource !== expected) {
-        throw new Error("Account configuration checkout collides with existing devices");
-      }
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  const staging = await mkdtemp(join(dirname(home), ".arbor-config-bootstrap-"));
-  try {
-    await mkdir(join(staging, "devices"), { mode: 0o700 });
-    await writeFile(join(staging, "account.yaml"), accountSource, { mode: 0o600 });
-    await writeFile(join(staging, "trees.yaml"), treesSource, { mode: 0o600 });
-    for (const [name, text] of deviceSources) await writeFile(join(staging, "devices", name), text, { mode: 0o600 });
-    if (legacyTrees !== undefined) {
-      const migration = join(home, ".state", "migration");
-      await mkdir(migration, { recursive: true, mode: 0o700 });
-      const backup = join(migration, "legacy-trees.yaml");
-      try {
-        const previous = await readFile(backup, "utf8");
-        if (previous !== legacyTrees) throw new Error(`Migration backup collision: ${backup}`);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") await writeFile(backup, legacyTrees, { mode: 0o600, flag: "wx" });
-        else throw error;
-      }
-    }
-    await rename(join(staging, "account.yaml"), join(home, "account.yaml"));
-    await rename(join(staging, "trees.yaml"), join(home, "trees.yaml"));
-    await rm(join(home, "devices"), { recursive: true, force: true });
-    await rename(join(staging, "devices"), join(home, "devices"));
-    await saveCurrentDeviceID(deviceID);
-    for (const metadata of legacyMetadata) await savePlacementSyncMetadata(metadata.tree, metadata);
-  } finally {
-    await rm(staging, { recursive: true, force: true });
-  }
-}
-
 async function promoteLocal(
   first: string,
   second: string,
@@ -711,34 +525,41 @@ async function promoteLocal(
   if (!(await stat(path)).isDirectory()) throw new Error(`Not a directory: ${path}`);
   const target = canonicalTarget(second);
   await withArborSync(path, async (client, service) => {
-    // Configuration is synchronized content too. Merge it before deriving a
-    // file edit so this device cannot add a placement to a stale trees.yaml.
     await service.synchronizeNow();
-    const config = await configurationContext();
-    if (config.snapshot.account!.community !== target.endpoint) {
-      throw new Error(`Claim or activate a writable profile at ${target.endpoint} before sharing there`);
-    }
-    const existing = Object.entries(config.snapshot.currentDevice!.placements).find(([, placement]) => placement.path === path);
-    let tree = existing?.[0];
-    const isNew = !tree;
-    if (tree) {
-      const declaration = config.snapshot.trees!.trees[tree]!;
-      const samePath = declaration.canonicalPath === target.canonicalPath;
-      if (!samePath) throw new Error(`${path} already has a different canonical URL`);
+    const selected = await accountForCanonicalTarget(target, { administrator: true });
+    const config = selected.configuration;
+    const wire = new WireClient(selected.connection.record.origin, selected.connection.accountToken);
+    const local = await loadLocalPlacements();
+    if (local.diagnostics.length) throw new Error(`placements.yaml is invalid: ${local.diagnostics[0]!.message}`);
+    const existing = local.placements.find((placement) => placement.path === path);
+    let tree = existing?.tree;
+    const isNew = tree === undefined;
+    if (existing) {
+      if (existing.configurationTree !== config.configurationTree) {
+        throw new Error(`${path} is already placed through a different Canopy account`);
+      }
+      const declaration = config.trees[existing.tree];
+      if (!declaration || declaration.canonical !== `${target.endpoint}${target.canonicalPath}`) {
+        throw new Error(`${path} already has a different canonical URL`);
+      }
     } else {
       tree = await client.treeID();
-      const configured = await service.communityConfig.get();
-      if (!configured) throw new Error("The server credential is unavailable");
-      const rules = await accessRulesFor(new WireClient(target.endpoint, configured.accountToken), initialAudience(audience, target));
-      await editConfigurationYAML(client, "/trees.yaml", (document) => {
-        document.setIn(["trees", tree!], { canonicalPath: target.canonicalPath, access: rules });
-      });
-      await editConfigurationYAML(client, config.devicePath, (document) => {
-        document.setIn(["placements", tree!], { server: target.endpoint, path });
-      });
+      const rules = await accessRulesFor(wire, initialAudience(audience, target));
+      await editAccountConfigurationYAML(client, config.configurationTree, (document) => {
+        document.setIn([tree!], { canonical: `${target.endpoint}${target.canonicalPath}`, access: rules });
+      }, (source) => { parseHostedTreesConfiguration(source, config.account); });
+      try {
+        await addLocalPlacement({ configurationTree: config.configurationTree, path, tree });
+      } catch (error) {
+        await editAccountConfigurationYAML(client, config.configurationTree, (document) => {
+          document.deleteIn([tree!]);
+        }, (source) => { parseHostedTreesConfiguration(source, config.account); }).catch(() => {});
+        throw error;
+      }
+      await waitForLocalPlacement(client, tree, config.configurationTree, path);
     }
     if (tree && !isNew) {
-      const declaration = config.snapshot.trees!.trees[tree]!;
+      const declaration = config.trees[tree]!;
       let rules = [...declaration.access];
       for (const operation of audience) {
         if (operation.kind === "clear") {
@@ -746,13 +567,17 @@ async function promoteLocal(
         } else {
           const subject = accessSubject(operation.subject, target);
           const normalized = subject.kind === "everyone" ? { kind: "everyone" as const }
-            : { kind: "profile" as const, tree: (await new WireClient(target.endpoint).resolve(new URL(subject.locator).pathname)).ref.tree };
+            : { kind: "profile" as const, tree: (await wire.resolve(new URL(subject.locator).pathname)).ref.tree };
           const key = JSON.stringify(normalized);
           rules = rules.filter((rule) => JSON.stringify(rule.subject) !== key);
           if (operation.access !== "none") rules.push({ subject: normalized, access: operation.access });
         }
       }
-      await editConfigurationYAML(client, "/trees.yaml", (document) => document.setIn(["trees", tree!, "access"], rules));
+      if (audience.length) {
+        await editAccountConfigurationYAML(client, config.configurationTree, (document) => {
+          document.setIn([tree!, "access"], rules);
+        }, (source) => { parseHostedTreesConfiguration(source, config.account); });
+      }
     }
     if (isNew && audience.length === 0) {
       console.warn(`Warning: no audience options supplied; created ${target.supplied} with private access.`);
@@ -779,45 +604,24 @@ async function syncCommand(args: string[]): Promise<void> {
     join(await realpath(dirname(requestedDestination)), basename(requestedDestination))
   );
   await withArborSync(dirname(destination), async (client, service) => {
-    const configured = await service.communityConfig.get();
-    const accountToken = configured?.record.origin === target.endpoint ? configured.accountToken : undefined;
-    const remote = await new WireClient(target.endpoint, accountToken).resolve(target.canonicalPath);
+    await service.synchronizeNow();
+    const selected = await accountForCanonicalTarget(target, { administrator: false });
+    const remote = await new WireClient(target.endpoint, selected.connection.accountToken).resolve(target.canonicalPath);
     const descriptor = remote.enclosingTree;
     if (!descriptor?.canonical) throw new Error("Server resolution omitted its canonical tree");
-    await service.synchronizeNow();
-    const config = await configurationContext();
-    const existing = config.snapshot.currentDevice!.placements[descriptor.id];
-    if (!existing) {
-      await editConfigurationYAML(client, config.devicePath, (document) => document.setIn(
-        ["placements", descriptor.id], { server: target.endpoint, path: destination },
-      ));
+    const declaration = selected.configuration.trees[descriptor.id];
+    const canonical = canonicalHTTPURL(descriptor.canonical);
+    if (!declaration || declaration.canonical !== canonical) {
+      throw new Error(`${canonical} is not declared by the matching claimed Canopy account`);
     }
+    await addLocalPlacement({
+      configurationTree: selected.configuration.configurationTree,
+      path: destination,
+      tree: descriptor.id,
+    });
+    await waitForLocalPlacement(client, descriptor.id, selected.configuration.configurationTree, destination);
     await service.synchronizeNow();
     console.log(`${canonicalArborLocator(descriptor.canonical)} ↔ ${destination} (${descriptor.access})`);
-  });
-}
-
-async function unsyncCommand(args: string[]): Promise<void> {
-  if (args.length < 1 || args.length > 2 || args.some((arg) => arg.startsWith("-"))) usage();
-  const urls = args.filter((arg) => /^(?:https?|arbor):\/\//.test(arg));
-  if (urls.length > 1 || (args.length === 2 && urls.length !== 1) || (args.length === 1 && urls.length !== 0)) usage();
-  const localInput = args.find((arg) => !/^(?:https?|arbor):\/\//.test(arg))!;
-  const requestedPath = resolve(localInput);
-  const path = await realpath(requestedPath).catch(() => requestedPath);
-  const target = urls[0] ? canonicalTarget(urls[0]) : undefined;
-  await withArborSync(await stat(path).then((value) => value.isDirectory()).catch(() => false) ? path : dirname(path), async (client, service) => {
-    await service.synchronizeNow();
-    const config = await configurationContext();
-    const existing = Object.entries(config.snapshot.currentDevice!.placements).find(([, placement]) => placement.path === path);
-    if (!existing) throw new Error(`No shared tree placement at ${path}`);
-    if (target) {
-      const declaration = config.snapshot.trees!.trees[existing[0]];
-      if (!declaration || declaration.canonicalPath !== target.canonicalPath || config.snapshot.account!.community !== target.endpoint) {
-        throw new Error(`${path} is not synced with ${target.supplied}`);
-      }
-    }
-    await editConfigurationYAML(client, config.devicePath, (document) => { document.deleteIn(["placements", existing[0]]); });
-    console.log(`${target?.supplied ?? existing[0]} ↮ ${path}`);
   });
 }
 
@@ -900,10 +704,6 @@ async function main(): Promise<void> {
     process.on("SIGTERM", shutdown);
     return;
   }
-  if (command === "connect") {
-    await connectCommand(args);
-    process.exit(0);
-  }
   if (command === "sync") {
     await syncCommand(args);
     process.exit(0);
@@ -915,40 +715,6 @@ async function main(): Promise<void> {
   if (command === "rehome") {
     await rehomeCommand(args);
     process.exit(0);
-  }
-  if (command === "unsync") {
-    await unsyncCommand(args);
-    process.exit(0);
-  }
-  if (command === "connection") {
-    const [action, name, ...options] = args;
-    if (!name) usage();
-    const store = new ConnectionStore();
-    if (action === "set") {
-      if (options.some((option) => option !== "--dsn-stdin") || options.filter((option) => option === "--dsn-stdin").length > 1) usage();
-      const dsn = options.includes("--dsn-stdin")
-        ? (await Bun.stdin.text()).trim()
-        : await readSecret("PostgreSQL DSN: ");
-      if (!dsn) throw new Error("No DSN supplied");
-      const record = await store.set(name, dsn);
-      console.log(`Stored ${record.name} (${record.host}/${record.database}) in the system credential store.`);
-      return;
-    }
-    if (action === "test") {
-      if (options.length) usage();
-      const connection = await store.get(name);
-      if (!connection) throw new Error(`Connection ${name} is not configured`);
-      const sql = new Bun.SQL(connection.dsn);
-      try { await sql`select 1 as ok`; console.log(`Connection ${name} succeeded.`); }
-      finally { await sql.close(); }
-      return;
-    }
-    if (action === "remove") {
-      if (options.length) usage();
-      await store.remove(name);
-      console.log(`Removed connection ${name}.`);
-      return;
-    }
   }
   usage();
 }

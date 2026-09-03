@@ -1312,7 +1312,7 @@ export function App() {
           {server.profileURL && <div><span>Profile</span><code>{server.profileURL}</code><button onClick={() => void navigator.clipboard.writeText(server.profileURL!)}>Copy</button></div>}
         </div>
         <p className="tree-control-intro">Your public profile is a complete tree. Writable community, profile, and group namespaces appear here and on Arbor’s home screen.</p>
-        {!server.credentialAvailable && server.origin && <p className="control-error" role="alert">This device’s credential is unavailable. Run <code>arbor connect {server.origin}</code>, then return to Arbor.</p>}
+        {!server.credentialAvailable && server.origin && <p className="control-error" role="alert">This device’s credential is unavailable. Pair this device again from an active administrator device.</p>}
         {server.credentialAvailable && <section className="access-builder" aria-labelledby="device-management-title">
           <div className="access-builder-heading">
             <div><h3 id="device-management-title">Devices</h3><p>Each paired device has its own revocable credential.</p></div>
