@@ -3,7 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile.canopy"
 
 [deploy]
-healthcheckPath = "/.arbor/health"
+healthcheckPath = "/"
 healthcheckTimeout = 10
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
