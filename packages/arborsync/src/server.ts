@@ -422,6 +422,7 @@ function startArborSyncServer(
           return json({ service: "arborsync", version: "0.1.0", protocolVersion: "v1", ...(deviceID ? { deviceID } : {}) });
         }
         if (request.method === "POST" && url.pathname === "/v1/sync") {
+          server.timeout(request, 0);
           await service.synchronizeNow();
           return json({ synchronized: true });
         }

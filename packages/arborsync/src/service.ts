@@ -71,6 +71,7 @@ export interface ArborSyncDaemonOptions {
 }
 
 const DEFAULT_SYNC_INTERVAL_MS = 30_000;
+const WIRE_SYNC_TIMEOUT_MS = 60_000;
 
 /**
  * The daemon's top-level coordinator: one process-wide event bus, a root
@@ -136,7 +137,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   private async accountClient(placement: SharedTreePlacement): Promise<WireClient> {
-    return new WireClient(placement.endpoint, await this.accountToken(placement));
+    return new WireClient(placement.endpoint, await this.accountToken(placement), { timeoutMs: WIRE_SYNC_TIMEOUT_MS });
   }
 
   static async open(

@@ -18,6 +18,8 @@ import { WireClient } from "@arbor/wire";
 import { parseDocument, type Document } from "yaml";
 import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
 
+const REHOME_WIRE_TIMEOUT_MS = 60_000;
+
 type ShareAudience =
   | { kind: "private" }
   | { kind: "everyone"; access: "read" | "write" }
@@ -440,7 +442,40 @@ async function rehomeCommand(args: string[]): Promise<void> {
     const destinationCanonical = `${destination.endpoint}${destination.canonicalPath}`;
     if (destinationConfiguration.configurationTree === sourceConfiguration.configurationTree) {
       if (sourceDeclaration.canonical === destinationCanonical) {
-        console.log(`${sourcePlacement.tree} is already homed at ${destination.supplied}`);
+        if (check) {
+          console.log(`${sourcePlacement.tree} is already homed at ${destination.supplied}`);
+          return;
+        }
+        await service.synchronizeNow();
+        const finalLocal = (await client.trees()).snapshot.find((candidate) =>
+          candidate.id === sourcePlacement!.tree && candidate.configurationTree === destinationConfiguration.configurationTree
+        );
+        if (!finalLocal || finalLocal.sync !== "idle") {
+          throw new Error(`Destination placement did not become idle; current state is ${finalLocal?.sync ?? "unavailable"}`);
+        }
+        const finalRemote = (await new WireClient(
+          selectedDestination.connection.record.origin,
+          selectedDestination.connection.accountToken,
+          { timeoutMs: REHOME_WIRE_TIMEOUT_MS },
+        ).descriptor(sourcePlacement.tree)).tree;
+        const retainedSource = configurations.find((configuration) =>
+          configuration.configurationTree !== destinationConfiguration.configurationTree
+          && configuration.trees?.[sourcePlacement!.tree]
+        );
+        if (retainedSource) {
+          const retainedConnection = await new CanopyAccountStore(retainedSource.configurationTree).get();
+          if (retainedConnection) {
+            const retainedRemote = (await new WireClient(
+              retainedConnection.record.origin,
+              retainedConnection.accountToken,
+              { timeoutMs: REHOME_WIRE_TIMEOUT_MS },
+            ).descriptor(sourcePlacement.tree)).tree;
+            if (retainedRemote.root !== finalRemote.root) {
+              throw new Error("Destination activation did not preserve the retained source snapshot");
+            }
+          }
+        }
+        console.log(`Rehomed ${sourcePlacement.tree} at ${destinationCanonical}; source server copy retained.`);
         return;
       }
       throw new Error("Rehome requires a different Canopy account; rename this account's canonical declaration instead");
@@ -463,9 +498,9 @@ async function rehomeCommand(args: string[]): Promise<void> {
     if (!localDescriptor || localDescriptor.sync !== "idle" || localDescriptor.missing) {
       throw new Error(`Source tree must be present and idle before rehome; current state is ${localDescriptor?.sync ?? "unavailable"}`);
     }
-    const sourceRemote = (await new WireClient(sourceConnection.record.origin, sourceConnection.accountToken)
+    const sourceRemote = (await new WireClient(sourceConnection.record.origin, sourceConnection.accountToken, { timeoutMs: REHOME_WIRE_TIMEOUT_MS })
       .descriptor(sourcePlacement.tree)).tree;
-    const destinationWire = new WireClient(destinationConnection.record.origin, destinationConnection.accountToken);
+    const destinationWire = new WireClient(destinationConnection.record.origin, destinationConnection.accountToken, { timeoutMs: REHOME_WIRE_TIMEOUT_MS });
     const existingRemote = (await destinationWire.list()).snapshot.find((tree) => tree.id === sourcePlacement!.tree);
     if (existingRemote && existingRemote.root !== sourceRemote.root) {
       throw new Error(`Destination already has a different current snapshot for ${sourcePlacement.tree}`);

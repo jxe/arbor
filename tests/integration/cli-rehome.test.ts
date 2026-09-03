@@ -117,5 +117,8 @@ describe("arbor rehome", () => {
       canonical: destination,
       access: [{ subject: { kind: "profile", tree: destinationAccount.account!.profile }, access: "write" }],
     });
+
+    const resumed = await arbor(["rehome", source, destination]);
+    expect(resumed).toContain(`Rehomed ${tree}`);
   });
 });
