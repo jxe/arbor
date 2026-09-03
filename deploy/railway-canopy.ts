@@ -107,6 +107,29 @@ async function railway(args: string[]): Promise<any> {
   return command("railway", [...args, "--json"], { json: true });
 }
 
+async function configureRuntime(environment: RailwayEnvironment, instance: RailwayServiceInstance): Promise<void> {
+  const query = "mutation ConfigureCanopy($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input) }";
+  const variables = JSON.stringify({
+    serviceId: instance.serviceId,
+    environmentId: environment.id,
+    input: {
+      dockerfilePath: "/Dockerfile.canopy",
+      startCommand: "bun run canopyd",
+      healthcheckPath: "/",
+      healthcheckTimeout: 10,
+      restartPolicyType: "ON_FAILURE",
+      restartPolicyMaxRetries: 10,
+    },
+  });
+  const result = await command("railway", ["api", query, "--variables", variables, "--compact"], { json: true }) as {
+    data?: { serviceInstanceUpdate?: boolean };
+    errors?: Array<{ message?: string }>;
+  };
+  if (result.errors?.length || result.data?.serviceInstanceUpdate !== true) {
+    throw new Error(result.errors?.[0]?.message ?? `Railway did not configure ${instance.serviceName}`);
+  }
+}
+
 async function status(): Promise<RailwayStatus> {
   return railway(["status"]);
 }
@@ -141,15 +164,31 @@ async function requirePublished(config: CanopyDeploymentConfig): Promise<void> {
   }
 }
 
-function dnsLines(value: unknown): string[] {
+export function dnsLines(value: unknown): string[] {
   const lines: string[] = [];
   const visit = (candidate: unknown) => {
     if (!candidate || typeof candidate !== "object") return;
     const record = candidate as Record<string, unknown>;
-    const type = typeof record.type === "string" ? record.type : typeof record.recordType === "string" ? record.recordType : undefined;
-    const name = typeof record.name === "string" ? record.name : typeof record.host === "string" ? record.host : undefined;
-    const content = typeof record.value === "string" ? record.value : typeof record.target === "string" ? record.target : undefined;
-    if (type && name && content) lines.push(`${type} ${name} ${content}`);
+    const rawType = typeof record.type === "string" ? record.type : typeof record.recordType === "string" ? record.recordType : undefined;
+    const type = rawType?.replace("DNS_RECORD_TYPE_", "");
+    const name = typeof record.name === "string"
+      ? record.name
+      : typeof record.host === "string"
+        ? record.host
+        : typeof record.dnsHost === "string"
+          ? record.dnsHost
+          : undefined;
+    const content = typeof record.value === "string"
+      ? record.value
+      : typeof record.target === "string"
+        ? record.target
+        : typeof record.requiredValue === "string"
+          ? record.requiredValue
+          : typeof record.token === "string"
+            ? record.token
+            : undefined;
+    const inferredType = type ?? (typeof record.dnsHost === "string" && typeof record.token === "string" ? "TXT" : undefined);
+    if (inferredType && name && content) lines.push(`${inferredType} ${name} ${content}`);
     for (const child of Object.values(record)) {
       if (Array.isArray(child)) child.forEach(visit);
       else if (child && typeof child === "object") visit(child);
@@ -174,8 +213,10 @@ async function showDomain(project: RailwayStatus, environment: RailwayEnvironmen
   } else {
     console.log("DNS records are not exposed by this Railway CLI response; inspect the domain in Railway.");
   }
-  const serialized = JSON.stringify(details).toLowerCase();
-  console.log(`DNS status: ${serialized.includes("valid") || serialized.includes("issued") ? "verified or issuing" : "waiting for DNS"}`);
+  const domainDetails = (details as { domain?: { verification?: { verified?: boolean }; certificate?: { status?: string } } }).domain;
+  const ready = domainDetails?.verification?.verified === true
+    || domainDetails?.certificate?.status === "CERTIFICATE_STATUS_TYPE_ISSUED";
+  console.log(`DNS status: ${ready ? "verified or issuing" : "waiting for DNS"}`);
 }
 
 async function apply(configPath: string): Promise<void> {
@@ -217,14 +258,15 @@ async function apply(configPath: string): Promise<void> {
     "--environment", environment.id,
     "--project", project.id,
   ]);
+  await configureRuntime(environment, instance);
 
   const domains = await railway([
     "domain", "list",
     "--service", instance.serviceId,
     "--environment", environment.id,
     "--project", project.id,
-  ]) as { customDomains?: Array<{ domain: string }> } | Array<{ domain?: string }>;
-  const domainList = Array.isArray(domains) ? domains : domains.customDomains ?? [];
+  ]) as { domains?: Array<{ domain: string }>; customDomains?: Array<{ domain: string }> } | Array<{ domain?: string }>;
+  const domainList = Array.isArray(domains) ? domains : domains.domains ?? domains.customDomains ?? [];
   if (!domainList.some((candidate) => candidate.domain === desired.ARBOR_DOMAIN)) {
     await railway([
       "domain", desired.ARBOR_DOMAIN,

@@ -51,12 +51,12 @@ bun run canopy:railway status deploy/canopies/arb.nxhx.org.env
 
 `apply` is idempotent. It requires the checked-out revision to be published on
 the configured GitHub branch, then creates or reconciles a `canopy-*` Railway
-service in the linked project's production environment, attaches one `/data`
-volume, sets the public-domain and bootstrap-handle variables, adds the custom
-domain, connects the service to the repository, and prints the CNAME and TXT
-records that still need to be installed at the DNS provider. Railway remains
-the runtime registry; the checked-in file is the reviewable desired state and
-contains no credentials.
+service in the linked project's production environment, configures its Docker
+build, start command, and health check, attaches one `/data` volume, sets the
+public-domain and bootstrap-handle variables, adds the custom domain, connects
+the service to the repository, and prints the CNAME and TXT records that still
+need to be installed at the DNS provider. Railway remains the runtime registry;
+the checked-in file is the reviewable desired state and contains no credentials.
 
 Destruction is deliberately explicit and exact:
 
