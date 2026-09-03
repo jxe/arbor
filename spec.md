@@ -51,14 +51,14 @@ Ordinary unpromoted files are browsable without gaining a durable Arbor identity
 
 ## Specification map
 
-New readers should start with the non-normative [walkthrough](spec/00-walkthrough.md), which follows one account through claiming a profile, activating a tree, editing, watching, adding a collection, and querying it from a page. The numbered files are the normative contract, in reading order.
+New readers should start with the non-normative [walkthrough](spec/00-walkthrough.md), which follows one local profile identity through claiming an account, activating trees, editing, watching, adding a collection, and querying it from a page. The numbered files are the normative contract, in reading order.
 
 | File | Public contract | Status |
 |---|---|---|
 | [tree operations](spec/01-tree-operations.md) | Logical and exact-byte reads; updates and writes; watching and replay; editor round trips; and the model and Wire types each operation needs | Definitional for the model; conformance-backed for encoding, updates, endpoints, SSE, errors, and shared values |
 | [directory format](spec/03-directory-format.md) | Filesystem/Markdown projection, `_index.md`, frontmatter, bounded child placement, and reserved names | Conformance-backed |
 | [locators](spec/04-locators.md) | Uniform tree/path/stable-key references, canonical and relative resolution, revisions, application queries, content fragments, the routes that find trees, and the public HTTP projection | Conformance-backed |
-| [accounts and devices](spec/05-accounts-and-devices.md) | Profiles, the profile claim, the governed account-configuration tree and its YAML, device pairing, placements, tree activation, and the `account-config-v1` merge rule | Conformance-backed for the YAML; described for claims and pairing |
+| [accounts and devices](spec/05-accounts-and-devices.md) | Local-first profile identity, Canopy accounts and community-defined allocation, the governed account-configuration tree and its YAML, account-local device pairing, local-placement separation, tree activation, and the `account-config-v2` merge rule | Revised contract and replacement conformance vectors implemented; migration not begun |
 | [access control](spec/06-access-control.md) | Access subjects and rules, authentication and secrets, tree-scoped authorization, and the `access` route | Conformance-backed for values; described otherwise |
 | [child backings](spec/07-child-backings.md) | How expanded files, collection files, SQLite, Postgres, and placement projections supply child sets; backing revisions, snapshots, observation, and physical commit behavior | Described; no vectors |
 | [executable documents](spec/08-executable-documents.md) | Execution model for MDX/TSX documents and agents: named handles, queries, mutations and their routes, identity, hosting, confinement, consent, and transcripts | Described; no vectors (agents: sketch) |
@@ -74,6 +74,11 @@ would need.
 
 Language-neutral vectors under [`conformance`](conformance) cover descriptors, access, errors, resolution, objects, updates, snapshots, SSE framing and resume, bootstrap idempotency, pairing, configuration merge and governance, activation, and tree-scoped reachability. The [reference implementation documentation](docs/reference-implementation.md), including the local API, CLI, and client design, is informative rather than normative.
 
+The checked-in configuration vectors describe the revised three-file
+`account-config-v2` graph. The old `account-config-v1` grammar remains only in
+its named runtime compatibility parser and future offline migration fixtures;
+it is not a valid v2 authored graph.
+
 ## Route index
 
 Every HTTP route an Arbor server exposes, and the section that defines it.
@@ -87,14 +92,20 @@ Every HTTP route an Arbor server exposes, and the section that defines it.
 | `QUERY /.arbor/trees/{TreeID}/queries` | [executable documents §12.1](spec/08-executable-documents.md#121-evaluate-and-stream-named-queries) |
 | `POST /.arbor/trees/{TreeID}/mutate` | [executable documents §12.2](spec/08-executable-documents.md#122-execute-named-mutations) |
 | `GET /.arbor/trees/{TreeID}/access` | [access control §4](spec/06-access-control.md#4-reading-access) |
-| `PUT /.arbor/claims/{handle}` | [accounts §1.1](spec/05-accounts-and-devices.md#11-profile-claim) |
-| `POST /.arbor/pairings`, `PUT /.arbor/pairings/{PairingID}/claim` | [accounts §4](spec/05-accounts-and-devices.md#4-device-pairing) |
+| `PUT /.arbor/accounts`, `PUT /.arbor/profile-proofs/{ProfileProofID}[/consume]` | [accounts §1.1–1.2](spec/05-accounts-and-devices.md#11-creating-identity-and-claiming-an-account) |
+| `PUT /.arbor/claims/{handle}` (v1 compatibility) | [accounts §1.1](spec/05-accounts-and-devices.md#11-creating-identity-and-claiming-an-account) |
+| `POST /.arbor/pairings`, `PUT /.arbor/pairings/{PairingID}/claim` | [accounts §5](spec/05-accounts-and-devices.md#5-device-pairing) |
 
 Authentication headers apply to every route ([access control §2](spec/06-access-control.md#2-authentication-and-secrets)); shared read values are introduced with [tree reads §1.1](spec/01-tree-operations.md#11-reading-the-current-tree), while SSE framing and common errors are in [watching §3.5](spec/01-tree-operations.md#35-stream-framing-and-errors).
 
 ## Component roles
 
-- A **wire host** represents one community and owns profile/account identity, governed private account-configuration trees, canonical boundary records, mutable refs, immutable objects, claims, access enforcement, and watch streams. It does not need local filesystem materialization.
+- A **wire host** represents one Canopy and owns its local accounts, allocation policy,
+  governed private account-configuration trees, hosted-tree boundaries,
+  mutable refs, immutable objects, claims, access enforcement, and watch
+  streams. A profile `TreeID` may be referenced by accounts at other Canopies;
+  no host owns that identity merely because it allocated one of its names. A host
+  does not need local filesystem materialization.
 - A **wire client** resolves community names, transfers deterministic objects, performs compare-and-swap synchronization, and applies access without disclosing credentials or link secrets.
 - A **backing adapter** supplies the common node/children primitives from one
   representation or external source, including observation, schema, coherent

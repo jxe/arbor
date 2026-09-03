@@ -18,10 +18,16 @@ import type {
 } from "@arbor/core";
 import { LOCAL_TREE, SYSTEM_TREE, canonicalArborLocator, canonicalNodePath, pageIDFromStableKey, revisionOf, siblingMarkdownTreePath } from "@arbor/core";
 import { FsConflictError, materializeTree, snapshotDirectory } from "@arbor/fs";
-import { CommunityConfigStore, VisitedTreeStore } from "@arbor/stores";
+import {
+  CanopyAccountStore,
+  CommunityConfigStore,
+  VisitedTreeStore,
+  loadCanopyAccountConfigurations,
+  type SharedTreePlacement,
+} from "@arbor/stores";
 import { WireClient, encodeObjectDeltaJSON, encodeWireObject, hashObject, objectDelta, type ObjectDelta, type RemoteTreeDescriptor } from "@arbor/wire";
 import { WireProjection } from "@arbor/wire-projection";
-import { claimProfileBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath } from "./account-bootstrap.ts";
+import { claimCanopyAccountBootstrap, claimProfileBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath } from "./account-bootstrap.ts";
 import { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
@@ -76,6 +82,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   readonly communityConfig = new CommunityConfigStore();
   readonly visitedTrees = new VisitedTreeStore();
   private syncTimer?: ReturnType<typeof setInterval>;
+  private syncStartupTimer?: ReturnType<typeof setTimeout>;
   private syncing = false;
   private syncRequested = false;
   private syncWaiters: Array<() => void> = [];
@@ -97,15 +104,33 @@ export class ArborSyncDaemon implements AsyncDisposable {
     this.treeSync = new TreeSynchronizer({
       trees,
       events,
-      communityConfig: this.communityConfig,
+      accountToken: (placement) => this.accountToken(placement),
       snapshotWorkspace: (workspace, client, remoteTrees) => this.snapshotWorkspace(workspace, client, remoteTrees),
       requestSync: () => this.syncAll(),
     });
-    if (options.autoSync !== false) {
-      this.syncTimer = setInterval(() => { void this.syncAll(); }, options.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS);
-      this.syncTimer.unref?.();
-      setTimeout(() => { void this.syncAll(); }, 0);
+    if (options.autoSync !== false) this.startAutoSync(options.syncIntervalMs);
+  }
+
+  private startAutoSync(syncIntervalMs?: number): void {
+    if (this.syncTimer) return;
+    this.syncTimer = setInterval(() => { void this.syncAll(); }, syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS);
+    this.syncTimer.unref?.();
+    this.syncStartupTimer = setTimeout(() => {
+      this.syncStartupTimer = undefined;
+      void this.syncAll();
+    }, 0);
+  }
+
+  private async accountToken(placement: SharedTreePlacement): Promise<string | undefined> {
+    if (placement.configurationTree) {
+      return (await new CanopyAccountStore(placement.configurationTree).get())?.accountToken;
     }
+    const configured = await this.communityConfig.get();
+    return configured?.record.origin === placement.endpoint ? configured.accountToken : undefined;
+  }
+
+  private async accountClient(placement: SharedTreePlacement): Promise<WireClient> {
+    return new WireClient(placement.endpoint, await this.accountToken(placement));
   }
 
   static async open(
@@ -117,8 +142,9 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const trees = new TreeManager(events);
     await trees.init();
     await trees.openSession(sessionPath, options);
-    const service = new ArborSyncDaemon(events, trees, daemon);
+    const service = new ArborSyncDaemon(events, trees, { ...daemon, autoSync: false });
     await trees.refreshConfiguration();
+    if (daemon.autoSync !== false) service.startAutoSync(daemon.syncIntervalMs);
     return service;
   }
 
@@ -127,8 +153,10 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const events = new EventBus();
     const trees = new TreeManager(events);
     await trees.init();
-    const service = new ArborSyncDaemon(events, trees, { ...options, autoSync: options.autoSync ?? false });
+    const autoSync = options.autoSync ?? false;
+    const service = new ArborSyncDaemon(events, trees, { ...options, autoSync: false });
     await trees.refreshConfiguration();
+    if (autoSync) service.startAutoSync(options.syncIntervalMs);
     return service;
   }
 
@@ -609,8 +637,13 @@ export class ArborSyncDaemon implements AsyncDisposable {
     handle: string,
     inputPath: string,
     displayName?: string,
+    layout: "legacy" | "accounts" = "legacy",
   ): Promise<MutationReceipt["effects"]> {
-    return claimProfileBootstrap(this, originInput, handle, inputPath, displayName);
+    return claimProfileBootstrap(this, originInput, handle, inputPath, displayName, layout);
+  }
+
+  async claimCanopyAccount(account: string, inputPath: string, displayName?: string): Promise<MutationReceipt["effects"]> {
+    return claimCanopyAccountBootstrap(this, account, inputPath, displayName);
   }
 
   async forgetLocalAccount(): Promise<void> {
@@ -623,8 +656,36 @@ export class ArborSyncDaemon implements AsyncDisposable {
     await this.syncAll(true);
   }
 
-  async createPairingBootstrap() {
-    return createPairingBootstrap(this);
+  async accountList() {
+    const configurations = await loadCanopyAccountConfigurations();
+    if (configurations.length) {
+      return Promise.all(configurations.map(async (configuration) => {
+        const stored = await new CanopyAccountStore(configuration.configurationTree).safe();
+        return {
+          configurationTree: configuration.configurationTree,
+          canopy: configuration.account?.canopy ?? stored?.origin ?? null,
+          handle: stored?.handle ?? null,
+          profileTree: configuration.account?.profile ?? stored?.profileTree ?? null,
+          deviceID: configuration.currentDevice?.id ?? stored?.deviceID ?? null,
+          credentialAvailable: Boolean(await new CanopyAccountStore(configuration.configurationTree).get()),
+          diagnostics: configuration.diagnostics,
+        };
+      }));
+    }
+    const legacy = await this.communityConfig.status();
+    return legacy ? [{
+      configurationTree: legacy.record.configurationTree,
+      canopy: legacy.record.origin,
+      handle: legacy.record.handle,
+      profileTree: legacy.record.profileTree,
+      deviceID: null,
+      credentialAvailable: legacy.credentialAvailable,
+      diagnostics: [],
+    }] : [];
+  }
+
+  async createPairingBootstrap(configurationTree?: string) {
+    return createPairingBootstrap(this, configurationTree);
   }
 
   async resolveTreeConflict(
@@ -638,11 +699,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (!placement || !workspace) {
       throw new ProtocolError("not-found", `Shared tree placement is unavailable: ${tree}`, 404);
     }
-    const configured = await this.communityConfig.get();
-    const client = new WireClient(
-      placement.endpoint,
-      configured?.record.origin === placement.endpoint ? configured.accountToken : undefined,
-    );
+    const client = await this.accountClient(placement);
     if (choice === "remote") {
       const remote = (await client.descriptor(tree)).tree;
       if (!remote.update) throw new Error("Server does not advertise accepted updates for this tree");
@@ -783,23 +840,20 @@ export class ArborSyncDaemon implements AsyncDisposable {
     try {
       do {
         this.syncRequested = false;
-        const configured = await this.communityConfig.get();
-        const remoteTreesByOrigin = new Map<string, Promise<RemoteTreeDescriptor[]>>();
+        const remoteTreesByAccount = new Map<string, Promise<RemoteTreeDescriptor[]>>();
         const placements = this.trees.sharedPlacements().sort((left, right) =>
           Number(right.kind === "account-configuration") - Number(left.kind === "account-configuration")
         );
         for (const placement of placements) {
           try {
-            const client = new WireClient(
-              placement.endpoint,
-              configured?.record.origin === placement.endpoint ? configured.accountToken : undefined,
-            );
+            const client = await this.accountClient(placement);
             const workspace = await this.trees.workspaceByTree(placement.tree);
             if (!workspace) continue;
-            let listed = remoteTreesByOrigin.get(placement.endpoint);
+            const accountKey = placement.configurationTree ?? `legacy:${placement.endpoint}`;
+            let listed = remoteTreesByAccount.get(accountKey);
             if (!listed) {
               listed = client.list().then((value) => value.snapshot);
-              remoteTreesByOrigin.set(placement.endpoint, listed);
+              remoteTreesByAccount.set(accountKey, listed);
             }
             const remoteTrees = await listed;
             if (!remoteTrees.some((tree) => tree.id === placement.tree)) {
@@ -815,7 +869,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
               this.trees.setSyncState(placement.tree, "idle");
               continue;
             }
-            this.treeSync.ensureWatch(placement.tree, placement.endpoint);
+            this.treeSync.ensureWatch(placement);
             await this.treeSync.updateWorkspace(workspace, placement, client, remoteTrees);
           } catch (error) {
             this.trees.setSyncState(placement.tree, error instanceof TypeError ? "offline" : "error");
@@ -930,6 +984,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
 
   async [Symbol.asyncDispose](): Promise<void> {
     if (this.syncTimer) clearInterval(this.syncTimer);
+    if (this.syncStartupTimer) clearTimeout(this.syncStartupTimer);
+    if (this.syncing) await new Promise<void>((resolve) => this.syncWaiters.push(resolve));
     await this.treeSync.close();
     await this.localFs[Symbol.asyncDispose]();
     await this.trees[Symbol.asyncDispose]();

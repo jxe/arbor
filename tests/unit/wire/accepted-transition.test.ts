@@ -26,10 +26,10 @@ describe("accepted transition wire encoding", () => {
     expect(decodeTransitionPayloadJSON(encodeTransitionPayloadJSON(payload))).toEqual(payload);
   });
 
-  test("always emits both arrays while decoding the temporary legacy omission", () => {
+  test("always emits and requires both arrays after the compatibility window", () => {
     const payload = { objects: [], deltas: [] };
     expect(encodeTransitionPayloadJSON(payload)).toEqual(payload);
-    expect(decodeTransitionPayloadJSON({ objects: [] })).toEqual(payload);
+    expect(() => decodeTransitionPayloadJSON({ objects: [] })).toThrow("deltas must be an array");
   });
 
   test("rejects duplicate results, ambiguous instructions, and retired representations", () => {

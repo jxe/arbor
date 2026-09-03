@@ -69,7 +69,7 @@ describe("account configuration YAML", () => {
     await writeConfiguration(home);
     const snapshot = await loadTreeRegistry();
     expect(snapshot.diagnostics).toEqual([]);
-    expect(snapshot.configuration.currentDevice?.id).toBe(device);
+    expect(snapshot.configuration?.currentDevice?.id).toBe(device);
     expect(snapshot.placements).toEqual([expect.objectContaining({
       tree: shared,
       endpoint: "https://community.example",

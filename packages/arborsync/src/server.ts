@@ -438,22 +438,46 @@ function startArborSyncServer(
         if (request.method === "GET" && url.pathname === "/v1/trees") {
           return json(await service.treeList());
         }
+        if (request.method === "GET" && url.pathname === "/v1/accounts") {
+          return json({ accounts: await service.accountList() });
+        }
         if (request.method === "GET" && url.pathname === "/v1/resolve") {
           const locator = url.searchParams.get("locator");
           if (!locator) throw new ProtocolError("invalid-request", "resolve requires locator", 400);
           return json(await service.resolveLocator(locator));
         }
         if (request.method === "POST" && url.pathname === "/v1/bootstrap/claims") {
-          const body = await request.json() as { origin?: unknown; handle?: unknown; path?: unknown; displayName?: unknown };
+          const body = await request.json() as { origin?: unknown; handle?: unknown; path?: unknown; displayName?: unknown; layout?: unknown };
           if (
             typeof body.origin !== "string" || typeof body.handle !== "string" || typeof body.path !== "string"
             || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(body.handle)
             || (body.displayName !== undefined && typeof body.displayName !== "string")
+            || (body.layout !== undefined && body.layout !== "legacy" && body.layout !== "accounts")
           ) throw new ProtocolError("invalid-request", "Claim bootstrap requires origin, handle, and path", 400);
-          return json(await service.claimProfileBootstrap(body.origin, body.handle, body.path, body.displayName as string | undefined), 201);
+          return json(await service.claimProfileBootstrap(
+            body.origin,
+            body.handle,
+            body.path,
+            body.displayName as string | undefined,
+            body.layout as "legacy" | "accounts" | undefined,
+          ), 201);
+        }
+        if (request.method === "POST" && url.pathname === "/v1/bootstrap/accounts") {
+          const body = await request.json() as { account?: unknown; path?: unknown; displayName?: unknown };
+          if (
+            typeof body.account !== "string" || typeof body.path !== "string"
+            || (body.displayName !== undefined && typeof body.displayName !== "string")
+          ) throw new ProtocolError("invalid-request", "Account bootstrap requires an account locator and local profile path", 400);
+          return json(await service.claimCanopyAccount(body.account, body.path, body.displayName as string | undefined), 201);
         }
         if (request.method === "POST" && url.pathname === "/v1/bootstrap/pairings") {
-          return json(await service.createPairingBootstrap(), 201);
+          const body = request.headers.get("content-length") === "0"
+            ? {}
+            : await request.json().catch(() => ({})) as { configurationTree?: unknown };
+          if (body.configurationTree !== undefined && typeof body.configurationTree !== "string") {
+            throw new ProtocolError("invalid-request", "configurationTree must be a TreeID", 400);
+          }
+          return json(await service.createPairingBootstrap(body.configurationTree as string | undefined), 201);
         }
         if (request.method === "POST" && url.pathname === "/v1/local/forget") {
           await service.forgetLocalAccount();

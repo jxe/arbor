@@ -19,7 +19,12 @@ public actor ArborWireClient {
     private let credentialProvider: any WireCredentialProvider
     private let session: URLSession
     private let retryDelay: RetryDelay
-    private let encoder = JSONEncoder()
+    private let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        // Wire retries are byte-stable as well as semantically identical.
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }()
     private let decoder = JSONDecoder()
 
     public init(
@@ -55,7 +60,7 @@ public actor ArborWireClient {
         _ = try value.account.community.validated()
         _ = try value.account.configuration.validated()
         for profile in value.account.writableProfiles { _ = try profile.validated() }
-        guard !value.account.id.isEmpty, !value.account.handle.isEmpty, !value.observedThrough.isEmpty else {
+        guard !value.account.id.isEmpty, !value.observedThrough.isEmpty else {
             throw ArborWireValidationError.invalidValue("Malformed account snapshot")
         }
         return value

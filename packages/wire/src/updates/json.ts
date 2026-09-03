@@ -152,8 +152,7 @@ export function decodeTransitionPayloadJSON(value: unknown): AcceptedTransitionP
   if (!value || typeof value !== "object") throw new Error("Transition payload must be an object");
   const record = value as Record<string, unknown> & { objects?: unknown; deltas?: unknown };
   const objects = decodeObjectEnvelopes(record.objects);
-  // Temporary input-only compatibility with senders predating required empty arrays.
-  const deltas = record.deltas === undefined ? [] : decodeObjectDeltas(record.deltas);
+  const deltas = decodeObjectDeltas(record.deltas);
   assertDistinctResults(objects, deltas, "Transition result supplied more than once");
   return { objects, deltas };
 }
@@ -234,8 +233,7 @@ export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
   if (body.ifMatch === "bytesHash" && body.onConflict === "merge") throw new Error("A bytesHash match cannot merge");
   if (body.base === null && body.ifMatch !== "bytesHash") throw new Error("Activation matches on bytesHash");
   const objects = decodeObjectEnvelopes(body.objects);
-  // Temporary input-only compatibility with senders predating required empty arrays.
-  const deltas = body.deltas === undefined ? [] : decodeObjectDeltas(body.deltas);
+  const deltas = decodeObjectDeltas(body.deltas);
   assertDistinctResults(objects, deltas, "Object delta result also supplied as a complete object");
   if (body.base === null && deltas.length) throw new Error("Activation has no base to apply deltas against");
   return {

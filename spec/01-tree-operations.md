@@ -58,7 +58,9 @@ them.
 New tree IDs are `tr_` plus 26 lowercase base32 characters encoding 128 random
 bits. New device IDs use the same encoding after `dv_`. Existing shorter IDs
 may remain valid during migration, but activation and pairing require the new
-form. Generating an ID neither reserves it nor contacts the server.
+form. Opening a previously unidentified local root generates and durably stores
+its TreeID before that tree has an account, host, or canonical URL. Generating
+an ID neither reserves it nor contacts the server.
 
 A tree has one root, its own history and observation stream, and a whole-tree
 permission boundary. The root has logical path `/`. Arbor trees may be mounted
@@ -563,7 +565,7 @@ three.
 `base` is the id of the retained accepted update the candidate was derived
 from; the authority knows that update's root, so the pair binds reconciliation
 to one accepted event even when the same root appears again later. A `null`
-base activates a reserved tree ([accounts §5](05-accounts-and-devices.md#5-declaring-and-activating-a-tree))
+base activates a reserved tree ([accounts §6](05-accounts-and-devices.md#6-declaring-and-activating-a-tree))
 with its complete initial snapshot and carries no deltas. `candidate`
 names the exact Wire root encoding the desired complete candidate tree state.
 The authority decodes and validates its modeled state and all
@@ -635,7 +637,7 @@ of these decisions:
 
 A merge rule is the representation-specific way to combine two changes to
 one node: `markdown-additive-v1` for Markdown,
-`collection-file-rows-v1` for a collection file, and `account-config-v1` for
+`collection-file-rows-v1` for a collection file, and `account-config-v2` for
 the governed configuration tree. A node
 with no merge rule, or one the rule cannot combine, is a conflict.
 
@@ -687,7 +689,7 @@ type AcceptedUpdate = {
 
 type MergeSummary =
   | { version: "markdown-additive-v1"; approximatePlacements: number }
-  | { version: "account-config-v1"; mergedFields: number }
+  | { version: "account-config-v2"; mergedFields: number }
   | { version: "collection-file-rows-v1"; mergedRows: number };
 
 type UpdateResult = {
@@ -893,7 +895,7 @@ payload, or a batch too old for retained transition data produces one terminal
 and resumes strictly after that snapshot's cursor.
 
 `tree.activation` is the one observation kind that is not an accepted update. When a tree declared in
-`trees.yaml` becomes active ([accounts §5](05-accounts-and-devices.md#5-declaring-and-activating-a-tree)), the
+`trees.yaml` becomes active ([accounts §6](05-accounts-and-devices.md#6-declaring-and-activating-a-tree)), the
 authority records one event on the declaring account's configuration-tree
 stream:
 

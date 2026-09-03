@@ -1,9 +1,13 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sha256 } from "@arbor/core";
 import { arborDataRoot, arborPrivateRoot, prepareArborDataRoot } from "./private-state.ts";
 
 const SERVICE = "org.arbor.community-account";
+
+function accountCredentialName(configurationTree: string, dataRoot = arborDataRoot()): string {
+  return `account-${sha256(`${dataRoot}\0${configurationTree}`).slice(0, 24)}`;
+}
 
 export function communityCredentialName(dataRoot = arborDataRoot()): string {
   return `active-${sha256(dataRoot).slice(0, 16)}`;
@@ -32,6 +36,108 @@ export interface SafeCommunityRecord extends CommunityAccountMetadata {
   credential: string;
   tokenDigest: string;
   connected: true;
+}
+
+export interface CanopyAccountRecord {
+  configurationTree: string;
+  origin: string;
+  account: string;
+  accountID: string;
+  /** Optional Canopy-specific presentation hint; never account identity. */
+  handle?: string;
+  profileTree: string;
+  deviceID: string;
+  credential: string;
+  tokenDigest: string;
+  configurationRef?: string;
+  configurationUpdate?: string;
+  connected: true;
+}
+
+/** Private connection metadata and credential lookup for one configuration TreeID. */
+export class CanopyAccountStore {
+  constructor(readonly configurationTree: string) {
+    if (!/^tr_[a-z2-7]+$/.test(configurationTree)) throw new Error("Account store requires a configuration TreeID");
+  }
+
+  private get path(): string {
+    return join(arborPrivateRoot(), "accounts", this.configurationTree, "connection.json");
+  }
+
+  private credentialLocation(): { service: string; name: string } {
+    return { service: SERVICE, name: accountCredentialName(this.configurationTree) };
+  }
+
+  /** Durable pre-network slot used while an exact account claim is pending. */
+  async storeProvisionalCredential(value: string): Promise<void> {
+    if (!value) throw new Error("Account credential must not be empty");
+    await Bun.secrets.set({ ...this.credentialLocation(), value });
+  }
+
+  async provisionalCredential(): Promise<string | null> {
+    return Bun.secrets.get(this.credentialLocation()).catch(() => null);
+  }
+
+  async set(accountToken: string, metadata: Omit<CanopyAccountRecord, "configurationTree" | "credential" | "tokenDigest" | "connected">): Promise<CanopyAccountRecord> {
+    await prepareArborDataRoot();
+    if (!accountToken) throw new Error("Account credential must not be empty");
+    const origin = new URL(metadata.origin).origin;
+    const location = this.credentialLocation();
+    const record: CanopyAccountRecord = {
+      ...metadata,
+      origin,
+      configurationTree: this.configurationTree,
+      credential: `${location.service}/${location.name}`,
+      tokenDigest: sha256(accountToken),
+      connected: true,
+    };
+    await Bun.secrets.set({ ...location, value: accountToken });
+    await mkdir(join(arborPrivateRoot(), "accounts", this.configurationTree), { recursive: true, mode: 0o700 });
+    await writeFile(this.path, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+    return record;
+  }
+
+  async safe(): Promise<CanopyAccountRecord | null> {
+    try {
+      const decoded = JSON.parse(await readFile(this.path, "utf8")) as CanopyAccountRecord & { account?: string };
+      // Removable compatibility adapter for early Interface 005 records.
+      if (!decoded.account && !decoded.handle) return null;
+      const record: CanopyAccountRecord = decoded.account
+        ? decoded
+        : { ...decoded, account: `${decoded.origin}/~${decoded.handle!}` };
+      if (
+        record.configurationTree !== this.configurationTree
+        || new URL(record.origin).origin !== record.origin
+        || new URL(record.account).origin !== record.origin
+        || !record.accountID || !record.profileTree || !record.deviceID
+        || !record.credential || !record.tokenDigest || record.connected !== true
+      ) return null;
+      return record;
+    } catch { return null; }
+  }
+
+  async get(): Promise<{ record: CanopyAccountRecord; accountToken: string } | null> {
+    const record = await this.safe();
+    if (!record) return null;
+    const location = credentialLocation(record.credential);
+    if (!location) return null;
+    const accountToken = await Bun.secrets.get(location).catch(() => null);
+    return accountToken && sha256(accountToken) === record.tokenDigest ? { record, accountToken } : null;
+  }
+
+  async remove(): Promise<void> {
+    const record = await this.safe();
+    await Bun.secrets.delete(record ? credentialLocation(record.credential) ?? this.credentialLocation() : this.credentialLocation());
+    await rm(this.path, { force: true });
+  }
+
+  static async list(): Promise<CanopyAccountRecord[]> {
+    let names: string[];
+    try { names = await readdir(join(arborPrivateRoot(), "accounts")); }
+    catch { return []; }
+    const records = await Promise.all(names.filter((name) => /^tr_[a-z2-7]+$/.test(name)).map((name) => new CanopyAccountStore(name).safe()));
+    return records.filter((record): record is CanopyAccountRecord => record !== null).sort((a, b) => a.configurationTree.localeCompare(b.configurationTree));
+  }
 }
 
 export class CommunityConfigStore {

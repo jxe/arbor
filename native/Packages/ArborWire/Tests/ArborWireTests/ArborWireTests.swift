@@ -196,13 +196,15 @@ struct UpdateProtocolTests {
         #expect(activationJSON["base"] is NSNull)
         #expect((activationJSON["deltas"] as? [Any])?.isEmpty == true)
 
-        let legacy = try JSONSerialization.data(withJSONObject: [
+        let missingDeltas = try JSONSerialization.data(withJSONObject: [
             "base": base.update,
             "candidate": request.candidate,
             "ifMatch": "modelHash",
             "objects": [],
         ])
-        #expect(try JSONDecoder().decode(WireUpdateRequest.self, from: legacy).deltas.isEmpty)
+        #expect(throws: (any Error).self) {
+            _ = try JSONDecoder().decode(WireUpdateRequest.self, from: missingDeltas)
+        }
 
         let invalid = try #require(fixture["invalid"] as? [[String: Any]])
         for vector in invalid {

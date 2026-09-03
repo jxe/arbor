@@ -180,7 +180,7 @@ async function rewrite(
 }
 
 export async function migrate(dataRoot: string): Promise<MigrationReport> {
-  if (CANOPY_SCHEMA_VERSION !== TARGET_STAMP) {
+  if (String(CANOPY_SCHEMA_VERSION) !== TARGET_STAMP) {
     throw new Error(`Migration target ${TARGET_STAMP} does not match this build's schema ${CANOPY_SCHEMA_VERSION}`);
   }
   const db = new Database(join(dataRoot, "canopy.sqlite3"));

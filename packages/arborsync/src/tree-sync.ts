@@ -1,4 +1,4 @@
-import type { CommunityConfigStore, SharedTreePlacement } from "@arbor/stores";
+import type { SharedTreePlacement } from "@arbor/stores";
 import {
   WireClient,
   WireUpdateConflict,
@@ -32,7 +32,7 @@ import { materializeTree } from "@arbor/fs";
 export interface TreeSyncDeps {
   trees: TreeManager;
   events: EventBus;
-  communityConfig: CommunityConfigStore;
+  accountToken(placement: SharedTreePlacement): Promise<string | undefined>;
   snapshotWorkspace(workspace: Workspace, client: WireClient, remoteTrees?: readonly RemoteTreeDescriptor[]): Promise<TreeSnapshot>;
   /** Schedule one coalesced synchronization pass; resolves when a pass covering the request completes. */
   requestSync(): Promise<void>;
@@ -71,13 +71,15 @@ export class TreeSynchronizer {
   constructor(private readonly deps: TreeSyncDeps) {}
 
   /** Keep one live watch per placed tree; a finished loop is restarted by the next pass. */
-  ensureWatch(tree: string, endpoint: string): void {
-    if (this.closed || this.watches.has(tree)) return;
+  ensureWatch(placement: SharedTreePlacement): void {
+    const { tree, endpoint } = placement;
+    const key = `${placement.configurationTree ?? "legacy"}:${tree}`;
+    if (this.closed || this.watches.has(key)) return;
     const abort = new AbortController();
-    const done = this.runWatch(tree, endpoint, abort.signal).catch(() => {}).finally(() => {
-      if (this.watches.get(tree)?.abort === abort) this.watches.delete(tree);
+    const done = this.runWatch(placement, abort.signal).catch(() => {}).finally(() => {
+      if (this.watches.get(key)?.abort === abort) this.watches.delete(key);
     });
-    this.watches.set(tree, { abort, done });
+    this.watches.set(key, { abort, done });
   }
 
   async close(): Promise<void> {
@@ -87,13 +89,13 @@ export class TreeSynchronizer {
     await Promise.all(open.map((watch) => watch.done));
   }
 
-  private async runWatch(tree: string, endpoint: string, signal: AbortSignal): Promise<void> {
+  private async runWatch(expected: SharedTreePlacement, signal: AbortSignal): Promise<void> {
+    const { tree, endpoint } = expected;
     let backoff = INITIAL_WATCH_BACKOFF_MS;
     while (!signal.aborted) {
       const placement = this.deps.trees.placementFor(tree);
-      if (!placement?.update || placement.endpoint !== endpoint) return;
-      const configured = await this.deps.communityConfig.get();
-      const client = new WireClient(endpoint, configured?.record.origin === endpoint ? configured.accountToken : undefined);
+      if (!placement?.update || placement.endpoint !== endpoint || placement.configurationTree !== expected.configurationTree) return;
+      const client = new WireClient(endpoint, await this.deps.accountToken(placement));
       if (signal.aborted) return;
       const connection = new AbortController();
       const stopConnection = () => connection.abort();

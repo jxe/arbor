@@ -1,4 +1,4 @@
-import { link, mkdir, open } from "node:fs/promises";
+import { link, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { stableJSONString, generateArborID, isGeneratedArborID, sha256, type AccessLevel, type AccessRule, type ReadWriteAccess } from "@arbor/core";
@@ -28,6 +28,13 @@ import {
   snapshotAccountConfig,
   type AccountConfigGraph,
 } from "./account-policy.ts";
+import {
+  authorizeAccountConfigTransitionV2,
+  mergeAccountConfigGraphsV2,
+  readAccountConfigGraphV2,
+  snapshotAccountConfigV2,
+  type AccountConfigGraphV2,
+} from "./account-policy-v2.ts";
 import { reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
 import { effectiveOnConflict } from "@arbor/wire";
 import { AcceptedUpdateStore, type AcceptedUpdateInput } from "./updates/store.ts";
@@ -66,8 +73,45 @@ export interface CanopyBootstrap {
   };
 }
 
+export interface ProfileProofBinding {
+  id: string;
+  profileTree: string;
+  targetOrigin: string;
+  targetAccount: string;
+  configurationTree: string;
+  expiresAt: number;
+}
+
+interface StoredProfileProof extends ProfileProofBinding {
+  issuerAccount: string;
+  secretDigest: string;
+  issueDigest: string;
+  consumedAt?: number;
+  consumeDigest?: string;
+}
+
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
 const TREE_NAME = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
+
+type AnyAccountConfigGraph = AccountConfigGraph | AccountConfigGraphV2;
+
+function v2Graph(graph: AnyAccountConfigGraph): graph is AccountConfigGraphV2 {
+  return !("version" in graph.account);
+}
+
+function graphTrees(graph: AnyAccountConfigGraph): Record<string, { canonicalPath: string; access: AccessRule[] }> {
+  if (!v2Graph(graph)) return graph.trees.trees;
+  return Object.fromEntries(Object.entries(graph.trees).map(([id, declaration]) => [id, {
+    canonicalPath: new URL(declaration.canonical).pathname,
+    access: declaration.access,
+  }]));
+}
+
+function graphAdministrators(graph: AnyAccountConfigGraph): string[] {
+  return v2Graph(graph)
+    ? Object.values(graph.devices).filter((device) => device.administrator).map((device) => device.id)
+    : graph.account.admins;
+}
 
 function profileHandle(path: string): string | null {
   const segments = pathSegments(path);
@@ -91,12 +135,22 @@ function directSnapshot(source: string): TreeSnapshot {
   return { root: rootHash, objects: new Map([[fileHash, fileBytes], [rootHash, rootBytes]]) };
 }
 
-function profileSource(kind: "person" | "group", name: string, members: string[] = []): string {
+function profileSource(
+  kind: "person" | "group",
+  name: string,
+  members: Array<string | { profile?: string; handle?: string }> = [],
+): string {
   return [
     "---",
     `type: ${kind}`,
     ...(kind === "group"
-      ? ["members:", ...members.map((member) => `  - ${JSON.stringify(member)}`)]
+      ? ["members:", ...members.flatMap((member) => typeof member === "string"
+          ? [`  - ${JSON.stringify(member)}`]
+          : [
+              "  -",
+              ...(member.profile ? [`    profile: ${JSON.stringify(member.profile)}`] : []),
+              ...(member.handle ? [`    handle: ${JSON.stringify(member.handle)}`] : []),
+            ])]
       : []),
     "---",
     "",
@@ -165,6 +219,7 @@ export class CanopyDaemon implements AsyncDisposable {
   private readonly accounts: AccountDirectory;
   private observationListeners = new Map<string, Set<(record: ObservationRecord) => void>>();
   private updateLocks = new Map<string, Promise<void>>();
+  private profileProofLocks = new Map<string, Promise<void>>();
 
   private constructor(readonly dataRoot: string, db: Database) {
     this.db = db;
@@ -199,12 +254,14 @@ export class CanopyDaemon implements AsyncDisposable {
     if (config.firstWriter && !HANDLE.test(config.firstWriter.handle)) {
       throw new Error(`Invalid first-writer handle: ${config.firstWriter.handle}`);
     }
-    const memberHandles = [
-      ...config.accounts.map((account) => account.handle),
-      ...(config.firstWriter ? [config.firstWriter.handle] : []),
+    const preparedAccounts = config.accounts.map((account) => ({ account, profileTree: generateArborID("tr") }));
+    const members: Array<{ profile?: string; handle: string }> = [
+      ...preparedAccounts.map(({ account, profileTree }) => ({
+        profile: `arbor://${profileTree}/`,
+        handle: account.handle,
+      })),
+      ...(config.firstWriter ? [{ handle: config.firstWriter.handle }] : []),
     ];
-    const memberHost = config.communityHost ?? "community.invalid";
-    const members = [...new Set(memberHandles)].map((handle) => `arbor://${memberHost}/~${handle}`);
     const community = await this.insertTree(
       "/",
       directSnapshot(profileSource("group", config.name, members)),
@@ -215,13 +272,16 @@ export class CanopyDaemon implements AsyncDisposable {
     if (config.firstWriter) {
       this.db.run("INSERT INTO meta (key, value) VALUES ('first_writer_handle', ?)", [config.firstWriter.handle]);
     }
-    for (const account of config.accounts) {
+    for (const { account, profileTree } of preparedAccounts) {
       if (!HANDLE.test(account.handle)) throw new Error(`Invalid account handle: ${account.handle}`);
       const profile = await this.insertTree(
         `/~${account.handle}`,
         directSnapshot(profileSource("person", account.name ?? account.handle)),
         "read",
         community.id,
+        undefined,
+        undefined,
+        profileTree,
       );
       const accountID = generateArborID("ac");
       this.db.run(
@@ -256,7 +316,7 @@ export class CanopyDaemon implements AsyncDisposable {
       id: row.id,
       canonicalPath: row.path,
       parentTree: row.parent_tree,
-      kind: row.policy === "account-config-v1" ? "account-configuration" : "ordinary",
+      kind: row.policy.startsWith("account-config-") ? "account-configuration" : "ordinary",
       ref: row.ref,
       publicAccess: row.public_access ?? "none",
       updatedAt: row.updated_at,
@@ -370,6 +430,156 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.accounts.createPairing(account);
   }
 
+  private profileProofPath(id: string): string {
+    if (!isGeneratedArborID(id, "pp")) throw new Error("Profile proof requires a client-generated 128-bit ProfileProofID");
+    return join(this.dataRoot, "profile-proofs", `${id}.json`);
+  }
+
+  private async withProfileProofLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.profileProofLocks.get(id) ?? Promise.resolve();
+    let release!: () => void;
+    const turn = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.then(() => turn);
+    this.profileProofLocks.set(id, queued);
+    await previous;
+    try { return await operation(); }
+    finally {
+      release();
+      if (this.profileProofLocks.get(id) === queued) this.profileProofLocks.delete(id);
+    }
+  }
+
+  private async readProfileProof(id: string): Promise<StoredProfileProof | null> {
+    try { return JSON.parse(await readFile(this.profileProofPath(id), "utf8")) as StoredProfileProof; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  private async writeProfileProof(value: StoredProfileProof): Promise<void> {
+    const directory = join(this.dataRoot, "profile-proofs");
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const destination = this.profileProofPath(value.id);
+    const temporary = `${destination}.${crypto.randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600 });
+      await rename(temporary, destination);
+    } finally {
+      await rm(temporary, { force: true }).catch(() => {});
+    }
+  }
+
+  async createProfileProof(
+    authentication: CanopyAuthentication,
+    input: {
+      id: string;
+      secretDigest: string;
+      targetOrigin: string;
+      targetAccount: string;
+      configurationTree: string;
+    },
+  ): Promise<ProfileProofBinding> {
+    if (!authentication.device) throw new Error("An administrator device is required to create a profile proof");
+    const graph = await this.accountConfigGraph(authentication.account);
+    if (!graphAdministrators(graph).includes(authentication.device)) throw new Error("Only an administrator may create a profile proof");
+    const profileTree = authentication.account.profileTree;
+    if (!profileTree) throw new Error("The issuing account has no profile identity");
+    if (!/^sha256:[a-f0-9]{64}$/.test(input.secretDigest)) throw new Error("Profile proof secret digest is invalid");
+    let targetOriginURL: URL;
+    let targetAccountURL: URL;
+    try {
+      targetOriginURL = new URL(input.targetOrigin);
+      targetAccountURL = new URL(input.targetAccount);
+    } catch {
+      throw new Error("Profile proof target must use canonical Canopy URLs");
+    }
+    const loopback = targetOriginURL.protocol === "http:"
+      && ["127.0.0.1", "localhost", "[::1]"].includes(targetOriginURL.hostname);
+    if (
+      (targetOriginURL.protocol !== "https:" && !loopback)
+      || targetOriginURL.origin !== input.targetOrigin
+      || targetAccountURL.origin !== targetOriginURL.origin
+      || targetAccountURL.username || targetAccountURL.password || targetAccountURL.search || targetAccountURL.hash
+    ) throw new Error("Profile proof target must use canonical Canopy URLs");
+    if (!isGeneratedArborID(input.configurationTree, "tr")) throw new Error("Profile proof requires a target configuration TreeID");
+    const targetOrigin = targetOriginURL.origin;
+    const issueDigest = sha256(stableJSONString({
+      id: input.id,
+      issuerAccount: authentication.account.id,
+      profileTree,
+      targetOrigin,
+      targetAccount: input.targetAccount,
+      configurationTree: input.configurationTree,
+      secretDigest: input.secretDigest,
+    }));
+    return this.withProfileProofLock(input.id, async () => {
+      const existing = await this.readProfileProof(input.id);
+      if (existing) {
+        if (existing.issueDigest !== issueDigest) throw new Error("ProfileProofID is already bound to a different request");
+        const { secretDigest: _secret, issueDigest: _issue, issuerAccount: _issuer, consumedAt: _at, consumeDigest: _consume, ...binding } = existing;
+        return binding;
+      }
+      const proof: StoredProfileProof = {
+        id: input.id,
+        issuerAccount: authentication.account.id,
+        profileTree,
+        targetOrigin,
+        targetAccount: input.targetAccount,
+        configurationTree: input.configurationTree,
+        secretDigest: input.secretDigest,
+        issueDigest,
+        expiresAt: Date.now() + 5 * 60 * 1000,
+      };
+      await this.writeProfileProof(proof);
+      const { secretDigest: _secret, issueDigest: _issue, issuerAccount: _issuer, ...binding } = proof;
+      return binding;
+    });
+  }
+
+  async consumeProfileProof(input: {
+    id: string;
+    secret: string;
+    targetOrigin: string;
+    targetAccount: string;
+    configurationTree: string;
+  }): Promise<{ profileTree: string; expiresAt: number }> {
+    let targetOriginURL: URL;
+    let targetAccountURL: URL;
+    try {
+      targetOriginURL = new URL(input.targetOrigin);
+      targetAccountURL = new URL(input.targetAccount);
+    } catch {
+      throw new Error("Profile proof target must use canonical Canopy URLs");
+    }
+    if (targetOriginURL.origin !== input.targetOrigin || targetAccountURL.origin !== targetOriginURL.origin) {
+      throw new Error("Profile proof target must use canonical Canopy URLs");
+    }
+    const targetOrigin = targetOriginURL.origin;
+    const consumeDigest = sha256(stableJSONString({
+      targetOrigin,
+      targetAccount: input.targetAccount,
+      configurationTree: input.configurationTree,
+    }));
+    return this.withProfileProofLock(input.id, async () => {
+      const proof = await this.readProfileProof(input.id);
+      if (!proof || proof.secretDigest !== `sha256:${sha256(input.secret)}`) throw new Error("Profile proof is invalid");
+      if (proof.expiresAt <= Date.now()) throw new Error("Profile proof is expired");
+      if (
+        proof.targetOrigin !== targetOrigin
+        || proof.targetAccount !== input.targetAccount
+        || proof.configurationTree !== input.configurationTree
+      ) throw new Error("Profile proof target does not match");
+      if (proof.consumedAt && proof.consumeDigest !== consumeDigest) throw new Error("Profile proof was already consumed for another target");
+      if (!proof.consumedAt) {
+        proof.consumedAt = Date.now();
+        proof.consumeDigest = consumeDigest;
+        await this.writeProfileProof(proof);
+      }
+      return { profileTree: proof.profileTree, expiresAt: proof.expiresAt };
+    });
+  }
+
   async claimPairing(input: {
     id: string;
     secret: string;
@@ -383,9 +593,6 @@ export class CanopyDaemon implements AsyncDisposable {
     if (!safeLabel || safeLabel.length > 100) throw new Error("Device label is required and must be at most 100 characters");
     if (!isGeneratedArborID(input.deviceID, "dv")) throw new Error("Pairing requires a client-generated 128-bit DeviceID");
     if (!/^sha256:[a-f0-9]{64}$/.test(input.credentialDigest)) throw new Error("Device credential digest is invalid");
-    if (this.accounts.deviceExists(input.deviceID)) {
-      throw new Error(`Retired DeviceID cannot be reused: ${input.deviceID}`);
-    }
     const tokenDigest = input.credentialDigest.slice("sha256:".length);
     const pairing = this.accounts.pairing(id);
     const secretMatches = pairing?.secretMatches(secret) ?? false;
@@ -395,22 +602,37 @@ export class CanopyDaemon implements AsyncDisposable {
         return { device: this.accounts.device(input.deviceID)!, confirmationCode: pairing.confirmationCode };
       }
     }
+    if (this.accounts.deviceExists(input.deviceID)) {
+      throw new Error(`Retired DeviceID cannot be reused: ${input.deviceID}`);
+    }
     if (!pairing || !pairing.accountEnabled || pairing.claimedAt || pairing.expiresAt <= Date.now() || !secretMatches) {
       throw new Error("Pairing is invalid, expired, or already used");
     }
     const account = this.account(pairing.accountID)!;
     const current = await this.accountConfigGraph(account);
     if (current.devices[input.deviceID]) throw new Error("DeviceID is already active");
-    const next = {
-      account: current.account,
-      trees: current.trees,
-      devices: {
-        ...current.devices,
-        [input.deviceID]: { version: 1 as const, id: input.deviceID, label: safeLabel, placements: input.placements },
-      },
-    };
-    const nextSnapshot = snapshotAccountConfig(next);
-    readAccountConfigGraph(nextSnapshot, account.configTree!);
+    const next = v2Graph(current)
+      ? {
+          account: current.account,
+          trees: current.trees,
+          devices: {
+            ...current.devices,
+            [input.deviceID]: { id: input.deviceID, label: safeLabel, administrator: false },
+          },
+        }
+      : {
+          account: current.account,
+          trees: current.trees,
+          devices: {
+            ...current.devices,
+            [input.deviceID]: { version: 1 as const, id: input.deviceID, label: safeLabel, placements: input.placements },
+          },
+        };
+    const nextSnapshot = v2Graph(current)
+      ? snapshotAccountConfigV2(next as Omit<AccountConfigGraphV2, "sources">)
+      : snapshotAccountConfig(next as Omit<AccountConfigGraph, "sources">);
+    if (v2Graph(current)) readAccountConfigGraphV2(nextSnapshot, account.configTree!);
+    else readAccountConfigGraph(nextSnapshot, account.configTree!);
     await this.objects.store([...nextSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const configTree = this.get(account.configTree!)!;
     const transition = await this.acceptedTransitionPayload(configTree.ref, nextSnapshot.root);
@@ -458,7 +680,17 @@ export class CanopyDaemon implements AsyncDisposable {
     return HANDLE.test(handle)
       && !this.boundary(`/~${handle}`)
       && !this.accountByHandle(handle)
-      && this.communityMemberHandles().has(handle);
+      && this.communityAccountReservations().has(handle);
+  }
+
+  accountReservation(locator: string): { handle: string; profileTree?: string } | null {
+    let url: URL;
+    try { url = new URL(locator); } catch { return null; }
+    const host = (this.db.query("SELECT value FROM meta WHERE key = 'community_host'").get() as { value: string } | null)?.value;
+    const match = /^\/~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(url.pathname);
+    if (!match || !host || url.host.toLowerCase() !== host) return null;
+    const reservation = this.communityAccountReservations().get(match[1]!);
+    return reservation ? { handle: match[1]!, ...reservation } : null;
   }
 
   setCommunityHost(host: string, allowTestPortChange = false): void {
@@ -530,7 +762,7 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
-  private applyAccountConfigDerived(accountID: string, current: AccountConfigGraph, next: AccountConfigGraph): void {
+  private applyAccountConfigDerived(accountID: string, current: AnyAccountConfigGraph, next: AnyAccountConfigGraph): void {
     const now = Date.now();
     for (const id of Object.keys(current.devices)) {
       if (!next.devices[id]) this.db.run("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ? AND account_id = ?", [now, id, accountID]);
@@ -540,14 +772,16 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!row) throw new Error(`Device ${id} has no credential binding`);
       if (row.revoked_at !== null) throw new Error(`Retired DeviceID cannot be reactivated: ${id}`);
     }
-    for (const id of Object.keys(current.trees.trees)) {
-      if (!next.trees.trees[id]) {
+    const currentTrees = graphTrees(current);
+    const nextTrees = graphTrees(next);
+    for (const id of Object.keys(currentTrees)) {
+      if (!nextTrees[id]) {
         const reservation = this.db.query("SELECT status FROM tree_reservations WHERE id = ? AND account_id = ?").get(id, accountID) as { status: string } | null;
         if (reservation?.status === "awaiting-initialization") this.db.run("DELETE FROM tree_reservations WHERE id = ?", [id]);
         else throw new Error(`Active remote tree declarations cannot be removed: ${id}`);
       }
     }
-    for (const [id, declaration] of Object.entries(next.trees.trees)) {
+    for (const [id, declaration] of Object.entries(nextTrees)) {
       const active = this.get(id);
       if (!active) {
         this.db.run(`INSERT INTO tree_reservations (id, account_id, canonical_path, status, error)
@@ -571,11 +805,14 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
-  private async accountConfigGraph(account: CanopyAccount): Promise<AccountConfigGraph> {
+  private async accountConfigGraph(account: CanopyAccount): Promise<AnyAccountConfigGraph> {
     if (!account.configTree) throw new Error("Account configuration tree is missing");
     const tree = this.get(account.configTree);
     if (!tree) throw new Error("Account configuration tree is missing");
-    return readAccountConfigGraph(await this.objects.completeSnapshot(tree.ref), tree.id);
+    const snapshot = await this.objects.completeSnapshot(tree.ref);
+    return tree.policy === "account-config-v2"
+      ? readAccountConfigGraphV2(snapshot, tree.id)
+      : readAccountConfigGraph(snapshot, tree.id);
   }
 
   async activateTree(
@@ -597,9 +834,9 @@ export class CanopyDaemon implements AsyncDisposable {
     }
     if (!authentication.device) throw new Error("An administrator device is required for activation");
     const config = await this.accountConfigGraph(authentication.account);
-    if (!config.account.admins.includes(authentication.device)) throw new Error("Only an administrator device may initialize a tree");
-    if (!config.devices[authentication.device]?.placements[treeID]) throw new Error("The initializing administrator must place the tree");
-    const declaration = config.trees.trees[treeID];
+    if (!graphAdministrators(config).includes(authentication.device)) throw new Error("Only an administrator device may initialize a tree");
+    if (!v2Graph(config) && !config.devices[authentication.device]?.placements[treeID]) throw new Error("The initializing administrator must place the tree");
+    const declaration = graphTrees(config)[treeID];
     if (!declaration) throw new Error("Tree declaration disappeared before activation");
     const requiredType = this.requiredProfileType(treeID, declaration.canonicalPath);
     if (requiredType) await this.validateProfileSnapshot(snapshot, requiredType);
@@ -687,13 +924,18 @@ export class CanopyDaemon implements AsyncDisposable {
     await this.validateProfileSnapshot(input.profileSnapshot, "person");
     await this.validateGraph(input.configurationSnapshot.root, input.configurationSnapshot.objects);
     const config = readAccountConfigGraph(input.configurationSnapshot, input.configurationTree);
-    if (config.account.community !== new URL(input.origin).origin) throw new Error("account.yaml community does not match the claim server");
+    if (config.account.community !== new URL(input.origin).origin) throw new Error("account.yaml Canopy does not match the claim server");
     if (config.account.profile.tree !== input.profileTree || config.account.profile.handle !== handle) throw new Error("account.yaml profile does not match the claim");
     if (Object.keys(config.devices).length !== 1 || !config.devices[input.deviceID] || config.devices[input.deviceID]!.label !== input.deviceLabel) {
       throw new Error("Initial configuration must contain exactly the claiming device and matching label");
     }
-    if (config.account.admins.length !== 1 || config.account.admins[0] !== input.deviceID) {
+    const administrators = graphAdministrators(config);
+    if (administrators.length !== 1 || administrators[0] !== input.deviceID) {
       throw new Error("The claiming device must be the first administrator");
+    }
+    const profileDeclaration = graphTrees(config)[input.profileTree];
+    if (!profileDeclaration || profileDeclaration.canonicalPath !== `/~${handle}`) {
+      throw new Error("Initial configuration must host the claimed profile at the account namespace root");
     }
     await this.objects.store([...input.configurationSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const accountID = generateArborID("ac");
@@ -714,8 +956,8 @@ export class CanopyDaemon implements AsyncDisposable {
           [input.deviceID, accountID, input.deviceLabel, tokenDigest, now],
         );
         this.db.run(
-          "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v1', 'active', ?)",
-          [input.configurationTree, input.configurationSnapshot.root, now, accountID],
+          "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, ?, 'active', ?)",
+          [input.configurationTree, input.configurationSnapshot.root, now, "account-config-v1", accountID],
         );
         this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [
           input.configurationTree, input.configurationSnapshot.root, now,
@@ -728,12 +970,13 @@ export class CanopyDaemon implements AsyncDisposable {
           acceptedAt: now,
           subject: `device:${input.deviceID}`,
         });
-        const declaration = config.trees.trees[profileID]!;
+        const declarations = graphTrees(config);
+        const declaration = declarations[profileID]!;
         for (const rule of declaration.access) {
           const subject = rule.subject.kind === "everyone" ? "everyone" : rule.subject.kind === "profile" ? rule.subject.tree : rule.subject.digest;
           this.access.set(profileID, rule.subject.kind, subject, rule.access);
         }
-        for (const [id, pending] of Object.entries(config.trees.trees)) {
+        for (const [id, pending] of Object.entries(declarations)) {
           if (id === profileID) continue;
           this.db.run(
             "INSERT INTO tree_reservations (id, account_id, canonical_path, status) VALUES (?, ?, ?, 'awaiting-initialization')",
@@ -751,6 +994,102 @@ export class CanopyDaemon implements AsyncDisposable {
       accountID,
     );
     return { account: this.account(accountID)!, tree, configuration: this.get(input.configurationTree)! };
+  }
+
+  /**
+   * Claim a Canopy-allocated account locator for a stable profile TreeID.
+   * Profile content is deliberately absent: hosting it is the ordinary
+   * declaration/activation workflow represented by trees.yaml.
+   */
+  async claimAccountWithConfiguration(input: {
+    accountLocator: string;
+    handle: string;
+    origin: string;
+    issuerOrigin?: string;
+    proofID?: string;
+    profileTree: string;
+    configurationTree: string;
+    deviceID: string;
+    deviceLabel: string;
+    credentialDigest: string;
+    configurationSnapshot: TreeSnapshot;
+  }): Promise<{ account: CanopyAccount; configuration: CanopyTree }> {
+    const claimDigest = sha256(stableJSONString({
+      handle: input.handle,
+      accountLocator: input.accountLocator,
+      ...(input.issuerOrigin ? { issuerOrigin: new URL(input.issuerOrigin).origin } : {}),
+      ...(input.proofID ? { proofID: input.proofID } : {}),
+      profileTree: input.profileTree,
+      configurationTree: input.configurationTree,
+      deviceID: input.deviceID,
+      deviceLabel: input.deviceLabel,
+      credentialDigest: input.credentialDigest,
+      configurationRoot: input.configurationSnapshot.root,
+    }));
+    if (!HANDLE.test(input.handle)) throw new Error(`Invalid account handle: ${input.handle}`);
+    const reservation = this.accountReservation(input.accountLocator);
+    if (!reservation || reservation.handle !== input.handle) throw new Error("Account locator is not reserved by this community");
+    if (!isGeneratedArborID(input.profileTree, "tr") || !isGeneratedArborID(input.configurationTree, "tr")) {
+      throw new Error("Account join requires profile and configuration TreeIDs");
+    }
+    if (!isGeneratedArborID(input.deviceID, "dv")) throw new Error("Account join requires a client-generated 128-bit DeviceID");
+    if (!/^sha256:[a-f0-9]{64}$/.test(input.credentialDigest)) throw new Error("Device credential digest is invalid");
+    const prior = this.accountByHandle(input.handle);
+    if (prior) {
+      const row = this.db.query("SELECT claim_digest FROM accounts WHERE id = ?").get(prior.id) as { claim_digest: string | null };
+      if (row.claim_digest === claimDigest) {
+        return { account: prior, configuration: this.get(input.configurationTree)! };
+      }
+      throw new AlreadyClaimedError(input.handle);
+    }
+    if (this.boundary(`/~${input.handle}`)) throw new AlreadyClaimedError(input.handle);
+    if (!this.communityMemberHandles().has(input.handle)) throw new Error(`Profile is not reserved by the community: ~${input.handle}`);
+    await this.validateGraph(input.configurationSnapshot.root, input.configurationSnapshot.objects);
+    const config = readAccountConfigGraphV2(input.configurationSnapshot, input.configurationTree);
+    this.validateCurrentCanopyAccountPaths(input.handle, config);
+    if (config.account.canopy !== new URL(input.origin).origin) throw new Error("account.yaml Canopy does not match the target server");
+    if (config.account.profile !== input.profileTree) {
+      throw new Error("account.yaml profile does not match the proven account identity");
+    }
+    if (Object.keys(config.devices).length !== 1 || !config.devices[input.deviceID] || config.devices[input.deviceID]!.label !== input.deviceLabel) {
+      throw new Error("Initial configuration must contain exactly the joining device and matching label");
+    }
+    if (!config.devices[input.deviceID]!.administrator) throw new Error("The joining device must be the first administrator");
+    await this.objects.store([...input.configurationSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
+    const accountID = generateArborID("ac");
+    const now = Date.now();
+    this.db.transaction(() => {
+      this.db.run(
+        "INSERT INTO accounts (id, handle, profile_tree, config_tree, token_digest, claim_digest, enabled) VALUES (?, ?, ?, ?, ?, ?, 1)",
+        [accountID, input.handle, input.profileTree, input.configurationTree, input.credentialDigest.slice("sha256:".length), claimDigest],
+      );
+      this.db.run(
+        "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, ?, ?, ?)",
+        [input.deviceID, accountID, input.deviceLabel, input.credentialDigest.slice("sha256:".length), now],
+      );
+      this.db.run(
+        "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, 'account-config-v2', 'active', ?)",
+        [input.configurationTree, input.configurationSnapshot.root, now, accountID],
+      );
+      this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [
+        input.configurationTree, input.configurationSnapshot.root, now,
+      ]);
+      this.insertAcceptedUpdate({
+        tree: input.configurationTree,
+        root: input.configurationSnapshot.root,
+        previousRoot: null,
+        kind: "initial",
+        acceptedAt: now,
+        subject: `device:${input.deviceID}`,
+      });
+      for (const [id, declaration] of Object.entries(config.trees)) {
+        this.db.run(
+          "INSERT INTO tree_reservations (id, account_id, canonical_path, status) VALUES (?, ?, ?, 'awaiting-initialization')",
+          [id, accountID, new URL(declaration.canonical).pathname],
+        );
+      }
+    })();
+    return { account: this.account(accountID)!, configuration: this.get(input.configurationTree)! };
   }
 
   private insertAcceptedUpdate(input: AcceptedUpdateInput): AcceptedUpdate {
@@ -823,7 +1162,7 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new UpdateProtocolError("base-not-retained", "Base update is not retained for this tree");
     }
     const baseRoot = baseUpdate.root;
-    const policy = tree.policy === "account-config-v1"
+    const policy = tree.policy.startsWith("account-config-")
       ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
     const { subject } = policy;
@@ -1002,12 +1341,34 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new Error("An active account device is required for configuration updates");
     }
     const deviceID = credentialSubject.slice("device:".length);
-    const graphAt = async (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>) =>
-      readAccountConfigGraph(await this.objects.completeSnapshot(root, objects), tree.id);
-    let baseGraph: AccountConfigGraph;
-    let candidateGraph: AccountConfigGraph;
-    let currentGraph: AccountConfigGraph;
-    let nextGraph: AccountConfigGraph;
+    const v2 = tree.policy === "account-config-v2";
+    const graphAt = async (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>): Promise<AnyAccountConfigGraph> => {
+      const snapshot = await this.objects.completeSnapshot(root, objects);
+      const graph = v2 ? readAccountConfigGraphV2(snapshot, tree.id) : readAccountConfigGraph(snapshot, tree.id);
+      if (v2) this.validateCurrentCanopyAccountPaths(account.handle, graph as AccountConfigGraphV2, account);
+      return graph;
+    };
+    let baseGraph: AnyAccountConfigGraph;
+    let candidateGraph: AnyAccountConfigGraph;
+    let currentGraph: AnyAccountConfigGraph;
+    let nextGraph: AnyAccountConfigGraph;
+    const authorize = (current: AnyAccountConfigGraph, next: AnyAccountConfigGraph, changesFrom: AnyAccountConfigGraph) => {
+      if (v2) {
+        authorizeAccountConfigTransitionV2(
+          current as AccountConfigGraphV2,
+          next as AccountConfigGraphV2,
+          deviceID,
+          changesFrom as AccountConfigGraphV2,
+        );
+      } else {
+        authorizeAccountConfigTransition(
+          current as AccountConfigGraph,
+          next as AccountConfigGraph,
+          deviceID,
+          changesFrom as AccountConfigGraph,
+        );
+      }
+    };
     return {
       subject: credentialSubject,
       conflict: { kind: "account-configuration", message: "The account configuration contains incompatible same-field edits" },
@@ -1016,22 +1377,35 @@ export class CanopyDaemon implements AsyncDisposable {
         baseGraph = await graphAt(baseRoot);
         const current = this.currentUpdate(tree.id);
         if (!current) throw new Error("Account configuration has no accepted update");
-        authorizeAccountConfigTransition(await graphAt(current.root), candidateGraph, deviceID, baseGraph);
+        authorize(await graphAt(current.root), candidateGraph, baseGraph);
       },
       merge: async (_base, _candidate, current, _load, _onConflict) => {
-        const merged = mergeAccountConfigGraphs(baseGraph, candidateGraph, await graphAt(current));
-        const snapshot = snapshotAccountConfig(merged.graph);
+        const remoteGraph = await graphAt(current);
+        const merged = v2
+          ? mergeAccountConfigGraphsV2(
+              baseGraph as AccountConfigGraphV2,
+              candidateGraph as AccountConfigGraphV2,
+              remoteGraph as AccountConfigGraphV2,
+            )
+          : mergeAccountConfigGraphs(
+              baseGraph as AccountConfigGraph,
+              candidateGraph as AccountConfigGraph,
+              remoteGraph as AccountConfigGraph,
+            );
+        const snapshot = v2
+          ? snapshotAccountConfigV2(merged.graph as Omit<AccountConfigGraphV2, "sources">)
+          : snapshotAccountConfig(merged.graph as Omit<AccountConfigGraph, "sources">);
         return {
           root: snapshot.root,
           objects: snapshot.objects,
-          summary: { version: "account-config-v1", mergedFields: merged.mergedFields },
+          summary: { version: v2 ? "account-config-v2" : "account-config-v1", mergedFields: merged.mergedFields },
           conflicts: merged.conflicts.map((path) => ({ path, reason: "account-configuration" as const })),
         };
       },
       validateAccepted: async (remoteTree, root, objects) => {
         currentGraph = await graphAt(remoteTree.ref);
         nextGraph = root === request.candidate ? candidateGraph : await graphAt(root, objects);
-        authorizeAccountConfigTransition(currentGraph, nextGraph, deviceID, currentGraph);
+        authorize(currentGraph, nextGraph, currentGraph);
       },
       prepareCommit: async (_remoteTree, _root, now) => {
         const rewrites = await this.prepareAccountBoundaryRewrites(currentGraph, nextGraph);
@@ -1212,15 +1586,17 @@ export class CanopyDaemon implements AsyncDisposable {
     return { parent, ...rewrite };
   }
 
-  private async prepareAccountBoundaryRewrites(current: AccountConfigGraph, next: AccountConfigGraph) {
+  private async prepareAccountBoundaryRewrites(current: AnyAccountConfigGraph, next: AnyAccountConfigGraph) {
     const grouped = new Map<string, { removals: Array<{ path: string; tree: string }>; additions: Array<{ path: string; tree: string }> }>();
     const group = (parent: string) => {
       const value = grouped.get(parent) ?? { removals: [], additions: [] };
       grouped.set(parent, value);
       return value;
     };
-    for (const [id, declaration] of Object.entries(next.trees.trees)) {
-      const before = current.trees.trees[id];
+    const currentTrees = graphTrees(current);
+    const nextTrees = graphTrees(next);
+    for (const [id, declaration] of Object.entries(nextTrees)) {
+      const before = currentTrees[id];
       const active = this.get(id);
       if (!before || !active || before.canonicalPath === declaration.canonicalPath) continue;
       if (!active.parentTree) throw new Error(`Canonical tree ${id} has no movable parent boundary`);
@@ -1319,13 +1695,26 @@ export class CanopyDaemon implements AsyncDisposable {
    * synchronous authorization never reparses mutable filesystem state or
    * treats display names as identity.
    */
-  private rootProfile(root: ObjectHash): { type: "person" | "group" | null; members: string[] } {
+  private rootProfile(root: ObjectHash): {
+    type: "person" | "group" | null;
+    members: Array<{ profile: string; handle?: string; legacy?: true }>;
+  } {
     const row = this.db.query("SELECT value FROM meta WHERE key = ?").get(`profile:${root}`) as { value: string } | null;
     if (!row) return { type: null, members: [] };
     const value = JSON.parse(row.value) as { type?: unknown; members?: unknown };
     return {
       type: value.type === "person" || value.type === "group" ? value.type : null,
-      members: Array.isArray(value.members) ? value.members.filter((member): member is string => typeof member === "string") : [],
+      members: Array.isArray(value.members) ? value.members.flatMap((member) => {
+        if (typeof member === "string") return [{ profile: member, legacy: true as const }];
+        if (!member || typeof member !== "object" || Array.isArray(member)) return [];
+        const candidate = member as Record<string, unknown>;
+        if (typeof candidate.profile !== "string") return [];
+        return [{
+          profile: candidate.profile,
+          ...(typeof candidate.handle === "string" ? { handle: candidate.handle } : {}),
+          ...(candidate.legacy === true ? { legacy: true as const } : {}),
+        }];
+      }) : [],
     };
   }
 
@@ -1335,13 +1724,42 @@ export class CanopyDaemon implements AsyncDisposable {
   }
 
   private memberHandlesFromRoot(root: ObjectHash): Set<string> {
-    const host = (this.db.query("SELECT value FROM meta WHERE key = 'community_host'").get() as { value: string } | null)?.value;
-    const values = this.rootProfile(root).members;
-    return new Set(values.flatMap((value) => {
-      if (!value.includes("/~")) return [value];
-      const match = /^([^/]+)\/~([a-z0-9][a-z0-9-]{0,62})$/.exec(value);
-      return match && (!host || match[1]!.toLowerCase() === host) ? [match[2]!] : [];
+    const members = this.rootProfile(root).members;
+    return new Set(members.flatMap((member) => {
+      if (member.handle && HANDLE.test(member.handle)) return [member.handle];
+      if (!member.legacy) return [];
+      const match = /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(member.profile);
+      return match ? [match[1]!] : [];
     }));
+  }
+
+  /** The current Canopy allocates all of one account's canonical paths below /~handle. */
+  private validateCurrentCanopyAccountPaths(handle: string, graph: AccountConfigGraphV2, existingAccount?: CanopyAccount): void {
+    const root = `/~${handle}`;
+    for (const [treeID, declaration] of Object.entries(graph.trees)) {
+      const path = new URL(declaration.canonical).pathname;
+      const retainedAdministeredTree = existingAccount
+        && this.get(treeID)?.canonicalPath === path
+        && this.canAdminister(existingAccount, treeID);
+      if (!sameOrDescendant(path, root) && !retainedAdministeredTree) {
+        throw new Error(`Canonical path is outside this Canopy account allocation: ${path}`);
+      }
+    }
+  }
+
+  /** Current-Canopy allocation policy: structured local handles reserve /~handle. */
+  private communityAccountReservations(): Map<string, { profileTree?: string }> {
+    const reservations = new Map<string, { profileTree?: string }>();
+    for (const member of this.rootProfile(this.community().ref).members) {
+      const legacyHandle = member.legacy ? /\/\~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(member.profile)?.[1] : undefined;
+      const handle = member.handle ?? legacyHandle;
+      if (!handle || !HANDLE.test(handle)) continue;
+      const profile = !member.legacy
+        ? /^arbor:\/\/(tr_[a-z2-7]+)\/?$/.exec(member.profile)?.[1]
+        : undefined;
+      reservations.set(handle, profile ? { profileTree: profile } : {});
+    }
+    return reservations;
   }
 
   private async cacheRootProfile(root: ObjectHash, proposed: ReadonlyMap<ObjectHash, Uint8Array>): Promise<void> {

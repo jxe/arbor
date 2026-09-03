@@ -8,6 +8,7 @@ import {
   ConnectionStore,
   CommunityConfigStore,
   arborDataRoot,
+  loadCanopyAccountConfigurations,
   loadAccountConfiguration,
   parseAccountConfiguration,
   parseDeviceConfiguration,
@@ -285,6 +286,12 @@ async function editConfigurationYAML(
 }
 
 async function configurationContext() {
+  const plural = await loadCanopyAccountConfigurations();
+  if (plural.length) {
+    throw new Error(
+      "This pre-migration CLI command does not edit plural account layouts; use the account-qualified web or native surface",
+    );
+  }
   const snapshot = await loadAccountConfiguration();
   if (!snapshot.account || !snapshot.trees || !snapshot.currentDevice) {
     throw new Error("A valid account.yaml, trees.yaml, and current device file are required");
@@ -317,7 +324,7 @@ async function connectCommand(args: string[]): Promise<void> {
   await installConfigurationCheckout(configuration, account.device.id);
   await store.set(target.endpoint, token, {
     id: account.id,
-    handle: account.handle,
+    handle: account.handle!,
     profileTree: account.profileTree,
     profileURL: account.profileURL,
     communityTree: account.community.id,

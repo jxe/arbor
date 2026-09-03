@@ -123,6 +123,7 @@ public struct TreeDescriptor: Codable, Sendable, Equatable {
 
 public struct LocalTreeDescriptor: Codable, Sendable, Equatable {
     public var id: String
+    public var configurationTree: String?
     public var kind: String
     public var access: String
     public var canonical: CanonicalTreeDescriptor?

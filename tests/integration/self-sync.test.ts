@@ -47,7 +47,7 @@ async function installDataHome(
   const configuration = await new WireClient(host.url, credential).descriptor(account.account.configuration.id);
   await new CommunityConfigStore().set(host.url, credential, {
     id: account.account.id,
-    handle: account.account.handle,
+    handle: account.account.handle!,
     profileTree: account.account.profileTree,
     profileURL: account.account.profileURL,
     communityTree: account.account.community.id,

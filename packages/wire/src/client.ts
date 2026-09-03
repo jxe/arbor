@@ -56,7 +56,8 @@ export class WireUpdateConflict extends Error {
 
 export interface RemoteAccountDescriptor {
   id: string;
-  handle: string;
+  /** Optional Canopy-specific presentation hint; never account identity. */
+  handle?: string;
   profileTree: string | null;
   profileURL: string | null;
   community: RemoteTreeDescriptor;
@@ -76,11 +77,35 @@ export interface ClaimResult {
   configuration: RemoteTreeDescriptor;
 }
 
+export interface AccountClaimResult {
+  account: RemoteAccountDescriptor;
+  configuration: RemoteTreeDescriptor;
+}
+
 export interface ClaimRequest {
   profileTree: TreeID;
   configurationTree: TreeID;
   device: { id: string; label: string; credentialDigest: `sha256:${string}` };
   profile: TreeSnapshot;
+  configuration: TreeSnapshot;
+}
+
+export interface ProfileProofBinding {
+  id: string;
+  profileTree: TreeID;
+  targetOrigin: string;
+  targetAccount: string;
+  configurationTree: TreeID;
+  expiresAt: number;
+}
+
+export interface ExistingProfileAccountRequest {
+  account: string;
+  issuerOrigin?: string;
+  proof?: { id: string; secret: string };
+  profileTree: TreeID;
+  configurationTree: TreeID;
+  device: { id: string; label: string; credentialDigest: `sha256:${string}` };
   configuration: TreeSnapshot;
 }
 
@@ -222,6 +247,43 @@ export class WireClient {
         configurationTree: input.configurationTree,
         device: input.device,
         profile: encodeTreeSnapshotJSON(input.profile),
+        configuration: encodeTreeSnapshotJSON(input.configuration),
+      }),
+    }));
+    return response.json();
+  }
+
+  async createProfileProof(input: {
+    id: string;
+    secretDigest: `sha256:${string}`;
+    targetOrigin: string;
+    targetAccount: string;
+    configurationTree: TreeID;
+  }): Promise<ProfileProofBinding> {
+    const response = await this.checked(await this.request(`/.arbor/profile-proofs/${encodeURIComponent(input.id)}`, {
+      method: "PUT",
+      headers: this.headers(true),
+      body: JSON.stringify({
+        secretDigest: input.secretDigest,
+        targetOrigin: input.targetOrigin,
+        targetAccount: input.targetAccount,
+        configurationTree: input.configurationTree,
+      }),
+    }));
+    return response.json();
+  }
+
+  async joinAccount(input: ExistingProfileAccountRequest): Promise<AccountClaimResult> {
+    const response = await this.checked(await this.request("/.arbor/accounts", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        account: input.account,
+        ...(input.issuerOrigin ? { issuerOrigin: input.issuerOrigin } : {}),
+        ...(input.proof ? { proof: input.proof } : {}),
+        profileTree: input.profileTree,
+        configurationTree: input.configurationTree,
+        device: input.device,
         configuration: encodeTreeSnapshotJSON(input.configuration),
       }),
     }));

@@ -145,6 +145,7 @@ describe("Arbor private state", () => {
     await mkdir(before);
 
     const first = await workspaceIdentity(before);
+    expect(first.rootID).toMatch(/^tr_[a-z2-7]{26}$/);
     await rename(before, after);
     const moved = await workspaceIdentity(after);
     const canonicalAfter = await realpath(after);

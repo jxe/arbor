@@ -1,42 +1,52 @@
 {
-  "version": 2,
+  "version": 3,
   "valid": [
     {
-      "name": "filesystem-placement",
-      "currentDevice": "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "flat-account-graph",
+      "configurationTree": "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
       "files": {
-        "account.yaml": "version: 1\ncommunity: https://community.example\nprofile:\n  tree: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa\n  handle: joe\nadmins:\n  - dv_aaaaaaaaaaaaaaaaaaaaaaaaaa\n",
-        "trees.yaml": "version: 1\ntrees:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    canonicalPath: /~joe\n    access:\n      - subject:\n          kind: everyone\n        access: read\n",
-        "devices/dv_aaaaaaaaaaaaaaaaaaaaaaaaaa.yaml": "version: 1\nlabel: Joe's Mac\nplacements:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    server: https://community.example\n    path: /Users/joe/Arbor\n"
-      },
-      "placement": "placed"
+        "account.yaml": "canopy: https://canopy.example\nprofile: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb\n",
+        "trees.yaml": "tr_cccccccccccccccccccccccccc:\n  canonical: https://canopy.example/~joe/notes\n  access:\n    - subject:\n        kind: everyone\n      access: read\n",
+        "devices.yaml": "dv_dddddddddddddddddddddddddd:\n  label: Joe's Mac\n  administrator: true\ndv_eeeeeeeeeeeeeeeeeeeeeeeeee:\n  label: Joe's iPhone\n"
+      }
     },
     {
-      "name": "pathless-replica-and-link-rule",
-      "currentDevice": "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "name": "same-profile-second-canopy",
+      "configurationTree": "tr_ffffffffffffffffffffffffff",
       "files": {
-        "account.yaml": "version: 1\ncommunity: https://community.example\nprofile:\n  tree: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa\n  handle: joe\nadmins: [dv_aaaaaaaaaaaaaaaaaaaaaaaaaa]\n",
-        "trees.yaml": "version: 1\ntrees:\n  tr_bbbbbbbbbbbbbbbbbbbbbbbbbb:\n    canonicalPath: /~joe/shared\n    access:\n      - subject: { kind: link, digest: 'sha256:0000000000000000000000000000000000000000000000000000000000000000' }\n        access: write\n",
-        "devices/dv_aaaaaaaaaaaaaaaaaaaaaaaaaa.yaml": "version: 1\nlabel: Joe's Mac\nplacements:\n  tr_bbbbbbbbbbbbbbbbbbbbbbbbbb:\n    server: https://community.example\n"
-      },
-      "placement": "replica"
+        "account.yaml": "canopy: https://other.example\nprofile: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb\n",
+        "trees.yaml": "{}\n",
+        "devices.yaml": "dv_gggggggggggggggggggggggggg:\n  label: Other Mac\n  administrator: true\n"
+      }
+    },
+    {
+      "name": "same-origin-distinct-account",
+      "configurationTree": "tr_hhhhhhhhhhhhhhhhhhhhhhhhhh",
+      "files": {
+        "account.yaml": "canopy: https://canopy.example\nprofile: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb\n",
+        "trees.yaml": "tr_iiiiiiiiiiiiiiiiiiiiiiiiii:\n  canonical: https://canopy.example/~joe-two/sketches\n  access: []\n",
+        "devices.yaml": "dv_jjjjjjjjjjjjjjjjjjjjjjjjjj:\n  label: Studio Mac\n  administrator: true\n"
+      }
     }
   ],
   "invalid": [
-    { "name": "duplicate-key", "path": "trees.yaml", "source": "version: 1\ntrees: {}\ntrees: {}\n", "code": "invalid-trees-yaml" },
-    { "name": "alias", "path": "trees.yaml", "source": "version: 1\ntrees: &trees {}\ncopy: *trees\n", "code": "invalid-trees-yaml" },
-    { "name": "unknown-field", "path": "account.yaml", "source": "version: 1\ncommunity: https://community.example\nprofile: { tree: tr_aaaaaaaaaaaaaaaaaaaaaaaaaa, handle: joe }\nadmins: [dv_aaaaaaaaaaaaaaaaaaaaaaaaaa]\nupdate: up_private\n", "code": "invalid-account-yaml" },
-    { "name": "stored-none", "path": "trees.yaml", "source": "version: 1\ntrees:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    canonicalPath: /~joe\n    access: [{ subject: { kind: everyone }, access: none }]\n", "code": "invalid-trees-yaml" },
-    { "name": "public-access-field", "path": "trees.yaml", "source": "version: 1\ntrees:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    canonicalPath: /~joe\n    access: []\n    publicAccess: read\n", "code": "invalid-trees-yaml" },
-    { "name": "kind-field-rejected", "path": "trees.yaml", "source": "version: 1\ntrees:\n  tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:\n    kind: person-profile\n    canonicalPath: /~joe\n    access: []\n", "code": "invalid-trees-yaml" },
-    { "name": "state-injection", "path": ".state/credential", "source": "secret", "code": "invalid-account-configuration" },
-    { "name": "bad-device-filename", "path": "devices/laptop.yaml", "source": "version: 1\nlabel: Laptop\nplacements: {}\n", "code": "invalid-device-file" },
-    { "name": "missing-admin", "remove": "devices/dv_aaaaaaaaaaaaaaaaaaaaaaaaaa.yaml", "code": "inactive-admin" },
-    { "name": "credential-in-yaml", "path": "devices/dv_aaaaaaaaaaaaaaaaaaaaaaaaaa.yaml", "source": "version: 1\nlabel: Mac\ncredential: secret\nplacements: {}\n", "code": "invalid-device-yaml" }
+    { "name": "duplicate-key", "path": "trees.yaml", "source": "tr_cccccccccccccccccccccccccc: { canonical: https://canopy.example/~joe/notes, access: [] }\ntr_cccccccccccccccccccccccccc: { canonical: https://canopy.example/~joe/other, access: [] }\n", "code": "invalid-trees-yaml" },
+    { "name": "alias", "path": "trees.yaml", "source": "tr_cccccccccccccccccccccccccc: &tree { canonical: https://canopy.example/~joe/notes, access: [] }\ntr_kkkkkkkkkkkkkkkkkkkkkkkkkk: *tree\n", "code": "invalid-trees-yaml" },
+    { "name": "author-version", "path": "account.yaml", "source": "version: 2\ncanopy: https://canopy.example\nprofile: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb\n", "code": "invalid-account-yaml" },
+    { "name": "old-account-wrapper", "path": "account.yaml", "source": "community: https://canopy.example\nprofile: { tree: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb, handle: joe }\nadmins: [dv_dddddddddddddddddddddddddd]\n", "code": "invalid-account-yaml" },
+    { "name": "handle-in-portable-account", "path": "account.yaml", "source": "canopy: https://canopy.example\nprofile: tr_bbbbbbbbbbbbbbbbbbbbbbbbbb\nhandle: joe\n", "code": "invalid-account-yaml" },
+    { "name": "path-only-canonical", "path": "trees.yaml", "source": "tr_cccccccccccccccccccccccccc:\n  canonical: /~joe/notes\n  access: []\n", "code": "invalid-trees-yaml" },
+    { "name": "foreign-canonical-origin", "path": "trees.yaml", "source": "tr_cccccccccccccccccccccccccc:\n  canonical: https://elsewhere.example/~joe/notes\n  access: []\n", "code": "invalid-trees-yaml" },
+    { "name": "devices-wrapper", "path": "devices.yaml", "source": "devices:\n  dv_dddddddddddddddddddddddddd: { label: Mac, administrator: true }\n", "code": "invalid-devices-yaml" },
+    { "name": "missing-administrator", "path": "devices.yaml", "source": "dv_dddddddddddddddddddddddddd:\n  label: Mac\n", "code": "invalid-devices-yaml" },
+    { "name": "credential-in-yaml", "path": "devices.yaml", "source": "dv_dddddddddddddddddddddddddd:\n  label: Mac\n  administrator: true\n  credential: secret\n", "code": "invalid-devices-yaml" },
+    { "name": "nested-device-file", "path": "devices/dv_dddddddddddddddddddddddddd.yaml", "source": "label: Mac\n", "code": "invalid-account-configuration" },
+    { "name": "placement-in-portable-graph", "path": "placements.yaml", "source": "{}\n", "code": "invalid-account-configuration" }
   ],
   "behavior": [
-    { "name": "invalid-edit-retains-last-valid", "candidate": "duplicate-key", "active": "filesystem-placement" },
-    { "name": "removing-placement-preserves", "preserves": ["files", "tree-identity", "acl", "history", "canonical-boundary", "conflicts"] },
+    { "name": "invalid-account-retains-last-valid-account" },
+    { "name": "invalid-placements-retains-last-valid-local-projection" },
+    { "name": "unplacing-preserves", "preserves": ["files", "tree-identity", "acl", "history", "canonical-boundary", "conflicts"] },
     { "name": "removing-pending-declaration-cancels-reservation" },
     { "name": "removing-active-declaration-rejected" }
   ]

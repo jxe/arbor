@@ -45,6 +45,7 @@ export class TreeManager implements AsyncDisposable {
   private syncStates = new Map<string, NonNullable<LocalTreeDescriptor["sync"]>>();
   private workspaceOptions: Omit<WorkspaceOptions, "events" | "tree" | "tracking"> = {};
   private stopWatching?: () => void;
+  private registryPlural?: boolean;
   private reloadTail: Promise<void> = Promise.resolve();
   private descriptorRevisionValue = 0;
 
@@ -60,8 +61,14 @@ export class TreeManager implements AsyncDisposable {
 
   async init(): Promise<void> {
     const snapshot = await loadTreeRegistry();
+    this.registryPlural = snapshot.plural;
     this.recordDiagnostics = [...snapshot.diagnostics];
-    if (!snapshot.diagnostics.length) await this.applyPlacements(snapshot.placements, false);
+    if (!snapshot.diagnostics.length || snapshot.plural) await this.applyPlacements(snapshot.placements, false);
+    await this.restartRegistryWatcher();
+  }
+
+  private async restartRegistryWatcher(): Promise<void> {
+    this.stopWatching?.();
     this.stopWatching = await watchTreeRegistry(() => {
       this.reloadTail = this.reloadTail.then(() => this.reloadFromDisk()).catch(() => {});
     });
@@ -220,12 +227,36 @@ export class TreeManager implements AsyncDisposable {
 
   private async reloadFromDisk(): Promise<void> {
     const snapshot = await loadTreeRegistry();
-    if (snapshot.diagnostics.length) {
+    if (snapshot.diagnostics.length && !snapshot.plural) {
       this.recordDiagnostics = [...snapshot.diagnostics];
       this.events.emit({ tree: "system", kind: "diagnostic", ref: { tree: "system", path: "/diagnostics", stableKey: null }, origin: "external" });
       return;
     }
-    await this.applyPlacements(snapshot.placements, true);
+    let placements = snapshot.placements;
+    if (snapshot.plural) {
+      const invalidAccounts = new Set(snapshot.invalidAccounts);
+      const retained = [...this.known.values()]
+        .map((root) => root.placement)
+        .filter((placement): placement is TreePlacement => Boolean(
+          placement && (
+            (placement.configurationTree && invalidAccounts.has(placement.configurationTree))
+            || (!snapshot.placementsValid && placement.kind !== "account-configuration")
+          )
+        ));
+      placements = [
+        ...placements.filter((placement) =>
+          !(placement.configurationTree && invalidAccounts.has(placement.configurationTree))
+          && (snapshot.placementsValid || placement.kind === "account-configuration")
+        ),
+        ...retained,
+      ];
+    }
+    await this.applyPlacements(placements, true);
+    this.recordDiagnostics = [...snapshot.diagnostics];
+    if (this.registryPlural !== snapshot.plural) {
+      this.registryPlural = snapshot.plural;
+      await this.restartRegistryWatcher();
+    }
   }
 
   async refreshConfiguration(): Promise<void> {
@@ -333,13 +364,15 @@ export class TreeManager implements AsyncDisposable {
     }));
     return [...this.known.entries()].filter(([, root]) => Boolean(root.placement)).map(([id, root]): LocalTreeDescriptor => ({
       id,
+      ...(root.placement!.configurationTree ? { configurationTree: root.placement!.configurationTree } : {}),
       name: this.workspaces.get(id)?.descriptor().name ?? root.name,
       osPath: root.osPath,
       kind: root.placement!.kind ?? "ordinary",
       canonical: descriptorCanonical(root.placement!, this.canonicalParentOf(id)),
       access: root.placement!.access,
       placement: root.placement!.replica ? "replica" : "placed",
-      sync: this.syncStates.get(id) ?? (root.placement!.ref && root.placement!.update ? "idle" : "syncing"),
+      // Persisted refs are a base, not proof that this process has reconciled it.
+      sync: this.syncStates.get(id) ?? "syncing",
       ...(root.missing ? { missing: true } : {}),
     }));
   }
@@ -549,7 +582,11 @@ export class TreeManager implements AsyncDisposable {
     const root = this.known.get(placement.tree);
     if (!root?.placement || root.placement.path !== placement.path) throw new Error(`Unknown configured placement: ${placement.tree}`);
     root.placement = { ...root.placement, ref: placement.ref, update: placement.update, access: placement.access };
-    await savePlacementSyncMetadata(placement.tree, { ref: placement.ref, update: placement.update, access: placement.access });
+    await savePlacementSyncMetadata(
+      placement.tree,
+      { ref: placement.ref, update: placement.update, access: placement.access },
+      placement.configurationTree,
+    );
     this.invalidateDescriptors();
     return (await this.descriptorFor(placement.tree))!;
   }

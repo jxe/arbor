@@ -806,6 +806,7 @@ private struct MacArborSyncAccountPanel: View {
     let workspace: ArborWorkspaceState
     let currentNode: WorkspaceNode?
     @State private var pairing: LocalArborSyncPairingPresentation?
+    @State private var pairingConfigurationTree: String?
     @State private var message: String?
 
     private var account: LocalArborSyncOverview? { workspace.localArborSyncOverview }
@@ -875,6 +876,34 @@ private struct MacArborSyncAccountPanel: View {
                             Text("These are roots the account can access, not folders in the current sidebar.")
                         }
                     }
+                    if !account.accounts.isEmpty {
+                        Section("Canopy accounts") {
+                            ForEach(account.accounts) { canopyAccount in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        VStack(alignment: .leading) {
+                                            Text(canopyAccount.handle.map { "~\($0)" } ?? canopyAccount.configurationTree)
+                                            Text(canopyAccount.canopy ?? "Unknown Canopy")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Button("Pair another device…") {
+                                            Task { await createPairing(configurationTree: canopyAccount.configurationTree) }
+                                        }
+                                        .disabled(!canopyAccount.credentialAvailable)
+                                    }
+                                    if pairingConfigurationTree == canopyAccount.configurationTree, let pairing {
+                                        PairingQRCode(payload: pairing.payload)
+                                            .frame(width: 220, height: 220)
+                                            .frame(maxWidth: .infinity)
+                                        LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
+                                            .font(.headline.monospacedDigit())
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if account.handle != nil {
                         Section {
                             ForEach(activeDevices, id: \.id) { device in
@@ -900,18 +929,9 @@ private struct MacArborSyncAccountPanel: View {
                         } footer: {
                             Text("Each active device has its own server credential. Revoking one does not delete any tree data.")
                         }
-                        Section("Pair iPhone") {
-                            Button("Pair another iPhone…") { Task { await createPairing() } }
-                            if let pairing {
-                                PairingQRCode(payload: pairing.payload)
-                                    .frame(width: 220, height: 220)
-                                    .frame(maxWidth: .infinity)
-                                LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
-                                    .font(.headline.monospacedDigit())
-                                Button("Copy pairing code", systemImage: "doc.on.doc") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(pairing.payload, forType: .string)
-                                }
+                        if account.accounts.isEmpty {
+                            Section("Pair device") {
+                                Button("Pair another device…") { Task { await createPairing(configurationTree: nil) } }
                             }
                         }
                     }
@@ -966,8 +986,13 @@ private struct MacArborSyncAccountPanel: View {
         await workspace.refreshLocalArborSyncOverview()
     }
 
-    private func createPairing() async {
-        do { pairing = try await workspace.createLocalArborSyncPairing(); message = nil }
+    private func createPairing(configurationTree: String?) async {
+        do {
+            let value = try await workspace.createLocalArborSyncPairing(configurationTree: configurationTree)
+            pairing = value
+            pairingConfigurationTree = configurationTree
+            message = nil
+        }
         catch { message = error.localizedDescription }
     }
 
@@ -1063,6 +1088,7 @@ private struct PairingQRCode: View {
 struct ArborIOSLaunchView: View {
     private enum Phase: Equatable {
         case restoring
+        case accounts
         case scanning
         case claiming
         case choosing
@@ -1078,6 +1104,8 @@ struct ArborIOSLaunchView: View {
     @State private var confirmationCode: String?
     @State private var origin: URL?
     @State private var service: NativeAccountService?
+    @State private var accounts: [NativeCanopyAccount] = []
+    @State private var selectedConfigurationTree: String?
     @State private var trees: [WireTreeDescriptor] = []
     @State private var syncingTree: WireTreeDescriptor?
 
@@ -1098,7 +1126,8 @@ struct ArborIOSLaunchView: View {
                 ready = true
             } else {
                 workspace.errorMessage = nil
-                phase = .scanning
+                await loadAccounts()
+                phase = .accounts
             }
         }
     }
@@ -1108,6 +1137,8 @@ struct ArborIOSLaunchView: View {
         switch phase {
         case .restoring:
             ProgressView("Opening Arbor…")
+        case .accounts:
+            accountList
         case .scanning:
             scanner
         case .claiming:
@@ -1125,6 +1156,50 @@ struct ArborIOSLaunchView: View {
                     .multilineTextAlignment(.center)
             }
             .padding()
+        }
+    }
+
+    private var accountList: some View {
+        NavigationStack {
+            List {
+                if let confirmationCode {
+                    Section("Account added") {
+                        LabeledContent("Confirm on your Mac", value: confirmationCode)
+                            .font(.headline.monospacedDigit())
+                    }
+                }
+                Section("Accounts") {
+                    ForEach(accounts) { account in
+                        Button {
+                            select(account)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(account.handle.map { "~\($0)" } ?? account.configurationTree)
+                                    Text(account.origin.host() ?? account.origin.absoluteString)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "folder.badge.plus")
+                            }
+                        }
+                    }
+                    if accounts.isEmpty {
+                        Text("No Canopy accounts on this device yet.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Section {
+                    Button("Add Account", systemImage: "qrcode.viewfinder") {
+                        confirmationCode = nil
+                        scanError = nil
+                        phase = .scanning
+                    }
+                }
+                if let scanError { Section { Text(scanError).foregroundStyle(.red) } }
+            }
+            .navigationTitle("Accounts")
         }
     }
 
@@ -1219,14 +1294,32 @@ struct ArborIOSLaunchView: View {
             let claim = try await service.claim(payload, label: label)
             self.service = service
             origin = payload.origin
+            selectedConfigurationTree = await service.configurationID()
             confirmationCode = claim.confirmationCode
             scanError = nil
-            phase = .choosing
-            await loadTrees()
+            await loadAccounts()
+            phase = .accounts
         } catch {
             scanError = String(describing: error)
             phase = .scanning
         }
+    }
+
+    private func loadAccounts() async {
+        do {
+            accounts = try await KeychainDeviceCredentialStore().accounts()
+            scanError = nil
+        } catch {
+            scanError = String(describing: error)
+        }
+    }
+
+    private func select(_ account: NativeCanopyAccount) {
+        origin = account.origin
+        selectedConfigurationTree = account.configurationTree
+        service = NativeAccountService(origin: account.origin, configurationTree: account.configurationTree)
+        phase = .choosing
+        Task { await loadTrees() }
     }
 
     private func loadTrees() async {
@@ -1247,7 +1340,7 @@ struct ArborIOSLaunchView: View {
         treeError = nil
         phase = .syncing
         do {
-            try await workspace.place(tree: tree, from: origin)
+            try await workspace.place(tree: tree, from: origin, configurationTree: selectedConfigurationTree)
             ready = true
         } catch {
             treeError = String(describing: error)
@@ -1258,13 +1351,15 @@ struct ArborIOSLaunchView: View {
     private func resetForPairing() {
         service = nil
         origin = nil
+        selectedConfigurationTree = nil
         confirmationCode = nil
         trees = []
         syncingTree = nil
         treeError = nil
         scanError = nil
         ready = false
-        phase = .scanning
+        Task { await loadAccounts() }
+        phase = .accounts
     }
 }
 #endif
@@ -1285,7 +1380,9 @@ private struct IOSAccountPanel: View {
                 if let placement {
                     Section("Account") {
                         if let account {
-                            LabeledContent("Signed in as", value: "~\(account.handle)")
+                            if let handle = account.handle {
+                                LabeledContent("Signed in as", value: "~\(handle)")
+                            }
                         }
                         LabeledContent("Server", value: placement.origin.host() ?? placement.origin.absoluteString)
                         LabeledContent("Folder", value: placement.tree.canonicalPath ?? placement.tree.id)

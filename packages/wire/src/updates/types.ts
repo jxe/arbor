@@ -3,6 +3,7 @@ import type { ObjectHash } from "../objects.ts";
 export type MergeSummary =
   | { version: "markdown-additive-v1"; approximatePlacements: number }
   | { version: "account-config-v1"; mergedFields: number }
+  | { version: "account-config-v2"; mergedFields: number }
   | { version: "collection-file-rows-v1"; mergedRows: number };
 
 export type IfMatch = "bytesHash" | "modelHash";

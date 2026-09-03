@@ -86,6 +86,7 @@ POST /v1/sync
 POST /v1/sessions
 POST /v1/tree-ids
 GET  /v1/trees
+GET  /v1/accounts
 GET  /v1/resolve?locator={ArborLocator}
 ```
 
@@ -103,6 +104,25 @@ plus 26 lowercase base32 characters encoding 128 random bits.
 It includes placed trees, pathless replicas, known remote placements, and the
 implicit authenticated account-configuration tree. It never invents a
 descriptor for `local` or `system`.
+
+`GET /v1/accounts` returns a safe list keyed by configuration TreeID. Each
+entry reports its Canopy origin, profile TreeID, current DeviceID, credential
+availability, diagnostics, and an optional Canopy-specific presentation
+handle. The handle and origin are never account identity or credential keys.
+
+Fresh v2 account bootstrap and account-qualified pairing use:
+
+```text
+POST /v1/bootstrap/accounts
+POST /v1/bootstrap/pairings
+```
+
+The first accepts `{ account, path, displayName? }`, where `account` is the
+complete Canopy-allocated account URL and `path` is an already identified—or
+newly identified—local person-profile root. It creates no profile snapshot or
+tree placement. The pairing route accepts `{ configurationTree? }`; the field
+is mandatory when more than one account exists. The old handle-shaped claim
+route is v1 compatibility only.
 
 Resolution returns `LocatorResolution`. A remote unplaced result is read
 transiently using its explicit tree and server; it does not create a virtual

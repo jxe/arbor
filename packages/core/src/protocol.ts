@@ -130,6 +130,8 @@ export function canonicalArborLocator(canonical: Pick<CanonicalTreeDescriptor, "
 }
 
 export interface LocalTreeDescriptor extends TreeDescriptor {
+  /** Account routing identity for hosted and configuration trees. */
+  configurationTree?: TreeID;
   name: string;
   osPath?: string;
   placement: "placed" | "replica" | "remote";

@@ -1,6 +1,6 @@
 // Verify a cutover: server health, each public tree's ref against the migration
 // report, every local placement idle, and the authored manifest unchanged.
-//   bun run migrations/tools/verify.ts <canopy-origin> <report.json> [--manifest before.json after.json] [--sync http://127.0.0.1:4317]
+//   bun run migrations/tools/verify.ts <canopy-origin> <report.json> [--manifest before.json after.json] [--sync http://127.0.0.1:4317 | --no-sync]
 // The report is what a migration's run.ts prints: { trees: [{ id, root }] }.
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -14,6 +14,7 @@ if (!origin || !reportPath) {
 const flag = (name: string, count: number) => { const i = args.indexOf(name); return i >= 0 ? args.slice(i + 1, i + 1 + count) : null; };
 const manifest = flag("--manifest", 2);
 const sync = flag("--sync", 1)?.[0] ?? "http://127.0.0.1:4317";
+const verifySync = !args.includes("--no-sync");
 // A report captured over `railway ssh` carries the CLI's own notices before the JSON.
 const reportText = await readFile(resolve(reportPath), "utf8");
 const report = JSON.parse(reportText.slice(reportText.indexOf("{"))) as { trees: Array<{ id: string; root: string }> };
@@ -31,9 +32,9 @@ for (const tree of report.trees) {
   if (body.snapshot?.ref !== tree.root) failures.push(`${tree.id}: server ref ${body.snapshot?.ref} != report ${tree.root}`);
 }
 
-const local = await fetch(`${sync}/v1/trees`).catch(() => null);
-if (!local?.ok) failures.push(`arborsync: ${local?.status ?? "not running"} at ${sync}`);
-else {
+const local = verifySync ? await fetch(`${sync}/v1/trees`).catch(() => null) : null;
+if (verifySync && !local?.ok) failures.push(`arborsync: ${local?.status ?? "not running"} at ${sync}`);
+else if (local) {
   const body = await local.json() as { snapshot: Array<{ id: string; sync?: string; placement: string }> };
   for (const tree of body.snapshot) {
     if (tree.placement !== "remote" && tree.sync !== "idle") failures.push(`${tree.id}: local placement is ${tree.sync ?? "unknown"}, not idle`);

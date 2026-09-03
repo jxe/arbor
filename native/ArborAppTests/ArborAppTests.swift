@@ -89,7 +89,7 @@ struct ArborAppTests {
         let tree = WireTreeDescriptor(
             id: "tr_native",
             kind: "ordinary",
-            ref: "sha256:\(String(repeating: "a", count: 64))",
+            root: "sha256:\(String(repeating: "a", count: 64))",
             access: "write",
             canonical: WireCanonicalDescriptor(
                 path: "/~joe/todos",

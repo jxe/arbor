@@ -31,6 +31,12 @@ through arborsync or a server and never edits guessed private `.state` files.
 - `arbor connection set|test|remove <name>` manages safe private connection
   metadata while credentials remain in the OS credential store.
 
+Until the explicit offline account-layout migration, `connect`, `sync`, and
+`unsync` remain the named v1 singleton compatibility surface. Fresh plural
+account claims and account-qualified pairing are available through Arbor Sync's
+REST, web, and native account surfaces; the CLI must not guess an account when
+several configuration TreeIDs are present.
+
 ## Local daemon lifecycle
 
 `arbor daemon install|uninstall|start|stop|restart|status|logs` is the

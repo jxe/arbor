@@ -15,7 +15,7 @@ export interface CanopyTree {
   ref: ObjectHash;
   publicAccess: AccessLevel;
   updatedAt: number;
-  policy: "ordinary" | "account-config-v1";
+  policy: "ordinary" | "account-config-v1" | "account-config-v2";
   status: "active" | "awaiting-initialization" | "error";
   accountID: string | null;
 }

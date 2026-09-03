@@ -115,6 +115,16 @@ export interface CommunityPairingOffer {
   expiresAt: number;
 }
 
+export interface LocalCanopyAccountDescriptor {
+  configurationTree: string;
+  canopy: string | null;
+  handle: string | null;
+  profileTree: string | null;
+  deviceID: string | null;
+  credentialAvailable: boolean;
+  diagnostics: Array<{ code: string; message: string; path: string; severity: string }>;
+}
+
 /** Build a canonical node reference, retaining a listed Markdown identity when present. */
 export function childRef(child: NodeSummary): NodeRef {
   return child.ref;
@@ -260,12 +270,26 @@ export class ArborSyncRESTClient {
     return this.mutateContent({ op: "writeProperties", ref, basePropertiesRevision, properties }, mutationID);
   }
 
-  claimProfile(input: { origin: string; handle: string; path: string; displayName?: string }): Promise<MutationReceipt> {
+  claimProfile(input: { origin: string; handle: string; path: string; displayName?: string; layout?: "legacy" | "accounts" }): Promise<MutationReceipt> {
     return this.request("/v1/bootstrap/claims", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
   }
 
-  createCommunityPairing(): Promise<CommunityPairingOffer> {
-    return this.request("/v1/bootstrap/pairings", { method: "POST" });
+  claimAccount(input: { account: string; path: string; displayName?: string }): Promise<MutationReceipt> {
+    return this.request("/v1/bootstrap/accounts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+  }
+
+  accounts(): Promise<{ accounts: LocalCanopyAccountDescriptor[] }> {
+    return this.request("/v1/accounts");
+  }
+
+  createCommunityPairing(configurationTree?: string): Promise<CommunityPairingOffer> {
+    return this.request("/v1/bootstrap/pairings", {
+      method: "POST",
+      ...(configurationTree ? {
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ configurationTree }),
+      } : {}),
+    });
   }
 
   forgetLocalAccount(): Promise<{ forgotten: true }> {

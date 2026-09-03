@@ -2,7 +2,7 @@ import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, st
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { Diagnostic } from "@arbor/core";
-import { sha256 } from "@arbor/core";
+import { generateArborID, sha256 } from "@arbor/core";
 
 export interface WorkspaceRegistryRecord {
   stateID: string;
@@ -74,6 +74,9 @@ export async function prepareArborDataRoot(): Promise<Diagnostic[]> {
   await mkdir(target, { recursive: true, mode: 0o700 });
   await chmod(target, 0o700).catch(() => {});
   await mkdir(arborPrivateRoot(), { recursive: true, mode: 0o700 });
+  if (await pathKind(join(arborPrivateRoot(), "migration.lock")) !== "missing") {
+    throw new Error(`Arbor data home is locked for an offline migration: ${target}`);
+  }
   await migratePrivateState(target);
   await reconcilePrivateStateVersion(arborPrivateRoot());
   return [];
@@ -84,7 +87,7 @@ export async function prepareArborDataRoot(): Promise<Diagnostic[]> {
  * format or the daemon's rebuildable state changes shape, and is the client
  * half of the schema stamp Canopy asserts at startup.
  */
-export const ARBOR_SYNC_STATE_VERSION = "3";
+export const ARBOR_SYNC_STATE_VERSION = "4";
 
 const REBUILDABLE_PRIVATE_ENTRIES = ["sync", "refs"] as const;
 
@@ -261,7 +264,10 @@ export async function workspaceIdentity(root: string): Promise<WorkspaceRegistry
   if (!record) {
     record = {
       stateID: `${sha256(canonical).slice(0, 12)}-${crypto.randomUUID().slice(0, 8)}`,
-      rootID: rootIDForInitialPath(canonical),
+      // New local roots enter the same global TreeID space as hosted trees.
+      // The path-derived rt_ form is retained only while normalizing legacy
+      // registry entries above; migration can replace those identities later.
+      rootID: generateArborID("tr"),
       path: canonical,
       ...fingerprint,
     };

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Share } from "lucide-react";
 import type { AccessEntry, RecoveryEntry, SearchResult, NodeSummary, LocalTreeDescriptor } from "@arbor/core";
-import type { CommunityPairingOffer, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
+import type { CommunityPairingOffer, LocalCanopyAccountDescriptor, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { canonicalArborLocator, canonicalHTTPURL } from "@arbor/core";
 import { api } from "./api.ts";
@@ -275,6 +275,7 @@ export function App() {
     profileURL?: string;
     communityURL?: string;
   }>({ configured: false, credentialAvailable: false });
+  const [accounts, setAccounts] = useState<LocalCanopyAccountDescriptor[]>([]);
   const [treeControl, setTreeControl] = useState<{ path: string; tree?: TreeDescriptor } | null>(null);
   const [treeSlug, setTreeSlug] = useState("");
   const [remoteLocation, setRemoteLocation] = useState<RemoteLocation | null>(launchedRemoteLocation);
@@ -292,7 +293,7 @@ export function App() {
   const [accessDraftKind, setAccessDraftKind] = useState<ExistingAccessSubjectKind>("");
   const [accessDraftPermission, setAccessDraftPermission] = useState<AccessPermission>("read");
   const [devices, setDevices] = useState<CommunityDevice[]>([]);
-  const [pairing, setPairing] = useState<CommunityPairingOffer | null>(null);
+  const [pairing, setPairing] = useState<{ offer: CommunityPairingOffer; account: LocalCanopyAccountDescriptor } | null>(null);
   const [deviceBusy, setDeviceBusy] = useState(false);
   const [crumbsExpanded, setCrumbsExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
@@ -305,9 +306,10 @@ export function App() {
   const refreshSystem = useCallback(async () => {
     const request = ++systemRequest.current;
     try {
-      const [treeSnapshot, community, visitedDirectory] = await Promise.all([
+      const [treeSnapshot, community, accountDirectory, visitedDirectory] = await Promise.all([
         api.client.trees(),
         api.configurationStatus(),
+        api.client.accounts(),
         api.node({ tree: "system", path: "/visited", stableKey: null }),
       ]);
       if (request !== systemRequest.current) return;
@@ -321,6 +323,7 @@ export function App() {
         ...(typeof community.profileURL === "string" ? { profileURL: community.profileURL } : {}),
         ...(typeof community.communityURL === "string" ? { communityURL: community.communityURL } : {}),
       });
+      setAccounts(accountDirectory.accounts);
       const nextTrees = treeSnapshot.snapshot;
       const currentURLPath = pathFromLocation();
       const activePlacement = nextTrees
@@ -360,11 +363,11 @@ export function App() {
   }, []);
   useEffect(() => { void refreshSystem(); }, [refreshSystem]);
   useEffect(() => {
-    if (!profileOpen || !server.configured || !server.credentialAvailable) return;
+    if (!profileOpen || accounts.length !== 1 || !server.configured || !server.credentialAvailable) return;
     void api.activeDevices()
       .then(setDevices)
       .catch((error) => setError(error instanceof Error ? error.message : String(error)));
-  }, [profileOpen, server.configured, server.credentialAvailable]);
+  }, [accounts.length, profileOpen, server.configured, server.credentialAvailable]);
   useEffect(() => {
     if (!remoteLocation || remoteLocation.claimable) {
       setRemoteNode(null);
@@ -914,9 +917,8 @@ export function App() {
     try {
       setTreeBusy(true);
       setError(null);
-      await api.client.claimProfile({
-        origin: target.origin,
-        handle: target.handle,
+      await api.client.claimAccount({
+        account: `${target.origin}/~${target.handle}`,
         path: profilePath,
       });
       await refreshSystem();
@@ -941,17 +943,18 @@ export function App() {
     }
   }, [refreshSystem]);
 
-  const createDevicePairing = useCallback(async () => {
+  const createDevicePairing = useCallback(async (account: LocalCanopyAccountDescriptor = accounts[0]!) => {
+    if (!account) return;
     try {
       setDeviceBusy(true);
       setError(null);
-      setPairing(await api.client.createCommunityPairing());
+      setPairing({ offer: await api.client.createCommunityPairing(account.configurationTree), account });
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     } finally {
       setDeviceBusy(false);
     }
-  }, []);
+  }, [accounts]);
 
   const revokeDevice = useCallback(async (device: CommunityDevice) => {
     if (!confirm(`Revoke ${device.label}? That device will immediately lose server access.`)) return;
@@ -1321,9 +1324,9 @@ export function App() {
             {!device.revokedAt && <button className="access-remove" disabled={deviceBusy} aria-label={`Revoke ${device.label}`} onClick={() => void revokeDevice(device)}>×</button>}
           </div>)}
           {pairing && server.origin && <div className="url-preview">
-            <strong>Confirmation code: {pairing.confirmationCode}</strong>
-            <small>Expires {new Date(pairing.expiresAt).toLocaleString()}. Confirm the same code on the new device.</small>
-            <button onClick={() => void navigator.clipboard.writeText(JSON.stringify({ version: 1, origin: server.origin, pairing: { id: pairing.id, secret: pairing.secret } }))}>Copy pairing data</button>
+            <strong>Confirmation code: {pairing.offer.confirmationCode}</strong>
+            <small>Expires {new Date(pairing.offer.expiresAt).toLocaleString()}. Confirm the same code on the new device.</small>
+            <button onClick={() => void navigator.clipboard.writeText(JSON.stringify({ version: 1, origin: server.origin, pairing: { id: pairing.offer.id, secret: pairing.offer.secret } }))}>Copy pairing data</button>
             <button className="quiet" onClick={() => setPairing(null)}>Hide</button>
           </div>}
         </section>}

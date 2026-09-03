@@ -40,6 +40,7 @@ struct LocalArborSyncOverview: Sendable, Equatable {
     let handle: String?
     let configurationTree: String?
     let credentialAvailable: Bool
+    let accounts: [LocalCanopyAccountDescriptor]
     let trees: [LocalArborSyncTreePresentation]
     let visits: [LocalArborSyncVisitPresentation]
     let devices: [LocalArborSyncDevicePresentation]
@@ -141,14 +142,13 @@ final class ArborWorkspaceState {
         }
     }
 
-    func place(tree: WireTreeDescriptor, from origin: URL, remember: Bool = true) async throws {
+    func place(tree: WireTreeDescriptor, from origin: URL, configurationTree: String? = nil, remember: Bool = true) async throws {
         _ = try tree.validated()
         serverWatchTask?.cancel()
         serverWatchTask = nil
-        let credentialProvider = StoredDeviceCredentialProvider(
-            origin: origin,
-            store: KeychainDeviceCredentialStore()
-        )
+        let credentialProvider: any WireCredentialProvider = configurationTree.map {
+            AccountStoredCredentialProvider(configurationTree: $0, store: KeychainDeviceCredentialStore())
+        } ?? StoredDeviceCredentialProvider(origin: origin, store: KeychainDeviceCredentialStore())
         let client = ArborWireClient(origin: origin, credentialProvider: credentialProvider)
         let transport = ArborWireReplicaTransport(client: client)
         let root = ArborSupportDirectories.root
@@ -191,7 +191,7 @@ final class ArborWorkspaceState {
         }
 #if os(iOS)
         if remember {
-            try await nativePlacementStore.save(NativePlacementRecord(origin: origin, tree: tree))
+            try await nativePlacementStore.save(NativePlacementRecord(origin: origin, configurationTree: configurationTree, tree: tree))
         }
 #endif
         await switchProvider(
@@ -209,7 +209,7 @@ final class ArborWorkspaceState {
     func restoreNativePlacementIfAvailable() async -> Bool {
         do {
             guard let record = try await nativePlacementStore.load() else { return false }
-            try await place(tree: record.tree, from: record.origin, remember: false)
+            try await place(tree: record.tree, from: record.origin, configurationTree: record.configurationTree, remember: false)
             return true
         } catch {
             errorMessage = "The saved iPhone workspace could not be reopened: \(error.localizedDescription)"
@@ -223,7 +223,7 @@ final class ArborWorkspaceState {
 
     func disconnectNativeAccount() async throws {
         guard let placement = try await nativePlacementStore.load() else { return }
-        try await NativeAccountService(origin: placement.origin).forget()
+        try await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree).forget()
         try await nativePlacementStore.clear()
         serverWatchTask?.cancel()
         serverWatchTask = nil
@@ -368,13 +368,16 @@ final class ArborWorkspaceState {
         guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
         async let credentialRequest = client.node(.path("/credentials", tree: "system"))
         async let treeListRequest = client.trees()
+        async let accountsRequest = client.accounts()
         async let visitDirectoryRequest = client.node(.path("/visited", tree: "system"))
-        let (credentials, treeList, visitDirectory) = try await (
+        let (credentials, treeList, accounts, visitDirectory) = try await (
             credentialRequest,
             treeListRequest,
+            accountsRequest,
             visitDirectoryRequest
         )
-        let localConfiguration = try loadLocalAccountConfiguration()
+        // Legacy singleton compatibility. Plural account presentation comes from /v1/accounts.
+        let localConfiguration = try? loadLocalAccountConfiguration()
         let connected = credentials.properties.string("communityAccount") == "connected"
         let configurationTree = treeList.snapshot.first { $0.kind == "account-configuration" }?.id
         let trees = treeList.snapshot.map {
@@ -393,13 +396,15 @@ final class ArborWorkspaceState {
         )
         let visits = try await visitsRequest
         return LocalArborSyncOverview(
-            origin: connected ? localConfiguration.origin : nil,
-            handle: connected ? localConfiguration.handle : nil,
+            origin: accounts.first?.canopy ?? (connected ? localConfiguration?.origin : nil),
+            handle: accounts.first?.handle ?? (connected ? localConfiguration?.handle : nil),
             configurationTree: configurationTree,
-            credentialAvailable: connected && credentials.properties.bool("credentialAvailable") == true,
+            credentialAvailable: accounts.contains(where: \.credentialAvailable)
+                || (connected && credentials.properties.bool("credentialAvailable") == true),
+            accounts: accounts,
             trees: trees,
             visits: visits,
-            devices: connected ? localConfiguration.devices : [],
+            devices: connected ? localConfiguration?.devices ?? [] : [],
             observedThrough: latestObservationCursor([
                 credentials.observedThrough,
                 treeList.observedThrough,
@@ -545,15 +550,18 @@ final class ArborWorkspaceState {
         }
     }
 
-    func createLocalArborSyncPairing() async throws -> LocalArborSyncPairingPresentation {
+    func createLocalArborSyncPairing(configurationTree: String? = nil) async throws -> LocalArborSyncPairingPresentation {
         guard let client = arborsyncClient else { throw ArborSyncSupervisorError.serviceUnavailable }
         if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
-        guard let overview = localArborSyncOverview,
-              let rawOrigin = overview.origin,
+        guard let overview = localArborSyncOverview else {
+            throw ArborSyncSupervisorError.incompatibleService("The account list is unavailable")
+        }
+        let selected = configurationTree.flatMap { id in overview.accounts.first { $0.configurationTree == id } }
+        guard let rawOrigin = selected?.canopy ?? overview.origin,
               let origin = URL(string: rawOrigin) else {
             throw ArborSyncSupervisorError.incompatibleService("The community origin is invalid")
         }
-        let rawOffer = try await client.createCommunityPairing()
+        let rawOffer = try await client.createCommunityPairing(configurationTree: configurationTree)
         let offer = try rawOffer.validated()
         let payload = PairingPayload(
             origin: origin,
@@ -606,6 +614,7 @@ final class ArborWorkspaceState {
             handle: overview.handle,
             configurationTree: overview.configurationTree,
             credentialAvailable: overview.credentialAvailable,
+            accounts: overview.accounts,
             trees: overview.trees,
             visits: overview.visits,
             devices: try loadLocalAccountConfiguration().devices,

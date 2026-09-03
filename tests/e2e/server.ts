@@ -99,7 +99,7 @@ await saveCurrentDeviceID(device);
 const configurationRef = await authorityClient.descriptor(account.account.configuration.id);
 await new CommunityConfigStore().set(host.url, "e2e-owner-token", {
   id: account.account.id,
-  handle: account.account.handle,
+  handle: account.account.handle!,
   profileTree: account.account.profileTree,
   profileURL: account.account.profileURL,
   communityTree: account.account.community.id,

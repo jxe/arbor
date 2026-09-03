@@ -1,7 +1,7 @@
 const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
 
 /** Generate a 128-bit lowercase base32 Arbor identity with the supplied stable prefix. */
-export function generateArborID(prefix: "tr" | "dv" | "ac" | "pa" | "ax" | "up" | "ob"): string {
+export function generateArborID(prefix: "tr" | "dv" | "ac" | "pa" | "pp" | "ax" | "up" | "ob"): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   let bits = 0;
   let value = 0;
@@ -18,6 +18,6 @@ export function generateArborID(prefix: "tr" | "dv" | "ac" | "pa" | "ax" | "up" 
   return `${prefix}_${result}`;
 }
 
-export function isGeneratedArborID(value: string, prefix: "tr" | "dv"): boolean {
+export function isGeneratedArborID(value: string, prefix: "tr" | "dv" | "pp"): boolean {
   return new RegExp(`^${prefix}_[a-z2-7]{26}$`).test(value);
 }

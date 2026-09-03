@@ -87,7 +87,7 @@ describe("updates-v1 JSON identity", () => {
       objects: [],
     })).toThrow("base update id or null");
     const activation = decodeUpdateRequestJSON({ base: null, candidate: fixtures.identity.candidate,
-      ifMatch: "bytesHash", objects: [] });
+      ifMatch: "bytesHash", objects: [], deltas: [] });
     expect(activation.base).toBeNull();
     expect(activation.deltas).toEqual([]);
     expect(() => decodeUpdateRequestJSON({

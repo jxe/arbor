@@ -55,7 +55,7 @@ export class AccessControl {
   canRead(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
     const tree = this.host.tree(treeID);
     if (!tree) return false;
-    if (tree.policy === "account-config-v1") return account?.id === tree.accountID;
+    if (tree.policy.startsWith("account-config-")) return account?.id === tree.accountID;
     if (account && tree.accountID === account.id) return true;
     if (tree.publicAccess === "read" || tree.publicAccess === "write") return true;
     if (linkDigest && this.subjectAccess("link", linkDigest, treeID) !== "none") return true;
@@ -65,7 +65,7 @@ export class AccessControl {
   canWrite(account: CanopyAccount | null, treeID: string, linkDigest?: string): boolean {
     const tree = this.host.tree(treeID);
     if (!tree) return false;
-    if (tree.policy === "account-config-v1") return account?.id === tree.accountID;
+    if (tree.policy.startsWith("account-config-")) return account?.id === tree.accountID;
     if (account && tree.accountID === account.id) return true;
     if (linkDigest && this.subjectAccess("link", linkDigest, treeID) === "write") return true;
     if (!account) return tree.publicAccess === "write";
@@ -75,7 +75,7 @@ export class AccessControl {
   canAdminister(account: CanopyAccount, treeID: string): boolean {
     const tree = this.host.tree(treeID);
     if (!tree || !account.profileTree) return false;
-    if (tree.policy === "account-config-v1") return tree.accountID === account.id;
+    if (tree.policy.startsWith("account-config-")) return tree.accountID === account.id;
     if (tree.accountID === account.id) return true;
     if (tree.id === account.profileTree) return true;
     return this.subjectAccess("profile", account.profileTree, treeID) === "write";

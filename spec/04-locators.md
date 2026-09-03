@@ -13,8 +13,8 @@ Portable Arbor content uses these locator forms:
 arbor://<TreeID>/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
 ./relative/tree/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
 /tree-rooted/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-https://community.example/~profile/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
-arbor://community.example/~profile/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+https://canopy.example/~handle/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
+arbor://canopy.example/~handle/path[;arbor-key=<base64url-key>][;arbor-rev=sha256:<root>][?application-query][#content-fragment]
 ```
 
 `arbor://<TreeID>/...` directly names the primary tree identity plus a logical
@@ -36,6 +36,15 @@ canonical resolver returns the selected Canopy origin, the `TreeID` selected by
 its longest readable registered boundary, the decoded logical path remainder, optional
 immutable revision, access, and enough server provenance to perform a permitted
 operation.
+
+The current Canopy's first `~handle` segment is an account-policy name, not a
+profile identifier or a requirement of Arbor locators. Another Canopy may
+allocate account and canonical paths differently. The same handle at two
+Canopies implies no relationship, and one profile `TreeID` may be associated
+with differently shaped account locators at several Canopies. Conversely,
+`/~handle` may identify an account that has not yet hosted its profile tree.
+Profile identity equality comes only from the profile `TreeID` recorded by the
+account, never from a handle or canonical URL.
 
 Every successfully resolved node locator yields the same information:
 
@@ -168,6 +177,12 @@ and returns its TreeID plus the remaining logical path and optional stable key.
 URL nesting does not imply common storage, history, ownership, or access: if
 one tree is canonical at `/~alice` and another at `/~alice/atlas`, the latter
 boundary wins below it.
+
+Canopy policy assigns each registered canonical boundary to the account allowed
+to declare it. In the current Canopy, boundaries under `/~handle` belong to that
+local account locator. The account locator may exist without a registered tree
+at exactly `/~handle`; longest-boundary lookup can still resolve declared trees
+below it. This allocation rule is not part of the portable locator grammar.
 
 Canonical placement is mutable naming. Changing the Canopy's DNS name, moving
 a registered boundary, or renaming a node changes canonical URLs without

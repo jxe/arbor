@@ -131,7 +131,8 @@ public struct WireAccountDescriptor: Codable, Sendable, Equatable {
     }
 
     public var id: String
-    public var handle: String
+    /// Optional Canopy-specific presentation hint; never account identity.
+    public var handle: String?
     public var profileTree: String?
     public var profileURL: String?
     public var community: WireTreeDescriptor
@@ -513,7 +514,7 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         update = try values.decode(WireAcceptedUpdate.self, forKey: .update)
         objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
-        deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas) ?? []
+        deltas = try values.decode([WireObjectDelta].self, forKey: .deltas)
         requestDigest = try values.decodeIfPresent(String.self, forKey: .requestDigest)
         _ = try validated()
     }
@@ -604,8 +605,7 @@ public struct WireUpdateRequest: Codable, Sendable, Equatable {
             throw ArborWireValidationError.invalidValue("Activation matches on bytesHash")
         }
         objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
-        // Temporary input-only compatibility with senders predating required empty arrays.
-        deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas) ?? []
+        deltas = try values.decode([WireObjectDelta].self, forKey: .deltas)
         if base == nil, !deltas.isEmpty {
             throw ArborWireValidationError.invalidValue("Activation has no base to apply deltas against")
         }
@@ -676,8 +676,7 @@ public struct WireTransitionPayload: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
-        // Temporary input-only compatibility with senders predating required empty arrays.
-        deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas) ?? []
+        deltas = try values.decode([WireObjectDelta].self, forKey: .deltas)
         _ = try validated()
     }
 
@@ -724,8 +723,7 @@ public struct WireConflictDraft: Codable, Sendable, Equatable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         root = try values.decode(String.self, forKey: .root)
         objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
-        // Temporary input-only compatibility with senders predating required empty arrays.
-        deltas = try values.decodeIfPresent([WireObjectDelta].self, forKey: .deltas) ?? []
+        deltas = try values.decode([WireObjectDelta].self, forKey: .deltas)
     }
 
     public func encode(to encoder: Encoder) throws {

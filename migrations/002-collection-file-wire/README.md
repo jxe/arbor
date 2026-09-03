@@ -1,7 +1,8 @@
 # 002: collection-file Wire descriptors
 
 **Status:** live Canopy and Mac cutover completed on 2026-09-02. The iPhone
-build/re-placement check and two-week backup cleanup remain.
+build/re-placement check was user-confirmed complete on 2026-09-03, and the
+temporary decoder tolerance was removed the same day. Two-week backup cleanup remains.
 
 ## What changes on disk
 

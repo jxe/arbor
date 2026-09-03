@@ -47,6 +47,19 @@ async function context(client: ArborSyncRESTClient) {
 }
 
 export async function configurationStatus(client: ArborSyncRESTClient) {
+  const accounts = (await client.accounts()).accounts;
+  if (accounts.length) {
+    const account = accounts[0]!;
+    return {
+      configured: true,
+      credentialAvailable: account.credentialAvailable,
+      ...(account.canopy ? { origin: account.canopy, communityURL: `arbor://${new URL(account.canopy).host}/` } : {}),
+      ...(account.handle ? { handle: account.handle } : {}),
+      ...(account.profileTree ? { profileTree: account.profileTree } : {}),
+      ...(account.canopy && account.handle ? { profileURL: `${account.canopy}/~${account.handle}` } : {}),
+      configurationTree: account.configurationTree,
+    };
+  }
   const { account, community, configuration } = await context(client);
   return {
     configured: true,

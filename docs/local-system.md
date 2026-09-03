@@ -4,21 +4,38 @@ This document records replaceable local filesystem, daemon-state, and credential
 
 ## Data home
 
-The reference implementation uses `${ARBOR_DATA_HOME:-~/.arbor}` as one isolated configuration checkout, private-state root, and credential namespace:
+The reference implementation uses `${ARBOR_DATA_HOME:-~/.arbor}` as one
+private-state and credential namespace containing several account checkouts:
 
 ```text
 ${ARBOR_DATA_HOME:-~/.arbor}/
-  account.yaml
-  trees.yaml
-  devices/
-    <DeviceID>.yaml
+  placements.yaml
+  accounts/
+    <ConfigurationTreeID>/
+      account.yaml
+      trees.yaml
+      devices.yaml
   .state/
     ...private arborsync state...
 ```
 
-The directory above `.state` is the checkout of the account-configuration tree. `.state` is excluded from discovery, recursive watching, indexing, snapshots, synchronization, and deletion. The current implementation stores refs, pending updates, conflicts, pathless replicas, indexes, journals, caches, visits, recovery data, credential references, diagnostics, and migration backups beneath it. Those private names and layouts may change.
+Each directory under `accounts/` is the source-preserving checkout of the
+configuration tree named by that directory. `placements.yaml` is local-only
+and groups absolute filesystem paths by configuration TreeID. The root-level
+v1 `account.yaml`, `trees.yaml`, and `devices/` shape remains only behind a
+named singleton compatibility adapter until the offline migration.
 
-Raw credentials use the platform credential facility where available and are scoped to the selected data home. Other implementations may use an equivalent secret facility, but no raw credential or access-link secret belongs in synchronized configuration or authored trees.
+`.state` is excluded from discovery, recursive watching, indexing, snapshots,
+synchronization, and deletion. The current implementation stores refs, pending
+updates, conflicts, managed replicas, indexes, journals, caches, visits,
+recovery data, account-keyed credential references, diagnostics, and migration
+backups beneath it. Those private names and layouts may change.
+
+Raw credentials use the platform credential facility where available and are
+scoped by the selected data home and configuration TreeID. Origin alone is not
+a credential key because two accounts may use one Canopy. Other
+implementations may use an equivalent secret facility, but no raw credential
+or access-link secret belongs in synchronized configuration or authored trees.
 
 ## Daemon supervision
 
@@ -28,7 +45,13 @@ macOS implements this contract as the per-user launchd label `org.nxhx.Arbor.arb
 
 ## Watching and local activation
 
-Arbor Sync watches `account.yaml`, `trees.yaml`, and `devices/*.yaml`. A valid direct edit is synchronized as an ordinary account-tree change. An invalid candidate leaves the last fully valid configuration active and creates a safe diagnostic. Arbor-authored edits preserve unrelated comments and mapping order and replace files atomically.
+Arbor Sync watches every `accounts/<ConfigurationTreeID>/` checkout and the
+local `placements.yaml` independently. A valid account edit is synchronized as
+an ordinary account-tree change. An invalid candidate leaves that account's
+last fully valid projection active without removing other accounts; an invalid
+placement file likewise retains the last valid placement projection. Both
+produce safe diagnostics. The v1 watcher remains inside the removable
+singleton adapter.
 
 A declared placement may sit beneath the data home as a separate mounted tree. Local discovery, watching, indexing, snapshots, pushes, pulls, and deletion stop at every mounted tree root. Removing a placement stops replication without deleting its files or remote identity.
 
@@ -40,4 +63,9 @@ Opening an unplaced remote locator may create a transient read-only visit and cr
 
 ## Migration
 
-The alpha implementation moved legacy caches, rehearsal state, Finder metadata, registries, journals, and recovery data beneath `.state` without moving declared authored-tree placements. Future migrations are implementation operations and do not alter the synchronized configuration format.
+The alpha implementation moved legacy caches, rehearsal state, Finder
+metadata, registries, journals, and recovery data beneath `.state` without
+moving declared authored-tree placements. The pending account-layout cutover is
+an explicit offline migration artifact: it converts the synchronized v1 graph
+to v2 and extracts OS paths into local `placements.yaml`; startup never performs
+that conversion implicitly.

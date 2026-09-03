@@ -237,12 +237,14 @@ describe("REST v1 protocol fixtures", () => {
     };
     const intents = await conformanceJSON<{ version: number; replayCases: Array<{ name: string }> }>("wire-update-intent.json");
     expect([...registry.valid, ...registry.invalid, ...registry.behavior].map((item) => item.name)).toEqual(expect.arrayContaining([
-      "filesystem-placement",
-      "pathless-replica-and-link-rule",
+      "flat-account-graph",
+      "same-profile-second-canopy",
+      "same-origin-distinct-account",
       "duplicate-key",
-      "unknown-field",
-      "invalid-edit-retains-last-valid",
-      "removing-placement-preserves",
+      "handle-in-portable-account",
+      "invalid-account-retains-last-valid-account",
+      "invalid-placements-retains-last-valid-local-projection",
+      "unplacing-preserves",
     ]));
     expect(endpoints.cases.map((item) => item.name)).toEqual([
       "read-ref",

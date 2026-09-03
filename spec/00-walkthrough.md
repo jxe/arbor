@@ -6,29 +6,43 @@ let Alice follow it from her own laptop, add a small database to it, and put a
 page in front of that database. Each step below is one specification concept
 meeting the previous one.
 
-## 1. Claim a profile
+## 1. Create a profile identity and claim an account
 
-The Canopy reserves the handle `joe`. Joe's laptop generates a profile `TreeID`,
-an account-configuration `TreeID`, a `DeviceID`, and a raw device credential
-that never leaves the machine. It sends `PUT /.arbor/claims/joe` with the
-credential's digest, an initial profile snapshot whose root document says
-`type: person`, and a complete initial configuration snapshot: `account.yaml`,
-`trees.yaml`, and `devices/<DeviceID>.yaml`. The server creates all of it in
-one transaction and makes the laptop the first administrator
-([accounts §1.1](05-accounts-and-devices.md#11-profile-claim), [profiles](05-accounts-and-devices.md#1-accounts-and-profiles),
-[configuration graph](05-accounts-and-devices.md#2-configuration-graph)).
+Joe creates a local profile folder whose root document says `type: person`.
+When Arbor first opens it, the laptop generates and durably records its
+`TreeID`; the identity exists before any Canopy account or canonical URL. The
+Garden community's structured members list reserves `handle: joe`. The field
+is local Canopy policy, so it repeats neither Garden's DNS name nor an `arbor:`
+scheme and does not prescribe that locator shape to other Canopies.
+
+The laptop then generates an account-configuration `TreeID`, a `DeviceID`, and
+a raw device credential that never leaves the machine. It sends
+`PUT /.arbor/accounts` with the complete account locator, credential digest,
+the already-existing profile `TreeID`, and an initial configuration snapshot:
+`account.yaml`, `trees.yaml`, and `devices.yaml`. The flat account file contains
+only the Garden origin and profile `TreeID`; the devices map marks the laptop as
+the first administrator. The server creates the account and configuration in
+one transaction, but receives no profile bytes and does not host the profile
+([accounts §1.1](05-accounts-and-devices.md#11-creating-identity-and-claiming-an-account), [profiles and accounts](05-accounts-and-devices.md#1-profiles-and-canopy-accounts),
+[configuration graph](05-accounts-and-devices.md#2-account-configuration-graph)).
 
 ## 2. Declare a tree
 
-Joe has an ordinary folder, `~/projects/atlas`. The laptop generates a fresh
-`tr_…` identifier, adds it to `trees.yaml` with `canonicalPath: "/~joe/atlas"`
-and an `everyone: read` rule, and adds a placement pointing at the folder to
-its own device file. It submits the changed configuration tree as a candidate
-against the last accepted configuration update. The server validates the
-candidate under the `account-config-v1` policy and reserves the tree; nothing
-is readable yet ([configuration YAML](05-accounts-and-devices.md#3-configuration-yaml),
-[accounts §6](05-accounts-and-devices.md#6-governed-account-tree),
-[accounts §5](05-accounts-and-devices.md#5-declaring-and-activating-a-tree)).
+Joe first adds his profile's existing `TreeID` to `trees.yaml` at
+`https://garden.example/~joe` and activates it with the ordinary `base: null`
+update described below. The local identity now has a canonical URL; account
+claiming did not give it one by itself.
+
+Joe also has an ordinary folder, `~/projects/atlas`. The laptop generates a fresh
+`tr_…` identifier, adds it directly to `trees.yaml` with
+`canonical: "https://garden.example/~joe/atlas"` and an `everyone: read` rule,
+and records the local folder separately in `~/.arbor/placements.yaml`. It
+submits only the changed configuration tree as a candidate against the last
+accepted configuration update. The server validates the candidate under the
+`account-config-v2` policy and reserves the tree; nothing is readable yet
+([configuration YAML](05-accounts-and-devices.md#3-configuration-yaml),
+[accounts §7](05-accounts-and-devices.md#7-governed-account-tree),
+[accounts §6](05-accounts-and-devices.md#6-declaring-and-activating-a-tree)).
 
 ## 3. Activate it
 
@@ -129,9 +143,10 @@ retry with the same `mutationID` returns the original receipt and does nothing
 twice ([mutations](08-executable-documents.md#5-mutations),
 [executable documents §12.2](08-executable-documents.md#122-execute-named-mutations), [actions](09-authoring-api.md#4-actions-and-forms)).
 
-## 9. Rename the canonical path
+## 9. Rename the canonical URL
 
-Joe changes `canonicalPath` to `/~joe/atlas-2026` in `trees.yaml`. The
+Joe changes `canonical` to `https://garden.example/~joe/atlas-2026` in
+`trees.yaml`. The
 `TreeID`, every stable key, every object, and the accepted history are
 unchanged; only the secondary lookup moved. `arbor://tr_…/practices/walking;arbor-key=…`
 still resolves, and Alice's placement keeps following the same tree

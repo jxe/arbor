@@ -50,6 +50,28 @@ public struct FileRead: Sendable, Equatable {
     public var revision: String
 }
 
+public struct LocalCanopyAccountDescriptor: Codable, Sendable, Equatable, Identifiable {
+    public struct Diagnostic: Codable, Sendable, Equatable {
+        public var code: String
+        public var message: String
+        public var path: String
+        public var severity: String
+    }
+
+    public var configurationTree: String
+    public var canopy: String?
+    public var handle: String?
+    public var profileTree: String?
+    public var deviceID: String?
+    public var credentialAvailable: Bool
+    public var diagnostics: [Diagnostic]
+    public var id: String { configurationTree }
+}
+
+private struct LocalCanopyAccountsEnvelope: Codable {
+    var accounts: [LocalCanopyAccountDescriptor]
+}
+
 public actor ArborSyncRESTClient {
     public typealias MutationIDGenerator = @Sendable () -> String
     public typealias RetryDelay = @Sendable (_ attempt: Int) async throws -> Void
@@ -92,6 +114,11 @@ public actor ArborSyncRESTClient {
         try await get(path: "/v1/trees", items: [])
     }
 
+    public func accounts() async throws -> [LocalCanopyAccountDescriptor] {
+        let value: LocalCanopyAccountsEnvelope = try await get(path: "/v1/accounts", items: [])
+        return value.accounts
+    }
+
     public func resolve(_ locator: String) async throws -> LocatorResolution {
         try await get(path: "/v1/resolve", items: [URLQueryItem(name: "locator", value: locator)])
     }
@@ -103,9 +130,14 @@ public actor ArborSyncRESTClient {
         return generated.id
     }
 
-    public func createCommunityPairing() async throws -> WirePairingOffer {
+    public func createCommunityPairing(configurationTree: String? = nil) async throws -> WirePairingOffer {
         var request = URLRequest(url: url("/v1/bootstrap/pairings"))
         request.httpMethod = "POST"
+        if let configurationTree {
+            struct Request: Encodable { var configurationTree: String }
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try encoder.encode(Request(configurationTree: configurationTree))
+        }
         return try await perform(request)
     }
 
