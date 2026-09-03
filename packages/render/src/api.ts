@@ -76,8 +76,8 @@ function makeApi(tree: TreeRef = "local") {
     configure: (operation: ConfigurationAction) => applyConfigurationAction(client, operation),
     configurationStatus: () => configurationStatus(client),
     configurationAccess: (treeID: string) => configurationAccessEntries(client, treeID),
-    activeDevices: () => activeDevices(client),
-    revokeDevice: (id: string) => revokeActiveDevice(client, id),
+    activeDevices: (configurationTree: string) => activeDevices(client, configurationTree),
+    revokeDevice: (configurationTree: string, id: string) => revokeActiveDevice(client, configurationTree, id),
     write: async (
       ref: string | NodeRef,
       body: {

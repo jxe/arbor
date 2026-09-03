@@ -276,6 +276,7 @@ export function App() {
     communityURL?: string;
   }>({ configured: false, credentialAvailable: false });
   const [accounts, setAccounts] = useState<LocalCanopyAccountDescriptor[]>([]);
+  const [selectedAccountTree, setSelectedAccountTree] = useState<string | null>(null);
   const [treeControl, setTreeControl] = useState<{ path: string; tree?: TreeDescriptor } | null>(null);
   const [treeSlug, setTreeSlug] = useState("");
   const [remoteLocation, setRemoteLocation] = useState<RemoteLocation | null>(launchedRemoteLocation);
@@ -303,6 +304,20 @@ export function App() {
   const pendingRef = useRef<NodeRef | null>(null);
   const sidebarRequest = useRef(0);
   const systemRequest = useRef(0);
+  const claimTarget = reservedProfileTarget(claimURL);
+  const claimedTargetAccount = claimTarget
+    ? accounts.find((account) => account.canopy === claimTarget.origin && account.handle === claimTarget.handle)
+    : undefined;
+  const selectedAccount = accounts.find((account) => account.configurationTree === selectedAccountTree)
+    ?? claimedTargetAccount
+    ?? accounts[0]
+    ?? null;
+  const selectedCommunityURL = selectedAccount?.canopy
+    ? `arbor://${new URL(selectedAccount.canopy).host}/`
+    : null;
+  const selectedProfileURL = selectedAccount?.canopy && selectedAccount.handle
+    ? `${selectedAccount.canopy}/~${selectedAccount.handle}`
+    : null;
   const refreshSystem = useCallback(async () => {
     const request = ++systemRequest.current;
     try {
@@ -363,11 +378,14 @@ export function App() {
   }, []);
   useEffect(() => { void refreshSystem(); }, [refreshSystem]);
   useEffect(() => {
-    if (!profileOpen || accounts.length !== 1 || !server.configured || !server.credentialAvailable) return;
-    void api.activeDevices()
+    if (!profileOpen || !selectedAccount?.credentialAvailable) {
+      setDevices([]);
+      return;
+    }
+    void api.activeDevices(selectedAccount.configurationTree)
       .then(setDevices)
       .catch((error) => setError(error instanceof Error ? error.message : String(error)));
-  }, [accounts.length, profileOpen, server.configured, server.credentialAvailable]);
+  }, [profileOpen, selectedAccount]);
   useEffect(() => {
     if (!remoteLocation || remoteLocation.claimable) {
       setRemoteNode(null);
@@ -943,7 +961,7 @@ export function App() {
     }
   }, [refreshSystem]);
 
-  const createDevicePairing = useCallback(async (account: LocalCanopyAccountDescriptor = accounts[0]!) => {
+  const createDevicePairing = useCallback(async (account: LocalCanopyAccountDescriptor) => {
     if (!account) return;
     try {
       setDeviceBusy(true);
@@ -954,21 +972,22 @@ export function App() {
     } finally {
       setDeviceBusy(false);
     }
-  }, [accounts]);
+  }, []);
 
   const revokeDevice = useCallback(async (device: CommunityDevice) => {
     if (!confirm(`Revoke ${device.label}? That device will immediately lose server access.`)) return;
     try {
       setDeviceBusy(true);
       setError(null);
-      await api.revokeDevice(device.id);
+      if (!selectedAccount) throw new Error("Choose the Canopy account whose device should be revoked");
+      await api.revokeDevice(selectedAccount.configurationTree, device.id);
       setDevices((current) => current.filter((item) => item.id !== device.id));
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     } finally {
       setDeviceBusy(false);
     }
-  }, []);
+  }, [selectedAccount]);
 
   const placeRemoteTree = useCallback(async (tree: TreeDescriptor) => {
     const destination = prompt(`Where should ${tree.name} live on this machine?`, home ? `${home}/${tree.name}` : "");
@@ -1302,35 +1321,60 @@ export function App() {
       <div className="tree-control-heading">
         <div>
           <span className="eyebrow">Community account</span>
-          <h2>{server.handle ? `~${server.handle}` : reservedProfileTarget(claimURL) ? `Claim ~${reservedProfileTarget(claimURL)!.handle}` : "No active profile"}</h2>
+          <h2>{claimTarget && !claimedTargetAccount
+            ? `Claim ~${claimTarget.handle}`
+            : selectedAccount?.handle ? `~${selectedAccount.handle}` : "No active profile"}</h2>
         </div>
         <button className="modal-close" aria-label="Close" onClick={() => setProfileOpen(false)}>×</button>
       </div>
-      {server.configured ? <>
-        <div className="canonical-addresses">
-          {server.communityURL && <div><span>Community</span><a href={server.communityURL.replace(/^arbor:/, location.protocol)} target="_blank" rel="noreferrer">{server.communityURL}</a></div>}
-          {server.profileURL && <div><span>Profile</span><code>{server.profileURL}</code><button onClick={() => void navigator.clipboard.writeText(server.profileURL!)}>Copy</button></div>}
+      {claimTarget && !claimedTargetAccount ? <>
+        <p className="tree-control-intro">Choose the existing local profile that should identify this additional Canopy account.</p>
+        <label className="control-field"><span>Local profile folder</span><input autoFocus placeholder="~/.arbor/profile" value={claimPath} onChange={(event) => setClaimPath(event.target.value)} /></label>
+        {error && <p className="control-error" role="alert">{error}</p>}
+        <div className="modal-actions">
+          <button className="primary" disabled={treeBusy || !claimPath.trim()} onClick={() => void claimProfile()}>{treeBusy ? "Claiming…" : "Claim account"}</button>
         </div>
-        <p className="tree-control-intro">Your public profile is a complete tree. Writable community, profile, and group namespaces appear here and on Arbor’s home screen.</p>
-        {!server.credentialAvailable && server.origin && <p className="control-error" role="alert">This device’s credential is unavailable. Pair this device again from an active administrator device.</p>}
-        {server.credentialAvailable && <section className="access-builder" aria-labelledby="device-management-title">
+      </> : selectedAccount ? <>
+        {accounts.length > 1 && <label className="control-field">
+          <span>Canopy account</span>
+          <select value={selectedAccount.configurationTree} onChange={(event) => {
+            setSelectedAccountTree(event.target.value);
+            setDevices([]);
+            setPairing(null);
+            setError(null);
+          }}>
+            {accounts.map((account) => <option key={account.configurationTree} value={account.configurationTree}>
+              {account.handle ? `~${account.handle} · ` : ""}{account.canopy ?? account.configurationTree}
+            </option>)}
+          </select>
+        </label>}
+        <div className="canonical-addresses">
+          {selectedCommunityURL && <div><span>Community</span><a href={selectedCommunityURL.replace(/^arbor:/, location.protocol)} target="_blank" rel="noreferrer">{selectedCommunityURL}</a></div>}
+          {selectedProfileURL && <div><span>Account</span><code>{selectedProfileURL}</code><button onClick={() => void navigator.clipboard.writeText(selectedProfileURL)}>Copy</button></div>}
+          <div><span>Profile</span><code>arbor://{selectedAccount.profileTree ?? "not-linked"}</code><button disabled={!selectedAccount.profileTree} onClick={() => selectedAccount.profileTree && void navigator.clipboard.writeText(`arbor://${selectedAccount.profileTree}`)}>Copy</button></div>
+        </div>
+        <p className="tree-control-intro">This hosting account is linked to your primary profile identity. Its writable namespaces appear here and on Arbor’s home screen.</p>
+        {selectedAccount.diagnostics.map((diagnostic) => <p className="control-error" role="alert" key={`${diagnostic.code}:${diagnostic.path}`}>{diagnostic.message}</p>)}
+        {!selectedAccount.credentialAvailable && selectedAccount.canopy && <p className="control-error" role="alert">This device’s credential is unavailable. Pair this device again from an active administrator device.</p>}
+        {error && <p className="control-error" role="alert">{error}</p>}
+        {selectedAccount.credentialAvailable && <section className="access-builder" aria-labelledby="device-management-title">
           <div className="access-builder-heading">
             <div><h3 id="device-management-title">Devices</h3><p>Each paired device has its own revocable credential.</p></div>
-            <button disabled={deviceBusy} onClick={() => void createDevicePairing()}>Pair a device</button>
+            <button disabled={deviceBusy} onClick={() => void createDevicePairing(selectedAccount)}>Pair a device</button>
           </div>
           {devices.map((device) => <div className="access-rule" key={device.id}>
             <span className="access-subject"><strong>{device.label}</strong><small>{device.revokedAt ? "Revoked" : device.lastUsedAt ? `Last used ${new Date(device.lastUsedAt).toLocaleString()}` : `Added ${new Date(device.createdAt).toLocaleString()}`}</small></span>
             <span className="access-permission">{device.revokedAt ? "No access" : "Active"}</span>
             {!device.revokedAt && <button className="access-remove" disabled={deviceBusy} aria-label={`Revoke ${device.label}`} onClick={() => void revokeDevice(device)}>×</button>}
           </div>)}
-          {pairing && server.origin && <div className="url-preview">
+          {pairing && pairing.account.configurationTree === selectedAccount.configurationTree && pairing.account.canopy && <div className="url-preview">
             <strong>Confirmation code: {pairing.offer.confirmationCode}</strong>
             <small>Expires {new Date(pairing.offer.expiresAt).toLocaleString()}. Confirm the same code on the new device.</small>
-            <button onClick={() => void navigator.clipboard.writeText(JSON.stringify({ version: 1, origin: server.origin, pairing: { id: pairing.offer.id, secret: pairing.offer.secret } }))}>Copy pairing data</button>
+            <button onClick={() => void navigator.clipboard.writeText(JSON.stringify({ version: 1, origin: pairing.account.canopy, pairing: { id: pairing.offer.id, secret: pairing.offer.secret } }))}>Copy pairing data</button>
             <button className="quiet" onClick={() => setPairing(null)}>Hide</button>
           </div>}
         </section>}
-        {trees.filter((tree) => tree.access === "write" && (tree.canonical?.path === "/" || tree.canonical?.path?.startsWith("/~"))).map((tree) =>
+        {trees.filter((tree) => tree.configurationTree === selectedAccount.configurationTree && tree.access === "write" && (tree.canonical?.path === "/" || tree.canonical?.path?.startsWith("/~"))).map((tree) =>
           <button className="profile-namespace" key={tree.id} onClick={() => {
             if (tree.osPath) navigate(tree.osPath);
             else void placeRemoteTree(tree);
@@ -1341,15 +1385,8 @@ export function App() {
           </button>
         )}
         <div className="modal-actions">
-          <button className="quiet danger" onClick={() => void disconnectCommunity()}>Disconnect</button>
-          {server.profileURL && <a className="primary link-button" href={server.profileURL.replace(/^arbor:/, location.protocol)} target="_blank" rel="noreferrer">View public profile</a>}
-        </div>
-      </> : claimURL ? <>
-        <p className="tree-control-intro">Choose where this public profile should live on this device. Arbor will create the folder if it does not exist.</p>
-        <label className="control-field"><span>Local profile folder</span><input autoFocus placeholder="~/.arbor/profile" value={claimPath} onChange={(event) => setClaimPath(event.target.value)} /></label>
-        {error && <p className="control-error" role="alert">{error}</p>}
-        <div className="modal-actions">
-          <button className="primary" disabled={treeBusy || !claimPath.trim()} onClick={() => void claimProfile()}>{treeBusy ? "Claiming…" : "Claim profile"}</button>
+          {accounts.length === 1 && <button className="quiet danger" onClick={() => void disconnectCommunity()}>Disconnect</button>}
+          {selectedProfileURL && <a className="primary link-button" href={selectedProfileURL} target="_blank" rel="noreferrer">View account</a>}
         </div>
       </> : <p className="tree-control-intro">No profile is active on this device. Browse a reserved profile address to claim it.</p>}
     </section></div>}

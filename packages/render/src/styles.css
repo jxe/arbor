@@ -1107,7 +1107,7 @@ td input { width: 100%; min-width: 120px; border: 0; background: transparent; co
 .tree-control-intro { color: var(--arbor-muted); line-height: 1.5; }
 .control-field { display: grid; gap: 6px; margin-top: 16px; font-size: 13px; }
 .control-field > span { font-weight: 600; }
-.control-field input {
+.control-field input, .control-field select {
   min-width: 0;
   padding: 9px 10px;
   border: 1px solid var(--arbor-border);

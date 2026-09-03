@@ -200,9 +200,15 @@ export async function applyConfigurationAction(client: ArborSyncRESTClient, acti
   });
 }
 
-export async function activeDevices(client: ArborSyncRESTClient): Promise<ActiveDevice[]> {
-  const { tree } = await context(client);
-  const children = await client.allChildren({ tree, path: "/devices", stableKey: null });
+export async function activeDevices(client: ArborSyncRESTClient, configurationTree: string): Promise<ActiveDevice[]> {
+  const tree = configurationTree;
+  let children;
+  try {
+    children = await client.allChildren({ tree, path: "/devices", stableKey: null });
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "status" in error && error.status === 404) return [];
+    throw error;
+  }
   return Promise.all(children.filter((child) => child.name.startsWith("dv_")).map(async (child) => {
     const file = await client.file(child.ref);
     const value = parseDocument(new TextDecoder().decode(file.bytes), { uniqueKeys: true }).toJS() as { label?: unknown };
@@ -216,7 +222,6 @@ export async function activeDevices(client: ArborSyncRESTClient): Promise<Active
   }));
 }
 
-export async function revokeActiveDevice(client: ArborSyncRESTClient, id: string): Promise<void> {
-  const { tree } = await context(client);
-  await client.mutateStructural([{ op: "trash", refs: [{ tree, path: `/devices/${id}.yaml`, stableKey: null }] }]);
+export async function revokeActiveDevice(client: ArborSyncRESTClient, configurationTree: string, id: string): Promise<void> {
+  await client.mutateStructural([{ op: "trash", refs: [{ tree: configurationTree, path: `/devices/${id}.yaml`, stableKey: null }] }]);
 }
