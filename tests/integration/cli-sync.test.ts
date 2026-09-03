@@ -60,7 +60,7 @@ async function canopyFailure(args: string[], env: Record<string, string>): Promi
   return stderr;
 }
 
-async function source(name: string, contents = "# CLI sync\n"): Promise<string> {
+async function source(name: string, contents = "# CLI place\n"): Promise<string> {
   const path = join(sandbox, name);
   await mkdir(path);
   await writeFile(join(path, "note.md"), contents);
@@ -106,15 +106,15 @@ afterAll(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
-describe("plural-account CLI sync", () => {
+describe("plural-account CLI place", () => {
   test("selects the account that owns each canonical namespace", async () => {
     const firstSource = await source("first-source", "# First\n");
     const secondSource = await source("second-source", "# Second\n");
     const firstCanonical = `${firstCanopy.url}/~alice/notes`;
     const secondCanonical = `${secondCanopy.url}/~joe/notes`;
 
-    expect(await arbor(["sync", "--access", "public=read", firstSource, firstCanonical])).toContain(firstCanonical);
-    expect(await arbor(["sync", "--access", "public=read", secondSource, secondCanonical])).toContain(secondCanonical);
+    expect(await arbor(["place", "--access", "public=read", firstSource, firstCanonical])).toContain(firstCanonical);
+    expect(await arbor(["place", "--access", "public=read", secondSource, secondCanonical])).toContain(secondCanonical);
 
     const accounts = await loadCanopyAccountConfigurations();
     const placements = (await loadLocalPlacements()).placements;
@@ -130,20 +130,20 @@ describe("plural-account CLI sync", () => {
     const privateSource = await source("private-source", "# Private\n");
     const canonical = `${secondCanopy.url}/~joe/private-notes`;
 
-    const created = await arborOutput(["sync", privateSource, canonical]);
+    const created = await arborOutput(["place", privateSource, canonical]);
     expect(created.stderr).toContain("private access");
     expect(secondCanopy.canopy.boundary("/~joe/private-notes")?.publicAccess).toBe("none");
 
-    await arbor(["sync", "--access", "public=read", privateSource, canonical]);
+    await arbor(["place", "--access", "public=read", privateSource, canonical]);
     expect(secondCanopy.canopy.boundary("/~joe/private-notes")?.publicAccess).toBe("read");
-    const repeated = await arborOutput(["sync", privateSource, canonical]);
+    const repeated = await arborOutput(["place", privateSource, canonical]);
     expect(repeated.stderr).toBe("");
     expect(secondCanopy.canopy.boundary("/~joe/private-notes")?.publicAccess).toBe("read");
   });
 
   test("refuses canonical paths outside every claimed account allocation", async () => {
     const misplaced = await source("misplaced-source");
-    const error = await arborFailure(["sync", misplaced, `${secondCanopy.url}/~someone-else/notes`]);
+    const error = await arborFailure(["place", misplaced, `${secondCanopy.url}/~someone-else/notes`]);
     expect(error).toContain("No claimed Canopy account contains");
   });
 
@@ -151,7 +151,7 @@ describe("plural-account CLI sync", () => {
     const original = await source("remote-source", "# Private remote\n");
     const destination = join(sandbox, "remote-destination");
     const canonical = `${secondCanopy.url}/~joe/private-remote`;
-    await arbor(["sync", original, canonical]);
+    await arbor(["place", original, canonical]);
 
     const accounts = await loadCanopyAccountConfigurations();
     const account = accounts.find((candidate) => candidate.account?.canopy === secondCanopy.url)!;
@@ -163,8 +163,8 @@ describe("plural-account CLI sync", () => {
     await rm(join(state, ".state", "accounts", account.configurationTree, "refs", `${tree}.json`), { force: true });
     await rm(original, { recursive: true });
 
-    expect(await arbor(["sync", canonical, destination])).toContain("(write)");
-    expect(await arbor(["sync", canonical, destination])).toContain("(write)");
+    expect(await arbor(["place", canonical, destination])).toContain("(write)");
+    expect(await arbor(["place", canonical, destination])).toContain("(write)");
     expect(await readFile(join(destination, "note.md"), "utf8")).toBe("# Private remote\n");
     const placedDestination = await realpath(destination);
     expect((await loadLocalPlacements()).placements).toContainEqual({
@@ -177,7 +177,7 @@ describe("plural-account CLI sync", () => {
   test("rejects malformed access assignments before changing configuration", async () => {
     const invalidSource = await source("invalid-source");
     const canonical = `${firstCanopy.url}/~alice/invalid-access`;
-    const error = await arborFailure(["sync", "--access", "public=reader,~editors", invalidSource, canonical]);
+    const error = await arborFailure(["place", "--access", "public=reader,~editors", invalidSource, canonical]);
     expect(error).toContain("Expected subject=read|write|none");
     expect(firstCanopy.canopy.boundary("/~alice/invalid-access")).toBeNull();
   });

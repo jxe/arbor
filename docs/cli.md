@@ -1,7 +1,7 @@
 # Arbor CLI reference
 
-The Arbor CLI opens local or remote trees and connects local folders to a
-Canopy. Most of the time, you only need `arbor open` and `arbor sync`.
+The Arbor CLI opens local or remote trees and places local folders through a
+Canopy. Most of the time, you only need `arbor open` and `arbor place`.
 `arbor daemon` is mainly for one-time setup or troubleshooting; the remaining
 commands handle less common migration and administration work.
 
@@ -20,11 +20,11 @@ arbor open .
 # Browse a remote tree without first placing it locally.
 arbor open https://garden.example/~joe/notes
 
-# Publish a local folder at a canonical Canopy URL and keep it synchronized.
-arbor sync ./notes https://garden.example/~joe/notes
+# Place a local folder at a canonical Canopy URL and keep it synchronized.
+arbor place ./notes https://garden.example/~joe/notes
 
 # Place an existing remote tree in a local folder and keep it synchronized.
-arbor sync https://garden.example/~joe/notes ~/Documents/notes
+arbor place https://garden.example/~joe/notes ~/Documents/notes
 ```
 
 If Arbor Sync is already running, skip `arbor daemon install`. Run `arbor open`
@@ -35,9 +35,9 @@ with no locator to open the current directory.
 - Local paths may be relative on input. Output and persisted placements use
   canonical absolute paths.
 - Canonical tree locations may be HTTPS URLs or `arbor://` locators.
-- `--check` may perform ordinary synchronization needed to establish a clean
-  preflight, but does not apply the requested move or edit placement
-  configuration.
+- `--dry-run` may perform ordinary synchronization needed to establish a clean
+  preflight, but does not apply the requested move or edit placement or
+  canonical configuration.
 - Commands use the persistent Arbor Sync daemon by default. `ARBOR_DATA_HOME`
   selects an isolated data home and runs a temporary foreground Arbor Sync for
   commands that need one. `ARBOR_SYNC_URL` selects an already-running compatible
@@ -63,11 +63,11 @@ arbor open ~/Documents/notes
 arbor open https://garden.example/~joe/notes
 ```
 
-### `arbor sync`
+### `arbor place`
 
 ```text
-arbor sync [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
-arbor sync <canonical-url> <local-path>
+arbor place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
+arbor place <canonical-url> <local-path>
 ```
 
 The local-first form creates or updates a hosted tree declaration and places
@@ -88,8 +88,8 @@ claimed account at a local path. It does not accept audience options. Use
 `arbor open` to browse a tree outside one of your claimed account namespaces.
 
 ```sh
-arbor sync --access public=read ./handbook https://garden.example/~joe/handbook
-arbor sync https://garden.example/~joe/handbook ~/Documents/handbook
+arbor place --access public=read ./handbook https://garden.example/~joe/handbook
+arbor place https://garden.example/~joe/handbook ~/Documents/handbook
 ```
 
 ## Setup and troubleshooting
@@ -107,17 +107,19 @@ Linux and Windows supervision adapters are not implemented.
 
 ## Other commands
 
-These commands are for moving placements and changing Canopies.
+This command moves an exact placed tree in either the local filesystem or its
+canonical Canopy namespace.
 
 ### `arbor mv`
 
 ```text
-arbor mv [--check] <placed-local-root> <new-local-path>
+arbor mv [--dry-run] <placed-local-root> <new-local-path>
+arbor mv [--dry-run] <source-canonical-url> <destination-canonical-url>
 ```
 
-Move one exact plural-layout tree placement on the same filesystem. Arbor Sync
-first requires the tree to be present, writable, clean, and idle. It then closes
-the workspace watcher, renames the directory, atomically changes
+With two local paths, move one exact tree placement on the same filesystem.
+Arbor Sync first requires the tree to be present, writable, clean, and idle. It
+then closes the workspace watcher, renames the directory, atomically changes
 `placements.yaml`, rebinds the existing inode-aware private workspace state,
 and verifies that synchronization returns to idle. The `TreeID`, Canopy,
 canonical URL, ACL, contents, and accepted history do not change.
@@ -131,28 +133,31 @@ and directory rename when possible.
 is an ordinary filesystem operation and is observed by Arbor's watcher.
 
 ```sh
-arbor mv --check ~/Documents/todos-f ~/Documents/todos
+arbor mv --dry-run ~/Documents/todos-f ~/Documents/todos
 arbor mv ~/Documents/todos-f ~/Documents/todos
 ```
 
-### `arbor rehome`
+With two canonical URLs on the same Canopy account, rename the exact canonical
+tree while leaving its local folder, `TreeID`, contents, ACL, and accepted
+history unchanged. With URLs belonging to different claimed Canopy accounts,
+move the placement between those accounts. A cross-Canopy move preserves the
+`TreeID`, current authored snapshot, local path, and ACL, starts a new accepted
+history at the destination, and retains the source Canopy copy and declaration
+for recovery.
 
-```text
-arbor rehome [--check] <local-path|canonical-url|arbor://TreeID> <destination-canonical-url>
-```
-
-Move one present, idle plural-layout tree placement to another already-claimed
-Canopy account. Rehome preserves the `TreeID`, current authored snapshot, local
-path, and ACL, but starts a new accepted history at the destination. The source
-Canopy copy and declaration remain available for recovery.
-
-The current device must administer the destination account. Destination paths
-and TreeIDs must be vacant or agree exactly, and nested placed-tree closures are
-rejected. `rehome` never creates a second simultaneous local writable placement.
+Canonical moves require a present, idle local placement and administrator
+access to the destination account. The destination must be vacant or an exact
+resumable match. Separately placed local or canonical descendants are rejected;
+`mv` never creates two simultaneous writable placements. Mixed local and
+canonical operands are rejected: use `arbor place` to add a local or canonical
+placement.
 
 ```sh
-arbor rehome --check ~/Documents/todos https://arb.example/~joe/todos
-arbor rehome ~/Documents/todos https://arb.example/~joe/todos
+arbor mv --dry-run https://arb.example/~joe/todos-old https://arb.example/~joe/todos
+arbor mv https://arb.example/~joe/todos-old https://arb.example/~joe/todos
+
+arbor mv --dry-run https://old.example/~joe/todos https://arb.example/~joe/todos
+arbor mv https://old.example/~joe/todos https://arb.example/~joe/todos
 ```
 
 ## Related executables

@@ -57,10 +57,10 @@ I have a little CLI tool to manage all this:
 
 ```sh
 # Share Atlas.
-arbor sync ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas
+arbor place ~/workspace/projects/atlas arbor://garden.example.org/~joe/atlas
 
 # Place Alice’s Atlas tree in my workspace.
-arbor sync https://garden.example.org/~alice/atlas ~/workspace/work/atlas
+arbor place https://garden.example.org/~alice/atlas ~/workspace/work/atlas
 ```
 
 **It handles containment.** Firstly, the endless pool of project folders becomes one navigable tree, where everything has a place. You mount a collaborator's tree under `work/`, a public library under `reading/`, an archive off to the side. You can scope an agent to exactly the subtrees its job concerns, and it sees a small tree assembled for it.

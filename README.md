@@ -31,10 +31,10 @@ members:
 # Editors
 ```
 
-Then sync the folder to an available group handle, with the audience options before the locators:
+Then place the folder at an available group handle, with the audience options before the locators:
 
 ```sh
-arbor sync --access public=read ~/groups/editors arbor://garden.example/~editors
+arbor place --access public=read ~/groups/editors arbor://garden.example/~editors
 ```
 
 The folder stays where it is. The CLI obtains a client-generated `TreeID`, edits `trees.yaml` and the current device's `placements`, and initializes the reserved tree from the folder. Its members remain ordinary authored locators, and membership alone does not grant write access to the group tree.

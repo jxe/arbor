@@ -167,7 +167,7 @@ On each client:
 2. Provision its disposable account checkout and device credential through the account pairing flow.
 3. Install `libsecret-1-0`, `gnome-keyring`, and `dbus-x11`, unlock a disposable login keyring inside a D-Bus session, and run one persistent headless arborsync process using `bun run arborsync <content-path>` under systemd. The checked-in runner configures this Secret Service environment for `Bun.secrets` automatically.
 
-Stop the client service before adding a new placement with `arbor sync`, then start it again. This avoids two arborsync processes mutating the same private state while the scenario is being prepared.
+Stop the client service before adding a new placement with `arbor place`, then start it again. This avoids two arborsync processes mutating the same private state while the scenario is being prepared.
 
 ## Test discipline
 

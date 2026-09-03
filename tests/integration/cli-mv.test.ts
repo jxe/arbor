@@ -84,7 +84,7 @@ afterAll(async () => {
 describe("arbor mv", () => {
   test("preflights and moves one idle placed root without changing tree identity or content", async () => {
     const beforeRoot = running.canopy.get(tree)!.ref;
-    const checked = await arbor(["mv", "--check", source, destination]);
+    const checked = await arbor(["mv", "--dry-run", source, destination]);
     expect(checked).toContain(`Would move ${tree}`);
     expect(await readFile(join(source, "todo.md"), "utf8")).toBe("# Keep this\n");
     expect(await stat(destination).then(() => true).catch(() => false)).toBe(false);
@@ -99,5 +99,24 @@ describe("arbor mv", () => {
       tree,
     });
     expect(running.canopy.get(tree)!.ref).toBe(beforeRoot);
+
+    const sourceCanonical = `${running.url}/~joe/todos`;
+    const destinationCanonical = `${running.url}/~joe/tasks`;
+    const account = (await loadCanopyAccountConfigurations())[0]!;
+    const beforeConfiguration = await readFile(join(account.path, "trees.yaml"), "utf8");
+    const canonicalDryRun = await arbor(["mv", "--dry-run", sourceCanonical, destinationCanonical]);
+    expect(canonicalDryRun).toContain(`Would move ${tree}`);
+    expect(await readFile(join(account.path, "trees.yaml"), "utf8")).toBe(beforeConfiguration);
+    expect(running.canopy.get(tree)!.canonicalPath).toBe("/~joe/todos");
+
+    const canonicalMove = await arbor(["mv", sourceCanonical, destinationCanonical]);
+    expect(canonicalMove).toContain(`Moved ${tree}`);
+    expect(running.canopy.get(tree)!.canonicalPath).toBe("/~joe/tasks");
+    expect(running.canopy.get(tree)!.ref).toBe(beforeRoot);
+    expect((await loadLocalPlacements()).placements).toContainEqual({
+      configurationTree: account.configurationTree,
+      path: destination,
+      tree,
+    });
   });
 });

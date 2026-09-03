@@ -92,17 +92,18 @@ afterAll(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
-describe("arbor rehome", () => {
+describe("arbor mv between Canopies", () => {
   test("preflights, preserves identity and current bytes, and switches the local account placement", async () => {
+    const sourceCanonical = `${sourceCanopy.url}/~joe/todos`;
     const destination = `${destinationCanopy.url}/~joe/todos-f`;
     const before = await readFile(join(state, "placements.yaml"), "utf8");
-    const checked = await arbor(["rehome", "--check", source, destination]);
-    expect(checked).toContain(`Would rehome ${tree}`);
+    const checked = await arbor(["mv", "--dry-run", sourceCanonical, destination]);
+    expect(checked).toContain(`Would move ${tree}`);
     expect(await readFile(join(state, "placements.yaml"), "utf8")).toBe(before);
     expect(destinationCanopy.canopy.get(tree)).toBeNull();
 
-    const moved = await arbor(["rehome", source, destination]);
-    expect(moved).toContain(`Rehomed ${tree}`);
+    const moved = await arbor(["mv", sourceCanonical, destination]);
+    expect(moved).toContain(`Moved ${tree}`);
     const placements = await loadLocalPlacements();
     const destinationAccount = (await loadCanopyAccountConfigurations()).find((account) => account.account?.canopy === destinationCanopy.url)!;
     expect(placements.placements).toContainEqual({
@@ -118,7 +119,7 @@ describe("arbor rehome", () => {
       access: [{ subject: { kind: "profile", tree: destinationAccount.account!.profile }, access: "write" }],
     });
 
-    const resumed = await arbor(["rehome", source, destination]);
-    expect(resumed).toContain(`Rehomed ${tree}`);
+    const resumed = await arbor(["mv", sourceCanonical, destination]);
+    expect(resumed).toContain(`Moved ${tree}`);
   });
 });

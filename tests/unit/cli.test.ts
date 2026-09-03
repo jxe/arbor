@@ -23,7 +23,7 @@ describe("arbor open operands", () => {
   });
 
   test("does not dispatch removed legacy and unfinished commands", async () => {
-    for (const command of ["connect", "unsync", "connection"]) {
+    for (const command of ["connect", "unsync", "connection", "sync", "rehome"]) {
       const child = Bun.spawn(["bun", "packages/cli/src/index.ts", command], {
         cwd: join(import.meta.dir, "../.."),
         stdout: "pipe",
@@ -36,6 +36,35 @@ describe("arbor open operands", () => {
       expect(exit).toBe(2);
       expect(stderr).not.toContain(`arbor ${command}`);
     }
+  });
+
+  test("uses --dry-run rather than the removed --check spelling", async () => {
+    const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "mv", "--check", "/tmp/source", "/tmp/destination"], {
+      cwd: join(import.meta.dir, "../.."),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exit, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stderr).text(),
+    ]);
+    expect(exit).toBe(1);
+    expect(stderr).toContain("Unknown mv option: --check");
+  });
+
+  test("rejects mixed local and canonical move operands", async () => {
+    const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "mv", "https://garden.example/~joe/notes", "/tmp/notes"], {
+      cwd: join(import.meta.dir, "../.."),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exit, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stderr).text(),
+    ]);
+    expect(exit).toBe(1);
+    expect(stderr).toContain("requires either two local paths or two canonical URLs");
+    expect(stderr).toContain("arbor place");
   });
 
   test("resolves local filesystem paths", () => {
