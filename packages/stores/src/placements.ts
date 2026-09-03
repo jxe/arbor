@@ -1,5 +1,5 @@
 import { watch, type FSWatcher } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
 import type { Diagnostic, TreeID } from "@arbor/core";
 import { isAlias, isMap, isSeq, parseDocument, type Node } from "yaml";
@@ -78,6 +78,39 @@ export async function loadLocalPlacements(): Promise<LocalPlacementsSnapshot> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { placements: [], source: "", diagnostics: [] };
     throw error;
+  }
+}
+
+/** Atomically replace one exact local placement while preserving YAML style. */
+export async function replaceLocalPlacement(
+  source: LocalPlacement,
+  destination: Pick<LocalPlacement, "configurationTree" | "path">,
+): Promise<void> {
+  const path = placementsFilePath();
+  const original = await readFile(path, "utf8");
+  const document = parseDocument(original, { uniqueKeys: true, keepSourceTokens: true });
+  if (document.errors.length) throw new Error(document.errors[0]!.message);
+  const value = document.toJS({ maxAliasCount: 0 }) as Record<string, Record<string, unknown>>;
+  if (value[source.configurationTree]?.[source.path] !== source.tree) {
+    throw new Error(`Placement changed before update: ${source.path}`);
+  }
+  const parsed = parseLocalPlacements(original);
+  const occupied = parsed.find((placement) =>
+    placement.path === destination.path
+    && (placement.configurationTree !== source.configurationTree || placement.tree !== source.tree)
+  );
+  if (occupied) throw new Error(`Another tree is already placed at ${destination.path}`);
+  document.deleteIn([source.configurationTree, source.path]);
+  if (Object.keys(value[source.configurationTree] ?? {}).length === 1) document.deleteIn([source.configurationTree]);
+  document.setIn([destination.configurationTree, destination.path], source.tree);
+  const next = document.toString({ lineWidth: 0 });
+  parseLocalPlacements(next);
+  const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, next, { mode: 0o600, flag: "wx" });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true }).catch(() => {});
   }
 }
 

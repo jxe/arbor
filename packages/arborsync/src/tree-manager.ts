@@ -1,4 +1,4 @@
-import { mkdir, realpath, stat } from "node:fs/promises";
+import { mkdir, realpath, rename, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { canonicalNodePath, type Diagnostic, type LocalTreeDescriptor } from "@arbor/core";
 import {
@@ -261,6 +261,73 @@ export class TreeManager implements AsyncDisposable {
 
   async refreshConfiguration(): Promise<void> {
     await this.reloadFromDisk();
+  }
+
+  /**
+   * Move one exact placed root while its workspace and registry watcher are
+   * closed. The caller supplies guarded placement-file writes so filesystem
+   * and registry changes can be rolled back together.
+   */
+  async relocatePlacedRoot(
+    input: { tree: string; configurationTree: string; source: string; destination: string },
+    writePlacement: (direction: "forward" | "rollback") => Promise<void>,
+  ): Promise<void> {
+    await this.reloadTail;
+    const root = this.known.get(input.tree);
+    if (
+      !root?.placement
+      || root.placement.configurationTree !== input.configurationTree
+      || root.placement.path !== input.source
+      || root.osPath !== input.source
+      || root.missing
+    ) throw new Error(`Placed root changed before move: ${input.source}`);
+
+    this.stopWatching?.();
+    this.stopWatching = undefined;
+    const open = this.workspaces.get(input.tree);
+    const wasOpen = Boolean(open);
+    const wasSession = this.sessionID === input.tree;
+    let directoryMoved = false;
+    let placementWritten = false;
+    try {
+      if (open) await open[Symbol.asyncDispose]();
+      this.workspaces.delete(input.tree);
+      if (wasSession) this.sessionID = null;
+      await rename(input.source, input.destination);
+      directoryMoved = true;
+      await writePlacement("forward");
+      placementWritten = true;
+      await this.reloadFromDisk();
+      const moved = this.known.get(input.tree);
+      if (!moved?.placement || moved.missing || moved.osPath !== input.destination) {
+        throw new Error(`Moved placement did not bind at ${input.destination}`);
+      }
+      if (wasOpen || wasSession) await this.workspaceByTree(input.tree);
+      if (wasSession) this.sessionID = input.tree;
+    } catch (error) {
+      const rollbackErrors: unknown[] = [];
+      if (placementWritten) {
+        try { await writePlacement("rollback"); }
+        catch (rollbackError) { rollbackErrors.push(rollbackError); }
+      }
+      if (directoryMoved) {
+        try { await rename(input.destination, input.source); }
+        catch (rollbackError) { rollbackErrors.push(rollbackError); }
+      }
+      try {
+        await this.reloadFromDisk();
+        if (wasOpen || wasSession) await this.workspaceByTree(input.tree);
+        if (wasSession) this.sessionID = input.tree;
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+      if (rollbackErrors.length) {
+        throw new AggregateError([error, ...rollbackErrors], `Placed-root move failed and rollback was incomplete: ${input.source}`);
+      }
+      throw error;
+    } finally {
+      await this.restartRegistryWatcher();
+    }
   }
 
   async openSession(path: string, options: Omit<WorkspaceOptions, "events" | "tree" | "tracking"> = {}): Promise<Workspace> {

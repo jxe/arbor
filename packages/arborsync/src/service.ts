@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
-import { join } from "node:path";
+import { lstat, realpath, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import type {
   BacklinksPage,
   ChildrenPage,
@@ -23,6 +24,9 @@ import {
   CommunityConfigStore,
   VisitedTreeStore,
   loadCanopyAccountConfigurations,
+  loadLocalPlacements,
+  replaceLocalPlacement,
+  type LocalPlacement,
   type SharedTreePlacement,
 } from "@arbor/stores";
 import { WireClient, encodeObjectDeltaJSON, encodeWireObject, hashObject, objectDelta, type ObjectDelta, type RemoteTreeDescriptor } from "@arbor/wire";
@@ -83,6 +87,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
   readonly visitedTrees = new VisitedTreeStore();
   private syncTimer?: ReturnType<typeof setInterval>;
   private syncStartupTimer?: ReturnType<typeof setTimeout>;
+  private placementMoving = false;
+  private placementMoveWaiters: Array<() => void> = [];
   private syncing = false;
   private syncRequested = false;
   private syncWaiters: Array<() => void> = [];
@@ -652,8 +658,123 @@ export class ArborSyncDaemon implements AsyncDisposable {
 
   /** Flush a valid file-edited configuration and its resulting tree work before a CLI process exits. */
   async synchronizeNow(): Promise<void> {
+    if (this.placementMoving) await new Promise<void>((resolve) => this.placementMoveWaiters.push(resolve));
     await this.trees.refreshConfiguration();
     await this.syncAll(true);
+  }
+
+  async moveLocalPlacement(input: { source: string; destination: string; check?: boolean }): Promise<{
+    tree: string;
+    configurationTree: string;
+    source: string;
+    destination: string;
+    check: boolean;
+  }> {
+    if (!isAbsolute(input.source) || normalize(input.source) !== input.source) {
+      throw new ProtocolError("invalid-request", "Placement move source must be canonical and absolute", 400);
+    }
+    if (!isAbsolute(input.destination) || normalize(input.destination) !== input.destination) {
+      throw new ProtocolError("invalid-request", "Placement move destination must be normalized and absolute", 400);
+    }
+    await this.synchronizeNow();
+    if (this.placementMoving) throw new ProtocolError("conflict", "Another placement move is already running", 409);
+    this.placementMoving = true;
+    let result: {
+      tree: string;
+      configurationTree: string;
+      source: string;
+      destination: string;
+      check: boolean;
+    } | undefined;
+    try {
+      const source = await realpath(input.source);
+      if (source !== input.source) {
+        throw new ProtocolError("invalid-request", `Placement move source resolves to ${source}`, 400);
+      }
+      const parent = await realpath(dirname(input.destination));
+      const destination = join(parent, basename(input.destination));
+      if (destination !== input.destination) {
+        throw new ProtocolError("invalid-request", `Placement move destination resolves beneath ${parent}`, 400);
+      }
+      if (source === destination) throw new ProtocolError("invalid-request", "Placement move source and destination are the same", 400);
+      if (destination.startsWith(`${source}/`)) {
+        throw new ProtocolError("invalid-request", "A placed root cannot be moved inside itself", 400);
+      }
+      const destinationExists = await lstat(destination).then(() => true).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      });
+      if (destinationExists) throw new ProtocolError("conflict", `Move destination already exists: ${destination}`, 409);
+
+      const [sourceInfo, parentInfo, local] = await Promise.all([
+        stat(source),
+        stat(parent),
+        loadLocalPlacements(),
+      ]);
+      if (!sourceInfo.isDirectory()) throw new ProtocolError("invalid-request", "A placement root must be a directory", 400);
+      if (!parentInfo.isDirectory()) throw new ProtocolError("invalid-request", "Move destination parent must be a directory", 400);
+      if (sourceInfo.dev !== parentInfo.dev) {
+        throw new ProtocolError("unsupported-operation", "Cross-filesystem placement moves are not supported", 422);
+      }
+      if (local.diagnostics.length) {
+        throw new ProtocolError("conflict", `placements.yaml is invalid: ${local.diagnostics[0]!.message}`, 409);
+      }
+      const placement = local.placements.find((candidate) => candidate.path === source);
+      if (!placement) throw new ProtocolError("not-found", `No exact tree placement exists at ${source}`, 404);
+      const overlaps = local.placements.find((candidate) =>
+        candidate !== placement && (
+          candidate.path.startsWith(`${source}/`)
+          || source.startsWith(`${candidate.path}/`)
+          || candidate.path.startsWith(`${destination}/`)
+          || destination.startsWith(`${candidate.path}/`)
+        )
+      );
+      if (overlaps) {
+        throw new ProtocolError("unsupported-operation", `Placement move overlaps another placed root: ${overlaps.path}`, 422);
+      }
+      const descriptor = (await this.trees.descriptors()).find((candidate) =>
+        candidate.id === placement.tree && candidate.configurationTree === placement.configurationTree
+      );
+      if (!descriptor || descriptor.missing || descriptor.access !== "write" || descriptor.sync !== "idle") {
+        throw new ProtocolError(
+          "conflict",
+          `Placed root must be present, writable, and idle before moving; current state is ${descriptor?.sync ?? "unavailable"}`,
+          409,
+        );
+      }
+      result = {
+        tree: placement.tree,
+        configurationTree: placement.configurationTree,
+        source,
+        destination,
+        check: input.check === true,
+      };
+      if (!input.check) {
+        await this.trees.relocatePlacedRoot(result, async (direction) => {
+          const from: LocalPlacement = direction === "forward"
+            ? placement
+            : { ...placement, path: destination };
+          const to = direction === "forward"
+            ? { configurationTree: placement.configurationTree, path: destination }
+            : { configurationTree: placement.configurationTree, path: source };
+          await replaceLocalPlacement(from, to);
+        });
+      }
+    } finally {
+      this.placementMoving = false;
+      for (const resolve of this.placementMoveWaiters.splice(0)) resolve();
+    }
+    if (!result) throw new Error("Placement move did not produce a result");
+    if (!result.check) {
+      await this.synchronizeNow();
+      const descriptor = (await this.trees.descriptors()).find((candidate) =>
+        candidate.id === result!.tree && candidate.configurationTree === result!.configurationTree
+      );
+      if (!descriptor || descriptor.missing || descriptor.osPath !== result.destination || descriptor.sync !== "idle") {
+        throw new Error(`Moved placement did not become idle at ${result.destination}`);
+      }
+    }
+    return result;
   }
 
   async accountList() {
@@ -830,6 +951,14 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   private async syncAll(throwErrors = false): Promise<void> {
+    if (this.placementMoving) {
+      this.syncRequested = true;
+      if (throwErrors) {
+        await new Promise<void>((resolve) => this.placementMoveWaiters.push(resolve));
+        await this.syncAll(true);
+      }
+      return;
+    }
     if (this.syncing) {
       this.syncRequested = true;
       await new Promise<void>((resolve) => this.syncWaiters.push(resolve));

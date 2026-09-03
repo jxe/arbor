@@ -1,101 +1,172 @@
-# Arbor CLI
-*Reference command surface for the current Arbor implementation.*
+# Arbor CLI reference
 
-Every content operand is an Arbor [locator](../spec/04-locators.md) or a local
-arborsync address. The CLI resolves
-through arborsync or a server and never edits guessed private `.state` files.
+This page documents the commands implemented by the current `arbor` executable.
+It is not a roadmap; commands that do not dispatch in the executable do not
+belong here.
 
-## Workspace, account, and synchronization
+From a checkout, invoke the CLI as `bun run arbor -- <command>`. After `bun
+link`, the equivalent global form is `arbor <command>`.
 
-- `arbor open <locator>` opens a local, remote, live, historical, or safe
-  `system:` location in the configured client.
-- `arbor status [<locator>]` reports explicit resolved tree/path, historical
-  state, placement, access, synchronization/activation, conflicts, diagnostics,
-  and safe account identity.
-- `arbor connect <community-url>` installs an already-issued local credential
-  reference for this isolated data home; it is bootstrap, not a steady-state
-  account mutation.
-- `arbor sync [--access <subject>=<level> ...] [--clear-access] <local-path>
-  <canonical-locator>` generates a `TreeID`, adds a `trees.yaml` declaration,
-  and adds the current device's filesystem placement. Activation is the tree's
-  first update, submitted with a null base.
-- `arbor sync <tree-locator> <local-path>` adds or changes the current device's
-  placement for an existing tree. A pathless-placement option creates a durable
-  private writable replica. Historical locators cannot be placed.
-- `arbor rehome [--check] <local-path|canonical-locator|arbor://TreeID>
-  <destination-canonical-locator>` switches one present, idle tree placement to
-  another already-claimed Canopy account. It preserves the `TreeID`, current
-  authored snapshot, local path, and ACL while beginning a new accepted history
-  at the destination. `--check` performs the complete preflight without writing.
-  The source Canopy copy and declaration are retained for recovery; rehome does
-  not migrate history or permit two local writable placements. Trees with nested
-  placed boundaries are rejected until closure moves are implemented.
-- `arbor unsync <local-path-or-tree-locator>` removes only the current device's
-  placement entry. It never deletes files, identity, history, ACLs, canonical
-  boundaries, or another device's placement.
-- Access, group creation, canonical-boundary changes, administrator changes,
-  device revocation, and community/profile connection are YAML transformations
-  of `trees.yaml`, `account.yaml`, or an authorized device file.
-- `arbor connection set|test|remove <name>` manages safe private connection
-  metadata while credentials remain in the OS credential store.
+## Conventions
 
-Until the explicit offline account-layout migration, `connect`, `sync`, and
-`unsync` remain the named v1 singleton compatibility surface. Fresh plural
-account claims and account-qualified pairing are available through Arbor Sync's
-REST, web, and native account surfaces; the CLI must not guess an account when
-several configuration TreeIDs are present.
+- Local paths may be relative on input. Output and persisted placements use
+  canonical absolute paths.
+- Canonical tree locations may be HTTPS URLs or `arbor://` locators.
+- `--check` may perform ordinary synchronization needed to establish a clean
+  preflight, but does not apply the requested move or edit placement
+  configuration.
+- Commands use the persistent Arbor Sync daemon by default. `ARBOR_DATA_HOME`
+  selects an isolated data home and runs a temporary foreground Arbor Sync for
+  commands that need one. `ARBOR_SYNC_URL` selects an already-running compatible
+  daemon.
+- Successful commands exit `0`. Operational failures exit `1`; malformed usage
+  exits `2` after printing the command synopsis.
 
-## Local daemon lifecycle
+## `arbor open`
 
-`arbor daemon install|uninstall|start|stop|restart|status|logs` is the
-platform-neutral lifecycle surface for the one local daemon that owns the
-default Arbor data home. The command vocabulary is stable across operating
-systems; each platform supplies its own user-service adapter.
+```text
+arbor open [<locator>] [--port <number>]
+```
 
-On macOS, CLI-only installations use a per-user launchd agent. The signed
-native Arbor app registers the same label and bundled executable through
-`SMAppService`. The two registration paths are alternatives beneath the same
-CLI contract, never two daemons. `start`, `stop`, and `restart` control either
-loaded agent. `uninstall` removes a CLI-owned agent without removing
-`~/.arbor`; app-owned registration remains owned by the app.
+Open a local path, canonical remote URL, or `arbor://` locator in Arbor web. The
+locator defaults to the current directory. If a
+compatible persistent daemon is available, the command attaches to it; an
+explicit `ARBOR_DATA_HOME` may instead start a foreground server that runs until
+interrupted.
 
-An explicit `ARBOR_DATA_HOME` is an isolated foreground context and is not
-silently registered as the user's default service. Linux and Windows service
-adapters are not implemented yet; an existing `arborsync --control` process is
-still a compatible daemon there.
+```sh
+arbor open ~/Documents/notes
+arbor open https://garden.example/~joe/notes
+```
 
-All CLI-authored configuration edits are guarded exact UTF-8 writes through
-arborsync's `writeText` operation. They preserve unrelated YAML comments and
-mapping order. The CLI obtains a fresh ID from `POST /v1/tree-ids`; arborsync does
-not insert IDs or normalize files. A raw access-link secret is generated
-locally, displayed once, and only its digest is added to an ACL.
+## `arbor daemon`
 
-`--access` accepts repeated or comma-separated assignments. `public` means the
-`everyone` subject; `~<handle>` resolves to a stable profile `TreeID`. Levels
-are `read`, `write`, and `none`, where `none` removes the semantic rule and is
-never stored. `--clear-access` removes all explicit rules before following
-assignments. A new declaration and placement may be separate accepted edits;
-private activation status reports the intermediate pending state.
+```text
+arbor daemon <install|uninstall|start|stop|restart|status|logs>
+```
 
-Device listing is enumeration of `devices/*.yaml`, including every device's
-account-visible placements. Ordinary devices may edit only their own file.
-Administrator revocation deletes the selected device file; Canopy
-atomically revokes its credential when accepting the configuration update.
+Manage the default Arbor Sync user service. On macOS, CLI-owned installation
+uses launchd; a signed Arbor app may own the same service registration instead.
+`uninstall` removes only CLI-owned supervision and does not remove `~/.arbor`.
+Linux and Windows supervision adapters are not implemented.
 
-## Serving and authored programs
+## `arbor connect`
 
-- `canopyd [data-directory] [--community <handle>] [--first-writer
-  <handle>] [--url <origin>] [--hostname <host>] [--port <port>]` runs one
-  community server. Startup performs restart-idempotent account-config
-  migration before retiring legacy state.
-- `arbor run <script-or-agent-locator>[#handle] [--input <json>]` invokes a
-  validated, explicitly scoped script or agent.
-- `arbor bake <locator> [--output <directory>]` emits a self-contained public
-  projection preserving Arbor identity and links.
-- `arbor deploy <locator> [--watch] [--target <name>]` publishes a portable
-  application/tree manifest without changing its access model.
+```text
+arbor connect <community-url>
+```
 
-Commands return nonzero on invalid configuration, unresolved locators,
-conflicts, rejected policy, incomplete durability, or partial deployment.
-Tutorial aliases, host-specific migration environment variables, credential
-recovery procedures, and deployment recipes are outside this reference command surface.
+Install an already-issued account/device credential and its configuration
+checkout into an unclaimed legacy single-account data home. The credential is
+read from `ARBOR_ACCOUNT_TOKEN` or an interactive prompt. This is a bootstrap
+compatibility command; it does not add another account to the plural account
+layout. New account claims and pairing use Arbor web or the native client.
+
+## `arbor sync`
+
+```text
+arbor sync [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
+arbor sync <canonical-url> <local-path>
+```
+
+The local-first form creates or updates a hosted tree declaration and places
+that tree at the supplied local folder. A new tree receives a generated
+`TreeID`; no audience options means private access. `public` selects the
+everyone subject, while `~handle` resolves the profile TreeID at the target
+Canopy. `--access` may be repeated or comma-separated. `none` removes a rule;
+`--clear-access` removes every explicit rule before applying new assignments.
+
+The canonical-first form places an existing remote tree at a local path. It
+does not accept audience options.
+
+These forms currently edit the legacy single-account configuration and refuse
+to guess among plural accounts. Account-qualified plural creation and placement
+remain available through Arbor web/native surfaces.
+
+```sh
+arbor sync --access public=read ./handbook https://garden.example/~editors/handbook
+arbor sync https://garden.example/~editors/handbook ~/Documents/handbook
+```
+
+## `arbor mv`
+
+```text
+arbor mv [--check] <placed-local-root> <new-local-path>
+```
+
+Move one exact plural-layout tree placement on the same filesystem. Arbor Sync
+first requires the tree to be present, writable, clean, and idle. It then closes
+the workspace watcher, renames the directory, atomically changes
+`placements.yaml`, rebinds the existing inode-aware private workspace state,
+and verifies that synchronization returns to idle. The `TreeID`, Canopy,
+canonical URL, ACL, contents, and accepted history do not change.
+
+The destination must not exist. The source or destination may not overlap
+another placed root; moving a nested placement closure and copying across
+filesystems are not implemented. A failure rolls back both the placement record
+and directory rename when possible.
+
+`arbor mv` moves a placed root. Renaming a file or folder *inside* a placed tree
+is an ordinary filesystem operation and is observed by Arbor's watcher.
+
+```sh
+arbor mv --check ~/Documents/todos-f ~/Documents/todos
+arbor mv ~/Documents/todos-f ~/Documents/todos
+```
+
+## `arbor rehome`
+
+```text
+arbor rehome [--check] <local-path|canonical-url|arbor://TreeID> <destination-canonical-url>
+```
+
+Move one present, idle plural-layout tree placement to another already-claimed
+Canopy account. Rehome preserves the `TreeID`, current authored snapshot, local
+path, and ACL, but starts a new accepted history at the destination. The source
+Canopy copy and declaration remain available for recovery.
+
+The current device must administer the destination account. Destination paths
+and TreeIDs must be vacant or agree exactly, and nested placed-tree closures are
+rejected. `rehome` never creates a second simultaneous local writable placement.
+
+```sh
+arbor rehome --check ~/Documents/todos https://arb.example/~joe/todos
+arbor rehome ~/Documents/todos https://arb.example/~joe/todos
+```
+
+## `arbor unsync`
+
+```text
+arbor unsync <local-path> [<canonical-url>]
+arbor unsync <canonical-url> <local-path>
+```
+
+Remove the current device's legacy single-account placement entry. Supplying the
+canonical URL adds an exact safety check. This command never deletes local
+files, remote data, identity, history, ACLs, canonical boundaries, or another
+device's placement. It currently refuses plural account layouts.
+
+## `arbor connection`
+
+```text
+arbor connection set <name> [--dsn-stdin]
+arbor connection test <name>
+arbor connection remove <name>
+```
+
+Manage named private database connections used by external-store descriptors.
+`set` reads a PostgreSQL DSN interactively, or from standard input when
+`--dsn-stdin` is supplied, and stores the credential in the operating-system
+credential store. `test` runs `select 1`; `remove` deletes the named credential.
+
+```sh
+printf '%s\n' "$DATABASE_URL" | arbor connection set supplies --dsn-stdin
+arbor connection test supplies
+arbor connection remove supplies
+```
+
+## Related executables
+
+`canopyd` and `arborsync` are separate executables with their own process-level
+options. Railway/VPS deployment procedures belong in
+[`deploy/README.md`](../deploy/README.md), not in this command reference.

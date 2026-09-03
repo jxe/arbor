@@ -14,10 +14,9 @@ import {
   loadLocalPlacements,
   parseAccountConfiguration,
   parseHostedTreesConfiguration,
-  parseLocalPlacements,
   parseDeviceConfiguration,
   parseTreesConfiguration,
-  placementsFilePath,
+  replaceLocalPlacement,
   saveCurrentDeviceID,
   savePlacementSyncMetadata,
 } from "@arbor/stores";
@@ -36,11 +35,12 @@ type ShareAudience =
 
 function usage(): never {
   console.error(`Usage:
-  arbor open <locator> [--port <number>]
+  arbor open [<locator>] [--port <number>]
   arbor daemon <install|uninstall|start|stop|restart|status|logs>
   arbor connect <community-url>
   arbor sync [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
   arbor sync <canonical-url> <local-path>
+  arbor mv [--check] <placed-local-root> <new-local-path>
   arbor rehome [--check] <local-path|canonical-url|arbor://TreeID> <destination-canonical-url>
   arbor unsync <local-path> [<canonical-url>]
   arbor unsync <canonical-url> <local-path>
@@ -312,32 +312,6 @@ function sameOrDescendantPath(path: string, root: string): boolean {
   return path === (normalizedRoot || "/") || path.startsWith(`${normalizedRoot}/`);
 }
 
-async function rewriteLocalPlacement(
-  sourceConfiguration: string,
-  destinationConfiguration: string,
-  path: string,
-  tree: string,
-): Promise<void> {
-  const destination = placementsFilePath();
-  const original = await readFile(destination, "utf8");
-  const document = parseDocument(original, { uniqueKeys: true, keepSourceTokens: true });
-  if (document.errors.length) throw new Error(document.errors[0]!.message);
-  const value = document.toJS({ maxAliasCount: 0 }) as Record<string, Record<string, unknown>>;
-  if (value[sourceConfiguration]?.[path] !== tree) throw new Error(`Placement changed before rehome: ${path}`);
-  document.deleteIn([sourceConfiguration, path]);
-  if (Object.keys(value[sourceConfiguration] ?? {}).length === 1) document.deleteIn([sourceConfiguration]);
-  document.setIn([destinationConfiguration, path], tree);
-  const next = document.toString({ lineWidth: 0 });
-  parseLocalPlacements(next);
-  const temporary = `${destination}.${crypto.randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, next, { mode: 0o600, flag: "wx" });
-    await rename(temporary, destination);
-  } finally {
-    await rm(temporary, { force: true }).catch(() => {});
-  }
-}
-
 async function waitForRehomedPlacement(
   client: ArborSyncRESTClient,
   tree: string,
@@ -352,6 +326,26 @@ async function waitForRehomedPlacement(
     await Bun.sleep(25);
   }
   throw new Error("Arbor Sync did not adopt the destination placement");
+}
+
+async function mvCommand(args: string[]): Promise<void> {
+  let check = false;
+  const operands: string[] = [];
+  for (const arg of args) {
+    if (arg === "--check") check = true;
+    else if (arg.startsWith("-")) throw new Error(`Unknown mv option: ${arg}`);
+    else operands.push(arg);
+  }
+  if (operands.length !== 2) usage();
+  const [sourceInput, destinationInput] = operands as [string, string];
+  const source = await realpath(resolve(sourceInput));
+  const destination = resolve(destinationInput);
+  await withArborSync(source, async (client) => {
+    const result = await client.movePlacement(source, destination, check);
+    console.log(`${result.check ? "Would move" : "Moved"} ${result.tree}`);
+    console.log(`  from ${result.source}`);
+    console.log(`  to   ${result.destination}`);
+  });
 }
 
 async function rehomeCommand(args: string[]): Promise<void> {
@@ -481,12 +475,10 @@ async function rehomeCommand(args: string[]): Promise<void> {
       );
       await service.synchronizeNow();
     }
-    await rewriteLocalPlacement(
-      sourceConfiguration.configurationTree,
-      destinationConfiguration.configurationTree,
-      sourcePlacement.path,
-      sourcePlacement.tree,
-    );
+    await replaceLocalPlacement(sourcePlacement, {
+      configurationTree: destinationConfiguration.configurationTree,
+      path: sourcePlacement.path,
+    });
     await waitForRehomedPlacement(client, sourcePlacement.tree, destinationConfiguration.configurationTree, destination.endpoint);
     await service.synchronizeNow();
     const finalLocal = (await client.trees()).snapshot.find((candidate) =>
@@ -528,6 +520,9 @@ async function accessRulesFor(client: WireClient, audience: ShareAudience) {
 
 async function connectCommand(args: string[]): Promise<void> {
   if (args.length !== 1) usage();
+  if ((await loadCanopyAccountConfigurations()).length) {
+    throw new Error("connect does not add to the plural account layout; claim or pair the account through Arbor web or native");
+  }
   const target = canonicalTarget(args[0]!);
   const token = process.env.ARBOR_ACCOUNT_TOKEN ?? await readSecret(`Account/device credential for ${target.endpoint}: `);
   if (!token) throw new Error("No account credential supplied");
@@ -920,6 +915,10 @@ async function main(): Promise<void> {
     await syncCommand(args);
     process.exit(0);
   }
+  if (command === "mv") {
+    await mvCommand(args);
+    process.exit(0);
+  }
   if (command === "rehome") {
     await rehomeCommand(args);
     process.exit(0);
@@ -929,17 +928,21 @@ async function main(): Promise<void> {
     process.exit(0);
   }
   if (command === "connection") {
-    const [action, name] = args;
+    const [action, name, ...options] = args;
     if (!name) usage();
     const store = new ConnectionStore();
     if (action === "set") {
-      const dsn = await readSecret("PostgreSQL DSN: ");
+      if (options.some((option) => option !== "--dsn-stdin") || options.filter((option) => option === "--dsn-stdin").length > 1) usage();
+      const dsn = options.includes("--dsn-stdin")
+        ? (await Bun.stdin.text()).trim()
+        : await readSecret("PostgreSQL DSN: ");
       if (!dsn) throw new Error("No DSN supplied");
       const record = await store.set(name, dsn);
       console.log(`Stored ${record.name} (${record.host}/${record.database}) in the system credential store.`);
       return;
     }
     if (action === "test") {
+      if (options.length) usage();
       const connection = await store.get(name);
       if (!connection) throw new Error(`Connection ${name} is not configured`);
       const sql = new Bun.SQL(connection.dsn);
@@ -948,6 +951,7 @@ async function main(): Promise<void> {
       return;
     }
     if (action === "remove") {
+      if (options.length) usage();
       await store.remove(name);
       console.log(`Removed connection ${name}.`);
       return;

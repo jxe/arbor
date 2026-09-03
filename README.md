@@ -17,6 +17,8 @@ bun run dev -- /path/to/workspace
 
 The tree path may be absolute, relative to the current directory, or shell-expanded with `~`; omit it to browse the current directory. `bun install` creates the repo-local `arbor` executable, which Bun exposes as `bun run arbor`; it does not put a bare `arbor` command on the surrounding shell's global path. `bun link` remains an optional convenience if you want that global command.
 
+See the [Arbor CLI reference](docs/cli.md) for the complete implemented command surface, options, safety rules, and examples.
+
 To create a group after joining a community, make an ordinary folder with an `_index.md` such as:
 
 ```md

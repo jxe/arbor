@@ -125,6 +125,14 @@ export interface LocalCanopyAccountDescriptor {
   diagnostics: Array<{ code: string; message: string; path: string; severity: string }>;
 }
 
+export interface LocalPlacementMoveResult {
+  tree: string;
+  configurationTree: string;
+  source: string;
+  destination: string;
+  check: boolean;
+}
+
 /** Build a canonical node reference, retaining a listed Markdown identity when present. */
 export function childRef(child: NodeSummary): NodeRef {
   return child.ref;
@@ -239,6 +247,14 @@ export class ArborSyncRESTClient {
 
   synchronizeNow(): Promise<{ synchronized: true }> {
     return this.request("/v1/sync", { method: "POST" });
+  }
+
+  movePlacement(source: string, destination: string, check = false): Promise<LocalPlacementMoveResult> {
+    return this.request("/v1/placements/move", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ source, destination, check }),
+    });
   }
 
   openSession(path: string): Promise<NodeResponse> {

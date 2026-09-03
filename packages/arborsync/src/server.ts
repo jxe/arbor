@@ -425,6 +425,19 @@ function startArborSyncServer(
           await service.synchronizeNow();
           return json({ synchronized: true });
         }
+        if (request.method === "POST" && url.pathname === "/v1/placements/move") {
+          const body = await request.json() as { source?: unknown; destination?: unknown; check?: unknown };
+          if (
+            typeof body.source !== "string"
+            || typeof body.destination !== "string"
+            || (body.check !== undefined && typeof body.check !== "boolean")
+          ) throw new ProtocolError("invalid-request", "Placement move requires source and destination paths", 400);
+          return json(await service.moveLocalPlacement({
+            source: body.source,
+            destination: body.destination,
+            check: body.check === true,
+          }));
+        }
         if (request.method === "POST" && url.pathname === "/v1/sessions") {
           const body = await request.json() as { path?: unknown };
           if (typeof body.path !== "string" || !isAbsolute(body.path)) {
