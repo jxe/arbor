@@ -106,30 +106,31 @@ backing is expressed with its committed observation cursor instead.
 
 ## 1. Reading trees
 
-### 1.1 Snapshot and watch
+### 1.1 Current tree, accepted snapshots, and watch
 
-A full replica normally begins with a complete snapshot and then follows the
-watch endpoint.
+A full replica reads the current tree descriptor, obtains that descriptor's
+content-addressed accepted snapshot, and then follows the watch endpoint after
+the descriptor's observation cursor.
 
 ```text
-GET /.arbor/trees/{TreeID}/snapshot
+GET /.arbor/trees/{TreeID}
+GET /.arbor/trees/{TreeID}/snapshots/{root}
 GET /.arbor/trees/{TreeID}/watch?after={cursor}
 ```
 
-### 1.1.1 Getting a snapshot of the whole tree
+### 1.1.1 Reading the current tree
 
 ```text
-GET /.arbor/trees/{TreeID}/snapshot
+GET /.arbor/trees/{TreeID}
 ```
 
-A snapshot is the self-contained accepted-tree-state read: the transition from
-nothing to the current root, so it carries only complete objects.
+The response atomically identifies one current accepted root, the accepted
+update that produced that observation, and the cursor after which a client may
+watch without a read/watch race:
 
 ```ts
-type CurrentTreeSnapshot = {
+type CurrentTree = {
   tree: RemoteTreeDescriptor;
-  root: Hash;
-  objects: ObjectEnvelope[];
   observedThrough: EventCursor;
 };
 
@@ -146,13 +147,82 @@ type RemoteTreeDescriptor = {
   } | null;
 };
 
-type ObjectEnvelope = { hash: Hash; bytes: string };
 type EventCursor = string;
 type Hash = `sha256:${string}`;
 ```
 
-An `ObjectEnvelope` is JSON transport packaging for one encoded
-`WireObject`. The decoded value has two variants:
+The descriptor's `root` is the bytes hash of the current accepted tree state
+and `update` is the accepted-update id that produced this observation.
+`observedThrough` is the cursor after which watching begins. Because accepted
+updates are the only state changes on a portable tree watch, it equals
+`tree.update`; the separate field makes the read-then-watch boundary explicit.
+Hosted trees have, in addition, a canonical path, endpoint, and might be nested
+inside a parent tree.
+
+The same root may be accepted again by a later update. Its graph remains the
+same content-addressed snapshot, while the later descriptor's `update` and
+`observedThrough` identify the later observation.
+
+#### 1.1.2 Reading an accepted snapshot
+
+```text
+GET /.arbor/trees/{TreeID}/snapshots/{root}
+```
+
+An accepted snapshot is the self-contained transition from nothing to one
+retained accepted root, so its body carries only a format version and complete
+objects:
+
+```ts
+type SnapshotBundle = {
+  version: 1;
+  objects: Uint8Array[];
+};
+```
+
+The response uses `application/cbor` and is the canonical CBOR encoding of
+exactly that map. Each member of `objects` is a CBOR byte string containing the
+exact canonical CBOR bytes of one `WireObject`. Members are ordered
+lexicographically by the SHA-256 hash derived from those bytes; hashes are not
+repeated in the body.
+
+The requested root in the URL identifies the graph and is not repeated in the
+body. As the top directory object's hash, it transitively commits to every
+reachable object. A client hashes every supplied byte string, rejects duplicate
+hashes or noncanonical `WireObject` encodings, requires the requested root to
+be present, and walks its graph. It rejects missing reachable objects and
+unreachable extras, stopping at nested-tree boundaries. The definite-length
+`objects` array supplies the object count; the snapshot carries no tree,
+accepted-update, or observation-cursor metadata.
+
+The quoted `ETag` is the SHA-256 hash of the exact response bytes and is only an
+HTTP representation validator; it does not introduce a second snapshot
+identity.
+
+The server returns a snapshot only when the caller can currently read the
+named tree and the requested root belongs to one of that tree's retained
+accepted updates. Possession of a root is not authorization. Unauthorized,
+unknown, wrong-tree, and no-longer-retained roots all return the same `404`
+response, and no route enumerates historical roots or their accepted-update
+metadata.
+
+Snapshot responses carry
+`Vary: Authorization, Arbor-Access-Link`. A response to a request carrying
+neither header for a tree currently readable by `everyone` uses
+`Cache-Control: public, max-age=31536000, immutable`; a response to a request
+carrying either header uses
+`Cache-Control: private, max-age=31536000, immutable`. A client may retain a
+verified response indefinitely. A Canopy need only answer a future origin
+fetch while that accepted root remains retained.
+
+Changing the current root or ACL does not change an already returned snapshot.
+Revocation prevents a new authorized origin fetch but cannot retract bytes a
+client or cache already received. In particular, a publicly cached accepted
+root can remain publicly available after the tree ceases to grant public
+access. Removing content from the current tree is therefore not erasure from
+retained accepted snapshots or caches.
+
+The decoded `WireObject` has two variants:
 
 ```ts
 type WireObject = WireFile | WireDirectory;
@@ -184,14 +254,23 @@ type CollectionFileDescriptor = {
 ```
 
 A directory entry either addresses another Wire object by hash or marks a
-nested Arbor tree boundary by TreeID. `childrenSource`, when present, records
-how authored collection files supply the directory's logical children; its
-projection and validation rules are defined by
+nested Arbor tree boundary by TreeID. A snapshot walk stops at such a boundary:
+the nested tree has its own roots, history, and access. `childrenSource`, when
+present, records how authored collection files supply the directory's logical
+children; its projection and validation rules are defined by
 [child backings §2.1](06-child-backings.md#21-accepted-wire-representation).
+
+An `ObjectEnvelope` is JSON transport packaging for the same canonical object
+bytes when another operation, such as an update request, carries objects inside
+JSON. Its `hash` is the SHA-256 hash derived from its decoded `bytes`:
+
+```ts
+type ObjectEnvelope = { hash: Hash; bytes: string };
+```
 
 Section 4.1 defines the common encoding and hash rules.
 
-#### 1.1.2 Watching
+#### 1.1.3 Watching
 
 ```text
 GET /.arbor/trees/{TreeID}/watch?after={cursor}
@@ -287,35 +366,13 @@ For `tree.update`, a transition's `requestDigest` is present only when the strea
 
 A non-retained event cursor, a retained accepted update without a replay
 payload, or a batch too old for retained transition data produces one terminal
-`resync-required` event and closes. The client reads a new coherent snapshot
-and resumes strictly after that snapshot's cursor.
+`resync-required` event and closes. The client reads a new current descriptor,
+obtains its addressed snapshot, and resumes strictly after the descriptor's
+`observedThrough` cursor.
 
 ### 1.2 Other ways to read trees
 
-#### 1.2.1 Reading tree metadata
-
-```text
-GET /.arbor/trees/{TreeID}
-```
-
-The response is:
-
-```ts
-type CurrentTree = {
-  tree: RemoteTreeDescriptor;
-  observedThrough: EventCursor;
-};
-```
-
-The descriptor's `root` is the bytes hash of the current accepted tree state
-and `update` is the accepted-update id that produced it.
-`observedThrough` is the cursor after which a client can begin watching without
-a read/watch race. Because accepted updates are the only state changes on a
-portable tree watch, it equals `tree.update`; the separate field makes the
-snapshot-then-watch boundary explicit. Hosted trees have, in addition, a
-canonical path, endpoint, and might be nested inside a parent-tree.
-
-#### 1.2.2 Reading an object at a time
+#### 1.2.1 Reading an object at a time
 
 Clients that do not retain a whole tree can use this endpoint to fetch files
 and directories on demand.
@@ -324,9 +381,18 @@ and directories on demand.
 GET /.arbor/trees/{TreeID}/objects/{hash}
 ```
 
-This route returns the same canonical CBOR bytes carried in an `ObjectEnvelope`, but directly as the response body. The hash is present in the URL, and repeated as the quoted ETag. The response uses `application/cbor` and immutable cache headers. The response body must hash to the requested value.
+This route returns the same canonical CBOR bytes carried in a snapshot bundle
+or `ObjectEnvelope`, but directly as the response body. The hash is present in
+the URL and repeated as the quoted ETag. The response uses `application/cbor`,
+must hash to the requested value, and uses the same access-sensitive `Vary` and
+`Cache-Control` policy as an accepted snapshot.
 
-A client may also use this to refetch one missing or corrupt current object instead of downloading a complete snapshot. Because objects are immutable and addressed by their bytes, successful responses can be cached and reused wherever that hash remains reachable and authorized.
+A new origin fetch remains authorized only when the object is reachable from
+the named tree's current readable root; historical snapshot access does not
+make this generic object route a historical-object oracle. A client may use it
+to refetch one missing or corrupt current object instead of downloading a
+complete snapshot. Because objects are immutable and addressed by their bytes,
+successful responses can be cached and reused after verification.
 
 ## 2. Updates and writes
 
@@ -350,7 +416,7 @@ type UpdateRequest = TransitionPayload & {
 
 An update proposes a transition from the accepted base to the candidate root;
 the authority accepts it, or merges and answers with the transition from the
-candidate to what it accepted; watch ([§1.1.2](#112-watching))
+candidate to what it accepted; watch ([§1.1.3](#113-watching))
 delivers every accepted transition in order. One payload shape serves all
 three.
 
@@ -606,11 +672,6 @@ of the schema's `WireFile`, which covers the canonical CBOR encoding of the
 file object. The
 [`canonical-cbor-values`](../conformance/canonical-cbor-values.json) vectors
 freeze valid encodings and rejected byte sequences for every language binding.
-
-The server captures one accepted update and returns the complete graph for
-that update even if a newer update is accepted while the response is being
-encoded. The response therefore satisfies `tree.root === root`; it is an
-atomic current-state read, not an accepted-history query.
 
 ### 4.2 Stream framing and errors
 

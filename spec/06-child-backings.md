@@ -204,7 +204,7 @@ Logical children below /books:
 The entry hashes prove and preserve the two files' exact bytes, while the
 directory's `childrenSource` descriptor supplies their logical
 interpretation. Its shape is defined with the
-[Wire directory](01-tree-operations.md#111-getting-a-snapshot-of-the-whole-tree).
+[Wire directory](01-tree-operations.md#112-reading-an-accepted-snapshot).
 The descriptor fields have these meanings:
 
 | Fields | Meaning |

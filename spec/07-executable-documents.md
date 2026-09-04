@@ -149,7 +149,7 @@ A live dependency plan is a set of (provider, observation cursor, precision
 scope) entries: the narrowest proved nodes, child membership, property/content
 fields, edges, schema fingerprints, mounted roots, and profile/access facts
 that can affect the result, each bound to the cursor it was read through
-([tree watching](01-tree-operations.md#112-watching)). Providers translate it into committed observation or
+([tree watching](01-tree-operations.md#113-watching)). Providers translate it into committed observation or
 conservative subtree/store invalidation. Observation precision is an
 optimization and cannot change the result.
 
@@ -245,7 +245,12 @@ A live Arbor server may run the executable-document runtime adjacent to its Wire
 
 The tree execution principal receives only reviewed tree prefixes, store connections, and operations. A public executable document may read a private backing tree, but only validated rendered output and query results are disclosed. Raw stores, credentials, server handle source, diagnostics containing private values, and unrelated rows never enter the browser bundle or public response.
 
-Executable-document subscriptions are not accepted-update history and do not add historical-object access. A mutation of an Arbor-canonical data tree produces an ordinary accepted data-tree update regardless of its SQLite or Postgres materialization. A mutation of a shared external Postgres store may update live query results without changing the executable source-tree ref.
+Executable-document subscriptions are not accepted-update history and do not
+independently grant accepted-snapshot access. A mutation of an Arbor-canonical
+data tree produces an ordinary accepted data-tree update regardless of its
+SQLite or Postgres materialization. A mutation of a shared external Postgres
+store may update live query results without changing the executable source-tree
+ref.
 
 ## 9. Arbor user identity and authorization
 
@@ -509,10 +514,11 @@ Arbor-canonical data tree advances that data tree's ordinary accepted root and
 therefore also causes a `tree.update` watch event; it does not change the
 executable document's source-tree root. A mutation of a shared external store can
 update query results without an Arbor data-tree update. Neither execution nor
-network reachability grants historical-object access, broadens the readable tree graph,
-or exposes raw stores, credentials, private handler source, unrelated rows, or
-private diagnostics. Cross-server query discovery, delegated authorization,
-and server-to-server execution routing remain unspecified ([deferred 2](../spec.md#deferred)).
+network reachability independently grants accepted-snapshot access, broadens
+the readable tree graph, or exposes raw stores, credentials, private handler
+source, unrelated rows, or private diagnostics. Cross-server query discovery,
+delegated authorization, and server-to-server execution routing remain
+unspecified ([deferred 2](../spec.md#deferred)).
 
 ## 13. Agents
 

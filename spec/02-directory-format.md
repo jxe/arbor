@@ -151,7 +151,7 @@ rows as the complete immediate logical child set. Those reserved files are not
 themselves logical children. `_index.md` may still supply the directory node's
 own content, but mixing collection-file-derived rows with other expanded
 immediate children is invalid. The descriptor's Wire shape is defined with
-[tree snapshots](01-tree-operations.md#111-getting-a-snapshot-of-the-whole-tree);
+[tree snapshots](01-tree-operations.md#112-reading-an-accepted-snapshot);
 its interpretation and validation are defined by
 [child backings §2.1](06-child-backings.md#21-accepted-wire-representation).
 

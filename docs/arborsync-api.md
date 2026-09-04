@@ -16,7 +16,7 @@ observation values defined across the specification. In particular,
 [Arbor data model](../spec/01-tree-operations.md#the-arbor-data-model), while
 `EventCursor`, `Hash`, `AccessLevel`, `TreeKind`, `TreeDescriptor`, and
 `RemoteTreeDescriptor` come from the
-[tree snapshot](../spec/01-tree-operations.md#111-getting-a-snapshot-of-the-whole-tree).
+[current-tree read](../spec/01-tree-operations.md#111-reading-the-current-tree).
 REST v1 adds the following local values:
 
 ```ts
@@ -267,7 +267,7 @@ revisions name the same exact source bytes. A `ChildBackingSummary`
 describes the observed placement; it does not make backing or projection
 topology part of node identity. The exact synchronized collection-file form is
 the directory-level `CollectionFileDescriptor` defined by
-[tree snapshots](../spec/01-tree-operations.md#111-getting-a-snapshot-of-the-whole-tree);
+[tree snapshots](../spec/01-tree-operations.md#112-reading-an-accepted-snapshot);
 SQLite remains a distinct database backing.
 
 The REST routes carry `NodeRef` without inventing a second locator shape. Node

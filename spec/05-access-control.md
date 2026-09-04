@@ -70,10 +70,21 @@ credential for the account through which it is acting.
 
 ## 3. Tree-scoped authorization
 
-Possession of a hash is not authorization. The server checks reachability from
-the named tree's current readable root; retained accepted history does not
-create historical-object access, and the server must not scan every readable
-root.
+Possession of a hash is not authorization. Every object or snapshot read is
+scoped through one named tree and its current ACL.
+
+The generic object route additionally requires reachability from the named
+tree's current root. The accepted-snapshot route instead requires that its root
+belong to one of the named tree's retained accepted updates. It deliberately
+provides non-enumerable known-root historical reads: the server exposes neither
+a history listing nor accepted-update metadata, and unknown, unretained,
+wrong-tree, and unauthorized roots are indistinguishable `404`s.
+
+Deleting content from the current root does not erase it from a retained
+accepted snapshot. Revoking a subject prevents later authorized origin fetches
+but cannot retract bytes already received. A response admitted to a shared
+public cache while the tree is readable by `everyone` can therefore outlive a
+later ACL change.
 
 A nested tree entry is a boundary, not an object copy. Parent reachability stops
 there and the child's root, objects, history, and ACL remain independent.

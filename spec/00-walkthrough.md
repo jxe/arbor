@@ -57,9 +57,10 @@ directory object per directory, each addressed by the SHA-256 of its canonical
 CBOR. It sends `POST /.arbor/trees/tr_…/updates` with `base: null`, the root
 hash as `candidate`, and every object. The server verifies the graph, records
 the first accepted update, applies the declared ACL and canonical boundary,
-and atomically makes the tree's descriptor and snapshot readable.
+and makes the tree's descriptor and accepted snapshot readable in the same
+commit.
 `https://garden.example/~joe/atlas` and `arbor://tr_…/` now resolve to the
-same tree ([snapshot](01-tree-operations.md#111-getting-a-snapshot-of-the-whole-tree),
+same tree ([snapshot](01-tree-operations.md#112-reading-an-accepted-snapshot),
 [locator forms](03-locators.md#1-forms), [canonical lookup](03-locators.md#5-finding-trees)).
 
 ## 4. Edit a file
@@ -84,7 +85,7 @@ Alice reads `GET /.arbor/trees/tr_…`, which returns the current descriptor and
 later accepted update arrives as a `tree.update` frame carrying the transition
 from the previous root to the new one, as objects and deltas. She applies a
 batch in memory and materializes only its final state
-([read](01-tree-operations.md#1-reading-trees), [watch](01-tree-operations.md#112-watching)).
+([read](01-tree-operations.md#1-reading-trees), [watch](01-tree-operations.md#113-watching)).
 If Alice has write access and edits a different file from the same base, her
 submission's model hashes still match and the server merges it onto Joe's.
 If both edit `notes.md`, that node conflicts; under the default

@@ -85,9 +85,9 @@ Every HTTP route an Arbor server exposes, and the section that defines it.
 | Route | Defined in |
 |---|---|
 | `GET /.arbor/health`, `GET /.arbor/account`, `GET /.arbor/trees`, `GET /.well-known/arbor[/{path}]` | [locators §5](spec/03-locators.md#5-finding-trees) |
-| `GET /.arbor/trees/{TreeID}`, `/snapshot`, `/objects/{hash}` | [tree reads §1.1–1.2](spec/01-tree-operations.md#1-reading-trees) |
+| `GET /.arbor/trees/{TreeID}`, `/snapshots/{root}`, `/objects/{hash}` | [tree reads §1.1–1.2](spec/01-tree-operations.md#1-reading-trees) |
 | `POST /.arbor/trees/{TreeID}/updates` | [updates §2.1](spec/01-tree-operations.md#21-the-update-request) |
-| `GET /.arbor/trees/{TreeID}/watch` | [watching §1.1.2](spec/01-tree-operations.md#112-watching) |
+| `GET /.arbor/trees/{TreeID}/watch` | [watching §1.1.3](spec/01-tree-operations.md#113-watching) |
 | `QUERY /.arbor/trees/{TreeID}/queries` | [executable documents §12.1](spec/07-executable-documents.md#121-evaluate-and-stream-named-queries) |
 | `POST /.arbor/trees/{TreeID}/mutate` | [executable documents §12.2](spec/07-executable-documents.md#122-execute-named-mutations) |
 | `GET /.arbor/trees/{TreeID}/access` | [access control §4](spec/05-access-control.md#4-reading-access) |
