@@ -1160,9 +1160,7 @@ export class CanopyDaemon implements AsyncDisposable {
     const v2 = tree.policy === "account-config-v2";
     const graphAt = async (root: ObjectHash, objects?: ReadonlyMap<ObjectHash, Uint8Array>): Promise<AnyAccountConfigGraph> => {
       const snapshot = await this.objects.completeSnapshot(root, objects);
-      const graph = v2 ? readAccountConfigGraphV2(snapshot, tree.id) : readAccountConfigGraph(snapshot, tree.id);
-      if (v2) this.validateCurrentCanopyAccountPaths(account.handle, graph as AccountConfigGraphV2, account);
-      return graph;
+      return v2 ? readAccountConfigGraphV2(snapshot, tree.id) : readAccountConfigGraph(snapshot, tree.id);
     };
     let baseGraph: AnyAccountConfigGraph;
     let candidateGraph: AnyAccountConfigGraph;
@@ -1190,6 +1188,7 @@ export class CanopyDaemon implements AsyncDisposable {
       conflict: { kind: "account-configuration", message: "The account configuration contains incompatible same-field edits" },
       validateCandidate: async (root, objects) => {
         candidateGraph = await graphAt(root, objects);
+        if (v2) this.validateCurrentCanopyAccountPaths(account.handle, candidateGraph as AccountConfigGraphV2, account);
         baseGraph = await graphAt(baseRoot);
         const current = this.currentUpdate(tree.id);
         if (!current) throw new Error("Account configuration has no accepted update");
@@ -1221,6 +1220,7 @@ export class CanopyDaemon implements AsyncDisposable {
       validateAccepted: async (remoteTree, root, objects) => {
         currentGraph = await graphAt(remoteTree.ref);
         nextGraph = root === request.candidate ? candidateGraph : await graphAt(root, objects);
+        if (v2) this.validateCurrentCanopyAccountPaths(account.handle, nextGraph as AccountConfigGraphV2, account);
         authorize(currentGraph, nextGraph, currentGraph);
       },
       prepareCommit: async (_remoteTree, _root, now) => {
