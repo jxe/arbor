@@ -2,7 +2,7 @@
 *Part of the [Arbor spec](../spec.md): one human-editable filesystem/Markdown
 projection of the [Arbor data model](01-tree-operations.md).*
 
-*Owns: how files, directories, frontmatter, `_index.md`, child placement, and reserved names map to nodes. References: stable keys ([locators](04-locators.md)) and the [property write](01-tree-operations.md#22-what-the-write-matches).*
+*Owns: how files, directories, frontmatter, `_index.md`, child placement, and reserved names map to nodes. References: stable keys ([locators](03-locators.md)) and the [property write](01-tree-operations.md#22-what-the-write-matches).*
 
 ## 1. Projection boundary
 
@@ -30,7 +30,7 @@ directory: `x.md`, `x.mdx`, or `x.tsx` supplies the content of `/x` when `x/`
 has no `_index.md`, and the sibling directory `x/`, if present, still supplies
 the children. `.md` supplies non-executable Markdown, while `.mdx` and a
 default-exporting `.tsx` may supply an executable component body as specified
-by [executable documents](08-executable-documents.md). URLs, links, API paths,
+by [executable documents](07-executable-documents.md). URLs, links, API paths,
 and visible names use extensionless logical paths either way.
 
 `_index.md` takes precedence. When both `x/_index.md` and a sibling body exist,
@@ -68,7 +68,7 @@ logical Markdown body is byte-for-byte unchanged.
 A materialized Markdown document may carry an opaque durable `id`. This
 projection historically calls its value a `PageID`; in the common data model it
 is simply the stable key selected by the tree's identity declaration, encoded
-and addressed as [locators](04-locators.md#2-stable-keys-revisions-and-fragments)
+and addressed as [locators](03-locators.md#2-stable-keys-revisions-and-fragments)
 specify. `id`
 remains visible as an ordinary property, but it cannot be changed through an
 ordinary property update and remains stable across rename and move.
@@ -119,11 +119,11 @@ rows, database tables, database records, and mounted boundaries are all children
 when their provider exposes them as such. A transient query result is not a node
 or child unless an explicit materialization operation creates one.
 
-Links use [Arbor locators](04-locators.md). Relative and tree-rooted logical
+Links use [Arbor locators](03-locators.md). Relative and tree-rooted logical
 paths are valid within a resolved tree; cross-tree links use canonical or raw
 TreeID locators. Any schema-identified node may use the Markdown-compatible
 `#arbor-key=<base64url-key>` relative-link alias defined by
-[locators](04-locators.md#2-stable-keys-revisions-and-fragments). When its readable path and
+[locators](03-locators.md#2-stable-keys-revisions-and-fragments). When its readable path and
 valid stable key disagree, the key selects the node within its declaring
 keyspace and the authored content may be healed through an ordinary mutation. The alias
 and application query survive healing unchanged. Arbor renderers translate the
@@ -133,14 +133,14 @@ null stable key remain path-identified.
 ## 5. Recognized authored files
 
 - `schema.ts` declares a collection child schema, stable key, and optional
-  logical-name rule as specified by [child backings](07-child-backings.md).
+  logical-name rule as specified by [child backings](06-child-backings.md).
 - `_store.csv`, `_store.json`, `_store.jsonl`, `_store.sqlite3`, and
   `_store.yaml` select child/store representation behavior specified by
-  [child backings](07-child-backings.md). `_store.yaml` is driver-dispatched; its filename does
+  [child backings](06-child-backings.md). `_store.yaml` is driver-dispatched; its filename does
   not imply Postgres.
-- `.ts` and `.tsx` files may define Arbor handles, components, and executable documents as specified by [executable documents](08-executable-documents.md).
-- `.mdx` files may define explicit executable component documents as specified by [executable documents](08-executable-documents.md).
-- Markdown files may define agents as specified by [executable documents](08-executable-documents.md#13-agents).
+- `.ts` and `.tsx` files may define Arbor handles, components, and executable documents as specified by [executable documents](07-executable-documents.md).
+- `.mdx` files may define explicit executable component documents as specified by [executable documents](07-executable-documents.md).
+- Markdown files may define agents as specified by [executable documents](07-executable-documents.md#13-agents).
 
 These recognizers do not make generated declarations, compiled bundles, database credentials, or execution transcripts part of this format unless they are themselves deliberately authored ordinary tree content.
 
@@ -153,12 +153,12 @@ own content, but mixing collection-file-derived rows with other expanded
 immediate children is invalid. The descriptor's Wire shape is defined with
 [tree snapshots](01-tree-operations.md#111-getting-a-snapshot-of-the-whole-tree);
 its interpretation and validation are defined by
-[child backings §2.1](07-child-backings.md#21-accepted-wire-representation).
+[child backings §2.1](06-child-backings.md#21-accepted-wire-representation).
 
 ## 6. Reserved names and sidecars
 
 - `_index.md` is its directory's own content and is never exposed as a child.
 - `_store.*` names select the enclosing collection's backing and are not ordinary row children.
-- `.state` is forbidden in an account-configuration graph as specified by [configuration](05-accounts-and-devices.md).
+- `.state` is forbidden in an account-configuration graph as specified by [configuration](04-accounts-and-devices.md).
 
 The account YAML is human-editable special control content, not portable authored format. Credentials, access-link secrets, private indexes, journals, recovery databases, and private device credential records are never portable authored format.

@@ -65,10 +65,10 @@ resolution does not duplicate a `writable` flag.
 ## 2. Access and errors
 
 Access subjects, levels, and the `none` removal rule are defined once in
-[configuration](../spec/05-accounts-and-devices.md#3-configuration-yaml). Configuration
+[configuration](../spec/04-accounts-and-devices.md#3-configuration-yaml). Configuration
 and mutation requests use the wire's `AccessRule`; safe administrative
 responses use `AccessEntry`, whose link subject exposes neither raw secret nor
-digest ([access control §1](../spec/06-access-control.md#1-subjects-and-rules)).
+digest ([access control §1](../spec/05-access-control.md#1-subjects-and-rules)).
 
 Every non-2xx JSON error uses the wire's `ArborError` envelope with
 `tree?: TreeRef`. Shared codes are `invalid-request`, `unauthenticated`,
@@ -119,11 +119,11 @@ POST /v1/bootstrap/pairings
 ```
 
 The first accepts `{ account, path, displayName? }`, where `account` is the
-complete Canopy-allocated account URL and `path` is an already identified—or
-newly identified—local person-profile root. It creates no profile snapshot or
-tree placement. The pairing route accepts `{ configurationTree? }`; the field
-is mandatory when more than one account exists. The old handle-shaped claim
-route is v1 compatibility only.
+complete Canopy-allocated account URL and `path` is the local person-profile
+root already bound by `arbor me create` to the current self-certifying identity.
+It creates no profile identity or tree placement. The pairing route accepts
+`{ configurationTree? }`; the field is mandatory when more than one account
+exists. There is no handle-shaped account-claim route.
 
 Resolution returns `LocatorResolution`. A remote unplaced result is read
 transiently using its explicit tree and server; it does not create a virtual
@@ -156,7 +156,7 @@ state. Child pages contain `NodeSummary` values and are fetched explicitly;
 
 Logical-node rules come from the [data model](../spec/01-tree-operations.md); exact
 directory source, `_index.md`, frontmatter, and child-placement rules come from
-the portable [directory projection](../spec/03-directory-format.md).
+the portable [directory projection](../spec/02-directory-format.md).
 Children are also the table/row browsing API: child summaries carry projected
 row properties and schema capability without a collection-specific endpoint.
 Children, search, backlinks, recovery entries, mounted boundaries, events, and
@@ -335,8 +335,8 @@ type WriteProperties = {
 Its semantics—complete map, omitted keys as deletions, explicit `null` as a
 value, immutable identity properties, and exact Markdown body preservation—are
 specified once in the
-[directory format](../spec/03-directory-format.md#3-properties-markdown-content-and-identity);
-collection-file and database row writes follow [child backings](../spec/07-child-backings.md).
+[directory format](../spec/02-directory-format.md#3-properties-markdown-content-and-identity);
+collection-file and database row writes follow [child backings](../spec/06-child-backings.md).
 Identity-less rows and collection-file membership remain read-only. Named
 executable mutations remain the surface for authorization, multi-row work,
 cascades, and business invariants.
@@ -366,21 +366,23 @@ Narrow operations remain for states that cannot yet be represented by editing
 an authenticated configuration tree:
 
 ```text
-POST /v1/bootstrap/claims
+POST /v1/bootstrap/accounts
 POST /v1/bootstrap/pairings
 POST /v1/local/forget
 POST /v1/conflicts/{TreeID}/resolve
 ```
 
-Claim bootstrap generates the profile, configuration, and device identities
-and device credential locally, stores the raw credential immediately in the OS
-credential store, constructs the initial snapshots, and calls Canopy
-claim endpoint. It is restart-idempotent and never rewrites user-authored YAML
-to insert IDs or normalize it. Pairing creates or claims the server pairing
-while similarly keeping the raw new-device credential local. Local forget
-disconnects this data home without revoking the server device or deleting
-user files. Typed conflict resolution names an exact stored private conflict
-identity and never adds a resolution field to YAML.
+Account bootstrap requires an existing self-certifying profile identity. It
+generates the private configuration TreeID, DeviceID, and device credential
+locally, stores the raw credential in the operating-system credential store,
+constructs the initial configuration snapshots, signs the Canopy challenge
+with the profile key, and submits the account claim. It is restart-idempotent
+and never rewrites user-authored YAML to insert IDs or normalize it. Pairing
+creates or claims the server pairing while similarly keeping the raw
+new-device credential local. Local forget disconnects this data home without
+revoking the server device or deleting user files. Typed conflict resolution
+names an exact stored private conflict identity and never adds a resolution
+field to YAML.
 
 ## 8. Snapshot then observe
 

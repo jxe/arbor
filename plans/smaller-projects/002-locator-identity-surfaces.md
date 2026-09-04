@@ -13,7 +13,7 @@
 ## Target result
 
 A stable key appears in exactly one encoding per surface, every surface is listed in one
-table in [locators](../../spec/04-locators.md), and everything attached to a path segment
+table in [locators](../../spec/03-locators.md), and everything attached to a path segment
 uses the single `;arbor-<name>=<value>` parameter mechanism. A reader of the spec can answer
 "where can a key show up, and how is it spelled there" from that table alone.
 

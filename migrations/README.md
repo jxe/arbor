@@ -14,6 +14,18 @@ Two things live here:
   migration script, its test, and its rehearsal report. Delete the directory
   when the cutover is verified on every host and its backups have aged out.
 
+Migration tests are lifecycle checks, not part of the product test suite.
+`bunfig.toml` therefore excludes all of `migrations/` from default `bun test`
+discovery, including the active migration. Run the migration being authored or
+rehearsed explicitly with `bun run test:migration migrations/NNN-<name>`; that
+command overrides the default discovery exclusion for the requested path while
+retaining the repository's normal test preload.
+
+A completed migration is immutable while it is retained for rollback. Its test
+may only run with the revision and schema it shipped against. Never retarget old
+code to a newer schema merely to make it pass current discovery; delete the
+whole migration directory after its rollback window closes.
+
 ## The procedure
 
 Joe is the only user, so the writers are quiesced, not the server. Every
@@ -43,10 +55,11 @@ fifteen minutes; the rehearsal is where the time should go.
    ```
 
    Check the sha256 against the one printed on the volume.
-3. **Rehearse.** Restore two copies with `restore-canopy`, run the migration
-   on one, and compare:
+3. **Rehearse.** Run the migration's focused suite, restore two copies with
+   `restore-canopy`, run the migration on one, and compare:
 
    ```sh
+   bun run test:migration migrations/NNN-<name>
    bun run migrations/tools/restore-canopy.ts volume.tar before
    bun run migrations/tools/restore-canopy.ts volume.tar migrated
    bun run migrations/NNN-<name>/run.ts migrated | tee report.json
@@ -137,5 +150,6 @@ will not fire.
 Copy `001-if-match-and-model-hash/` as the template: a `README.md` with the
 change, the exact order, and the rehearsal log; a `run.ts` that takes a data
 root and is idempotent (it checks the schema stamp and refuses to run twice);
-a `migrate.test.ts` runnable with `bun test migrations/NNN-<name>`. Batch wire
-changes into one migration whenever they are ready together.
+a `migrate.test.ts` runnable with
+`bun run test:migration migrations/NNN-<name>`. Batch wire changes into one
+migration whenever they are ready together.

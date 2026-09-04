@@ -1,10 +1,10 @@
 # Meaning Supplies for Arbor
 
-This checked-in tree is the in-progress port of the existing Supplies application and Arbor's executable-site acceptance fixture. It is ordinary authored Arbor content, not a Vite, React Router, or standalone JavaScript package.
+This checked-in tree is the in-progress port of the existing Supplies application and Arbor's executable-document acceptance corpus. It is ordinary authored Arbor content, not a deployed site, Vite project, React Router application, or standalone JavaScript package.
 
 When Arbor implements executable documents, hosting should work as follows:
 
-1. Promote `data/` as a private nested Arbor tree and attach either its `_store.sqlite3` or an equivalent `_store.postgres` backing.
+1. Promote `data/` as a private nested Arbor tree and attach either its `_store.sqlite3` or a future Postgres `_store.yaml` descriptor.
 2. Promote this folder as an Arbor tree.
 3. Give the tree's execution principal read/write access to the private data tree and profile-read access required by the compiled queries.
 4. Enable executable-document hosting for the tree on its authority.

@@ -13,6 +13,8 @@ services:
       - ${COMMUNITY_HANDLE}
       - --first-writer
       - ${FIRST_WRITER_HANDLE}
+      - --first-writer-profile
+      - ${FIRST_WRITER_PROFILE}
     volumes:
       - arbor-data:/data
     expose:

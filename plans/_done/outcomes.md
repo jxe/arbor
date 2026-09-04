@@ -1,5 +1,5 @@
 # Implemented outcomes
-*Delivered Arbor milestones. The forward roadmap lives in [`roadmap.md`](../roadmap.md); native application history lives in [`native/`](native/README.md).*
+*Delivered Arbor milestones. Current behavior lives in [status.md](../../status.md), remaining work is indexed in [plans](../README.md), and native application history lives in [`native/`](native/README.md).*
 
 This file records implemented outcomes, source ownership, intentional limits, and verification evidence. Completed work belongs here rather than remaining as future imperatives in the active plan.
 
@@ -155,7 +155,7 @@ The formerly empty Supplies database is now a reproducible nonempty fixture with
 Primary ownership:
 
 - [`packages/data`](../../packages/data)
-- [`sites/supplies/data`](../../sites/supplies/data)
+- [`examples/supplies/data`](../../examples/supplies/data)
 - [`tests/integration/supplies-queries.test.ts`](../../tests/integration/supplies-queries.test.ts)
 - [`tools/seed-supplies-fixture.ts`](../../tools/seed-supplies-fixture.ts)
 
@@ -319,7 +319,7 @@ This supersedes the client-projection architecture recorded in the historical Mi
 
 Primary ownership:
 
-- [`spec/02-directory-format.md`](../../spec/03-directory-format.md)
+- [`spec/02-directory-format.md`](../../spec/02-directory-format.md)
 - [`docs/arborsync-api.md`](../../docs/arborsync-api.md)
 - [`packages/editor/src/directory-document.ts`](../../packages/editor/src/directory-document.ts)
 - [`packages/fs/src/workspace-fs.ts`](../../packages/fs/src/workspace-fs.ts)
@@ -400,13 +400,13 @@ Delivered:
 Contract and reference documentation:
 
 - [`spec/04-wire.md`](../../spec/01-tree-operations.md)
-- [`spec/03-locators.md`](../../spec/04-locators.md)
+- [`spec/03-locators.md`](../../spec/03-locators.md)
 - [`docs/client.md`](../../docs/client.md)
 - [`docs/cli.md`](../../docs/cli.md)
-- [`spec/05-configuration.md`](../../spec/05-accounts-and-devices.md)
+- [`spec/05-configuration.md`](../../spec/04-accounts-and-devices.md)
 - [`docs/arborsync-api.md`](../../docs/arborsync-api.md)
 
-The delivered slice intentionally does not claim end-user device pairing, claim recovery/dispute resolution, multiple active local identities, nested or cross-community groups, boundary moves/aliases, or production hosting administration. Those follow-ups have their own position in the forward roadmap rather than keeping the foundation permanently partial.
+The delivered slice intentionally does not claim end-user device pairing, claim recovery/dispute resolution, multiple active local identities, nested or cross-community groups, boundary moves/aliases, or production hosting administration. Remaining follow-ups are tracked in the current project indexes rather than keeping this historical foundation permanently partial.
 
 Verification on 2026-08-02:
 

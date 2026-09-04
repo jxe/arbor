@@ -18,6 +18,8 @@ concurrency, recovery, lifecycle, or unusual input conditions.
 | Per-key frontmatter conflict semantics | READY | Preserve independent external and local frontmatter changes, detect same-key conflicts and deletions, and test them beside block three-way merge. |
 | Recovery repair versus concurrent writes | REVERIFY | Characterize `WorkspaceFS.read()` recovery writes under the current coordinator and CAS boundaries before extracting a locking-safe repair path. |
 | Background synchronization versus local mutation | REVERIFY | Confirm current tree synchronization and snapshotting cannot materialize or publish a torn local transaction; retain actionable errors rather than classifying programming failures as offline state. |
+| Malformed and partial legacy-state recovery | OWNED | Cleanup 001 and 002 must reject unsupported or ambiguous retained state without overwriting it, and retain focused failure-path tests through each compatibility cutoff. |
+| Provider-specific materialization controls | NEEDS DESIGN | Add a control only when one concrete backing can report a reliable snapshot, progress, cancellation, and failure boundary; keep provider semantics in the owning Postgres or backing plan. |
 
 Structural undo, exact reorder restoration, pointer lifecycle, keyboard access,
 context-menu focus, bounded history, and scroll restoration are owned together

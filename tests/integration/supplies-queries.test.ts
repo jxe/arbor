@@ -26,7 +26,7 @@ mock.module("arbor/react", () => ({
 }));
 
 const repository = join(import.meta.dir, "..", "..");
-const supplies = join(repository, "sites", "supplies");
+const supplies = join(repository, "examples", "supplies");
 const ada = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const bo = "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const careList = "10000000-0000-4000-8000-000000000001";

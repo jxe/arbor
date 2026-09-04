@@ -168,7 +168,7 @@ any of these.
   (`:387-609`), and community/wire orchestration (`:671-956`). The seams are
   clean; extraction would make `syncAll`/`updateWorkspace` unit-testable. Effort M.
 - **No root `CLAUDE.md`/`AGENTS.md`**, despite strong agent-directed conventions
-  scattered across [`plans/roadmap.md`](../../roadmap.md), `README.md`, and the doc-ownership split. An agent
+  scattered across the former `plans/roadmap.md`, `README.md`, and the doc-ownership split. An agent
   starting cold will predictably re-propose superseded designs or create
   `x.md` beside `x/_index.md` (a blocking duplicate-body diagnostic). Effort S,
   high leverage for a repo that expects agents to execute plans.

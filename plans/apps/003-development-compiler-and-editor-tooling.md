@@ -117,7 +117,7 @@ and server-handle leakage.
 
 Completion gate:
 
-- `arbor check sites/supplies` typechecks the unchanged corpus;
+- `arbor check examples/supplies` typechecks the unchanged corpus;
 - inferred result and mutation types reach TSX and MDX call sites;
 - VS Code and Zed show the same representative completions and diagnostics;
 - local Arbor and Canopy activate the identical reviewed manifest; and

@@ -17,7 +17,7 @@ import {
 } from "arbor/data";
 
 const repository = join(import.meta.dir, "..", "..");
-const fixture = join(repository, "sites", "supplies", "data");
+const fixture = join(repository, "examples", "supplies", "data");
 const careList = "10000000-0000-4000-8000-000000000001";
 const listeningList = "10000000-0000-4000-8000-000000000003";
 const ada = "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa";

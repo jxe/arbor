@@ -37,8 +37,9 @@ Runtime code still accepts and creates the former model alongside v2:
   adapter and its private community record;
 - `packages/stores/src/server-config.ts` retains `CommunityConfigStore` and an
   opportunistic legacy credential-reference migration;
-- `packages/arborsync/src/account-bootstrap.ts` can still create a v1 graph,
-  and `/v1/bootstrap/claims` plus the Swift client still expose that path;
+- `packages/arborsync/src/account-bootstrap.ts` still depends on the singleton
+  community record for compatibility paths, although public claiming now uses
+  the plural-account bootstrap and the old Swift claim convenience is gone;
 - `packages/canopy/src/account-policy.ts` and branches in `canopy.ts` continue
   to validate, authorize, merge, create, and serve `account-config-v1` trees;
 - tests, E2E setup, protocol fixtures, and the hcloud lab still construct v1
@@ -130,12 +131,10 @@ Commit this phase independently after focused store and workspace tests pass.
 - Remove `CommunityConfigStore`, the singleton credential path, and its
   opportunistic credential-reference migration after the audit proves no
   record or credential still depends on it. Keep `CanopyAccountStore`.
-- Delete the v1 claim writer and pending-bootstrap shape. Make the complete
-  account-locator bootstrap the sole claim path, preserving the current
-  self-certifying person-profile identity and workspace-binding contract.
-- Remove `/v1/bootstrap/claims`, the `layout` switch, and the unused Swift
-  `claimProfile` convenience. Keep `/v1/bootstrap/accounts` with its current
-  restart-safe credential and snapshot behavior.
+- Remove the remaining singleton bootstrap dependencies. Keep the complete
+  account-locator bootstrap as the sole claim path, preserving its current
+  self-certifying person-profile identity, restart-safe credential, snapshot,
+  and workspace-binding behavior.
 - Make account listing, pairing, forgetting, synchronization, and system-tree
   presentation configuration-TreeID-aware without singleton fallbacks.
 
@@ -162,12 +161,11 @@ Commit this phase independently after the live-copy verification below.
 
 - Update `docs/local-system.md` from a pending account-layout cutover to the
   completed v2-only layout.
-- Document `/v1/bootstrap/accounts` as the sole account claim bootstrap and
-  remove the old claims route from `docs/arborsync-api.md` and client examples.
+- Keep the plural-account bootstrap documented as the sole account-claim
+  endpoint and remove any remaining singleton claim examples.
 - After Joe confirms the retained rollback data is gone, delete
   `migrations/003-multi-canopy-accounts/`; its durable outcome remains in
-  `plans/_done/interfaces/005-multi-canopy-connections.md` and
-  `plans/_done/outcomes.md`.
+  Interface 005 and `plans/_done/outcomes.md`.
 - Replace links from durable historical outcomes to the deleted migration
   directory with a past-tense summary or the retained Interface 005 record;
   closure must not knowingly leave broken documentation links.
@@ -179,11 +177,11 @@ Commit this phase independently after the live-copy verification below.
 
 ## Verification
 
-Run the migration's own fixture before deleting its directory, then the focused
-compatibility suites while each phase still exists:
+Use Migration 003's retained rehearsal evidence rather than retargeting its
+schema-5 fixture to the current build, then run the focused compatibility
+suites while each phase still exists:
 
 ```sh
-bun test migrations/003-multi-canopy-accounts
 bun test tests/unit/private-state.test.ts tests/unit/trees.test.ts
 bun test tests/unit/canopy/account-policy-v2.test.ts
 bun test tests/integration/canopy/update-host.test.ts tests/integration/canopy/community-hosting.test.ts tests/integration/self-sync.test.ts
@@ -208,7 +206,7 @@ reported by the safe receipt must agree.
 Final searches:
 
 ```sh
-rg -n 'account-config-v1|CommunityConfigStore|loadAccountConfiguration|loadLegacySingletonTreeRegistry|claimLegacyProfileBootstrap|/v1/bootstrap/claims' packages native tests tools docs
+rg -n 'account-config-v1|CommunityConfigStore|loadAccountConfiguration|loadLegacySingletonTreeRegistry|claimLegacyProfileBootstrap' packages native tests tools docs
 rg -n 'LEGACY_PRIVATE_ENTRIES|migratePrivateState|rootIDForInitialPath|privateRootID|Record<string, string \\| WorkspaceRegistryRecord>' packages tests
 ```
 
@@ -229,7 +227,7 @@ may retain past-tense evidence; active docs and fixtures must describe v2 only.
 - [ ] Browser, CLI, native, E2E, hcloud, and protocol fixtures use the v2 account
   surface without losing behavioral coverage.
 - [ ] Migration 003's repository artifact is deleted only after its backups
-  age out; durable outcome evidence remains.
+      age out; durable outcome evidence remains.
 - [ ] Focused tests, full TypeScript tests/build/E2E, Swift packages, both native
   platform builds, live-copy verification, and `git diff --check` pass.
 

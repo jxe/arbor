@@ -23,6 +23,7 @@
     "build:web": "vite build --config packages/render/vite.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test --parallel=4 tests/unit tests/integration",
+    "test:migration": "bun test --path-ignore-patterns=__requested_migration_only__",
     "test:unit": "bun test tests/unit",
     "test:integration": "bun test tests/integration",
     "test:sync-merge": "bun test tests/unit/wire/update-intent.test.ts tests/unit/canopy/update-decision.test.ts tests/unit/canopy/update-store.test.ts tests/unit/canopy/update-merge.test.ts tests/integration/canopy/update-host.test.ts tests/integration/self-sync.test.ts",

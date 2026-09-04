@@ -6,16 +6,20 @@ For multi-machine synchronization, outage, and conflict testing rather than a si
 
 ## Railway
 
-The repository already contains `Dockerfile.canopy` and `railway.toml`. Railway builds that image, checks `/.arbor/health`, supplies `PORT`, and restarts a failed process. Arbor refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral Canopy state.
+The repository already contains `Dockerfile.canopy` and `railway.toml`. Railway builds that image, checks `/`, supplies `PORT`, and restarts a failed process. Arbor refuses to initialize on Railway until both a public domain and persistent volume exist, preventing accidental canonical `localhost` URLs or ephemeral Canopy state.
 
 1. Push this Arbor branch to a GitHub repository that Railway can access.
 2. In Railway, create a project and add a service from that repository. The first attempted start may fail safely while the required domain and volume are absent.
 3. Attach a volume to the service at `/data`. Railway then supplies `RAILWAY_VOLUME_MOUNT_PATH`; Arbor stores its Canopy SQLite and immutable objects there.
 4. Under **Networking**, either generate a Railway domain or add your own domain. For a custom domain, add both the CNAME and TXT records Railway shows. Railway terminates TLS.
-5. Under **Settings → Deploy**, set the start command, choosing your own community and first-writer handles:
+5. Create the founder's profile identity locally with `arbor me create`, then
+   run `arbor me` and copy its public Profile TreeID. Under **Settings →
+   Deploy**, set the start command with that exact identity and your chosen
+   community and first-writer handles:
 
    ```sh
-   bun run canopyd --community garden --first-writer joe
+   bun run canopyd -- --community garden --first-writer joe \
+     --first-writer-profile tr_...
    ```
 
    Arbor initially uses `garden` as the community profile's display name; its writer can edit that profile later. With a Railway-provided domain, Arbor derives the canonical URL from `RAILWAY_PUBLIC_DOMAIN`. For a custom domain, add one service variable containing the hostname (without a scheme):
@@ -75,20 +79,33 @@ From this checkout on your own Mac:
 ```sh
 bun install
 bun run build:web
-bun run arbor open https://garden.example.com/~joe
+bun run arbor -- me create
+bun run arbor -- open https://garden.example.com/~joe
 ```
 
 In Arbor web:
 
 1. Select **Claim profile** on the empty reserved profile.
-2. Choose a visible local folder such as `~/.arbor/profile`.
+2. Confirm the existing local profile folder, normally `~/.arbor/profile`.
 3. Select **Claim profile** in the sheet.
 
-The local arborsync creates or validates a `type: person` profile and generates the profile TreeID, account-configuration TreeID, DeviceID, and device credential locally. One bootstrap request atomically creates the profile, account, canonical boundary and ACL, private configuration tree, credential binding, and first administrator. Canopy receives only the credential digest and never returns the raw credential. The resulting `account.yaml`, `trees.yaml`, and `devices/<DeviceID>.yaml` checkout is installed at `${ARBOR_DATA_HOME:-~/.arbor}`; implementation state lives beneath its excluded `.state` mount.
+The local profile and its self-certifying Profile TreeID already exist before
+the claim. Arbor Sync generates the account-configuration TreeID, DeviceID, and
+device credential locally, signs Canopy's challenge with the profile key, and
+submits the initial configuration. Canopy verifies the exact reserved profile,
+stores only the credential digest, and never receives the profile private key
+or returns the raw credential. The resulting `account.yaml`, `trees.yaml`, and
+`devices.yaml` checkout is installed beneath
+`${ARBOR_DATA_HOME:-~/.arbor}`; implementation state lives beneath its excluded
+`.state` mount.
 
 After claiming, create a small folder elsewhere on the Mac and use **Share** to publish it at `/~joe/test` with **Public read**. The UI obtains a fresh client-generated TreeID, source-preservingly adds its declaration and `everyone: read` rule to `trees.yaml`, adds the local path to the current device's `placements`, and initializes the reserved tree. Verify `https://garden.example.com/~joe/test` remotely. The source folder remains at its original OS path.
 
-First-claim-wins is deliberately the current v1 policy. Claim the first-writer profile promptly and treat this deployment as disposable until end-user recovery and dispute resolution exist.
+The reservation names one exact self-certifying Profile TreeID, so an unrelated
+client cannot win the account by claiming first. Treat the deployment as
+recoverable only to the extent that its profile-key backup, Canopy backup, and
+documented restore procedure have actually been tested; end-user dispute and
+administrator recovery flows remain future product work.
 
 ## Coordinated alpha upgrades
 
@@ -115,7 +132,11 @@ cd deploy
 cp .env.example .env
 ```
 
-Edit `.env` so `ARBOR_DOMAIN` is the real hostname and `COMMUNITY_HANDLE` and `FIRST_WRITER_HANDLE` have the values you want. Compose passes the latter two to `canopyd` as arguments. Start the service:
+Create the founder's identity locally with `arbor me create`, and copy its
+Profile TreeID from `arbor me`. Edit `.env` so `ARBOR_DOMAIN` is the real
+hostname, `COMMUNITY_HANDLE` and `FIRST_WRITER_HANDLE` have the values you
+want, and `FIRST_WRITER_PROFILE` is that exact TreeID. Compose passes all three
+bootstrap values to `canopyd`. Start the service:
 
 ```sh
 docker compose up -d --build

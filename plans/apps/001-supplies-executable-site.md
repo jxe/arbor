@@ -9,7 +9,7 @@
   [Data 002](../_done/data/002-reconcile-node-data-model.md)
 - **Progress**: IN PROGRESS — compiler and development typechecking are owned
   by [Apps 003](003-development-compiler-and-editor-tooling.md)
-- **Reference corpus**: [`sites/supplies`](../../sites/supplies)
+- **Reference corpus**: [`examples/supplies`](../../examples/supplies)
 
 ## Target result
 
@@ -33,7 +33,7 @@ measurement-driven follow-up, not a gate.
 ## Authored contract frozen by the port
 
 ```text
-sites/supplies/
+examples/supplies/
   _index.md
   Home.mdx
   List.tsx
@@ -92,7 +92,7 @@ against the unchanged Supplies corpus. This application plan consumes its
 coherent compiled document and activation manifest; it does not maintain a
 second compiler checklist or choose editor-specific typing semantics.
 
-Gate: Apps 003's completion gate passes for `sites/supplies`.
+Gate: Apps 003's completion gate passes for `examples/supplies`.
 
 ## Remaining milestone 2 — local and Canopy execution
 

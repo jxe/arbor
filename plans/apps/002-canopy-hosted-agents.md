@@ -110,7 +110,7 @@ Cancellation stops further model/tool work but cannot roll back an already commi
 
 ## Concrete Supplies slice
 
-Add one checked-in agent document to `sites/supplies` after its query and mutation handles run unchanged in local and Canopy-hosted React documents.
+Add one checked-in agent document to `examples/supplies` after its query and mutation handles run unchanged in local and Canopy-hosted React documents.
 
 The agent can:
 

@@ -32,7 +32,7 @@ locate and read.
 TreeIDs are generated randomly and locally when people share files or folders.
 Person-profile TreeIDs are instead derived from a public identity key, allowing
 the person who holds its private key to prove control. See
-[accounts §1.1](05-accounts-and-devices.md#11-beginning-a-person-identity).
+[accounts §1.1](04-accounts-and-devices.md#11-beginning-a-person-identity).
 
 Trees have one history and one ACL.
 
@@ -77,8 +77,8 @@ For representing typed collections, a child set may declare a schema shared by i
 ### Representations
 
 A placement chooses how to materialize a tree. The
-[portable directory projection](03-directory-format.md) maps ordinary files
-and folders into the model, while [child backings](07-child-backings.md) allow
+[portable directory projection](02-directory-format.md) maps ordinary files
+and folders into the model, while [child backings](06-child-backings.md) allow
 a child set to be represented by expanded files, a collection file, a database,
 or an external store. This representation choice is the child set's *backing*
 at that placement.
@@ -187,7 +187,7 @@ A directory entry either addresses another Wire object by hash or marks a
 nested Arbor tree boundary by TreeID. `childrenSource`, when present, records
 how authored collection files supply the directory's logical children; its
 projection and validation rules are defined by
-[child backings §2.1](07-child-backings.md#21-accepted-wire-representation).
+[child backings §2.1](06-child-backings.md#21-accepted-wire-representation).
 
 Section 4.1 defines the common encoding and hash rules.
 
@@ -425,7 +425,7 @@ of these decisions:
 
 A merge rule is the representation-specific way to combine two changes to one
 node: `markdown-additive-v1` for Markdown,
-[`collection-file-rows-v1`](07-child-backings.md#23-accepted-update-validation-and-merge)
+[`collection-file-rows-v1`](06-child-backings.md#23-accepted-update-validation-and-merge)
 for a collection file, and `account-config-v2` for the governed configuration
 tree. A node with no merge rule, or one the rule cannot combine, is a conflict.
 

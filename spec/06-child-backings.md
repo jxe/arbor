@@ -5,7 +5,7 @@
 external providers supply logical child sets; backing-specific revisions,
 snapshots, observation, and physical commit behavior; placement projections;
 and representation migration. Query and transaction semantics belong to
-[executable documents](08-executable-documents.md).*
+[executable documents](07-executable-documents.md).*
 
 ## 1. Common collection contract
 
@@ -77,7 +77,7 @@ A backing preserves these logical child-set facts:
   serializable, and independent of row position, SQLite `rowid`, display
   label, or query plan. A row's third reference component is its canonical key
   JSON as defined by
-  [locators](04-locators.md#2-stable-keys-revisions-and-fragments); each key
+  [locators](03-locators.md#2-stable-keys-revisions-and-fragments); each key
   field's Standard Schema output must be a JSON string, boolean, or finite
   number, and a backing value not exactly representable in one of those forms
   is normalized to a string by the schema first. Changing a key is observed as
@@ -269,7 +269,7 @@ to collection invalidation. Reordering lines does not change identity.
 
 Mixing backing shapes produces a diagnostic and disables collection-level interpretation without making the underlying files inaccessible. Invalid rows are diagnostics, not daemon crashes or silent deletion.
 
-The schema evaluator accepts the authored schema and its declared schema-library import under the [no-ambient-authority rule](08-executable-documents.md#2-authored-component-forms), with finite resource bounds. This specification does not prescribe evaluator technology or generated-file layout.
+The schema evaluator accepts the authored schema and its declared schema-library import under the [no-ambient-authority rule](07-executable-documents.md#2-authored-component-forms), with finite resource bounds. This specification does not prescribe evaluator technology or generated-file layout.
 
 ### 2.3 Accepted update validation and merge
 
@@ -339,7 +339,7 @@ runtime-owned transaction to Postgres, and observes committed changes; the autho
 tree synchronizes the safe descriptor rather than a database copy.
 
 A device placement may instead request a private SQLite projection in its
-[configuration](05-accounts-and-devices.md):
+[configuration](04-accounts-and-devices.md):
 
 ```yaml
 projection:

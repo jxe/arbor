@@ -29,8 +29,8 @@ the first administrator. The server derives the reserved Profile TreeID from
 the supplied public key, verifies the target-bound signature locally, and
 creates the account and configuration in one transaction. It receives no
 profile bytes and does not host the profile
-([accounts §1.1–1.2](05-accounts-and-devices.md#11-beginning-a-person-identity), [profiles and accounts](05-accounts-and-devices.md#1-profiles-and-canopy-accounts),
-[configuration graph](05-accounts-and-devices.md#2-account-configuration-graph)).
+([accounts §1.1–1.2](04-accounts-and-devices.md#11-beginning-a-person-identity), [profiles and accounts](04-accounts-and-devices.md#1-profiles-and-canopy-accounts),
+[configuration graph](04-accounts-and-devices.md#2-account-configuration-graph)).
 
 ## 2. Declare a tree
 
@@ -46,9 +46,9 @@ and records the local folder separately in `~/.arbor/placements.yaml`. It
 submits only the changed configuration tree as a candidate against the last
 accepted configuration update. The server validates the candidate under the
 `account-config-v2` policy and reserves the tree; nothing is readable yet
-([configuration YAML](05-accounts-and-devices.md#3-configuration-yaml),
-[accounts §7](05-accounts-and-devices.md#7-governed-account-tree),
-[accounts §6](05-accounts-and-devices.md#6-declaring-and-activating-a-tree)).
+([configuration YAML](04-accounts-and-devices.md#3-configuration-yaml),
+[accounts §7](04-accounts-and-devices.md#7-governed-account-tree),
+[accounts §6](04-accounts-and-devices.md#6-declaring-and-activating-a-tree)).
 
 ## 3. Activate it
 
@@ -60,13 +60,13 @@ the first accepted update, applies the declared ACL and canonical boundary,
 and atomically makes the tree's descriptor and snapshot readable.
 `https://garden.example/~joe/atlas` and `arbor://tr_…/` now resolve to the
 same tree ([snapshot](01-tree-operations.md#111-getting-a-snapshot-of-the-whole-tree),
-[locator forms](04-locators.md#1-forms), [canonical lookup](04-locators.md#5-finding-trees)).
+[locator forms](03-locators.md#1-forms), [canonical lookup](03-locators.md#5-finding-trees)).
 
 ## 4. Edit a file
 
 Joe edits `notes.md`. Because `notes.md` supplies the body of the node `/notes`
 and a sibling `notes/` would supply its children, the edit touches one node
-([mapping](03-directory-format.md#2-mapping-files-and-directories-to-nodes)).
+([mapping](02-directory-format.md#2-mapping-files-and-directories-to-nodes)).
 The laptop builds the new candidate root: a new file object, and new directory
 objects from `notes.md` up to the root. It sends the file as an `ObjectDelta`
 against the previous file object and the small directory objects in full,
@@ -99,15 +99,15 @@ Joe creates `practices/schema.ts` exporting a Zod object schema and
 `primaryKey = ["id"]`, and `practices/_store.csv` with a header row. The
 folder is now a file-backed collection: each CSV row is a child node of
 `/practices`, its columns are the child's properties, and its stable key is
-the canonical key JSON of its `id` ([file-backed collections](07-child-backings.md#2-file-backed-collections),
-[row identity](07-child-backings.md#12-member-identity-order-and-pagination)). In the Wire encoding,
+the canonical key JSON of its `id` ([file-backed collections](06-child-backings.md#2-file-backed-collections),
+[row identity](06-child-backings.md#12-member-identity-order-and-pagination)). In the Wire encoding,
 the exact CSV and `schema.ts` remain ordinary physical entries while the
 directory's collection-file descriptor identifies them as the source of its
 logical children. The authority recomputes both the schema fingerprint and the
 child-set hash
-([accepted Wire representation](07-child-backings.md#21-accepted-wire-representation)).
+([accepted Wire representation](06-child-backings.md#21-accepted-wire-representation)).
 Each row has an ordinary public address such as
-`/~joe/atlas/practices/walking;arbor-key=…` ([public projection](04-locators.md#6-public-http-projection)).
+`/~joe/atlas/practices/walking;arbor-key=…` ([public projection](03-locators.md#6-public-http-projection)).
 
 ## 7. Query it from a page
 
@@ -126,14 +126,14 @@ export const publishedPractices = query.many(practices, practice => ({
 
 The server has enabled hosting for the tree, so compilation produces a
 manifest that binds the handle to `(tr_…, /practices, schema fingerprint)` and
-records its read prefix ([handles](08-executable-documents.md#3-modules-and-named-handles),
-[queries](08-executable-documents.md#4-queries), [compilation](08-executable-documents.md#7-compilation-and-hosting)).
+records its read prefix ([handles](07-executable-documents.md#3-modules-and-named-handles),
+[queries](07-executable-documents.md#4-queries), [compilation](07-executable-documents.md#7-compilation-and-hosting)).
 A visitor's browser receives the server-rendered page with the query's result
 embedded, then opens `QUERY /.arbor/trees/tr_…/queries` naming the document
 version and the handle. The stream sends `result` and `ready`. When Joe edits
 the CSV, the tree advances, the provider reports which rows changed, the host
 re-evaluates, and a new `result` with a new `outputHash` follows
-([executable documents §12.1](08-executable-documents.md#121-evaluate-and-stream-named-queries), [authoring API](09-authoring-api.md)).
+([executable documents §12.1](07-executable-documents.md#121-evaluate-and-stream-named-queries), [authoring API](08-authoring-api.md)).
 
 ## 8. Run a mutation
 
@@ -146,8 +146,8 @@ and records the receipt with the same durability as the data. Because the
 mutation changed an Arbor-canonical tree, the receipt's `affected` names the
 new accepted update, and Alice's watch sees an ordinary `tree.update` frame. A
 retry with the same `mutationID` returns the original receipt and does nothing
-twice ([mutations](08-executable-documents.md#5-mutations),
-[executable documents §12.2](08-executable-documents.md#122-execute-named-mutations), [actions](09-authoring-api.md#4-actions-and-forms)).
+twice ([mutations](07-executable-documents.md#5-mutations),
+[executable documents §12.2](07-executable-documents.md#122-execute-named-mutations), [actions](08-authoring-api.md#4-actions-and-forms)).
 
 ## 9. Rename the canonical URL
 
@@ -156,4 +156,4 @@ Joe changes `canonical` to `https://garden.example/~joe/atlas-2026` in
 `TreeID`, every stable key, every object, and the accepted history are
 unchanged; only the secondary lookup moved. `arbor://tr_…/practices/walking;arbor-key=…`
 still resolves, and Alice's placement keeps following the same tree
-([canonical lookup](04-locators.md#5-finding-trees), [equality](01-tree-operations.md#representation-and-model-equality)).
+([canonical lookup](03-locators.md#5-finding-trees), [equality](01-tree-operations.md#representation-and-model-equality)).

@@ -3,23 +3,29 @@ id: 6r6ov1
 ---
 # Working set
 
-[intro](intro)
+[status](status)
 
-[editor-todo](plans/smaller-projects/005-web-editor)
+[intro](intro)
 
 [README](README)
 
+[documentation](docs/README)
+
 [plans](plans/README)
+
+[open-questions](plans/open-questions)
 
 [completed-native-plans](plans/_done/native/overview)
 
-[roadmap](plans/roadmap)
-
 [spec](spec)
+
+[Supplies example](examples/supplies)
 
 # Src
 
 [packages](packages)
+
+[native](native)
 
 # Config files & tests
 
@@ -35,12 +41,8 @@ id: 6r6ov1
 
 [tests](tests)
 
-[test-results](test-results)
-
-[dist](dist)
-
 # etc
 
 [social-networking](docs/notes/social-networking)
 
-[tools](/arbor/tools)
+[development](DEVELOPMENT)

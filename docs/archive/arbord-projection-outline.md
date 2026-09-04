@@ -45,7 +45,7 @@ Keep this projection out of the REST `NodeSnapshot.document`.
 
 ## 2. Build one pure projection and URL layer
 
-Refactor [packages/core/src/structural-rows.ts](/Users/joe/src/arbor/packages/core/src/structural-rows.ts) into two related pure facilities:
+Refactor the then-current `packages/core/src/structural-rows.ts` into two related pure facilities:
 
 ### Logical URL resolution
 
@@ -83,8 +83,8 @@ I would also separate syntax from structure internally: the current `childPage` 
 Most work will be in:
 
 - [packages/fs/src/workspace-fs.ts](/Users/joe/src/arbor/packages/fs/src/workspace-fs.ts)
-- [packages/arbord/src/workspace.ts](/Users/joe/src/arbor/packages/arbord/src/workspace.ts)
-- [packages/arbord/src/server.ts](/Users/joe/src/arbor/packages/arbord/src/server.ts)
+- the then-current `packages/arbord/src/workspace.ts`
+- the then-current `packages/arbord/src/server.ts`
 
 Required behavior:
 
@@ -166,7 +166,7 @@ In [packages/client/src/index.ts](/Users/joe/src/arbor/packages/client/src/index
 Mirror this in:
 
 - [Protocol.swift](/Users/joe/src/arbor/native/Packages/ArborClient/Sources/ArborClient/Protocol.swift)
-- [ArborClient.swift](/Users/joe/src/arbor/native/Packages/ArborClient/Sources/ArborClient/ArborClient.swift)
+- the then-current `native/Packages/ArborClient/Sources/ArborClient/ArborClient.swift`
 
 Specific cleanup:
 

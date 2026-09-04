@@ -16,7 +16,7 @@
 >
 > ```sh
 > git diff --stat 5344a52..HEAD -- \
->   spec/05-accounts-and-devices.md \
+>   spec/04-accounts-and-devices.md \
 >   plans/_done/interfaces/005-multi-canopy-connections.md \
 >   packages/arborsync packages/client packages/render \
 >   native/Packages/ArborWire native/Packages/ArborClient \

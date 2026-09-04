@@ -14,8 +14,8 @@
 >
 > ```sh
 > git diff --stat 5344a52..HEAD -- \
->   spec.md spec/01-tree-operations.md spec/04-locators.md \
->   spec/05-accounts-and-devices.md spec/06-access-control.md conformance \
+>   spec.md spec/01-tree-operations.md spec/03-locators.md \
+>   spec/04-accounts-and-devices.md spec/05-access-control.md conformance \
 >   docs/local-system.md docs/arborsync-api.md docs/client.md docs/cli.md \
 >   packages/stores packages/arborsync packages/canopy packages/wire \
 >   packages/client packages/cli packages/render native tests migrations
@@ -279,7 +279,7 @@ credential to be an administrator of the declaring account, not to have a
 server-visible placement.
 
 Implement the local-first and optional existing-profile proof contract from
-[the spec](../../../spec/05-accounts-and-devices.md#12-joining-an-existing-profile-to-another-canopy):
+[the spec](../../../spec/04-accounts-and-devices.md#12-claiming-an-account-with-the-profile-key):
 a short-lived proof binds target origin, complete account locator, profile TreeID, configuration
 TreeID, and expiry; the target verifies it once and stores no profile locator.
 The account claim accepts no profile snapshot and creates no profile tree or

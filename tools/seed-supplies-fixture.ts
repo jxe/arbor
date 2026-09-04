@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 
-const dataDirectory = join(import.meta.dir, "..", "sites", "supplies", "data");
+const dataDirectory = join(import.meta.dir, "..", "examples", "supplies", "data");
 const destination = join(dataDirectory, "_store.sqlite3");
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "arbor-supplies-fixture-"));
 const temporaryDatabase = join(temporaryDirectory, "_store.sqlite3");

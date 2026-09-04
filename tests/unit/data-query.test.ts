@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { arbor, compileQuery, introspectStoreSchema, query, resolveDatabaseLocation, QueryCompileError } from "arbor/data";
 
 const repository = join(import.meta.dir, "..", "..");
-const supplies = join(repository, "sites", "supplies");
+const supplies = join(repository, "examples", "supplies");
 
 describe("arbor/data query planning", () => {
   test("runs an authored planner once and retains symbolic input", () => {

@@ -1,7 +1,7 @@
 # Access control
 *Part of the [Arbor spec](../spec.md): who may read or write a tree, how a request proves who it is, and what a hash does not authorize.*
 
-*Owns: access subjects, rules, and levels; authentication headers and secret handling; tree-scoped authorization; and the `access` route. References: [accounts and devices](05-accounts-and-devices.md) for the `trees.yaml` that carries rules and `devices.yaml` whose entries govern account-scoped credentials.*
+*Owns: access subjects, rules, and levels; authentication headers and secret handling; tree-scoped authorization; and the `access` route. References: [accounts and devices](04-accounts-and-devices.md) for the `trees.yaml` that carries rules and `devices.yaml` whose entries govern account-scoped credentials.*
 
 ## 1. Subjects and rules
 
@@ -39,10 +39,10 @@ updates under either `ifMatch`; a narrower grant limited to `modelHash` is
 deferred ([deferred 10](../spec.md#deferred)). A raw link secret never
 enters YAML.
 
-Rules live in the account's `trees.yaml` ([accounts §3](05-accounts-and-devices.md#3-configuration-yaml));
+Rules live in the account's `trees.yaml` ([accounts §3](04-accounts-and-devices.md#3-configuration-yaml));
 an administrator changes them by editing that file, and the server applies the
 change atomically with the accepted configuration root
-([accounts §7](05-accounts-and-devices.md#7-governed-account-tree)).
+([accounts §7](04-accounts-and-devices.md#7-governed-account-tree)).
 Group membership is authored profile content and does not itself grant access.
 
 ## 2. Authentication and secrets

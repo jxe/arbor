@@ -2,7 +2,7 @@
 
 Arbor web and native Arbor are the reference human clients, not normative UIs. Portable content, locator, and wire requirements live in the [Arbor specification](../spec.md). Another implementation may use different controls, layout, editor, platform conventions, and local daemon boundary.
 
-This document records the intended Arbor web/native product design so those choices do not leak into protocol contracts.
+This document records the intended Arbor web/native product design so those choices do not leak into protocol contracts. It is not an implementation-status page: [status.md](../status.md) records what currently works, including differences between the web and native clients.
 
 ## Browser and Home
 
@@ -111,4 +111,4 @@ File menus provide ordinary rename, move, copy, Trash, restore, and asset import
 
 ## Agents
 
-Arbor clients may render agent files with context/tool summaries, a concrete consent sheet, live progress, tool calls, receipts, and ordinary-tree transcripts. The portable behavior is in [the agents section of executable documents](../spec/08-executable-documents.md#13-agents); Arbor's panels, streaming presentation, and approval controls are reference design.
+Arbor clients may render agent files with context/tool summaries, a concrete consent sheet, live progress, tool calls, receipts, and ordinary-tree transcripts. The portable behavior is in [the agents section of executable documents](../spec/07-executable-documents.md#13-agents); Arbor's panels, streaming presentation, and approval controls are reference design.

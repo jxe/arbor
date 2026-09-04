@@ -3,129 +3,96 @@ id: jrigzm
 ---
 # Arbor
 
-A successor to the web built around three concepts: **a workspace**, the tree a person or agent sees and works in; **an Arbor tree**, a folder with independent identity, history, synchronization, and permissions; and **an executable document**, authored MDX/TSX that reads, renders, or changes the workspace through components and typed operations.
+Arbor turns ordinary folders into a shared, browsable space for people and
+agents. Files stay files—readable with `cat`, searchable with `grep`, and
+editable by any existing tool—but a folder can gain a stable identity,
+history, synchronization, and permissions without moving into a walled
+service. Arbor's browser gives the same material a human interface.
 
-## Current implementation
+The longer-term idea is that documents in this space can also become live
+applications: their data, interface, and permitted operations travel together
+instead of being split across a website, API, database, and account system.
+The reference implementation already provides the local browser/editor, stable
+trees, synchronization, community hosting, accounts, and the headless data
+runtime. Executable-document presentation, hosted agents, and portable
+deployment remain work in progress or specification.
 
-The current implementation is a Bun workspace. `arbor open <locator>` opens the filesystem-wide Arbor web React/BlockNote browser. Local paths use the same logical-node and atomic mutation engine everywhere, while ordinary untracked paths disable recursive discovery, watching, ID minting, and recovery. HTTP and Arbor URLs open remote locations as transient read-only visits unless the current device has placed the resolved tree. An unclaimed profile URL appears as an empty, reserved profile with a Claim action. One host can serve many accounts in a mounted namespace: `/` is the community profile, `/~joe` and `/~editors` are complete person/group profile trees, and longer exact boundaries such as `/~editors/handbook` resolve by the longest readable registered boundary. Adding or changing a tree, placement, canonical boundary, ACL, administrator, or active device is an ordinary guarded edit to the synchronized account-configuration YAML; the browser and CLI provide convenient source-preserving transformations of those files. Arbor web uses the REST v1 TypeScript client in `packages/client`; the matching Foundation-only Swift 6 client lives in `native/Packages/ArborClient`. Start from this checkout with:
+For the longer argument, read [A universal dynamic material](intro.md). For the exact current boundary, see [status.md](status.md).
+
+## Start using Arbor
+
+The current persistent setup is for macOS. From a checkout, install the
+dependencies, expose Arbor's commands in your shell, install Arbor Sync as a
+user service, create one local profile identity, and open the current folder:
 
 ```sh
 bun install
 bun run build:web
-bun run dev -- /path/to/workspace
+bun link
+arbor daemon install
+arbor me create
+arbor open .
 ```
 
-The tree path may be absolute, relative to the current directory, or shell-expanded with `~`; omit it to browse the current directory. `bun install` creates the repo-local `arbor` executable, which Bun exposes as `bun run arbor`; it does not put a bare `arbor` command on the surrounding shell's global path. `bun link` remains an optional convenience if you want that global command.
+`bun link` exposes `arbor`, `arborsync`, and `canopyd` from this checkout.
+`arbor daemon install` installs and starts the per-user Arbor Sync launchd
+service; if the signed Arbor app already owns that service, the command leaves
+its registration in place. Later, `arbor open` attaches to that service and
+asks launchd to start it when it is installed but stopped. `arbor me create` is a one-time operation and
+refuses to replace an existing identity. Skip it if `arbor me` already reports
+one.
 
-See the [Arbor CLI reference](docs/cli.md) for the complete implemented command surface, options, safety rules, and examples.
+`arbor open` accepts a local path, a canonical HTTPS or `arbor://` URL, or no
+locator for the current directory. Linux and Windows daemon supervision are
+not implemented yet; the [CLI reference](docs/cli.md) documents the isolated
+foreground mode available with `ARBOR_DATA_HOME`.
 
-To create a group after joining a community, make an ordinary folder with an `_index.md` such as:
+See the [CLI reference](docs/cli.md) for persistent daemon setup, placing synchronized trees, moves, identity backup and restore, and command safety rules.
 
-```md
----
-type: group
-members:
-  - arbor://garden.example/~joe
----
+## Run a Canopy server
 
-# Editors
-```
-
-Then place the folder at an available group handle, with the audience options before the locators:
+A new Canopy community reserves its first account for an existing self-certifying profile. Print the profile TreeID created above:
 
 ```sh
-arbor place --access public=read ~/groups/editors arbor://garden.example/~editors
+arbor me
 ```
 
-The folder stays where it is. The CLI obtains a client-generated `TreeID`, edits `trees.yaml` and the current device's `placements`, and initializes the reserved tree from the folder. Its members remain ordinary authored locators, and membership alone does not grant write access to the group tree.
-
-Launch a new local community without preparing credentials or environment variables:
+Then start Canopy, replacing `tr_...` with that TreeID:
 
 ```sh
-bun run host -- ./garden --community garden --first-writer joe
+canopyd ./garden \
+  --community garden \
+  --first-writer joe \
+  --first-writer-profile tr_...
 ```
 
-Canopy creates the `garden` community, reserves `/~joe`, and prints that complete profile address. Its initial display name is the handle and Joe can edit the community profile later. Run `arbor open <that-address>`: Arbor web shows the empty reserved profile, and its Claim action asks where the profile should live locally. The claim atomically creates the profile tree, the private account-configuration tree, a locally generated device identity and credential binding, and the first administrator. Running the same `canopyd` command again restarts the existing server without another bootstrap. `--url` sets an explicit public origin for unusual HTTP or nonstandard-port deployments; standard HTTPS hosting uses `ARBOR_DOMAIN`. `--hostname` and `--port` separately control the listener, while Railway's generated public domain and port are detected automatically. Environment-based account bootstrap remains available only for coordinated alpha migration. See [Remote trial deployment](deploy/README.md) for Railway and VPS instructions.
-
-The portable [`account.yaml`, `trees.yaml`, and device-file contract](spec/05-accounts-and-devices.md) is one private synchronized Arbor tree. The current implementation checks it out at `${ARBOR_DATA_HOME:-~/.arbor}`, using an excluded `.state` mount for private daemon data and the operating-system credential store for raw credentials; those local choices are documented in [the local-system reference](docs/local-system.md). Direct valid YAML edits apply through arborsync's file watcher, while invalid candidates leave the last valid configuration active and produce diagnostics.
-
-Markdown uses CommonMark/GFM plus the readable Clamshell toggle extension (`▸ Title` with two-space-indented children). Collection backings use the fixed reserved names `_store.csv`, `_store.json`, `_store.jsonl`, `_store.sqlite3`, and `_store.yaml` (the external-store descriptor, for example Postgres); see [child backings](spec/07-child-backings.md).
-
-Markdown page names are logical and extensionless in Arbor. A directory is a node whose content is its `x/_index.md`; alternatively `x.md` beside a sibling `x/` supplies the body, so a page can gain children without moving or rewriting its body. When both exist, `_index.md` wins and the sibling is reported as a shadowed body. Arbor Sync nevertheless presents every physical directory as complete operational Markdown: the first standalone link to each child sets its authored position, and missing child links are appended deterministically without materializing a file until the first authored write. Thus this repository's `spec.md` is the body of `/spec`, while `spec/` contains its children.
-
-## Executable reference site
-
-[`sites/supplies`](sites/supplies) is the checked-in Meaning Supplies executable-document reference tree. It is already browsable as ordinary Arbor source:
+Canopy listens at `http://127.0.0.1:4318` by default and prints the reserved account URL. In another terminal, open and claim it:
 
 ```sh
-bun run arbor open sites/supplies
+arbor open http://127.0.0.1:4318/~joe
 ```
 
-The first three executable-runtime phases are implemented: `arbor/data` can lower and execute every checked-in Supplies query against its private SQLite fixture, keep complete authorized results current from committed SQLite/profile changes through a race-free stateless SSE stream shared by Local REST and Arbor Wire, and execute every checked-in mutation in one authorized transaction with ordered-relation operations and durable retry receipts. Mutation receipts reuse accepted tree updates' semantic `requestDigest`/`observedThrough` vocabulary without pretending SQLite row writes are file patches; query streams and tree watches share SSE framing while retaining distinct fresh-snapshot and replay contracts. Document compilation, React presentation, automatic runtime activation, and hosting are not implemented yet. [Apps 001](plans/apps/001-supplies-executable-site.md) drives that remaining work end to end: local Arbor web, signed macOS Arbor, explicit Canopy activation at the tree's canonical website, and finally a repeatable migration of the real Meaning Supplies Postgres corpus into the private SQLite data tree.
+Restarting the same command serves the existing data directory without bootstrapping again. For public domains, persistent volumes, backups, restoration, and coordinated upgrades, use the [Canopy deployment guide](deploy/README.md).
 
-## Testing
+## Implementation status
 
-Install the browser binary once, then run every automated gate:
+| State | Today |
+|---|---|
+| **Implemented and tested** | Local filesystem browser/editor, Arbor tree identity and synchronization, Canopy hosting, profile/account claiming, multi-account configuration and pairing, SQLite-backed query execution and transactional mutations |
+| **In progress** | Compilation, typechecking, React presentation, activation, and Canopy hosting for the [Supplies example](examples/supplies/README.md) |
+| **Specified, not built** | Hosted Arbor agents, portable static/live deployment, and complete Postgres-backed child collections |
 
-```sh
-bun install
-bunx playwright install chromium
-bun run typecheck
-bun test
-bun run test:protocol
-bun run build
-bun run test:e2e
-bun run test:performance
-swift test --package-path native/Packages/ArborClient
-```
+[status.md](status.md) is the implementation-status authority. The [specification](spec.md) intentionally describes portable behavior that may not exist in the reference implementation yet.
 
-`bun run test:protocol` runs both layers: portable JSON/SSE vectors from [`conformance`](conformance), and reference REST fixtures from [`tests/fixtures`](tests/fixtures), followed by disposable live Arbor Sync and Canopy checks against the Swift clients. Running `swift test` directly checks standalone decoding; live-server cases skip when their test URLs are absent.
+## Repository guide
 
-For hands-on testing without modifying the checked-in fixture, copy it to a scratch tree and start Arbor:
+- [Introduction](intro.md) — the motivation and proposed end state.
+- [Specification](spec.md) — the portable Arbor contracts, in numbered reading order.
+- [Documentation map](docs/README.md) — usage, implementation, client-design, and historical documents.
+- [Reference implementation](docs/reference-implementation.md) — the Bun, TypeScript, React, and Swift architecture.
+- [Client design](docs/client.md) — non-normative Arbor web and native product behavior.
+- [Supplies example](examples/supplies/README.md) — the executable-document reference corpus.
+- [Development](DEVELOPMENT.md) — repository layout, setup, tests, and local verification.
+- [Plans](plans/README.md) — active projects, unresolved questions, maintenance themes, and completed evidence.
 
-```sh
-test_root="$(mktemp -d)"
-test_state="$(mktemp -d)"
-cp -R tests/fixtures/workspace/. "$test_root/"
-ARBOR_DATA_HOME="$test_state" bun run arborsync "$test_root" --port 4317
-```
-
-Open `http://127.0.0.1:4317`. Check that the sidebar shows `notes` without `.md`; while reading it, the sidebar should still list its containing directory. Toggle it with the header control and Cmd-\, then verify a narrow window uses the overlay drawer. Its inline link and standalone `Book` document-link row should both navigate to `books/one`, and a provider-completed child link on the root page should open its child. Entering `/render/notes.md` should immediately canonicalize to `/render/notes`. Expand and collapse its toggle without producing an authored change, then type `▸ ` in an empty paragraph and confirm BlockNote converts it in one undo step. Open the Properties disclosure, edit a property and body block, and verify the contextual status progresses from pending/saving to the visually quiet saved state without remounting or losing the current editor position; inspect the copied Markdown for a minimal exact-source diff. Make a clean external file edit and confirm the open BlockNote instance reconciles it without adding an authored undo step. On a directory page, drag one child link by BlockNote's native handle between prose blocks and verify the request is `writeMarkdown` with complete source, never a physical move. Check Undo, Redo, and Recover in the page menu and filesystem actions in the directory/sidebar menus. Open `books` to edit its Markdown-backed row. Stable-key CSV/JSON/JSONL property cells should save through the generic property operation; identity-less rows, membership edits, and Postgres cells remain read-only.
-
-To check remote presentation, run `arbor open <public-canonical-url>`. An unplaced tree should render through a read-only BlockNote document with no sidebar, editing controls, temporary directory, or iframe; its child rows should navigate while keeping the local Arbor origin. Opening the canonical URL directly in a regular web browser should show the corresponding server-rendered Markdown layout. Sending `Accept: text/markdown` to that URL should return the same complete operational source used for rendering.
-
-For inline editing, open a page containing `__strong__`, `_emphasis_`, `~~strike~~`, inline code, links, and hard breaks. Confirm they render as rich inline content; a property-only save leaves their original delimiters byte-identical; editing one block normalizes only that block. Type the standard emphasis/code delimiters, paste Markdown as both explicit Markdown and plain text, and copy a formatted selection into a plain-text destination. The toolbar should offer bold, italic, strike, code, and links, but not underline, colors, or alignment.
-
-For objective visual checks without adding browser tests, evaluate [`tools/browser/editor-audit.js`](tools/browser/editor-audit.js) in the built-in browser as `(${source})()` to return a font, width, spacing, indentation, theme, overflow, and chrome report. In a writable page context it also installs `window.__arborEditorAudit` with `report()`, `overlay()`, `setTheme("light" | "dark" | "restore")`, and `cleanup()` methods; the built-in browser's read-only evaluation sandbox returns the report without retaining those mutating helpers.
-
-To exercise live Postgres catalog reads against an already-running server, provide a DSN for a role allowed to create a schema:
-
-```sh
-ARBOR_TEST_POSTGRES_DSN='postgresql://user:password@127.0.0.1:5432/postgres' \
-  bun test tests/integration/postgres.test.ts
-```
-
-The test creates and drops a uniquely named `arbor_test_*` schema; it does not touch existing schemas or persist the supplied DSN.
-
-# Workspaces
-
-A workspace may contain local folders, SQLite databases, connected stores, and Arbor trees mounted wherever their reader wants them. Promoting a folder gives it an independent sync boundary without moving it in the visible workspace. The wire synchronizes Arbor trees as small live refs plus immutable objects; sharing changes who may access them.
-
-Working documents:
-
-- **[intro.md](intro.md)** — narrative introduction and pitch: from the agent-playground problems (sharing/syncing, human interface, containment) to a universal dynamic material that supersedes the web.
-- **[spec.md](spec.md)** — aspirational spec overview, v0.8, split into portable contracts for the logical model and its Wire form, synchronization, the directory format, locators, accounts and devices, access control, child backings, executable documents and agents, and the authoring API.
-- **[plans/](plans/README.md)** — active projects and cross-cutting themes plus completed planning records.
-- **[docs/client.md](docs/client.md)** — non-normative Arbor client interaction design.
-- **[docs/reference-implementation.md](docs/reference-implementation.md)** — replaceable Bun/TypeScript/Swift architecture, private-state mechanics, and verification details.
-- **[plans/roadmap.md](plans/roadmap.md)** — the forward roadmap, now led by the checked-in Supplies executable-site milestone.
-- **[plans/apps/](plans/apps/README.md)**, **[plans/postgres/](plans/postgres/README.md)**, and **[plans/canopy-storage/](plans/canopy-storage/README.md)** — the major active projects.
-- **[plans/smaller-projects/](plans/smaller-projects/README.md)** — bounded product and model outcomes that do not need a dedicated project folder yet.
-- **[plans/cleanups/](plans/cleanups/README.md)**, **[plans/security/](plans/security/README.md)**, **[plans/speed/](plans/speed/README.md)**, **[plans/reliability/](plans/reliability/README.md)**, and **[plans/testing/](plans/testing/README.md)** — cross-cutting maintenance themes.
-- **[plans/_done/](plans/_done/README.md)** — completed, rejected, and superseded plans plus implementation evidence.
-- **[docs/notes/social-networking.md](docs/notes/social-networking.md)** — a thought experiment: with Arbor ubiquitous and the wire lowered to the transport layer, what remains of atproto, and how relays, AppViews, feeds, and labelers collapse into trees, watches, and queries.
-- **[docs/archive/](docs/archive/arbord-projection-outline.md)** — completed implementation outlines kept for reference.
-
-Names throughout: **Arbor** (the system and its first-party human clients), **workspace** (the visible local tree), **Arbor tree** (an independently versioned `TreeID`), **arborsync** (the daemon: local workspace/runtime), and **wire** (Arbor-tree synchronization protocol). Names other than Arbor remain provisional.
-
-Earlier drafts that centered “spaces” and “composition,” along with global DNS-rooted trees, `_mounts.toml`, `_delegate`, general export-graph slicing, and static-origin work in the reference-server phase, are superseded by these documents.
+This repository does not yet have an open-source license. Licensing is awaiting legal advice.

@@ -5,7 +5,7 @@
 - **Priority:** P0
 - **Effort:** L
 - **State:** DONE on 2026-09-02: code, tests, and the live cutover through migrations/001. Spec:
-  [updates §2.1](../../../spec/01-tree-operations.md#21-the-update-request), [tree reads §1.5](../../../spec/01-tree-operations.md#15-equality-after-a-read).
+  [updates §2.1](../../../spec/01-tree-operations.md#21-the-update-request), [representation and model equality](../../../spec/01-tree-operations.md#representation-and-model-equality).
   Remaining gap: `wire-endpoints.json` has no merged or conflict case; capture one from a real
   server when the endpoint vectors are next regenerated.
 - **Depends on:** the `arbor://<TreeID>` locator change (landed 2026-09-02). Ships through
@@ -63,8 +63,8 @@ node and remains unchanged.
 8. **Clients.** arborsync's submit path (`packages/arborsync/src/tree-sync.ts`) and the Swift
    replica send `ifMatch: "modelHash"` and apply a result's `reconciliation` with their watch
    transition code, deleting the snapshot apply path; activation and the configuration tree send what
-   [accounts §5](../../../spec/05-accounts-and-devices.md#5-declaring-and-activating-a-tree) and
-   [configuration §3](../../../spec/05-accounts-and-devices.md#6-governed-account-tree) say.
+   [accounts §6](../../../spec/04-accounts-and-devices.md#6-declaring-and-activating-a-tree) and
+   [configuration §7](../../../spec/04-accounts-and-devices.md#7-governed-account-tree) say.
 9. **Stamp-triggered re-place in arborsync.** The daemon records the schema version it last
    ran against in `.state`; on start, a stamp older than its own discards the rebuildable state
    (`sync`, `refs`, `replicas`, indexes) and re-places every placement from a snapshot,

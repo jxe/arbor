@@ -1,5 +1,12 @@
 # A universal dynamic material (sorry bret)
 
+*This is the argument for Arbor's intended end state, not a claim that every
+part exists today. The local workspace, browser/editor, tree synchronization,
+Canopy hosting, profiles/accounts, and headless SQLite query/mutation runtime
+are implemented. Executable-document compilation and presentation, hosted
+agents, Postgres backing, and portable deployment remain in progress or
+specified future work. See [current status](status.md) for the exact boundary.*
+
 Many people have observed that there's room for a successor to Dropbox, or to GitHub, for the agent playgrounds we're all making. The state of the art is a folder of markdown files, maybe some CSVs, maybe a SQLite database — a plain directory that an agent reads with `cat` and searches with `grep`. It works surprisingly well. But three things about it are not ideal.
 
 **The first is sharing and syncing.** There's no good way to hand a subtree of that folder to a collaborator, or to a team, with sensible permissions. And syncing is a real problem even for one person: people run agents locally *and* in the cloud, and they want the same workspace in both places — they need to sync even just with themselves. Git is too heavy and too manual for material that changes with every conversation. Dropbox is too coarse — no history you can reason about, no permissions story fit for agents, no way to share one subfolder under different terms than another.
@@ -10,13 +17,16 @@ Many people have observed that there's room for a successor to Dropbox, or to Gi
 
 What I want to show you here is that solving these three problems doesn't just get you a better Dropbox or a better GitHub. It gets you something that could come to replace the web — replace HTML, and websites — with a kind of **universal dynamic material** living in a **shared universal file space**.
 
-The argument runs in three steps. First, a small daemon and protocol turn scattered folders into a shared universal file space, solving sharing and containment; a browser/editor gives that space a human surface. Second, structured data and code turn it from storage into a dynamic material. Third, that material subsumes the web's stack: sync subsumes GET, capabilities on trees subsume auth, content addressing subsumes the CDN, and publishing collapses into saving.
+The argument runs in three steps. First, a small daemon and protocol turn scattered folders into a shared universal file space, solving sharing and containment; a browser/editor gives that space a human surface. That foundation is the implemented part of Arbor. Second, structured data and code turn it from storage into a dynamic material; the headless data core exists, while document compilation and presentation do not yet. Third, the fully realized material could subsume much of the web's stack: sync subsumes GET, capabilities on trees subsume application-specific auth, content addressing subsumes much CDN work, and publishing approaches saving.
 
 Much of this is an old dream: NFS and AFS let you mount remote filesystems into one local tree, so a lab full of machines saw a single namespace. Plan 9 made everything a file, giving every process its own namespace, and let you compose namespaces. Upspin revived the idea as a global path-shaped namespace (`ann@example.com/photos/vacation`).
 
 Now is the time to realize some of these goals.
 
 # Part 1: A Shared Universal File Space
+
+This part describes the implemented foundation, although some recovery and
+administration flows remain unfinished.
 
 Imagine there was a thing with this kind of structure on your disk:
 
@@ -51,7 +61,18 @@ projects/atlas/                  work/atlas/
              └──── same Arbor tree ────┘
 ```
 
-Inside Markdown, these are still ordinary link destinations. From the document `/projects/atlas`, `[Notes](notes)` points to its child and `[Roadmap](../roadmap)` to its sibling; `[Drift](arbor://notes.example.org/essays/drift;arbor-key=W1siaWQiLCJ4N2YzcTIiXV0)` jumps to another Arbor tree. (That `;arbor-key=` suffix carries the document's durable stable key, which makes it so you can relocate files and directories and the links can heal to point to the right place.)
+Inside Markdown, these are still ordinary link destinations. From the document
+`/projects/atlas`, the links look like this:
+
+```md
+[Notes](notes)
+[Roadmap](../roadmap)
+[Drift](arbor://notes.example.org/essays/drift;arbor-key=W1siaWQiLCJ4N2YzcTIiXV0)
+```
+
+The first points to a child, the second to a sibling, and the third to another
+Arbor tree. The `;arbor-key=` suffix carries the document's durable stable key,
+so links can heal after files and directories move.
 
 I have a little CLI tool to manage all this:
 
@@ -79,7 +100,7 @@ All this, and arborsync still materializes the workspace as ordinary files on di
 
 ## A browser that is also an editor
 
-Now, remember the second problem: humans have been reading all this in code editors. So imagine a web browser that is also an editor — a lot like Obsidian or Notion — but instead of browsing the HTML web, it browses this universal space, which includes your local files, but also any Arbor tree you have access to, and any historical revision of any tree. You can read, write, and edit in place, and the browser is aware of the underlying tree structure and its permissions.
+Now, remember the second problem: humans have been reading all this in code editors. Arbor web is a browser that is also an editor — a lot like Obsidian or Notion — but instead of browsing only the HTML web, it browses this space, including local files and remote Arbor trees the reader can access. You can read, write, and edit in place, and the browser is aware of the underlying tree structure and permissions. Immutable revision locators are part of the specification, but Canopy does not currently expose accepted-history browsing or non-current objects.
 
 This browser is a superset of a web browser, because sync is a superset of GET. The web's fundamental verb fetches a document once; if it changes, that's your problem — refresh, poll, or bolt on a websocket. Here the verb is *subscribe*. You can take any remote tree and **add to workspace** to make a durable placement on your own machine.
 
@@ -87,7 +108,9 @@ Now the same workspace works for agents and humans. But it is still mostly a col
 
 ## Let's put data in it
 
-Imagine you could put structured data in this tree as easily as markdown. There are three ways:
+Structured data belongs in the same tree as Markdown. The reference
+implementation supports expanded files, collection files, and SQLite today;
+Postgres connections remain planned. There are three intended forms:
 
 **First: plain files plus a schema.** A directory with a `schema.ts` becomes a typed collection over exactly one ordinary backing: many Markdown files whose frontmatter conforms, one `_store.csv`, or one line-oriented `_store.jsonl`:
 
@@ -107,7 +130,8 @@ This is how Notion turns page properties into a database.
 
 **Second: a real database.** Submissions pile up faster than essays — a few hundred a month, each with review state, notes, and an author to reply to. When frontmatter files stop being fun, drop `_store.sqlite3` into `submissions/`. Arbor Sync opens it, serves the folder's rows from it, introspects its tables to generate types, and watches changes. The folder keeps its path, its page, its schema, and every query pointed at it.
 
-**Third: a connection to a database you already have.** An external database enters the tree as a small reference file:
+**Third: a connection to a database you already have.** In the specified
+Postgres model, an external database enters the tree as a small reference file:
 
 ```yaml
 # reports/_store.yaml
@@ -117,11 +141,17 @@ connection: system:connections/production
 schema: public
 ```
 
-Whether a collection is files, SQLite, or Postgres, it's the same kind of node in the same tree, queryable the same way.
+Whether a collection is files, SQLite, or eventually Postgres, it has the same
+logical node surface. The complete Postgres child provider and observation
+contract are not implemented yet.
 
 ## Now put code in it
 
-Imagine we could add a page to our `projects/atlas` tree that shows the published essays with a given tag, and lets you submit a new essay. The page is just a `.tsx` file in the tree:
+The checked-in [Supplies example](examples/supplies/README.md) already exercises
+the headless SQLite query and mutation runtime. The compiler, React
+presentation, automatic activation, native presentation, and Canopy hosting
+needed to make a `.tsx` node run at its ordinary location are the next product
+slice. The intended authoring surface looks like this:
 
 ```tsx
 // atlas.tsx
@@ -160,11 +190,24 @@ export default function ReadingRoom() {
 }
 ```
 
-Arbor validates every call through the handle's schema, so `{ tag: string }` is enforced at the execution boundary. It also collects the literal tree paths — `./essays`, `arbor://paxmachina.org/inbox` — as the query's read set and the mutation's write set so it can (a) re-run the query when any of those trees change, and (b) make sure permissions are respected and the user is informed what the code can do.
+In this model Arbor validates every call through the handle's schema, so
+`{ tag: string }` is enforced at the execution boundary. It also resolves the
+literal tree paths — `./essays`, `arbor://paxmachina.org/inbox` — into reviewed
+read and write capabilities so it can re-run affected queries, enforce
+permissions, and tell the user what the code can do. The current runtime
+implements this for its registered headless handles; compiler-generated
+manifests and consent surfaces remain future work.
 
-Default placement of the queries follows the data. Queries on data you've synced run in your own arborsync and are private, offline-capable, and free for the host. Trees you're merely visiting run their queries close to the data. (Authors can also force hosting, for queries that must control egress or touch secrets.) For hosted queries, each is a stable, versioned endpoint, identified by its code, so the host can patch a particular version in place while old consumers keep working, or can publish a new version alongside it. Nobody needs to design a REST API.
+The design places queries near the data by default. Queries on synchronized
+data can run in the reader's Arbor Sync; queries on merely visited trees run at
+the host. Authors may also require hosting for controlled egress or secrets.
+Stable versioned handles remove the need to hand-design an application REST
+API. Local and Canopy-hosted placement of compiled handles is not complete yet.
 
-A paragraph containing a link to a `.tsx` script renders that script's component inline, as a live island backed by arborsync: the `ReadingRoom` above just appears in the page, running against the reader's tree.
+Once the compiler and presentation work lands, a paragraph linking to a `.tsx`
+script will render that component inline as a live island backed by Arbor Sync.
+Today the source remains browsable and the headless handles are testable, but
+the `ReadingRoom` does not yet simply appear in the page.
 
 This offers similar benefits to a modern web app, but with different tradeoffs:
 
@@ -174,7 +217,9 @@ This offers similar benefits to a modern web app, but with different tradeoffs:
 
 ## Agents and tools live in the tree
 
-We can reuse similar infrastructure of queries and mutations to make AI agents that live in the tree.
+The next planned layer reuses the same compiled query and mutation handles for
+AI agents that live in the tree. Authored and Canopy-hosted Arbor agents are not
+implemented yet.
 
 Represent an AI agent as a markdown file in the tree. The prompt is the body. The frontmatter sets the model, the tools it can call as well as references to mutations in `.tsx` files, and the extra context it can see as references to queries:
 
@@ -215,21 +260,46 @@ note to the author.
 
 Thusly, agents are versioned via revisions; agents are shareable; agent capabilities are the same computed consent statement as with component's: this agent reads recent essays and can append to the inbox, nothing more. Agent confinement falls out of the mount model: an agent scoped to a subtree simply cannot see or touch anything else.
 
-# Part 3 - What this does to the web
+# Part 3 - What this could do to the web
 
-Put together, you have something that is kind of like the filesystem, kind of like Notion, and kind of like the web at once. An editable surface everywhere, agent-native plain files underneath, ordinary relative links nearby, absolute `arbor://` links across Arbor trees, and lazy access to trees you haven't mounted. **And there's no more `deploy`**: save a file and it is live, immediately, for everyone the tree is shared with, because publishing is just sync.
+Put together, the intended system is kind of like the filesystem, kind of like
+Notion, and kind of like the web at once: an editable surface everywhere,
+agent-native plain files underneath, ordinary relative links nearby, absolute
+`arbor://` links across Arbor trees, and lazy access to trees you have not
+mounted. The end-state promise is that publishing becomes synchronization
+rather than a separate deployment ritual. The current reference
+implementation still needs compilation, activation, and hosting work before it
+can honestly make that promise for executable documents.
 
 Several other things fall out that the web has always struggled with:
 
-**Multiplayer apps come for free.** On the web, making an app multiplayer means adding operational transforms or CRDTs, presence servers, conflict UX. Here, any component rendered over an Arbor tree *is* a multiplayer app. The `ReadingRoom` above is multiplayer the moment its essays folder is shared.
+**Multiplayer state comes from the tree.** On the web, making an app
+multiplayer often means adding operational transforms or CRDTs, presence
+servers, and conflict UX. Here, a component rendered over a shared Arbor tree
+can reuse the tree's synchronization and conflict semantics instead of
+inventing another data plane.
 
-**Auth, login, and cookies are replaced.** The web makes you an account at every site, tracked by cookies, authenticated by passwords. Here there are no per-app accounts. A known person's profile `TreeID` receives access directly; a reserved community profile is claimed once and yields a device credential; a separately generated access link remains revocable by its entry.
+**Per-app identity can be replaced.** The web makes you an account at every
+site, tracked by cookies and authenticated by passwords. Arbor instead grants
+access to a stable profile `TreeID`; a reserved Canopy account is claimed by
+proving control of that exact identity and yields a device credential; a
+separately generated access link remains revocable by its entry. The profile
+and account foundation exists, while executable applications do not yet use it
+end to end.
 
-**Offline is the default.** Your workspace is materialized locally and queries over it evaluate locally, so the network's absence degrades liveness, not function.
+**Offline can be the default for placed data.** A placed workspace is
+materialized locally, so ordinary documents and supported local queries can
+continue without the network. Merely visited remote trees and hosted execution
+still depend on their authority.
 
-Consider also what this does to the web stack — to Next.js and Vercel and everything around them.
+Consider also what the completed system could do to the web stack — to Next.js
+and Vercel and everything around them.
 
-There's no build step between you and production, because there's no "production": the tree is live. And there are no web frameworks in the current sense, because a component is a first-class entity and a query is a first-class entity, and the framework's whole job was to glue those to each other across a network boundary. Look at how much glue that is:
+The author-facing goal is no explicit build or deployment step between saving
+and publishing: the tree is live, while a host compiles and activates reviewed
+artifacts behind that boundary. Components and queries become first-class
+entities instead of application-specific glue across a network boundary. Look
+at how much glue that could remove:
 
 - **The API layer.** REST routes, GraphQL schemas, route handlers, controllers — all of it existed to move data between a store and a client.
 - **API version management.** Deprecation policies, `/v2/` route trees, changelogs begging clients to migrate. Every published query is already a versioned endpoint; hosts patch a version or add one, and old consumers keep working.
@@ -241,11 +311,19 @@ There's no build step between you and production, because there's no "production
 - **Deploy pipelines.** CI-to-CDN, environment promotion, cache purging, preview URLs. Publishing is sync; a "preview environment" is a fork.
 - **The CMS/database/file-storage split.** One tree is all three.
 
-And there's an adoption bridge hiding here. Since this whole thing is, among other things, a web framework, a tree can also be deployed as an ordinary website — on Vercel, on Cloudflare, wherever. So imagine one tool that deploys both surfaces at once: the same tree becomes a normal website at your URL *and* an Arbor tree in the global namespace, crosslinked — the website carries a meta tag or header (`<link rel="arbor" …>`, or an `Arbor-Tree:` response header) naming the tree, so an Arbor-aware browser landing on the website silently upgrades to the live, editable, syncing version, while every legacy browser sees plain HTML. You never have to ask anyone to leave the web. Their browser just discovers the better path is available.
+There is also a planned adoption bridge. A future portable-deployment tool can
+publish the same tree as an ordinary website and as an Arbor tree, crosslinked
+with a tag or header such as `<link rel="arbor" …>` or `Arbor-Tree:`. An
+Arbor-aware browser could discover the live, editable version while every
+legacy browser sees HTML. Static baking and additional live deployment
+adapters are specified direction, not current commands.
 
 # Who wants to build this?
 
-I've built a reference implementation over here — the [spec](spec.md). But I'm too busy running MAI to turn this into a startup. Who wants to?
+There is a working [reference implementation](docs/reference-implementation.md),
+an aspirational portable [specification](spec.md), and an explicit account of
+[what works now](status.md). But I'm too busy running MAI to turn this into a
+startup. Who wants to?
 
 It can definitely become a powerhouse. It's time for a new Dropbox, or GitHub, or Vercel — and this is all of them combined, plus the Notion layer on top. The business models are the proven ones: hosted endpoints and managed Arbor trees, team permissions and audit, and eventually a marketplace of views, scripts, and agents that runs on the same rails. Every company adopting agents is about to hit all three of the problems this essay opened with, at once, this year. If someone builds this, there are definitely lots of ways to make money.
 
@@ -260,7 +338,7 @@ The wire deals in two planes. **A ref** is one tiny live statement per tree: *Tr
 GET  /.arbor/trees/{TreeID}         # where is the tip?
 POST /.arbor/trees/{TreeID}/updates # submit against an accepted base; Canopy accepts or merges
 GET  /.arbor/trees/{TreeID}/watch   # tell me when it moves
-GET  /.arbor/objects/{hash}         # give me this immutable object
+GET  /.arbor/trees/{TreeID}/objects/{hash} # give me this immutable object
 ```
 
 When the tip moves, your arborsync fetches the new root and walks only the hashes needed for the subtree it is reading. Access is checked once at the shared-tree boundary; an update names its accepted base and candidate root before Canopy advances or merges the tip. If a subtree needs different access, it is a nested tree with its own tip. Merkle structure is why sync is cheap; recorded read sets are why the right queries re-run.
@@ -268,7 +346,9 @@ When the tip moves, your arborsync fetches the new root and walks only the hashe
 This split unlocks the whole content-centric networking agenda, almost as a side effect:
 
 - **Anyone can cache objects, trustlessly.** An object is self-verifying — the hash is the name — so it can come from anywhere: your local store first, then LAN peers, then configured mirrors, then the origin. A classroom of students reading the same public tree fetches it from each other.
-- **Static publication is trivial.** `arbor bake` emits a tree's refs and objects as plain files for nginx, S3, or GitHub Pages. A dumb HTTP host becomes a read-only origin.
+- **Static publication becomes mechanical.** The proposed `arbor bake` emits a
+  tree's refs and objects as plain files for nginx, S3, or GitHub Pages. This is
+  not implemented yet.
 - **Global caching beats a CDN.** Deploying doesn't exist, and yet cache behavior is *better* than the web's: immutable objects never need invalidation — no purges, no `Cache-Control` guesswork — and the only live data is refs, which are a few bytes. The CDN's hard problem was always invalidation; content addressing deletes the problem.
 
 # Appendix B - materialized views, query language, and a successor to React

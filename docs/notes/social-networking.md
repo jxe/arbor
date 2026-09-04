@@ -1,5 +1,5 @@
 # Social networking on Arbor
-*A thought experiment: if Arbor were ubiquitous and the wire were lowered to a transport peer of TCP and UDP, what would remain of a protocol like atproto — and how would you build something like Bluesky? Companion to [spec/04-wire.md](../../spec/04-wire.md) and the prior-art notes in [spec.md](../../spec.md).*
+*A thought experiment: if Arbor were ubiquitous and the wire were lowered to a transport peer of TCP and UDP, what would remain of a protocol like atproto — and how would you build something like Bluesky? Companion to [tree operations and Wire](../../spec/01-tree-operations.md) and the prior-art notes in [spec.md](../../spec.md).*
 
 ## The relationship to atproto
 
@@ -36,18 +36,18 @@ Most of atproto's bespoke surface exists because it had to build its own substra
 1. **Identity recovery and rotation.** Person profiles have a deliberately
    minimal self-certifying identity key, but atproto's fuller DID layer —
    rotation keys, recovery windows, PLC — remains real work Arbor has not done
-   and is open problem #1. This is the piece of atproto worth importing
+   and is [open question #2](../../plans/open-questions.md). This is the piece of atproto worth importing
    wholesale rather than reinventing when the permanent single-key generation
    is replaced.
 2. **The economics don't simplify.** Someone still crawls the world and hosts a planet-scale index. Arbor makes the *interfaces* nearly free; it does nothing about the *operational* weight, which is most of what running a relay actually is.
 3. **Discovery and bootstrap.** Which trees exist? Which relays are honest? Directory services are still needed — the deferred "discovery indexes as mountable Arbor trees" stops being deferrable the day someone builds this.
-4. **Derived-state trust.** An AppView's index is unverifiable aggregation — you trust the indexer, in both worlds. Arbor open problem #11 (upstream-hosted results are not client-verifiable the way objects are) is the same wound in different skin.
+4. **Derived-state trust.** An AppView's index is unverifiable aggregation — you trust the indexer, in both worlds. Upstream-hosted results are not client-verifiable the way content-addressed objects are; the current specification does not solve that problem.
 5. **Moderation policy** — social, not technical; no substrate change touches it.
 
 ## Before ubiquity: the bridge
 
-None of this requires waiting for the premise. An atproto bridge fits the same place as a git bridge in the [portable-deployment direction](../../plans/roadmap.md#milestone-4--portable-deployment): expose a PDS repository as a read-only visited tree — both sides are signed Merkle structures, so the mapping is mechanical — and publish a public Arbor subtree's changes as atproto records so it appears in that network's feeds. The same pattern as the deploy crosslinks: meet the existing network where it lives instead of asking it to move.
+None of this requires waiting for the premise. An atproto bridge fits the same place as a git bridge in the [portable-deployment direction](../../plans/apps/README.md#later-portable-deployment-outcome): expose a PDS repository as a read-only visited tree — both sides are signed Merkle structures, so the mapping is mechanical — and publish a public Arbor subtree's changes as atproto records so it appears in that network's feeds. The same pattern as the deploy crosslinks: meet the existing network where it lives instead of asking it to move.
 
 ## The point
 
-atproto is what this design space looks like when built as a *protocol stack for one application shape*. Ubiquitous Arbor turns everything above identity and indexing into ordinary content. The symmetry with the Chromebook line in [intro.md](../../intro.md) is deliberate: just as Arbor supersedes the web stack from below rather than piling on top of it, it would reimplement the social network as *material* rather than as machinery.
+atproto is what this design space looks like when built as a *protocol stack for one application shape*. Ubiquitous Arbor turns everything above identity and indexing into ordinary content. The symmetry with the filesystem-and-browser argument in [intro.md](../../intro.md) is deliberate: just as Arbor supersedes the web stack from below rather than piling on top of it, it would reimplement the social network as *material* rather than as machinery.
