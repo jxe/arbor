@@ -1,6 +1,6 @@
 # Plan 019: Rehearse Hunch conversion and record the adopted cutover
 
-> **Final status: DONE.** The copy-only rehearsal tool and first verified private conversion are complete, and Joe accepted the Hunch-to-Arbor cutover as already done on 2026-08-25. Do not rerun a destructive migration, require an external-backup restoration demonstration, or reopen final-adoption gates. Keep the tool available only for an explicitly requested future copy-only rehearsal. Never commit personal filenames, manifests, note contents, or hashes to Git.
+> **Final status: DONE.** The copy-only rehearsal and first verified private conversion are complete, and Joe accepted the Hunch-to-Arbor cutover as already done on 2026-08-25. Do not rerun a destructive migration, require an external-backup restoration demonstration, or reopen final-adoption gates. The repository-local tool was retired on 2026-09-04 after Joe decided that no further rehearsals were needed. Never commit personal filenames, manifests, note contents, or hashes to Git.
 >
 > **Drift check**: `git diff --stat dc34126..HEAD -- native packages tools plans/native plans/records /Users/joe/src/hunch /Users/joe/src/quagmire`
 
@@ -8,16 +8,16 @@
 
 - **Priority**: P1
 - **Effort**: L
-- **Risk**: LOW for retained read-only tooling; final adoption is complete
+- **Risk**: LOW; final adoption is complete and the one-off tooling is retired
 - **Depends on**: Plan 017
 - **Category**: data migration/product evaluation/release
 - **Planned at**: Arbor `dc34126`, Hunch `a1e8379`, 2026-08-23
 - **Reconciled at**: Arbor `e38632d`, 2026-08-25 — repeatable rehearsals preceded adoption; final cutover accepted complete by Joe on 2026-08-25
-- **Progress**: DONE. The disposable repository-local tool under `tools/hunch-rehearsal`, its synthetic gates, live read-only inventory, private stable recipe, and first private verified conversion are complete. Joe waived the external-backup restoration requirement and accepted the existing Hunch cutover as final; promoted-rehearsal qualification is optional future evidence, not an adoption gate.
+- **Progress**: DONE. The disposable repository-local tool, its synthetic gates, live read-only inventory, private stable recipe, and first private verified conversion completed the cutover. Joe waived the external-backup restoration requirement and accepted the existing Hunch cutover as final. The tool, tests, and operator documentation were removed on 2026-09-04; Git history retains their implementation provenance.
 
 ## Why this matters
 
-Only one Hunch workspace needed conversion, so a permanent importer would add public maintenance surface without product value. The retained bespoke workflow exists for optional, explicitly requested copy-only rehearsals and auditability; it is not an unfinished prerequisite for the already accepted Arbor adoption.
+Only one Hunch workspace needed conversion, so a permanent importer would add public maintenance surface without product value. The bespoke workflow existed to make that conversion repeatable and auditable; once Joe confirmed that no further rehearsals were needed, retaining it would have been maintenance surface without a live product or operator role.
 
 ## Reviewed baseline inventory
 
@@ -74,7 +74,7 @@ Untitled-6.md
 
 ## Conversion tool
 
-The disposable tool lives in [`tools/hunch-rehearsal`](../../../tools/hunch-rehearsal) and is invoked with `bun run hunch:rehearsal`. It has `inventory`, `dry-run`, `apply`, and `verify` modes and is not linked into either app. It consumes the stable reviewed recipe containing explicit keep/discard actions and generated PageIDs. Every run receives an explicit run ID and destination. Dry-run performs no destination writes and apply requires two matching dry-run confirmations. Apply refuses a non-empty or existing destination and never overwrites; it writes and verifies a run-specific sibling staging directory, re-hashes the source, and only then renames the staging directory to the destination. A failed run remains visibly incomplete rather than replacing a prior result.
+The disposable tool lived under `tools/hunch-rehearsal` and was invoked with `bun run hunch:rehearsal`. It had `inventory`, `dry-run`, `apply`, and `verify` modes and was not linked into either app. It consumed the stable reviewed recipe containing explicit keep/discard actions and generated PageIDs. Every run received an explicit run ID and destination. Dry-run performed no destination writes and apply required two matching dry-run confirmations. Apply refused a non-empty or existing destination and never overwrote; it wrote and verified a run-specific sibling staging directory, re-hashed the source, and only then renamed the staging directory to the destination. A failed run remained visibly incomplete rather than replacing a prior result. The implementation was retired on 2026-09-04 and remains recoverable from Git history.
 
 The per-run private manifest records the source snapshot hash, recipe digest, Arbor repository revision, worktree-status digest, exact converter-source digest, output manifest, verification results, known product gaps, and disposition (`active rehearsal`, `retained`, or `retired`). If the rehearsal is promoted for multi-device testing, its operator record also gains the new TreeID/canonical path and accepted roots. The tool may compare manifests but does not merge rehearsal content.
 
@@ -126,7 +126,7 @@ If Hunch has changed, the manifest instead records the reviewed new totals and a
 - [x] The verified conversion passed its recorded inventory/link/asset/ID checks and source-before/source-after equality gate.
 - [x] External backup restoration is explicitly not required.
 - [x] Joe separately accepted final Hunch cutover as already complete on 2026-08-25.
-- [x] Future rehearsals remain optional, isolated, and unable to write back into the Hunch source or silently seed another run.
+- [x] The one-off converter was retired after Joe confirmed that no further rehearsals were needed.
 
 ## STOP conditions
 
@@ -139,4 +139,4 @@ If Hunch has changed, the manifest instead records the reviewed new totals and a
 
 ## Maintenance note
 
-Do not convert this operator workflow into a permanent import API after success. Preserve retained source data and rehearsals according to Joe's retention choice. Any future rehearsal is a disposable Arbor-owned fork for evaluation and does not reopen the completed adoption.
+Do not recreate this operator workflow as a permanent import API after success. Preserve retained source data according to Joe's retention choice. If a future conversion is explicitly requested, recover or redesign a copy-only tool as a disposable Arbor-owned fork; it does not reopen the completed adoption.

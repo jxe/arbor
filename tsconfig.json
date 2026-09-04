@@ -35,6 +35,6 @@
       "arbor/data": ["packages/data/src/index.ts"]
     }
   },
-  "include": ["packages/**/*.ts", "packages/**/*.tsx", "tests/**/*.ts", "tools/hunch-rehearsal/**/*.ts", "migrations/**/*.ts"],
+  "include": ["packages/**/*.ts", "packages/**/*.tsx", "tests/**/*.ts", "migrations/**/*.ts"],
   "exclude": ["migrations/001-if-match-and-model-hash/**/*.ts"]
 }

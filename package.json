@@ -30,8 +30,7 @@
     "test:protocol": "bun tests/protocol/conformance.ts",
     "test:performance": "bun tests/performance/indexer.bench.ts",
     "seed:supplies": "bun tools/seed-supplies-fixture.ts",
-    "lab:hcloud": "bun tools/hcloud-sync-lab.ts",
-    "hunch:rehearsal": "bun tools/hunch-rehearsal/cli.ts"
+    "lab:hcloud": "bun tools/hcloud-sync-lab.ts"
   },
   "dependencies": {
     "@arbor/cli": "workspace:*",
