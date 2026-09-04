@@ -428,125 +428,6 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(request.query, "tree=tr_notes&path=/Assets/photo.png&stableKey=%5B%5B%22id%22,%22pg_image%22%5D%5D")
     }
 
-    func testWireClientDecodesAcceptedUpdateAndRetriesExactPreparedBody() async throws {
-        let wireSnapshot = try wireSnapshot("root")
-        let requestDigest = updateRequestDigest(
-            tree: "tr_atlas",
-            base: WireUpdateBase(root: wireSnapshot.root, update: "up_atlas1"),
-            candidate: wireSnapshot.root
-        )
-        let response = Data("""
-        {"outcome":"current","requestDigest":"\(requestDigest)","update":{"id":"1","tree":"tr_atlas","root":"\(wireSnapshot.root)","previousRoot":null,"kind":"initial","acceptedAt":1787529600000,"subject":null},"observedThrough":"1"}
-        """.utf8)
-        await URLProtocolStub.state.install { _, attempt in
-            attempt == 1
-                ? (500, Data(#"{"error":"temporarily-unavailable","message":"retry"}"#.utf8))
-                : (200, response)
-        }
-        let client = ArborWireClient(
-            origin: URL(string: "https://canopy.test")!,
-            credential: "device-token",
-            session: stubSession(),
-            retryDelay: { _ in }
-        )
-        let prepared = try await client.prepareUpdate(
-            tree: "tr_atlas",
-            base: WireUpdateBase(root: wireSnapshot.root, update: "up_atlas1"),
-            snapshot: wireSnapshot
-        )
-        let result = try await client.submitUpdate(prepared)
-        guard case .current(let current) = result else { return XCTFail("Expected current") }
-        let snapshot = await URLProtocolStub.state.snapshot()
-        XCTAssertEqual(current.id, "1")
-        XCTAssertEqual(snapshot.count, 2)
-        XCTAssertEqual(snapshot.bodies[0], snapshot.bodies[1])
-        XCTAssertEqual(snapshot.requests[0].authorization, "Bearer device-token")
-        XCTAssertNil(snapshot.requests[0].idempotencyKey)
-        XCTAssertEqual(snapshot.requests[0].path, "/.arbor/trees/tr_atlas/updates")
-    }
-
-    func testServerConflictIsTypedCompleteAndNotRetried() async throws {
-        let local = try wireSnapshot("local")
-        let draft = try wireSnapshot("draft")
-        let base = "sha256:" + String(repeating: "0", count: 64)
-        let remote = "sha256:" + String(repeating: "1", count: 64)
-        let draftObjects = draft.objects.map { "{\"hash\":\"\($0.hash)\",\"bytes\":\"\($0.bytes.base64EncodedString())\"}" }.joined(separator: ",")
-        let response = Data("""
-        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previousRoot":"\(base)","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)],"deltas":[]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
-        """.utf8)
-        await URLProtocolStub.state.install { _, _ in (409, response) }
-        let client = ArborWireClient(
-            origin: URL(string: "https://canopy.test")!,
-            credential: "device-token",
-            session: stubSession(),
-            retryDelay: { _ in }
-        )
-        let prepared = try await client.prepareUpdate(
-            tree: "tr_atlas",
-            base: WireUpdateBase(root: base, update: "up_base"),
-            snapshot: local
-        )
-        do {
-            _ = try await client.submitUpdate(prepared)
-            XCTFail("Expected a typed conflict")
-        } catch let error as WireUpdateConflictError {
-            XCTAssertEqual(error.conflict.current.id, "up_remote")
-            XCTAssertEqual(error.conflict.draft.root, draft.root)
-            XCTAssertEqual(error.conflict.conflicts.first?.reason, "binary-conflict")
-        }
-        let snapshot = await URLProtocolStub.state.snapshot()
-        XCTAssertEqual(snapshot.count, 1)
-    }
-
-    func testServerPairingClaimDoesNotSendExistingCredential() async throws {
-        let deviceID = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa"
-        let digest = "sha256:" + String(repeating: "0", count: 64)
-        let response = Data("""
-        {"device":{"id":"\(deviceID)","account":"acct_1","label":"iPad","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null},"confirmationCode":"123456"}
-        """.utf8)
-        await URLProtocolStub.state.install { _, _ in (201, response) }
-        let client = ArborWireClient(
-            origin: URL(string: "https://canopy.test")!,
-            credential: "old-token",
-            session: stubSession()
-        )
-        let claimed = try await client.claimPairing(
-            id: "pair_1",
-            secret: "secret",
-            device: WirePairingDevice(id: deviceID, label: "iPad", credentialDigest: digest)
-        )
-        let snapshot = await URLProtocolStub.state.snapshot()
-        XCTAssertEqual(claimed.device.id, deviceID)
-        XCTAssertEqual(claimed.confirmationCode, "123456")
-        XCTAssertNil(snapshot.requests.first?.authorization)
-        XCTAssertEqual(snapshot.requests.first?.path, "/.arbor/pairings/pair_1/claim")
-    }
-
-    func testWireRefEnvelopeAndTreeScopedObjectRoute() async throws {
-        let wireSnapshot = try wireSnapshot("object")
-        let root = try XCTUnwrap(wireSnapshot.objects.first { $0.hash == wireSnapshot.root })
-        let descriptor = """
-        {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://canopy.test","parentTree":null},"root":"\(wireSnapshot.root)","update":"up_1"},"observedThrough":"up_1"}
-        """
-        await URLProtocolStub.state.install { request, _ in
-            switch (request.httpMethod, request.url?.path) {
-            case ("GET", "/.arbor/trees/tr_atlas"): (200, Data(descriptor.utf8))
-            case ("GET", "/.arbor/trees/tr_atlas/objects/\(wireSnapshot.root)"): (200, root.bytes)
-            default: (404, Data(#"{"error":"not-found"}"#.utf8))
-            }
-        }
-        let client = ArborWireClient(
-            origin: URL(string: "https://canopy.test")!,
-            credential: "device-token",
-            session: stubSession()
-        )
-        let ref = try await client.descriptor(tree: "tr_atlas")
-        let object = try await client.object(tree: "tr_atlas", hash: wireSnapshot.root)
-        XCTAssertEqual(ref.tree.update, "up_1")
-        XCTAssertEqual(ref.observedThrough, "up_1")
-        XCTAssertEqual(object, root.bytes)
-    }
-
     func testLocalArborSyncKeepsOnlyPairingBootstrapRoute() async throws {
         let pairing = #"{"id":"pair_1","secret":"one-time-secret","confirmationCode":"123456","expiresAt":1787529660000}"#
         await URLProtocolStub.state.install { request, _ in
@@ -597,11 +478,6 @@ final class ArborClientTests: XCTestCase {
         return URLSession(configuration: configuration)
     }
 
-    private func wireSnapshot(_ value: String) throws -> WireSnapshot {
-        let file = try WireObjectCodec.object(.file(Data(value.utf8)))
-        let root = try WireObjectCodec.object(.directory([.init(name: "value.bin", hash: file.hash)]))
-        return WireSnapshot(root: root.hash, objects: [file, root])
-    }
 }
 
 private actor URLProtocolStubState {

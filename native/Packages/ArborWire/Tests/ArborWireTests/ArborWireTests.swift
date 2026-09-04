@@ -83,7 +83,7 @@ struct WireObjectTests {
     }
 }
 
-@Suite("Update and observation protocol")
+@Suite("Update and observation protocol", .serialized)
 struct UpdateProtocolTests {
     @Test("Wire node refs require the unified explicit stable-key shape")
     func nodeReferenceShape() throws {
@@ -359,6 +359,94 @@ struct UpdateProtocolTests {
         #expect(captured.bodies[0] == captured.bodies[1])
         #expect(captured.idempotencyKeys == [nil, nil])
     }
+
+    @Test("A conflict decodes completely and is not retried")
+    func typedConflict() async throws {
+        let local = try wireTestSnapshot("local")
+        let draft = try wireTestSnapshot("draft")
+        let base = "sha256:" + String(repeating: "0", count: 64)
+        let remote = "sha256:" + String(repeating: "1", count: 64)
+        let draftObjects = draft.objects.map {
+            "{\"hash\":\"\($0.hash)\",\"bytes\":\"\($0.bytes.base64EncodedString())\"}"
+        }.joined(separator: ",")
+        let response = Data("""
+        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previousRoot":"\(base)","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)],"deltas":[]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
+        """.utf8)
+        await WireURLProtocolStub.state.install { _, _ in (409, response) }
+        let client = ArborWireClient(
+            origin: URL(string: "https://canopy.test")!,
+            credential: "device-token",
+            session: wireStubSession(),
+            retryDelay: { _ in }
+        )
+        let prepared = try await client.prepareUpdate(
+            tree: "tr_atlas",
+            base: WireUpdateBase(root: base, update: "up_base"),
+            snapshot: local
+        )
+        do {
+            _ = try await client.submitUpdate(prepared)
+            Issue.record("Expected a typed conflict")
+        } catch let error as WireUpdateConflictError {
+            #expect(error.conflict.current.id == "up_remote")
+            #expect(error.conflict.draft.root == draft.root)
+            #expect(error.conflict.conflicts.first?.reason == "binary-conflict")
+        }
+        #expect(await WireURLProtocolStub.state.snapshot().count == 1)
+    }
+
+    @Test("Pairing claims never send an existing credential")
+    func unauthenticatedPairingClaim() async throws {
+        let deviceID = "dv_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+        let digest = "sha256:" + String(repeating: "0", count: 64)
+        let response = Data("""
+        {"device":{"id":"\(deviceID)","account":"acct_1","label":"iPad","createdAt":1787529600000,"lastUsedAt":null,"revokedAt":null},"confirmationCode":"123456"}
+        """.utf8)
+        await WireURLProtocolStub.state.install { request, _ in
+            request.url?.path == "/.arbor/pairings/pair_1/claim"
+                && request.value(forHTTPHeaderField: "Authorization") == nil
+                ? (201, response)
+                : (401, Data(#"{"error":"unauthenticated","message":"unexpected credentials"}"#.utf8))
+        }
+        let client = ArborWireClient(
+            origin: URL(string: "https://canopy.test")!,
+            credential: "old-token",
+            session: wireStubSession()
+        )
+        let claimed = try await client.claimPairing(
+            id: "pair_1",
+            secret: "secret",
+            device: WirePairingDevice(id: deviceID, label: "iPad", credentialDigest: digest)
+        )
+        #expect(claimed.device.id == deviceID)
+        #expect(claimed.confirmationCode == "123456")
+    }
+
+    @Test("Descriptors and objects use tree-scoped routes")
+    func treeScopedObjectRoute() async throws {
+        let snapshot = try wireTestSnapshot("object")
+        let root = try #require(snapshot.objects.first { $0.hash == snapshot.root })
+        let descriptor = """
+        {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://canopy.test","parentTree":null},"root":"\(snapshot.root)","update":"up_1"},"observedThrough":"up_1"}
+        """
+        await WireURLProtocolStub.state.install { request, _ in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/.arbor/trees/tr_atlas"): (200, Data(descriptor.utf8))
+            case ("GET", "/.arbor/trees/tr_atlas/objects/\(snapshot.root)"): (200, root.bytes)
+            default: (404, Data(#"{"error":"not-found"}"#.utf8))
+            }
+        }
+        let client = ArborWireClient(
+            origin: URL(string: "https://canopy.test")!,
+            credential: "device-token",
+            session: wireStubSession()
+        )
+        let ref = try await client.descriptor(tree: "tr_atlas")
+        let object = try await client.object(tree: "tr_atlas", hash: snapshot.root)
+        #expect(ref.tree.update == "up_1")
+        #expect(ref.observedThrough == "up_1")
+        #expect(object == root.bytes)
+    }
 }
 
 @Suite("Live temporary server", .serialized)
@@ -427,6 +515,12 @@ private func wireStubSession() -> URLSession {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [WireURLProtocolStub.self]
     return URLSession(configuration: configuration)
+}
+
+private func wireTestSnapshot(_ value: String) throws -> WireSnapshot {
+    let file = try WireObjectCodec.object(.file(Data(value.utf8)))
+    let root = try WireObjectCodec.object(.directory([.init(name: "value.bin", hash: file.hash)]))
+    return WireSnapshot(root: root.hash, objects: [file, root])
 }
 
 private actor WireURLProtocolStubState {

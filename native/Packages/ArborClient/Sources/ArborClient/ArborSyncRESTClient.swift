@@ -1,4 +1,5 @@
 import Foundation
+import ArborWire
 
 public struct ArborSyncServerError: Error, LocalizedError, Sendable {
     public var status: Int
