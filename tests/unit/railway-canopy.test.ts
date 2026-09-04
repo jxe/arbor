@@ -8,6 +8,7 @@ const valid = [
   "ARBOR_DOMAIN=arb.nxhx.org",
   "ARBOR_COMMUNITY_HANDLE=garden",
   "ARBOR_FIRST_WRITER_HANDLE=joe",
+  "ARBOR_FIRST_WRITER_PROFILE=tr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "",
 ].join("\n");
 
@@ -20,6 +21,7 @@ describe("Railway Canopy deployment config", () => {
       ARBOR_DOMAIN: "arb.nxhx.org",
       ARBOR_COMMUNITY_HANDLE: "garden",
       ARBOR_FIRST_WRITER_HANDLE: "joe",
+      ARBOR_FIRST_WRITER_PROFILE: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     });
   });
 

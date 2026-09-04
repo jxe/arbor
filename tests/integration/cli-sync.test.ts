@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ArborSyncDaemon } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
-import { CanopyAccountStore, loadCanopyAccountConfigurations, loadLocalPlacements } from "@arbor/stores";
+import { CanopyAccountStore, ProfileIdentityStore, loadCanopyAccountConfigurations, loadLocalPlacements } from "@arbor/stores";
 import { parseDocument } from "yaml";
 
 let sandbox: string;
@@ -72,21 +72,22 @@ beforeAll(async () => {
   state = join(sandbox, "state");
   profile = join(sandbox, "profile");
   await Promise.all([state, profile].map((path) => mkdir(path, { recursive: true })));
+  process.env.ARBOR_DATA_HOME = state;
+  const identity = await new ProfileIdentityStore().begin(profile);
   firstCanopy = await serveCanopy({
     dataRoot: join(sandbox, "first-canopy"),
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
-    community: { handle: "first", name: "First", firstWriter: { handle: "alice" } },
+    community: { handle: "first", name: "First", firstWriter: { handle: "alice", profileTree: identity.profileTree } },
   });
   secondCanopy = await serveCanopy({
     dataRoot: join(sandbox, "second-canopy"),
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
-    community: { handle: "second", name: "Second", firstWriter: { handle: "joe" } },
+    community: { handle: "second", name: "Second", firstWriter: { handle: "joe", profileTree: identity.profileTree } },
   });
-  process.env.ARBOR_DATA_HOME = state;
   const daemon = await ArborSyncDaemon.open(profile);
   try {
     await daemon.claimCanopyAccount(`${firstCanopy.url}/~alice`, profile, "Alice");

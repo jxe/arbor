@@ -6,6 +6,7 @@ export * from "./placements.ts";
 export * from "./rehome-state.ts";
 export * from "./connections.ts";
 export * from "./server-config.ts";
+export * from "./profile-identity.ts";
 export * from "./schema.ts";
 export * from "./wire-collection-file.ts";
 export * from "./projection-provider-host.ts";

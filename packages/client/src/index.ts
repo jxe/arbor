@@ -125,6 +125,15 @@ export interface LocalCanopyAccountDescriptor {
   diagnostics: Array<{ code: string; message: string; path: string; severity: string }>;
 }
 
+export interface LocalProfileIdentity {
+  version: 1;
+  profileTree: string;
+  publicKey: string;
+  profilePath: string;
+  credential: string;
+  keyAvailable: boolean;
+}
+
 export interface LocalPlacementMoveResult {
   tree: string;
   configurationTree: string;
@@ -300,16 +309,24 @@ export class ArborSyncRESTClient {
     return this.mutateContent({ op: "writeProperties", ref, basePropertiesRevision, properties }, mutationID);
   }
 
-  claimProfile(input: { origin: string; handle: string; path: string; displayName?: string; layout?: "legacy" | "accounts" }): Promise<MutationReceipt> {
-    return this.request("/v1/bootstrap/claims", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
-  }
-
   claimAccount(input: { account: string; path: string; displayName?: string }): Promise<MutationReceipt> {
     return this.request("/v1/bootstrap/accounts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
   }
 
   accounts(): Promise<{ accounts: LocalCanopyAccountDescriptor[] }> {
     return this.request("/v1/accounts");
+  }
+
+  profileIdentity(): Promise<{ identity: LocalProfileIdentity | null }> {
+    return this.request("/v1/me");
+  }
+
+  createProfileIdentity(path: string): Promise<{ identity: LocalProfileIdentity }> {
+    return this.request("/v1/me", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
   }
 
   createCommunityPairing(configurationTree?: string): Promise<CommunityPairingOffer> {

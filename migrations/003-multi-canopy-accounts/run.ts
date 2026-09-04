@@ -191,7 +191,7 @@ async function alreadyMigratedCanopy(db: Database, objects: ObjectStore): Promis
 }
 
 export async function migrateCanopyRoot(input: string): Promise<CanopyMigrationReport> {
-  if (CANOPY_SCHEMA_VERSION !== TARGET_CANOPY_STAMP) {
+  if (String(CANOPY_SCHEMA_VERSION) !== TARGET_CANOPY_STAMP) {
     throw new Error(`Migration target ${TARGET_CANOPY_STAMP} does not match this build's schema ${CANOPY_SCHEMA_VERSION}`);
   }
   const dataRoot = await realpath(resolve(input));

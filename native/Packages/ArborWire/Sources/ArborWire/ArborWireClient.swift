@@ -211,16 +211,19 @@ public actor ArborWireClient {
         return try value.validated()
     }
 
-    public func claim(handle: String, request value: WireClaimRequest) async throws -> WireClaimResult {
-        try validateObjectHash(value.device.credentialDigest)
-        _ = try WireObjectGraph.validate(value.profile)
-        _ = try WireObjectGraph.validate(value.configuration)
-        let result: WireClaimResult = try await put(
-            path: "/.arbor/claims/\(component(handle))",
-            body: value,
+    public func createAccountChallenge(account: String, profileTree: String, configurationTree: String) async throws -> WireAccountChallenge {
+        let value: WireAccountChallenge = try await post(
+            path: "/.arbor/account-challenges",
+            body: AccountChallengeRequest(account: account, profileTree: profileTree, configurationTree: configurationTree),
             authorized: false
         )
-        _ = try result.tree.validated()
+        return try value.validated()
+    }
+
+    public func joinAccount(_ value: WireExistingProfileClaimRequest) async throws -> WireAccountClaimResult {
+        try validateObjectHash(value.device.credentialDigest)
+        _ = try WireObjectGraph.validate(value.configuration)
+        let result: WireAccountClaimResult = try await put(path: "/.arbor/accounts", body: value, authorized: false)
         _ = try result.configuration.validated()
         return result
     }
@@ -415,6 +418,11 @@ func canonicalCBORHash(_ encoded: Data) -> String {
 }
 
 private struct EmptyBody: Encodable {}
+private struct AccountChallengeRequest: Encodable {
+    var account: String
+    var profileTree: String
+    var configurationTree: String
+}
 private struct PairingClaimBody: Encodable {
     var secret: String
     var device: WirePairingDevice

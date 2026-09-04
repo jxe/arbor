@@ -286,6 +286,29 @@ export async function workspaceIdentity(root: string): Promise<WorkspaceRegistry
   return record;
 }
 
+/** Bind a previously untracked physical directory to an exact public TreeID. */
+export async function bindWorkspaceIdentity(root: string, rootID: string): Promise<WorkspaceRegistryRecord> {
+  if (!/^tr_[a-z2-7]+$/.test(rootID)) throw new Error("Workspace binding requires a TreeID");
+  const canonical = await realpath(root);
+  const loaded = await loadWorkspaceRegistry();
+  const exact = loaded.registry[canonical];
+  if (exact && exact.rootID !== rootID) {
+    throw new Error(`${canonical} is already bound to ${exact.rootID}`);
+  }
+  const elsewhere = Object.values(loaded.registry).find((candidate) => candidate.path !== canonical && candidate.rootID === rootID);
+  if (elsewhere) throw new Error(`${rootID} is already bound to ${elsewhere.path}`);
+  const fingerprint = await directoryFingerprint(canonical);
+  const record: WorkspaceRegistryRecord = exact ?? {
+    stateID: `${sha256(canonical).slice(0, 12)}-${crypto.randomUUID().slice(0, 8)}`,
+    rootID,
+    path: canonical,
+    ...fingerprint,
+  };
+  loaded.registry[canonical] = { ...record, path: canonical, rootID, ...fingerprint };
+  await saveWorkspaceRegistry(loaded.path, loaded.registry);
+  return loaded.registry[canonical]!;
+}
+
 /** Resolve a stable private migration/workspace ID without requiring a missing path to exist. */
 export async function privateRootID(path: string): Promise<string> {
   const loaded = await loadWorkspaceRegistry();

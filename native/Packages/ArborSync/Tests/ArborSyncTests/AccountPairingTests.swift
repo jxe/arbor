@@ -6,6 +6,7 @@ import Testing
 private actor MemoryAccountCredentialStore: AccountCredentialStore {
     var values: [String: String] = [:]
     var pending: [String: PendingPairingClaim] = [:]
+    var pendingAccounts: [String: PendingAccountClaim] = [:]
     var accountValues: [String: NativeCanopyAccount] = [:]
 
     func load(configurationTree: String) -> String? { values[configurationTree] }
@@ -21,6 +22,9 @@ private actor MemoryAccountCredentialStore: AccountCredentialStore {
     func forgetPending(origin: URL, pairingID: String) {
         pending["\(origin.absoluteString)|\(pairingID)"] = nil
     }
+    func loadPendingAccount(account: URL) -> PendingAccountClaim? { pendingAccounts[account.absoluteString] }
+    func savePendingAccount(_ claim: PendingAccountClaim) { pendingAccounts[claim.account.absoluteString] = claim }
+    func forgetPendingAccount(account: URL) { pendingAccounts[account.absoluteString] = nil }
 
     func accounts() -> [NativeCanopyAccount] {
         accountValues.values.sorted { $0.configurationTree < $1.configurationTree }

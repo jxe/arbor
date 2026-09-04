@@ -33,7 +33,12 @@ Most of atproto's bespoke surface exists because it had to build its own substra
 
 ## What is irreducibly left
 
-1. **Identity recovery and rotation.** atproto's DID layer — rotation keys, recovery windows, PLC — is real work Arbor has not done; it is open problem #1, and self-certifying IDs sit in the deferred list. This is the piece of atproto worth importing wholesale rather than reinventing.
+1. **Identity recovery and rotation.** Person profiles have a deliberately
+   minimal self-certifying identity key, but atproto's fuller DID layer —
+   rotation keys, recovery windows, PLC — remains real work Arbor has not done
+   and is open problem #1. This is the piece of atproto worth importing
+   wholesale rather than reinventing when the permanent single-key generation
+   is replaced.
 2. **The economics don't simplify.** Someone still crawls the world and hosts a planet-scale index. Arbor makes the *interfaces* nearly free; it does nothing about the *operational* weight, which is most of what running a relay actually is.
 3. **Discovery and bootstrap.** Which trees exist? Which relays are honest? Directory services are still needed — the deferred "discovery indexes as mountable Arbor trees" stops being deferrable the day someone builds this.
 4. **Derived-state trust.** An AppView's index is unverifiable aggregation — you trust the indexer, in both worlds. Arbor open problem #11 (upstream-hosted results are not client-verifiable the way objects are) is the same wound in different skin.

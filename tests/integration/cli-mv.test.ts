@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { ArborSyncDaemon } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
 import { generateArborID } from "@arbor/core";
-import { CanopyAccountStore, loadCanopyAccountConfigurations, loadLocalPlacements } from "@arbor/stores";
+import { CanopyAccountStore, ProfileIdentityStore, loadCanopyAccountConfigurations, loadLocalPlacements } from "@arbor/stores";
 
 let sandbox: string;
 let state: string;
@@ -39,14 +39,15 @@ beforeAll(async () => {
   destination = join(sandbox, "moved", "todos");
   await Promise.all([state, profile, source, join(sandbox, "moved")].map((path) => mkdir(path, { recursive: true })));
   await writeFile(join(source, "todo.md"), "# Keep this\n");
+  process.env.ARBOR_DATA_HOME = state;
+  const identity = await new ProfileIdentityStore().begin(profile);
   running = await serveCanopy({
     dataRoot: join(sandbox, "canopy"),
     publicOrigin: "http://127.0.0.1:0",
     hostname: "127.0.0.1",
     port: 0,
-    community: { handle: "garden", name: "Garden", firstWriter: { handle: "joe" } },
+    community: { handle: "garden", name: "Garden", firstWriter: { handle: "joe", profileTree: identity.profileTree } },
   });
-  process.env.ARBOR_DATA_HOME = state;
   const daemon = await ArborSyncDaemon.open(profile);
   try {
     await daemon.claimCanopyAccount(`${running.url}/~joe`, profile, "Joe");

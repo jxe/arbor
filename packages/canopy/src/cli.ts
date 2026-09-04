@@ -6,7 +6,7 @@ import { serveCanopy, type CanopyBootstrapAccount } from "./index.ts";
 function usage(): never {
   console.error(`Usage:
   canopyd [data-directory] [--url <canonical-url>] [--port <number>] [--hostname <host>]
-          [--community <handle>] [--first-writer <handle>]`);
+          [--community <handle>] [--first-writer <handle>] [--first-writer-profile <TreeID>]`);
   process.exit(2);
 }
 
@@ -57,7 +57,7 @@ export function serveMaintenance(port: number, hostname: string): ReturnType<typ
 }
 
 export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<void> {
-  const valuedOptions = ["--url", "--port", "--hostname", "--community", "--first-writer"];
+  const valuedOptions = ["--url", "--port", "--hostname", "--community", "--first-writer", "--first-writer-profile"];
   const positional = positionals(args, valuedOptions);
   if (positional.length > 1) usage();
   const unknown = args.filter((arg) => arg.startsWith("--") && !valuedOptions.includes(arg));
@@ -102,14 +102,19 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
   }] : []);
   const requestedCommunityHandle = option(args, "--community") ?? process.env.ARBOR_COMMUNITY_HANDLE;
   const requestedFirstWriterHandle = option(args, "--first-writer") ?? process.env.ARBOR_FIRST_WRITER_HANDLE;
+  const requestedFirstWriterProfile = option(args, "--first-writer-profile") ?? process.env.ARBOR_FIRST_WRITER_PROFILE;
   if (!existingCanopy && !accounts.length && !process.stdin.isTTY) {
     if (!requestedCommunityHandle) throw new Error("A new unattended community requires --community <handle>");
     if (!requestedFirstWriterHandle) throw new Error("A new unattended community requires --first-writer <handle>");
+    if (!requestedFirstWriterProfile) throw new Error("A new unattended community requires --first-writer-profile <TreeID>");
   }
   const communityHandle = defaultHandle(requestedCommunityHandle ?? basename(dataRoot), "community");
   const firstWriterHandle = !existingCanopy && !accounts.length
     ? defaultHandle(requestedFirstWriterHandle ?? process.env.USER, "owner")
     : undefined;
+  if (firstWriterHandle && !requestedFirstWriterProfile) {
+    throw new Error("A new claim-first community requires --first-writer-profile <TreeID>");
+  }
   if (firstWriterHandle && new URL(publicOrigin).port === "0") {
     throw new Error("A new claim-first community needs a stable nonzero --port or explicit --url");
   }
@@ -122,7 +127,7 @@ export async function runCanopyDaemon(args = process.argv.slice(2)): Promise<voi
       community: {
         handle: communityHandle,
         name: communityHandle,
-        ...(firstWriterHandle ? { firstWriter: { handle: firstWriterHandle } } : {}),
+        ...(firstWriterHandle ? { firstWriter: { handle: firstWriterHandle, profileTree: requestedFirstWriterProfile! } } : {}),
       },
       accounts,
       port: requestedPort,

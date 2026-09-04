@@ -10,6 +10,7 @@ const CONFIG_KEYS = [
   "ARBOR_DOMAIN",
   "ARBOR_COMMUNITY_HANDLE",
   "ARBOR_FIRST_WRITER_HANDLE",
+  "ARBOR_FIRST_WRITER_PROFILE",
 ] as const;
 
 type ConfigKey = typeof CONFIG_KEYS[number];
@@ -80,6 +81,9 @@ export function parseCanopyDeploymentConfig(source: string): CanopyDeploymentCon
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(result.ARBOR_COMMUNITY_HANDLE!)
     || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(result.ARBOR_FIRST_WRITER_HANDLE!)) {
     throw new Error("Canopy handles must be lowercase letters, digits, or hyphens");
+  }
+  if (!/^tr_[a-z2-7]{52}$/.test(result.ARBOR_FIRST_WRITER_PROFILE!)) {
+    throw new Error("ARBOR_FIRST_WRITER_PROFILE must be a self-certifying person Profile TreeID");
   }
   if (!/^[\w.-]+\/[\w.-]+$/.test(result.ARBOR_RAILWAY_REPO!)) throw new Error("ARBOR_RAILWAY_REPO must be owner/repo");
   return result as CanopyDeploymentConfig;
@@ -253,6 +257,7 @@ async function apply(configPath: string): Promise<void> {
     `ARBOR_DOMAIN=${desired.ARBOR_DOMAIN}`,
     `ARBOR_COMMUNITY_HANDLE=${desired.ARBOR_COMMUNITY_HANDLE}`,
     `ARBOR_FIRST_WRITER_HANDLE=${desired.ARBOR_FIRST_WRITER_HANDLE}`,
+    `ARBOR_FIRST_WRITER_PROFILE=${desired.ARBOR_FIRST_WRITER_PROFILE}`,
     "--skip-deploys",
     "--service", instance.serviceId,
     "--environment", environment.id,

@@ -5,7 +5,7 @@ import { serveArborSync } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
 import { WireClient } from "@arbor/wire";
 import { canonicalArborLocator, generateArborID } from "@arbor/core";
-import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
+import { CommunityConfigStore, ProfileIdentityStore, saveCurrentDeviceID } from "@arbor/stores";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 import { build } from "vite";
 import { snapshotDirectory } from "@arbor/fs";
@@ -33,6 +33,7 @@ await mkdir(promotableRoot, { recursive: true });
 await mkdir(state, { recursive: true });
 await mkdir(hostState, { recursive: true });
 process.env.ARBOR_DATA_HOME = state;
+const aliceIdentity = await new ProfileIdentityStore().begin(aliceProfile);
 await cp(join(import.meta.dir, "../fixtures/workspace"), root, { recursive: true });
 await writeFile(join(root, "_index.md"), "# E2E Garden\n");
 await mkdir(join(root, "title-first"), { recursive: true });
@@ -45,7 +46,7 @@ const port = Number(process.env.ARBOR_E2E_PORT ?? 4321);
 const host = await serveCanopy({
   dataRoot: hostState,
   accounts: [{ handle: "owner", token: "e2e-owner-token", communityWriter: true }],
-  community: { handle: "community", name: "Arbor Community", firstWriter: { handle: "alice" } },
+  community: { handle: "community", name: "Arbor Community", firstWriter: { handle: "alice", profileTree: aliceIdentity.profileTree } },
   publicOrigin: `http://127.0.0.1:${port + 1}`,
   hostname: "127.0.0.1",
   port: port + 1,

@@ -9,7 +9,7 @@ import { AcceptedUpdateStore } from "./updates/store.ts";
  * offline migration tool, which sets the stamp). "1" is the implicit stamp of
  * every database created before the profile-kind columns were removed.
  */
-export const CANOPY_SCHEMA_VERSION = "5";
+export const CANOPY_SCHEMA_VERSION = "6";
 
 export const AUTHORITY_SCHEMA = {
   trees: ["id", "ref", "updated_at", "policy", "status", "account_id"],
@@ -22,6 +22,7 @@ export const AUTHORITY_SCHEMA = {
   accounts: ["id", "handle", "profile_tree", "config_tree", "token_digest", "enabled", "claim_digest"],
   devices: ["id", "account_id", "label", "token_digest", "created_at", "last_used_at", "revoked_at"],
   pairings: ["id", "account_id", "secret_digest", "confirmation_code", "created_at", "expires_at", "claimed_at", "claimed_device"],
+  account_challenges: ["id", "challenge_json", "expires_at", "consumed_at", "claim_digest"],
   access: ["id", "tree_id", "subject_kind", "subject", "access", "claimed_profile"],
   tree_reservations: ["id", "account_id", "canonical_path", "status", "error"],
   observations: ["ordinal", "cursor", "tree_id", "kind", "update_id", "change_json", "created_at"],
@@ -87,6 +88,15 @@ export function createCanopySchema(db: Database): void {
       expires_at INTEGER NOT NULL,
       claimed_at INTEGER,
       claimed_device TEXT
+    )
+  `);
+  db.run(`
+    CREATE TABLE account_challenges (
+      id TEXT PRIMARY KEY,
+      challenge_json TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      consumed_at INTEGER,
+      claim_digest TEXT
     )
   `);
   db.run(`

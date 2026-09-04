@@ -455,26 +455,18 @@ function startArborSyncServer(
         if (request.method === "GET" && url.pathname === "/v1/accounts") {
           return json({ accounts: await service.accountList() });
         }
+        if (request.method === "GET" && url.pathname === "/v1/me") {
+          return json({ identity: await service.profileIdentity() });
+        }
+        if (request.method === "POST" && url.pathname === "/v1/me") {
+          const body = await request.json() as { path?: unknown };
+          if (typeof body.path !== "string") throw new ProtocolError("invalid-request", "Identity creation requires a profile path", 400);
+          return json({ identity: await service.createProfileIdentity(body.path) }, 201);
+        }
         if (request.method === "GET" && url.pathname === "/v1/resolve") {
           const locator = url.searchParams.get("locator");
           if (!locator) throw new ProtocolError("invalid-request", "resolve requires locator", 400);
           return json(await service.resolveLocator(locator));
-        }
-        if (request.method === "POST" && url.pathname === "/v1/bootstrap/claims") {
-          const body = await request.json() as { origin?: unknown; handle?: unknown; path?: unknown; displayName?: unknown; layout?: unknown };
-          if (
-            typeof body.origin !== "string" || typeof body.handle !== "string" || typeof body.path !== "string"
-            || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(body.handle)
-            || (body.displayName !== undefined && typeof body.displayName !== "string")
-            || (body.layout !== undefined && body.layout !== "legacy" && body.layout !== "accounts")
-          ) throw new ProtocolError("invalid-request", "Claim bootstrap requires origin, handle, and path", 400);
-          return json(await service.claimProfileBootstrap(
-            body.origin,
-            body.handle,
-            body.path,
-            body.displayName as string | undefined,
-            body.layout as "legacy" | "accounts" | undefined,
-          ), 201);
         }
         if (request.method === "POST" && url.pathname === "/v1/bootstrap/accounts") {
           const body = await request.json() as { account?: unknown; path?: unknown; displayName?: unknown };

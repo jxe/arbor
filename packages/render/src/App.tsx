@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft, Share } from "lucide-react";
 import type { AccessEntry, RecoveryEntry, SearchResult, NodeSummary, LocalTreeDescriptor } from "@arbor/core";
-import type { CommunityPairingOffer, LocalCanopyAccountDescriptor, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
+import type { CommunityPairingOffer, LocalCanopyAccountDescriptor, LocalProfileIdentity, NodeRef, NodeSnapshot, ObservedNodeUpdate, ObservedNodeView } from "@arbor/client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { canonicalArborLocator, canonicalHTTPURL } from "@arbor/core";
 import { api } from "./api.ts";
@@ -276,6 +276,7 @@ export function App() {
     communityURL?: string;
   }>({ configured: false, credentialAvailable: false });
   const [accounts, setAccounts] = useState<LocalCanopyAccountDescriptor[]>([]);
+  const [identity, setIdentity] = useState<LocalProfileIdentity | null>(null);
   const [selectedAccountTree, setSelectedAccountTree] = useState<string | null>(null);
   const [treeControl, setTreeControl] = useState<{ path: string; tree?: TreeDescriptor } | null>(null);
   const [treeSlug, setTreeSlug] = useState("");
@@ -321,11 +322,12 @@ export function App() {
   const refreshSystem = useCallback(async () => {
     const request = ++systemRequest.current;
     try {
-      const [treeSnapshot, community, accountDirectory, visitedDirectory] = await Promise.all([
+      const [treeSnapshot, community, accountDirectory, visitedDirectory, identityStatus] = await Promise.all([
         api.client.trees(),
         api.configurationStatus(),
         api.client.accounts(),
         api.node({ tree: "system", path: "/visited", stableKey: null }),
+        api.client.profileIdentity(),
       ]);
       if (request !== systemRequest.current) return;
       const origin = community.origin;
@@ -339,6 +341,7 @@ export function App() {
         ...(typeof community.communityURL === "string" ? { communityURL: community.communityURL } : {}),
       });
       setAccounts(accountDirectory.accounts);
+      setIdentity(identityStatus.identity);
       const nextTrees = treeSnapshot.snapshot;
       const currentURLPath = pathFromLocation();
       const activePlacement = nextTrees
@@ -925,11 +928,34 @@ export function App() {
     setAccessDraftPermission("read");
   }, [accessDraftKind, accessDraftPermission, createLink, profileLocator, setProfileAccess, setPublicAccess]);
 
+  const createIdentity = useCallback(async () => {
+    if (!claimPath.trim()) {
+      setError("Choose a profile folder.");
+      return;
+    }
+    try {
+      setTreeBusy(true);
+      setError(null);
+      const created = await api.client.createProfileIdentity(claimPath.trim());
+      setIdentity(created.identity);
+      setClaimPath(created.identity.profilePath);
+      await refreshSystem();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTreeBusy(false);
+    }
+  }, [claimPath, refreshSystem]);
+
   const claimProfile = useCallback(async () => {
     const target = reservedProfileTarget(claimURL);
-    const profilePath = localUserPath(claimPath, home);
+    const profilePath = identity?.profilePath ?? localUserPath(claimPath, home);
     if (!target || !profilePath) {
       setError("Choose an absolute path or a path beginning with ~/.");
+      return;
+    }
+    if (!identity) {
+      setError("Create your identity first, then send its Profile TreeID to this Canopy's administrator for the exact reservation.");
       return;
     }
     try {
@@ -948,7 +974,7 @@ export function App() {
     } finally {
       setTreeBusy(false);
     }
-  }, [claimPath, claimURL, home, navigate, refreshSystem]);
+  }, [claimPath, claimURL, home, identity, navigate, refreshSystem]);
 
   const disconnectCommunity = useCallback(async () => {
     if (!confirm("Disconnect this Arbor account on this device? Local files remain in place.")) return;
@@ -1153,7 +1179,10 @@ export function App() {
             className="profile-button"
             aria-label="Community and profile"
             title={server.handle ? `Profile: ~${server.handle}` : "No active profile"}
-            onClick={() => setProfileOpen(true)}
+            onClick={() => {
+              if (!claimPath) setClaimPath(identity?.profilePath ?? "~/.arbor/profile");
+              setProfileOpen(true);
+            }}
           >{profileMark}</button>
         </div>
       </header>
@@ -1164,9 +1193,10 @@ export function App() {
         <button className="primary" onClick={() => {
           setError(null);
           setClaimURL(remoteLocation.url);
+          setClaimPath(identity?.profilePath ?? "~/.arbor/profile");
           setProfileOpen(true);
-        }}>Claim profile</button>
-        <small>First successful claim wins.</small>
+        }}>{identity ? "Claim account" : "Set up identity"}</button>
+        <small>The reservation names one exact public Profile TreeID.</small>
       </div> : error ? <div className="empty error">{error}</div> : !remoteNode ? <div className="empty">Loading…</div>
         : hasMarkdownContent(remoteNode)
           ? <ReadOnlyPage node={remoteNode} children={remoteChildren} navigate={navigateRemote} />
@@ -1328,12 +1358,15 @@ export function App() {
         <button className="modal-close" aria-label="Close" onClick={() => setProfileOpen(false)}>×</button>
       </div>
       {claimTarget && !claimedTargetAccount ? <>
-        <p className="tree-control-intro">Choose the existing local profile that should identify this additional Canopy account.</p>
+        <p className="tree-control-intro">{identity
+          ? "Use your local profile identity to claim this Canopy account."
+          : "Create your permanent local profile identity, then send its public TreeID to this Canopy's administrator."}</p>
         <label className="control-field"><span>Local profile folder</span><input autoFocus placeholder="~/.arbor/profile" value={claimPath} onChange={(event) => setClaimPath(event.target.value)} /></label>
         {error && <p className="control-error" role="alert">{error}</p>}
         <div className="modal-actions">
-          <button className="primary" disabled={treeBusy || !claimPath.trim()} onClick={() => void claimProfile()}>{treeBusy ? "Claiming…" : "Claim account"}</button>
+          <button className="primary" disabled={treeBusy || !claimPath.trim()} onClick={() => void (identity ? claimProfile() : createIdentity())}>{treeBusy ? "Working…" : identity ? "Claim account" : "Create identity"}</button>
         </div>
+        {identity && <div className="canonical-addresses"><div><span>Profile TreeID</span><code>{identity.profileTree}</code><button onClick={() => void navigator.clipboard.writeText(identity.profileTree)}>Copy</button></div></div>}
       </> : selectedAccount ? <>
         {accounts.length > 1 && <label className="control-field">
           <span>Canopy account</span>
@@ -1388,7 +1421,12 @@ export function App() {
           {accounts.length === 1 && <button className="quiet danger" onClick={() => void disconnectCommunity()}>Disconnect</button>}
           {selectedProfileURL && <a className="primary link-button" href={selectedProfileURL} target="_blank" rel="noreferrer">View account</a>}
         </div>
-      </> : <p className="tree-control-intro">No profile is active on this device. Browse a reserved profile address to claim it.</p>}
+      </> : identity ? <div className="canonical-addresses"><div><span>Profile TreeID</span><code>{identity.profileTree}</code><button onClick={() => void navigator.clipboard.writeText(identity.profileTree)}>Copy</button></div></div> : <>
+        <p className="tree-control-intro">Create your permanent profile identity, then send its public TreeID to a Canopy administrator.</p>
+        <label className="control-field"><span>Local profile folder</span><input autoFocus placeholder="~/.arbor/profile" value={claimPath} onChange={(event) => setClaimPath(event.target.value)} /></label>
+        {error && <p className="control-error" role="alert">{error}</p>}
+        <div className="modal-actions"><button className="primary" disabled={treeBusy || !claimPath.trim()} onClick={() => void createIdentity()}>{treeBusy ? "Creating…" : "Create identity"}</button></div>
+      </>}
     </section></div>}
     {treeControl && <div className="modal-backdrop" onMouseDown={() => !treeBusy && setTreeControl(null)}><section className="tree-control-modal" onMouseDown={(event) => event.stopPropagation()}>
       {treeControl.tree && treeControl.tree.canonical !== null ? <>

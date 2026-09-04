@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { mkdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { serveArborSync, serveArborSyncControl } from "@arbor/arborsync";
+import { resolveUserPath, serveArborSync, serveArborSyncControl } from "@arbor/arborsync";
 import { ArborSyncRESTClient } from "@arbor/client";
 import { canonicalArborLocator, canonicalHTTPURL } from "@arbor/core";
 import {
@@ -12,6 +12,7 @@ import {
   loadCanopyAccountConfigurations,
   loadLocalPlacements,
   parseHostedTreesConfiguration,
+  ProfileIdentityStore,
   replaceLocalPlacement,
   saveRehomeTransaction,
   type CanopyAccountConfigurationSnapshot,
@@ -34,6 +35,10 @@ type ShareAudience =
 function usage(): never {
   console.error(`Usage:
   arbor open [<locator>]
+  arbor me
+  arbor me create [<profile-folder>]
+  arbor me backup <file>
+  arbor me restore <file> [<profile-folder>]
   arbor daemon <install|uninstall|start|stop|restart|status|logs>
   arbor place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
   arbor place <canonical-url> <local-path>
@@ -694,6 +699,43 @@ async function placeCommand(args: string[]): Promise<void> {
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+  if (command === "me") {
+    const store = new ProfileIdentityStore();
+    const [action, ...operands] = args;
+    if (!action) {
+      const status = await store.status();
+      if (!status) throw new Error("No person identity exists; run `arbor me create`");
+      console.log(`Profile TreeID: ${status.profileTree}`);
+      console.log(`Profile folder: ${status.profilePath}`);
+      console.log(`Private key: ${status.keyAvailable ? "available" : "unavailable"}`);
+      return;
+    }
+    if (action === "create") {
+      if (operands.length > 1) usage();
+      const status = await store.begin(resolveUserPath(operands[0] ?? `${arborDataRoot()}/profile`));
+      console.log(`Profile TreeID: ${status.profileTree}`);
+      console.log(`Profile folder: ${status.profilePath}`);
+      return;
+    }
+    if (action === "backup") {
+      if (operands.length !== 1) usage();
+      const destination = resolveUserPath(operands[0]!);
+      await store.backup(destination);
+      console.log(`Backed up Arbor identity to ${destination}`);
+      return;
+    }
+    if (action === "restore") {
+      if (operands.length < 1 || operands.length > 2) usage();
+      const status = await store.restore(
+        resolveUserPath(operands[0]!),
+        resolveUserPath(operands[1] ?? `${arborDataRoot()}/profile`),
+      );
+      console.log(`Restored ${status.profileTree}`);
+      console.log(`Profile folder: ${status.profilePath}`);
+      return;
+    }
+    usage();
+  }
   if (command === "daemon") {
     if (args.length !== 1) usage();
     const supervisor = arborDaemonSupervisor();

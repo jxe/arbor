@@ -18,6 +18,7 @@ import {
   type RemoteTreeDescriptor,
   type SnapshotEnvelope,
   type TreeID,
+  type AccountChallenge,
 } from "@arbor/core";
 import {
   type ObjectHash,
@@ -71,40 +72,18 @@ export interface RemoteAccountSnapshot {
   observedThrough: EventCursor;
 }
 
-export interface ClaimResult {
-  account: RemoteAccountDescriptor;
-  tree: RemoteTreeDescriptor;
-  configuration: RemoteTreeDescriptor;
-}
-
 export interface AccountClaimResult {
   account: RemoteAccountDescriptor;
   configuration: RemoteTreeDescriptor;
 }
 
-export interface ClaimRequest {
-  profileTree: TreeID;
-  configurationTree: TreeID;
-  device: { id: string; label: string; credentialDigest: `sha256:${string}` };
-  profile: TreeSnapshot;
-  configuration: TreeSnapshot;
-}
-
-export interface ProfileProofBinding {
-  id: string;
-  profileTree: TreeID;
-  targetOrigin: string;
-  targetAccount: string;
-  configurationTree: TreeID;
-  expiresAt: number;
-}
-
 export interface ExistingProfileAccountRequest {
   account: string;
-  issuerOrigin?: string;
-  proof?: { id: string; secret: string };
   profileTree: TreeID;
   configurationTree: TreeID;
+  challenge: AccountChallenge;
+  publicKey: string;
+  signature: string;
   device: { id: string; label: string; credentialDigest: `sha256:${string}` };
   configuration: TreeSnapshot;
 }
@@ -238,37 +217,15 @@ export class WireClient {
     return response.json();
   }
 
-  async claim(handle: string, input: ClaimRequest): Promise<ClaimResult> {
-    const response = await this.checked(await this.request(`/.arbor/claims/${encodeURIComponent(handle)}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        profileTree: input.profileTree,
-        configurationTree: input.configurationTree,
-        device: input.device,
-        profile: encodeTreeSnapshotJSON(input.profile),
-        configuration: encodeTreeSnapshotJSON(input.configuration),
-      }),
-    }));
-    return response.json();
-  }
-
-  async createProfileProof(input: {
-    id: string;
-    secretDigest: `sha256:${string}`;
-    targetOrigin: string;
-    targetAccount: string;
+  async createAccountChallenge(input: {
+    account: string;
+    profileTree: TreeID;
     configurationTree: TreeID;
-  }): Promise<ProfileProofBinding> {
-    const response = await this.checked(await this.request(`/.arbor/profile-proofs/${encodeURIComponent(input.id)}`, {
-      method: "PUT",
-      headers: this.headers(true),
-      body: JSON.stringify({
-        secretDigest: input.secretDigest,
-        targetOrigin: input.targetOrigin,
-        targetAccount: input.targetAccount,
-        configurationTree: input.configurationTree,
-      }),
+  }): Promise<AccountChallenge> {
+    const response = await this.checked(await this.request("/.arbor/account-challenges", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
     }));
     return response.json();
   }
@@ -279,10 +236,11 @@ export class WireClient {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         account: input.account,
-        ...(input.issuerOrigin ? { issuerOrigin: input.issuerOrigin } : {}),
-        ...(input.proof ? { proof: input.proof } : {}),
         profileTree: input.profileTree,
         configurationTree: input.configurationTree,
+        challenge: input.challenge,
+        publicKey: input.publicKey,
+        signature: input.signature,
         device: input.device,
         configuration: encodeTreeSnapshotJSON(input.configuration),
       }),

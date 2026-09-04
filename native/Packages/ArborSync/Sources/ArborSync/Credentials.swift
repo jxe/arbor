@@ -21,6 +21,20 @@ public struct PendingPairingClaim: Codable, Equatable, Sendable {
     public var stage: Stage
 }
 
+public struct PendingAccountClaim: Codable, Equatable, Sendable {
+    public var account: URL
+    public var profileTree: String
+    public var configurationTree: String
+    public var deviceID: String
+    public var deviceLabel: String
+    public var credential: String
+    public var credentialDigest: String
+    public var configuration: WireSnapshot
+    public var challenge: WireAccountChallenge
+    public var publicKey: String
+    public var signature: String
+}
+
 public struct NativeCanopyAccount: Codable, Equatable, Sendable, Identifiable {
     public var configurationTree: String
     public var origin: URL
@@ -38,6 +52,9 @@ public protocol AccountCredentialStore: Sendable {
     func loadPending(origin: URL, pairingID: String) async throws -> PendingPairingClaim?
     func savePending(_ claim: PendingPairingClaim) async throws
     func forgetPending(origin: URL, pairingID: String) async throws
+    func loadPendingAccount(account: URL) async throws -> PendingAccountClaim?
+    func savePendingAccount(_ claim: PendingAccountClaim) async throws
+    func forgetPendingAccount(account: URL) async throws
     func accounts() async throws -> [NativeCanopyAccount]
     func saveAccount(_ account: NativeCanopyAccount) async throws
     func forgetAccount(configurationTree: String) async throws
@@ -102,6 +119,20 @@ public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCreden
         try forgetValue(account: pendingKey(origin: origin, pairingID: pairingID))
     }
 
+    public func loadPendingAccount(account: URL) throws -> PendingAccountClaim? {
+        guard let value = try loadValue(account: pendingAccountKey(account)) else { return nil }
+        return try JSONDecoder().decode(PendingAccountClaim.self, from: Data(value.utf8))
+    }
+
+    public func savePendingAccount(_ claim: PendingAccountClaim) throws {
+        let value = String(decoding: try JSONEncoder().encode(claim), as: UTF8.self)
+        try saveValue(value, account: pendingAccountKey(claim.account))
+    }
+
+    public func forgetPendingAccount(account: URL) throws {
+        try forgetValue(account: pendingAccountKey(account))
+    }
+
     public func accounts() throws -> [NativeCanopyAccount] {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -136,6 +167,12 @@ public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCreden
         let digest = SHA256.hash(data: Data("\(origin.absoluteString)\u{0}\(pairingID)".utf8))
             .map { String(format: "%02x", $0) }.joined()
         return "pending:\(digest)"
+    }
+
+    private func pendingAccountKey(_ account: URL) -> String {
+        let digest = SHA256.hash(data: Data(account.absoluteString.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return "pending-account:\(digest)"
     }
 
     private func loadValue(account: String, service: String? = nil) throws -> String? {
@@ -186,6 +223,136 @@ public actor KeychainDeviceCredentialStore: DeviceCredentialStore, AccountCreden
 public struct OSStatusError: Error, Equatable, Sendable {
     public var status: OSStatus
     public init(_ status: OSStatus) { self.status = status }
+}
+
+public struct NativeProfileIdentity: Codable, Equatable, Sendable {
+    public var version: Int
+    public var profileTree: String
+    public var publicKey: String
+}
+
+private struct StoredNativeProfileIdentity: Codable {
+    var version: Int
+    var profileTree: String
+    var publicKey: String
+    var privateKey: String
+}
+
+public actor KeychainProfileIdentityStore {
+    private let service: String
+    private let account = "primary"
+
+    public init(service: String = "org.nxhx.Arbor.profile") { self.service = service }
+
+    public func identity() throws -> NativeProfileIdentity? {
+        guard let stored = try load() else { return nil }
+        let verified = try verify(stored)
+        return NativeProfileIdentity(version: 1, profileTree: verified.profileTree, publicKey: verified.publicKey)
+    }
+
+    public func create() throws -> NativeProfileIdentity {
+        if let identity = try identity() { return identity }
+        let key = Curve25519.Signing.PrivateKey()
+        let publicKey = key.publicKey.rawRepresentation.base64URLEncodedString()
+        let profileTree = personProfileTreeID(publicKey: key.publicKey.rawRepresentation)
+        let stored = StoredNativeProfileIdentity(
+            version: 1,
+            profileTree: profileTree,
+            publicKey: publicKey,
+            privateKey: key.rawRepresentation.base64URLEncodedString()
+        )
+        let data = try JSONEncoder().encode(stored)
+        var query = baseQuery()
+        query[kSecValueData as String] = data
+        let status = SecItemAdd(query as CFDictionary, nil)
+        guard status == errSecSuccess else { throw OSStatusError(status) }
+        return NativeProfileIdentity(version: 1, profileTree: profileTree, publicKey: publicKey)
+    }
+
+    public func sign(_ challenge: WireAccountChallenge) throws -> (identity: NativeProfileIdentity, signature: String) {
+        guard let stored = try load() else { throw ArborWireValidationError.invalidValue("No native profile identity exists") }
+        let identity = try verify(stored)
+        guard challenge.profileTree == identity.profileTree else {
+            throw ArborWireValidationError.invalidValue("Account challenge names another profile identity")
+        }
+        guard let privateData = Data(base64URLEncoded: stored.privateKey) else {
+            throw ArborWireValidationError.invalidValue("Stored profile private key is malformed")
+        }
+        let key = try Curve25519.Signing.PrivateKey(rawRepresentation: privateData)
+        let signature = try key.signature(for: accountChallengeSigningBytes(challenge)).base64URLEncodedString()
+        return (identity, signature)
+    }
+
+    private func verify(_ stored: StoredNativeProfileIdentity) throws -> NativeProfileIdentity {
+        guard stored.version == 1,
+              let privateData = Data(base64URLEncoded: stored.privateKey),
+              let publicData = Data(base64URLEncoded: stored.publicKey) else {
+            throw ArborWireValidationError.invalidValue("Stored profile identity is malformed")
+        }
+        let key = try Curve25519.Signing.PrivateKey(rawRepresentation: privateData)
+        guard key.publicKey.rawRepresentation == publicData,
+              personProfileTreeID(publicKey: publicData) == stored.profileTree else {
+            throw ArborWireValidationError.invalidValue("Stored profile identity does not match its key")
+        }
+        return NativeProfileIdentity(version: 1, profileTree: stored.profileTree, publicKey: stored.publicKey)
+    }
+
+    private func load() throws -> StoredNativeProfileIdentity? {
+        var query = baseQuery()
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = result as? Data else { throw OSStatusError(status) }
+        return try JSONDecoder().decode(StoredNativeProfileIdentity.self, from: data)
+    }
+
+    private func baseQuery() -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+    }
+}
+
+private func personProfileTreeID(publicKey: Data) -> String {
+    var input = Data("arbor-person-profile-v1\0".utf8)
+    input.append(publicKey)
+    return "tr_" + Data(SHA256.hash(data: input)).lowercaseBase32()
+}
+
+private extension Data {
+    init?(base64URLEncoded value: String) {
+        var base64 = value.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        self.init(base64Encoded: base64)
+    }
+
+    func base64URLEncodedString() -> String {
+        base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    }
+
+    func lowercaseBase32() -> String {
+        let alphabet = Array("abcdefghijklmnopqrstuvwxyz234567")
+        var accumulator = 0
+        var bits = 0
+        var output = ""
+        for byte in self {
+            accumulator = (accumulator << 8) | Int(byte)
+            bits += 8
+            while bits >= 5 {
+                bits -= 5
+                output.append(alphabet[(accumulator >> bits) & 31])
+            }
+            accumulator &= bits == 0 ? 0 : (1 << bits) - 1
+        }
+        if bits > 0 { output.append(alphabet[(accumulator << (5 - bits)) & 31]) }
+        return output
+    }
 }
 
 public actor StoredDeviceCredentialProvider: WireCredentialProvider {
@@ -332,6 +499,106 @@ public actor NativeAccountService {
         return claim
     }
 
+    public func claimAccount(
+        account: URL,
+        label: String,
+        identityStore: KeychainProfileIdentityStore = KeychainProfileIdentityStore()
+    ) async throws -> NativeCanopyAccount {
+        guard sameOrigin(account, origin), account.query == nil, account.fragment == nil else {
+            throw ArborWireValidationError.invalidValue("Account URL does not belong to this Canopy")
+        }
+        guard let identity = try await identityStore.identity() else {
+            throw ArborWireValidationError.invalidValue("Create a profile identity before claiming an account")
+        }
+        let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanLabel.isEmpty else { throw ArborWireValidationError.invalidValue("Device label is empty") }
+        let wire = ArborWireClient(origin: origin, session: session, retryDelay: retryDelay)
+        var pending: PendingAccountClaim
+        if let stored = try await credentials.loadPendingAccount(account: account) {
+            guard stored.account == account, stored.profileTree == identity.profileTree, stored.deviceLabel == cleanLabel else {
+                throw ArborWireValidationError.invalidValue("A different claim is already pending for this account")
+            }
+            pending = stored
+        } else {
+            let configurationTree = try generatedID(prefix: "tr")
+            let deviceID = try generatedID(prefix: "dv")
+            let credential = try randomSecret()
+            let credentialDigest = "sha256:" + SHA256.hash(data: Data(credential.utf8)).map { String(format: "%02x", $0) }.joined()
+            let configuration = try initialAccountConfiguration(
+                profileTree: identity.profileTree,
+                configurationTree: configurationTree,
+                deviceID: deviceID,
+                label: cleanLabel
+            )
+            let challenge = try await wire.createAccountChallenge(
+                account: account.absoluteString,
+                profileTree: identity.profileTree,
+                configurationTree: configurationTree
+            )
+            let signed = try await identityStore.sign(challenge)
+            pending = PendingAccountClaim(
+                account: account,
+                profileTree: identity.profileTree,
+                configurationTree: configurationTree,
+                deviceID: deviceID,
+                deviceLabel: cleanLabel,
+                credential: credential,
+                credentialDigest: credentialDigest,
+                configuration: configuration,
+                challenge: challenge,
+                publicKey: signed.identity.publicKey,
+                signature: signed.signature
+            )
+            try await credentials.savePendingAccount(pending)
+        }
+        let request: (PendingAccountClaim) -> WireExistingProfileClaimRequest = { claim in
+            WireExistingProfileClaimRequest(
+                account: claim.account.absoluteString,
+                profileTree: claim.profileTree,
+                configurationTree: claim.configurationTree,
+                challenge: claim.challenge,
+                publicKey: claim.publicKey,
+                signature: claim.signature,
+                device: WirePairingDevice(id: claim.deviceID, label: claim.deviceLabel, credentialDigest: claim.credentialDigest),
+                configuration: claim.configuration
+            )
+        }
+        let result: WireAccountClaimResult
+        do {
+            result = try await wire.joinAccount(request(pending))
+        } catch {
+            guard String(describing: error).localizedCaseInsensitiveContains("challenge is expired") else { throw error }
+            let challenge = try await wire.createAccountChallenge(
+                account: account.absoluteString,
+                profileTree: pending.profileTree,
+                configurationTree: pending.configurationTree
+            )
+            let signed = try await identityStore.sign(challenge)
+            pending.challenge = challenge
+            pending.publicKey = signed.identity.publicKey
+            pending.signature = signed.signature
+            try await credentials.savePendingAccount(pending)
+            result = try await wire.joinAccount(request(pending))
+        }
+        guard result.account.profileTree == identity.profileTree,
+              result.account.configuration.id == pending.configurationTree else {
+            throw ArborWireValidationError.invalidValue("Claimed account returned different identity")
+        }
+        try await credentials.save(pending.credential, configurationTree: pending.configurationTree)
+        let stored = NativeCanopyAccount(
+            configurationTree: pending.configurationTree,
+            origin: origin,
+            accountID: result.account.id,
+            handle: result.account.handle,
+            profileTree: result.account.profileTree,
+            deviceID: pending.deviceID
+        )
+        try await credentials.saveAccount(stored)
+        try await credentials.forgetPendingAccount(account: account)
+        self.configurationTree = pending.configurationTree
+        return stored
+    }
+
     public func account() async throws -> WireAccountSnapshot { try await client().account() }
     public func trees() async throws -> WireSnapshotEnvelope<[WireTreeDescriptor]> { try await client().trees() }
     public func configurationID() -> String? { configurationTree }
@@ -376,26 +643,37 @@ public actor NativeAccountService {
             .replacingOccurrences(of: "=", with: "")
     }
 
-    private func generatedDeviceID() throws -> String {
+    private func generatedDeviceID() throws -> String { try generatedID(prefix: "dv") }
+
+    private func generatedID(prefix: String) throws -> String {
         var bytes = [UInt8](repeating: 0, count: 16)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-            throw ArborWireValidationError.invalidValue("Could not generate DeviceID")
+            throw ArborWireValidationError.invalidValue("Could not generate identity")
         }
-        let alphabet = Array("abcdefghijklmnopqrstuvwxyz234567")
-        var accumulator = 0
-        var bits = 0
-        var output = ""
-        for byte in bytes {
-            accumulator = (accumulator << 8) | Int(byte)
-            bits += 8
-            while bits >= 5 {
-                bits -= 5
-                output.append(alphabet[(accumulator >> bits) & 31])
-            }
-            accumulator &= bits == 0 ? 0 : (1 << bits) - 1
+        return prefix + "_" + Data(bytes).lowercaseBase32()
+    }
+
+    private func initialAccountConfiguration(
+        profileTree: String,
+        configurationTree: String,
+        deviceID: String,
+        label: String
+    ) throws -> WireSnapshot {
+        let quote: (String) throws -> String = { value in
+            String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
         }
-        if bits > 0 { output.append(alphabet[(accumulator << (5 - bits)) & 31]) }
-        return "dv_" + output
+        let sources = [
+            "account.yaml": "canopy: \(try quote(origin.absoluteString))\nprofile: \(try quote(profileTree))\n",
+            "devices.yaml": "\(try quote(deviceID)):\n  label: \(try quote(label))\n  administrator: true\n",
+            "trees.yaml": "{}\n",
+        ]
+        let files = try sources.mapValues { try WireObjectCodec.object(.file(Data($0.utf8))) }
+        let entries = files.keys.sorted().map { WireDirectoryEntry(name: $0, hash: files[$0]!.hash) }
+        let root = try WireObjectCodec.object(.directory(entries))
+        let snapshot = WireSnapshot(root: root.hash, objects: (Array(files.values) + [root]).sorted { $0.hash < $1.hash })
+        _ = try WireObjectGraph.validate(snapshot)
+        _ = configurationTree // Bound by the challenge and outer tree identity, not repeated in YAML.
+        return snapshot
     }
 
     private func sameOrigin(_ lhs: URL?, _ rhs: URL) -> Bool {

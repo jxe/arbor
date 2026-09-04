@@ -5,15 +5,16 @@ import { tmpdir } from "node:os";
 import { generateArborID, sha256 } from "@arbor/core";
 import { serveCanopy } from "@arbor/canopy";
 import { ArborSyncDaemon } from "@arbor/arborsync";
-import { CanopyAccountStore } from "@arbor/stores";
+import { CanopyAccountStore, ProfileIdentityStore } from "@arbor/stores";
 import { WireClient } from "@arbor/wire";
-import { snapshotAccountConfig } from "../../../packages/canopy/src/account-policy.ts";
 import { readAccountConfigGraphV2, snapshotAccountConfigV2 } from "../../../packages/canopy/src/account-policy-v2.ts";
 import { snapshotDirectory } from "@arbor/fs";
+import { testProfileIdentity } from "../../helpers/profile-identity.ts";
 
 const ownerToken = "owner-device-credential";
 const aliceProfileTree = generateArborID("tr");
-const bobProfileTree = generateArborID("tr");
+const bobIdentity = testProfileIdentity();
+const bobProfileTree = bobIdentity.profileTree;
 let sandbox: string;
 let running: Awaited<ReturnType<typeof serveCanopy>>;
 let owner: WireClient;
@@ -71,61 +72,9 @@ afterAll(async () => {
 });
 
 describe("client-generated profile and account-configuration bootstrap", () => {
-  test("claims generated identities atomically and only accepts an exact retry", async () => {
-    const profileTree = aliceProfileTree;
-    const configurationTree = generateArborID("tr");
-    const deviceID = generateArborID("dv");
-    const credential = "locally-generated-alice-credential";
-    const credentialDigest = `sha256:${sha256(credential)}` as const;
-    const profile = await snapshotDirectory(await profileFolder("alice", "person"));
-    const configuration = snapshotAccountConfig({
-      account: {
-        version: 1,
-        community: new URL(running.url).origin,
-        profile: { tree: profileTree, handle: "alice" },
-        admins: [deviceID],
-      },
-      trees: {
-        version: 1,
-        trees: {
-          [profileTree]: {
-            canonicalPath: "/~alice",
-            access: [{ subject: { kind: "everyone" }, access: "read" }],
-          },
-        },
-      },
-      devices: {
-        [deviceID]: {
-          version: 1,
-          id: deviceID,
-          label: "Alice's Mac",
-          placements: {
-            [profileTree]: { server: new URL(running.url).origin, path: join(sandbox, "alice") },
-          },
-        },
-      },
-    });
-    const request = {
-      profileTree,
-      configurationTree,
-      device: { id: deviceID, label: "Alice's Mac", credentialDigest },
-      profile,
-      configuration,
-    };
-
-    const claimed = await new WireClient(running.url).claim("alice", request);
-    expect(claimed.tree).toMatchObject({ id: profileTree, kind: "ordinary", access: "write" });
-    expect(claimed.tree.canonical?.path).toBe("/~alice");
-    expect(claimed.configuration).toMatchObject({ id: configurationTree, kind: "account-configuration", canonical: null });
-    expect(JSON.stringify(claimed)).not.toContain(credential);
-    expect(await new WireClient(running.url, credential).account()).toMatchObject({
-      account: { handle: "alice", configuration: { id: configurationTree, canonical: null } },
-    });
-
-    expect(await new WireClient(running.url).claim("alice", request)).toEqual(claimed);
-    const changedProfile = await snapshotDirectory(await profileFolder("alice-changed", "person"));
-    await expect(new WireClient(running.url).claim("alice", { ...request, profile: changedProfile }))
-      .rejects.toThrow("already-claimed");
+  test("does not expose the legacy snapshot-upload claim route", async () => {
+    const response = await fetch(`${running.url}/.arbor/claims/alice`, { method: "PUT" });
+    expect(response.status).toBe(404);
   });
 
   test("v2 account claim does not host the local profile; ordinary activation does", async () => {
@@ -156,6 +105,9 @@ describe("client-generated profile and account-configuration bootstrap", () => {
       },
       configuration,
     };
+    const client = new WireClient(running.url);
+    const challenge = await client.createAccountChallenge({ account: `${origin}/~bob`, profileTree, configurationTree });
+    const identityProof = { challenge, publicKey: bobIdentity.publicKey, signature: bobIdentity.sign(challenge) };
     const outsideAllocation = snapshotAccountConfigV2({
       account: { canopy: origin, profile: profileTree },
       trees: { [profileTree]: { canonical: `${origin}/~alice/bob`, access: [] } },
@@ -164,9 +116,10 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     await expect(new WireClient(running.url).joinAccount({
       account: `${origin}/~bob`,
       ...request,
+      ...identityProof,
       configuration: outsideAllocation,
     })).rejects.toThrow("outside this Canopy account allocation");
-    const claimed = await new WireClient(running.url).joinAccount({ account: `${origin}/~bob`, ...request });
+    const claimed = await client.joinAccount({ account: `${origin}/~bob`, ...request, ...identityProof });
     expect(claimed.account).toMatchObject({ handle: "bob", profileTree });
     expect(running.canopy.get(profileTree)).toBeNull();
     expect(running.canopy.boundary("/~bob")).toBeNull();
@@ -201,24 +154,14 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     expect((await administrator.descriptor(declaredTree)).tree.canonical?.path).toBe("/~bob/notes");
   });
 
-  test("rejects unreserved handles without creating either tree", async () => {
-    const profileTree = generateArborID("tr");
+  test("rejects unreserved identities without creating the configuration tree", async () => {
+    const identity = testProfileIdentity();
+    const profileTree = identity.profileTree;
     const configurationTree = generateArborID("tr");
-    const deviceID = generateArborID("dv");
-    const profile = await snapshotDirectory(await profileFolder("mallory", "person"));
-    const configuration = snapshotAccountConfig({
-      account: { version: 1, community: new URL(running.url).origin, profile: { tree: profileTree, handle: "mallory" }, admins: [deviceID] },
-      trees: { version: 1, trees: { [profileTree]: { canonicalPath: "/~mallory", access: [] } } },
-      devices: { [deviceID]: { version: 1, id: deviceID, label: "Mallory", placements: {} } },
-    });
-    await expect(new WireClient(running.url).claim("mallory", {
-      profileTree,
-      configurationTree,
-      device: { id: deviceID, label: "Mallory", credentialDigest: `sha256:${sha256("mallory-secret")}` },
-      profile,
-      configuration,
-    })).rejects.toThrow("not reserved");
-    expect(running.canopy.get(profileTree)).toBeNull();
+    const origin = new URL(running.url).origin;
+    const client = new WireClient(running.url);
+    await expect(client.createAccountChallenge({ account: `${origin}/~mallory`, profileTree, configurationTree }))
+      .rejects.toThrow("exact profile reservation");
     expect(running.canopy.get(configurationTree)).toBeNull();
   });
 
@@ -229,6 +172,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     await mkdir(home, { recursive: true });
     await mkdir(profilePath, { recursive: true });
     process.env.ARBOR_DATA_HOME = home;
+    await new ProfileIdentityStore().begin(profilePath);
     const service = await ArborSyncDaemon.openControl({ autoSync: false });
     const configurationTrees: string[] = [];
     try {
@@ -330,24 +274,17 @@ describe("profile invariants derived from root frontmatter", () => {
   });
 });
 
-describe("existing profile account proof", () => {
-  test("joins a second Canopy without copying or locating the profile tree", async () => {
-    const issuerRoot = join(sandbox, "proof-issuer");
+describe("self-certifying profile account proof", () => {
+  test("joins a Canopy without copying or locating the profile tree", async () => {
     const targetRoot = join(sandbox, "proof-target");
-    const issuer = await serveCanopy({
-      dataRoot: issuerRoot,
-      publicOrigin: "http://127.0.0.1:0",
-      hostname: "127.0.0.1",
-      port: 0,
-      accounts: [{ handle: "issuer", token: "issuer-token" }],
-    });
+    const identity = testProfileIdentity();
     const target = await serveCanopy({
       dataRoot: targetRoot,
       publicOrigin: "http://127.0.0.1:0",
       hostname: "127.0.0.1",
       port: 0,
       accounts: [{ handle: "target-admin", token: "target-admin-token" }],
-      community: { handle: "target", name: "Target", firstWriter: { handle: "guest" } },
+      community: { handle: "target", name: "Target", firstWriter: { handle: "guest", profileTree: identity.profileTree } },
     });
     try {
       const targetAdmin = new WireClient(target.url, "target-admin-token");
@@ -356,42 +293,32 @@ describe("existing profile account proof", () => {
       const targetAccountLocator = `${new URL(target.url).origin}/~guest`;
       const targetCommunitySource = await profileFolder("proof-target-community", "group", [
         { profile: `arbor://${targetAdminAccount.account.profileTree!}/`, handle: "target-admin" },
-        { profile: `arbor://${issuer.canopy.accountByHandle("issuer")!.profileTree!}/`, handle: "guest" },
+        { profile: `arbor://${identity.profileTree}/`, handle: "guest" },
       ]);
       const targetCommunitySnapshot = await snapshotDirectory(targetCommunitySource, new Map([
         [join(targetCommunitySource, "~target-admin"), targetAdminAccount.account.profileTree!],
       ]));
       await targetAdmin.submitUpdate(targetCommunity.tree.id, targetCommunity.tree.update, targetCommunitySnapshot);
 
-      const issuerClient = new WireClient(issuer.url, "issuer-token");
-      const issuerAccount = await issuerClient.account();
-      const profileTree = issuerAccount.account.profileTree!;
+      const profileTree = identity.profileTree;
       const configurationTree = generateArborID("tr");
       const deviceID = generateArborID("dv");
       const credential = "guest-target-credential";
-      const proofID = generateArborID("pp");
-      const proofSecret = "one-time-profile-proof";
       const configuration = snapshotAccountConfigV2({
         account: { canopy: new URL(target.url).origin, profile: profileTree },
         trees: {},
         devices: { [deviceID]: { id: deviceID, label: "Guest's Mac", administrator: true } },
       });
-      const proof = await issuerClient.createProfileProof({
-        id: proofID,
-        secretDigest: `sha256:${sha256(proofSecret)}`,
-        targetOrigin: new URL(target.url).origin,
-        targetAccount: targetAccountLocator,
-        configurationTree,
-      });
-      expect(proof).toMatchObject({ id: proofID, profileTree, targetAccount: targetAccountLocator, configurationTree });
-      expect(await readFile(join(issuerRoot, "profile-proofs", `${proofID}.json`), "utf8")).not.toContain(proofSecret);
+      const anonymous = new WireClient(target.url);
+      const challenge = await anonymous.createAccountChallenge({ account: targetAccountLocator, profileTree, configurationTree });
 
       const request = {
         account: targetAccountLocator,
-        issuerOrigin: new URL(issuer.url).origin,
-        proof: { id: proofID, secret: proofSecret },
         profileTree,
         configurationTree,
+        challenge,
+        publicKey: identity.publicKey,
+        signature: identity.sign(challenge),
         device: {
           id: deviceID,
           label: "Guest's Mac",
@@ -409,12 +336,10 @@ describe("existing profile account proof", () => {
 
       await expect(new WireClient(target.url).joinAccount({
         ...request,
-        proof: { id: proofID, secret: "wrong" },
-      })).rejects.toThrow("could not be verified");
+        signature: request.signature.replace(/^./, request.signature[0] === "A" ? "B" : "A"),
+      })).rejects.toThrow("signature is invalid");
     } finally {
-      issuer.server.stop(true);
       target.server.stop(true);
-      await issuer.canopy[Symbol.asyncDispose]();
       await target.canopy[Symbol.asyncDispose]();
     }
   });

@@ -1,7 +1,21 @@
 import { link, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createPublicKey, verify } from "node:crypto";
 import { Database } from "bun:sqlite";
-import { stableJSONString, generateArborID, isGeneratedArborID, sha256, type AccessLevel, type AccessRule, type ReadWriteAccess } from "@arbor/core";
+import {
+  accountChallengeBytes,
+  personProfileTreeID,
+  stableJSONString,
+  generateArborID,
+  isGeneratedArborID,
+  isPersonProfileTreeID,
+  sha256,
+  validateAccountChallenge,
+  type AccountChallenge,
+  type AccessLevel,
+  type AccessRule,
+  type ReadWriteAccess,
+} from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { decodeWireCollectionFile, SchemaSandbox } from "@arbor/stores";
 import {
@@ -69,25 +83,9 @@ export interface CanopyBootstrap {
   communityHost?: string;
   firstWriter?: {
     handle: string;
+    profileTree: string;
     name?: string;
   };
-}
-
-export interface ProfileProofBinding {
-  id: string;
-  profileTree: string;
-  targetOrigin: string;
-  targetAccount: string;
-  configurationTree: string;
-  expiresAt: number;
-}
-
-interface StoredProfileProof extends ProfileProofBinding {
-  issuerAccount: string;
-  secretDigest: string;
-  issueDigest: string;
-  consumedAt?: number;
-  consumeDigest?: string;
 }
 
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
@@ -219,7 +217,6 @@ export class CanopyDaemon implements AsyncDisposable {
   private readonly accounts: AccountDirectory;
   private observationListeners = new Map<string, Set<(record: ObservationRecord) => void>>();
   private updateLocks = new Map<string, Promise<void>>();
-  private profileProofLocks = new Map<string, Promise<void>>();
 
   private constructor(readonly dataRoot: string, db: Database) {
     this.db = db;
@@ -254,13 +251,16 @@ export class CanopyDaemon implements AsyncDisposable {
     if (config.firstWriter && !HANDLE.test(config.firstWriter.handle)) {
       throw new Error(`Invalid first-writer handle: ${config.firstWriter.handle}`);
     }
+    if (config.firstWriter && !isPersonProfileTreeID(config.firstWriter.profileTree)) {
+      throw new Error("First-writer profile must be a self-certifying person Profile TreeID");
+    }
     const preparedAccounts = config.accounts.map((account) => ({ account, profileTree: generateArborID("tr") }));
     const members: Array<{ profile?: string; handle: string }> = [
       ...preparedAccounts.map(({ account, profileTree }) => ({
         profile: `arbor://${profileTree}/`,
         handle: account.handle,
       })),
-      ...(config.firstWriter ? [{ handle: config.firstWriter.handle }] : []),
+      ...(config.firstWriter ? [{ profile: `arbor://${config.firstWriter.profileTree}/`, handle: config.firstWriter.handle }] : []),
     ];
     const community = await this.insertTree(
       "/",
@@ -431,154 +431,65 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.accounts.createPairing(account);
   }
 
-  private profileProofPath(id: string): string {
-    if (!isGeneratedArborID(id, "pp")) throw new Error("Profile proof requires a client-generated 128-bit ProfileProofID");
-    return join(this.dataRoot, "profile-proofs", `${id}.json`);
-  }
-
-  private async withProfileProofLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
-    const previous = this.profileProofLocks.get(id) ?? Promise.resolve();
-    let release!: () => void;
-    const turn = new Promise<void>((resolve) => { release = resolve; });
-    const queued = previous.then(() => turn);
-    this.profileProofLocks.set(id, queued);
-    await previous;
-    try { return await operation(); }
-    finally {
-      release();
-      if (this.profileProofLocks.get(id) === queued) this.profileProofLocks.delete(id);
-    }
-  }
-
-  private async readProfileProof(id: string): Promise<StoredProfileProof | null> {
-    try { return JSON.parse(await readFile(this.profileProofPath(id), "utf8")) as StoredProfileProof; }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw error;
-    }
-  }
-
-  private async writeProfileProof(value: StoredProfileProof): Promise<void> {
-    const directory = join(this.dataRoot, "profile-proofs");
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    const destination = this.profileProofPath(value.id);
-    const temporary = `${destination}.${crypto.randomUUID()}.tmp`;
-    try {
-      await writeFile(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600 });
-      await rename(temporary, destination);
-    } finally {
-      await rm(temporary, { force: true }).catch(() => {});
-    }
-  }
-
-  async createProfileProof(
-    authentication: CanopyAuthentication,
-    input: {
-      id: string;
-      secretDigest: string;
-      targetOrigin: string;
-      targetAccount: string;
-      configurationTree: string;
-    },
-  ): Promise<ProfileProofBinding> {
-    if (!authentication.device) throw new Error("An administrator device is required to create a profile proof");
-    const graph = await this.accountConfigGraph(authentication.account);
-    if (!graphAdministrators(graph).includes(authentication.device)) throw new Error("Only an administrator may create a profile proof");
-    const profileTree = authentication.account.profileTree;
-    if (!profileTree) throw new Error("The issuing account has no profile identity");
-    if (!/^sha256:[a-f0-9]{64}$/.test(input.secretDigest)) throw new Error("Profile proof secret digest is invalid");
-    let targetOriginURL: URL;
-    let targetAccountURL: URL;
-    try {
-      targetOriginURL = new URL(input.targetOrigin);
-      targetAccountURL = new URL(input.targetAccount);
-    } catch {
-      throw new Error("Profile proof target must use canonical Canopy URLs");
-    }
-    const loopback = targetOriginURL.protocol === "http:"
-      && ["127.0.0.1", "localhost", "[::1]"].includes(targetOriginURL.hostname);
-    if (
-      (targetOriginURL.protocol !== "https:" && !loopback)
-      || targetOriginURL.origin !== input.targetOrigin
-      || targetAccountURL.origin !== targetOriginURL.origin
-      || targetAccountURL.username || targetAccountURL.password || targetAccountURL.search || targetAccountURL.hash
-    ) throw new Error("Profile proof target must use canonical Canopy URLs");
-    if (!isGeneratedArborID(input.configurationTree, "tr")) throw new Error("Profile proof requires a target configuration TreeID");
-    const targetOrigin = targetOriginURL.origin;
-    const issueDigest = sha256(stableJSONString({
-      id: input.id,
-      issuerAccount: authentication.account.id,
-      profileTree,
-      targetOrigin,
-      targetAccount: input.targetAccount,
-      configurationTree: input.configurationTree,
-      secretDigest: input.secretDigest,
-    }));
-    return this.withProfileProofLock(input.id, async () => {
-      const existing = await this.readProfileProof(input.id);
-      if (existing) {
-        if (existing.issueDigest !== issueDigest) throw new Error("ProfileProofID is already bound to a different request");
-        const { secretDigest: _secret, issueDigest: _issue, issuerAccount: _issuer, consumedAt: _at, consumeDigest: _consume, ...binding } = existing;
-        return binding;
-      }
-      const proof: StoredProfileProof = {
-        id: input.id,
-        issuerAccount: authentication.account.id,
-        profileTree,
-        targetOrigin,
-        targetAccount: input.targetAccount,
-        configurationTree: input.configurationTree,
-        secretDigest: input.secretDigest,
-        issueDigest,
-        expiresAt: Date.now() + 5 * 60 * 1000,
-      };
-      await this.writeProfileProof(proof);
-      const { secretDigest: _secret, issueDigest: _issue, issuerAccount: _issuer, ...binding } = proof;
-      return binding;
-    });
-  }
-
-  async consumeProfileProof(input: {
-    id: string;
-    secret: string;
-    targetOrigin: string;
-    targetAccount: string;
+  createAccountChallenge(input: {
+    origin: string;
+    account: string;
+    profileTree: string;
     configurationTree: string;
-  }): Promise<{ profileTree: string; expiresAt: number }> {
-    let targetOriginURL: URL;
-    let targetAccountURL: URL;
-    try {
-      targetOriginURL = new URL(input.targetOrigin);
-      targetAccountURL = new URL(input.targetAccount);
-    } catch {
-      throw new Error("Profile proof target must use canonical Canopy URLs");
+  }): AccountChallenge {
+    const reservation = this.accountReservation(input.account);
+    if (!reservation?.profileTree || reservation.profileTree !== input.profileTree) {
+      throw new Error("Account challenge requires an exact profile reservation");
     }
-    if (targetOriginURL.origin !== input.targetOrigin || targetAccountURL.origin !== targetOriginURL.origin) {
-      throw new Error("Profile proof target must use canonical Canopy URLs");
+    if (!isPersonProfileTreeID(input.profileTree)) throw new Error("Account challenge requires a self-certifying person Profile TreeID");
+    if (!isGeneratedArborID(input.configurationTree, "tr")) throw new Error("Account challenge requires a generated configuration TreeID");
+    if (new URL(input.origin).origin !== input.origin || new URL(input.account).origin !== input.origin) {
+      throw new Error("Account challenge target must use canonical Canopy URLs");
     }
-    const targetOrigin = targetOriginURL.origin;
-    const consumeDigest = sha256(stableJSONString({
-      targetOrigin,
-      targetAccount: input.targetAccount,
+    if (this.accountByHandle(reservation.handle) || this.boundary(`/~${reservation.handle}`)) throw new AlreadyClaimedError(reservation.handle);
+    const issuedAt = Date.now();
+    const challenge: AccountChallenge = {
+      version: 1,
+      id: generateArborID("ax"),
+      origin: input.origin,
+      account: input.account,
+      profileTree: input.profileTree,
       configurationTree: input.configurationTree,
-    }));
-    return this.withProfileProofLock(input.id, async () => {
-      const proof = await this.readProfileProof(input.id);
-      if (!proof || proof.secretDigest !== `sha256:${sha256(input.secret)}`) throw new Error("Profile proof is invalid");
-      if (proof.expiresAt <= Date.now()) throw new Error("Profile proof is expired");
-      if (
-        proof.targetOrigin !== targetOrigin
-        || proof.targetAccount !== input.targetAccount
-        || proof.configurationTree !== input.configurationTree
-      ) throw new Error("Profile proof target does not match");
-      if (proof.consumedAt && proof.consumeDigest !== consumeDigest) throw new Error("Profile proof was already consumed for another target");
-      if (!proof.consumedAt) {
-        proof.consumedAt = Date.now();
-        proof.consumeDigest = consumeDigest;
-        await this.writeProfileProof(proof);
-      }
-      return { profileTree: proof.profileTree, expiresAt: proof.expiresAt };
-    });
+      nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
+      issuedAt,
+      expiresAt: issuedAt + 5 * 60 * 1000,
+    };
+    this.db.run(
+      "INSERT INTO account_challenges (id, challenge_json, expires_at) VALUES (?, ?, ?)",
+      [challenge.id, stableJSONString(challenge), challenge.expiresAt],
+    );
+    return challenge;
+  }
+
+  private verifyAccountIdentityProof(input: {
+    accountLocator: string;
+    profileTree: string;
+    configurationTree: string;
+    challenge: AccountChallenge;
+    publicKey: string;
+    signature: string;
+  }): { challenge: AccountChallenge; proofDigest: string } {
+    const challenge = validateAccountChallenge(input.challenge);
+    if (
+      challenge.account !== input.accountLocator
+      || challenge.origin !== new URL(input.accountLocator).origin
+      || challenge.profileTree !== input.profileTree
+      || challenge.configurationTree !== input.configurationTree
+    ) throw new Error("Account challenge does not match the claim");
+    const publicKey = Buffer.from(input.publicKey, "base64url");
+    const signature = Buffer.from(input.signature, "base64url");
+    if (publicKey.byteLength !== 32 || publicKey.toString("base64url") !== input.publicKey) throw new Error("Account claim public key is invalid");
+    if (signature.byteLength !== 64 || signature.toString("base64url") !== input.signature) throw new Error("Account claim signature is invalid");
+    if (personProfileTreeID(publicKey) !== input.profileTree) throw new Error("Account claim public key derives another Profile TreeID");
+    const spki = Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), publicKey]);
+    const key = createPublicKey({ key: spki, format: "der", type: "spki" });
+    if (!verify(null, accountChallengeBytes(challenge), key, signature)) throw new Error("Account claim signature is invalid");
+    return { challenge, proofDigest: sha256(stableJSONString({ challenge, publicKey: input.publicKey, signature: input.signature })) };
   }
 
   async claimPairing(input: {
@@ -697,27 +608,6 @@ export class CanopyDaemon implements AsyncDisposable {
   private firstWriterHandle(): string | null {
     const row = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'").get() as { value: string } | null;
     return row?.value ?? null;
-  }
-
-  private async prepareFirstWriterMembership(handle: string, profileTree: string): Promise<{
-    tree: CanopyTree;
-    snapshot: TreeSnapshot;
-    transition: AcceptedTransitionPayload;
-  } | null> {
-    if (this.firstWriterHandle() !== handle) return null;
-    const tree = this.community();
-    const name = (this.db.query("SELECT value FROM meta WHERE key = 'community_name'").get() as { value: string } | null)?.value
-      ?? this.communityHandle();
-    const members = this.rootProfile(tree.ref).members.map((member) => ({
-      profile: member.profile,
-      ...(member.handle ? { handle: member.handle } : {}),
-    }));
-    members.push({ profile: `arbor://${profileTree}/`, handle });
-    const snapshot = directSnapshot(profileSource("group", name, members));
-    await this.cacheRootProfile(snapshot.root, snapshot.objects);
-    await this.objects.store([...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
-    const transition = await this.acceptedTransitionPayload(tree.ref, snapshot.root);
-    return { tree, snapshot, transition };
   }
 
   setCommunityHost(host: string, allowTestPortChange = false): void {
@@ -856,7 +746,9 @@ export class CanopyDaemon implements AsyncDisposable {
     treeID: string,
     snapshot: TreeSnapshot,
   ): Promise<CanopyTree> {
-    if (!isGeneratedArborID(treeID, "tr")) throw new Error("New tree activation requires a 128-bit client-generated TreeID");
+    if (!isGeneratedArborID(treeID, "tr") && !isPersonProfileTreeID(treeID)) {
+      throw new Error("New tree activation requires a generated TreeID");
+    }
     const existing = this.get(treeID);
     if (existing) {
       if (existing.ref === snapshot.root) return existing;
@@ -918,120 +810,6 @@ export class CanopyDaemon implements AsyncDisposable {
     return this.access.canAdminister(account, treeID);
   }
 
-  async claimWithConfiguration(input: {
-    handle: string;
-    origin: string;
-    profileTree: string;
-    configurationTree: string;
-    deviceID: string;
-    deviceLabel: string;
-    credentialDigest: string;
-    profileSnapshot: TreeSnapshot;
-    configurationSnapshot: TreeSnapshot;
-  }): Promise<{ account: CanopyAccount; tree: CanopyTree; configuration: CanopyTree }> {
-    const { handle } = input;
-    const claimDigest = sha256(stableJSONString({
-      handle,
-      profileTree: input.profileTree,
-      configurationTree: input.configurationTree,
-      deviceID: input.deviceID,
-      deviceLabel: input.deviceLabel,
-      credentialDigest: input.credentialDigest,
-      profileRoot: input.profileSnapshot.root,
-      configurationRoot: input.configurationSnapshot.root,
-    }));
-    if (!HANDLE.test(handle)) throw new Error(`Invalid profile handle: ${handle}`);
-    if (!isGeneratedArborID(input.profileTree, "tr") || !isGeneratedArborID(input.configurationTree, "tr")) {
-      throw new Error("Claim requires client-generated 128-bit profile and configuration TreeIDs");
-    }
-    if (!isGeneratedArborID(input.deviceID, "dv")) throw new Error("Claim requires a client-generated 128-bit DeviceID");
-    if (!/^sha256:[a-f0-9]{64}$/.test(input.credentialDigest)) throw new Error("Device credential digest is invalid");
-    const tokenDigest = input.credentialDigest.slice("sha256:".length);
-    const prior = this.accountByHandle(handle);
-    if (prior) {
-      const row = this.db.query("SELECT claim_digest FROM accounts WHERE id = ?").get(prior.id) as { claim_digest: string | null };
-      if (row.claim_digest === claimDigest) {
-        return { account: prior, tree: this.get(input.profileTree)!, configuration: this.get(input.configurationTree)! };
-      }
-      throw new AlreadyClaimedError(handle);
-    }
-    if (this.boundary(`/~${handle}`)) throw new AlreadyClaimedError(handle);
-    if (!this.communityMemberHandles().has(handle)) throw new Error(`Profile is not reserved by the community: ~${handle}`);
-    await this.validateProfileSnapshot(input.profileSnapshot, "person");
-    await this.validateGraph(input.configurationSnapshot.root, input.configurationSnapshot.objects);
-    const config = readAccountConfigGraph(input.configurationSnapshot, input.configurationTree);
-    if (config.account.community !== new URL(input.origin).origin) throw new Error("account.yaml Canopy does not match the claim server");
-    if (config.account.profile.tree !== input.profileTree || config.account.profile.handle !== handle) throw new Error("account.yaml profile does not match the claim");
-    if (Object.keys(config.devices).length !== 1 || !config.devices[input.deviceID] || config.devices[input.deviceID]!.label !== input.deviceLabel) {
-      throw new Error("Initial configuration must contain exactly the claiming device and matching label");
-    }
-    const administrators = graphAdministrators(config);
-    if (administrators.length !== 1 || administrators[0] !== input.deviceID) {
-      throw new Error("The claiming device must be the first administrator");
-    }
-    const profileDeclaration = graphTrees(config)[input.profileTree];
-    if (!profileDeclaration || profileDeclaration.canonicalPath !== `/~${handle}`) {
-      throw new Error("Initial configuration must host the claimed profile at the account namespace root");
-    }
-    await this.objects.store([...input.configurationSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
-    const accountID = generateArborID("ac");
-    const parent = this.community();
-    const tree = await this.insertTree(
-      `/~${handle}`,
-      input.profileSnapshot,
-      "none",
-      parent.id,
-      (profileID) => {
-        const now = Date.now();
-        this.db.run(
-          "INSERT INTO accounts (id, handle, profile_tree, config_tree, token_digest, claim_digest, enabled) VALUES (?, ?, ?, ?, ?, ?, 1)",
-          [accountID, handle, profileID, input.configurationTree, tokenDigest, claimDigest],
-        );
-        this.db.run(
-          "INSERT INTO devices (id, account_id, label, token_digest, created_at) VALUES (?, ?, ?, ?, ?)",
-          [input.deviceID, accountID, input.deviceLabel, tokenDigest, now],
-        );
-        this.db.run(
-          "INSERT INTO trees (id, ref, updated_at, policy, status, account_id) VALUES (?, ?, ?, ?, 'active', ?)",
-          [input.configurationTree, input.configurationSnapshot.root, now, "account-config-v1", accountID],
-        );
-        this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, NULL, ?)", [
-          input.configurationTree, input.configurationSnapshot.root, now,
-        ]);
-        this.insertAcceptedUpdate({
-          tree: input.configurationTree,
-          root: input.configurationSnapshot.root,
-          previousRoot: null,
-          kind: "initial",
-          acceptedAt: now,
-          subject: `device:${input.deviceID}`,
-        });
-        const declarations = graphTrees(config);
-        const declaration = declarations[profileID]!;
-        for (const rule of declaration.access) {
-          const subject = rule.subject.kind === "everyone" ? "everyone" : rule.subject.kind === "profile" ? rule.subject.tree : rule.subject.digest;
-          this.access.set(profileID, rule.subject.kind, subject, rule.access);
-        }
-        for (const [id, pending] of Object.entries(declarations)) {
-          if (id === profileID) continue;
-          this.db.run(
-            "INSERT INTO tree_reservations (id, account_id, canonical_path, status) VALUES (?, ?, ?, 'awaiting-initialization')",
-            [id, accountID, pending.canonicalPath],
-          );
-        }
-        const firstWriter = this.db.query("SELECT value FROM meta WHERE key = 'first_writer_handle'").get() as { value: string } | null;
-        if (firstWriter?.value === handle) {
-          this.access.set(parent.id, "profile", profileID, "write");
-          this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
-        }
-      },
-      `device:${input.deviceID}`,
-      input.profileTree,
-      accountID,
-    );
-    return { account: this.account(accountID)!, tree, configuration: this.get(input.configurationTree)! };
-  }
-
   /**
    * Claim a Canopy-allocated account locator for a stable profile TreeID.
    * Profile content is deliberately absent: hosting it is the ordinary
@@ -1041,20 +819,21 @@ export class CanopyDaemon implements AsyncDisposable {
     accountLocator: string;
     handle: string;
     origin: string;
-    issuerOrigin?: string;
-    proofID?: string;
     profileTree: string;
     configurationTree: string;
+    challenge: AccountChallenge;
+    publicKey: string;
+    signature: string;
     deviceID: string;
     deviceLabel: string;
     credentialDigest: string;
     configurationSnapshot: TreeSnapshot;
   }): Promise<{ account: CanopyAccount; configuration: CanopyTree }> {
+    const proof = this.verifyAccountIdentityProof(input);
     const claimDigest = sha256(stableJSONString({
       handle: input.handle,
       accountLocator: input.accountLocator,
-      ...(input.issuerOrigin ? { issuerOrigin: new URL(input.issuerOrigin).origin } : {}),
-      ...(input.proofID ? { proofID: input.proofID } : {}),
+      identityProof: proof.proofDigest,
       profileTree: input.profileTree,
       configurationTree: input.configurationTree,
       deviceID: input.deviceID,
@@ -1065,7 +844,7 @@ export class CanopyDaemon implements AsyncDisposable {
     if (!HANDLE.test(input.handle)) throw new Error(`Invalid account handle: ${input.handle}`);
     const reservation = this.accountReservation(input.accountLocator);
     if (!reservation || reservation.handle !== input.handle) throw new Error("Account locator is not reserved by this community");
-    if (!isGeneratedArborID(input.profileTree, "tr") || !isGeneratedArborID(input.configurationTree, "tr")) {
+    if (!isPersonProfileTreeID(input.profileTree) || !isGeneratedArborID(input.configurationTree, "tr")) {
       throw new Error("Account join requires profile and configuration TreeIDs");
     }
     if (!isGeneratedArborID(input.deviceID, "dv")) throw new Error("Account join requires a client-generated 128-bit DeviceID");
@@ -1078,8 +857,13 @@ export class CanopyDaemon implements AsyncDisposable {
       }
       throw new AlreadyClaimedError(input.handle);
     }
+    const challengeRow = this.db.query("SELECT challenge_json, expires_at, consumed_at FROM account_challenges WHERE id = ?")
+      .get(proof.challenge.id) as { challenge_json: string; expires_at: number; consumed_at: number | null } | null;
+    if (!challengeRow || challengeRow.challenge_json !== stableJSONString(proof.challenge)) throw new Error("Account challenge is invalid");
+    if (challengeRow.expires_at <= Date.now()) throw new Error("Account challenge is expired");
+    if (challengeRow.consumed_at !== null) throw new Error("Account challenge was already consumed");
     if (this.boundary(`/~${input.handle}`)) throw new AlreadyClaimedError(input.handle);
-    if (!this.communityMemberHandles().has(input.handle) && this.firstWriterHandle() !== input.handle) {
+    if (!this.communityMemberHandles().has(input.handle)) {
       throw new Error(`Profile is not reserved by the community: ~${input.handle}`);
     }
     await this.validateGraph(input.configurationSnapshot.root, input.configurationSnapshot.objects);
@@ -1093,11 +877,16 @@ export class CanopyDaemon implements AsyncDisposable {
       throw new Error("Initial configuration must contain exactly the joining device and matching label");
     }
     if (!config.devices[input.deviceID]!.administrator) throw new Error("The joining device must be the first administrator");
-    const firstWriterMembership = await this.prepareFirstWriterMembership(input.handle, input.profileTree);
+    const firstWriter = this.firstWriterHandle() === input.handle;
     await this.objects.store([...input.configurationSnapshot.objects].map(([hash, bytes]) => ({ hash, bytes })));
     const accountID = generateArborID("ac");
     const now = Date.now();
     this.db.transaction(() => {
+      const consumed = this.db.run(
+        "UPDATE account_challenges SET consumed_at = ?, claim_digest = ? WHERE id = ? AND consumed_at IS NULL AND expires_at > ?",
+        [now, claimDigest, proof.challenge.id, now],
+      );
+      if (consumed.changes !== 1) throw new Error("Account challenge was already consumed or expired");
       this.db.run(
         "INSERT INTO accounts (id, handle, profile_tree, config_tree, token_digest, claim_digest, enabled) VALUES (?, ?, ?, ?, ?, ?, 1)",
         [accountID, input.handle, input.profileTree, input.configurationTree, input.credentialDigest.slice("sha256:".length), claimDigest],
@@ -1127,34 +916,11 @@ export class CanopyDaemon implements AsyncDisposable {
           [id, accountID, new URL(declaration.canonical).pathname],
         );
       }
-      if (firstWriterMembership) {
-        const changed = this.db.run("UPDATE trees SET ref = ?, updated_at = ? WHERE id = ? AND ref = ?", [
-          firstWriterMembership.snapshot.root,
-          now,
-          firstWriterMembership.tree.id,
-          firstWriterMembership.tree.ref,
-        ]);
-        if (changed.changes !== 1) throw new RefConflictError(this.community().ref);
-        this.db.run("INSERT INTO reflog (tree_id, ref, previous_ref, changed_at) VALUES (?, ?, ?, ?)", [
-          firstWriterMembership.tree.id,
-          firstWriterMembership.snapshot.root,
-          firstWriterMembership.tree.ref,
-          now,
-        ]);
-        this.insertAcceptedUpdate({
-          tree: firstWriterMembership.tree.id,
-          root: firstWriterMembership.snapshot.root,
-          previousRoot: firstWriterMembership.tree.ref,
-          kind: "accepted",
-          acceptedAt: now,
-          subject: `device:${input.deviceID}`,
-          transition: firstWriterMembership.transition,
-        });
-        this.access.set(firstWriterMembership.tree.id, "profile", input.profileTree, "write");
+      if (firstWriter) {
+        this.access.set(this.community().id, "profile", input.profileTree, "write");
         this.db.run("DELETE FROM meta WHERE key = 'first_writer_handle'");
       }
     })();
-    if (firstWriterMembership) this.notifyAccepted(this.currentUpdate(firstWriterMembership.tree.id)!);
     return { account: this.account(accountID)!, configuration: this.get(input.configurationTree)! };
   }
 
@@ -1831,8 +1597,6 @@ export class CanopyDaemon implements AsyncDisposable {
         : undefined;
       reservations.set(handle, profile ? { profileTree: profile } : {});
     }
-    const firstWriter = this.firstWriterHandle();
-    if (firstWriter && !reservations.has(firstWriter)) reservations.set(firstWriter, {});
     return reservations;
   }
 

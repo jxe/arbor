@@ -7,7 +7,7 @@ import { filterSuggestionItems, SideMenuExtension } from "@blocknote/core/extens
 import { TextSelection } from "@tiptap/pm/state";
 import { FormattingToolbarController, SideMenuController, SuggestionMenuController } from "@blocknote/react";
 import type { ArborBlock, BacklinkEntry, NodeSummary, RecoveryEntry } from "@arbor/core";
-import { canonicalArborLocator } from "@arbor/core";
+import { canonicalArborLocator, isPersonProfileTreeID } from "@arbor/core";
 import type {
   NodeRef,
   NodeSnapshot,
@@ -43,6 +43,7 @@ import {
 
 const ARBOR_DRAG_TYPE = "application/x-arbor-logical-paths";
 const PROFILE_HANDLE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const PROFILE_TREE = /^tr_[a-z2-7]+$/;
 
 function communityArborOrigin(canonical: string | undefined): string | null {
   if (!canonical) return null;
@@ -54,48 +55,117 @@ function communityArborOrigin(canonical: string | undefined): string | null {
   }
 }
 
-function normalizeMemberLocator(input: string, communityOrigin: string | null): string | null {
+function normalizeMemberProfile(input: string): string | null {
   const value = input.trim();
-  const handle = value.startsWith("~") ? value.slice(1) : value;
-  if (communityOrigin && PROFILE_HANDLE.test(handle)) return `${communityOrigin}/~${handle}`;
+  if (PROFILE_TREE.test(value)) return `arbor://${value}/`;
   try {
     const locator = new URL(value);
-    const match = /^\/~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(locator.pathname);
-    if (locator.protocol !== "arbor:" || locator.hostname.startsWith("tr_") || !match) return null;
-    return `arbor://${locator.host}/~${match[1]}`;
+    if (locator.protocol !== "arbor:" || !PROFILE_TREE.test(locator.hostname) || locator.pathname !== "/") return null;
+    return `arbor://${locator.hostname}/`;
   } catch {
     return null;
   }
 }
 
-function memberLabel(locator: string, communityOrigin: string | null): string {
-  return communityOrigin && locator.startsWith(`${communityOrigin}/~`)
-    ? locator.slice(communityOrigin.length + 1)
-    : locator;
+function memberProfileTree(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const profile = (value as { profile?: unknown }).profile;
+  if (typeof profile !== "string") return null;
+  const locator = normalizeMemberProfile(profile);
+  return locator ? new URL(locator).hostname : null;
 }
 
-function StringListProperty({
-  property,
+function memberLabel(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return JSON.stringify(value);
+  const member = value as { profile?: unknown; handle?: unknown };
+  const profile = typeof member.profile === "string" ? member.profile : "invalid profile";
+  return typeof member.handle === "string" ? `~${member.handle} — ${profile}` : profile;
+}
+
+function MemberListProperty({
   values,
   onChange,
-  communityOrigin,
   communityMembers,
 }: {
-  property: string;
-  values: string[];
-  onChange: (values: string[]) => void;
-  communityOrigin: string | null;
+  values: unknown[];
+  onChange: (values: unknown[]) => void;
   communityMembers: boolean;
 }) {
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState("");
-  const members = property === "members";
-  const normalizedDraft = members ? normalizeMemberLocator(draft, communityOrigin) : draft.trim() || null;
-  const duplicate = normalizedDraft !== null && values.includes(normalizedDraft);
-  const addLabel = communityMembers ? "Add person" : members ? "Add member" : "Add item";
+  const [profileDraft, setProfileDraft] = useState("");
+  const [handleDraft, setHandleDraft] = useState("");
+  const normalizedProfile = normalizeMemberProfile(profileDraft);
+  const profileTree = normalizedProfile ? new URL(normalizedProfile).hostname : null;
+  const handle = handleDraft.trim().replace(/^~/, "");
+  const validHandle = !communityMembers || PROFILE_HANDLE.test(handle);
+  const selfCertifying = !communityMembers || Boolean(profileTree && isPersonProfileTreeID(profileTree));
+  const duplicate = profileTree !== null && values.some((value) => memberProfileTree(value) === profileTree);
   const commit = () => {
-    if (!normalizedDraft || duplicate) return;
-    onChange([...values, normalizedDraft]);
+    if (!normalizedProfile || !validHandle || !selfCertifying || duplicate) return;
+    onChange([...values, { profile: normalizedProfile, ...(communityMembers ? { handle } : {}) }]);
+    setProfileDraft("");
+    setHandleDraft("");
+    setAdding(false);
+  };
+  return <div className="property-list-row">
+    <span className="property-name">members</span>
+    <div className="property-list">
+      {values.map((value, index) => <div className="property-list-item" key={index}>
+        <code>{memberLabel(value)}</code>
+        <button className="quiet property-list-remove" aria-label={`Remove member ${memberLabel(value)}`} onClick={() => {
+          if (!confirm(communityMembers
+            ? `Remove ${memberLabel(value)}? Removing a person from this community disables that account.`
+            : `Remove ${memberLabel(value)} from this group?`)) return;
+          onChange(values.filter((_, itemIndex) => itemIndex !== index));
+        }}>Remove</button>
+      </div>)}
+      {adding ? <div className="property-list-add">
+        <input
+          autoFocus
+          aria-label="Profile TreeID"
+          placeholder="tr_… or arbor://tr_…/"
+          value={profileDraft}
+          onChange={(event) => setProfileDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") { event.preventDefault(); commit(); }
+            if (event.key === "Escape") { setAdding(false); setProfileDraft(""); setHandleDraft(""); }
+          }}
+        />
+        {communityMembers && <input
+          aria-label="Canopy handle"
+          placeholder="alice"
+          value={handleDraft}
+          onChange={(event) => setHandleDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") { event.preventDefault(); commit(); }
+            if (event.key === "Escape") { setAdding(false); setProfileDraft(""); setHandleDraft(""); }
+          }}
+        />}
+        <button className="quiet" disabled={!normalizedProfile || !validHandle || !selfCertifying || duplicate} onClick={commit}>Add</button>
+        <button className="quiet" onClick={() => { setAdding(false); setProfileDraft(""); setHandleDraft(""); }}>Cancel</button>
+        {duplicate && <small>This person is already listed.</small>}
+        {profileDraft.trim() && !normalizedProfile && <small>Use a Profile TreeID or complete arbor:// profile address.</small>}
+        {communityMembers && normalizedProfile && !selfCertifying && <small>A Canopy account requires a self-certifying person Profile TreeID.</small>}
+        {communityMembers && handleDraft.trim() && !validHandle && <small>Use a lowercase handle containing letters, digits, or hyphens.</small>}
+      </div> : <button className="quiet property-list-add-button" onClick={() => setAdding(true)}>+ {communityMembers ? "Add person" : "Add member"}</button>}
+      {communityMembers && <small>Add the person’s public Profile TreeID and their Canopy handle. Only that identity can claim the account.</small>}
+    </div>
+  </div>;
+}
+
+function StringListProperty({ property, values, onChange }: {
+  property: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const normalized = draft.trim();
+  const duplicate = values.includes(normalized);
+  const commit = () => {
+    if (!normalized || duplicate) return;
+    onChange([...values, normalized]);
     setDraft("");
     setAdding(false);
   };
@@ -103,38 +173,25 @@ function StringListProperty({
     <span className="property-name">{property}</span>
     <div className="property-list">
       {values.map((value, index) => <div className="property-list-item" key={index}>
-        {members
-          ? <code>{memberLabel(value, communityOrigin)}</code>
-          : <input aria-label={`${property} item ${index + 1}`} value={value} onChange={(event) => {
-              const next = [...values];
-              next[index] = event.target.value;
-              onChange(next);
-            }} />}
-        <button className="quiet property-list-remove" aria-label={`Remove ${members ? "member" : "item"} ${memberLabel(value, communityOrigin)}`} onClick={() => {
-          if (members && !confirm(communityMembers
-            ? `Remove ${memberLabel(value, communityOrigin)}? Removing a person from this community disables that account.`
-            : `Remove ${memberLabel(value, communityOrigin)} from this group?`)) return;
+        <input aria-label={`${property} item ${index + 1}`} value={value} onChange={(event) => {
+          const next = [...values];
+          next[index] = event.target.value;
+          onChange(next);
+        }} />
+        <button className="quiet property-list-remove" aria-label={`Remove item ${value}`} onClick={() => {
           onChange(values.filter((_, itemIndex) => itemIndex !== index));
         }}>Remove</button>
       </div>)}
       {adding ? <div className="property-list-add">
-        <input
-          autoFocus
-          aria-label={members ? "Person handle or profile" : `New ${property} item`}
-          placeholder={members ? "~alice" : "Value"}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
+        <input autoFocus aria-label={`New ${property} item`} placeholder="Value" value={draft}
+          onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => {
             if (event.key === "Enter") { event.preventDefault(); commit(); }
             if (event.key === "Escape") { setAdding(false); setDraft(""); }
-          }}
-        />
-        <button className="quiet" disabled={!normalizedDraft || duplicate} onClick={commit}>Add</button>
+          }} />
+        <button className="quiet" disabled={!normalized || duplicate} onClick={commit}>Add</button>
         <button className="quiet" onClick={() => { setAdding(false); setDraft(""); }}>Cancel</button>
-        {duplicate && <small>This person is already listed.</small>}
-        {members && draft.trim() && !normalizedDraft && <small>Use a handle such as ~alice or a complete arbor:// profile address.</small>}
-      </div> : <button className="quiet property-list-add-button" onClick={() => setAdding(true)}>+ {addLabel}</button>}
-      {communityMembers && <small>Adding a person reserves their profile address. The first successful claim wins.</small>}
+        {duplicate && <small>This item is already listed.</small>}
+      </div> : <button className="quiet property-list-add-button" onClick={() => setAdding(true)}>+ Add item</button>}
     </div>
   </div>;
 }
@@ -1254,13 +1311,23 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
       <div className="properties-grid">
         {propertyKeys.map((key) => {
           const value = frontmatter[key] ?? (key === "members" ? [] : "");
+          if (key === "members" && Array.isArray(value)) {
+            return <MemberListProperty
+              key={key}
+              values={value}
+              communityMembers={memberOrigin !== null && node.enclosingTree?.canonical?.path === "/"}
+              onChange={(items) => {
+                const next = { ...frontmatter, [key]: items };
+                setFrontmatter(next);
+                recordDocumentSnapshot(snapshot(next));
+              }}
+            />;
+          }
           if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
             return <StringListProperty
               key={key}
               property={key}
               values={value}
-              communityOrigin={memberOrigin}
-              communityMembers={key === "members" && node.enclosingTree?.canonical?.path === "/"}
               onChange={(items) => {
                 const next = { ...frontmatter, [key]: items };
                 setFrontmatter(next);

@@ -23,6 +23,7 @@ import { FsConflictError, materializeTree, snapshotDirectory } from "@arbor/fs";
 import {
   CanopyAccountStore,
   CommunityConfigStore,
+  ProfileIdentityStore,
   VisitedTreeStore,
   loadCanopyAccountConfigurations,
   loadLocalPlacements,
@@ -32,7 +33,7 @@ import {
 } from "@arbor/stores";
 import { WireClient, encodeObjectDeltaJSON, encodeWireObject, hashObject, objectDelta, type ObjectDelta, type RemoteTreeDescriptor } from "@arbor/wire";
 import { WireProjection } from "@arbor/wire-projection";
-import { claimCanopyAccountBootstrap, claimProfileBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath } from "./account-bootstrap.ts";
+import { claimCanopyAccountBootstrap, createPairingBootstrap, forgetLocalAccount, resolveUserPath } from "./account-bootstrap.ts";
 import { EventBus } from "./events.ts";
 import { fsErrorCode } from "./fs-errors.ts";
 import { FilesystemService, realOsPath } from "./fs-service.ts";
@@ -724,18 +725,18 @@ export class ArborSyncDaemon implements AsyncDisposable {
     return null;
   }
 
-  async claimProfileBootstrap(
-    originInput: string,
-    handle: string,
-    inputPath: string,
-    displayName?: string,
-    layout: "legacy" | "accounts" = "legacy",
-  ): Promise<MutationReceipt["effects"]> {
-    return claimProfileBootstrap(this, originInput, handle, inputPath, displayName, layout);
-  }
-
   async claimCanopyAccount(account: string, inputPath: string, displayName?: string): Promise<MutationReceipt["effects"]> {
     return claimCanopyAccountBootstrap(this, account, inputPath, displayName);
+  }
+
+  async profileIdentity() {
+    return new ProfileIdentityStore().status();
+  }
+
+  async createProfileIdentity(inputPath: string) {
+    const result = await new ProfileIdentityStore().begin(resolveUserPath(inputPath));
+    this.trees.invalidateDescriptors();
+    return result;
   }
 
   async forgetLocalAccount(): Promise<void> {

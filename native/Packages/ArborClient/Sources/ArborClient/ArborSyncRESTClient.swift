@@ -227,14 +227,6 @@ public actor ArborSyncRESTClient {
         return try await perform(request)
     }
 
-    public func claimProfile(origin: String, handle: String, path: String, displayName: String? = nil) async throws -> MutationReceipt {
-        var request = URLRequest(url: url("/v1/bootstrap/claims"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try encoder.encode(ClaimBootstrapBody(origin: origin, handle: handle, path: path, displayName: displayName))
-        return try await perform(request)
-    }
-
     public func forgetLocalAccount() async throws {
         var request = URLRequest(url: url("/v1/local/forget"))
         request.httpMethod = "POST"
@@ -644,7 +636,6 @@ public actor ArborSyncRESTClient {
 }
 
 private struct GeneratedTreeID: Decodable { var id: String }
-private struct ClaimBootstrapBody: Encodable { var origin: String; var handle: String; var path: String; var displayName: String? }
 private struct ForgetResult: Decodable { var forgotten: Bool }
 private struct LocalResyncObservation: Decodable { var cursor: String; var tree: String; var kind: String }
 

@@ -920,17 +920,60 @@ public struct WirePlacement: Codable, Sendable, Equatable {
     }
 }
 
-public struct WireClaimRequest: Codable, Sendable, Equatable {
+public struct WireAccountChallenge: Codable, Sendable, Equatable {
+    public var version: Int
+    public var id: String
+    public var origin: String
+    public var account: String
     public var profileTree: String
     public var configurationTree: String
-    public var device: WirePairingDevice
-    public var profile: WireSnapshot
-    public var configuration: WireSnapshot
+    public var nonce: String
+    public var issuedAt: Int
+    public var expiresAt: Int
+
+    public func validated() throws -> Self {
+        guard version == 1, !id.isEmpty, !origin.isEmpty, !account.isEmpty,
+              !profileTree.isEmpty, !configurationTree.isEmpty, !nonce.isEmpty,
+              expiresAt > issuedAt else {
+            throw ArborWireValidationError.invalidValue("Malformed account challenge")
+        }
+        return self
+    }
 }
 
-public struct WireClaimResult: Codable, Sendable, Equatable {
+public struct WireExistingProfileClaimRequest: Codable, Sendable, Equatable {
+    public var account: String
+    public var profileTree: String
+    public var configurationTree: String
+    public var challenge: WireAccountChallenge
+    public var publicKey: String
+    public var signature: String
+    public var device: WirePairingDevice
+    public var configuration: WireSnapshot
+
+    public init(
+        account: String,
+        profileTree: String,
+        configurationTree: String,
+        challenge: WireAccountChallenge,
+        publicKey: String,
+        signature: String,
+        device: WirePairingDevice,
+        configuration: WireSnapshot
+    ) {
+        self.account = account
+        self.profileTree = profileTree
+        self.configurationTree = configurationTree
+        self.challenge = challenge
+        self.publicKey = publicKey
+        self.signature = signature
+        self.device = device
+        self.configuration = configuration
+    }
+}
+
+public struct WireAccountClaimResult: Codable, Sendable, Equatable {
     public var account: WireAccountDescriptor
-    public var tree: WireTreeDescriptor
     public var configuration: WireTreeDescriptor
 }
 

@@ -198,3 +198,19 @@ enum CanonicalCBOR {
         }
     }
 }
+
+/// Exact canonical bytes signed when a self-certifying profile claims an account.
+public func accountChallengeSigningBytes(_ challenge: WireAccountChallenge) throws -> Data {
+    let value = try challenge.validated()
+    return CanonicalCBOR.encode(.map([
+        ("version", .unsigned(value.version)),
+        ("id", .text(value.id)),
+        ("origin", .text(value.origin)),
+        ("account", .text(value.account)),
+        ("profileTree", .text(value.profileTree)),
+        ("configurationTree", .text(value.configurationTree)),
+        ("nonce", .text(value.nonce)),
+        ("issuedAt", .unsigned(value.issuedAt)),
+        ("expiresAt", .unsigned(value.expiresAt)),
+    ]))
+}

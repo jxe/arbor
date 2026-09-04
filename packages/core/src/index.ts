@@ -7,6 +7,7 @@ export * from "./hash.ts";
 export * from "./cbor.ts";
 export * from "./page-id.ts";
 export * from "./identity.ts";
+export * from "./profile-identity.ts";
 export * from "./identifiers.ts";
 export * from "./protocol.ts";
 export * from "./sse.ts";

@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { decodeTreeSnapshotJSON, encodeUpdateConflictJSON, encodeUpdateResultJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResult } from "@arbor/wire";
 import { buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@arbor/core";
-import type { AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@arbor/core";
+import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@arbor/core";
 import { treeMutationResponse, treeQueryResponse } from "@arbor/data/host";
 import {
   AlreadyClaimedError,
@@ -162,19 +162,13 @@ function requireAccount(request: Request, canopy: CanopyDaemon): CanopyAccount {
   return account;
 }
 
-function requireAuthentication(request: Request, canopy: CanopyDaemon) {
-  const authentication = canopy.authenticateToken(bearer(request));
-  if (!authentication) throw new Error("Account authentication is required");
-  return authentication;
-}
-
 export async function serveCanopy(options: {
   dataRoot: string;
   publicOrigin: string;
   community?: {
     handle: string;
     name: string;
-    firstWriter?: { handle: string; name?: string };
+    firstWriter?: { handle: string; profileTree: string; name?: string };
   };
   accounts?: CanopyBootstrapAccount[];
   port?: number;
@@ -254,46 +248,17 @@ export async function serveCanopy(options: {
         if (url.pathname === "/.arbor/pairings" && request.method === "POST") {
           return json(canopy.createPairing(requireAccount(request, canopy)), 201);
         }
-        const profileProof = /^\/\.arbor\/profile-proofs\/([^/]+)$/.exec(url.pathname);
-        if (profileProof && request.method === "PUT") {
-          const body = await request.json() as {
-            secretDigest?: unknown;
-            targetOrigin?: unknown;
-            targetAccount?: unknown;
-            configurationTree?: unknown;
-          };
-          if (
-            typeof body.secretDigest !== "string" || typeof body.targetOrigin !== "string"
-            || typeof body.targetAccount !== "string" || typeof body.configurationTree !== "string"
-          ) throw new Error("Profile proof requires a secret digest and exact target binding");
-          const proof = await canopy.createProfileProof(requireAuthentication(request, canopy), {
-            id: decodeURIComponent(profileProof[1]!),
-            secretDigest: body.secretDigest,
-            targetOrigin: body.targetOrigin,
-            targetAccount: body.targetAccount,
+        if (url.pathname === "/.arbor/account-challenges" && request.method === "POST") {
+          const body = await request.json() as { account?: unknown; profileTree?: unknown; configurationTree?: unknown };
+          if (typeof body.account !== "string" || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string") {
+            throw new Error("Account challenge requires account, profile TreeID, and configuration TreeID");
+          }
+          return json(canopy.createAccountChallenge({
+            origin: publicOrigin,
+            account: body.account,
+            profileTree: body.profileTree,
             configurationTree: body.configurationTree,
-          });
-          return json(proof, 201);
-        }
-        const profileProofConsume = /^\/\.arbor\/profile-proofs\/([^/]+)\/consume$/.exec(url.pathname);
-        if (profileProofConsume && request.method === "PUT") {
-          const body = await request.json() as {
-            secret?: unknown;
-            targetOrigin?: unknown;
-            targetAccount?: unknown;
-            configurationTree?: unknown;
-          };
-          if (
-            typeof body.secret !== "string" || typeof body.targetOrigin !== "string"
-            || typeof body.targetAccount !== "string" || typeof body.configurationTree !== "string"
-          ) throw new Error("Profile proof consumption requires its secret and exact target binding");
-          return json(await canopy.consumeProfileProof({
-            id: decodeURIComponent(profileProofConsume[1]!),
-            secret: body.secret,
-            targetOrigin: body.targetOrigin,
-            targetAccount: body.targetAccount,
-            configurationTree: body.configurationTree,
-          }));
+          }), 201);
         }
         const pairingClaim = /^\/\.arbor\/pairings\/([^/]+)\/claim$/.exec(url.pathname);
         if (pairingClaim && request.method === "PUT") {
@@ -337,44 +302,14 @@ export async function serveCanopy(options: {
           }
           return new Response("Method not allowed", { status: 405 });
         }
-        const claim = /^\/\.arbor\/claims\/([a-z0-9][a-z0-9-]{0,62})$/.exec(url.pathname);
-        if (claim && request.method === "PUT") {
-          const body = await request.json() as {
-            profileTree?: unknown;
-            configurationTree?: unknown;
-            device?: { id?: unknown; label?: unknown; credentialDigest?: unknown };
-            profile?: { root?: unknown; objects?: unknown };
-            configuration?: { root?: unknown; objects?: unknown };
-          };
-          if (
-            typeof body.profileTree !== "string" || typeof body.configurationTree !== "string"
-            || typeof body.device?.id !== "string" || typeof body.device.label !== "string"
-            || typeof body.device.credentialDigest !== "string" || !body.profile || !body.configuration
-          ) throw new Error("Claim requires generated identities, a credential digest, and both initial snapshots");
-          const result = await canopy.claimWithConfiguration({
-            handle: claim[1]!,
-            origin: publicOrigin,
-            profileTree: body.profileTree,
-            configurationTree: body.configurationTree,
-            deviceID: body.device.id,
-            deviceLabel: body.device.label,
-            credentialDigest: body.device.credentialDigest,
-            profileSnapshot: bodySnapshot(body.profile),
-            configurationSnapshot: bodySnapshot(body.configuration),
-          });
-          return json({
-            account: accountDescriptor(publicOrigin, canopy, result.account),
-            tree: descriptorWithUpdate(publicOrigin, canopy, result.tree, "write"),
-            configuration: descriptorWithUpdate(publicOrigin, canopy, result.configuration, "write"),
-          }, 201);
-        }
         if (url.pathname === "/.arbor/accounts" && request.method === "PUT") {
           const body = await request.json() as {
             account?: unknown;
-            issuerOrigin?: unknown;
-            proof?: { id?: unknown; secret?: unknown };
             profileTree?: unknown;
             configurationTree?: unknown;
+            challenge?: AccountChallenge;
+            publicKey?: unknown;
+            signature?: unknown;
             device?: { id?: unknown; label?: unknown; credentialDigest?: unknown };
             configuration?: { root?: unknown; objects?: unknown };
           };
@@ -383,44 +318,22 @@ export async function serveCanopy(options: {
           const reservation = accountURL?.origin === publicOrigin ? canopy.accountReservation(body.account as string) : null;
           if (
             !reservation || typeof body.profileTree !== "string" || typeof body.configurationTree !== "string"
+            || !body.challenge || typeof body.publicKey !== "string" || typeof body.signature !== "string"
             || typeof body.device?.id !== "string" || typeof body.device.label !== "string"
             || typeof body.device.credentialDigest !== "string" || !body.configuration
           ) throw new Error("Account join requires an exact community reservation, generated identities, credential digest, and initial configuration");
           if (reservation.profileTree && reservation.profileTree !== body.profileTree) {
             throw new Error("Account reservation names a different profile TreeID");
           }
-          let issuer: URL | undefined;
-          if (body.proof !== undefined || body.issuerOrigin !== undefined) {
-            if (typeof body.issuerOrigin !== "string" || typeof body.proof?.id !== "string" || typeof body.proof.secret !== "string") {
-              throw new Error("Profile proof requires both its issuer and one-time secret");
-            }
-            issuer = new URL(body.issuerOrigin);
-            const loopback = issuer.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(issuer.hostname);
-            if ((issuer.protocol !== "https:" && !loopback) || issuer.origin !== body.issuerOrigin) {
-              throw new Error("Profile proof issuer must be a normalized HTTPS Canopy origin");
-            }
-            const proofResponse = await fetch(`${issuer.origin}/.arbor/profile-proofs/${encodeURIComponent(body.proof.id)}/consume`, {
-              method: "PUT",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                secret: body.proof.secret,
-                targetOrigin: publicOrigin,
-                targetAccount: body.account,
-                configurationTree: body.configurationTree,
-              }),
-              signal: AbortSignal.timeout(10_000),
-            });
-            if (!proofResponse.ok) throw new Error("Profile proof could not be verified by its issuer");
-            const proven = await proofResponse.json() as { profileTree?: unknown };
-            if (proven.profileTree !== body.profileTree) throw new Error("Profile proof returned a different profile TreeID");
-          }
           const result = await canopy.claimAccountWithConfiguration({
             accountLocator: body.account as string,
             handle: reservation.handle,
             origin: publicOrigin,
-            ...(issuer ? { issuerOrigin: issuer.origin, proofID: body.proof!.id as string } : {}),
             profileTree: body.profileTree,
             configurationTree: body.configurationTree,
+            challenge: body.challenge,
+            publicKey: body.publicKey,
+            signature: body.signature,
             deviceID: body.device.id,
             deviceLabel: body.device.label,
             credentialDigest: body.device.credentialDigest,
@@ -670,7 +583,7 @@ export async function serveCanopy(options: {
           const pendingProfile = /^\/~([a-z0-9][a-z0-9-]{0,62})\/?$/.exec(requestLocator.path);
           if (pendingProfile && canopy.isReservedHandle(pendingProfile[1]!)) {
             const profileURL = `${publicOrigin}/~${pendingProfile[1]!}`;
-            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingProfile[1]!)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingProfile[1]!)}</h1><p>This is an empty profile reserved by the ${escapeHTML(canopy.communityHandle())} community. It has not been claimed.</p><p>Open it in Arbor to claim it:</p><code>arbor open ${escapeHTML(profileURL)}</code><p>The first successful claim wins.</p>`, 200, { "x-arbor-profile-state": "reserved" });
+            return html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>~${escapeHTML(pendingProfile[1]!)}</title><style>body{max-width:620px;margin:72px auto;padding:0 24px;font:16px/1.55 system-ui;color:#292823}code{display:block;padding:12px;background:#f4f2ec;border-radius:8px}</style><h1>~${escapeHTML(pendingProfile[1]!)}</h1><p>This account is reserved by the ${escapeHTML(canopy.communityHandle())} community for one exact profile identity. It has not been claimed.</p><p>Its owner can open it in Arbor to claim it:</p><code>arbor open ${escapeHTML(profileURL)}</code>`, 200, { "x-arbor-profile-state": "reserved" });
           }
           if (pendingProfile && canopy.accountByHandle(pendingProfile[1]!) && !canopy.boundary(requestLocator.path)) {
             const claimed = canopy.accountByHandle(pendingProfile[1]!)!;
