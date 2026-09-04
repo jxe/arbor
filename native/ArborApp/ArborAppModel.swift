@@ -25,7 +25,6 @@ struct LocalArborSyncVisitPresentation: Identifiable, Sendable, Equatable {
     let name: String
     let locator: String
     let canonical: String?
-    let visitedAt: String?
 }
 
 struct LocalArborSyncDevicePresentation: Identifiable, Sendable, Equatable {
@@ -45,7 +44,6 @@ struct LocalArborSyncOverview: Sendable, Equatable {
     let visits: [LocalArborSyncVisitPresentation]
     let devices: [LocalArborSyncDevicePresentation]
     let observedThrough: String
-    let refreshedAt: Date
 }
 
 private struct LocalAccountConfigurationPresentation {
@@ -409,8 +407,7 @@ final class ArborWorkspaceState {
                 credentials.observedThrough,
                 treeList.observedThrough,
                 visitDirectory.observedThrough,
-            ]),
-            refreshedAt: Date()
+            ])
         )
     }
 
@@ -517,8 +514,7 @@ final class ArborWorkspaceState {
                         tree: tree,
                         name: node.name,
                         locator: locator,
-                        canonical: fields.string("canonical"),
-                        visitedAt: fields.string("visitedAt")
+                        canonical: fields.string("canonical")
                     ))
                 }
             }
@@ -618,8 +614,7 @@ final class ArborWorkspaceState {
             trees: overview.trees,
             visits: overview.visits,
             devices: try loadLocalAccountConfiguration().devices,
-            observedThrough: overview.observedThrough,
-            refreshedAt: Date()
+            observedThrough: overview.observedThrough
         )
     }
 #endif
@@ -775,7 +770,6 @@ private extension Dictionary where Key == String, Value == JSONValue {
 final class ArborAppModel {
     struct TitleRenameProposal: Identifiable, Equatable {
         var reference: WorkspaceReference
-        var title: String
         var proposedName: String
         var id: String { "\(reference.identity)|\(proposedName)" }
     }
@@ -1070,7 +1064,7 @@ final class ArborAppModel {
             proposed = "\(stem)-\(suffix)"
             suffix += 1
         }
-        let proposal = TitleRenameProposal(reference: binding.reference, title: title, proposedName: proposed)
+        let proposal = TitleRenameProposal(reference: binding.reference, proposedName: proposed)
         guard !dismissedTitleRenameProposals.contains(proposal.id) else { return }
         titleRenameProposal = proposal
     }

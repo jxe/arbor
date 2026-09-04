@@ -144,43 +144,6 @@ public struct Diagnostic: Codable, Sendable, Equatable {
     public var field: String?
 }
 
-public struct ArborBlock: Codable, Sendable, Equatable {
-    public var id: String
-    public var type: String
-    public var content: String?
-    public var props: [String: JSONValue]?
-    public var children: [ArborBlock]
-    public var source: String?
-    public var sourceHash: String?
-
-    public init(
-        id: String,
-        type: String,
-        content: String? = nil,
-        props: [String: JSONValue]? = nil,
-        children: [ArborBlock] = [],
-        source: String? = nil,
-        sourceHash: String? = nil
-    ) {
-        self.id = id
-        self.type = type
-        self.content = content
-        self.props = props
-        self.children = children
-        self.source = source
-        self.sourceHash = sourceHash
-    }
-}
-
-public struct MarkdownDocument: Codable, Sendable, Equatable {
-    /// Exact authoritative Markdown source, including frontmatter.
-    public var source: String
-    public var frontmatter: [String: JSONValue]
-    public var frontmatterSource: String?
-    public var bodySource: String
-    public var blocks: [ArborBlock]
-}
-
 public struct PropertiesCapability: Codable, Sendable, Equatable {
     public var revision: String
     public var schema: String?
