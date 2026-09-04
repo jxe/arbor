@@ -61,6 +61,13 @@ describe("arborsync REST v1", () => {
 
   test("offers an explicit synchronization boundary to attached clients", async () => {
     expect(await client.synchronizeNow()).toEqual({ synchronized: true });
+    const invalid = await fetch(`${base}/v1/sync`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ configurationTree: "not-a-tree" }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({ error: "invalid-request" });
   });
 
   test("idempotently activates a browsing session on the persistent control daemon", async () => {

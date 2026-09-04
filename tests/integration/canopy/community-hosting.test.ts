@@ -108,6 +108,17 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     const client = new WireClient(running.url);
     const challenge = await client.createAccountChallenge({ account: `${origin}/~bob`, profileTree, configurationTree });
     const identityProof = { challenge, publicKey: bobIdentity.publicKey, signature: bobIdentity.sign(challenge) };
+    const wrongProfileAllocation = snapshotAccountConfigV2({
+      account: { canopy: origin, profile: profileTree },
+      trees: { [generateArborID("tr")]: { canonical: `${origin}/~bob`, access: [] } },
+      devices: { [administratorID]: { id: administratorID, label: "Bob's Mac", administrator: true } },
+    });
+    await expect(new WireClient(running.url).joinAccount({
+      account: `${origin}/~bob`,
+      ...request,
+      ...identityProof,
+      configuration: wrongProfileAllocation,
+    })).rejects.toThrow("account.profile must match a tree declaration at its canonical handle");
     const outsideAllocation = snapshotAccountConfigV2({
       account: { canopy: origin, profile: profileTree },
       trees: { [profileTree]: { canonical: `${origin}/~alice/bob`, access: [] } },

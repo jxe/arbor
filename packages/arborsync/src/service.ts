@@ -741,10 +741,14 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   /** Flush a valid file-edited configuration and its resulting tree work before a CLI process exits. */
-  async synchronizeNow(): Promise<void> {
+  async synchronizeNow(configurationTree?: string): Promise<void> {
     if (this.placementMoving) await new Promise<void>((resolve) => this.placementMoveWaiters.push(resolve));
     await this.trees.refreshConfiguration();
-    await this.syncAll(true);
+    if (
+      configurationTree
+      && !this.trees.sharedPlacements().some((placement) => placement.configurationTree === configurationTree)
+    ) throw new ProtocolError("not-found", `Unknown account configuration: ${configurationTree}`, 404);
+    await this.syncAll(true, configurationTree);
   }
 
   async moveLocalPlacement(input: { source: string; destination: string; check?: boolean }): Promise<{
@@ -1036,19 +1040,19 @@ export class ArborSyncDaemon implements AsyncDisposable {
     await savePendingTreeUpdate(workspace.tree, pending);
   }
 
-  private async syncAll(throwErrors = false): Promise<void> {
+  private async syncAll(throwErrors = false, configurationTree?: string): Promise<void> {
     if (this.placementMoving) {
       this.syncRequested = true;
       if (throwErrors) {
         await new Promise<void>((resolve) => this.placementMoveWaiters.push(resolve));
-        await this.syncAll(true);
+        await this.syncAll(true, configurationTree);
       }
       return;
     }
     if (this.syncing) {
       this.syncRequested = true;
       await new Promise<void>((resolve) => this.syncWaiters.push(resolve));
-      if (throwErrors) await this.syncAll(true);
+      if (throwErrors) await this.syncAll(true, configurationTree);
       return;
     }
     this.syncing = true;
@@ -1056,9 +1060,11 @@ export class ArborSyncDaemon implements AsyncDisposable {
       do {
         this.syncRequested = false;
         const remoteTreesByAccount = new Map<string, Promise<RemoteTreeDescriptor[]>>();
-        const placements = this.trees.sharedPlacements().sort((left, right) =>
-          Number(right.kind === "account-configuration") - Number(left.kind === "account-configuration")
-        );
+        const placements = this.trees.sharedPlacements()
+          .filter((placement) => !configurationTree || placement.configurationTree === configurationTree)
+          .sort((left, right) =>
+            Number(right.kind === "account-configuration") - Number(left.kind === "account-configuration")
+          );
         for (const placement of placements) {
           try {
             const client = await this.accountClient(placement);

@@ -92,9 +92,13 @@ GET  /v1/resolve?locator={ArborLocator}
 ```
 
 Status returns the service and protocol versions plus the current `DeviceID`
-when connected. `POST /v1/sync` waits for the daemon's current synchronization
-pass and lets attached CLI clients use the same process rather than creating a
-second writer. `POST /v1/sessions` accepts one absolute local root and activates
+when connected. `POST /v1/sync` accepts an optional
+`{ configurationTree: TreeID }` body, waits for the matching account's current
+synchronization pass, and lets attached CLI clients use the same process rather
+than creating a second writer. With no body it waits for every account. An
+account-qualified operation scopes this boundary so an unrelated offline
+Canopy remains visibly errored without blocking healthy accounts.
+`POST /v1/sessions` accepts one absolute local root and activates
 the daemon's filesystem watching and durable node identity for that browsing
 session; repeated activation of the same root is idempotent.
 `POST /v1/tree-ids` returns an unreserved client-generated

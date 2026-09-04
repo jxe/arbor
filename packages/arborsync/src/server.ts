@@ -421,8 +421,23 @@ function startArborSyncServer(
           return json({ service: "arborsync", version: "0.1.0", protocolVersion: "v1", ...(deviceID ? { deviceID } : {}) });
         }
         if (request.method === "POST" && url.pathname === "/v1/sync") {
+          const source = await request.text();
+          let body: { configurationTree?: unknown } = {};
+          try {
+            const decoded = source ? JSON.parse(source) as unknown : {};
+            if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw new Error("not an object");
+            body = decoded as { configurationTree?: unknown };
+          } catch {
+            throw new ProtocolError("invalid-request", "Sync body must be a JSON object", 400);
+          }
+          const unknown = Object.keys(body).filter((key) => key !== "configurationTree");
+          if (unknown.length) throw new ProtocolError("invalid-request", `Unknown sync fields: ${unknown.join(", ")}`, 400);
+          if (
+            body.configurationTree !== undefined
+            && (typeof body.configurationTree !== "string" || !/^tr_[a-z2-7]+$/.test(body.configurationTree))
+          ) throw new ProtocolError("invalid-request", "configurationTree must be a TreeID", 400);
           server.timeout(request, 0);
-          await service.synchronizeNow();
+          await service.synchronizeNow(body.configurationTree as string | undefined);
           return json({ synchronized: true });
         }
         if (request.method === "POST" && url.pathname === "/v1/placements/move") {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { ArborSyncDaemon, EventBus, TreeManager } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
 import { CanopyAccountStore, ProfileIdentityStore, loadCanopyAccountConfigurations, loadLocalPlacements } from "@arbor/stores";
+import { generateArborID } from "@arbor/core";
 import { parseDocument } from "yaml";
 
 let sandbox: string;
@@ -161,6 +162,26 @@ describe("plural-account CLI place", () => {
     expect(secondCanopy.canopy.boundary("/~joe/private-notes")?.publicAccess).toBe("read");
   });
 
+  test("reopens an unplaced session after an offline identity rebind", async () => {
+    const path = await source("offline-identity-rebind");
+    const manager = new TreeManager(new EventBus());
+    try {
+      await manager.init();
+      const before = await manager.openSession(path);
+      const reboundTree = generateArborID("tr");
+      const registryPath = join(state, ".state", "workspaces.json");
+      const registry = JSON.parse(await readFile(registryPath, "utf8"));
+      registry[path].rootID = reboundTree;
+      await writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+
+      const after = await manager.openSession(path);
+      expect(after.tree).toBe(reboundTree);
+      expect(after).not.toBe(before);
+    } finally {
+      await manager[Symbol.asyncDispose]();
+    }
+  });
+
   test("refuses canonical paths outside every claimed account allocation", async () => {
     const misplaced = await source("misplaced-source");
     const error = await arborFailure(["place", misplaced, `${secondCanopy.url}/~someone-else/notes`]);
@@ -200,6 +221,14 @@ describe("plural-account CLI place", () => {
     const error = await arborFailure(["place", "--access", "public=reader,~editors", invalidSource, canonical]);
     expect(error).toContain("Expected subject=read|write|none");
     expect(firstCanopy.canopy.boundary("/~alice/invalid-access")).toBeNull();
+  });
+
+  test("does not let an offline account block placement through a healthy account", async () => {
+    firstCanopy.server.stop(true);
+    const healthySource = await source("healthy-while-first-offline", "# Healthy account\n");
+    const canonical = `${secondCanopy.url}/~joe/healthy`;
+    expect(await arbor(["place", healthySource, canonical])).toContain(canonical);
+    expect(secondCanopy.canopy.boundary("/~joe/healthy")?.id).toBeDefined();
   });
 });
 

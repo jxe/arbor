@@ -245,8 +245,14 @@ export class ArborSyncRESTClient {
     return this.request("/v1/status");
   }
 
-  synchronizeNow(): Promise<{ synchronized: true }> {
-    return this.request("/v1/sync", { method: "POST" });
+  synchronizeNow(configurationTree?: string): Promise<{ synchronized: true }> {
+    return this.request("/v1/sync", {
+      method: "POST",
+      ...(configurationTree ? {
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ configurationTree }),
+      } : {}),
+    });
   }
 
   movePlacement(source: string, destination: string, check = false): Promise<LocalPlacementMoveResult> {

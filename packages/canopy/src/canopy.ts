@@ -1563,6 +1563,14 @@ export class CanopyDaemon implements AsyncDisposable {
         throw new Error(`Canonical path is outside this Canopy account allocation: ${path}`);
       }
     }
+    const profile = graph.trees[graph.account.profile];
+    const rootTree = Object.entries(graph.trees).find(([, declaration]) => new URL(declaration.canonical).pathname === root)?.[0];
+    // A newly claimed account may leave its profile unhosted. Once the
+    // canonical handle is declared, however, that boundary is reserved for
+    // the account's self-certifying Profile TreeID.
+    if ((profile && new URL(profile.canonical).pathname !== root) || (rootTree && rootTree !== graph.account.profile)) {
+      throw new Error("account.profile must match a tree declaration at its canonical handle");
+    }
   }
 
   /** Current-Canopy allocation policy: structured local handles reserve /~handle. */

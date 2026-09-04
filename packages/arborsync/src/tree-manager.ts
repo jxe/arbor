@@ -5,6 +5,7 @@ import {
   AmbiguousWorkspaceIdentityError,
   arborPrivateRoot,
   loadTreeRegistry,
+  workspaceIdentity,
   type TreePlacement,
   watchTreeRegistry,
   type SharedTreePlacement,
@@ -392,9 +393,24 @@ export class TreeManager implements AsyncDisposable {
     );
     const trackedID = trackedEntry?.[0];
     const tracked = trackedEntry?.[1];
-    const existing = trackedID
+    let existing = trackedID
       ? this.workspaces.get(trackedID)
       : [...this.workspaces.values()].find((workspace) => workspace.root === canonical);
+    // An offline identity restore or migration can deliberately rebind an
+    // unplaced directory while this daemon still has its former temporary
+    // TreeID open. Re-read the private registry before returning that session
+    // so the next operation observes the durable identity rather than stale
+    // process memory. Placed workspaces continue to use their explicit tree.
+    if (existing && !tracked) {
+      const identity = await workspaceIdentity(canonical);
+      if (existing.tree !== identity.rootID) {
+        await existing[Symbol.asyncDispose]();
+        this.workspaces.delete(existing.tree);
+        this.known.delete(existing.tree);
+        if (this.sessionID === existing.tree) this.sessionID = null;
+        existing = undefined;
+      }
+    }
     if (existing) {
       this.sessionID = existing.tree;
       return existing;

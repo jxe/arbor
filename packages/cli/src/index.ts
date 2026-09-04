@@ -221,7 +221,7 @@ async function withArborSync<T>(
   path: string,
   run: (
     client: ArborSyncRESTClient,
-    service: { synchronizeNow(): Promise<void> },
+    service: { synchronizeNow(configurationTree?: string): Promise<void> },
   ) => Promise<T>,
 ): Promise<T> {
   if (!process.env.ARBOR_DATA_HOME) {
@@ -244,7 +244,7 @@ async function withArborSync<T>(
     }
     await client.openSession(path);
     return run(client, {
-      async synchronizeNow() { await client.synchronizeNow(); },
+      async synchronizeNow(configurationTree?: string) { await client.synchronizeNow(configurationTree); },
     });
   }
   const running = await serveArborSync(path, { port: 0 });
@@ -584,8 +584,9 @@ async function placeLocal(
   if (!(await stat(path)).isDirectory()) throw new Error(`Not a directory: ${path}`);
   const target = canonicalTarget(second);
   await withArborSync(path, async (client, service) => {
-    await service.synchronizeNow();
-    const selected = await accountForCanonicalTarget(target, { administrator: true });
+    let selected = await accountForCanonicalTarget(target, { administrator: true });
+    await service.synchronizeNow(selected.configuration.configurationTree);
+    selected = await accountForCanonicalTarget(target, { administrator: true });
     const config = selected.configuration;
     const wire = new WireClient(selected.connection.record.origin, selected.connection.accountToken);
     const local = await loadLocalPlacements();
@@ -641,7 +642,7 @@ async function placeLocal(
     if (isNew && audience.length === 0) {
       console.warn(`Warning: no audience options supplied; created ${target.supplied} with private access.`);
     }
-    await service.synchronizeNow();
+    await service.synchronizeNow(config.configurationTree);
     console.log(`${target.supplied} ↔ ${path}`);
   });
 }
@@ -663,8 +664,9 @@ async function placeCommand(args: string[]): Promise<void> {
     join(await realpath(dirname(requestedDestination)), basename(requestedDestination))
   );
   await withArborSync(dirname(destination), async (client, service) => {
-    await service.synchronizeNow();
-    const selected = await accountForCanonicalTarget(target, { administrator: false });
+    let selected = await accountForCanonicalTarget(target, { administrator: false });
+    await service.synchronizeNow(selected.configuration.configurationTree);
+    selected = await accountForCanonicalTarget(target, { administrator: false });
     const remote = await new WireClient(target.endpoint, selected.connection.accountToken).resolve(target.canonicalPath);
     const descriptor = remote.enclosingTree;
     if (!descriptor?.canonical) throw new Error("Server resolution omitted its canonical tree");
@@ -679,7 +681,7 @@ async function placeCommand(args: string[]): Promise<void> {
       tree: descriptor.id,
     });
     await waitForLocalPlacement(client, descriptor.id, selected.configuration.configurationTree, destination);
-    await service.synchronizeNow();
+    await service.synchronizeNow(selected.configuration.configurationTree);
     console.log(`${canonicalArborLocator(descriptor.canonical)} ↔ ${destination} (${descriptor.access})`);
   });
 }
