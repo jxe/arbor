@@ -229,6 +229,11 @@ describe("plural-account CLI place", () => {
     const canonical = `${secondCanopy.url}/~joe/healthy`;
     expect(await arbor(["place", healthySource, canonical])).toContain(canonical);
     expect(secondCanopy.canopy.boundary("/~joe/healthy")?.id).toBeDefined();
+
+    const moved = `${secondCanopy.url}/~joe/healthy-moved`;
+    expect(await arbor(["mv", canonical, moved])).toContain(`to ${moved}`);
+    expect(secondCanopy.canopy.boundary("/~joe/healthy")).toBeNull();
+    expect(secondCanopy.canopy.boundary("/~joe/healthy-moved")?.id).toBeDefined();
   });
 });
 

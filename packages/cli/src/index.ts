@@ -393,29 +393,27 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
   const destinationCanonical = `${destination.endpoint}${destination.canonicalPath}`;
 
   await withArborSync(arborDataRoot(), async (client, service) => {
-    await service.synchronizeNow();
-    const configurations = await loadCanopyAccountConfigurations();
-    if (!configurations.length) throw new Error("Canonical moves require a claimed Canopy account");
-    const invalid = configurations.find((configuration) =>
-      configuration.diagnostics.length || !configuration.account || !configuration.trees || !configuration.currentDevice
-    );
-    if (invalid) throw new Error(`Account ${invalid.configurationTree} is not valid: ${invalid.diagnostics[0]?.message ?? "incomplete checkout"}`);
+    let selectedSource = await accountForCanonicalTarget(source, { administrator: true });
+    let selectedDestination = await accountForCanonicalTarget(destination, { administrator: true });
+    await service.synchronizeNow(selectedSource.configuration.configurationTree);
+    if (selectedDestination.configuration.configurationTree !== selectedSource.configuration.configurationTree) {
+      await service.synchronizeNow(selectedDestination.configuration.configurationTree);
+    }
+    selectedSource = await accountForCanonicalTarget(source, { administrator: true });
+    selectedDestination = await accountForCanonicalTarget(destination, { administrator: true });
     const local = await loadLocalPlacements();
     if (local.diagnostics.length) throw new Error(`placements.yaml is invalid: ${local.diagnostics[0]!.message}`);
 
-    const sourceMatch = configurations.flatMap((configuration) =>
-      Object.entries(configuration.trees!).map(([tree, declaration]) => ({
-        configurationTree: configuration.configurationTree,
-        tree,
-        declaration,
-        configuration,
-      })),
-    ).find((candidate) => candidate.declaration.canonical === sourceCanonical);
+    const sourceMatch = Object.entries(selectedSource.configuration.trees).map(([tree, declaration]) => ({
+      configurationTree: selectedSource.configuration.configurationTree,
+      tree,
+      declaration,
+      configuration: selectedSource.configuration,
+    })).find((candidate) => candidate.declaration.canonical === sourceCanonical);
     if (!sourceMatch) throw new Error(`No exact canonical tree matches ${sourceInput}`);
     const sourceConfiguration = sourceMatch.configuration;
     const sourceDeclaration = sourceMatch.declaration;
     const sourceTree = sourceMatch.tree;
-    const selectedDestination = await accountForCanonicalTarget(destination, { administrator: true });
     const destinationConfiguration = selectedDestination.configuration;
     const activePlacement = local.placements.find((placement) => placement.tree === sourceTree);
     if (!activePlacement) throw new Error(`Canonical move requires a local placement of ${sourceInput}`);
@@ -456,7 +454,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
         (document) => document.setIn([sourceTree, "canonical"], destinationCanonical),
         (value) => { parseHostedTreesConfiguration(value, sourceConfiguration.account!); },
       );
-      await service.synchronizeNow();
+      await service.synchronizeNow(sourceConfiguration.configurationTree);
       await waitForCanonicalPlacement(client, sourceTree, sourceConfiguration.configurationTree, destination.endpoint, destination.canonicalPath);
       const finalLocal = (await client.trees()).snapshot.find((candidate) =>
         candidate.id === sourceTree && candidate.configurationTree === sourceConfiguration.configurationTree
@@ -472,7 +470,6 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
       return;
     }
 
-    if (configurations.length < 2) throw new Error("Moving between Canopies requires at least two valid account checkouts");
     const occupied = Object.entries(destinationConfiguration.trees!).find(([tree, declaration]) =>
       tree !== sourceTree && declaration.canonical === destinationCanonical
     );
@@ -527,7 +524,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
         (document) => document.setIn([sourceTree], { canonical: destinationCanonical, access: sourceDeclaration.access }),
         (source) => { parseHostedTreesConfiguration(source, destinationConfiguration.account!); },
       );
-      await service.synchronizeNow();
+      await service.synchronizeNow(destinationConfiguration.configurationTree);
     }
     if (!resuming) {
       await replaceLocalPlacement(activePlacement, {
@@ -536,7 +533,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
       });
     }
     await waitForCanonicalPlacement(client, sourceTree, destinationConfiguration.configurationTree, destination.endpoint, destination.canonicalPath);
-    await service.synchronizeNow();
+    await service.synchronizeNow(destinationConfiguration.configurationTree);
     const finalLocal = (await client.trees()).snapshot.find((candidate) =>
       candidate.id === sourceTree && candidate.configurationTree === destinationConfiguration.configurationTree
     );
@@ -551,7 +548,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
       (document) => { document.deleteIn([sourceTree]); },
       (source) => { parseHostedTreesConfiguration(source, sourceConfiguration.account!); },
     );
-    await service.synchronizeNow();
+    await service.synchronizeNow(sourceConfiguration.configurationTree);
     const finalConfigurations = await loadCanopyAccountConfigurations();
     const finalSource = finalConfigurations.find((configuration) =>
       configuration.configurationTree === sourceConfiguration.configurationTree
