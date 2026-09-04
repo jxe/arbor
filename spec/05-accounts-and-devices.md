@@ -333,11 +333,16 @@ every later update. The server requires authorization and a declaration in the
 submitting account, not a server-visible filesystem placement. It validates
 the graph and any applicable profile invariant, creates the first accepted
 update, applies the declared ACL and canonical boundary, marks the tree active,
-and emits `tree.activation` on the account's configuration tree atomically.
-First valid activation wins: an identical replay returns `current`, and a
-different snapshot for an already active TreeID is `conflict`. Removing the
-pending declaration cancels the reservation. Pending, activating, active, and
-error status remains derived private state and events, never YAML.
+and makes its descriptor and snapshot readable atomically. First valid
+activation wins: an identical replay returns `current`, and a different
+snapshot for an already active TreeID is `conflict`.
+
+Activation emits no separate event on the account-configuration tree. A client
+that learns of a declaration before activation may retry the declared tree's
+descriptor or snapshot until the initial update makes it readable or the
+declaration disappears. Pending, activating, active, and error status remains
+derived private state, never YAML or a portable tree-watch event. Removing the
+pending declaration cancels the reservation.
 
 ## 7. Governed account tree
 

@@ -4,9 +4,4 @@ id: 1
 event: tree.update
 data: {"cursor":"1","tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"tree.update","change":{"descriptor":{"id":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"ordinary","access":"read","canonical":{"path":"/~joe/shared","endpoint":"https://community.example/.arbor/trees/tr_aaaaaaaaaaaaaaaaaaaaaaaaaa","parentTree":null},"root":"sha256:0000000000000000000000000000000000000000000000000000000000000000","update":"1"}}}
 
-id: 2
-event: tree.activation
-data: {"cursor":"2","tree":"tr_cccccccccccccccccccccccccc","kind":"tree.activation","change":{"tree":"tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-data: "status":"active"}}
-
 : end of fixture

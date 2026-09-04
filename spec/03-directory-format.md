@@ -14,7 +14,7 @@ differently while preserving the same model and the projection-specific fidelity
 guarantees it advertises.
 
 The directory projection preserves exact authored source in addition to modeled
-state, so its writes match on [bytes hashes](01-tree-operations.md#15-equality-after-a-read):
+state, so its writes match on [bytes hashes](01-tree-operations.md#representation-and-model-equality):
 file bytes, frontmatter spelling/order/comments, and reserved collection-file
 bytes
 change the bytes hash even when the model hash is unchanged.
@@ -143,6 +143,17 @@ null stable key remain path-identified.
 - Markdown files may define agents as specified by [executable documents](08-executable-documents.md#13-agents).
 
 These recognizers do not make generated declarations, compiled bundles, database credentials, or execution transcripts part of this format unless they are themselves deliberately authored ordinary tree content.
+
+For a collection-file directory, the selected `_store.csv`, `_store.json`, or
+`_store.jsonl` and `schema.ts` remain exact authored file entries in the Wire
+graph, while the directory's `childrenSource` descriptor marks their decoded
+rows as the complete immediate logical child set. Those reserved files are not
+themselves logical children. `_index.md` may still supply the directory node's
+own content, but mixing collection-file-derived rows with other expanded
+immediate children is invalid. The descriptor's Wire shape is defined with
+[tree snapshots](01-tree-operations.md#111-getting-a-snapshot-of-the-whole-tree);
+its interpretation and validation are defined by
+[child backings §2.1](07-child-backings.md#21-accepted-wire-representation).
 
 ## 6. Reserved names and sidecars
 

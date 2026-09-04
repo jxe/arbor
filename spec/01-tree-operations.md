@@ -8,13 +8,31 @@
 Arbor is conceptually a global hash table of trees:
 
 ```ts
-type Arbor = Map<TreeID, Tree>;
 type TreeID = string;
+type Name = string;
+type LogicalPath = string;
+type JSONValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JSONValue[]
+  | { [name: string]: JSONValue };
+
+type Arbor = Map<TreeID, Tree>;
 ```
 
-The same tree can be placed many times. Copies with the same `TreeID` are placements or replicas of one tree. The `TreeID` denotes the same logical tree and history wherever Arbor is implemented. Even local, private, unpublished, and offline trees have these IDs, although no public service can find them yet. (Each device, community, and application knows only the partial map it can locate and read.)
+The same tree can be placed many times. Copies with the same `TreeID` are
+placements or replicas of one tree. The `TreeID` denotes the same logical tree
+and history wherever Arbor is implemented. Even local, private, unpublished,
+and offline trees have these IDs, although no public service can find them yet.
+Each device, community, and application knows only the partial map it can
+locate and read.
 
-TreeIDs are generated randomly and locally when people share files or folders, except for person-profile TreeIDs which are not generated randomly but based on a private key that user has, to prove that tree is owned by them. See [accounts §1.1](05-accounts-and-devices.md#11-beginning-a-person-identity).
+TreeIDs are generated randomly and locally when people share files or folders.
+Person-profile TreeIDs are instead derived from a public identity key, allowing
+the person who holds its private key to prove control. See
+[accounts §1.1](05-accounts-and-devices.md#11-beginning-a-person-identity).
 
 Trees have one history and one ACL.
 
@@ -37,11 +55,9 @@ interface ChildSet {
   members: Map<Name, Node>;
   schema?: ChildSchema;
 }
-
-type Name = string;
 ```
 
-In arbor, records, tables, files, and documents are all ways to read nodes:
+In Arbor, records, tables, files, and documents are all ways to read nodes:
 
 | Reading | Representation |
 |---|---|
@@ -53,22 +69,47 @@ In arbor, records, tables, files, and documents are all ways to read nodes:
 | Row | one child of a collection, keyed by a rule its parent declares |
 | Executable document or agent | content that has been granted reviewed execution capabilities |
 
-So, a markdown page with frontmatter is both a document and a record. A folder of such pages can be
-seen as either a directory and a database table (or both).
+A Markdown page with frontmatter is therefore both a document and a record. A
+folder of such pages can be read as both a directory and a database table.
 
 For representing typed collections, a child set may declare a schema shared by its members. A node whose children share such a schema can be read as a collection. The schema defines member property and content shapes, stable identity, logical naming, relationships, ordering, and constraints.
 
 ### Representations
 
-Any particular materialized copy of an arbor tree can choose how to save things, although there are standard options for materializing a tree into a filesystem, described in [directory-format](03-directory-format.md), although those filesystem materializations can be augmented with other kinds of data materializations, described in [child backings](07-child-backings.md). Depending on how your own arbor is configured, it may roll up a remote node with many structured children into a .sqlite3 file, some .csv, etc. And when you share a local tree with sqlite3 files and so on in it, those will be mapped into this general representation.
+A placement chooses how to materialize a tree. The
+[portable directory projection](03-directory-format.md) maps ordinary files
+and folders into the model, while [child backings](07-child-backings.md) allow
+a child set to be represented by expanded files, a collection file, a database,
+or an external store. This representation choice is the child set's *backing*
+at that placement.
 
-We call this is the child set's *backing* at that placement.
+### Representation and model equality
+
+Exact representation equality and logical model equality answer different
+questions. A bytes hash identifies one exact authored byte sequence. The Wire
+root is the corresponding exact identifier for a complete accepted snapshot:
+as the object hash of the top directory, it transitively commits to the
+canonical Wire encoding of every reachable object. It is not a logical model
+hash.
+
+A model hash identifies normalized node state: properties, content, and child
+set, including the child schema and the model hashes of its members. Two
+representations can therefore have different authored bytes and Wire roots but
+the same model hash. Model hashes prove that decoding different
+representations produced equivalent logical state; they do not turn two trees
+with different `TreeID`s into the same tree.
+
+A provider computes model hashes only where doing so is bounded and useful. A
+database row can cheaply expose one for guarded writes, while a live database
+does not maintain a whole-table model hash. Freshness for an unbounded or live
+backing is expressed with its committed observation cursor instead.
 
 ## 1. Reading trees
 
-### 1.1 Tree snapshots and then watching changes
+### 1.1 Snapshot and watch
 
-Usually, a client will start off by grabbing a full snapshot of a tree, and then use the watch endpoint.
+A full replica normally begins with a complete snapshot and then follows the
+watch endpoint.
 
 ```text
 GET /.arbor/trees/{TreeID}/snapshot
@@ -130,20 +171,39 @@ type WireDirectory = {
   entries: WireDirectoryEntry[];
   childrenSource?: CollectionFileDescriptor;
 };
+
+type CollectionFileDescriptor = {
+  version: 1;
+  type: "collection-file";
+  format: "csv" | "json" | "jsonl";
+  source: "_store.csv" | "_store.json" | "_store.jsonl";
+  schemaSource: "schema.ts";
+  schemaFingerprint: Hash;
+  childSetHash: Hash;
+};
 ```
 
 A directory entry either addresses another Wire object by hash or marks a
-nested Arbor tree boundary by TreeID.
+nested Arbor tree boundary by TreeID. `childrenSource`, when present, records
+how authored collection files supply the directory's logical children; its
+projection and validation rules are defined by
+[child backings §2.1](07-child-backings.md#21-accepted-wire-representation).
 
-What exactly the hashes are of is described below in §4.
+Section 4.1 defines the common encoding and hash rules.
 
-## 1.1.2 Watching
+#### 1.1.2 Watching
 
 ```text
 GET /.arbor/trees/{TreeID}/watch?after={cursor}
 ```
 
-The request carries `Accept: text/event-stream` and may carry `Last-Event-ID: {cursor}`. `after` and `Last-Event-ID` are equivalent.
+The request carries `Accept: text/event-stream` and may carry
+`Last-Event-ID: {cursor}`. `after` and `Last-Event-ID` are equivalent.
+
+Successful state-change frames are `tree.update` events. Each represents one
+or more accepted updates; derived hosting and device status does not appear on
+this portable tree stream. `resync-required` is the terminal control event
+described below.
 
 ```ts
 type TreeUpdateEvent = {
@@ -214,13 +274,12 @@ canonical bytes: `copy` reuses a byte range from the base, while `insert`
 supplies new bytes as canonical padded base64. The receiver applies the
 instructions and requires the produced bytes to hash to `result`.
 
-Accepted updates are ordered within their tree by their `id`, the observation
-ordinal that recorded them; the same ordinal orders the combined observation
-stream, so one counter yields update ids and event cursors.
+Accepted updates are ordered within their tree by their `id`. That id is also
+the cursor of the `tree.update` event that records the update.
 
 Every update records one transition from its exact `previousRoot` to `root`, regardless of whether the authority directly accepted, merged, or restored that result.
 
-The transition can contain `objects` contains or [deltas](#26-sparse-transfer-with-object-deltas).
+The transition may carry complete `objects`, [deltas](#25-sparse-transfer-with-object-deltas), or both.
 
 `transitions` is nonempty, chains exactly by root (each `previousRoot` is the preceding `root`), and ends at `change.descriptor.update` and `change.descriptor.root`. A client may apply a batch sequentially in memory and commit only the final materialization.
 
@@ -231,26 +290,6 @@ payload, or a batch too old for retained transition data produces one terminal
 `resync-required` event and closes. The client reads a new coherent snapshot
 and resumes strictly after that snapshot's cursor.
 
-<!--todo: is the tree.activation thing necessary? why? it complicates the wire protocol in a way I am unsure about -->
-
-`tree.activation` is the one observation kind that is not an accepted update. When a tree declared in
-`trees.yaml` becomes active ([accounts §6](05-accounts-and-devices.md#6-declaring-and-activating-a-tree)), the
-authority records one event on the declaring account's configuration-tree
-stream:
-
-```ts
-type TreeActivationEvent = {
-  cursor: EventCursor;
-  tree: TreeID; // the account-configuration tree carrying the event
-  kind: "tree.activation";
-  change: { tree: TreeID; status: "active" };
-};
-```
-
-`change.tree` names the newly active tree. The event advances the
-configuration tree's observation stream and `observedThrough` without changing
-its accepted content update; a watcher applies no transition for it.
-
 ### 1.2 Other ways to read trees
 
 #### 1.2.1 Reading tree metadata
@@ -259,7 +298,7 @@ its accepted content update; a watcher applies no transition for it.
 GET /.arbor/trees/{TreeID}
 ```
 
-Give you:
+The response is:
 
 ```ts
 type CurrentTree = {
@@ -271,12 +310,15 @@ type CurrentTree = {
 The descriptor's `root` is the bytes hash of the current accepted tree state
 and `update` is the accepted-update id that produced it.
 `observedThrough` is the cursor after which a client can begin watching without
-a read/watch race. Hosted trees have, in addition, a canonical path,
-endpoint, and might be nested inside a parent-tree.
+a read/watch race. Because accepted updates are the only state changes on a
+portable tree watch, it equals `tree.update`; the separate field makes the
+snapshot-then-watch boundary explicit. Hosted trees have, in addition, a
+canonical path, endpoint, and might be nested inside a parent-tree.
 
-#### 1.2.2 Reading a node at a time
+#### 1.2.2 Reading an object at a time
 
-This endpoint is only necessary for clients that don't grab a whole tree, so they can grab files and directories on demand.
+Clients that do not retain a whole tree can use this endpoint to fetch files
+and directories on demand.
 
 ```text
 GET /.arbor/trees/{TreeID}/objects/{hash}
@@ -286,130 +328,6 @@ This route returns the same canonical CBOR bytes carried in an `ObjectEnvelope`,
 
 A client may also use this to refetch one missing or corrupt current object instead of downloading a complete snapshot. Because objects are immutable and addressed by their bytes, successful responses can be cached and reused wherever that hash remains reachable and authorized.
 
-### 1.4 Interpreting the object graph
-
-#### 1.4.1 Collection-file interpretation
-
-<!--todo: this should be in directory-format and child-backings, not here-->
-
-An ordinary directory represents immediate children with separate entries. A
-collection-file directory instead stores many logical children inside one
-physical file:
-
-```text
-Physical entries below /books:
-  _store.json  → sourceHash
-  schema.ts    → schemaHash
-
-Logical children below /books:
-  alice
-  bob
-```
-
-The entry hashes prove and preserve the two files' exact bytes, but entries
-alone do not say that rows in `_store.json` are children. The directory's
-`childrenSource` descriptor supplies that interpretation:
-
-```ts
-type CollectionFileDescriptor = {
-  version: 1;
-  type: "collection-file";
-  format: "csv" | "json" | "jsonl";
-  source: "_store.csv" | "_store.json" | "_store.jsonl";
-  schemaSource: "schema.ts";
-  schemaFingerprint: Hash;
-  childSetHash: Hash;
-};
-```
-
-| Fields | Meaning |
-|---|---|
-| `version`, `type` | Select this descriptor contract. |
-| `format`, `source` | Select the physical collection file and the parser for its exact bytes. |
-| `schemaSource` | Select the physical schema file used to interpret the rows. |
-| `schemaFingerprint` | Commit to the exact UTF-8 bytes of the selected schema source. |
-| `childSetHash` | Commit to the normalized logical children derived from the collection file and schema. |
-
-A conforming authority validates the descriptor in this order:
-
-1. Require `source` and `schemaSource` to name two ordinary file entries in
-   the same directory, and require `source` to agree with `format`.
-2. Load the exact source and schema bytes through those entries' hashes.
-3. Recompute `schemaFingerprint` from the exact schema bytes, then evaluate
-   `schema.ts` in the restricted application-code runtime.
-4. Parse the collection file, then validate and normalize every row with that
-   schema.
-5. Derive every row's stable key and logical name using the schema's
-   `childName` rule.
-6. Canonically order the resulting `{ key, name, properties }` values and
-   recompute `childSetHash`.
-7. Reject a missing or multiply claimed source, an invalid row, key, or name,
-   or either derived-hash mismatch.
-8. Expose the normalized rows as the directory node's immediate logical
-   children. Preserve `source` and `schemaSource` as physical authored
-   entries, but do not expose them as logical children.
-
-A directory without `childrenSource` derives its immediate children from
-ordinary expanded entries. A directory with `childrenSource` derives the
-complete immediate child set through the procedure above; mixing those
-collection-file-derived children with expanded immediate children is invalid.
-
-The three hashes identify different things. The collection file's
-`childSetHash` identifies only the decoded child-set contribution. The
-enclosing node's model hash additionally covers its properties, content, and
-child schema. The Wire root identifies the exact authored object graph. A
-formatting-only edit can therefore change the Wire root while leaving both
-logical hashes unchanged.
-
-Database-backed placements are not decoded through a
-`CollectionFileDescriptor`; database pages and WAL files are never
-`WireObject` values. Their snapshot, observation, and future synchronization
-rules belong to [child backings](07-child-backings.md).
-
-### 1.5 Equality after a read
-
-<!--todo: this stuff should go under 'arbor data model' at the top, but should be more concise-->
-
-There are three different comparisons a reader may need. They must not be
-substituted for one another.
-
-#### 1.5.1 Exact representation equality
-
-A bytes hash identifies one exact byte sequence. For example, the bytes hash
-of an authored file changes when a CSV is reformatted or frontmatter keys are
-reordered, even if decoding produces the same model. It exists only where the
-representation exposes bytes. Its uses are proving that authored source is
-untouched and performing byte-level compare-and-swap.
-
-The Wire root plays the corresponding role for a complete Wire snapshot. It
-is the object hash of the top directory. Because that directory contains the
-hashes of its children, it transitively commits to the exact canonical Wire
-encoding of every reachable object. Equal Wire roots therefore prove equal
-Wire snapshots. The Wire root is not a logical model hash.
-
-#### 1.5.2 Logical model equality
-
-A model hash identifies normalized model state: a node's properties, content,
-and child set, including the child schema and the model hashes of its members.
-Two representations can therefore have different authored bytes and Wire
-roots but the same model hash.
-
-Model hashes prove that decoding two representations produced equivalent
-logical state. They support work avoidance and verification that a reformat or
-migration preserved the data. Expanded Markdown records, JSON, SQLite, and
-Postgres may represent one model-equivalent collection even though none is the
-canonical serialization of the others.
-
-A model hash is defined for every logical node, but a provider computes one
-only where doing so is bounded and useful. A database row's model hash is
-cheap, so a row write can match it. A live database does not maintain a model
-hash for a whole table; table freshness is expressed with a committed
-observation cursor instead.
-
-The same tree or node can change both its representation hash and model hash
-while retaining identity. Conversely, two different trees can happen to have
-equal Wire roots or model hashes without becoming the same tree.
-
 ## 2. Updates and writes
 
 ### 2.1 The update request
@@ -418,7 +336,8 @@ equal Wire roots or model hashes without becoming the same tree.
 POST /.arbor/trees/{TreeID}/updates
 ```
 
-The client submits some updates against an accepted base it observed, together with which hash must still match for the candidate to be accepted:
+The client submits one candidate against an accepted base it observed and says
+which equality level must still match for that candidate to be accepted:
 
 ```ts
 type UpdateRequest = TransitionPayload & {
@@ -431,7 +350,7 @@ type UpdateRequest = TransitionPayload & {
 
 An update proposes a transition from the accepted base to the candidate root;
 the authority accepts it, or merges and answers with the transition from the
-candidate to what it accepted; watch ([§3](#1.1.2-watching))
+candidate to what it accepted; watch ([§1.1.2](#112-watching))
 delivers every accepted transition in order. One payload shape serves all
 three.
 
@@ -443,12 +362,12 @@ canonical CBOR objects the server does not already retain; a client normally
 walks base and candidate together and omits unchanged objects. The candidate
 must still be complete and provable from retained base objects, supplied
 objects, and valid `deltas`. The
-[delta rules](#26-sparse-transfer-with-object-deltas) define interchangeable
+[delta rules](#25-sparse-transfer-with-object-deltas) define interchangeable
 transfer representations; they do not change the candidate's identity.
 
 ### 2.2 What the write matches
 
-`ifMatch` names which hash from the [read equality rules](#15-equality-after-a-read)
+`ifMatch` names which hash from the [data-model equality rules](#representation-and-model-equality)
 must still match its value at base, as an ETag does for HTTP `If-Match`:
 
 - `bytesHash`: the tree's bytes hash must still match, so current must still
@@ -504,45 +423,13 @@ of these decisions:
    Accepted state does not advance and the rejected candidate does not become
    history.
 
-A merge rule is the representation-specific way to combine two changes to
-one node: `markdown-additive-v1` for Markdown,
-`collection-file-rows-v1` for a collection file, and `account-config-v2` for
-the governed configuration tree. A node
-with no merge rule, or one the rule cannot combine, is a conflict.
+A merge rule is the representation-specific way to combine two changes to one
+node: `markdown-additive-v1` for Markdown,
+[`collection-file-rows-v1`](07-child-backings.md#23-accepted-update-validation-and-merge)
+for a collection file, and `account-config-v2` for the governed configuration
+tree. A node with no merge rule, or one the rule cannot combine, is a conflict.
 
-### 2.4 Collection-file validation and merge
-
-<!--todo: this should also be moved to child-backings-->
-
-When a candidate changes a recognized collection file, the submitted root
-names the exact lossless encoding of that candidate tree state. The authority
-decodes coherent base, current, and candidate representations under schema and
-resource bounds, recomputes logical row identities and the collection file's
-child-set hash, applies `collection-file-rows-v1` to a conflicting collection
-file, validates all
-keys, foreign keys, and constraints, and encodes the accepted representation.
-It never trusts a client-supplied schema fingerprint or child-set hash.
-Formatting-only changes advance the accepted root without changing the
-child-set hash, so they invalidate no logical query dependency.
-
-The update setting `ifMatch: "modelHash"` is intentionally not renamed: it
-compares the complete model hash of every touched logical node, not the
-collection file's narrower `childSetHash`. The latter is used while decoding
-and merging the node's child-set contribution. SQLite and Postgres changes use
-the database transaction,
-observation, and semantic-checkpoint protocol specified separately; live
-database storage bytes are never submitted or merged as a collection-file
-object.
-
-Authorities advertise collection-file, schema, and row quotas and never
-accept a collection file they cannot validate completely. Semantic merge
-reports `collection-file-row-conflict`, `collection-file-schema-conflict`, or
-`collection-file-constraint-conflict`; a row conflict path uses the parent
-logical path plus its `arbor-key` identity suffix. Database backings do not use
-this exact-source descriptor and their live storage bytes are never accepted
-as Wire objects.
-
-### 2.5 Results, conflicts, and retry
+### 2.4 Results, conflicts, and retry
 
 A successful response is:
 
@@ -558,11 +445,12 @@ type UpdateResult = {
 
 `update` is the accepted update that stands after the decision: the untouched
 current one for `current`, or the newly accepted or merged one. `merge` is
-present only when a merge rule ran; a merge of disjoint nodes carries none. An accepted update's `id` is the decimal ordinal
-of the observation that recorded it, so it is also that update's `tree.update`
-cursor and `observedThrough`. `reconciliation` is present exactly when the accepted root differs from the
+present only when a merge rule ran; a merge of disjoint nodes carries none. An
+accepted update's `id` is the decimal ordinal of the `tree.update` event that
+recorded it, so it is also that event's cursor and `observedThrough`.
+`reconciliation` is present exactly when the accepted root differs from the
 submitted candidate: it is the transition from the candidate root to
-`update.root` under the [deltas](#26-sparse-transfer-with-object-deltas) rules, so
+`update.root` under the [deltas](#25-sparse-transfer-with-object-deltas) rules, so
 a superseded, merged, or replayed result is applied with the same code that
 applies a watch frame. An accepted candidate returns none.
 
@@ -572,7 +460,7 @@ roots, structured conflict reasons naming each conflicting node, and `draft`,
 the transition from the candidate root to the draft root the client keeps.
 
 Semantic request identity is the SHA-256 of the
-[canonical CBOR encoding](#121-canonical-cbor-and-hashes)
+[canonical CBOR encoding](#41-cbor-and-hashes)
 of `{ version: "updates-v1", tree, base, candidate, ifMatch, onConflict }`,
 with `onConflict` as its effective value, scoped to the
 authenticated credential. `objects`, `deltas`, and their ordering are
@@ -595,16 +483,14 @@ type ArborError<TDetails = unknown> = {
 };
 ```
 
-An update has two identities:
+Two tokens that serve different purposes are often encountered together:
 
-<!--todo: turn the below into two bullets-->
+- An accepted-update `id` identifies one durable accepted transition of one
+  tree and is also that transition's `tree.update` cursor.
+- A credential-scoped `requestDigest` identifies one canonical `updates-v1`
+  semantic request across retries and different object/delta packaging.
 
-| Token | Identifies | Survives |
-|---|---|---|
-| accepted update `id` | one accepted transition of one tree | it is also that update's `tree.update` cursor |
-| `requestDigest` | canonical `updates-v1` semantic intent | retransmission with different object/delta packaging |
-
-### 2.6 Sparse transfer with object deltas
+### 2.5 Sparse transfer with object deltas
 
 A transition transfers the content-addressed graph sparsely. Each changed
 object travels either as its complete canonical bytes or as a delta against an
@@ -644,14 +530,14 @@ another transfer representation without changing semantic identity. Duplicate
 results, a result also supplied as a complete object, noncanonical base64,
 out-of-bounds copies, arithmetic overflow, and quota excess are invalid.
 
-## 4. Editor round trip
+## 3. Editor round trip
 
 > **Learning tip:** Make authored work durable locally before network
 > submission. The update response and its watch event may race; both must be
 > idempotent, and editor history remains distinct from accepted tree
 > transitions.
 
-### 4.1 One complete round trip
+### 3.1 One complete round trip
 
 This non-normative example shows how the preceding operations compose:
 
@@ -675,9 +561,9 @@ merged graph and advancing its local base. The event acknowledges candidate
 intent, not the submitted delta bytes: a merge may produce a different accepted
 representation. Rejected conflicts never appear on watch.
 
-## 5. encoding details
+## 4. Encoding details
 
-### 5.1 CBOR and hashes
+### 4.1 CBOR and hashes
 
 Whenever Arbor hashes a structured value, it first encodes that value as
 canonical CBOR and then hashes those bytes with SHA-256. The section that
@@ -726,7 +612,7 @@ that update even if a newer update is accepted while the response is being
 encoded. The response therefore satisfies `tree.root === root`; it is an
 atomic current-state read, not an accepted-history query.
 
-### 5.2 Stream framing and errors
+### 4.2 Stream framing and errors
 
 Tree watch and query result streams use one UTF-8 SSE framing rule: blank lines
 separate frames, multiple `data:` lines join with newlines, and clients ignore
@@ -755,7 +641,7 @@ reserved boundaries, policy failures, and merge conflicts use `conflict` with
 discriminated `server-update` or `account-configuration` details where
 applicable.
 
-### 5.3 Other constraints
+### 4.3 Other constraints
 
 Names reject NUL, slashes, backslashes, dot segments, non-NFC text, and
 reserved ambiguity. Directory entries are canonically ordered.

@@ -54,7 +54,7 @@ not invent a whole-database bytes hash or model hash.
 
 Reformatting JSON or CSV changes the bytes hash and not the model hash,
 and a representation migration may preserve the digest while changing every
-byte ([tree reads §1.5](01-tree-operations.md#15-equality-after-a-read)). Updates name the complete candidate tree and may carry
+byte ([data-model equality](01-tree-operations.md#representation-and-model-equality)). Updates name the complete candidate tree and may carry
 compact patches to representation bytes, but the authority decodes
 base/current/candidate under quotas, merges by stable node identity where safe,
 validates the complete schema and constraints, and computes the accepted model
@@ -185,6 +185,68 @@ Markdown must therefore reject a child with content or children unless a later
 target format explicitly represents those parts; equal keys alone do not make
 a lossy conversion model-equivalent.
 
+### 2.1 Accepted Wire representation
+
+An expanded directory represents immediate children with separate entries. A
+collection-file directory instead keeps many logical children in one physical
+authored file:
+
+```text
+Physical entries below /books:
+  _store.json  → sourceHash
+  schema.ts    → schemaHash
+
+Logical children below /books:
+  alice
+  bob
+```
+
+The entry hashes prove and preserve the two files' exact bytes, while the
+directory's `childrenSource` descriptor supplies their logical
+interpretation. Its shape is defined with the
+[Wire directory](01-tree-operations.md#111-getting-a-snapshot-of-the-whole-tree).
+The descriptor fields have these meanings:
+
+| Fields | Meaning |
+|---|---|
+| `version`, `type` | Select this descriptor contract. |
+| `format`, `source` | Select the physical collection file and parser for its exact bytes. |
+| `schemaSource` | Select the physical schema file used to interpret the rows. |
+| `schemaFingerprint` | Commit to the exact UTF-8 bytes of the selected schema source. |
+| `childSetHash` | Commit to the normalized logical children derived from the collection file and schema. |
+
+A conforming authority validates the descriptor in this order:
+
+1. Require `source` and `schemaSource` to name two ordinary file entries in
+   the same directory, and require `source` to agree with `format`.
+2. Load the exact source and schema bytes through those entries' hashes.
+3. Recompute `schemaFingerprint` from the exact schema bytes, then evaluate
+   `schema.ts` in the restricted application-code runtime.
+4. Parse the collection file, then validate and normalize every row with that
+   schema.
+5. Derive every row's stable key and logical name using the schema's
+   `childName` rule.
+6. Canonically order the resulting `{ key, name, properties }` values and
+   recompute `childSetHash`.
+7. Reject a missing or multiply claimed source, an invalid row, key, or name,
+   or either derived-hash mismatch.
+8. Expose the normalized rows as the directory node's complete immediate
+   logical child set. Preserve `source` and `schemaSource` as physical authored
+   entries, but do not expose them as logical children.
+
+The three relevant hashes identify different things. `childSetHash` identifies
+only the decoded child-set contribution. The enclosing node's model hash also
+covers its properties, content, and child schema. The Wire root identifies the
+exact authored object graph. A formatting-only edit can therefore change the
+Wire root while leaving both logical hashes unchanged.
+
+Database-backed placements are not decoded through a
+`CollectionFileDescriptor`; database pages and WAL files are never
+`WireObject` values. Their snapshot, observation, and synchronization rules are
+the database contracts below.
+
+### 2.2 File writes and observation
+
 When the mutation runtime commits a collection-file write, the adapter realizes
 that commit as one guarded whole-file replacement. It locks the source, checks
 its bytes hash, validates the complete key set and requested effects, writes and
@@ -208,6 +270,31 @@ to collection invalidation. Reordering lines does not change identity.
 Mixing backing shapes produces a diagnostic and disables collection-level interpretation without making the underlying files inaccessible. Invalid rows are diagnostics, not daemon crashes or silent deletion.
 
 The schema evaluator accepts the authored schema and its declared schema-library import under the [no-ambient-authority rule](08-executable-documents.md#2-authored-component-forms), with finite resource bounds. This specification does not prescribe evaluator technology or generated-file layout.
+
+### 2.3 Accepted update validation and merge
+
+When a candidate changes a recognized collection file, the submitted root
+names the exact lossless encoding of that candidate tree state. The authority
+decodes coherent base, current, and candidate representations under schema and
+resource bounds, recomputes logical row identities and `childSetHash`, applies
+`collection-file-rows-v1` to a conflicting collection file, validates all keys,
+foreign keys, and constraints, and encodes the accepted representation. It
+never trusts a client-supplied schema fingerprint or child-set hash.
+Formatting-only changes advance the accepted root without changing
+`childSetHash`, so they invalidate no logical query dependency.
+
+The update setting `ifMatch: "modelHash"` compares the complete model hash of
+every touched logical node, not the collection file's narrower `childSetHash`.
+The latter is used while decoding and merging the node's child-set
+contribution. SQLite and Postgres changes instead use the database transaction,
+observation, and semantic-checkpoint contracts; live database storage bytes are
+never submitted or merged as a collection-file object.
+
+Authorities advertise collection-file, schema, and row quotas and never accept
+a collection file they cannot validate completely. Semantic merge reports
+`collection-file-row-conflict`, `collection-file-schema-conflict`, or
+`collection-file-constraint-conflict`; a row conflict path uses the parent
+logical path plus its `arbor-key` identity suffix.
 
 ## 3. SQLite
 

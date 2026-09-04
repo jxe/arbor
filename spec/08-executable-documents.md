@@ -149,7 +149,7 @@ A live dependency plan is a set of (provider, observation cursor, precision
 scope) entries: the narrowest proved nodes, child membership, property/content
 fields, edges, schema fingerprints, mounted roots, and profile/access facts
 that can affect the result, each bound to the cursor it was read through
-([watching §3.2](01-tree-operations.md#32-observation-cursors-and-the-no-gap-start)). Providers translate it into committed observation or
+([tree watching](01-tree-operations.md#112-watching)). Providers translate it into committed observation or
 conservative subtree/store invalidation. Observation precision is an
 optimization and cannot change the result.
 

@@ -57,9 +57,9 @@ directory object per directory, each addressed by the SHA-256 of its canonical
 CBOR. It sends `POST /.arbor/trees/tr_…/updates` with `base: null`, the root
 hash as `candidate`, and every object. The server verifies the graph, records
 the first accepted update, applies the declared ACL and canonical boundary,
-marks the tree active, and emits `tree.activation` on the configuration tree.
+and atomically makes the tree's descriptor and snapshot readable.
 `https://garden.example/~joe/atlas` and `arbor://tr_…/` now resolve to the
-same tree ([object graph §1.4](01-tree-operations.md#14-interpreting-the-object-graph),
+same tree ([snapshot](01-tree-operations.md#111-getting-a-snapshot-of-the-whole-tree),
 [locator forms](04-locators.md#1-forms), [canonical lookup](04-locators.md#5-finding-trees)).
 
 ## 4. Edit a file
@@ -72,10 +72,10 @@ objects from `notes.md` up to the root. It sends the file as an `ObjectDelta`
 against the previous file object and the small directory objects in full,
 with `base` set to the accepted update id it last observed and
 `ifMatch: "modelHash"`. The server finds current equal to base and answers
-`201 accepted` with the new update's id and the request digest ([sparse transfer](01-tree-operations.md#26-sparse-transfer-with-object-deltas),
+`201 accepted` with the new update's id and the request digest ([sparse transfer](01-tree-operations.md#25-sparse-transfer-with-object-deltas),
 [submit](01-tree-operations.md#21-the-update-request)). The root that changed is a bytes hash; the model hash of every node Joe did
 not touch is unchanged
-([revisions](01-tree-operations.md#15-equality-after-a-read)).
+([equality](01-tree-operations.md#representation-and-model-equality)).
 
 ## 5. Follow from a second device
 
@@ -84,14 +84,14 @@ Alice reads `GET /.arbor/trees/tr_…`, which returns the current descriptor and
 later accepted update arrives as a `tree.update` frame carrying the transition
 from the previous root to the new one, as objects and deltas. She applies a
 batch in memory and materializes only its final state
-([read](01-tree-operations.md#11-reading-the-current-tree), [watch](01-tree-operations.md#31-the-watch-endpoint-and-event-values)).
+([read](01-tree-operations.md#1-reading-trees), [watch](01-tree-operations.md#112-watching)).
 If Alice has write access and edits a different file from the same base, her
 submission's model hashes still match and the server merges it onto Joe's.
 If both edit `notes.md`, that node conflicts; under the default
 `onConflict: "merge"` the `markdown-additive-v1` merge rule combines the two
 edits when it can, and otherwise the server answers `409 conflict` with the
 current update and a complete draft the client keeps
-([authority decision](01-tree-operations.md#23-the-authority-decision)).
+([authority decision](01-tree-operations.md#23-accepting-and-merging)).
 
 ## 6. Add a collection
 
@@ -105,7 +105,7 @@ the exact CSV and `schema.ts` remain ordinary physical entries while the
 directory's collection-file descriptor identifies them as the source of its
 logical children. The authority recomputes both the schema fingerprint and the
 child-set hash
-([object graph §1.4](01-tree-operations.md#14-interpreting-the-object-graph)).
+([accepted Wire representation](07-child-backings.md#21-accepted-wire-representation)).
 Each row has an ordinary public address such as
 `/~joe/atlas/practices/walking;arbor-key=…` ([public projection](04-locators.md#6-public-http-projection)).
 
@@ -156,4 +156,4 @@ Joe changes `canonical` to `https://garden.example/~joe/atlas-2026` in
 `TreeID`, every stable key, every object, and the accepted history are
 unchanged; only the secondary lookup moved. `arbor://tr_…/practices/walking;arbor-key=…`
 still resolves, and Alice's placement keeps following the same tree
-([canonical lookup](04-locators.md#5-finding-trees), [revisions](01-tree-operations.md#15-equality-after-a-read)).
+([canonical lookup](04-locators.md#5-finding-trees), [equality](01-tree-operations.md#representation-and-model-equality)).

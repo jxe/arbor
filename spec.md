@@ -86,16 +86,16 @@ Every HTTP route an Arbor server exposes, and the section that defines it.
 | Route | Defined in |
 |---|---|
 | `GET /.arbor/health`, `GET /.arbor/account`, `GET /.arbor/trees`, `GET /.well-known/arbor[/{path}]` | [locators §5](spec/04-locators.md#5-finding-trees) |
-| `GET /.arbor/trees/{TreeID}`, `/snapshot`, `/objects/{hash}` | [tree reads §1.1–1.3](spec/01-tree-operations.md#11-reading-the-current-tree) |
+| `GET /.arbor/trees/{TreeID}`, `/snapshot`, `/objects/{hash}` | [tree reads §1.1–1.2](spec/01-tree-operations.md#1-reading-trees) |
 | `POST /.arbor/trees/{TreeID}/updates` | [updates §2.1](spec/01-tree-operations.md#21-the-update-request) |
-| `GET /.arbor/trees/{TreeID}/watch` | [watching §3.1](spec/01-tree-operations.md#31-the-watch-endpoint-and-event-values) |
+| `GET /.arbor/trees/{TreeID}/watch` | [watching §1.1.2](spec/01-tree-operations.md#112-watching) |
 | `QUERY /.arbor/trees/{TreeID}/queries` | [executable documents §12.1](spec/08-executable-documents.md#121-evaluate-and-stream-named-queries) |
 | `POST /.arbor/trees/{TreeID}/mutate` | [executable documents §12.2](spec/08-executable-documents.md#122-execute-named-mutations) |
 | `GET /.arbor/trees/{TreeID}/access` | [access control §4](spec/06-access-control.md#4-reading-access) |
 | `POST /.arbor/account-challenges`, `PUT /.arbor/accounts` | [accounts §1.1–1.2](spec/05-accounts-and-devices.md#11-beginning-a-person-identity) |
 | `POST /.arbor/pairings`, `PUT /.arbor/pairings/{PairingID}/claim` | [accounts §5](spec/05-accounts-and-devices.md#5-device-pairing) |
 
-Authentication headers apply to every route ([access control §2](spec/06-access-control.md#2-authentication-and-secrets)); shared read values are introduced with [tree reads §1.1](spec/01-tree-operations.md#11-reading-the-current-tree), while SSE framing and common errors are in [watching §3.5](spec/01-tree-operations.md#35-stream-framing-and-errors).
+Authentication headers apply to every route ([access control §2](spec/06-access-control.md#2-authentication-and-secrets)); shared read values are introduced with [tree reads §1.1](spec/01-tree-operations.md#1-reading-trees), while SSE framing and common errors are in [encoding §4.2](spec/01-tree-operations.md#42-stream-framing-and-errors).
 
 ## Component roles
 
