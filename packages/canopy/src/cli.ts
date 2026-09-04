@@ -44,7 +44,9 @@ export function serveMaintenance(port: number, hostname: string): ReturnType<typ
     idleTimeout: 30,
     fetch(request) {
       const { pathname } = new URL(request.url);
-      if (pathname === "/.arbor/health") {
+      // Railway checks the configured lightweight root path. Keep both health
+      // probes live while every application route remains unavailable.
+      if (pathname === "/" || pathname === "/.arbor/health") {
         return Response.json({ status: "maintenance" }, { headers: { "cache-control": "no-store" } });
       }
       return Response.json(

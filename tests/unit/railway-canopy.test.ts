@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { serveMaintenance } from "../../packages/canopy/src/cli.ts";
 import { dnsLines, parseCanopyDeploymentConfig } from "../../deploy/railway-canopy.ts";
 
 const valid = [
@@ -13,6 +14,23 @@ const valid = [
 ].join("\n");
 
 describe("Railway Canopy deployment config", () => {
+  test("keeps Railway's root probe healthy during offline maintenance", async () => {
+    const server = serveMaintenance(0, "127.0.0.1");
+    try {
+      const origin = `http://127.0.0.1:${server.port}`;
+      const root = await fetch(`${origin}/`);
+      expect(root.status).toBe(200);
+      expect(await root.json()).toEqual({ status: "maintenance" });
+      const health = await fetch(`${origin}/.arbor/health`);
+      expect(health.status).toBe(200);
+      expect(await health.json()).toEqual({ status: "maintenance" });
+      const application = await fetch(`${origin}/~joe`);
+      expect(application.status).toBe(503);
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("parses the checked-in non-secret desired state", () => {
     expect(parseCanopyDeploymentConfig(valid)).toEqual({
       ARBOR_RAILWAY_SERVICE: "canopy-arb-nxhx-org",
