@@ -32,6 +32,30 @@ Run it only while the Canopy is stopped or in maintenance mode, after creating
 and downloading a verified volume archive. Re-running it against an exact
 schema-6 root validates the result and reports `alreadyMigrated: true`.
 
+After the Canopy migration succeeds, rekey the matching offline Arbor home
+without hand-editing its account files:
+
+```sh
+bun run migrations/004-profile-identity-challenges/run.ts local-home ~/.arbor \
+  --configuration <configuration-TreeID> \
+  --replace-profile <old-TreeID> <new-self-certifying-TreeID> \
+  --profile-path ~/.arbor/profile \
+  --backup <new-backup-directory>
+
+arbor me restore <identity-backup> ~/.arbor/profile
+```
+
+The local form requires Arbor Sync to be stopped. It first validates the exact
+account, connection metadata, placement, profile workspace identity, and all
+replacement targets, then writes a complete backup before changing anything.
+It serializes the account checkout exactly as the Canopy migration does,
+updates the private connection hint, removes only the old profile placement,
+rebinds the existing profile folder to the new TreeID, and discards only
+rebuildable refs, sync journals, and that folder's workspace index. It does not
+change any authored file in the profile or another placed tree. Restore then
+installs the already-created private identity key in this Arbor home's
+operating-system credential slot. Exact reruns report `alreadyMigrated: true`.
+
 For `arb.nxhx.org`, the old profile is not hosted there, so the explicit rekey
 form preserves the current todos root and account/device credentials without a
 service or volume replacement. The checked-in deployment manifest supplies
@@ -58,3 +82,10 @@ and `trees.yaml` identity changes. The todos tree
 An exact rerun was idempotent. The migrated copy reopened under the production
 Canopy, passed complete object/SQLite integrity, retained Joe's write access to
 todos under the new profile, and returned healthy over HTTP.
+
+The local-home form was then rehearsed on a separate copy of the full pre-cutover
+Mac data home. Its generated account checkout hashed to the same migrated
+configuration root shown above. A directory comparison found only the expected
+account/connection/placement/workspace-registry edits and removal of the old
+profile/configuration caches; the todos placement and workspace were untouched.
+An exact rerun reported `alreadyMigrated: true` and made no backup or edits.

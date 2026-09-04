@@ -172,7 +172,7 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     await mkdir(home, { recursive: true });
     await mkdir(profilePath, { recursive: true });
     process.env.ARBOR_DATA_HOME = home;
-    await new ProfileIdentityStore().begin(profilePath);
+    await new ProfileIdentityStore().create(profilePath);
     const service = await ArborSyncDaemon.openControl({ autoSync: false });
     const configurationTrees: string[] = [];
     try {

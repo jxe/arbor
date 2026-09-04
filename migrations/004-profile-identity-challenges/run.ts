@@ -1,6 +1,7 @@
 // Migration 004: add the single-use profile-identity challenge ledger.
 //
 //   bun run migrations/004-profile-identity-challenges/run.ts canopy-root <data-root>
+//   bun run migrations/004-profile-identity-challenges/run.ts local-home <data-home> ...
 //
 // The runner is offline, explicit, idempotent, and does not rewrite authored
 // trees or account identity. Existing random profile IDs remain readable, but
@@ -15,6 +16,7 @@ import { ObjectStore } from "../../packages/canopy/src/objects.ts";
 import { rootProfileFacts } from "../../packages/canopy/src/profile.ts";
 import { AcceptedUpdateStore } from "../../packages/canopy/src/updates/store.ts";
 import { AUTHORITY_SCHEMA, CANOPY_SCHEMA_VERSION, assertCurrentCanopySchema } from "../../packages/canopy/src/schema.ts";
+import { migrateLocalHome } from "./local.ts";
 
 const FROM_STAMP = "5";
 const TARGET_STAMP = "6";
@@ -278,13 +280,50 @@ export async function migrateCanopyRoot(
 
 async function main(): Promise<void> {
   const [mode, root, ...extra] = process.argv.slice(2);
-  if (mode !== "canopy-root" || !root || (extra.length !== 0 && extra.length !== 5)) {
-    throw new Error("Usage: bun run migrations/004-profile-identity-challenges/run.ts canopy-root <data-root> [--replace-profile <old> <new> --public-key <base64url>]");
+  const canopyUsage = "Usage: bun run migrations/004-profile-identity-challenges/run.ts canopy-root <data-root> [--replace-profile <old> <new> --public-key <base64url>]";
+  const localUsage = "Usage: bun run migrations/004-profile-identity-challenges/run.ts local-home <data-home> --configuration <TreeID> --replace-profile <old> <new> --profile-path <path> --backup <directory>";
+  if (!root || (mode !== "canopy-root" && mode !== "local-home")) {
+    throw new Error(`${canopyUsage}\n${localUsage}`);
+  }
+  if (mode === "local-home") {
+    let configurationTree: string | undefined;
+    let previous: string | undefined;
+    let profileTree: string | undefined;
+    let profilePath: string | undefined;
+    let backup: string | undefined;
+    for (let index = 0; index < extra.length;) {
+      const name = extra[index++];
+      if (name === "--replace-profile") {
+        if (previous || !extra[index] || !extra[index + 1]) throw new Error(localUsage);
+        previous = extra[index++];
+        profileTree = extra[index++];
+        continue;
+      }
+      const value = extra[index++];
+      if (!value) throw new Error(localUsage);
+      if (name === "--configuration" && !configurationTree) configurationTree = value;
+      else if (name === "--profile-path" && !profilePath) profilePath = value;
+      else if (name === "--backup" && !backup) backup = value;
+      else throw new Error(localUsage);
+    }
+    if (!configurationTree || !previous || !profileTree || !profilePath || !backup) throw new Error(localUsage);
+    console.log(JSON.stringify(await migrateLocalHome({
+      dataHome: root,
+      configurationTree,
+      previous,
+      profileTree,
+      profilePath,
+      backup,
+    }), null, 2));
+    return;
+  }
+  if (extra.length !== 0 && extra.length !== 5) {
+    throw new Error(canopyUsage);
   }
   let replacement: ProfileReplacement | undefined;
   if (extra.length) {
     if (extra[0] !== "--replace-profile" || extra[3] !== "--public-key" || extra[2] === undefined || extra[4] === undefined) {
-      throw new Error("Usage: bun run migrations/004-profile-identity-challenges/run.ts canopy-root <data-root> [--replace-profile <old> <new> --public-key <base64url>]");
+      throw new Error(canopyUsage);
     }
     replacement = { previous: extra[1]!, profileTree: extra[2], publicKey: extra[4] };
   }

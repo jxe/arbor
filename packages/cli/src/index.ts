@@ -712,7 +712,7 @@ async function main(): Promise<void> {
     }
     if (action === "create") {
       if (operands.length > 1) usage();
-      const status = await store.begin(resolveUserPath(operands[0] ?? `${arborDataRoot()}/profile`));
+      const status = await store.create(resolveUserPath(operands[0] ?? `${arborDataRoot()}/profile`));
       console.log(`Profile TreeID: ${status.profileTree}`);
       console.log(`Profile folder: ${status.profilePath}`);
       return;

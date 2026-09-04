@@ -40,7 +40,7 @@ beforeAll(async () => {
   source = await realpath(source);
   await writeFile(join(source, "todo.md"), "# Keep this\n");
   process.env.ARBOR_DATA_HOME = state;
-  const identity = await new ProfileIdentityStore().begin(profile);
+  const identity = await new ProfileIdentityStore().create(profile);
   sourceCanopy = await serveCanopy({
     dataRoot: join(sandbox, "source-canopy"),
     publicOrigin: "http://127.0.0.1:0",

@@ -33,7 +33,7 @@ await mkdir(promotableRoot, { recursive: true });
 await mkdir(state, { recursive: true });
 await mkdir(hostState, { recursive: true });
 process.env.ARBOR_DATA_HOME = state;
-const aliceIdentity = await new ProfileIdentityStore().begin(aliceProfile);
+const aliceIdentity = await new ProfileIdentityStore().create(aliceProfile);
 await cp(join(import.meta.dir, "../fixtures/workspace"), root, { recursive: true });
 await writeFile(join(root, "_index.md"), "# E2E Garden\n");
 await mkdir(join(root, "title-first"), { recursive: true });

@@ -73,7 +73,7 @@ beforeAll(async () => {
   profile = join(sandbox, "profile");
   await Promise.all([state, profile].map((path) => mkdir(path, { recursive: true })));
   process.env.ARBOR_DATA_HOME = state;
-  const identity = await new ProfileIdentityStore().begin(profile);
+  const identity = await new ProfileIdentityStore().create(profile);
   firstCanopy = await serveCanopy({
     dataRoot: join(sandbox, "first-canopy"),
     publicOrigin: "http://127.0.0.1:0",

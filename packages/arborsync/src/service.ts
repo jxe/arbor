@@ -734,7 +734,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   }
 
   async createProfileIdentity(inputPath: string) {
-    const result = await new ProfileIdentityStore().begin(resolveUserPath(inputPath));
+    const result = await new ProfileIdentityStore().create(resolveUserPath(inputPath));
     this.trees.invalidateDescriptors();
     return result;
   }

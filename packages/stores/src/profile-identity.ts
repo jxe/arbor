@@ -129,7 +129,7 @@ export class ProfileIdentityStore {
     return { ...metadata, keyAvailable: true };
   }
 
-  async begin(profilePath: string): Promise<ProfileIdentityStatus> {
+  async create(profilePath: string): Promise<ProfileIdentityStatus> {
     const existing = await this.status();
     if (existing) {
       const canonical = await realpath(profilePath).catch(() => resolve(profilePath));

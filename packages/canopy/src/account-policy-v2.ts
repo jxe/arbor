@@ -193,6 +193,20 @@ function yaml(value: unknown): string {
   return stringify(value, { aliasDuplicateObjects: false, lineWidth: 0, sortMapEntries: true });
 }
 
+/** Canonical authored files shared by Canopy snapshots and offline migration. */
+export function accountConfigSourcesV2(graph: Omit<AccountConfigGraphV2, "sources">): Record<"account.yaml" | "devices.yaml" | "trees.yaml", string> {
+  const devices = Object.fromEntries(Object.entries(graph.devices).sort(([a], [b]) => a.localeCompare(b)).map(([id, device]) => [id, {
+    label: device.label,
+    ...(device.administrator ? { administrator: true } : {}),
+  }]));
+  const trees = Object.fromEntries(Object.entries(graph.trees).sort(([a], [b]) => a.localeCompare(b)).map(([id, tree]) => [id, tree]));
+  return {
+    "account.yaml": yaml(graph.account),
+    "devices.yaml": yaml(devices),
+    "trees.yaml": yaml(trees),
+  };
+}
+
 export function snapshotAccountConfigV2(graph: Omit<AccountConfigGraphV2, "sources">): TreeSnapshot {
   const objects = new Map<ObjectHash, Uint8Array>();
   const file = (source: string): ObjectHash => {
@@ -201,15 +215,11 @@ export function snapshotAccountConfigV2(graph: Omit<AccountConfigGraphV2, "sourc
     objects.set(hash, bytes);
     return hash;
   };
-  const devices = Object.fromEntries(Object.entries(graph.devices).sort(([a], [b]) => a.localeCompare(b)).map(([id, device]) => [id, {
-    label: device.label,
-    ...(device.administrator ? { administrator: true } : {}),
-  }]));
-  const trees = Object.fromEntries(Object.entries(graph.trees).sort(([a], [b]) => a.localeCompare(b)).map(([id, tree]) => [id, tree]));
+  const sources = accountConfigSourcesV2(graph);
   const rootBytes = encodeWireObject({ type: "directory", entries: [
-    { name: "account.yaml", hash: file(yaml(graph.account)) },
-    { name: "devices.yaml", hash: file(yaml(devices)) },
-    { name: "trees.yaml", hash: file(yaml(trees)) },
+    { name: "account.yaml", hash: file(sources["account.yaml"]) },
+    { name: "devices.yaml", hash: file(sources["devices.yaml"]) },
+    { name: "trees.yaml", hash: file(sources["trees.yaml"]) },
   ] } satisfies WireDirectory);
   const root = hashObject(rootBytes);
   objects.set(root, rootBytes);

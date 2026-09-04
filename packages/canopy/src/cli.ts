@@ -41,6 +41,7 @@ export function serveMaintenance(port: number, hostname: string): ReturnType<typ
   const server = Bun.serve({
     port,
     hostname,
+    idleTimeout: 30,
     fetch(request) {
       const { pathname } = new URL(request.url);
       if (pathname === "/.arbor/health") {
