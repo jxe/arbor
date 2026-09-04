@@ -547,17 +547,13 @@ struct WireValueVectorTests {
         var parser = ArborSSEParser()
         var frames = try parser.append(Data(semantic.utf8))
         frames.append(contentsOf: try parser.finish())
-        #expect(frames.map(\.event) == ["tree.update", "tree.activation"])
+        #expect(frames.map(\.event) == ["tree.update"])
         for frame in frames {
             let payload = try #require(JSONSerialization.jsonObject(with: Data(frame.data.utf8)) as? [String: Any])
             #expect(frame.id == payload["cursor"] as? String)
             #expect(frame.event == payload["kind"] as? String)
             #expect((payload["tree"] as? String)?.hasPrefix("tr_") == true)
         }
-        let activation = try #require(JSONSerialization.jsonObject(with: Data(frames[1].data.utf8)) as? [String: Any])
-        let change = try #require(activation["change"] as? [String: Any])
-        #expect(change["tree"] as? String == "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa")
-        #expect(change["status"] as? String == "active")
         // TODO: observation-events-invalid.json is not consumed here. The id/cursor, event/kind, and
         // tree checks live inside `ArborWireClient.watch` rather than an exported decoder.
     }

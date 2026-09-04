@@ -1,17 +1,11 @@
 import type { Database } from "bun:sqlite";
 
-/**
- * One row of a tree's ordered observation log. Accepted updates are recorded
- * as `tree.update` rows whose cursor is the accepted-update ID; every other kind
- * carries its change payload. `ordinal` is the single authority for order.
- */
+/** One accepted update in a tree's ordered observation log. */
 export interface ObservationRecord {
   ordinal: number;
   cursor: string;
   tree: string;
-  kind: string;
   updateID?: string;
-  change?: unknown;
 }
 
 export interface ObservationReplay {
@@ -26,9 +20,7 @@ interface ObservationRow {
   ordinal: number;
   cursor: string;
   tree_id: string;
-  kind: string;
   update_id: string | null;
-  change_json: string | null;
 }
 
 function toRecord(row: ObservationRow): ObservationRecord {
@@ -36,9 +28,7 @@ function toRecord(row: ObservationRow): ObservationRecord {
     ordinal: row.ordinal,
     cursor: row.cursor,
     tree: row.tree_id,
-    kind: row.kind,
     ...(row.update_id ? { updateID: row.update_id } : {}),
-    ...(row.change_json !== null ? { change: JSON.parse(row.change_json) as unknown } : {}),
   };
 }
 
@@ -61,20 +51,11 @@ export class ObservationLog {
     db.run("CREATE INDEX IF NOT EXISTS observations_tree_order ON observations(tree_id, ordinal)");
   }
 
-  /**
-   * Append one observation. Its cursor is its decimal ordinal, so the log's
-   * order and every cursor derive from one counter.
-   */
-  append(input: { tree: string; kind: string; updateID?: string; change?: unknown; createdAt: number }): ObservationRecord {
+  /** Append one accepted-update observation and reserve its decimal cursor. */
+  appendAccepted(input: { tree: string; createdAt: number }): ObservationRecord {
     const inserted = this.db.run(
       "INSERT INTO observations (cursor, tree_id, kind, update_id, change_json, created_at) VALUES ('', ?, ?, ?, ?, ?)",
-      [
-        input.tree,
-        input.kind,
-        input.updateID ?? null,
-        input.change === undefined ? null : JSON.stringify(input.change),
-        input.createdAt,
-      ],
+      [input.tree, "tree.update", null, null, input.createdAt],
     );
     const cursor = String(inserted.lastInsertRowid);
     this.db.run("UPDATE observations SET cursor = ? WHERE ordinal = ?", [cursor, Number(inserted.lastInsertRowid)]);
@@ -93,25 +74,25 @@ export class ObservationLog {
 
   latestCursor(tree?: string): string | null {
     const row = (tree
-      ? this.db.query("SELECT cursor FROM observations WHERE tree_id = ? ORDER BY ordinal DESC LIMIT 1").get(tree)
-      : this.db.query("SELECT cursor FROM observations ORDER BY ordinal DESC LIMIT 1").get()) as { cursor: string } | null;
+      ? this.db.query("SELECT cursor FROM observations WHERE tree_id = ? AND update_id IS NOT NULL ORDER BY ordinal DESC LIMIT 1").get(tree)
+      : this.db.query("SELECT cursor FROM observations WHERE update_id IS NOT NULL ORDER BY ordinal DESC LIMIT 1").get()) as { cursor: string } | null;
     return row?.cursor ?? null;
   }
 
   /**
-   * Records strictly after `cursor` for one tree. A null cursor covers the
-   * present without replaying anything; a cursor from another tree or one no
-   * longer retained is reported rather than silently treated as empty.
+   * Accepted updates strictly after `cursor` for one tree. A cursor belonging
+   * to a legacy status observation remains a valid anchor, but those old rows
+   * are never replayed.
    */
   after(tree: string, cursor: string | null): ObservationReplay {
     if (cursor === null) {
-      const latest = this.db.query("SELECT MAX(ordinal) AS ordinal FROM observations WHERE tree_id = ?").get(tree) as { ordinal: number | null };
+      const latest = this.db.query("SELECT MAX(ordinal) AS ordinal FROM observations WHERE tree_id = ? AND update_id IS NOT NULL").get(tree) as { ordinal: number | null };
       return { retained: true, through: latest.ordinal ?? 0, records: [] };
     }
     const anchor = this.db.query("SELECT ordinal FROM observations WHERE cursor = ? AND tree_id = ?").get(cursor, tree) as { ordinal: number } | null;
     if (!anchor) return { retained: false, through: 0, records: [] };
     const records = (this.db.query(
-      "SELECT * FROM observations WHERE tree_id = ? AND ordinal > ? ORDER BY ordinal",
+      "SELECT * FROM observations WHERE tree_id = ? AND ordinal > ? AND update_id IS NOT NULL ORDER BY ordinal",
     ).all(tree, anchor.ordinal) as ObservationRow[]).map(toRecord);
     return { retained: true, through: records.at(-1)?.ordinal ?? anchor.ordinal, records };
   }

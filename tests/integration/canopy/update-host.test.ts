@@ -358,7 +358,7 @@ describe("governed account-configuration Canopy server", () => {
     expect(account.observedThrough).not.toBe(accepted.observedThrough);
   });
 
-  test("replays accepted updates and activation events in log order", async () => {
+  test("replays accepted updates in order across tree activation", async () => {
     const baseline = await currentConfig();
     const administrator = baseline.graph.account.admins[0]!;
     const relabel = (graph: typeof baseline.graph, label: string) => ({
@@ -402,14 +402,16 @@ describe("governed account-configuration Canopy server", () => {
 
     const frames = await readWatchFrames(
       `${running.url}/.arbor/trees/${baseline.current.tree.id}/watch?after=${baseline.current.observedThrough}`,
-      3,
+      1,
     );
-    expect(frames.map((frame) => frame.event)).toEqual(["tree.update", "tree.activation", "tree.update"]);
+    expect(frames.map((frame) => frame.event)).toEqual(["tree.update"]);
     expect(frames.every((frame) => frame.id === frame.data.cursor)).toBe(true);
-    expect(frames[0]!.data.change.transitions!.map(({ update }) => update.id)).toEqual([first.update.id, declared.update.id]);
-    expect(frames[1]!.data.change).toEqual({ tree: treeID, status: "active" });
-    expect(frames[2]!.data.change.transitions!.map(({ update }) => update.id)).toEqual([third.update.id]);
-    expect(frames[2]!.id).toBe(third.update.id);
+    expect(frames[0]!.data.change.transitions!.map(({ update }) => update.id)).toEqual([
+      first.update.id,
+      declared.update.id,
+      third.update.id,
+    ]);
+    expect(frames[0]!.id).toBe(third.update.id);
   });
 
   test("pairing adds a client-owned device file and deleting it atomically revokes its credential", async () => {

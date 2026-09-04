@@ -105,8 +105,7 @@ export type WatchEvent =
     transitions: AcceptedTransition[];
     requestDigest?: ObjectHash;
   }
-  | { kind: "resync-required"; cursor: EventCursor; tree: TreeID; reason?: string }
-  | { kind: string; cursor: EventCursor; tree: TreeID; change: unknown };
+  | { kind: "resync-required"; cursor: EventCursor; tree: TreeID; reason?: string };
 
 function decodeTreeRefChange(tree: TreeID, cursor: EventCursor, value: unknown): Extract<WatchEvent, { kind: "tree.update" }> {
   if (!value || typeof value !== "object") throw new Error("Malformed tree.update change");
@@ -333,8 +332,8 @@ export class WireClient {
   }
 
   /**
-   * Follow one tree's accepted transitions and other observations strictly
-   * after `after`. The stream ends when the server closes it or sends
+   * Follow one tree's accepted transitions strictly after `after`. The stream
+   * ends when the server closes it or sends
    * `resync-required`; the caller reconnects with a fresh cursor.
    */
   async *watch(tree: TreeID, after: EventCursor | null, options: { signal?: AbortSignal } = {}): AsyncGenerator<WatchEvent> {
@@ -358,7 +357,7 @@ export class WireClient {
         yield { kind: "resync-required", cursor: decoded.cursor, tree, ...(typeof reason === "string" ? { reason } : {}) };
         return;
       } else {
-        yield { kind: decoded.kind, cursor: decoded.cursor, tree, change: decoded.change };
+        throw new Error("Malformed Arbor watch event: unsupported kind");
       }
     }
   }

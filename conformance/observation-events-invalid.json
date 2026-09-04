@@ -3,6 +3,7 @@
   "cases": [
     { "name": "id-cursor-mismatch", "frame": "id: up_a\nevent: tree.update\ndata: {\"cursor\":\"up_b\",\"tree\":\"tr_a\",\"kind\":\"tree.update\",\"change\":{}}\n\n" },
     { "name": "event-kind-mismatch", "frame": "id: up_a\nevent: tree.update\ndata: {\"cursor\":\"up_a\",\"tree\":\"tr_a\",\"kind\":\"tree.changed\",\"change\":{}}\n\n" },
+    { "name": "unsupported-event-kind", "frame": "id: up_a\nevent: tree.changed\ndata: {\"cursor\":\"up_a\",\"tree\":\"tr_a\",\"kind\":\"tree.changed\",\"change\":{}}\n\n" },
     { "name": "missing-tree", "frame": "id: up_a\nevent: tree.update\ndata: {\"cursor\":\"up_a\",\"kind\":\"tree.update\",\"change\":{}}\n\n" }
   ]
 }

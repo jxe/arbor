@@ -191,6 +191,7 @@ export async function serveCanopy(options: {
   const server = Bun.serve({
     port: options.port ?? Number(process.env.PORT ?? 4318),
     hostname: options.hostname ?? "0.0.0.0",
+    idleTimeout: 30,
     async fetch(request, server) {
       const url = new URL(request.url);
       const authentication = canopy.authenticateToken(bearer(request));
@@ -411,10 +412,9 @@ export async function serveCanopy(options: {
             kind: "server-update",
             state: "awaiting-initialization",
           }, { tree: treeID });
-          // Captured in the same synchronous step as `current`, so a later
-          // non-ref observation may advance the cursor but no newer accepted
-          // update can hide behind it.
-          const observedThrough = canopy.observedThrough(tree.id);
+          // The accepted update ID is also the tree-watch cursor. A later
+          // accepted update therefore remains strictly after this snapshot.
+          const observedThrough = current.id;
           const snapshot = await canopy.snapshotForUpdate(tree.id, current.id);
           return json({
             tree: {
@@ -495,11 +495,6 @@ export async function serveCanopy(options: {
             if (batch.length) frames.push(frame(batch));
             return frames;
           };
-          const observationFrame = (record: ObservationRecord) => encodeSSEFrame({
-            id: record.cursor,
-            event: record.kind,
-            data: { cursor: record.cursor, tree: record.tree, kind: record.kind, change: record.change },
-          });
           return new Response(new ReadableStream({
             start(controller) {
               let closed = false;
@@ -531,7 +526,6 @@ export async function serveCanopy(options: {
                 if (closed || record.ordinal <= delivered) return;
                 delivered = record.ordinal;
                 if (record.updateID) sendRefs([record.updateID], "The accepted transition is unavailable or exceeds the watch frame limit");
-                else controller.enqueue(encoder.encode(observationFrame(record)));
               };
               stop = canopy.subscribeObservations(tree.id, (record) => {
                 if (replaying) pending.push(record);
@@ -539,19 +533,8 @@ export async function serveCanopy(options: {
               });
               const replay = canopy.observationsAfter(tree.id, lastEventID);
               if (!replay.retained) return resync("The requested cursor is no longer retained");
-              // Replay groups consecutive accepted updates into bounded batches
-              // without crossing another observation kind.
-              let batch: string[] = [];
-              for (const record of replay.records) {
-                if (record.updateID) {
-                  batch.push(record.updateID);
-                  continue;
-                }
-                sendRefs(batch, "Retained accepted history has no replayable transition batch");
-                batch = [];
-                if (!closed) controller.enqueue(encoder.encode(observationFrame(record)));
-              }
-              sendRefs(batch, "Retained accepted history has no replayable transition batch");
+              const updates = replay.records.flatMap((record) => record.updateID ? [record.updateID] : []);
+              sendRefs(updates, "Retained accepted history has no replayable transition batch");
               delivered = replay.through;
               replaying = false;
               for (const record of pending) deliver(record);

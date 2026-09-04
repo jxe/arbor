@@ -770,7 +770,6 @@ export class CanopyDaemon implements AsyncDisposable {
     if (requiredType) await this.validateProfileSnapshot(snapshot, requiredType);
     const parent = this.resolve(dirnameURL(declaration.canonicalPath))?.tree;
     if (!parent) throw new Error("Canonical parent is unavailable");
-    let statusEvent: ObservationRecord | undefined;
     const activated = await this.insertTree(
       declaration.canonicalPath,
       snapshot,
@@ -782,15 +781,11 @@ export class CanopyDaemon implements AsyncDisposable {
           this.access.set(id, rule.subject.kind, subject, rule.access);
         }
         this.db.run("DELETE FROM tree_reservations WHERE id = ? AND account_id = ?", [id, authentication.account.id]);
-        if (authentication.account.configTree) {
-          statusEvent = this.recordObservation(authentication.account.configTree, "tree.activation", { tree: treeID, status: "active" });
-        }
       },
       authentication.subject,
       treeID,
       authentication.account.id,
     );
-    if (statusEvent) this.notifyObservation(statusEvent);
     return activated;
   }
 
@@ -1289,10 +1284,6 @@ export class CanopyDaemon implements AsyncDisposable {
   /** Retained observation records strictly after `cursor` for one tree. */
   observationsAfter(tree: string, cursor: string | null) {
     return this.observations.after(tree, cursor);
-  }
-
-  private recordObservation(tree: string, kind: string, change: unknown): ObservationRecord {
-    return this.observations.append({ tree, kind, change, createdAt: Date.now() });
   }
 
   private notifyObservation(record: ObservationRecord): void {

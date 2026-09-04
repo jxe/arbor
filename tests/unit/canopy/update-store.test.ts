@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { AcceptedUpdateStore } from "@arbor/canopy";
 import { encodeWireObject, type ObjectHash } from "@arbor/wire";
+import { ObservationLog } from "../../../packages/canopy/src/updates/observations.ts";
 
 const A = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as ObjectHash;
 const B = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as ObjectHash;
@@ -72,5 +73,28 @@ describe("accepted-update transaction store", () => {
     expect(store.list("tr_test")).toHaveLength(1);
     expect(db.query("SELECT * FROM reflog").all()).toHaveLength(0);
     expect((db.query("SELECT ref FROM trees WHERE id = 'tr_test'").get() as { ref: string }).ref).toBe(A);
+  });
+
+  test("ignores legacy status rows while accepting their cursors as replay anchors", () => {
+    const observations = new ObservationLog(db);
+    const initial = store.current("tr_test")!;
+    db.run(`INSERT INTO observations
+      (cursor, tree_id, kind, update_id, change_json, created_at)
+      VALUES ('legacy-status', 'tr_test', 'tree.status', NULL, '{}', 2)`);
+
+    expect(observations.latestCursor("tr_test")).toBe(initial.id);
+    expect(observations.after("tr_test", initial.id).records).toEqual([]);
+    expect(observations.after("tr_test", "legacy-status").retained).toBe(true);
+
+    const accepted = store.commit({
+      tree: "tr_test",
+      root: B,
+      previousRoot: A,
+      expectedRoot: A,
+      kind: "accepted",
+      acceptedAt: 3,
+    })!;
+    expect(observations.latestCursor("tr_test")).toBe(accepted.id);
+    expect(observations.after("tr_test", "legacy-status").records.map((record) => record.updateID)).toEqual([accepted.id]);
   });
 });

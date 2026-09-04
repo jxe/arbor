@@ -145,7 +145,7 @@ export class AcceptedUpdateStore {
 
   /** The accepted update's id is the ordinal of the `tree.update` observation that records it. */
   private insertWithinTransaction(input: AcceptedUpdateInput): AcceptedUpdate {
-    const observation = this.observations.append({ tree: input.tree, kind: "tree.update", createdAt: input.acceptedAt });
+    const observation = this.observations.appendAccepted({ tree: input.tree, createdAt: input.acceptedAt });
     const id = observation.cursor;
     this.db.run(`
       INSERT INTO accepted_updates

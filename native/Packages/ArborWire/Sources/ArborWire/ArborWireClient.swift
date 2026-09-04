@@ -264,7 +264,9 @@ public actor ArborWireClient {
                                 }
                                 throw WireHTTPError(status: 409, code: "resync-required", message: event.change.reason, retryable: true)
                             }
-                            guard kind == "tree.update" else { continue }
+                            guard kind == "tree.update" else {
+                                throw ArborWireValidationError.malformedSSE("Unsupported tree watch event")
+                            }
                             let event = try JSONDecoder().decode(WireTreeRefObservation.self, from: Data(frame.data.utf8))
                             guard event.cursor == id, event.kind == kind, event.tree == tree else {
                                 throw ArborWireValidationError.malformedSSE("Observation frame fields disagree")

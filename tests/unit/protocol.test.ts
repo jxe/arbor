@@ -152,7 +152,7 @@ describe("REST v1 protocol fixtures", () => {
   test("observation-events.sse frames satisfy id === cursor and event === kind", async () => {
     const source = await readFile(join(conformance, "observation-events.sse"), "utf8");
     const frames = await Array.fromAsync(parseSSEStream(new Response(source).body!));
-    expect(frames.map((frame) => frame.event)).toEqual(["tree.update", "tree.activation"]);
+    expect(frames.map((frame) => frame.event)).toEqual(["tree.update"]);
     for (const frame of frames) {
       const data = JSON.parse(frame.data) as { cursor: string; tree: string; kind: string; change: unknown };
       expect(frame.id).toBe(data.cursor);
@@ -162,14 +162,11 @@ describe("REST v1 protocol fixtures", () => {
     const ref = JSON.parse(frames[0]!.data) as { change: { descriptor: RemoteTreeDescriptor } };
     validateTreeDescriptor(ref.change.descriptor);
     expect(ref.change.descriptor.canonical?.endpoint).toBe(`https://community.example/.arbor/trees/${ref.change.descriptor.id}`);
-    const activation = JSON.parse(frames[1]!.data) as { tree: string; change: unknown };
-    expect(activation.tree).toBe("tr_cccccccccccccccccccccccccc");
-    expect(activation.change).toEqual({ tree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa", status: "active" });
   });
 
   test("observation-events-invalid.json frames are rejected by the wire watch decode path", async () => {
     const { cases } = await conformanceJSON<{ cases: Array<{ name: string; frame: string }> }>("observation-events-invalid.json");
-    expect(cases.map((item) => item.name)).toEqual(["id-cursor-mismatch", "event-kind-mismatch", "missing-tree"]);
+    expect(cases.map((item) => item.name)).toEqual(["id-cursor-mismatch", "event-kind-mismatch", "unsupported-event-kind", "missing-tree"]);
     const originalFetch = globalThis.fetch;
     try {
       for (const item of cases) {
