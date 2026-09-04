@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ArborSyncDaemon } from "@arbor/arborsync";
+import { ArborSyncDaemon, EventBus, TreeManager } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
 import { CanopyAccountStore, ProfileIdentityStore, loadCanopyAccountConfigurations, loadLocalPlacements } from "@arbor/stores";
 import { parseDocument } from "yaml";
@@ -125,6 +125,25 @@ describe("plural-account CLI place", () => {
     expect(placements.find((placement) => placement.path === secondSource)?.configurationTree).toBe(secondAccount.configurationTree);
     expect(firstCanopy.canopy.boundary("/~alice/notes")?.publicAccess).toBe("read");
     expect(secondCanopy.canopy.boundary("/~joe/notes")?.publicAccess).toBe("read");
+
+    // A root-shaped placement on another Canopy cannot become this tree's
+    // canonical parent merely because its URL path is a lexical prefix.
+    const firstTree = Object.entries(firstAccount.trees!).find(([, declaration]) => declaration.canonical === firstCanonical)![0];
+    const firstTreesPath = join(firstAccount.path, "trees.yaml");
+    const firstTreesSource = await readFile(firstTreesPath, "utf8");
+    const firstDocument = parseDocument(firstTreesSource, { uniqueKeys: true, keepSourceTokens: true });
+    firstDocument.setIn([firstTree, "canonical"], firstCanopy.url);
+    await writeFile(firstTreesPath, firstDocument.toString({ lineWidth: 0 }));
+    const manager = new TreeManager(new EventBus());
+    try {
+      await manager.init();
+      const secondTree = Object.entries(secondAccount.trees!).find(([, declaration]) => declaration.canonical === secondCanonical)![0];
+      const descriptor = (await manager.descriptors()).find((candidate) => candidate.id === secondTree)!;
+      expect(descriptor.canonical?.parentTree).toBeNull();
+    } finally {
+      await manager[Symbol.asyncDispose]();
+      await writeFile(firstTreesPath, firstTreesSource);
+    }
   });
 
   test("creates private trees by default and updates existing access", async () => {

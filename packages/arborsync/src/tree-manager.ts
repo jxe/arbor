@@ -556,10 +556,11 @@ export class TreeManager implements AsyncDisposable {
   private canonicalParentOf(tree: string): string | null {
     const child = this.known.get(tree);
     const childPath = child ? this.canonicalPath(child) : null;
-    if (!childPath) return null;
+    if (!child || !childPath) return null;
     let best: { tree: string; length: number } | null = null;
     for (const [candidateTree, candidate] of this.known) {
       if (candidateTree === tree) continue;
+      if (candidate.placement?.endpoint !== child.placement?.endpoint) continue;
       const candidatePath = this.canonicalPath(candidate);
       if (!candidatePath) continue;
       const contains = candidatePath === "/"
