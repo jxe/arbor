@@ -15,10 +15,12 @@ import type { TreeManager } from "./tree-manager.ts";
 import { ProtocolError, type Workspace } from "./workspace.ts";
 import {
   acceptedTreeObjects,
+  clearPendingEditorAdmission,
   clearPendingTreeUpdate,
   clearTreeConflict,
   deltasFromPending,
   pendingFromSnapshot,
+  pendingEditorAdmissions,
   pendingTreeUpdate,
   saveAcceptedTreeObjectHashes,
   saveAcceptedTreeObjects,
@@ -33,6 +35,8 @@ export interface TreeSyncDeps {
   trees: TreeManager;
   events: EventBus;
   accountToken(placement: SharedTreePlacement): Promise<string | undefined>;
+  /** Serialize only local filesystem reads/writes for one tree; never hold this across Wire I/O. */
+  withWorkspaceIO<T>(workspace: Workspace, run: () => Promise<T>): Promise<T>;
   snapshotWorkspace(workspace: Workspace, client: WireClient, remoteTrees?: readonly RemoteTreeDescriptor[]): Promise<TreeSnapshot>;
   /** Schedule one coalesced synchronization pass; resolves when a pass covering the request completes. */
   requestSync(): Promise<void>;
@@ -69,6 +73,17 @@ export class TreeSynchronizer {
   private closed = false;
 
   constructor(private readonly deps: TreeSyncDeps) {}
+
+  private snapshotWorkspace(
+    workspace: Workspace,
+    client: WireClient,
+    remoteTrees?: readonly RemoteTreeDescriptor[],
+  ): Promise<TreeSnapshot> {
+    return this.deps.withWorkspaceIO(
+      workspace,
+      () => this.deps.snapshotWorkspace(workspace, client, remoteTrees),
+    );
+  }
 
   /** Keep one live watch per placed tree; a finished loop is restarted by the next pass. */
   ensureWatch(placement: SharedTreePlacement): void {
@@ -182,17 +197,19 @@ export class TreeSynchronizer {
     remoteTrees: readonly RemoteTreeDescriptor[],
   ): Promise<void> {
     const current = await client.currentSnapshot(workspace.tree);
-    await this.materialize(workspace, {
-      root: current.tree.root,
-      objects: current.snapshot.objects,
+    await this.deps.withWorkspaceIO(workspace, async () => {
+      await this.materialize(workspace, {
+        root: current.tree.root,
+        objects: current.snapshot.objects,
+      });
+      await this.deps.trees.updateSyncMetadata({
+        ...placement,
+        ref: current.tree.root,
+        update: current.tree.update,
+        access: current.tree.access === "none" ? "read" : current.tree.access,
+      });
+      await this.confirmMaterialized(workspace, client, remoteTrees, current.tree.root, "Materialized placement does not match its server root");
     });
-    await this.deps.trees.updateSyncMetadata({
-      ...placement,
-      ref: current.tree.root,
-      update: current.tree.update,
-      access: current.tree.access === "none" ? "read" : current.tree.access,
-    });
-    await this.confirmMaterialized(workspace, client, remoteTrees, current.tree.root, "Materialized placement does not match its server root");
   }
 
   /**
@@ -220,7 +237,7 @@ export class TreeSynchronizer {
     }
     if (transitions[0]!.update.previousRoot !== placement.ref) return false;
     if (await pendingTreeUpdate(workspace.tree) || await treeConflict(workspace.tree)) return false;
-    const local = await this.deps.snapshotWorkspace(workspace, client, remoteTrees);
+    const local = await this.snapshotWorkspace(workspace, client, remoteTrees);
     if (local.root !== placement.ref) return false;
 
     let objects: Map<ObjectHash, Uint8Array> = new Map(local.objects);
@@ -237,15 +254,93 @@ export class TreeSynchronizer {
     const descriptor = events.at(-1)!.descriptor;
     if (descriptor.root !== final.update.root || descriptor.update !== final.update.id) return false;
 
-    await this.materialize(workspace, { root: final.update.root, objects });
-    await this.deps.trees.updateSyncMetadata({
-      ...placement,
-      ref: final.update.root,
-      update: final.update.id,
-      access: descriptor.access === "none" ? "read" : descriptor.access,
+    await this.deps.withWorkspaceIO(workspace, async () => {
+      await this.materialize(workspace, { root: final.update.root, objects });
+      await this.deps.trees.updateSyncMetadata({
+        ...placement,
+        ref: final.update.root,
+        update: final.update.id,
+        access: descriptor.access === "none" ? "read" : descriptor.access,
+      });
+      await this.confirmMaterialized(workspace, client, remoteTrees, final.update.root, "Materialized watched transition does not match its accepted root");
     });
-    await this.confirmMaterialized(workspace, client, remoteTrees, final.update.root, "Materialized watched transition does not match its accepted root");
     return true;
+  }
+
+  /**
+   * Submit editor candidates that were frozen without touching the authored
+   * tree. Once every queued decision is durable on Canopy, materialize the
+   * final accepted snapshot only when the disk still equals its accepted base;
+   * otherwise the ordinary filesystem path submits that independent change.
+   */
+  private async submitEditorAdmissions(
+    workspace: Workspace,
+    placement: SharedTreePlacement,
+    client: WireClient,
+    remoteTrees: readonly RemoteTreeDescriptor[],
+  ): Promise<SharedTreePlacement> {
+    const admissions = await pendingEditorAdmissions(workspace.tree);
+    if (!admissions.length) return placement;
+    if (placement.access !== "write") {
+      this.deps.trees.setSyncState(workspace.tree, "conflict");
+      return placement;
+    }
+    for (const admission of admissions) {
+      try {
+        await client.submitUpdate(
+          workspace.tree,
+          admission.request.base,
+          snapshotFromPending(admission.request),
+          { deltas: deltasFromPending(admission.request) },
+        );
+        await clearPendingEditorAdmission(workspace.tree, admission.id, admission.request.candidate);
+      } catch (error) {
+        if (error instanceof WireUpdateConflict) {
+          await saveTreeConflict(workspace.tree, error.result);
+          this.deps.trees.setSyncState(workspace.tree, "conflict");
+          this.conflicts.add(workspace.tree);
+          this.deps.events.emit({
+            tree: workspace.tree,
+            kind: "diagnostic",
+            ref: { tree: workspace.tree, path: admission.ref.path, stableKey: admission.ref.stableKey },
+            origin: "sync",
+          });
+          return placement;
+        }
+        throw error;
+      }
+    }
+
+    const local = await this.snapshotWorkspace(workspace, client, remoteTrees);
+    if (!placement.ref || local.root !== placement.ref) return placement;
+    const current = await client.currentSnapshot(workspace.tree);
+    await this.deps.withWorkspaceIO(workspace, async () => {
+      // Recheck after network I/O. A local editor or external process may have
+      // changed the disk while the accepted snapshot was being fetched.
+      const stillClean = await this.deps.snapshotWorkspace(workspace, client, remoteTrees);
+      if (stillClean.root !== placement.ref) return;
+      await this.materialize(workspace, current.snapshot);
+      await this.deps.trees.updateSyncMetadata({
+        ...placement,
+        ref: current.tree.root,
+        update: current.tree.update,
+        access: current.tree.access === "none" ? "read" : current.tree.access,
+      });
+      await this.confirmMaterialized(
+        workspace,
+        client,
+        remoteTrees,
+        current.tree.root,
+        "Materialized editor admission does not match its accepted Canopy root",
+      );
+      placement = {
+        ...placement,
+        ref: current.tree.root,
+        update: current.tree.update,
+        access: current.tree.access === "none" ? "read" : current.tree.access,
+      };
+    });
+    return placement;
   }
 
   async updateWorkspace(
@@ -256,7 +351,12 @@ export class TreeSynchronizer {
   ): Promise<void> {
     const { trees } = this.deps;
     trees.setSyncState(workspace.tree, "syncing");
-    let placement = initialPlacement;
+    let placement = await this.submitEditorAdmissions(workspace, initialPlacement, client, remoteTrees);
+    if (await treeConflict(workspace.tree)) {
+      trees.setSyncState(workspace.tree, "conflict");
+      this.conflicts.add(workspace.tree);
+      return;
+    }
     if (await this.applyQueuedTransitions(workspace, placement, client, remoteTrees)) return;
     const remote = (await client.descriptor(workspace.tree)).tree;
     if (!remote.update) throw new Error("Server does not advertise accepted updates for this tree");
@@ -277,7 +377,7 @@ export class TreeSynchronizer {
       return;
     }
     let pending = await pendingTreeUpdate(workspace.tree);
-    let local = await this.deps.snapshotWorkspace(workspace, client, remoteTrees);
+    let local = await this.snapshotWorkspace(workspace, client, remoteTrees);
     if (!placement.ref || !placement.update) {
       if (local.root === remote.root) {
         await trees.updateSyncMetadata({ ...placement, ref: remote.root, update: remote.update });
@@ -331,7 +431,7 @@ export class TreeSynchronizer {
           { deltas: deltasFromPending(pending) },
         );
         const accepted = result.update;
-        local = await this.deps.snapshotWorkspace(workspace, client, remoteTrees);
+        local = await this.snapshotWorkspace(workspace, client, remoteTrees);
         if (local.root !== pending.candidate) {
           if (accepted.root === pending.candidate) {
             // The server accepted this local generation while a later local
@@ -365,19 +465,21 @@ export class TreeSynchronizer {
           await savePendingTreeUpdate(workspace.tree, pending);
           continue;
         }
-        if (accepted.root !== pending.candidate) {
-          if (!result.reconciliation) throw new Error("Server omitted a required reconciliation transition");
-          await this.materialize(workspace, {
-            root: accepted.root,
-            objects: applyTransitionPayload(local.objects, result.reconciliation),
+        await this.deps.withWorkspaceIO(workspace, async () => {
+          if (accepted.root !== pending!.candidate) {
+            if (!result.reconciliation) throw new Error("Server omitted a required reconciliation transition");
+            await this.materialize(workspace, {
+              root: accepted.root,
+              objects: applyTransitionPayload(local.objects, result.reconciliation),
+            });
+          }
+          await trees.updateSyncMetadata({
+            ...placement,
+            ref: accepted.root,
+            update: accepted.id,
           });
-        }
-        await trees.updateSyncMetadata({
-          ...placement,
-          ref: accepted.root,
-          update: accepted.id,
+          await this.confirmMaterialized(workspace, client, remoteTrees, accepted.root, "Materialized accepted tree does not match its server root");
         });
-        await this.confirmMaterialized(workspace, client, remoteTrees, accepted.root, "Materialized accepted tree does not match its server root");
         return;
       } catch (error) {
         if (error instanceof WireUpdateConflict) {

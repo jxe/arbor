@@ -45,11 +45,19 @@ public struct WorkspaceDocumentSnapshot: Hashable, Codable, Sendable {
     public var reference: WorkspaceReference
     public var source: String
     public var contentRevision: String
+    /// Opaque provider context returned unchanged with a later editor admission.
+    public var admissionBasis: String?
 
-    public init(reference: WorkspaceReference, source: String, contentRevision: String) {
+    public init(
+        reference: WorkspaceReference,
+        source: String,
+        contentRevision: String,
+        admissionBasis: String? = nil
+    ) {
         self.reference = reference
         self.source = source
         self.contentRevision = contentRevision
+        self.admissionBasis = admissionBasis
     }
 }
 

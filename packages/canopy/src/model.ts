@@ -16,7 +16,8 @@ export interface CanopyTree {
   publicAccess: AccessLevel;
   updatedAt: number;
   policy: "ordinary" | "account-config-v1" | "account-config-v2";
-  status: "active" | "awaiting-initialization" | "error";
+  /** Retired trees retain immutable update history but have no canonical boundary or access. */
+  status: "active" | "awaiting-initialization" | "error" | "retired";
   accountID: string | null;
 }
 

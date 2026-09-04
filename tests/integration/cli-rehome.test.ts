@@ -118,8 +118,13 @@ describe("arbor mv between Canopies", () => {
       canonical: destination,
       access: [{ subject: { kind: "profile", tree: destinationAccount.account!.profile }, access: "write" }],
     });
+    const sourceAccount = (await loadCanopyAccountConfigurations()).find((account) => account.account?.canopy === sourceCanopy.url)!;
+    expect(sourceAccount.trees?.[tree]).toBeUndefined();
+    expect(sourceCanopy.canopy.get(tree)).toMatchObject({ status: "retired", canonicalPath: null });
+    expect(sourceCanopy.canopy.acceptedUpdates(tree).length).toBeGreaterThan(0);
+    expect((await fetch(sourceCanonical)).status).toBe(404);
 
-    const resumed = await arbor(["mv", sourceCanonical, destination]);
-    expect(resumed).toContain(`Moved ${tree}`);
+    const resumed = await arbor(["mv", destination, destination]);
+    expect(resumed).toContain(`${tree} is already at`);
   });
 });

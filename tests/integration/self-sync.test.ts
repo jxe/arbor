@@ -58,11 +58,19 @@ async function installDataHome(
   });
 }
 
-async function launch(state: string, path: string) {
+async function launch(
+  state: string,
+  path: string,
+  options: { faultInjector?: (stage: string) => void | Promise<void> } = {},
+) {
   process.env.ARBOR_DATA_HOME = state;
   // A long fallback interval proves that live Wire watches, not polling,
   // drive every cross-daemon expectation below.
-  const running = await serveArborSync(path, { port: 0, syncIntervalMs: 60_000 });
+  const running = await serveArborSync(path, {
+    port: 0,
+    syncIntervalMs: 60_000,
+    ...(options.faultInjector ? { faultInjector: options.faultInjector } : {}),
+  });
   const client = new ArborSyncRESTClient({ baseURL: running.url, retryDelay: async () => {} });
   const close = async () => {
     running.server.stop(true);
@@ -322,6 +330,203 @@ describe("private self-sync", () => {
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
     await author.close();
+  });
+
+  test("never snapshots a tree while an editor mutation is only prepared", async () => {
+    let blockPreparedWrite = false;
+    let releasePrepared!: () => void;
+    let observePrepared!: () => void;
+    const preparedReleased = new Promise<void>((resolve) => { releasePrepared = resolve; });
+    const preparedObserved = new Promise<void>((resolve) => { observePrepared = resolve; });
+    const author = await launch(stateA, treeA, {
+      faultInjector: async (stage) => {
+        if (stage !== "write:prepared" || !blockPreparedWrite) return;
+        blockPreparedWrite = false;
+        observePrepared();
+        await preparedReleased;
+      },
+    });
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const before = await author.client.node({ tree, path: "/note", stableKey: null });
+    const source = "# Coherent editor candidate\n";
+    blockPreparedWrite = true;
+    const mutation = author.client.mutateContent({
+      op: "writeMarkdown",
+      ref: { tree, path: "/note", stableKey: null },
+      baseContentRevision: before.capabilities.content?.revision!,
+      source,
+      sourceEdits: [{
+        offset: 0,
+        length: Buffer.byteLength(nodeDocument(before)!.source),
+        replacement: source,
+        expected: nodeDocument(before)!.source,
+      }],
+    });
+    await preparedObserved;
+
+    let synchronized = false;
+    const synchronization = author.running.service.synchronizeNow().then(() => { synchronized = true; });
+    await Bun.sleep(100);
+    expect(synchronized).toBe(false);
+    expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(nodeDocument(before)!.source);
+
+    releasePrepared();
+    try {
+      await mutation;
+      await synchronization;
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(source);
+      expect(String((await new WireClient(host.url, token).currentSnapshot(tree)).tree.root))
+        .toBe(String((await snapshotDirectory(treeA)).root));
+      const after = await author.client.node({ tree, path: "/note", stableKey: null });
+      const restored = "# Complete-object fallback\n";
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref: { tree, path: "/note", stableKey: null },
+        baseContentRevision: after.capabilities.content?.revision!,
+        source: restored,
+        sourceEdits: [{
+          offset: 0,
+          length: Buffer.byteLength(nodeDocument(after)!.source),
+          replacement: restored,
+          expected: nodeDocument(after)!.source,
+        }],
+      });
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    } finally {
+      releasePrepared();
+      await author.close();
+    }
+  });
+
+  test("submits a stale Native document candidate to Canopy instead of overwriting the accepted file", async () => {
+    const author = await launch(stateA, treeA);
+    try {
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+      const ref = { tree, path: "/note", stableKey: null } as const;
+      const opened = await author.client.node(ref);
+      const openedSource = nodeDocument(opened)!.source;
+      if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+
+      const owner = new WireClient(host.url, token);
+      const current = await owner.currentSnapshot(tree);
+      const root = decodeWireObject(current.snapshot.objects.get(current.snapshot.root)!);
+      if (root.type !== "directory") throw new Error("Expected a directory root");
+      const noteEntry = root.entries.find((entry) => entry.name === "note.md");
+      if (!noteEntry?.hash) throw new Error("Expected note.md");
+      const remoteFile = encodeWireObject({
+        type: "file",
+        bytes: new TextEncoder().encode(`${openedSource}\nRemote while open.\n`),
+      });
+      const remoteRoot = encodeWireObject({
+        ...root,
+        entries: root.entries.map((entry) => entry.name === "note.md"
+          ? { name: entry.name, hash: hashObject(remoteFile) }
+          : entry),
+      });
+      current.snapshot.objects.set(hashObject(remoteFile), remoteFile);
+      current.snapshot.objects.set(hashObject(remoteRoot), remoteRoot);
+      const remote = await owner.submitUpdate(tree, current.tree.update, {
+        root: hashObject(remoteRoot),
+        objects: current.snapshot.objects,
+      });
+      if (remote.outcome !== "accepted") throw new Error("Expected remote document update acceptance");
+
+      const requests: Array<{ url: string; body?: any }> = [];
+      const systemFetch = globalThis.fetch;
+      globalThis.fetch = (async (input, init) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        requests.push({ url, ...(typeof init?.body === "string" ? { body: JSON.parse(init.body) } : {}) });
+        return systemFetch(input, init);
+      }) as typeof fetch;
+      let accepted;
+      try {
+        accepted = await author.client.admitDocumentCandidate(
+          ref,
+          opened.admissionBasis,
+          opened.capabilities.content!.revision,
+          `${openedSource}\nNative while open.\n`,
+          [{
+            offset: Buffer.byteLength(openedSource),
+            length: 0,
+            replacement: "\nNative while open.\n",
+          }],
+        );
+        await waitFor(async () => {
+          const source = await readFile(join(treeA, "note.md"), "utf8");
+          return source.includes("Remote while open.") && source.includes("Native while open.");
+        });
+      } finally {
+        globalThis.fetch = systemFetch;
+      }
+      const acceptedSource = nodeDocument(accepted!)!.source;
+      expect(acceptedSource).toContain("Native while open.");
+      expect(requests.some(({ url }) => url.includes("/source-candidates"))).toBe(false);
+      expect(requests.find(({ url, body }) => url.includes(`/.arbor/trees/${tree}/updates`) && typeof body?.candidate === "string")?.body)
+        .toMatchObject({ base: current.tree.update, ifMatch: "modelHash" });
+      expect(await readFile(join(treeA, "note.md"), "utf8")).toContain("Native while open.");
+
+      const restored = await author.client.node(ref);
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref,
+        baseContentRevision: restored.capabilities.content!.revision,
+        source: "# Complete-object fallback\n",
+      });
+      await author.running.service.synchronizeNow();
+    } finally {
+      await author.close();
+    }
+  });
+
+  test("keeps an admitted Native candidate durable while Canopy is offline", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    const opened = await author.client.node(ref);
+    const openedSource = nodeDocument(opened)!.source;
+    if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+
+    host.server.stop(true);
+    await host.canopy[Symbol.asyncDispose]();
+    const source = `${openedSource}\nNative admitted offline.\n`;
+    const admitted = await Promise.race([
+      author.client.admitDocumentCandidate(
+        ref,
+        opened.admissionBasis,
+        opened.capabilities.content!.revision,
+        source,
+        [{ offset: Buffer.byteLength(openedSource), length: 0, replacement: "\nNative admitted offline.\n" }],
+      ),
+      Bun.sleep(1_000).then(() => { throw new Error("Offline editor admission waited for Canopy"); }),
+    ]);
+    expect(nodeDocument(admitted)!.source).toBe(source);
+    expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(openedSource);
+    await author.close();
+
+    host = await serveCanopy({
+      dataRoot: hostState,
+      accounts: [{ handle: "owner", token, communityWriter: true }],
+      publicOrigin: `http://127.0.0.1:${hostPort}`,
+      hostname: "127.0.0.1",
+      port: hostPort,
+    });
+    const resumed = await launch(stateA, treeA);
+    await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")).includes("Native admitted offline."));
+    const restored = await resumed.client.node(ref);
+    await resumed.client.mutateContent({
+      op: "writeMarkdown",
+      ref,
+      baseContentRevision: restored.capabilities.content!.revision,
+      source: "# Complete-object fallback\n",
+    });
+    await resumed.running.service.synchronizeNow();
+    await resumed.close();
   });
 
   test("preserves both sides when devices diverge offline", async () => {

@@ -136,6 +136,8 @@ export interface LocalTreeDescriptor extends TreeDescriptor {
   osPath?: string;
   placement: "placed" | "replica" | "remote";
   sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
+  /** Accepted Canopy update from which local document candidates are derived. */
+  acceptedUpdate?: string;
   missing?: boolean;
 }
 
@@ -148,6 +150,8 @@ export interface RemoteTreeDescriptor extends TreeDescriptor {
 /** Deployment/placement context carried by local and Canopy node responses. */
 export interface NodeResponse extends NodeSnapshot {
   enclosingTree?: LocalTreeDescriptor;
+  /** Opaque local admission context returned unchanged by an editor save. */
+  admissionBasis?: string;
 }
 
 export interface SearchPage {

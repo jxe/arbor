@@ -131,6 +131,7 @@ public struct LocalTreeDescriptor: Codable, Sendable, Equatable {
     public var osPath: String?
     public var placement: String
     public var sync: String?
+    public var acceptedUpdate: String?
     public var missing: Bool?
 }
 
@@ -284,9 +285,11 @@ public struct NodeSnapshot: Codable, Sendable, Equatable {
     public var materialization: String
     public var diagnostics: [Diagnostic]
     public var observedThrough: String
+    /// Opaque arborsync context returned unchanged when admitting an editor patch.
+    public var admissionBasis: String?
 
     private enum CodingKeys: String, CodingKey {
-        case ref, enclosingTree, name, revision, properties, capabilities, content, materialization, diagnostics, observedThrough
+        case ref, enclosingTree, name, revision, properties, capabilities, content, materialization, diagnostics, observedThrough, admissionBasis
     }
 
     public init(from decoder: Decoder) throws {
@@ -302,6 +305,7 @@ public struct NodeSnapshot: Codable, Sendable, Equatable {
         materialization = try container.decode(String.self, forKey: .materialization)
         diagnostics = try container.decode([Diagnostic].self, forKey: .diagnostics)
         observedThrough = try container.decode(String.self, forKey: .observedThrough)
+        admissionBasis = try container.decodeIfPresent(String.self, forKey: .admissionBasis)
     }
 }
 

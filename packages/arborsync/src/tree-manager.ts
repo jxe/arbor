@@ -48,6 +48,11 @@ export class TreeManager implements AsyncDisposable {
   private registryPlural?: boolean;
   private reloadTail: Promise<void> = Promise.resolve();
   private descriptorRevisionValue = 0;
+  private placementConfigurationFailed = false;
+  private resolveFatalConfiguration!: (error: Error) => void;
+  readonly fatalConfiguration = new Promise<Error>((resolve) => {
+    this.resolveFatalConfiguration = resolve;
+  });
 
   constructor(readonly events: EventBus) {}
 
@@ -63,8 +68,36 @@ export class TreeManager implements AsyncDisposable {
     const snapshot = await loadTreeRegistry();
     this.registryPlural = snapshot.plural;
     this.recordDiagnostics = [...snapshot.diagnostics];
-    if (!snapshot.diagnostics.length || snapshot.plural) await this.applyPlacements(snapshot.placements, false);
+    if (snapshot.plural && !snapshot.placementsValid) throw this.invalidPlacementConfiguration(snapshot.diagnostics);
+    if (!snapshot.diagnostics.length || snapshot.plural) {
+      const applied = await this.applyPlacements(snapshot.placements, false);
+      if (!applied) throw new Error(this.recordDiagnostics[0]?.message ?? "Tree placements are inconsistent");
+    }
     await this.restartRegistryWatcher();
+  }
+
+  private invalidPlacementConfiguration(diagnostics: readonly Diagnostic[]): Error {
+    const issue = diagnostics.find((diagnostic) => [
+      "invalid-placements-yaml",
+      "unknown-placement-account",
+      "undeclared-tree-placement",
+      "multiply-declared-tree",
+      "invalid-rehome-transaction",
+    ].includes(diagnostic.code));
+    return new Error(`Tree placement configuration is invalid: ${issue?.message ?? "its placement graph is inconsistent"}`);
+  }
+
+  private failPlacementConfiguration(diagnostics: readonly Diagnostic[]): void {
+    if (this.placementConfigurationFailed) return;
+    this.placementConfigurationFailed = true;
+    this.recordDiagnostics = [...diagnostics];
+    for (const root of this.known.values()) {
+      if (root.placement) this.setSyncState(root.placement.tree, "error");
+    }
+    this.events.emit({ tree: "system", kind: "diagnostic", ref: { tree: "system", path: "/diagnostics", stableKey: null }, origin: "external" });
+    this.stopWatching?.();
+    this.stopWatching = undefined;
+    this.resolveFatalConfiguration(this.invalidPlacementConfiguration(diagnostics));
   }
 
   private async restartRegistryWatcher(): Promise<void> {
@@ -86,7 +119,7 @@ export class TreeManager implements AsyncDisposable {
       await mkdir(placement.path, { recursive: true, mode: 0o700 }).catch(() => {});
       try {
         osPath = await realpath(placement.path);
-        missing = osPath !== placement.path;
+        missing = !(await stat(osPath)).isDirectory();
       } catch {
         missing = true;
       }
@@ -104,6 +137,7 @@ export class TreeManager implements AsyncDisposable {
   private validateCandidates(candidates: CandidateRoot[]): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     const ids = new Set<string>();
+    const paths = new Map<string, string>();
     for (const candidate of candidates) {
       if (candidate.missing) {
         diagnostics.push({
@@ -122,6 +156,16 @@ export class TreeManager implements AsyncDisposable {
         });
       }
       ids.add(candidate.id);
+      const priorTree = paths.get(candidate.osPath);
+      if (priorTree && priorTree !== candidate.id) {
+        diagnostics.push({
+          code: "ambiguous-placement-path",
+          message: `Tree placements ${priorTree} and ${candidate.id} resolve to the same directory`,
+          path: candidate.osPath,
+          severity: "error",
+        });
+      }
+      paths.set(candidate.osPath, candidate.id);
     }
     // Nested shared-tree placements are real server boundaries. Exact
     // duplicates are rejected by the ID/path checks above; longest-prefix
@@ -206,6 +250,7 @@ export class TreeManager implements AsyncDisposable {
           canonical: descriptorCanonical(candidate.placement),
           access: candidate.placement.access,
           placement: candidate.placement.replica ? "replica" : "placed",
+          acceptedUpdate: candidate.placement.update,
         });
       }
     }
@@ -227,6 +272,10 @@ export class TreeManager implements AsyncDisposable {
 
   private async reloadFromDisk(): Promise<void> {
     const snapshot = await loadTreeRegistry();
+    if (snapshot.plural && !snapshot.placementsValid) {
+      this.failPlacementConfiguration(snapshot.diagnostics);
+      return;
+    }
     if (snapshot.diagnostics.length && !snapshot.plural) {
       this.recordDiagnostics = [...snapshot.diagnostics];
       this.events.emit({ tree: "system", kind: "diagnostic", ref: { tree: "system", path: "/diagnostics", stableKey: null }, origin: "external" });
@@ -251,7 +300,11 @@ export class TreeManager implements AsyncDisposable {
         ...retained,
       ];
     }
-    await this.applyPlacements(placements, true);
+    const applied = await this.applyPlacements(placements, true);
+    if (!applied) {
+      this.failPlacementConfiguration(this.recordDiagnostics);
+      return;
+    }
     this.recordDiagnostics = [...snapshot.diagnostics];
     if (this.registryPlural !== snapshot.plural) {
       this.registryPlural = snapshot.plural;
@@ -358,6 +411,7 @@ export class TreeManager implements AsyncDisposable {
         canonical: descriptorCanonical(tracked.placement),
         access: tracked.placement.access,
         placement: tracked.placement.replica ? "replica" : "placed",
+        ...(tracked.placement.update ? { acceptedUpdate: tracked.placement.update } : {}),
       } : undefined,
       excludedRoots: trackedID ? this.compositionFor(trackedID).excludedRoots : [],
     });
@@ -400,6 +454,7 @@ export class TreeManager implements AsyncDisposable {
         canonical: descriptorCanonical(root.placement),
         access: root.placement.access,
         placement: root.placement.replica ? "replica" : "placed",
+        ...(root.placement.update ? { acceptedUpdate: root.placement.update } : {}),
       } : undefined,
       excludedRoots: this.compositionFor(tree).excludedRoots,
     });
@@ -440,6 +495,7 @@ export class TreeManager implements AsyncDisposable {
       placement: root.placement!.replica ? "replica" : "placed",
       // Persisted refs are a base, not proof that this process has reconciled it.
       sync: this.syncStates.get(id) ?? "syncing",
+      ...(root.placement!.update ? { acceptedUpdate: root.placement!.update } : {}),
       ...(root.missing ? { missing: true } : {}),
     }));
   }
@@ -481,6 +537,7 @@ export class TreeManager implements AsyncDisposable {
   }
 
   sharedPlacements(): SharedTreePlacement[] {
+    if (this.placementConfigurationFailed) return [];
     return [...this.known.values()].flatMap((root) => root.placement ? [root.placement] : []);
   }
 
@@ -649,6 +706,10 @@ export class TreeManager implements AsyncDisposable {
     const root = this.known.get(placement.tree);
     if (!root?.placement || root.placement.path !== placement.path) throw new Error(`Unknown configured placement: ${placement.tree}`);
     root.placement = { ...root.placement, ref: placement.ref, update: placement.update, access: placement.access };
+    this.workspaces.get(placement.tree)?.updateTreeDescriptor({
+      access: placement.access,
+      acceptedUpdate: placement.update,
+    });
     await savePlacementSyncMetadata(
       placement.tree,
       { ref: placement.ref, update: placement.update, access: placement.access },

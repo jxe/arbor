@@ -3,6 +3,7 @@ export * from "./trees.ts";
 export * from "./account-config.ts";
 export * from "./account-config-v2.ts";
 export * from "./placements.ts";
+export * from "./rehome-state.ts";
 export * from "./connections.ts";
 export * from "./server-config.ts";
 export * from "./schema.ts";

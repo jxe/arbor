@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { CollectionFileDescriptor, Hash } from "@arbor/core";
 import {
@@ -12,6 +12,7 @@ import {
   type WireObject,
 } from "@arbor/wire";
 import { IGNORED_WORKSPACE_DIRECTORIES } from "./discovery.ts";
+import { writeAtomic } from "./file-ops.ts";
 
 export interface SnapshotCollectionFileDescription {
   format: CollectionFileDescriptor["format"];
@@ -181,7 +182,7 @@ export async function materializeTree(
         throw error;
       });
       if (existing?.equals(Buffer.from(object.bytes))) return;
-      await writeFile(path, object.bytes);
+      await writeAtomic(path, object.bytes);
       return;
     }
     await mkdir(path, { recursive: true });

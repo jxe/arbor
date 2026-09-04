@@ -277,6 +277,20 @@ export class ArborSyncRESTClient {
     return this.mutateContent({ op: "writeText", ref, baseContentRevision, source }, mutationID);
   }
 
+  admitDocumentCandidate(
+    ref: NodeRef,
+    admissionBasis: string,
+    baseContentRevision: string,
+    source: string,
+    sourceEdits?: Extract<ContentWorkspaceOperation, { op: "writeMarkdown" }>["sourceEdits"],
+  ): Promise<NodeResponse> {
+    return this.request("/v1/documents/admit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ref, admissionBasis, baseContentRevision, source, ...(sourceEdits ? { sourceEdits } : {}) }),
+    });
+  }
+
   writeProperties(
     ref: NodeRef,
     basePropertiesRevision: Extract<ContentWorkspaceOperation, { op: "writeProperties" }>["basePropertiesRevision"],

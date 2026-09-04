@@ -25,13 +25,20 @@ export async function runArborSyncDaemon(args = process.argv.slice(2)): Promise<
     : await serveArborSync(resolve(positionals[0] ?? "."), { port });
   if (running.mode === "workspace") console.log(`Arbor Sync is serving ${running.start} at ${running.url}`);
   else console.log(`Arbor Sync control service is listening at ${running.url}`);
-  const shutdown = async () => {
+  let shuttingDown = false;
+  const shutdown = async (exitCode = 0) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     running.server.stop(true);
     await running.service[Symbol.asyncDispose]();
-    process.exit(0);
+    process.exit(exitCode);
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", () => { void shutdown(); });
+  process.on("SIGTERM", () => { void shutdown(); });
+  void running.service.trees.fatalConfiguration.then((error) => {
+    console.error(error.message);
+    void shutdown(1);
+  });
 }
 
 if (import.meta.main) {

@@ -200,6 +200,33 @@ public actor ArborSyncRESTClient {
         )
     }
 
+    public func admitDocumentCandidate(
+        ref: NodeRef,
+        admissionBasis: String,
+        baseContentRevision: String,
+        source: String,
+        sourceEdits: [ProtocolSourceEdit]? = nil
+    ) async throws -> NodeSnapshot {
+        struct Admission: Encodable {
+            var ref: NodeRef
+            var admissionBasis: String
+            var baseContentRevision: String
+            var source: String
+            var sourceEdits: [ProtocolSourceEdit]?
+        }
+        var request = URLRequest(url: url("/v1/documents/admit"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(Admission(
+            ref: ref,
+            admissionBasis: admissionBasis,
+            baseContentRevision: baseContentRevision,
+            source: source,
+            sourceEdits: sourceEdits
+        ))
+        return try await perform(request)
+    }
+
     public func claimProfile(origin: String, handle: String, path: String, displayName: String? = nil) async throws -> MutationReceipt {
         var request = URLRequest(url: url("/v1/bootstrap/claims"))
         request.httpMethod = "POST"

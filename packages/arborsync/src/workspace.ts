@@ -605,6 +605,18 @@ export class Workspace implements AsyncDisposable {
     return null;
   }
 
+  /** Physical Wire path for the Markdown body represented by one logical document route. */
+  async wireDocumentPath(inputPath: string): Promise<string> {
+    const read = await this.fs.read(inputPath);
+    const physical = read.node.kind === "file" ? read.node.absolutePath : read.node.bodyPath;
+    if (!physical || !read.bytes) throw new Error(`Document has no stored file body: ${inputPath}`);
+    const path = relative(this.root, physical);
+    if (!path || path === ".." || path.startsWith("../") || path.startsWith("..\\")) {
+      throw new Error(`Document body escapes its tree: ${inputPath}`);
+    }
+    return `/${path.split("\\").join("/")}`;
+  }
+
   recovery(inputPath: string) { return this.fs.recovery(inputPath); }
 
   private async blockRecoveryEntries(path: string): Promise<RecoveryEntry[]> {

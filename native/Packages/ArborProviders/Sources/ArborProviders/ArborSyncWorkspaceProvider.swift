@@ -363,6 +363,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
     private let client: ArborSyncRESTClient
     private let initialReference: WorkspaceReference
     private var terminal = false
+    private var admissionSnapshots: [String: WorkspaceDocumentSnapshot] = [:]
 
     public init(client: ArborSyncRESTClient, reference: WorkspaceReference) {
         self.client = client
@@ -372,7 +373,9 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
 
     public func snapshot() async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
-        return try Self.documentSnapshot(await client.node(initialReference.nodeRef), fallback: initialReference)
+        let snapshot = try Self.documentSnapshot(await client.node(initialReference.nodeRef), fallback: initialReference)
+        remember(snapshot)
+        return snapshot
     }
 
     public func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> {
@@ -384,6 +387,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    self.remember(initial)
                     continuation.yield(initial)
                     var revision = view.snapshot.capabilities.content?.revision
                     for try await update in view.updates {
@@ -397,7 +401,9 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
                         }
                         guard snapshot.capabilities.content?.revision != revision else { continue }
                         revision = snapshot.capabilities.content?.revision
-                        continuation.yield(try Self.documentSnapshot(snapshot, fallback: reference))
+                        let document = try Self.documentSnapshot(snapshot, fallback: reference)
+                        self.remember(document)
+                        continuation.yield(document)
                     }
                     continuation.finish()
                 } catch is CancellationError {
@@ -415,6 +421,23 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
     }
 
     public func admit(patch: WorkspaceDocumentPatch) async throws -> WorkspaceDocumentSnapshot {
+        if let base = admissionSnapshots[patch.baseContentRevision], let admissionBasis = base.admissionBasis {
+            guard !patch.edits.isEmpty else { return base }
+            let edits = patch.edits.map { edit in
+                ProtocolSourceEdit(
+                    offset: edit.utf8Range.lowerBound,
+                    length: edit.utf8Range.count,
+                    replacement: edit.replacement,
+                    expected: edit.expected
+                )
+            }
+            return try await admitThroughCanopy(
+                source: patch.applying(to: base.source),
+                baseContentRevision: patch.baseContentRevision,
+                admissionBasis: admissionBasis,
+                sourceEdits: edits
+            )
+        }
         let current = try await snapshot()
         guard current.contentRevision == patch.baseContentRevision else {
             throw WorkspacePatchError.staleRevision(
@@ -445,6 +468,14 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         sourceEdits: [ProtocolSourceEdit]?
     ) async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
+        if let base = admissionSnapshots[baseContentRevision], let admissionBasis = base.admissionBasis {
+            return try await admitThroughCanopy(
+                source: source,
+                baseContentRevision: baseContentRevision,
+                admissionBasis: admissionBasis,
+                sourceEdits: sourceEdits
+            )
+        }
         do {
             _ = try await client.mutateContent(WorkspaceOperation(
                 op: "writeMarkdown",
@@ -457,6 +488,36 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         } catch let error as ArborSyncServerError where error.value.code == "conflict" && error.value.details?.workspaceRevision == true {
             let current = try await snapshot()
             throw WorkspaceDocumentConflict(current: current, submittedSource: source)
+        }
+    }
+
+    private func admitThroughCanopy(
+        source: String,
+        baseContentRevision: String,
+        admissionBasis: String,
+        sourceEdits: [ProtocolSourceEdit]?
+    ) async throws -> WorkspaceDocumentSnapshot {
+        do {
+            let value = try await client.admitDocumentCandidate(
+                ref: initialReference.nodeRef,
+                admissionBasis: admissionBasis,
+                baseContentRevision: baseContentRevision,
+                source: source,
+                sourceEdits: sourceEdits
+            )
+            let snapshot = try Self.documentSnapshot(value, fallback: initialReference)
+            remember(snapshot)
+            return snapshot
+        } catch let error as ArborSyncServerError where error.value.code == "conflict" {
+            let current = try await snapshot()
+            throw WorkspaceDocumentConflict(current: current, submittedSource: source)
+        }
+    }
+
+    private func remember(_ snapshot: WorkspaceDocumentSnapshot) {
+        admissionSnapshots[snapshot.contentRevision] = snapshot
+        if admissionSnapshots.count > 32 {
+            admissionSnapshots = [snapshot.contentRevision: snapshot]
         }
     }
 
@@ -535,7 +596,8 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
                 stableKey: node.ref.stableKey
             ),
             source: source,
-            contentRevision: revision
+            contentRevision: revision,
+            admissionBasis: node.admissionBasis
         )
     }
 }

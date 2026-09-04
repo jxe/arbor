@@ -681,7 +681,9 @@ struct ArborRootView: View {
     private var attentionBanner: some View {
         if let conflict = model.binding?.conflict {
             ArborAttentionBanner(
-                message: "This document changed outside the current edit session.",
+                message: conflict.current.admissionBasis == nil
+                    ? "This local document changed outside the current edit session."
+                    : "Canopy could not merge this document automatically.",
                 systemImage: "exclamationmark.triangle",
                 primaryLabel: "Keep My Edit",
                 primaryAction: { Task { await model.resolveEditorConflict(preferSubmitted: true) } },

@@ -15,6 +15,7 @@ import type {
   LocatorResolution,
   SnapshotEnvelope,
   TreeRef,
+  SourceEdit,
   WorkspaceOperation,
 } from "@arbor/core";
 import { LOCAL_TREE, SYSTEM_TREE, canonicalArborLocator, canonicalNodePath, pageIDFromStableKey, revisionOf, siblingMarkdownTreePath } from "@arbor/core";
@@ -38,10 +39,12 @@ import { FilesystemService, realOsPath } from "./fs-service.ts";
 import { summarizeExpandedNode } from "./node-sampling.ts";
 import {
   acceptedTreeObjects,
+  clearPendingEditorAdmissions,
   clearPendingTreeUpdate,
   clearTreeConflict,
   pendingFromSnapshot,
   pendingTreeUpdate,
+  savePendingEditorAdmission,
   savePendingTreeUpdate,
   saveAcceptedTreeObjects,
   snapshotFromConflictDraft,
@@ -52,6 +55,7 @@ import { SystemTreeProjection } from "./system-tree.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { TreeSynchronizer } from "./tree-sync.ts";
 import { ProtocolError, RevisionConflictError, Workspace, type ConfirmedSourcePatch, type WorkspaceOptions } from "./workspace.ts";
+import { documentAdmissionBasis, freezeEditorAdmission } from "./editor-admission.ts";
 
 export { resolveUserPath } from "./account-bootstrap.ts";
 
@@ -93,6 +97,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   private syncing = false;
   private syncRequested = false;
   private syncWaiters: Array<() => void> = [];
+  private workspaceIOTails = new Map<string, Promise<void>>();
   private readonly treeSync: TreeSynchronizer;
   private remoteAuthorities = new Map<string, { locator: string; endpoint: string }>();
   private readonly systemTree: SystemTreeProjection;
@@ -112,6 +117,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       trees,
       events,
       accountToken: (placement) => this.accountToken(placement),
+      withWorkspaceIO: (workspace, run) => this.withWorkspaceIO(workspace, run),
       snapshotWorkspace: (workspace, client, remoteTrees) => this.snapshotWorkspace(workspace, client, remoteTrees),
       requestSync: () => this.syncAll(),
     });
@@ -252,7 +258,38 @@ export class ArborSyncDaemon implements AsyncDisposable {
       return (await this.fetchRemoteProjection(locator, ref.stableKey)).snapshot;
     }
     const scope = await this.resolveScope(ref);
-    if (scope.kind === "root") return scope.workspace.snapshot(scope.ref);
+    if (scope.kind === "root") {
+      return this.withWorkspaceIO(scope.workspace, async () => {
+        const response = await scope.workspace.snapshot(scope.ref);
+        const placement = this.trees.placementFor(scope.workspace.tree);
+        if (
+          !response.content
+          || !response.capabilities.content?.writable
+          || !placement?.update
+          || !placement.ref
+          || placement.access !== "write"
+        ) return response;
+        const wirePath = await scope.workspace.wireDocumentPath(scope.ref.path);
+        const accepted = await snapshotDirectory(
+          scope.workspace.root,
+          this.trees.sharedBoundariesWithin(scope.workspace.root),
+          this.trees.excludedMountsWithin(scope.workspace.root),
+          (directory, sourceName) => scope.workspace.describeWireCollectionFile(directory, sourceName),
+        );
+        // Never attach an accepted basis to unsubmitted local filesystem state.
+        if (accepted.root !== placement.ref) return response;
+        return {
+          ...response,
+          admissionBasis: documentAdmissionBasis({
+            ref: scope.ref,
+            update: placement.update,
+            snapshot: accepted,
+            wirePath,
+            contentRevision: response.capabilities.content.revision,
+          }),
+        };
+      });
+    }
     if (scope.kind === "local") return this.localFs.snapshot(scope.ref);
     return this.systemTree.systemSnapshot(scope.path);
   }
@@ -517,6 +554,38 @@ export class ArborSyncDaemon implements AsyncDisposable {
     });
   }
 
+  /** Submit a stale editor generation from its accepted Canopy base without first overwriting current disk state. */
+  async admitDocumentCandidate(input: {
+    ref: NodeRef;
+    admissionBasis: string;
+    baseContentRevision: string;
+    source: string;
+    sourceEdits?: SourceEdit[];
+  }): Promise<NodeResponse> {
+    const scope = await this.resolveScope(input.ref);
+    if (scope.kind !== "root") {
+      throw new ProtocolError("unsupported-operation", "Authority admission requires a Canopy-backed tree", 422);
+    }
+    const placement = this.trees.placementFor(scope.workspace.tree);
+    if (!placement?.update || placement.access !== "write") {
+      throw new ProtocolError("unsupported-operation", "Authority admission requires a writable Canopy placement", 422);
+    }
+    const frozen = freezeEditorAdmission(input);
+    await savePendingEditorAdmission(scope.workspace.tree, frozen);
+    void this.syncAll();
+    const current = await this.withWorkspaceIO(scope.workspace, () => scope.workspace.snapshot(scope.ref));
+    if (!current.content || !current.capabilities.content) throw new Error("Document admission target no longer has content");
+    return {
+      ...current,
+      content: { ...current.content, source: frozen.source },
+      capabilities: {
+        ...current.capabilities,
+        content: { ...current.capabilities.content, revision: frozen.contentRevision },
+      },
+      admissionBasis: frozen.admissionBasis,
+    };
+  }
+
   async assetV1(mutationID: string, directory: NodeRef, filename: string, bytes: Uint8Array) {
     const scope = await this.resolveScope(directory);
     if (scope.kind !== "root") {
@@ -567,28 +636,44 @@ export class ArborSyncDaemon implements AsyncDisposable {
 
   /** Enrich workspace conflicts with the owning root's current snapshot. */
   private async inWorkspace<T>(workspace: Workspace, run: () => Promise<T>): Promise<T> {
+    return this.withWorkspaceIO(workspace, async () => {
+      try {
+        return await run();
+      } catch (error) {
+        if (error instanceof RevisionConflictError) {
+          const current = await workspace.snapshot({ tree: workspace.tree, path: error.current.path, stableKey: null }).catch(() => undefined);
+          throw new ProtocolError("stale-content-revision", error.message, 409, {
+            path: error.current.path,
+            current,
+          });
+        }
+        if (error instanceof FsConflictError) {
+          const mapped = fsErrorCode(error);
+          const current = error.details.current
+            ? await workspace.snapshot({ tree: workspace.tree, path: error.details.current.node.path, stableKey: null }).catch(() => undefined)
+            : undefined;
+          throw new ProtocolError(mapped.code, error.message, mapped.status, {
+            path: error.details.path,
+            retryable: mapped.retryable ?? false,
+            current,
+          });
+        }
+        throw error;
+      }
+    });
+  }
+
+  /** One tree's local write/snapshot/materialization boundary; Wire requests must remain outside. */
+  private async withWorkspaceIO<T>(workspace: Workspace, run: () => Promise<T>): Promise<T> {
+    const key = workspace.tree;
+    const previous = this.workspaceIOTails.get(key) ?? Promise.resolve();
+    const result = previous.then(run, run);
+    const tail = result.then(() => undefined, () => undefined);
+    this.workspaceIOTails.set(key, tail);
     try {
-      return await run();
-    } catch (error) {
-      if (error instanceof RevisionConflictError) {
-        const current = await workspace.snapshot({ tree: workspace.tree, path: error.current.path, stableKey: null }).catch(() => undefined);
-        throw new ProtocolError("stale-content-revision", error.message, 409, {
-          path: error.current.path,
-          current,
-        });
-      }
-      if (error instanceof FsConflictError) {
-        const mapped = fsErrorCode(error);
-        const current = error.details.current
-          ? await workspace.snapshot({ tree: workspace.tree, path: error.details.current.node.path, stableKey: null }).catch(() => undefined)
-          : undefined;
-        throw new ProtocolError(mapped.code, error.message, mapped.status, {
-          path: error.details.path,
-          retryable: mapped.retryable ?? false,
-          current,
-        });
-      }
-      throw error;
+      return await result;
+    } finally {
+      if (this.workspaceIOTails.get(key) === tail) this.workspaceIOTails.delete(key);
     }
   }
 
@@ -841,6 +926,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
       const acceptedLocal = await this.snapshotWorkspace(workspace, client);
       if (acceptedLocal.root !== remote.root) throw new Error("Materialized remote tree does not match its server root");
       await saveAcceptedTreeObjects(tree, acceptedLocal);
+      await clearPendingEditorAdmissions(tree);
       await clearPendingTreeUpdate(tree);
       await clearTreeConflict(tree);
       this.trees.setSyncState(tree, "idle");
@@ -874,6 +960,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     } else {
       candidate = await this.snapshotWorkspace(workspace, client);
     }
+    await clearPendingEditorAdmissions(tree);
     await savePendingTreeUpdate(
       tree,
       pendingFromSnapshot(
@@ -987,7 +1074,10 @@ export class ArborSyncDaemon implements AsyncDisposable {
             }
             const remoteTrees = await listed;
             if (!remoteTrees.some((tree) => tree.id === placement.tree)) {
-              const initial = await this.snapshotWorkspace(workspace, client, remoteTrees);
+              const initial = await this.withWorkspaceIO(
+                workspace,
+                () => this.snapshotWorkspace(workspace, client, remoteTrees),
+              );
               const activated = await client.submitUpdate(placement.tree, null, initial);
               await this.trees.updateSyncMetadata({
                 ...placement,

@@ -13,6 +13,7 @@ import {
   type CanopyAccountConfigurationSnapshot,
 } from "./account-config-v2.ts";
 import { loadLocalPlacements, placementsFilePath, watchLocalPlacements } from "./placements.ts";
+import { loadRehomeTransactions } from "./rehome-state.ts";
 import { CanopyAccountStore, CommunityConfigStore } from "./server-config.ts";
 import { arborDataRoot, arborPrivateRoot } from "./private-state.ts";
 
@@ -153,13 +154,47 @@ async function loadLegacySingletonTreeRegistry(): Promise<TreeRegistrySnapshot> 
 export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
   const pluralConfigurations = await loadCanopyAccountConfigurations();
   const local = await loadLocalPlacements();
+  const rehomes = await loadRehomeTransactions();
   if (pluralConfigurations.length || local.source) {
     const placements: SharedTreePlacement[] = [];
-    const diagnostics = [...local.diagnostics, ...pluralConfigurations.flatMap((configuration) => configuration.diagnostics)];
+    const diagnostics = [
+      ...local.diagnostics,
+      ...rehomes.diagnostics,
+      ...pluralConfigurations.flatMap((configuration) => configuration.diagnostics),
+    ];
+    let placementsValid = local.diagnostics.length === 0 && rehomes.diagnostics.length === 0;
     const invalidAccounts = new Set(pluralConfigurations
       .filter((configuration) => configuration.diagnostics.length > 0 || !configuration.account || !configuration.trees || !configuration.devices || !configuration.currentDevice)
       .map((configuration) => configuration.configurationTree));
     const accounts = new Map(pluralConfigurations.map((configuration) => [configuration.configurationTree, configuration]));
+    const declarationOwners = new Map<string, string[]>();
+    for (const configuration of pluralConfigurations) {
+      for (const tree of Object.keys(configuration.trees ?? {})) {
+        const owners = declarationOwners.get(tree) ?? [];
+        owners.push(configuration.configurationTree);
+        declarationOwners.set(tree, owners);
+      }
+    }
+    for (const [tree, owners] of declarationOwners) {
+      if (owners.length < 2) continue;
+      const transaction = rehomes.transactions.get(tree);
+      const expected = transaction
+        ? new Set([transaction.sourceConfigurationTree, transaction.destinationConfigurationTree])
+        : undefined;
+      const explicitlyRehoming = expected?.size === 2
+        && owners.length === 2
+        && owners.every((owner) => expected.has(owner))
+        && accounts.get(transaction!.sourceConfigurationTree)?.trees?.[tree]?.canonical === transaction!.sourceCanonical
+        && accounts.get(transaction!.destinationConfigurationTree)?.trees?.[tree]?.canonical === transaction!.destinationCanonical;
+      if (explicitlyRehoming) continue;
+      placementsValid = false;
+      diagnostics.push({
+        code: "multiply-declared-tree",
+        message: `Tree ${tree} is declared by several accounts without a matching rehome transaction: ${owners.join(", ")}`,
+        path: placementsFilePath(),
+        severity: "error",
+      });
+    }
     for (const configuration of pluralConfigurations) {
       if (!configuration.account || !configuration.trees || !configuration.devices || !configuration.currentDevice) continue;
       const connected = await new CanopyAccountStore(configuration.configurationTree).safe();
@@ -204,6 +239,7 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
       const configuration = accounts.get(placement.configurationTree);
       const declaration = configuration?.trees?.[placement.tree];
       if (!configuration?.account || !declaration) {
+        placementsValid = false;
         diagnostics.push({
           code: configuration ? "undeclared-tree-placement" : "unknown-placement-account",
           message: configuration
@@ -233,7 +269,7 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
       accounts: pluralConfigurations,
       plural: true,
       invalidAccounts: [...invalidAccounts],
-      placementsValid: local.diagnostics.length === 0,
+      placementsValid,
     };
   }
   return loadLegacySingletonTreeRegistry();

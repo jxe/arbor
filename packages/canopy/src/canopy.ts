@@ -805,7 +805,15 @@ export class CanopyDaemon implements AsyncDisposable {
       if (!nextTrees[id]) {
         const reservation = this.db.query("SELECT status FROM tree_reservations WHERE id = ? AND account_id = ?").get(id, accountID) as { status: string } | null;
         if (reservation?.status === "awaiting-initialization") this.db.run("DELETE FROM tree_reservations WHERE id = ?", [id]);
-        else throw new Error(`Active remote tree declarations cannot be removed: ${id}`);
+        else {
+          const active = this.get(id);
+          if (!active || active.policy !== "ordinary" || active.accountID !== accountID) {
+            throw new Error(`Account cannot retire tree declaration: ${id}`);
+          }
+          this.db.run("DELETE FROM access WHERE tree_id = ?", [id]);
+          this.db.run("DELETE FROM boundaries WHERE tree_id = ?", [id]);
+          this.db.run("UPDATE trees SET status = 'retired', updated_at = ? WHERE id = ?", [now, id]);
+        }
       }
     }
     for (const [id, declaration] of Object.entries(nextTrees)) {
@@ -817,6 +825,7 @@ export class CanopyDaemon implements AsyncDisposable {
         [id, accountID, declaration.canonicalPath]);
         continue;
       }
+      if (active.status === "retired") throw new Error(`Retired TreeID cannot be reactivated: ${id}`);
       if (active.policy !== "ordinary") throw new Error(`Configuration may not declare governed tree ${id}`);
       const boundary = this.boundary(declaration.canonicalPath);
       if (boundary && boundary.id !== id) throw new Error(`Canonical boundary is occupied: ${declaration.canonicalPath}`);
@@ -1652,6 +1661,12 @@ export class CanopyDaemon implements AsyncDisposable {
     };
     const currentTrees = graphTrees(current);
     const nextTrees = graphTrees(next);
+    for (const [id, declaration] of Object.entries(currentTrees)) {
+      if (nextTrees[id]) continue;
+      const active = this.get(id);
+      if (!active?.parentTree) continue;
+      group(active.parentTree).removals.push({ path: declaration.canonicalPath, tree: id });
+    }
     for (const [id, declaration] of Object.entries(nextTrees)) {
       const before = currentTrees[id];
       const active = this.get(id);

@@ -36,6 +36,7 @@ type LocalTreeDescriptor = TreeDescriptor & {
   placement: "placed" | "replica" | "remote";
   osPath?: string;
   sync?: "idle" | "syncing" | "offline" | "conflict" | "error";
+  acceptedUpdate?: string;
   missing?: boolean;
 };
 
@@ -234,6 +235,7 @@ type NodeSummary = {
 type NodeSnapshot = NodeSummary & {
   content?: NodeContent;
   observedThrough: EventCursor;
+  admissionBasis?: string;
 };
 
 type ChildrenPage = {
@@ -251,6 +253,12 @@ not negate a content capability—for example, clients normally fetch large file
 bytes separately. Capability names and states are fail-closed: an unknown
 capability or format may be retained or ignored for forward compatibility but
 never grants editing, execution, traversal, or file access.
+
+For a writable document whose materialized tree exactly matches an accepted
+Canopy update, `admissionBasis` is opaque context for a later editor admission.
+It contains the accepted Wire spine needed to freeze a normal update without
+first writing the candidate into the shared tree. Clients retain it with that
+exact source and return it unchanged; they do not decode or synthesize it.
 
 Clients may derive a parsed Markdown document from exact `NodeContent.source`;
 that derived representation is not a second authored value. Markdown property
@@ -273,6 +281,7 @@ shape even though those sentinel scopes never cross Arbor Wire.
 
 ```text
 POST /v1/mutations
+POST /v1/documents/admit
 POST /v1/assets
 POST /v1/imports
 ```
@@ -304,6 +313,14 @@ candidate account-tree update is synchronized.
 Markdown writes submit the complete operational source and its exact
 `baseContentRevision`. Optional ordered nonoverlapping UTF-8 source edits may
 prove editor provenance, but the complete source remains authoritative.
+Native and other session editors use `/v1/documents/admit` when their snapshot
+carried `admissionBasis`. Its body contains `{ ref, admissionBasis,
+baseContentRevision, source, sourceEdits? }`. Arbor Sync verifies the guarded
+edits against the basis, builds and durably freezes an ordinary Wire
+`UpdateRequest`, and acknowledges the private candidate without changing the
+materialized shared file. Authority submission may happen immediately or after
+a restart and offline interval. Only Canopy's accepted result is materialized.
+The endpoint is local adapter plumbing; it adds no Canopy route or update form.
 `writeProperties` is the representation-independent direct-edit operation:
 
 ```ts

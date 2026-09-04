@@ -572,6 +572,24 @@ function startArborSyncServer(
         if (request.method === "POST" && url.pathname === "/v1/mutations") {
           return json(await service.executeMutation(decodeMutation(await request.json())));
         }
+        if (request.method === "POST" && url.pathname === "/v1/documents/admit") {
+          const body = await request.json() as Record<string, unknown>;
+          validateRef(body.ref, "documents.admit.ref");
+          if (
+            typeof body.admissionBasis !== "string"
+            || typeof body.baseContentRevision !== "string"
+            || typeof body.source !== "string"
+            || Object.keys(body).some((key) => !["ref", "admissionBasis", "baseContentRevision", "source", "sourceEdits"].includes(key))
+          ) throw new ProtocolError("invalid-request", "Document admission requires ref, admissionBasis, baseContentRevision, and source", 400);
+          validateSourceEdits(body.sourceEdits);
+          return json(await service.admitDocumentCandidate(body as {
+            ref: NodeRef;
+            admissionBasis: string;
+            baseContentRevision: string;
+            source: string;
+            sourceEdits?: import("@arbor/core").SourceEdit[];
+          }));
+        }
         if (request.method === "POST" && url.pathname === "/v1/assets") {
           const input = await decodeAsset(request);
           return json(await service.assetV1(input.mutationID, input.directory, input.filename, input.bytes));

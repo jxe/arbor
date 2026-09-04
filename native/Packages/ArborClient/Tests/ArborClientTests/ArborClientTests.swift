@@ -310,6 +310,29 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(snapshot.bodies[0], snapshot.bodies[1])
     }
 
+    func testDocumentCandidateReturnsOpaqueBasisAndGuardedEditsToArborSync() async throws {
+        let node = try Data(contentsOf: fixtures.appending(path: "node.json"))
+        await URLProtocolStub.state.install { _, _ in (200, node) }
+        let client = ArborSyncRESTClient(
+            baseURL: URL(string: "https://arborsync.test")!,
+            session: stubSession()
+        )
+
+        _ = try await client.admitDocumentCandidate(
+            ref: .path("/notes", tree: "tr_notes"),
+            admissionBasis: "opaque-basis",
+            baseContentRevision: "sha256:opened",
+            source: "# Edited\n",
+            sourceEdits: [ProtocolSourceEdit(offset: 2, length: 5, replacement: "Edited", expected: "Notes")]
+        )
+
+        let captured = await URLProtocolStub.state.snapshot()
+        let request = try XCTUnwrap(captured.requests.first)
+        XCTAssertEqual(captured.count, 1)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.path, "/v1/documents/admit")
+    }
+
     func testMutationConveniencesRejectMixedDurabilityDomains() async throws {
         let client = ArborSyncRESTClient(baseURL: URL(string: "https://arborsync.test")!)
         let content = WorkspaceOperation(

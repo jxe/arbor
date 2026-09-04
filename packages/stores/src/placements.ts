@@ -49,6 +49,7 @@ export function parseLocalPlacements(source: string): LocalPlacement[] {
   const root = record(document.toJS({ maxAliasCount: 0 }), "placements.yaml");
   const placements: LocalPlacement[] = [];
   const paths = new Set<string>();
+  const trees = new Set<string>();
   for (const [configurationValue, value] of Object.entries(root)) {
     const configurationTree = configurationTreeID(configurationValue, `placements.yaml key ${configurationValue}`);
     const entries = record(value, `placements.yaml.${configurationTree}`);
@@ -57,6 +58,8 @@ export function parseLocalPlacements(source: string): LocalPlacement[] {
       if (paths.has(path)) throw new Error(`Placement path appears in several accounts: ${path}`);
       paths.add(path);
       const tree = configurationTreeID(treeValue, `placements.yaml.${configurationTree}.${path}`);
+      if (trees.has(tree)) throw new Error(`Tree appears in several placements: ${tree}`);
+      trees.add(tree);
       placements.push({ configurationTree, path, tree });
     }
   }

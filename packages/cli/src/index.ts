@@ -8,10 +8,12 @@ import {
   addLocalPlacement,
   CanopyAccountStore,
   arborDataRoot,
+  clearRehomeTransaction,
   loadCanopyAccountConfigurations,
   loadLocalPlacements,
   parseHostedTreesConfiguration,
   replaceLocalPlacement,
+  saveRehomeTransaction,
   type CanopyAccountConfigurationSnapshot,
 } from "@arbor/stores";
 import { WireClient } from "@arbor/wire";
@@ -506,7 +508,7 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
       .descriptor(sourceTree)).tree;
     const destinationWire = new WireClient(destinationConnection.record.origin, destinationConnection.accountToken, { timeoutMs: REHOME_WIRE_TIMEOUT_MS });
     const existingRemote = (await destinationWire.list()).snapshot.find((tree) => tree.id === sourceTree);
-    if (existingRemote && existingRemote.root !== sourceRemote.root) {
+    if (existingRemote && !resuming && existingRemote.root !== sourceRemote.root) {
       throw new Error(`Destination already has a different current snapshot for ${sourceTree}`);
     }
 
@@ -514,8 +516,17 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
     console.log(`  from ${sourceCanonical}`);
     console.log(`  to   ${destinationCanonical}`);
     console.log(`  path ${activePlacement.path}`);
-    console.log("  history starts again at the destination; the source server copy is retained");
+    console.log("  history starts again at the destination; the source server history is retained and retired");
     if (dryRun) return;
+
+    await saveRehomeTransaction({
+      version: 1,
+      tree: sourceTree,
+      sourceConfigurationTree: sourceConfiguration.configurationTree,
+      destinationConfigurationTree: destinationConfiguration.configurationTree,
+      sourceCanonical,
+      destinationCanonical,
+    });
 
     if (!existingDestinationDeclaration) {
       await editAccountConfigurationYAML(
@@ -541,8 +552,23 @@ async function moveCanonicalTree(sourceInput: string, destinationInput: string, 
       throw new Error(`Destination placement did not become idle; current state is ${finalLocal?.sync ?? "unavailable"}`);
     }
     const finalRemote = (await destinationWire.descriptor(sourceTree)).tree;
-    if (finalRemote.root !== sourceRemote.root) throw new Error("Destination activation did not preserve the source's current snapshot");
-    console.log(`Moved ${sourceTree} to ${destinationCanonical}; source server copy retained.`);
+    if (!resuming && finalRemote.root !== sourceRemote.root) throw new Error("Destination activation did not preserve the source's current snapshot");
+    await editAccountConfigurationYAML(
+      client,
+      sourceConfiguration.configurationTree,
+      (document) => { document.deleteIn([sourceTree]); },
+      (source) => { parseHostedTreesConfiguration(source, sourceConfiguration.account!); },
+    );
+    await service.synchronizeNow();
+    const finalConfigurations = await loadCanopyAccountConfigurations();
+    const finalSource = finalConfigurations.find((configuration) =>
+      configuration.configurationTree === sourceConfiguration.configurationTree
+    );
+    if (finalSource?.trees?.[sourceTree]) {
+      throw new Error("Source account still declares the tree after destination activation");
+    }
+    await clearRehomeTransaction(sourceTree);
+    console.log(`Moved ${sourceTree} to ${destinationCanonical}; source server history retained and source account declaration removed.`);
   });
 }
 

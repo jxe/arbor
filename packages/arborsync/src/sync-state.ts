@@ -16,6 +16,7 @@ import {
   applyTransitionPayload,
   decodeUpdateConflictJSON,
 } from "@arbor/wire";
+import type { FrozenEditorAdmission } from "./editor-admission.ts";
 
 /** The durable pending update is exactly the wire request body it will become. */
 export type PendingTreeUpdate = UpdateRequestJSON;
@@ -32,6 +33,7 @@ interface TreeSyncState {
   pending?: PendingTreeUpdate;
   conflict?: StoredTreeConflict;
   accepted?: AcceptedTreeObjects;
+  editorAdmissions?: FrozenEditorAdmission[];
 }
 
 function safeTreeID(tree: string): string {
@@ -66,7 +68,7 @@ async function save(tree: string, state: TreeSyncState): Promise<void> {
   const directory = join(arborPrivateRoot(), "sync");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const destination = pathFor(tree);
-  if (!state.pending && !state.conflict && !state.accepted) {
+  if (!state.pending && !state.conflict && !state.accepted && !state.editorAdmissions?.length) {
     await rm(destination, { force: true });
     return;
   }
@@ -118,6 +120,44 @@ export function pendingTreeUpdate(tree: string): Promise<PendingTreeUpdate | und
 
 export function acceptedTreeObjects(tree: string): Promise<AcceptedTreeObjects | undefined> {
   return serialized(tree, async () => (await load(tree)).accepted);
+}
+
+/** Ordered, durable editor candidates that have not yet received an authority decision. */
+export function pendingEditorAdmissions(tree: string): Promise<FrozenEditorAdmission[]> {
+  return serialized(tree, async () => [...((await load(tree)).editorAdmissions ?? [])]);
+}
+
+/** Add a new editor chain or replace its latest unsent generation atomically. */
+export function savePendingEditorAdmission(tree: string, admission: FrozenEditorAdmission): Promise<void> {
+  return serialized(tree, async () => {
+    const state = await load(tree);
+    const admissions = [...(state.editorAdmissions ?? [])];
+    const existing = admissions.findIndex((candidate) => candidate.id === admission.id);
+    if (existing >= 0) admissions[existing] = admission;
+    else admissions.push(admission);
+    await save(tree, { ...state, editorAdmissions: admissions });
+  });
+}
+
+/** Remove exactly the generation whose authority result was received. */
+export function clearPendingEditorAdmission(tree: string, id: string, candidate: string): Promise<void> {
+  return serialized(tree, async () => {
+    const state = await load(tree);
+    const admissions = (state.editorAdmissions ?? []).filter((admission) =>
+      admission.id !== id || admission.request.candidate !== candidate);
+    await save(tree, {
+      ...state,
+      ...(admissions.length ? { editorAdmissions: admissions } : { editorAdmissions: undefined }),
+    });
+  });
+}
+
+export function clearPendingEditorAdmissions(tree: string): Promise<void> {
+  return serialized(tree, async () => {
+    const state = await load(tree);
+    delete state.editorAdmissions;
+    await save(tree, state);
+  });
 }
 
 export async function saveAcceptedTreeObjects(tree: string, snapshot: TreeSnapshot): Promise<void> {
