@@ -172,7 +172,24 @@ query discovery, delegated authorization, or server-to-server routing
 
 ## 5. Mutations
 
-A mutation is validated code running against explicit write prefixes. The runner opens one transaction in the selected store and supplies it as `tx`. Returning commits; throwing rolls back. All reads, authorization checks, ordered operations, and writes through `tx` share that transaction. A mutation cannot silently span several transaction domains.
+A mutation is validated code running against explicit write prefixes. Its
+caller requirement is either whole-tree `write` or one named, tree-scoped
+mutation permission from [access control](05-access-control.md#11-named-mutation-permissions).
+The no-options authoring form requires `write`; an explicit permission is the
+only way a reader without whole-tree write access may invoke it. Whole-tree
+`write` satisfies every tree-local mutation permission, but never an external
+effect capability.
+
+Caller permission and executable authority are separate. Permission authorizes
+invocation of the reviewed handle; the active manifest still confines the code
+to its resolved transaction domain, trees, write prefixes, and operations. The
+runner opens one transaction in the selected store and supplies it as `tx`.
+Returning commits; throwing rolls back. All reads, data-dependent authorization
+checks, ordered operations, and writes through `tx` share that transaction. A
+mutation cannot silently span several transaction domains. Authorship,
+ownership, membership, current-state, and input-dependent policy remain handler
+checks; an ACL permission does not make them static or move them outside the
+transaction.
 
 Portable mutable schema includes primary and alternate unique keys, ordered
 foreign-key field pairs, nullability, and explicit constraint actions. Primary
@@ -212,7 +229,7 @@ Components run within a confined UI realm. Node data and effects enter through q
 
 Cross-tree source imports use absolute Arbor locators and resolve to immutable code identities for one build or execution. Imported handles retain their own declared access; resolving an import cannot silently widen it.
 
-Before first execution in a context, a human-readable consent statement lists the resolved trees, readable prefixes, writable prefixes, hosted execution, any backing-coupled or external capability, and—for an agent run—its tools, transcript destination, and any explicitly granted non-tree effect. Broad or computed declarations remain visibly broad. This is the single definition of the statement's contents, and enforcement must make it true. A host process's broader filesystem or credentials do not become executable-document capabilities. Named handles are callable from human clients and agent tools using the same identity, validation, and authorization.
+Before first execution in a context, a human-readable consent statement lists the resolved trees, readable prefixes, writable prefixes, caller mutation permissions, hosted execution, any backing-coupled or external capability, and—for an agent run—its tools, transcript destination, and any explicitly granted non-tree effect. Broad or computed declarations remain visibly broad. This is the single definition of the statement's contents, and enforcement must make it true. A host process's broader filesystem or credentials do not become executable-document capabilities. Named handles are callable from human clients and agent tools using the same identity, validation, and authorization.
 
 ## 7. Compilation and hosting
 
@@ -220,7 +237,9 @@ Compilation begins from the addressed executable document and follows its explic
 
 - source tree `TreeID`, logical document path, and code-version identity;
 - public component and asset bundles;
-- server-only query and mutation handles with Standard Schema input contracts;
+- server-only query and mutation handles with Standard Schema input contracts
+  and each mutation's `write` or named-permission caller requirement;
+- tree-scoped mutation-permission names, human titles, and descriptions;
 - resolved read/write capabilities and backing-coupled features;
 - required tree roots, node/edge schemas, store identities, and schema fingerprints;
 - static query results when explicitly baked; and
@@ -474,16 +493,26 @@ type MutationResultReceipt<Result = unknown> = {
 };
 ```
 
-`document.tree` must equal the route `SourceTreeID`. The host validates the
-document/handle versions and input before opening the transaction domain.
+`document.tree` must equal the route `SourceTreeID`. The host first requires
+effective read access to that tree, then validates the document and handle
+versions, the handle's active manifest membership, the caller's `write` or
+named-permission requirement, and the input before opening the transaction
+domain. An unavailable handle, inert permission, or unauthorized invocation
+does not disclose private handle or tree existence. Revocation blocks the next
+invocation and any later receipt replay; it does not undo an effect that already
+committed.
 Mutation semantic identity is the SHA-256 of the canonical CBOR encoding of
 `{ version: "mutate-v1", handle, input, sources }`, where `sources` is the
 activated handle's complete, authored-path-sorted set of
 `{ authoredPath, tree, path, schemaFingerprint }` bindings. The bindings are
 reviewed manifest state, not caller-selected destinations. This prevents an
 ambiguous retry from executing the same code and input against a newly resolved
-store, relation, or schema. Durable lookup is scoped by
-the source tree, authenticated subject, and `mutationID`. Reusing that identity
+store, relation, or schema. Durable lookup is scoped by the source tree, a
+trusted caller replay principal, and `mutationID`. The principal is the
+authenticated profile TreeID when present, otherwise the presented access-link
+digest identity, otherwise an anonymous identity. It is runtime-only authority:
+link digests and replay-principal values never enter authored handler context,
+results, errors, logs, or transcripts. Reusing that identity
 with a different request digest is a conflict; an exact ambiguous retry returns
 the original receipt and creates no second effect. This is the same committed-
 intent pattern as an accepted tree update: transport representation is excluded
@@ -507,7 +536,9 @@ The four operations share authentication, semantic digests, receipts,
 observation brokers, SSE framing, and tree-scoped authorization, but not
 transaction or replay domains: `updates` and `mutate` have different conflict
 domains, and `watch` has retained replay identity while `queries` deliberately
-has none. Consolidation is shared machinery, not one polymorphic endpoint.
+has none. An accepted update requires whole-tree `write`; a named mutation
+requires whole-tree `write` or its declared mutation permission. Consolidation
+is shared machinery, not one polymorphic endpoint.
 
 Query streaming is derived-result delivery, not tree history. A mutation of an
 Arbor-canonical data tree advances that data tree's ordinary accepted root and

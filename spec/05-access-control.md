@@ -1,19 +1,24 @@
 # Access control
-*Part of the [Arbor spec](../spec.md): who may read or write a tree, how a request proves who it is, and what a hash does not authorize.*
+*Part of the [Arbor spec](../spec.md): who may read, write, or invoke reviewed mutations for a tree, how a request proves who it is, and what a hash does not authorize.*
 
-*Owns: access subjects, rules, and levels; authentication headers and secret handling; tree-scoped authorization; and the `access` route. References: [accounts and devices](04-accounts-and-devices.md) for the `trees.yaml` that carries rules and `devices.yaml` whose entries govern account-scoped credentials.*
+*Owns: access subjects, rules, levels, and named mutation permissions; authentication headers and secret handling; tree-scoped authorization; and the `access` route. References: [accounts and devices](04-accounts-and-devices.md) for the `trees.yaml` that carries rules and `devices.yaml` whose entries govern account-scoped credentials, and [executable documents](07-executable-documents.md) for reviewed named mutations.*
 
 ## 1. Subjects and rules
 
 ```ts
 type ReadWriteAccess = "read" | "write";
+type MutationPermission = string;
 
 type AccessSubject =
   | { kind: "everyone" }
   | { kind: "profile"; tree: TreeID }
   | { kind: "link"; digest: Hash };
 
-type AccessRule = { subject: AccessSubject; access: ReadWriteAccess };
+type AccessRule = {
+  subject: AccessSubject;
+  access: ReadWriteAccess;
+  permissions?: MutationPermission[];
+};
 
 type SafeAccessSubject =
   | { kind: "everyone" }
@@ -24,6 +29,7 @@ type AccessEntry = {
   id: string;
   subject: SafeAccessSubject;
   access: ReadWriteAccess;
+  permissions?: MutationPermission[];
 };
 ```
 
@@ -32,18 +38,57 @@ administrative form, and a `SafeAccessSubject` never carries a link digest or
 secret.
 
 Access subjects are `everyone`, a stable profile `TreeID`, or a
-`sha256:<hex>` access-link digest. Stored rules contain only `read` or `write`;
-`none` means removal and is never stored. Public access is represented by the
-`everyone` rule; there is no `publicAccess` field. A `write` rule permits
-updates under either `ifMatch`; a narrower grant limited to `modelHash` is
-deferred ([deferred 10](../spec.md#deferred)). A raw link secret never
-enters YAML.
+`sha256:<hex>` access-link digest. Every stored rule contains `read` or
+`write`; `none` means removal and is never stored. A rule may additionally
+carry an ordered, duplicate-free list of mutation permissions. An omitted
+`permissions` field means an empty list. A permission is a lower-case ASCII
+identifier matching `[a-z][a-z0-9-]*`, with `none`, `read`, and `write`
+reserved. Permission identity is scoped by the tree whose executable mutation
+declares it; the same spelling in another tree is unrelated.
+
+Public access is represented by the `everyone` rule; there is no
+`publicAccess` field. A `write` rule permits updates under either `ifMatch` and
+satisfies every tree-local mutation permission. A narrower grant limited to
+`modelHash` is deferred ([deferred 10](../spec.md#deferred)). A raw link secret
+never enters YAML.
 
 Rules live in the account's `trees.yaml` ([accounts §3](04-accounts-and-devices.md#3-configuration-yaml));
 an administrator changes them by editing that file, and the server applies the
 change atomically with the accepted configuration root
 ([accounts §7](04-accounts-and-devices.md#7-governed-account-tree)).
 Group membership is authored profile content and does not itself grant access.
+
+### 1.1 Named mutation permissions
+
+A mutation permission authorizes invocation of reviewed named mutations that
+declare that permission. It does not authorize an accepted tree update, direct
+node or backing writes, another mutation permission, external effects, or
+access to any unreadable tree. In the initial contract every subject with a
+mutation permission also has `read` or `write`; blind mutation submission
+without read access is not defined.
+
+Executable source declares a stable permission name, human title, and concise
+description, and each named mutation declares exactly one requirement. A
+mutation with no explicit requirement requires `write`, preserving the default
+for existing authored source. The compiler records permission definitions,
+per-handle requirements, and resolved write prefixes in the reviewed manifest.
+An ACL reference to a permission absent from the active manifest is inert and
+diagnosable rather than an authorization grant.
+
+Authorization has three cumulative boundaries:
+
+1. the caller must have effective read access and either `write` or the named
+   permission required by the mutation;
+2. the active reviewed manifest confines the mutation to its declared trees,
+   transaction domain, write prefixes, and operations; and
+3. data-dependent checks such as authorship, ownership, or current workflow
+   state occur inside the mutation transaction.
+
+An ACL permission is therefore coarse authority to invoke a class of reviewed
+operations, not a replacement for row- or input-dependent authorization. The
+host rechecks it on every call before entering the transaction. External
+effects remain governed by their separate effect and consent contract; full
+tree `write` does not imply them.
 
 ## 2. Authentication and secrets
 
@@ -54,9 +99,15 @@ Authorization: Bearer <device credential>
 Arbor-Access-Link: <access-link secret>
 ```
 
-The server stores only cryptographic digests and grants the maximum access
-of all valid presented subjects. Raw credentials, profile private keys, and
-link secrets never appear
+The server stores only cryptographic digests. Across all valid presented
+subjects it grants the maximum `none`/`read`/`write` level and the union of
+their mutation permissions; `write` satisfies all tree-local mutation
+permissions. Tree descriptors expose that effective base level and the
+sorted, duplicate-free effective list of permissions declared by the active
+manifest; they omit inert names and do not enumerate the permissions implied
+by `write`. Administrative access entries still expose stored inert names so
+an administrator can diagnose or remove them. Raw credentials, profile private
+keys, and link secrets never appear
 in URLs, redirects, response bodies, errors, logs, refs, objects, YAML, access
 lists, or events. Link entries returned to administrators reveal neither secret
 nor digest.
@@ -95,7 +146,8 @@ there and the child's root, objects, history, and ACL remain independent.
 GET /.arbor/trees/{TreeID}/access
 ```
 
-The response is a snapshot envelope of safe `AccessEntry`s. Steady-state ACL
+The response is a snapshot envelope of safe `AccessEntry`s, including each
+entry's named mutation permissions. Steady-state ACL
 mutation occurs by editing the authenticated account's `trees.yaml`; there is
 no separate access-mutation endpoint. Rule subjects, levels, and the `none`
 removal rule are defined once in

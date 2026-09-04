@@ -10,8 +10,8 @@
   [Data 002](../_done/data/002-reconcile-node-data-model.md)'s
   provider-neutral node/query contracts and Apps 001's checked-in
   Supplies corpus.
-- **Blocks:** Apps 001 local/Canopy execution and Apps 002 hosted
-  agents.
+- **Blocks:** Apps 001 local/Canopy execution, Apps 002 hosted agents, and
+  Apps 004 mutation-permission manifest integration.
 
 ## Target result
 
@@ -126,8 +126,11 @@ Completion gate:
 
 ## Deliberate boundaries
 
-- Do not change authored query or mutation syntax without discussing it with
-  the user first.
+- Do not change authored query syntax without discussing it with the user
+  first. Mutation-permission syntax is now frozen by
+  [`spec/08-authoring-api.md`](../../spec/08-authoring-api.md#3-handles) and
+  [Apps 004](004-mutation-permissions.md); do not redesign it during compiler
+  implementation.
 - Do not make a global TreeID/path registry part of authored application code.
 - Do not infer property types from currently sampled rows.
 - Do not require one editor, one workspace layout, or a running Canopy.

@@ -59,7 +59,7 @@ New readers should start with the non-normative [walkthrough](spec/00-walkthroug
 | [directory format](spec/02-directory-format.md) | Filesystem/Markdown projection, `_index.md`, frontmatter, bounded child placement, and reserved names |
 | [locators](spec/03-locators.md) | Uniform tree/path/stable-key references, canonical and relative resolution, revisions, application queries, content fragments, discovery routes, and public HTTP projection |
 | [accounts and devices](spec/04-accounts-and-devices.md) | Local-first profile identity, Canopy accounts and community-defined allocation, governed account configuration, account-local device pairing, local placements, and tree activation |
-| [access control](spec/05-access-control.md) | Access subjects and rules, authentication and secrets, tree-scoped authorization, and the access route |
+| [access control](spec/05-access-control.md) | Access subjects, read/write levels, named mutation permissions, authentication and secrets, tree-scoped authorization, and the access route |
 | [child backings](spec/06-child-backings.md) | How expanded files, collection files, SQLite, Postgres, and placement projections supply child sets; backing revisions, snapshots, observation, and physical commit behavior |
 | [executable documents](spec/07-executable-documents.md) | MDX/TSX documents and agents: named handles, queries, mutations, identity, hosting, confinement, consent, transcripts, and Wire operations |
 | [authoring API](spec/08-authoring-api.md) | The `arbor/react` and `arbor/data` packages, React Actions, hooks, and styling an executable document is written against |

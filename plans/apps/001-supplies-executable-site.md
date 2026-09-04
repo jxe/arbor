@@ -8,7 +8,9 @@
   the provider-neutral node/query contract and core/provider phases in
   [Data 002](../_done/data/002-reconcile-node-data-model.md)
 - **Progress**: IN PROGRESS — compiler and development typechecking are owned
-  by [Apps 003](003-development-compiler-and-editor-tooling.md)
+  by [Apps 003](003-development-compiler-and-editor-tooling.md), and
+  permissioned reader mutation is owned by
+  [Apps 004](004-mutation-permissions.md)
 - **Reference corpus**: [`examples/supplies`](../../examples/supplies)
 
 ## Target result
@@ -103,8 +105,10 @@ Gate: Apps 003's completion gate passes for `examples/supplies`.
    tree/path/access resolution, SSR React with authorized initial results, and
    hydrate without duplicate reads.
 3. Bind the frozen `arbor/react` surface and React Actions to the implemented
-   query/mutation runtimes. Preserve JavaScript-free form submission, ordinary
-   anchors, query strings, back/forward, reload, and copied URLs.
+   query/mutation runtimes. Complete [Apps 004](004-mutation-permissions.md) so
+   a reader can invoke only explicitly permitted reviewed mutations without
+   receiving whole-tree write access. Preserve JavaScript-free form submission,
+   ordinary anchors, query strings, back/forward, reload, and copied URLs.
 4. Present the running document in local Arbor web with location, provenance,
    diagnostics, and explicit source controls.
 5. Add explicit Canopy activation for a reviewed tree/ref, manifest, private

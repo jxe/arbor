@@ -4,11 +4,12 @@ This project makes authored Arbor applications executable. It is organized aroun
 
 | Plan | Outcome | Priority | Status | Depends on |
 |---|---|---:|---|---|
-| [001](001-supplies-executable-site.md) | Run the unchanged Supplies tree locally, natively, and on Canopy | P1 | IN PROGRESS — depends on 003 | completed SQLite runtimes; historical Data 002; 003 |
+| [001](001-supplies-executable-site.md) | Run the unchanged Supplies tree locally, natively, and on Canopy | P1 | IN PROGRESS — depends on 003 and 004 | completed SQLite runtimes; historical Data 002; 003; 004 |
 | [002](002-canopy-hosted-agents.md) | Host authored conversational interfaces over compiled Arbor handles | P1 | PLANNED | 001 compiled handles, Arbor users, and Canopy execution |
 | [003](003-development-compiler-and-editor-tooling.md) | Compile and typecheck executable documents consistently in `arbor check`, editors, local Arbor, and Canopy | P1 | PLANNED | historical Data 002; 001 Supplies corpus |
+| [004](004-mutation-permissions.md) | Let readers invoke explicitly permitted reviewed mutations without whole-tree write access | P1 | PLANNED | 003 reviewed manifest and activation path |
 
-The implemented headless SQLite query, observation, and mutation phases are described in [`@arbor/data`](../../packages/data/README.md). The next vertical gate is the unchanged [`examples/supplies`](../../examples/supplies) corpus running as executable documents in local Arbor web, signed macOS Arbor, and its canonical Canopy website. Apps 001 owns that product slice; Apps 003 owns its shared compiler and development tooling.
+The implemented headless SQLite query, observation, and mutation phases are described in [`@arbor/data`](../../packages/data/README.md). The next vertical gate is the unchanged [`examples/supplies`](../../examples/supplies) corpus running as executable documents in local Arbor web, signed macOS Arbor, and its canonical Canopy website. Apps 001 owns that product slice; Apps 003 owns its shared compiler and development tooling; Apps 004 owns the caller authorization boundary that permits reviewed mutations without granting arbitrary tree writes.
 
 Canopy-hosted agents follow the same compiled query/mutation handles and authenticated Arbor-user context after that slice exists. They are not a separate data/runtime framework.
 

@@ -7,9 +7,9 @@ Package names are part of the authored portability surface: a compatible runtime
 
 ## 1. Packages
 
-`arbor/data` is authoring for data and handles: `arbor(path)` logical node sources, schema-derived children handles, `query`, `mutation`, `publicError`, `RowOf`, and `ResultOf`.
+`arbor/data` is authoring for data and handles: `arbor(path)` logical node sources, schema-derived children handles, `query`, `permission`, `mutation`, `publicError`, `RowOf`, and `ResultOf`.
 
-`arbor/react` is the component package: `useQuery`, `skipQuery`, `useMutationAction`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`.
+`arbor/react` is the component package: `useQuery`, `skipQuery`, `useMutationAction`, `useCanInvoke`, imperative mutation access when needed, `useUser`, `useNavigate`, and `Markdown`.
 
 ## 2. Documents
 
@@ -49,6 +49,44 @@ fragment.
 ## 3. Handles
 
 `query.many`, `query.one`, `query.maybe`, and `mutation` accept an optional Standard Schema-compatible input schema. Zod is supported directly, without an Arbor-specific validator vocabulary. The handle's call input is the schema input type; the query plan or mutation handler receives its validated, transformed output. Validation occurs before data access. A no-input query omits the schema and is called as `useQuery(handle)`.
+
+`permission(name, { title, description })` declares a stable, tree-scoped
+[mutation permission](07-executable-documents.md#5-mutations). `name` is the
+lower-case wire/YAML identity; `title` and `description` are human-facing
+review and sharing text rather than authority-bearing values. The compiler
+rejects conflicting declarations of one name in a tree.
+
+The existing three-argument mutation form requires whole-tree `write`. A
+four-argument form places one declared permission requirement before the
+handler:
+
+```ts
+const contribute = permission("contribute", {
+  title: "Contribute",
+  description: "Add content and edit contributions you are allowed to edit",
+})
+
+export const updatePractice = mutation(
+  suppliesData,
+  inputSchema,
+  { requires: contribute },
+  async ({ user, tx }, input) => {
+    // Ownership and other data-dependent policy is checked through tx here.
+  },
+)
+```
+
+One mutation declares one requirement. If several operations need the same
+authority, they share a permission; if one operation represents materially
+different authority, it receives a different permission and ordinarily a
+separate handle. Permission requirements are compile-time manifest facts, not
+caller input and not strings inspected ad hoc by handler code.
+
+`useCanInvoke(handle)` returns whether the current caller satisfies the
+handle's active manifest requirement. It is suitable for hiding an unavailable
+action, but it does not predict data-dependent handler authorization such as
+ownership of the addressed row. The host rechecks permission when the action is
+submitted; a hydrated boolean is never authorization evidence.
 
 `RowOf` and `ResultOf` expose the types the development compiler infers from declared property and child schemas, so authored source maintains no second result schema.
 

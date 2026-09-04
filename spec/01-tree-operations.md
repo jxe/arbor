@@ -138,6 +138,7 @@ type RemoteTreeDescriptor = {
   id: TreeID;
   kind: "ordinary" | "account-configuration";
   access: "none" | "read" | "write";
+  permissions: string[];
   root: Hash;
   update: string;
   canonical: {
@@ -151,7 +152,13 @@ type EventCursor = string;
 type Hash = `sha256:${string}`;
 ```
 
-The descriptor's `root` is the bytes hash of the current accepted tree state
+The descriptor's `access` is the caller's effective whole-tree level and
+`permissions` is the sorted, duplicate-free set of effective active
+tree-scoped mutation permissions defined by
+[access control](05-access-control.md#11-named-mutation-permissions).
+The list is empty when the tree is unreadable or no named permission applies;
+`write` additionally satisfies every tree-local permission without enumerating
+them. The descriptor's `root` is the bytes hash of the current accepted tree state
 and `update` is the accepted-update id that produced this observation.
 `observedThrough` is the cursor after which watching begins. Because accepted
 updates are the only state changes on a portable tree watch, it equals
