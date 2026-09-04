@@ -12,7 +12,9 @@ private actor ClosureTransport: ReplicaWireTransport {
     let currentObservedThrough: String
     let submitter: Submit
     private(set) var requests: [PreparedWireUpdate] = []
+    private(set) var descriptorRequests = 0
     private(set) var snapshotRequests = 0
+    private(set) var requestedRoots: [String] = []
 
     init(
         initial: WireSnapshot,
@@ -31,13 +33,26 @@ private actor ClosureTransport: ReplicaWireTransport {
         return try await submitter(prepared, requests.count)
     }
 
-    func currentSnapshot(tree: String) async throws -> WireCurrentSnapshot {
-        snapshotRequests += 1
-        return WireCurrentSnapshot(
-            tree: descriptor(tree: tree, snapshot: initial, update: currentUpdate),
-            snapshot: initial,
+    func descriptor(tree: String) async throws -> WireCurrentTree {
+        descriptorRequests += 1
+        return WireCurrentTree(
+            tree: WireTreeDescriptor(
+                id: tree,
+                kind: "ordinary",
+                root: initial.root,
+                access: "write",
+                canonical: WireCanonicalDescriptor(path: "/~owner/\(tree)", endpoint: "https://arbor.example"),
+                update: currentUpdate
+            ),
             observedThrough: currentObservedThrough
         )
+    }
+
+    func snapshot(tree _: String, root: String) async throws -> WireSnapshot {
+        snapshotRequests += 1
+        requestedRoots.append(root)
+        guard root == initial.root else { throw ReplicaSyncError.returnedSnapshotMismatch }
+        return initial
     }
 }
 
@@ -223,6 +238,8 @@ struct ArborSyncTests {
             #expect(result.state == .current)
             #expect(result.acceptedRoot == remote.root)
             #expect(try await replica.heads().acceptedCursor == "up_remote")
+            #expect(await remoteTransport.descriptorRequests == 1)
+            #expect(await remoteTransport.requestedRoots == [remote.root])
             #expect(await remoteTransport.requests.isEmpty)
         }
     }
@@ -305,6 +322,8 @@ struct ArborSyncTests {
             #expect(result.acceptedRoot == remote.root)
             #expect(try await replica.heads().acceptedUpdate == "up_remote")
             #expect(try await coordinator.watchCursor() == "observation_after_remote")
+            #expect(await remoteTransport.descriptorRequests == 1)
+            #expect(await remoteTransport.requestedRoots == [remote.root])
             #expect(await remoteTransport.requests.isEmpty)
         }
     }

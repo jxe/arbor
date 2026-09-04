@@ -81,6 +81,76 @@ struct WireObjectTests {
             _ = try WireObjectGraph.validate(.init(root: root.hash, objects: [root, file, extra]))
         }
     }
+
+    @Test("Swift reproduces the shared immutable snapshot bundle")
+    func snapshotBundleVector() throws {
+        let data = try Data(contentsOf: fixtures.appending(path: "wire-snapshot-bundles.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let vectors = try #require(fixture["valid"] as? [[String: Any]])
+        for vector in vectors {
+            let root = try #require(vector["root"] as? String)
+            let values = try #require(vector["objects"] as? [[String: Any]])
+            let snapshot = WireSnapshot(root: root, objects: try values.map { value in
+                let base64 = try #require(value["canonicalCborBase64"] as? String)
+                return WireObjectEnvelope(
+                    hash: try #require(value["hash"] as? String),
+                    bytes: try #require(Data(base64Encoded: base64))
+                )
+            })
+            let encoded = try WireSnapshotBundleCodec.encode(snapshot)
+            #expect(encoded.base64EncodedString() == vector["canonicalCborBase64"] as? String)
+            #expect(WireObjectCodec.hash(encoded) == vector["etag"] as? String)
+            #expect(try WireSnapshotBundleCodec.decode(encoded, root: root) == snapshot.sorted())
+        }
+    }
+
+    @Test("Swift rejects invalid immutable snapshot bundles")
+    func invalidSnapshotBundles() throws {
+        let file = try WireObjectCodec.object(.file(Data("snapshot\n".utf8)))
+        let root = try WireObjectCodec.object(.directory([.init(name: "note.md", hash: file.hash)]))
+        let snapshot = WireSnapshot(root: root.hash, objects: [root, file])
+        let valid = try WireSnapshotBundleCodec.encode(snapshot)
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireSnapshotBundleCodec.decode(valid, root: "sha256:" + String(repeating: "0", count: 64))
+        }
+        let incomplete = CanonicalCBOR.encode(.map([
+            ("version", .unsigned(1)),
+            ("objects", .array([.bytes(root.bytes)])),
+        ]))
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireSnapshotBundleCodec.decode(incomplete, root: root.hash)
+        }
+        let extra = try WireObjectCodec.object(.file(Data("extra".utf8)))
+        let withExtra = WireSnapshot(root: root.hash, objects: [root, file, extra])
+        let orderedExtra = withExtra.objects.sorted { $0.hash < $1.hash }
+        let extraBundle = CanonicalCBOR.encode(.map([
+            ("version", .unsigned(1)),
+            ("objects", .array(orderedExtra.map { .bytes($0.bytes) })),
+        ]))
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireSnapshotBundleCodec.decode(extraBundle, root: root.hash)
+        }
+        let ordered = snapshot.objects.sorted { $0.hash < $1.hash }
+        let reversed = CanonicalCBOR.encode(.map([
+            ("version", .unsigned(1)),
+            ("objects", .array(ordered.reversed().map { .bytes($0.bytes) })),
+        ]))
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireSnapshotBundleCodec.decode(reversed, root: root.hash)
+        }
+        let invalidObjects = try #require(
+            (try JSONSerialization.jsonObject(with: Data(contentsOf: fixtures.appending(path: "wire-objects.json"))) as? [String: Any])?["invalid"] as? [[String: Any]]
+        )
+        let noncanonicalBase64 = try #require(invalidObjects.last?["canonicalCborBase64"] as? String)
+        let noncanonical = try #require(Data(base64Encoded: noncanonicalBase64))
+        let corrupt = CanonicalCBOR.encode(.map([
+            ("version", .unsigned(1)),
+            ("objects", .array([.bytes(noncanonical)])),
+        ]))
+        #expect(throws: ArborWireValidationError.self) {
+            _ = try WireSnapshotBundleCodec.decode(corrupt, root: WireObjectCodec.hash(noncanonical))
+        }
+    }
 }
 
 @Suite("Update and observation protocol", .serialized)
@@ -226,6 +296,7 @@ struct UpdateProtocolTests {
     func endpointResult() throws {
         let data = try Data(contentsOf: fixtures.appending(path: "wire-endpoints.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(fixture["version"] as? Int == 7)
         let cases = try #require(fixture["cases"] as? [[String: Any]])
         let submit = try #require(cases.first { $0["name"] as? String == "submit-current-update" })
         let response = try #require(submit["response"] as? [String: Any])
@@ -233,6 +304,14 @@ struct UpdateProtocolTests {
         let result = try JSONDecoder().decode(WireUpdateResult.self, from: body)
         guard case let .current(update) = result else { Issue.record("Expected current result"); return }
         #expect(update.id == "1")
+        let snapshotCase = try #require(cases.first { $0["name"] as? String == "read-accepted-snapshot" })
+        let request = try #require(snapshotCase["request"] as? [String: Any])
+        let path = try #require(request["path"] as? String)
+        let root = try #require(path.split(separator: "/").last.map(String.init))
+        let snapshotResponse = try #require(snapshotCase["response"] as? [String: Any])
+        let bodyBase64 = try #require(snapshotResponse["bodyBase64"] as? String)
+        let bytes = try #require(Data(base64Encoded: bodyBase64))
+        #expect(try WireSnapshotBundleCodec.decode(bytes, root: root).root == root)
     }
 
     @Test("Ordered accepted transitions apply object deltas through a merge")
@@ -422,16 +501,18 @@ struct UpdateProtocolTests {
         #expect(claimed.confirmationCode == "123456")
     }
 
-    @Test("Descriptors and objects use tree-scoped routes")
+    @Test("Descriptors, snapshots, and objects use tree-scoped routes")
     func treeScopedObjectRoute() async throws {
         let snapshot = try wireTestSnapshot("object")
         let root = try #require(snapshot.objects.first { $0.hash == snapshot.root })
+        let bundle = try WireSnapshotBundleCodec.encode(snapshot)
         let descriptor = """
         {"tree":{"id":"tr_atlas","kind":"ordinary","access":"write","canonical":{"path":"/~alice/atlas","endpoint":"https://canopy.test","parentTree":null},"root":"\(snapshot.root)","update":"up_1"},"observedThrough":"up_1"}
         """
         await WireURLProtocolStub.state.install { request, _ in
             switch (request.httpMethod, request.url?.path) {
             case ("GET", "/.arbor/trees/tr_atlas"): (200, Data(descriptor.utf8))
+            case ("GET", "/.arbor/trees/tr_atlas/snapshots/\(snapshot.root)"): (200, bundle)
             case ("GET", "/.arbor/trees/tr_atlas/objects/\(snapshot.root)"): (200, root.bytes)
             default: (404, Data(#"{"error":"not-found"}"#.utf8))
             }
@@ -442,9 +523,11 @@ struct UpdateProtocolTests {
             session: wireStubSession()
         )
         let ref = try await client.descriptor(tree: "tr_atlas")
+        let accepted = try await client.snapshot(tree: "tr_atlas", root: ref.tree.root)
         let object = try await client.object(tree: "tr_atlas", hash: snapshot.root)
         #expect(ref.tree.update == "up_1")
         #expect(ref.observedThrough == "up_1")
+        #expect(accepted == snapshot.sorted())
         #expect(object == root.bytes)
     }
 }
@@ -466,10 +549,11 @@ struct LiveWireTests {
         let ref = try await client.descriptor(tree: configuration.id)
         #expect(ref.tree.root == configuration.root)
         #expect(!ref.observedThrough.isEmpty)
-        let current = try await client.currentSnapshot(tree: configuration.id)
+        let current = try await client.descriptor(tree: configuration.id)
+        let snapshot = try await client.snapshot(tree: configuration.id, root: current.tree.root)
         #expect(current.tree.id == configuration.id)
-        #expect(current.snapshot.root == configuration.root)
-        #expect(try await client.snapshot(tree: configuration.id, root: configuration.root) == current.snapshot.sorted())
+        #expect(snapshot.root == configuration.root)
+        #expect(snapshot == snapshot.sorted())
 
         let offer = try await client.createPairing()
         let pairedToken = "swift-paired-device-token"
@@ -563,7 +647,7 @@ private final class WireURLProtocolStub: URLProtocol, @unchecked Sendable {
                 url: request.url!,
                 statusCode: status,
                 httpVersion: "HTTP/1.1",
-                headerFields: ["Content-Type": "application/json"]
+                headerFields: ["Content-Type": request.url?.path.contains("/snapshots/") == true ? "application/cbor" : "application/json"]
             )!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)

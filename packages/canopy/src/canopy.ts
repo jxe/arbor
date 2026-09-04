@@ -377,12 +377,10 @@ export class CanopyDaemon implements AsyncDisposable {
     return { update, ...payload, ...(requestDigest ? { requestDigest } : {}) };
   }
 
-  /** Complete graph for one retained update. Wire hosts expose it only as an
-   * opt-in response to the exact update request, never as history browsing. */
-  async snapshotForUpdate(treeID: string, updateID: string): Promise<TreeSnapshot> {
-    const update = this.update(updateID);
-    if (!update || update.tree !== treeID) throw new Error("Accepted update is not retained for this tree");
-    return this.objects.completeSnapshot(update.root);
+  /** Complete graph for one retained accepted root, without exposing history metadata. */
+  async snapshotForRoot(treeID: string, root: ObjectHash): Promise<TreeSnapshot | null> {
+    if (!this.acceptedStore.hasRoot(treeID, root)) return null;
+    return this.objects.completeSnapshot(root);
   }
 
   boundary(path: string): CanopyTree | null {

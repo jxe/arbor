@@ -26,25 +26,18 @@ import {
 } from "./objects.ts";
 import {
   decodeAcceptedTransitionJSON,
-  decodeTreeSnapshotJSON,
   decodeUpdateConflictJSON,
   decodeUpdateResultJSON,
   encodeTreeSnapshotJSON,
-  verifyTreeSnapshotGraph,
   encodeUpdateRequestJSON,
 } from "./updates/json.ts";
 import { updateRequestDigest } from "./updates/intent.ts";
+import { decodeSnapshotBundle } from "./snapshots.ts";
 
 export type { RemoteTreeDescriptor } from "@arbor/core";
 
 export interface CurrentTree {
   tree: RemoteTreeDescriptor;
-  observedThrough: EventCursor;
-}
-
-export interface CurrentTreeSnapshot {
-  tree: RemoteTreeDescriptor;
-  snapshot: TreeSnapshot;
   observedThrough: EventCursor;
 }
 
@@ -260,22 +253,16 @@ export class WireClient {
     return { tree: value.tree, observedThrough: value.observedThrough };
   }
 
-  async currentSnapshot(tree: string): Promise<CurrentTreeSnapshot> {
+  async snapshot(tree: string, root: string): Promise<TreeSnapshot> {
+    if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new Error("Snapshot root hash is invalid");
     const response = await this.checked(await this.request(
-      `/.arbor/trees/${encodeURIComponent(tree)}/snapshot`,
-      { headers: this.headers() },
+      `/.arbor/trees/${encodeURIComponent(tree)}/snapshots/${root}`,
+      { headers: { ...this.headers(), accept: "application/cbor" } },
     ));
-    const value = await response.json() as {
-      tree: RemoteTreeDescriptor;
-      root: ObjectHash;
-      objects: Array<{ hash: ObjectHash; bytes: string }>;
-      observedThrough: EventCursor;
-    };
-    const snapshot = verifyTreeSnapshotGraph(decodeTreeSnapshotJSON({ root: value.root, objects: value.objects }));
-    if (value.tree.id !== tree || value.tree.root !== snapshot.root || !value.tree.update) {
-      throw new Error("Current snapshot descriptor does not match its graph");
+    if (!response.headers.get("content-type")?.toLowerCase().startsWith("application/cbor")) {
+      throw new Error("Snapshot response is not application/cbor");
     }
-    return { tree: value.tree, snapshot, observedThrough: value.observedThrough };
+    return decodeSnapshotBundle(root, new Uint8Array(await response.arrayBuffer()));
   }
 
 

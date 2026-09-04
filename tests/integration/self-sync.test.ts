@@ -31,6 +31,12 @@ let deviceA: string;
 let deviceB: string;
 const tokenB = "self-sync-peer-credential";
 
+async function readAccepted(client: WireClient, treeID: string) {
+  const descriptor = await client.descriptor(treeID);
+  const snapshot = await client.snapshot(treeID, descriptor.tree.root);
+  return { descriptor, snapshot };
+}
+
 async function installDataHome(
   home: string,
   device: string,
@@ -109,9 +115,9 @@ beforeAll(async () => {
 
   const owner = new WireClient(host.url, token);
   const initialAccount = await owner.account();
-  let configuration = await owner.currentSnapshot(initialAccount.account.configuration.id);
+  let configuration = await readAccepted(owner, initialAccount.account.configuration.id);
   let graph = readAccountConfigGraph({
-    root: configuration.tree.root,
+    root: configuration.snapshot.root,
     objects: configuration.snapshot.objects,
   }, initialAccount.account.configuration.id);
   deviceA = graph.account.admins[0]!;
@@ -130,7 +136,7 @@ beforeAll(async () => {
       } },
     },
   });
-  await owner.submitUpdate(configuration.tree.id, configuration.tree.update, reserved);
+  await owner.submitUpdate(configuration.descriptor.tree.id, configuration.descriptor.tree.update, reserved);
   await owner.submitUpdate(tree, null, await snapshotDirectory(treeA));
 
   deviceB = generateArborID("dv");
@@ -140,9 +146,9 @@ beforeAll(async () => {
     label: "Self-sync peer",
     credentialDigest: `sha256:${sha256(tokenB)}`,
   }, { [tree]: { server: new URL(host.url).origin, path: treeB } });
-  configuration = await owner.currentSnapshot(initialAccount.account.configuration.id);
+  configuration = await readAccepted(owner, initialAccount.account.configuration.id);
   graph = readAccountConfigGraph({
-    root: configuration.tree.root,
+    root: configuration.snapshot.root,
     objects: configuration.snapshot.objects,
   }, initialAccount.account.configuration.id);
   const account = await owner.account();
@@ -378,7 +384,7 @@ describe("private self-sync", () => {
       await waitFor(async () => (await author.running.service.trees.descriptors())
         .find((descriptor) => descriptor.id === tree)?.sync === "idle");
       expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(source);
-      expect(String((await new WireClient(host.url, token).currentSnapshot(tree)).tree.root))
+      expect(String((await new WireClient(host.url, token).descriptor(tree)).tree.root))
         .toBe(String((await snapshotDirectory(treeA)).root));
       const after = await author.client.node({ tree, path: "/note", stableKey: null });
       const restored = "# Complete-object fallback\n";
@@ -413,7 +419,7 @@ describe("private self-sync", () => {
       if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
 
       const owner = new WireClient(host.url, token);
-      const current = await owner.currentSnapshot(tree);
+      const current = await readAccepted(owner, tree);
       const root = decodeWireObject(current.snapshot.objects.get(current.snapshot.root)!);
       if (root.type !== "directory") throw new Error("Expected a directory root");
       const noteEntry = root.entries.find((entry) => entry.name === "note.md");
@@ -430,7 +436,7 @@ describe("private self-sync", () => {
       });
       current.snapshot.objects.set(hashObject(remoteFile), remoteFile);
       current.snapshot.objects.set(hashObject(remoteRoot), remoteRoot);
-      const remote = await owner.submitUpdate(tree, current.tree.update, {
+      const remote = await owner.submitUpdate(tree, current.descriptor.tree.update, {
         root: hashObject(remoteRoot),
         objects: current.snapshot.objects,
       });
@@ -467,7 +473,7 @@ describe("private self-sync", () => {
       expect(acceptedSource).toContain("Native while open.");
       expect(requests.some(({ url }) => url.includes("/source-candidates"))).toBe(false);
       expect(requests.find(({ url, body }) => url.includes(`/.arbor/trees/${tree}/updates`) && typeof body?.candidate === "string")?.body)
-        .toMatchObject({ base: current.tree.update, ifMatch: "modelHash" });
+        .toMatchObject({ base: current.descriptor.tree.update, ifMatch: "modelHash" });
       expect(await readFile(join(treeA, "note.md"), "utf8")).toContain("Native while open.");
 
       const restored = await author.client.node(ref);
@@ -655,7 +661,7 @@ describe("private self-sync", () => {
     // Another writer advances the tree directly on Canopy; the reader's only
     // way to learn about it within the timeout is its live watch.
     const owner = new WireClient(host.url, token);
-    const current = await owner.currentSnapshot(tree);
+    const current = await readAccepted(owner, tree);
     const rootObject = decodeWireObject(current.snapshot.objects.get(current.snapshot.root)!);
     if (rootObject.type !== "directory") throw new Error("Expected a directory root");
     const file = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("delivered by watch\n") });
@@ -669,7 +675,7 @@ describe("private self-sync", () => {
     objects.set(hashObject(nextRoot), nextRoot);
     const accepted = await owner.submitUpdate(
       tree,
-      current.tree.update,
+      current.descriptor.tree.update,
       { root: hashObject(nextRoot), objects },
     );
     if (accepted.outcome !== "accepted") throw new Error(`Expected an accepted update, got ${accepted.outcome}`);

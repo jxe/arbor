@@ -77,13 +77,6 @@ public actor ArborWireClient {
         return try value.validated(expectedTree: tree)
     }
 
-    public func currentSnapshot(tree: String) async throws -> WireCurrentSnapshot {
-        let value: WireCurrentSnapshot = try await get(
-            path: "/.arbor/trees/\(component(tree))/snapshot"
-        )
-        return try value.validated(expectedTree: tree)
-    }
-
     public func resolve(path: String) async throws -> WireLocatorResolution {
         let encoded = path == "/" ? "" : "/" + path.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
         let value: WireLocatorResolution = try await get(path: "/.well-known/arbor\(encoded)")
@@ -109,22 +102,18 @@ public actor ArborWireClient {
 
     public func snapshot(tree: String, root: String) async throws -> WireSnapshot {
         try validateObjectHash(root)
-        var pending = [root]
-        var loaded: [String: WireObjectEnvelope] = [:]
-        while let hash = pending.popLast() {
-            if loaded[hash] != nil { continue }
-            let bytes = try await object(tree: tree, hash: hash)
-            let object = try WireObjectCodec.decode(bytes)
-            loaded[hash] = WireObjectEnvelope(hash: hash, bytes: bytes)
-            if case let .directory(entries, _) = object {
-                for entry in entries {
-                    if let hash = entry.hash { pending.append(hash) }
-                }
-            }
+        var request = try await authorizedRequest(
+            path: "/.arbor/trees/\(component(tree))/snapshots/\(component(root))"
+        )
+        request.setValue("application/cbor", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: request)
+        let status = try statusCode(response)
+        try validate(data: data, status: status)
+        guard let http = response as? HTTPURLResponse,
+              http.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("application/cbor") == true else {
+            throw ArborWireValidationError.invalidValue("Snapshot response is not application/cbor")
         }
-        let value = WireSnapshot(root: root, objects: loaded.values.sorted { $0.hash < $1.hash })
-        _ = try WireObjectGraph.validate(value)
-        return value
+        return try WireSnapshotBundleCodec.decode(data, root: root)
     }
 
     public func prepareUpdate(

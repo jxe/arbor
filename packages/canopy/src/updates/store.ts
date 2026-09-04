@@ -108,6 +108,13 @@ export class AcceptedUpdateStore {
     ).all(tree) as unknown[]).map((row) => this.row(row)!);
   }
 
+  /** Whether this exact root belongs to any retained accepted update of the tree. */
+  hasRoot(tree: string, root: ObjectHash): boolean {
+    return this.db.query(
+      "SELECT 1 FROM accepted_updates WHERE tree_id = ? AND root = ? LIMIT 1",
+    ).get(tree, root) !== null;
+  }
+
   acceptedRequest(tree: string, subject: string, digest: string): StoredAcceptedResponse | null {
     const accepted = this.row(this.db.query(`
       SELECT * FROM accepted_updates

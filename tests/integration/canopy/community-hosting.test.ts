@@ -141,8 +141,9 @@ describe("client-generated profile and account-configuration bootstrap", () => {
     expect(firstClaim.device.id).toBe(phoneID);
     expect(await new WireClient(running.url).claimPairing(offer.id, offer.secret, phone)).toEqual(firstClaim);
 
-    const acceptedConfiguration = await administrator.currentSnapshot(configurationTree);
-    const graph = readAccountConfigGraphV2(acceptedConfiguration.snapshot, configurationTree);
+    const acceptedConfiguration = await administrator.descriptor(configurationTree);
+    const acceptedSnapshot = await administrator.snapshot(configurationTree, acceptedConfiguration.tree.root);
+    const graph = readAccountConfigGraphV2(acceptedSnapshot, configurationTree);
     expect(graph.devices[phoneID]).toEqual({ id: phoneID, label: "Bob's iPhone", administrator: false });
     expect(JSON.stringify(graph)).not.toContain("placements");
 

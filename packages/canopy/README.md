@@ -13,4 +13,4 @@ Update handling is divided by independently testable responsibility:
 - `canopy.ts` — validation, object durability, bounded race coordination, and other Canopy features;
 - `host.ts` — HTTP authentication, decoding, response mapping, and no update policy.
 
-Accepted roots and reachable objects are retained indefinitely as private operational state. HTTP object authorization considers only current readable roots; there is no accepted-history or historical-object route.
+Accepted roots and reachable objects are currently retained indefinitely as private operational state. A caller with current read access to a tree may fetch any known retained accepted root from `GET /.arbor/trees/{TreeID}/snapshots/{root}` as a canonical CBOR bundle. The route exposes no accepted-update metadata or history listing; unknown, wrong-tree, pruned, and unauthorized roots are indistinguishable. HTTP object authorization remains limited to the current readable root.

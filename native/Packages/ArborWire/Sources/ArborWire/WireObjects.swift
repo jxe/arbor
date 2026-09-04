@@ -205,6 +205,60 @@ public enum WireObjectCodec {
     }
 }
 
+public enum WireSnapshotBundleCodec {
+    public static func encode(_ snapshot: WireSnapshot) throws -> Data {
+        _ = try WireObjectGraph.validate(snapshot)
+        var seen = Set<String>()
+        let ordered = try snapshot.objects.map { envelope -> WireObjectEnvelope in
+            guard seen.insert(envelope.hash).inserted else {
+                throw ArborWireValidationError.invalidValue("Snapshot contains a duplicate object")
+            }
+            let actual = WireObjectCodec.hash(envelope.bytes)
+            guard actual == envelope.hash else {
+                throw ArborWireValidationError.objectHashMismatch(expected: envelope.hash, actual: actual)
+            }
+            return envelope
+        }.sorted { $0.hash < $1.hash }
+        return CanonicalCBOR.encode(.map([
+            ("version", .unsigned(1)),
+            ("objects", .array(ordered.map { .bytes($0.bytes) })),
+        ]))
+    }
+
+    public static func decode(_ data: Data, root: String) throws -> WireSnapshot {
+        try validateObjectHash(root)
+        guard case let .map(fields) = try CanonicalCBOR.decode(data) else {
+            throw ArborWireValidationError.invalidCBOR("Snapshot bundle is not a map")
+        }
+        let values = Dictionary(uniqueKeysWithValues: fields)
+        guard values.count == 2,
+              case .unsigned(1)? = values["version"],
+              case let .array(encodedObjects)? = values["objects"] else {
+            throw ArborWireValidationError.invalidCBOR("Snapshot bundle fields are invalid")
+        }
+        var previous: String?
+        var seen = Set<String>()
+        let objects = try encodedObjects.map { value -> WireObjectEnvelope in
+            guard case let .bytes(bytes) = value else {
+                throw ArborWireValidationError.invalidCBOR("Snapshot object is not a byte string")
+            }
+            let hash = WireObjectCodec.hash(bytes)
+            if let previous, hash <= previous {
+                throw ArborWireValidationError.invalidValue("Snapshot objects are not ordered by hash")
+            }
+            previous = hash
+            guard seen.insert(hash).inserted else {
+                throw ArborWireValidationError.invalidValue("Snapshot contains a duplicate object")
+            }
+            _ = try WireObjectCodec.decode(bytes)
+            return WireObjectEnvelope(hash: hash, bytes: bytes)
+        }
+        let snapshot = WireSnapshot(root: root, objects: objects)
+        _ = try WireObjectGraph.validate(snapshot)
+        return snapshot
+    }
+}
+
 public enum WireObjectGraph {
     @discardableResult
     public static func validate(_ snapshot: WireSnapshot) throws -> [String: WireObject] {

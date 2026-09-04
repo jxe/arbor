@@ -56,10 +56,11 @@ await writeFile(join(editorsProfile, "_index.md"), "---\ntype: group\n---\n\n# E
 await writeFile(join(editorsProfile, "guide.md"), "# Editorial guide\n\nA **remote** Markdown page.\n");
 const authorityClient = new WireClient(host.url, "e2e-owner-token");
 const account = await authorityClient.account();
-let configuration = await authorityClient.currentSnapshot(account.account.configuration.id);
+let configuration = await authorityClient.descriptor(account.account.configuration.id);
+let configurationSnapshot = await authorityClient.snapshot(configuration.tree.id, configuration.tree.root);
 const graph = readAccountConfigGraph({
-  root: configuration.tree.root,
-  objects: configuration.snapshot.objects,
+  root: configurationSnapshot.root,
+  objects: configurationSnapshot.objects,
 }, account.account.configuration.id);
 const device = graph.account.admins[0]!;
 const editorsTree = generateArborID("tr");
@@ -89,10 +90,11 @@ const configured = snapshotAccountConfig({
 await authorityClient.submitUpdate(configuration.tree.id, configuration.tree.update, configured);
 await authorityClient.submitUpdate(editorsTree, null, await snapshotDirectory(editorsProfile));
 await authorityClient.submitUpdate(fixtureTree, null, await snapshotDirectory(root));
-configuration = await authorityClient.currentSnapshot(account.account.configuration.id);
+configuration = await authorityClient.descriptor(account.account.configuration.id);
+configurationSnapshot = await authorityClient.snapshot(configuration.tree.id, configuration.tree.root);
 const acceptedGraph = readAccountConfigGraph({
-  root: configuration.tree.root,
-  objects: configuration.snapshot.objects,
+  root: configurationSnapshot.root,
+  objects: configurationSnapshot.objects,
 }, account.account.configuration.id);
 await mkdir(join(state, "devices"), { recursive: true });
 for (const [path, source] of Object.entries(acceptedGraph.sources)) await writeFile(join(state, path), source);

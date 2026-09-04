@@ -14,7 +14,9 @@
 
 Canopy keeps the same content-addressed object hashes, accepted update IDs,
 per-tree observation order, previous and target roots, transition payloads, and
-Wire behavior while storing retained data substantially more efficiently.
+Wire behavior while storing retained data substantially more efficiently. A
+known root remains available from the immutable accepted-snapshot route exactly
+while its accepted update is retained.
 Loose objects remain a safe ingestion format; background maintenance may pack
 immutable objects and transition payloads into indexed files with bounded
 delta chains and periodic full bases, similar in spirit to Git packfiles.
@@ -97,7 +99,8 @@ accepted updates or delete the previous generation.
    store readable; interruption after it must leave one complete selected
    generation and recoverable unselected files.
 6. Define reachability and retention from current refs plus every explicitly
-   retained accepted root. Pruning may remove neither a required full base nor
+   retained accepted root. Publish pruning of an accepted root and its snapshot
+   membership atomically; pruning may remove neither a required full base nor
    any delta dependency. Request-digest replay and watch replay must retain
    their promised windows independently of object packing.
 7. Decide whether accepted transition payloads belong in SQLite, in a separate
@@ -124,6 +127,9 @@ accepted updates or delete the previous generation.
   path; packing starts after the response and never overlaps another run.
 - Railway restart fault injection throughout packing proves startup selects the
   last complete generation and accepted updates remain readable.
+- Current and historical retained-root snapshot bodies and ETags remain
+  byte-identical across loose, mixed, and packed storage; a pruned root becomes
+  indistinguishable from an unknown or unauthorized root.
 - Low-traffic age checks eventually pack old loose objects; high-traffic runs
   respect resource budgets and do not cause health-check or request failures.
 - Insufficient volume headroom defers packing without deleting loose objects or
@@ -134,7 +140,8 @@ accepted updates or delete the previous generation.
 ## Non-goals
 
 - Changing object hashes, canonical encodings, update IDs, or Wire formats.
-- Exposing accepted history or historical objects to clients.
+- Exposing accepted-update metadata, history listing, or generic non-current
+  object reads to clients.
 - Making storage packs synchronize between Canopies.
 - Adding a general storage-plugin framework, production HA, or a retention
   subsystem unrelated to the measured packing problem.

@@ -764,30 +764,33 @@ async function acceptance(state: LabState): Promise<void> {
     "chown -R arbor:arbor /tmp/arbor-replay",
     "cd /tmp/arbor-replay",
     "sudo -u arbor -H env ARBOR_LAB_TOKEN=\"$ARBOR_LAB_TOKEN\" ARBOR_LAB_REPLAY=\"$ARBOR_LAB_REPLAY\" /usr/local/bin/bun - <<'JAVASCRIPT'",
-    "import { WireClient, snapshotDirectory } from '/opt/arbor-current/packages/wire/src/index.ts';",
+    "import { WireClient } from '/opt/arbor-current/packages/wire/src/index.ts';",
+    "import { snapshotDirectory } from '/opt/arbor-current/packages/fs/src/index.ts';",
     "import { generateArborID } from '/opt/arbor-current/packages/core/src/index.ts';",
     "import { readAccountConfigGraph, snapshotAccountConfig } from '/opt/arbor-current/packages/canopy/src/account-policy.ts';",
     "import { writeFile } from 'node:fs/promises';",
     "const client = new WireClient('http://127.0.0.1:4318', process.env.ARBOR_LAB_TOKEN);",
     "// Trees are declared through the account configuration and then activated; there is no direct create call.",
     "const account = await client.account();",
-    "const configuration = await client.currentSnapshot(account.account.configuration.id);",
-    "const graph = readAccountConfigGraph({ root: configuration.snapshot.root, objects: new Map(configuration.snapshot.objects.map(({ hash, bytes }) => [hash, bytes])) }, account.account.configuration.id);",
+    "const configuration = await client.descriptor(account.account.configuration.id);",
+    "const configurationSnapshot = await client.snapshot(configuration.tree.id, configuration.tree.root);",
+    "const graph = readAccountConfigGraph(configurationSnapshot, account.account.configuration.id);",
     "const treeID = generateArborID('tr');",
     "const administrator = graph.account.admins[0];",
-    "await client.submitUpdate(configuration.tree.id, { root: configuration.tree.ref, update: configuration.tree.update }, snapshotAccountConfig({",
+    "await client.submitUpdate(configuration.tree.id, configuration.tree.update, snapshotAccountConfig({",
     "  account: graph.account,",
     "  trees: { version: 1, trees: { ...graph.trees.trees, [treeID]: { kind: 'shared-subtree', canonicalPath: `/~owner/${process.env.ARBOR_LAB_REPLAY}`, access: [] } } },",
     "  devices: { ...graph.devices, [administrator]: { ...graph.devices[administrator], placements: { ...graph.devices[administrator].placements, [treeID]: { server: graph.account.community, path: '/tmp/arbor-replay' } } } },",
     "}));",
     "const initial = await snapshotDirectory('/tmp/arbor-replay');",
-    "const tree = (await client.activateTree(treeID, initial)).snapshot;",
+    "await client.submitUpdate(treeID, null, initial);",
+    "const tree = await client.descriptor(treeID);",
     "await writeFile('/tmp/arbor-replay/note.md', 'two\\n');",
     "const next = await snapshotDirectory('/tmp/arbor-replay');",
-    "const first = await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update }, next);",
-    "const second = await client.submitUpdate(tree.id, { root: tree.ref, update: tree.update }, next);",
+    "const first = await client.submitUpdate(tree.tree.id, tree.tree.update, next);",
+    "const second = await client.submitUpdate(tree.tree.id, tree.tree.update, next);",
     "if (JSON.stringify(first) !== JSON.stringify(second)) throw new Error('Semantic replay changed its accepted result');",
-    "process.stdout.write(JSON.stringify({ tree: tree.id, historical: initial.root }));",
+    "process.stdout.write(JSON.stringify({ tree: tree.tree.id, historical: initial.root }));",
     "JAVASCRIPT",
   ].join("\n"), { quiet: true });
   const replayResult = JSON.parse(replay.stdout.trim()) as { tree: string; historical: string };
@@ -800,10 +803,11 @@ async function acceptance(state: LabState): Promise<void> {
     ". /etc/arbor-canopy.env",
     `history_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/updates')`,
     `object_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/objects/${replayResult.historical}')`,
-    "printf '%s %s' \"$history_status\" \"$object_status\"",
+    `snapshot_status=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $ARBOR_ACCOUNT_TOKEN\" 'http://127.0.0.1:4318/.arbor/trees/${replayTree}/snapshots/${replayResult.historical}')`,
+    "printf '%s %s %s' \"$history_status\" \"$object_status\" \"$snapshot_status\"",
   ].join("\n"), { quiet: true });
-  if (privateSurface.stdout.trim() !== "405 404") {
-    throw new Error(`Accepted history or a non-current object escaped onto the wire: ${privateSurface.stdout.trim()}`);
+  if (privateSurface.stdout.trim() !== "405 404 200") {
+    throw new Error(`Accepted-history, object, or immutable snapshot surface disagreed: ${privateSurface.stdout.trim()}`);
   }
 
   const conflictScenario = `accepted-conflict-${suffix}`;

@@ -13,7 +13,7 @@ import type {
 } from "@arbor/core";
 import { canonicalArborLocator, canonicalHTTPURL, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
 import type { AccessEntry, NodeResponse, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
-import { WireClient, decodeAcceptedUpdateJSON, decodeUpdateRequestJSON, updateRequestDigest } from "@arbor/wire";
+import { WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeUpdateRequestJSON, hashObject, updateRequestDigest } from "@arbor/wire";
 import { nodeDocument } from "../helpers/node-snapshot.ts";
 
 // Test-local checks mirroring ArborWire's `WireTreeDescriptor.validated()` and
@@ -221,8 +221,8 @@ describe("REST v1 protocol fixtures", () => {
       tree: RemoteTreeDescriptor;
       cases: Array<{
         name: string;
-        request: { body?: unknown; derivedRequestDigest?: string };
-        response: { status: number; body?: Record<string, unknown>; frame?: string };
+        request: { path?: string; body?: unknown; derivedRequestDigest?: string };
+        response: { status: number; body?: Record<string, unknown>; bodyBase64?: string; frame?: string; headers?: Record<string, string>; contentType?: string };
       }>;
     }>("wire-endpoints.json");
     const wireErrors = await conformanceJSON<ArborError[]>("errors.json");
@@ -245,6 +245,7 @@ describe("REST v1 protocol fixtures", () => {
     ]));
     expect(endpoints.cases.map((item) => item.name)).toEqual([
       "read-ref",
+      "read-accepted-snapshot",
       "submit-current-update",
       "activate-with-null-base",
       "link-read",
@@ -252,7 +253,7 @@ describe("REST v1 protocol fixtures", () => {
       "query-derived-model-state",
       "mutate-reviewed-model-intent",
     ]);
-    expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 200, 201, 200, 200, 200, 200]);
+    expect(endpoints.cases.map((item) => item.response.status)).toEqual([200, 200, 200, 201, 200, 200, 200, 200]);
 
     // Decode each response body with the matching wire decoder where one exists.
     const byName = new Map(endpoints.cases.map((item) => [item.name, item]));
@@ -263,6 +264,11 @@ describe("REST v1 protocol fixtures", () => {
       expect(snapshot.canonical).toEqual(tree.canonical);
       expect(byName.get(name)!.response.body!.observedThrough).toBe(snapshot.update);
     }
+    const snapshotCase = byName.get("read-accepted-snapshot")!;
+    const snapshotBody = new Uint8Array(Buffer.from(snapshotCase.response.bodyBase64!, "base64"));
+    const snapshotRoot = snapshotCase.request.path!.split("/").at(-1)!;
+    expect(decodeSnapshotBundle(snapshotRoot, snapshotBody).root).toBe(snapshotRoot);
+    expect(`\"${hashObject(snapshotBody)}\"`).toBe(snapshotCase.response.headers!.ETag!);
     const activate = byName.get("activate-with-null-base")!;
     const activation = decodeUpdateRequestJSON(activate.request.body);
     expect(activation.base).toBeNull();

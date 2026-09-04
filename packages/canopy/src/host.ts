@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { decodeTreeSnapshotJSON, encodeUpdateConflictJSON, encodeUpdateResultJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResult } from "@arbor/wire";
+import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResultJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResult } from "@arbor/wire";
 import { buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@arbor/core";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@arbor/core";
 import { treeMutationResponse, treeQueryResponse } from "@arbor/data/host";
@@ -18,7 +18,6 @@ import {
   decodeUpdateRequestJSON,
   decodeWireObject,
   encodeAcceptedTransitionJSON,
-  encodeObjectEnvelopes,
   type AcceptedTransition,
   type ObjectHash,
   type RemoteAccountDescriptor,
@@ -29,6 +28,18 @@ import { WireProjection, wireCollectionFileRowMarkdown, wireCollectionFileRowTit
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
+}
+
+function immutableHeaders(request: Request, etag: string): HeadersInit {
+  const scope = request.headers.has("authorization") || request.headers.has("arbor-access-link")
+    ? "private"
+    : "public";
+  return {
+    "content-type": "application/cbor",
+    "cache-control": `${scope}, max-age=31536000, immutable`,
+    vary: "Authorization, Arbor-Access-Link",
+    etag: `"${etag}"`,
+  };
 }
 
 function wireError(
@@ -402,32 +413,17 @@ export async function serveCanopy(options: {
           );
           return json({ tree: current, observedThrough: canopy.observedThrough(tree.id) });
         }
-        const currentSnapshot = /^\/\.arbor\/trees\/([^/]+)\/snapshot$/.exec(url.pathname);
-        if (currentSnapshot && request.method === "GET") {
-          const treeID = decodeURIComponent(currentSnapshot[1]!);
+        const acceptedSnapshot = /^\/\.arbor\/trees\/([^/]+)\/snapshots\/(sha256:[a-f0-9]{64})$/.exec(url.pathname);
+        if (acceptedSnapshot && request.method === "GET") {
+          const treeID = decodeURIComponent(acceptedSnapshot[1]!);
+          const root = acceptedSnapshot[2] as ObjectHash;
           const tree = canopy.get(treeID);
           if (!tree || !canopy.canRead(account, tree.id, linkDigest(request))) return new Response("Not found", { status: 404 });
-          const current = canopy.currentUpdate(tree.id);
-          if (!current) return wireError("conflict", "Tree has no accepted update", 409, true, {
-            kind: "server-update",
-            state: "awaiting-initialization",
-          }, { tree: treeID });
-          // The accepted update ID is also the tree-watch cursor. A later
-          // accepted update therefore remains strictly after this snapshot.
-          const observedThrough = current.id;
-          const snapshot = await canopy.snapshotForUpdate(tree.id, current.id);
-          return json({
-            tree: {
-              ...descriptor(
-                publicOrigin,
-                { ...tree, ref: current.root },
-                canopy.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read",
-              ),
-              update: current.id,
-            },
-            root: snapshot.root,
-            objects: encodeObjectEnvelopes(snapshot.objects),
-            observedThrough,
+          const snapshot = await canopy.snapshotForRoot(tree.id, root);
+          if (!snapshot) return new Response("Not found", { status: 404 });
+          const body = encodeSnapshotBundle(snapshot);
+          return new Response(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer, {
+            headers: immutableHeaders(request, `sha256:${sha256(body)}`),
           });
         }
         const updates = /^\/\.arbor\/trees\/([^/]+)\/updates$/.exec(url.pathname);
@@ -553,11 +549,7 @@ export async function serveCanopy(options: {
           if (!(await canopy.isReadableObject(treeID, hash, account, linkDigest(request)))) return wireError("not-found", "Object not found in the named tree", 404, false, {}, { tree: treeID });
           const bytes = await canopy.object(hash);
           return new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, {
-            headers: {
-              "content-type": "application/cbor",
-              "cache-control": "public, immutable",
-              etag: `"${hash}"`,
-            },
+            headers: immutableHeaders(request, hash),
           });
         }
         if (request.method === "GET" && !url.pathname.startsWith("/.")) {

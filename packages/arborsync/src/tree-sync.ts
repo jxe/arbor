@@ -4,6 +4,7 @@ import {
   WireUpdateConflict,
   applyTransitionPayload,
   decodeWireObject,
+  type CurrentTree,
   type ObjectHash,
   type RemoteTreeDescriptor,
   type TreeSnapshot,
@@ -171,6 +172,16 @@ export class TreeSynchronizer {
     });
   }
 
+  /** Resolve one coherent descriptor observation to its immutable graph. */
+  private async readSnapshot(
+    client: WireClient,
+    tree: string,
+    descriptor?: CurrentTree,
+  ): Promise<{ current: CurrentTree; snapshot: TreeSnapshot }> {
+    const current = descriptor ?? await client.descriptor(tree);
+    return { current, snapshot: await client.snapshot(tree, current.tree.root) };
+  }
+
   /** Verify the on-disk tree matches the accepted root, then record it as the accepted base. */
   private async confirmMaterialized(
     workspace: Workspace,
@@ -194,12 +205,13 @@ export class TreeSynchronizer {
     placement: SharedTreePlacement,
     client: WireClient,
     remoteTrees: readonly RemoteTreeDescriptor[],
+    descriptor?: CurrentTree,
   ): Promise<void> {
-    const current = await client.currentSnapshot(workspace.tree);
+    const { current, snapshot } = await this.readSnapshot(client, workspace.tree, descriptor);
     await this.deps.withWorkspaceIO(workspace, async () => {
       await this.materialize(workspace, {
         root: current.tree.root,
-        objects: current.snapshot.objects,
+        objects: snapshot.objects,
       });
       await this.deps.trees.updateSyncMetadata({
         ...placement,
@@ -312,13 +324,13 @@ export class TreeSynchronizer {
 
     const local = await this.snapshotWorkspace(workspace, client, remoteTrees);
     if (!placement.ref || local.root !== placement.ref) return placement;
-    const current = await client.currentSnapshot(workspace.tree);
+    const { current, snapshot } = await this.readSnapshot(client, workspace.tree);
     await this.deps.withWorkspaceIO(workspace, async () => {
       // Recheck after network I/O. A local editor or external process may have
       // changed the disk while the accepted snapshot was being fetched.
       const stillClean = await this.deps.snapshotWorkspace(workspace, client, remoteTrees);
       if (stillClean.root !== placement.ref) return;
-      await this.materialize(workspace, current.snapshot);
+      await this.materialize(workspace, snapshot);
       await this.deps.trees.updateSyncMetadata({
         ...placement,
         ref: current.tree.root,
@@ -357,7 +369,8 @@ export class TreeSynchronizer {
       return;
     }
     if (await this.applyQueuedTransitions(workspace, placement, client, remoteTrees)) return;
-    const remote = (await client.descriptor(workspace.tree)).tree;
+    const current = await client.descriptor(workspace.tree);
+    const remote = current.tree;
     if (!remote.update) throw new Error("Server does not advertise accepted updates for this tree");
     if (
       placement.access !== remote.access
@@ -393,7 +406,7 @@ export class TreeSynchronizer {
           details: { kind: "workspace-revision" },
         });
       }
-      await this.pullCurrent(workspace, placement, client, remoteTrees);
+      await this.pullCurrent(workspace, placement, client, remoteTrees, current);
       return;
     }
     if (local.root === remote.root) {
@@ -407,7 +420,7 @@ export class TreeSynchronizer {
     if (!pending && local.root === placement.ref) {
       // Clean but behind: read the current state rather than proposing a
       // candidate the authority would only report as superseded.
-      await this.pullCurrent(workspace, placement, client, remoteTrees);
+      await this.pullCurrent(workspace, placement, client, remoteTrees, current);
       return;
     }
     if (placement.access !== "write") {

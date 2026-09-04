@@ -319,51 +319,6 @@ public struct WireCurrentTree: Codable, Sendable, Equatable {
     }
 }
 
-/// The current snapshot: the transition from nothing to the current root, flattened beside its descriptor.
-public struct WireCurrentSnapshot: Codable, Sendable, Equatable {
-    public var tree: WireTreeDescriptor
-    public var snapshot: WireSnapshot
-    public var observedThrough: String
-
-    public init(tree: WireTreeDescriptor, snapshot: WireSnapshot, observedThrough: String) {
-        self.tree = tree
-        self.snapshot = snapshot
-        self.observedThrough = observedThrough
-    }
-
-    private enum CodingKeys: String, CodingKey { case tree, root, objects, observedThrough }
-
-    public init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        tree = try values.decode(WireTreeDescriptor.self, forKey: .tree)
-        snapshot = WireSnapshot(
-            root: try values.decode(String.self, forKey: .root),
-            objects: try values.decode([WireObjectEnvelope].self, forKey: .objects)
-        )
-        observedThrough = try values.decode(String.self, forKey: .observedThrough)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(tree, forKey: .tree)
-        try values.encode(snapshot.root, forKey: .root)
-        try values.encode(snapshot.objects, forKey: .objects)
-        try values.encode(observedThrough, forKey: .observedThrough)
-    }
-
-    public func validated(expectedTree: String? = nil) throws -> Self {
-        let tree = try tree.validated()
-        _ = try WireObjectGraph.validate(snapshot)
-        guard tree.root == snapshot.root,
-              !tree.update.isEmpty,
-              !observedThrough.isEmpty,
-              expectedTree == nil || tree.id == expectedTree else {
-            throw ArborWireValidationError.invalidValue("Current snapshot descriptor does not match its graph")
-        }
-        return self
-    }
-}
-
 public struct WireUpdateBase: Codable, Sendable, Equatable {
     public var root: String
     public var update: String

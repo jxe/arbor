@@ -1,6 +1,6 @@
 # Arbor implementation status
 
-*Source snapshot reviewed: `c7e789a` plus this documentation working tree,
+*Source snapshot reviewed: `0142333` plus the content-addressed snapshot implementation,
 2026-09-04. Check the current working tree and tests before relying on a status
 label.*
 
@@ -9,7 +9,7 @@ This page reports what the reference implementation does today. The [specificati
 ## Implemented and tested
 
 - **Local workspace and editor.** Arbor web browses ordinary local files, placed Arbor trees, collections, and safe `system:` records through one locator-driven interface. Markdown remains canonical, and edits go through guarded Arbor Sync mutations with recovery and observation.
-- **Tree identity and synchronization.** Stable TreeIDs, immutable objects, accepted updates, three-way text merging, watch streams, sparse object transfer, canonical boundaries, and public HTML/Markdown projection are implemented in TypeScript with shared Swift fixtures.
+- **Tree identity and synchronization.** Stable TreeIDs, immutable objects, content-addressed retained-root snapshot bundles, accepted updates, three-way text merging, watch streams, sparse object transfer, canonical boundaries, and public HTML/Markdown projection are implemented in TypeScript and Swift with shared fixtures.
 - **Canopy communities and accounts.** A Canopy can host a community plus person and group profile trees, reserve account paths, enforce whole-tree access, and reconcile synchronized account configuration.
 - **Profile identity and claiming.** `arbor me create` creates a self-certifying person Profile TreeID. A community reserves that exact identity and the client proves control through the signed challenge/claim flow.
 - **Plural local accounts and devices.** One Arbor data home can hold several Canopy accounts, including multiple accounts at one origin. Account configuration uses `account.yaml`, `trees.yaml`, and `devices.yaml`; native account pairing has passed its recorded Mac-to-iPhone primary-path acceptance.
@@ -34,7 +34,7 @@ This page reports what the reference implementation does today. The [specificati
 - The current v2 account-configuration layout is live, while the named v1 account and local-state readers remain during an explicit compatibility window. [Cleanup 002](plans/cleanups/002-retire-v1-account-and-local-state-adapters.md) owns their eventual removal.
 - Scalar group-member entries are legacy input compatibility only. Conforming authored content uses a required `profile` locator and optional Canopy-local `handle` as defined by [accounts and devices](spec/04-accounts-and-devices.md).
 - Linux and Windows daemon supervision adapters are not implemented.
-- Canopy does not expose accepted-history browsing or non-current object retrieval.
+- Canopy exposes no accepted-history listing or metadata. Known retained roots are readable through immutable snapshots by callers who can currently read the tree; the generic object route remains current-root-scoped.
 - There is no polished first-party group creation flow; users should not be directed to a manual YAML recipe as if one existed.
 
 ## Where work is tracked

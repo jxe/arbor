@@ -35,7 +35,8 @@ public struct NoReplicaSyncFaults: ReplicaSyncFaultInjector {
 
 public protocol ReplicaWireTransport: Sendable {
     func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse
-    func currentSnapshot(tree: String) async throws -> WireCurrentSnapshot
+    func descriptor(tree: String) async throws -> WireCurrentTree
+    func snapshot(tree: String, root: String) async throws -> WireSnapshot
 }
 
 public struct ArborWireReplicaTransport: ReplicaWireTransport, Sendable {
@@ -45,8 +46,11 @@ public struct ArborWireReplicaTransport: ReplicaWireTransport, Sendable {
     public func submit(_ prepared: PreparedWireUpdate) async throws -> WireUpdateResponse {
         try await client.submitUpdateResponse(prepared)
     }
-    public func currentSnapshot(tree: String) async throws -> WireCurrentSnapshot {
-        try await client.currentSnapshot(tree: tree)
+    public func descriptor(tree: String) async throws -> WireCurrentTree {
+        try await client.descriptor(tree: tree)
+    }
+    public func snapshot(tree: String, root: String) async throws -> WireSnapshot {
+        try await client.snapshot(tree: tree, root: root)
     }
 }
 

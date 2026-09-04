@@ -109,7 +109,7 @@ describe("unified node-model conformance", () => {
       version: number;
       cases: Array<{ name: string; request: { method: string; path: string } }>;
     };
-    expect(endpoints.version).toBe(6);
+    expect(endpoints.version).toBe(7);
     expect(endpoints.cases.find((item) => item.name === "query-derived-model-state")?.request).toMatchObject({
       method: "QUERY",
       path: "/.arbor/trees/tr_atlas/queries",

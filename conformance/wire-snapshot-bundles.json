@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "valid": [
+    {
+      "name": "empty-directory",
+      "root": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+      "objects": [
+        {
+          "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+          "canonicalCborBase64": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA=="
+        }
+      ],
+      "canonicalCborBase64": "omdvYmplY3RzgVgZomR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgGd2ZXJzaW9uAQ==",
+      "etag": "sha256:05774224feee0c67a8ce9fcacccd994c18548ed63babeac0b8edfd88893e638e"
+    }
+  ]
+}

@@ -139,7 +139,8 @@ public actor ReplicaSyncCoordinator {
         treeID: String,
         priorHeads heads: ReplicaHeads
     ) async throws -> WorkspaceSyncPresentation {
-        let current = try await transport.currentSnapshot(tree: treeID)
+        let current = try await transport.descriptor(tree: treeID)
+        let snapshot = try await transport.snapshot(tree: treeID, root: current.tree.root)
         let update = current.tree.update
         guard !update.isEmpty else { throw ReplicaSyncError.replicaIsNotPlaced }
         let latestHeads = try await replica.heads()
@@ -147,11 +148,11 @@ public actor ReplicaSyncCoordinator {
             return try await synchronize(admission: nil)
         }
         do {
-            if current.snapshot.root == latestHeads.materializedRoot {
-                try await replica.recordAccepted(root: current.snapshot.root, update: update, cursor: current.observedThrough)
+            if snapshot.root == latestHeads.materializedRoot {
+                try await replica.recordAccepted(root: snapshot.root, update: update, cursor: current.observedThrough)
             } else {
                 let replacement = try SnapshotBridge.replacement(
-                    snapshot: current.snapshot,
+                    snapshot: snapshot,
                     tree: await replica.treeID(),
                     update: update,
                     cursor: current.observedThrough
@@ -164,8 +165,8 @@ public actor ReplicaSyncCoordinator {
         control.presentation = WorkspaceSyncPresentation(
             state: .current,
             detail: "Applied the server's current snapshot",
-            acceptedRoot: current.snapshot.root,
-            localRoot: current.snapshot.root
+            acceptedRoot: snapshot.root,
+            localRoot: snapshot.root
         )
         try files.write(control)
         return control.presentation
@@ -523,12 +524,13 @@ public enum ReplicaPlacementService {
         at replicaRoot: URL,
         transport: any ReplicaWireTransport
     ) async throws -> ArborReplica {
-        let current = try await transport.currentSnapshot(tree: tree.id)
+        let current = try await transport.descriptor(tree: tree.id)
+        let snapshot = try await transport.snapshot(tree: tree.id, root: current.tree.root)
         let update = current.tree.update
         guard !update.isEmpty else { throw ReplicaSyncError.replicaIsNotPlaced }
         let replica = try await ArborReplica.open(at: replicaRoot, tree: TreeID(rawValue: tree.id))
         let replacement = try SnapshotBridge.replacement(
-            snapshot: current.snapshot,
+            snapshot: snapshot,
             tree: TreeID(rawValue: tree.id),
             update: update,
             cursor: current.observedThrough

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -37,12 +38,13 @@ afterAll(async () => {
 
 async function currentConfig() {
   const account = await client.account();
-  const current = await client.currentSnapshot(account.account.configuration.id);
+  const current = await client.descriptor(account.account.configuration.id);
+  const snapshot = await client.snapshot(current.tree.id, current.tree.root);
   const graph = readAccountConfigGraph({
-    root: current.snapshot.root,
-    objects: current.snapshot.objects,
+    root: snapshot.root,
+    objects: snapshot.objects,
   }, account.account.configuration.id);
-  return { account, current, graph };
+  return { account, current, snapshot, graph };
 }
 
 async function submitConfiguration(
@@ -102,12 +104,99 @@ describe("governed account-configuration Canopy server", () => {
     const trees = await client.list();
     expect(trees.observedThrough).toBeTruthy();
     expect(trees.snapshot.some((tree) => tree.id === account.account.configuration.id)).toBe(true);
-    const configuration = await client.currentSnapshot(account.account.configuration.id);
-    const bytes = await client.object(account.account.configuration.id, configuration.snapshot.root);
+    const configuration = await client.descriptor(account.account.configuration.id);
+    const snapshot = await client.snapshot(configuration.tree.id, configuration.tree.root);
+    const bytes = await client.object(account.account.configuration.id, snapshot.root);
     expect(bytes.byteLength).toBeGreaterThan(0);
     const unrelated = account.account.community.root;
     await expect(client.object(account.account.configuration.id, unrelated)).rejects.toThrow("not-found");
     expect((await client.descriptor(account.account.configuration.id)).observedThrough).toBeTruthy();
+  });
+
+  test("serves deterministic current and historical snapshots without widening object reads", async () => {
+    const baseline = await currentConfig();
+    const treeID = baseline.current.tree.id;
+    const snapshotURL = (root: string, tree = treeID) => `${running.url}/.arbor/trees/${tree}/snapshots/${root}`;
+    const authenticated = { authorization: `Bearer ${token}` };
+
+    const first = await fetch(snapshotURL(baseline.snapshot.root), { headers: authenticated });
+    const firstBody = new Uint8Array(await first.arrayBuffer());
+    expect(first.status).toBe(200);
+    expect(first.headers.get("content-type")).toBe("application/cbor");
+    expect(first.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect(first.headers.get("vary")).toBe("Authorization, Arbor-Access-Link");
+    expect(first.headers.get("etag")).toBe(`"sha256:${sha256(firstBody)}"`);
+    expect((await client.snapshot(treeID, baseline.snapshot.root)).objects).toEqual(baseline.snapshot.objects);
+    expect((await fetch(`${running.url}/.arbor/trees/${treeID}/snapshot`, { headers: authenticated })).status).toBe(404);
+
+    const administrator = baseline.graph.account.admins[0]!;
+    const changed = {
+      account: baseline.graph.account,
+      trees: baseline.graph.trees,
+      devices: {
+        ...baseline.graph.devices,
+        [administrator]: { ...baseline.graph.devices[administrator]!, label: "Historical snapshot test" },
+      },
+    };
+    const advanced = await submitConfiguration(baseline.current, changed);
+    if (advanced.outcome !== "accepted" && advanced.outcome !== "merged") throw new Error("Expected accepted configuration update");
+    const advancedSnapshot = await client.snapshot(treeID, advanced.update.root);
+    expect((await client.snapshot(treeID, baseline.snapshot.root)).objects).toEqual(baseline.snapshot.objects);
+
+    const frames = await readWatchFrames(
+      `${running.url}/.arbor/trees/${treeID}/watch?after=${baseline.current.observedThrough}`,
+      1,
+    );
+    expect(frames[0]!.data.change.transitions?.at(-1)?.update.id).toBe(advanced.update.id);
+
+    const arbitraryObject = [...baseline.snapshot.objects.keys()].find((hash) => hash !== baseline.snapshot.root)!;
+    const communityTree = baseline.account.account.community.id;
+    const hiddenResponses = await Promise.all([
+      fetch(snapshotURL(baseline.snapshot.root, communityTree), { headers: authenticated }),
+      fetch(snapshotURL(arbitraryObject), { headers: authenticated }),
+      fetch(snapshotURL(baseline.snapshot.root), { headers: { authorization: "Bearer revoked-or-unknown" } }),
+    ]);
+    expect(hiddenResponses.map(({ status }) => status)).toEqual([404, 404, 404]);
+    expect(await Promise.all(hiddenResponses.map((response) => response.text()))).toEqual(["Not found", "Not found", "Not found"]);
+
+    const restored = await client.submitUpdate(treeID, advanced.update.id, baseline.snapshot);
+    if (restored.outcome !== "accepted" && restored.outcome !== "merged") throw new Error("Expected restored configuration root");
+    expect(restored.update.root).toBe(baseline.snapshot.root);
+    expect(restored.update.id).not.toBe(baseline.current.tree.update);
+    expect(running.canopy.acceptedUpdates(treeID).filter(({ root }) => root === baseline.snapshot.root).length).toBeGreaterThanOrEqual(2);
+    const repeated = await fetch(snapshotURL(baseline.snapshot.root), { headers: authenticated });
+    expect(new Uint8Array(await repeated.arrayBuffer())).toEqual(firstBody);
+    expect(repeated.headers.get("etag")).toBe(first.headers.get("etag"));
+
+    const historicalOnly = [...advancedSnapshot.objects.keys()].find((hash) => !baseline.snapshot.objects.has(hash))!;
+    expect((await fetch(snapshotURL(advanced.update.root), { headers: authenticated })).status).toBe(200);
+    expect((await fetch(`${running.url}/.arbor/trees/${treeID}/objects/${historicalOnly}`, { headers: authenticated })).status).toBe(404);
+
+    const publicTree = baseline.account.account.community.id;
+    const publicRoot = (await client.descriptor(publicTree)).tree.root;
+    const anonymous = await fetch(snapshotURL(publicRoot, publicTree));
+    const anonymousBody = new Uint8Array(await anonymous.arrayBuffer());
+    expect(anonymous.status).toBe(200);
+    expect(anonymous.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(anonymous.headers.get("vary")).toBe("Authorization, Arbor-Access-Link");
+    const credentialed = await fetch(snapshotURL(publicRoot, publicTree), { headers: authenticated });
+    expect(credentialed.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect(new Uint8Array(await credentialed.arrayBuffer())).toEqual(anonymousBody);
+    const linked = await fetch(snapshotURL(publicRoot, publicTree), { headers: { "Arbor-Access-Link": "present" } });
+    expect(linked.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    const publicObject = await fetch(`${running.url}/.arbor/trees/${publicTree}/objects/${publicRoot}`);
+    expect(publicObject.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(publicObject.headers.get("vary")).toBe("Authorization, Arbor-Access-Link");
+
+    const database = new Database(join(dataRoot, "canopy.sqlite3"));
+    database.transaction(() => {
+      database.run("DELETE FROM observations WHERE update_id = ?", [advanced.update.id]);
+      database.run("DELETE FROM accepted_updates WHERE id = ?", [advanced.update.id]);
+    })();
+    database.close();
+    const pruned = await fetch(snapshotURL(advanced.update.root), { headers: authenticated });
+    expect(pruned.status).toBe(404);
+    expect(await pruned.text()).toBe("Not found");
   });
 
   test("replays consecutive accepted updates as one ordered transition batch", async () => {
@@ -230,6 +319,12 @@ describe("governed account-configuration Canopy server", () => {
     const linkResponse = await fetch(refURL, { headers: { "Arbor-Access-Link": linkSecret } });
     expect(linkResponse.status).toBe(200);
     expect(await linkResponse.json()).toMatchObject({ tree: { id: treeID, access: "read" } });
+    const linkedSnapshot = await fetch(`${running.url}/.arbor/trees/${treeID}/snapshots/${initial.root}`, {
+      headers: { "Arbor-Access-Link": linkSecret },
+    });
+    expect(linkedSnapshot.status).toBe(200);
+    expect(linkedSnapshot.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect(linkedSnapshot.headers.get("vary")).toBe("Authorization, Arbor-Access-Link");
     const keyedOldPath = buildNetworkLocator("/~owner/new-shared-tree/note", {
       stableKey: pageIDStableKey("x7f3q2"),
     });
@@ -308,7 +403,7 @@ describe("governed account-configuration Canopy server", () => {
     expect(bootstrapSource).toContain('"Arbor-Access-Link": secret');
     expect(bootstrapSource).not.toContain("X-Arbor-Access");
 
-    const mergeBase = await client.currentSnapshot(treeID);
+    const mergeBase = await client.descriptor(treeID);
     const renamedPath = join(treePath, "renamed.md");
     const mergeBaseSource = await readFile(renamedPath, "utf8");
     await writeFile(renamedPath, `${mergeBaseSource}\nRemote line\n`);
@@ -425,7 +520,11 @@ describe("governed account-configuration Canopy server", () => {
     });
     expect(claimed.device).toMatchObject({ id: peerID, label: "Peer laptop", revokedAt: null });
     expect(JSON.stringify(claimed)).not.toContain(peerCredential);
-    expect((await new WireClient(running.url, peerCredential).account()).account.handle).toBe("owner");
+    const peer = new WireClient(running.url, peerCredential);
+    const peerAccount = await peer.account();
+    expect(peerAccount.account.handle).toBe("owner");
+    const peerConfiguration = await peer.descriptor(peerAccount.account.configuration.id);
+    expect((await peer.snapshot(peerConfiguration.tree.id, peerConfiguration.tree.root)).root).toBe(peerConfiguration.tree.root);
 
     const { current, graph } = await currentConfig();
     expect(graph.devices[peerID]?.label).toBe("Peer laptop");
@@ -437,6 +536,10 @@ describe("governed account-configuration Canopy server", () => {
       devices: remainingDevices,
     });
     await expect(new WireClient(running.url, peerCredential).account()).rejects.toThrow("unauthenticated");
+    expect((await fetch(
+      `${running.url}/.arbor/trees/${peerConfiguration.tree.id}/snapshots/${peerConfiguration.tree.root}`,
+      { headers: { authorization: `Bearer ${peerCredential}` } },
+    )).status).toBe(404);
     const retired = await client.createPairing();
     await expect(client.claimPairing(retired.id, retired.secret, {
       id: peerID,

@@ -62,10 +62,11 @@ try {
       await writeFile(join(nativeTreeRoot, "note.md"), "---\nid: pg_note\n---\n\n# Note\n\nBase\n");
       const owner = new WireClient(canopy.url, authorityToken);
       const account = await owner.account();
-      const current = await owner.currentSnapshot(account.account.configuration.id);
+      const current = await owner.descriptor(account.account.configuration.id);
+      const snapshot = await owner.snapshot(current.tree.id, current.tree.root);
       const graph = readAccountConfigGraph({
-        root: current.snapshot.root,
-        objects: current.snapshot.objects,
+        root: snapshot.root,
+        objects: snapshot.objects,
       }, account.account.configuration.id);
       const administrator = graph.account.admins[0]!;
       const configured = snapshotAccountConfig({
