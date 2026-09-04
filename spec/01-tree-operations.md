@@ -55,12 +55,23 @@ is unsettled. Local, private, unpublished, imported, and offline trees remain
 members of the conceptual map even when no public service can currently find
 them.
 
-New tree IDs are `tr_` plus 26 lowercase base32 characters encoding 128 random
-bits. New device IDs use the same encoding after `dv_`. Existing shorter IDs
-may remain valid during migration, but activation and pairing require the new
-form. Opening a previously unidentified local root generates and durably stores
-its TreeID before that tree has an account, host, or canonical URL. Generating
-an ID neither reserves it nor contacts the server.
+New ordinary and group-profile tree IDs are `tr_` plus 26 lowercase base32
+characters encoding 128 random bits. A new person-profile TreeID is `tr_` plus
+52 lowercase base32 characters encoding the complete SHA-256 digest of the
+domain-separated Ed25519 public identity key defined by
+[accounts §1.1](05-accounts-and-devices.md#11-beginning-a-person-identity).
+The longer form is self-certifying: presenting the public key and a valid
+signature proves control without making the public TreeID a credential. New
+device IDs use the 128-bit encoding after `dv_`. Existing shorter IDs may remain
+valid during migration, but new person identities use only the key-backed form
+and new ordinary-tree activation and device pairing require their respective
+current forms.
+
+Opening a previously unidentified ordinary or group-profile local root
+generates and durably stores its random TreeID before that tree has an account,
+host, or canonical URL. Beginning a person identity is the separate explicit
+operation that generates its identity key and derived TreeID. Neither operation
+reserves a name nor contacts a server.
 
 A tree has one root, its own history and observation stream, and a whole-tree
 permission boundary. The root has logical path `/`. Arbor trees may be mounted

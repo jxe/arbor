@@ -1,7 +1,7 @@
 # Accounts and devices
 *Part of the [Arbor spec](../spec.md): profile identity, Canopy accounts, the private account-configuration tree, devices, and how a hosted tree is declared and activated.*
 
-*Owns: profile documents, Canopy account claims, joining an existing profile to another Canopy, the account-configuration graph and YAML, device pairing, tree activation, and the `account-config-v2` write and merge rules. References: [locators](04-locators.md) for Canopy-defined canonical URLs, [access control](06-access-control.md) for subjects, rules, and credentials, and the [data model](01-tree-operations.md) for synchronization. Filesystem placements are deliberately local rather than part of this portable graph.*
+*Owns: profile documents, self-certifying person identity, Canopy account claims, the account-configuration graph and YAML, device pairing, tree activation, and the `account-config-v2` write and merge rules. References: [locators](04-locators.md) for Canopy-defined canonical URLs, [access control](06-access-control.md) for subjects, rules, and credentials, and the [data model](01-tree-operations.md) for synchronization. Filesystem placements and private identity keys are deliberately local rather than part of this portable graph.*
 
 ## 1. Profiles and Canopy accounts
 
@@ -22,10 +22,13 @@ members:
 ```
 
 The profile tree's `TreeID`, not its mutable title, root `PageID`, handle, or
-current canonical URL, is the stable person or group identity. The root
-document's `type: person` or `type: group` is the sole declaration of profile
-kind; Wire tree descriptors carry no profile kind. Group membership is authored
-profile content and does not itself grant write access to the group tree.
+current canonical URL, is the stable person or group identity. A new person
+profile has a self-certifying TreeID derived from its public identity key;
+groups retain ordinary random TreeIDs because a group is not controlled by one
+person's permanent secret. The root document's `type: person` or `type: group`
+is the sole declaration of profile kind; Wire tree descriptors carry no profile
+kind. Group membership is authored profile content and does not itself grant
+write access to the group tree.
 
 A **Canopy account** is a relationship between one Canopy and one profile
 `TreeID`. Its private configuration `TreeID` is the stable identity of that
@@ -57,16 +60,64 @@ the Canopy, so its DNS name and `arbor:` scheme are not repeated. Other Canopy
 implementations may define another local allocation field and policy. A scalar
 member locator is legacy input compatibility, not the normative authored form.
 
-### 1.1 Creating identity and claiming an account
+### 1.1 Beginning a person identity
+
+One explicit local operation creates a person identity before any Canopy
+account exists. It:
+
+1. generates an Ed25519 keypair using the operating system's cryptographic
+   random source;
+2. computes `SHA-256("arbor-person-profile-v1\0" || publicKey)`, encodes all 32
+   digest bytes as unpadded lowercase base32, and prefixes the result with
+   `tr_` to obtain the profile TreeID;
+3. creates or adopts one local profile folder whose root `_index.md` declares
+   `type: person`, binding that local tree to the derived TreeID; and
+4. stores the private key in operating-system credential storage, indexed by
+   the profile TreeID. The private key is never Arbor content and never enters
+   account configuration, logs, URLs, command arguments, or Canopy storage.
+
+The public key is raw 32-byte Ed25519 public-key material encoded as unpadded
+base64url when carried by Wire. The TreeID is public. Anyone can verify its
+derivation, but only a holder of the corresponding private key can create a
+valid profile proof.
+
+The operation refuses to replace a different local identity or silently adopt
+an ordinary random TreeID as a person identity. Repeating it for the same
+profile and available key is idempotent. This version has one permanent key and
+defines no rotation, successor key, recovery key, delegation, or Canopy-backed
+identity recovery.
+
+A backup contains the same private key, not another authority. A conforming
+backup operation writes a versioned, profile-bound secret file with owner-only
+permissions, refuses to overwrite an existing path, and never prints the key.
+Restore validates that the private key derives the recorded public key and
+Profile TreeID before storing it or binding a local profile folder. Losing every
+copy of the private key permanently loses the ability to establish that profile
+at another Canopy, though already-paired Canopy devices retain their independent
+account credentials.
+
+### 1.2 Claiming an account with the profile key
 
 ```text
+POST /.arbor/account-challenges
 PUT /.arbor/accounts
 ```
 
-A profile begins as an ordinary local tree. Opening a previously unidentified
-local root mints and durably records its generated `TreeID`; profile creation is
-not a Canopy operation. A person profile's local root document declares
-`type: person` before an account is claimed.
+The community administrator first records an exact structured member containing
+the person's public profile TreeID and the Canopy-local handle. The person may
+send that public TreeID by any ordinary channel; no claim secret is needed. A
+Canopy founder supplies the same public TreeID as bootstrap configuration, so
+founding removes only that out-of-band handoff and does not waive proof.
+
+Before account creation, the Canopy returns a random, single-use, short-lived
+challenge bound to its normalized origin, the complete allocated account URL,
+the reserved profile TreeID, and the proposed configuration TreeID. The client
+signs the canonical CBOR encoding of the complete challenge with the profile
+private key. The account-claim body carries the challenge, raw public key, and
+Ed25519 signature alongside the proposed device and configuration data. The
+Canopy verifies the challenge and expiry, hashes the supplied public key to the
+reserved profile TreeID, and verifies the signature locally. It contacts no
+other Canopy.
 
 The account-claim body names the Canopy-allocated account locator, that existing
 local profile `TreeID`, a newly generated account-configuration `TreeID`, a
@@ -78,47 +129,16 @@ accepted update, first administrator, and any declared-tree reservations. It
 does not create, copy, locate, or host the profile tree. Exact retry is
 idempotent; a different attempt after success returns `already-claimed`. No
 response returns a raw device credential. The exact profile TreeID in the
-administrator-authored member reservation authorizes its first account claim.
+administrator-authored member reservation selects who may claim, while the
+profile-key signature proves control of that identity. Exact replay of one
+successful claim is idempotent; an altered, expired, already-consumed, or
+wrong-target challenge fails closed.
 
 The old `PUT /.arbor/claims/{handle}` operation, which creates and hosts a
-profile from an uploaded snapshot, is version-1 migration compatibility only.
-New clients do not call it.
-
-### 1.2 Optional proof when joining an existing profile to another Canopy
-
-```text
-PUT /.arbor/profile-proofs/{ProfileProofID}
-PUT /.arbor/profile-proofs/{ProfileProofID}/consume
-PUT /.arbor/accounts
-```
-
-The administrator-authored member reservation already binds the target account
-allocation to an exact profile TreeID. A Canopy may additionally require proof
-that the claimant controls that profile through an existing account. In that
-case, an administrator of the existing account generates a random
-`ProfileProofID` and secret. The first route records only
-the secret digest, the issuing account's profile `TreeID`, the target Canopy
-origin, complete target account locator, target configuration `TreeID`, and a short server-bounded
-expiry. Exact retry with the same ID and body is idempotent; a different body
-for that ID fails.
-
-When proof is used, the account-join body names the issuer origin, proof ID and raw proof secret,
-the existing profile `TreeID`, a newly generated configuration
-`TreeID`, a generated first `DeviceID`, its label and credential digest, and a
-complete initial configuration snapshot. The target calls the issuer's consume
-route over HTTPS with the proof secret and exact target binding. The issuer
-compares the digest and returns the bound profile TreeID without returning the
-secret. Exact consume retry for the same target is idempotent; a different,
-expired, or concurrent consume fails. The issuer URL is transient verification
-input, not profile identity or a field in the accepted configuration graph.
-
-Successful verification then permits the same ordinary account claim described
-in §1.1. It atomically creates the new Canopy account,
-configuration tree, credential binding, and first administrator. It does not
-copy, relocate, or create the profile tree. Exact retry is idempotent; expired,
-replayed for a different target, mismatched, or unverifiable proofs fail
-closed. After joining, ordinary account and tree synchronization requires no
-ongoing federation with the proof issuer.
+profile from an uploaded snapshot, and the source-Canopy profile-proof routes
+are removed rather than retained as new-account compatibility. A Canopy using
+this generation accepts new person accounts only for self-certifying Profile
+TreeIDs with valid local signatures.
 
 ## 2. Account-configuration graph
 
@@ -214,8 +234,8 @@ an active remote tree declaration is invalid until Arbor specifies a remote
 deletion lifecycle ([deferred 1](../spec.md#deferred)).
 
 YAML never contains refs, update IDs, retry state, conflict choices, status,
-device credential digests, raw credentials, raw access-link secrets, raw
-profile-proof secrets, filesystem paths, placement options, or proof issuers.
+device credential digests, raw credentials, identity private keys, signatures,
+raw access-link secrets, filesystem paths, placement options, or proof issuers.
 Link-subject digests are allowed because they are ACL identity, not the secret.
 
 A conforming parser rejects duplicate keys, aliases, unknown fields, malformed
@@ -235,10 +255,11 @@ The account tokens, and what each survives:
 | Token | Identifies | Minted by | Survives |
 |---|---|---|---|
 | configuration `TreeID` | one Canopy account connection | the first device | Canopy naming changes and local moves |
-| profile `TreeID` | one person or group | the first local workspace | all account, canonical-name, and hosting changes |
+| person-profile `TreeID` | one person and one public identity key | `arbor me create` | all account, canonical-name, and hosting changes |
+| group-profile `TreeID` | one authored group | the first local workspace | canonical-name and hosting changes |
 | `DeviceID` | one credential binding for one account | the device | everything except deletion of its `devices.yaml` entry |
 | `PairingID` | one short-lived pairing secret for one account | the server | nothing; it is single use |
-| `ProfileProofID` | one short-lived, target-bound account join proof | an existing profile-account administrator | nothing; it is single-target and expires |
+| account challenge | one short-lived, target-bound profile signature | the target Canopy | nothing; it is single use and expires |
 | access-link digest | one access link | hashing the secret, which is shown once and never stored | deleting the rule revokes it |
 
 ## 4. Local placements

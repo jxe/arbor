@@ -92,8 +92,7 @@ Every HTTP route an Arbor server exposes, and the section that defines it.
 | `QUERY /.arbor/trees/{TreeID}/queries` | [executable documents §12.1](spec/08-executable-documents.md#121-evaluate-and-stream-named-queries) |
 | `POST /.arbor/trees/{TreeID}/mutate` | [executable documents §12.2](spec/08-executable-documents.md#122-execute-named-mutations) |
 | `GET /.arbor/trees/{TreeID}/access` | [access control §4](spec/06-access-control.md#4-reading-access) |
-| `PUT /.arbor/accounts`, `PUT /.arbor/profile-proofs/{ProfileProofID}[/consume]` | [accounts §1.1–1.2](spec/05-accounts-and-devices.md#11-creating-identity-and-claiming-an-account) |
-| `PUT /.arbor/claims/{handle}` (v1 compatibility) | [accounts §1.1](spec/05-accounts-and-devices.md#11-creating-identity-and-claiming-an-account) |
+| `POST /.arbor/account-challenges`, `PUT /.arbor/accounts` | [accounts §1.1–1.2](spec/05-accounts-and-devices.md#11-beginning-a-person-identity) |
 | `POST /.arbor/pairings`, `PUT /.arbor/pairings/{PairingID}/claim` | [accounts §5](spec/05-accounts-and-devices.md#5-device-pairing) |
 
 Authentication headers apply to every route ([access control §2](spec/06-access-control.md#2-authentication-and-secrets)); shared read values are introduced with [tree reads §1.1](spec/01-tree-operations.md#11-reading-the-current-tree), while SSE framing and common errors are in [watching §3.5](spec/01-tree-operations.md#35-stream-framing-and-errors).

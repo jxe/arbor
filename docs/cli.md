@@ -2,8 +2,9 @@
 
 The Arbor CLI opens local or remote trees and places local folders through a
 Canopy. Most of the time, you only need `arbor open` and `arbor place`.
-`arbor daemon` is mainly for one-time setup or troubleshooting; the remaining
-commands handle less common migration and administration work.
+`arbor me create` is a once-per-person identity setup command and `arbor
+daemon` is mainly for machine setup or troubleshooting; the remaining commands
+handle less common migration and administration work.
 
 From a checkout, run `bun run arbor -- <command>`. After `bun link`, use the
 installed form shown below: `arbor <command>`.
@@ -13,6 +14,9 @@ installed form shown below: `arbor <command>`.
 ```sh
 # One-time macOS setup, if the Arbor app is not already managing Arbor Sync.
 arbor daemon install
+
+# Once per person, create a self-certifying profile identity.
+arbor me create
 
 # Open the current folder in Arbor.
 arbor open .
@@ -28,7 +32,8 @@ arbor place https://garden.example/~joe/notes ~/Documents/notes
 ```
 
 If Arbor Sync is already running, skip `arbor daemon install`. Run `arbor open`
-with no locator to open the current directory.
+with no locator to open the current directory. Skip `arbor me create` when an
+identity already exists; it refuses to replace one.
 
 ## Conventions
 
@@ -93,6 +98,45 @@ arbor place https://garden.example/~joe/handbook ~/Documents/handbook
 ```
 
 ## Setup and troubleshooting
+
+### `arbor me`
+
+```text
+arbor me
+arbor me create [<profile-folder>]
+arbor me backup <file>
+arbor me restore <file> [<profile-folder>]
+```
+
+`arbor me create` creates this person's one self-certifying profile identity.
+The profile folder defaults to `~/.arbor/profile`; it must be empty or already
+be the same valid person profile. Arbor writes a `type: person` root document
+when needed, derives the public Profile TreeID from a new Ed25519 public key,
+binds that TreeID to the local profile root, and stores the private key in
+operating-system credential storage. It contacts no Canopy and refuses to
+replace another identity.
+
+`arbor me` is read-only. It prints the public Profile TreeID, local profile
+folder, and whether the corresponding private key is available. Send the
+public TreeID to a Canopy administrator; after they add that exact identity and
+handle to the community profile, `arbor open <account-url>` presents the signed
+account-claim flow. A Canopy founder supplies the same public TreeID during
+bootstrap.
+
+`arbor me backup` writes a versioned backup containing the same private key to
+a newly created owner-readable file. It never prints the key and refuses to
+overwrite a path. The file is a secret and must be stored accordingly.
+`arbor me restore` validates the backup's public key and Profile TreeID before
+restoring the private key and binding the chosen profile folder; it refuses to
+replace a different local identity. This initial generation has no separate
+recovery key or key rotation: losing every copy of the private key permanently
+loses the ability to prove that identity to another Canopy.
+
+```sh
+arbor me create
+arbor me
+arbor me backup ~/Documents/arbor-me.backup
+```
 
 ### `arbor daemon`
 

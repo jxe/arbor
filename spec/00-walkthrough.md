@@ -8,22 +8,28 @@ meeting the previous one.
 
 ## 1. Create a profile identity and claim an account
 
-Joe creates a local profile folder whose root document says `type: person`.
-When Arbor first opens it, the laptop generates and durably records its
-`TreeID`; the identity exists before any Canopy account or canonical URL. The
-Garden community's structured members list reserves `handle: joe`. The field
-is local Canopy policy, so it repeats neither Garden's DNS name nor an `arbor:`
-scheme and does not prescribe that locator shape to other Canopies.
+Joe runs `arbor me create`. Arbor creates a local profile folder whose root
+document says `type: person`, generates an Ed25519 identity key in operating-
+system credential storage, and derives the profile `TreeID` from the public
+key. The identity exists before any Canopy account or canonical URL. Because
+Joe founded Garden, its bootstrap configuration records his public profile
+TreeID and `handle: joe` together. For a community he did not found, Joe would
+send the same public TreeID to its administrator, who would add that exact pair
+to the structured members list.
 
-The laptop then generates an account-configuration `TreeID`, a `DeviceID`, and
-a raw device credential that never leaves the machine. It sends
-`PUT /.arbor/accounts` with the complete account locator, credential digest,
-the already-existing profile `TreeID`, and an initial configuration snapshot:
+The laptop requests a fresh account challenge and signs it with the profile
+private key. It then generates an account-configuration `TreeID`, a `DeviceID`,
+and a raw device credential that never leaves the machine. It sends
+`PUT /.arbor/accounts` with the complete account locator, challenge, public key,
+profile signature, credential digest, the already-existing profile `TreeID`,
+and an initial configuration snapshot:
 `account.yaml`, `trees.yaml`, and `devices.yaml`. The flat account file contains
 only the Garden origin and profile `TreeID`; the devices map marks the laptop as
-the first administrator. The server creates the account and configuration in
-one transaction, but receives no profile bytes and does not host the profile
-([accounts §1.1](05-accounts-and-devices.md#11-creating-identity-and-claiming-an-account), [profiles and accounts](05-accounts-and-devices.md#1-profiles-and-canopy-accounts),
+the first administrator. The server derives the reserved Profile TreeID from
+the supplied public key, verifies the target-bound signature locally, and
+creates the account and configuration in one transaction. It receives no
+profile bytes and does not host the profile
+([accounts §1.1–1.2](05-accounts-and-devices.md#11-beginning-a-person-identity), [profiles and accounts](05-accounts-and-devices.md#1-profiles-and-canopy-accounts),
 [configuration graph](05-accounts-and-devices.md#2-account-configuration-graph)).
 
 ## 2. Declare a tree

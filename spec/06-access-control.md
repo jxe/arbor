@@ -55,7 +55,7 @@ Arbor-Access-Link: <access-link secret>
 ```
 
 The server stores only cryptographic digests and grants the maximum access
-of all valid presented subjects. Raw credentials, profile-proof secrets, and
+of all valid presented subjects. Raw credentials, profile private keys, and
 link secrets never appear
 in URLs, redirects, response bodies, errors, logs, refs, objects, YAML, access
 lists, or events. Link entries returned to administrators reveal neither secret

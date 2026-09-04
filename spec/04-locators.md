@@ -44,7 +44,9 @@ Canopies implies no relationship, and one profile `TreeID` may be associated
 with differently shaped account locators at several Canopies. Conversely,
 `/~handle` may identify an account that has not yet hosted its profile tree.
 Profile identity equality comes only from the profile `TreeID` recorded by the
-account, never from a handle or canonical URL.
+account, never from a handle or canonical URL. A new person-profile TreeID is
+self-certifying as defined by [accounts §1.1](05-accounts-and-devices.md#11-beginning-a-person-identity);
+ordinary and group-profile TreeIDs remain opaque identifiers.
 
 Every successfully resolved node locator yields the same information:
 
