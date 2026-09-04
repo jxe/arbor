@@ -5,8 +5,6 @@ import type {
   ContentMutationRequest,
   ContentRevision,
   ContentWorkspaceOperation,
-  DirectoryRevision,
-  LogicalPath,
   LocalTreeDescriptor,
   LocatorResolution,
   MutationReceipt,
@@ -14,7 +12,6 @@ import type {
   MutationRequest,
   NodeRef,
   NodeResponse,
-  NodeSummary,
   RecoveryPage,
   SearchPage,
   SnapshotEnvelope,
@@ -23,7 +20,6 @@ import type {
   TreeRef,
   WorkspaceEvent,
 } from "@arbor/core";
-import { pageIDStableKey } from "@arbor/core/node-key";
 import { parseSSEStream, type ParsedSSEFrame } from "@arbor/core/sse";
 
 export type {
@@ -140,11 +136,6 @@ export interface LocalPlacementMoveResult {
   source: string;
   destination: string;
   check: boolean;
-}
-
-/** Build a canonical node reference, retaining a listed Markdown identity when present. */
-export function childRef(child: NodeSummary): NodeRef {
-  return child.ref;
 }
 
 class AsyncBuffer<T> implements AsyncIterable<T> {

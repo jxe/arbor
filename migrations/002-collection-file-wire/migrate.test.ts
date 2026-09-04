@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CANOPY_SCHEMA_VERSION, CanopyDaemon } from "@arbor/canopy";
-import { canonicalCBORHash, decodeCBOR, encodeCanonicalCBOR, type Hash } from "@arbor/core";
+import { canonicalCBORHash, encodeCanonicalCBOR, type Hash } from "@arbor/core";
 import { decodeWireObject, encodeWireObject, hashObject } from "@arbor/wire";
 import { migrate } from "./run.ts";
 

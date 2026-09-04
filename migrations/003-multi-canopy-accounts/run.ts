@@ -38,8 +38,6 @@ const FROM_LOCAL_STAMP = "3";
 const TARGET_LOCAL_STAMP = "4";
 const SERVICE = "org.arbor.community-account";
 const TREE_ID = /^tr_[a-z2-7]+$/;
-const HASH = /^sha256:[a-f0-9]{64}$/;
-
 export interface SecretStore {
   get(location: { service: string; name: string }): Promise<string | null>;
   set(location: { service: string; name: string; value: string }): Promise<void>;

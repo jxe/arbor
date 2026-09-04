@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChildrenPage, NodeSnapshot } from "@arbor/client";
-import { ArborSyncRESTClient, childRef } from "@arbor/client";
+import { ArborSyncRESTClient } from "@arbor/client";
 
 const CURSOR = "11111111-1111-1111-1111-111111111111:1";
 
@@ -75,16 +75,4 @@ describe("ArborSyncRESTClient exact-source contract", () => {
     expect(operation.frontmatterPatch).toBeUndefined();
   });
 
-  test("childRef prefers durable identity", () => {
-    expect(childRef({
-      ref: { tree: "tr_example", path: "/a", stableKey: '[["id","opaque"]]' },
-      name: "a",
-      revision: "sha256:a",
-      properties: { id: "opaque" },
-      capabilities: {},
-      materialization: "available",
-      diagnostics: [],
-    }))
-      .toEqual({ tree: "tr_example", path: "/a", stableKey: '[["id","opaque"]]' });
-  });
 });

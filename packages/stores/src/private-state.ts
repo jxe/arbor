@@ -309,18 +309,6 @@ export async function bindWorkspaceIdentity(root: string, rootID: string): Promi
   return loaded.registry[canonical]!;
 }
 
-/** Resolve a stable private migration/workspace ID without requiring a missing path to exist. */
-export async function privateRootID(path: string): Promise<string> {
-  const loaded = await loadWorkspaceRegistry();
-  const exact = loaded.registry[path];
-  if (exact) return exact.rootID;
-  try {
-    return (await workspaceIdentity(path)).rootID;
-  } catch {
-    return rootIDForInitialPath(path);
-  }
-}
-
 export async function workspaceState(root: string): Promise<WorkspaceState> {
   const identity = await workspaceIdentity(root);
   const directory = join(arborPrivateRoot(), "workspaces", identity.stateID);

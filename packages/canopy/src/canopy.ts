@@ -1,4 +1,4 @@
-import { link, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createPublicKey, verify } from "node:crypto";
 import { Database } from "bun:sqlite";
@@ -14,7 +14,6 @@ import {
   type AccountChallenge,
   type AccessLevel,
   type AccessRule,
-  type ReadWriteAccess,
 } from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { decodeWireCollectionFile, SchemaSandbox } from "@arbor/stores";
@@ -58,11 +57,11 @@ import { ObjectStore } from "./objects.ts";
 import { AccessControl } from "./access.ts";
 import { AccountDirectory } from "./accounts.ts";
 import { rootProfileFacts } from "./profile.ts";
-import type { CanonicalBoundary, CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
+import type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
 import { normalizeBoundaryPath, pathSegments, rewriteBoundaries, type BoundaryEdit, type BoundaryRewriteOptions } from "./boundaries.ts";
 import { openCanopyDatabase } from "./schema.ts";
 
-export type { CanonicalBoundary, CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
+export type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree } from "./model.ts";
 
 export interface StoredUpdateResponse {
   status: number;
@@ -89,7 +88,6 @@ export interface CanopyBootstrap {
 }
 
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
-const TREE_NAME = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
 
 type AnyAccountConfigGraph = AccountConfigGraph | AccountConfigGraphV2;
 
@@ -109,13 +107,6 @@ function graphAdministrators(graph: AnyAccountConfigGraph): string[] {
   return v2Graph(graph)
     ? Object.values(graph.devices).filter((device) => device.administrator).map((device) => device.id)
     : graph.account.admins;
-}
-
-function profileHandle(path: string): string | null {
-  const segments = pathSegments(path);
-  if (segments.length !== 1 || !segments[0]!.startsWith("~")) return null;
-  const handle = segments[0]!.slice(1);
-  return HANDLE.test(handle) ? handle : null;
 }
 
 function sameOrDescendant(path: string, parent: string): boolean {

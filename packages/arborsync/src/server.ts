@@ -6,7 +6,6 @@ import type {
   ArborError,
   MutationRequest,
   NodeRef,
-  QueryStreamRequest,
   QueryStreamRuntime,
   MutationCallRuntime,
 } from "@arbor/core";

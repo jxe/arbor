@@ -8,7 +8,6 @@ import {
   type UpdateConflict,
   type WireDirectory,
   type WireDirectoryEntry,
-  type WireObject,
 } from "@arbor/wire";
 import { collectionFileRowsV1, frontmatter, markdownAdditiveV1, type CollectionFileMergeInput, type RuleContext } from "./merge-rules.ts";
 import { ModelHashes } from "./model-hash.ts";

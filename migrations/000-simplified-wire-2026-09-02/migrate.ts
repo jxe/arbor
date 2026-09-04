@@ -5,7 +5,7 @@ import { isMap, parseDocument } from "yaml";
 import { decodeWireObject, encodeWireObject, hashObject, type ObjectHash } from "@arbor/wire";
 import { ObjectStore } from "../../packages/canopy/src/objects.ts";
 import { rootProfileFacts } from "../../packages/canopy/src/profile.ts";
-import { CANOPY_SCHEMA_VERSION, assertCurrentCanopySchema } from "../../packages/canopy/src/schema.ts";
+import { assertCurrentCanopySchema } from "../../packages/canopy/src/schema.ts";
 import { AcceptedUpdateStore } from "../../packages/canopy/src/updates/store.ts";
 
 export interface CanopyMigrationReport {

@@ -1,6 +1,5 @@
-import { performance } from "node:perf_hooks";
 import { lstat, realpath, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import type {
   BacklinksPage,
   ChildrenPage,
@@ -67,7 +66,6 @@ type ResolvedScope =
 
 export interface ArborSyncDaemonOptions {
   autoSync?: boolean;
-  monotonicNow?: () => number;
   /**
    * Fallback reconciliation interval. Live Wire watches drive synchronization;
    * this pass only covers a placement whose watch is disconnected.
@@ -112,7 +110,6 @@ export class ArborSyncDaemon implements AsyncDisposable {
       events,
       communityConfig: this.communityConfig,
       visitedTrees: this.visitedTrees,
-      monotonicNow: options.monotonicNow ?? (() => performance.now()),
     });
     this.treeSync = new TreeSynchronizer({
       trees,

@@ -14,7 +14,6 @@ import {
   applySourceEdits,
   stableJSONString,
   canonicalNodePath,
-  isPageID,
   normalizeTreePath,
   sha256,
 } from "@arbor/core";

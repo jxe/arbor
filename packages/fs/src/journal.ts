@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { sha256, type ArborBlock, type MutationEffect, type MutationReceipt } from "@arbor/core";
 import { blockFingerprint, parseMarkdown, serializeBlocks } from "@arbor/editor";

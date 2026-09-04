@@ -1,4 +1,4 @@
-import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Diagnostic, TreeID, TreeKind } from "@arbor/core";
 import { revisionOf } from "@arbor/core";
@@ -77,10 +77,6 @@ export async function savePlacementSyncMetadata(tree: string, metadata: Placemen
   const temporary = `${destination}.${crypto.randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(metadata)}\n`, { mode: 0o600 });
   await rename(temporary, destination);
-}
-
-export function treesFilePath(): string {
-  return join(arborDataRoot(), "trees.yaml");
 }
 
 function canonicalLocator(origin: string, path: string): string {
@@ -273,16 +269,6 @@ export async function loadTreeRegistry(): Promise<TreeRegistrySnapshot> {
     };
   }
   return loadLegacySingletonTreeRegistry();
-}
-
-/** Steady-state configuration is edited as ordinary YAML; arborsync never writes it back. */
-export async function saveSharedTreePlacement(_placement: SharedTreePlacement): Promise<never> {
-  throw new Error("Tree placements are declared by editing the current device YAML file");
-}
-
-/** Steady-state configuration is edited as ordinary YAML; arborsync never writes it back. */
-export async function deleteTreePlacement(_path: string): Promise<never> {
-  throw new Error("Tree placements are removed by editing the current device YAML file");
 }
 
 export async function watchTreeRegistry(onChange: () => void): Promise<() => void> {

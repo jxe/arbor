@@ -2,7 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { canonicalCBORHash } from "@arbor/core";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
-import { stableJSONString, sha256 } from "@arbor/core";
+import { stableJSONString } from "@arbor/core";
 
 export type FieldType = "string" | "number" | "boolean" | "bytes" | "unknown";
 

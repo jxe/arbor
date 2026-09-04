@@ -166,7 +166,6 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
       if (properties[name] !== keyValue) throw new ProjectionProviderError("invalid-write", `Identity property ${name} is immutable`);
     }
     const stableKey = target.stableKey;
-    let completed = false;
     return {
       durability: "provider-transaction",
       path: target.path,
@@ -183,10 +182,9 @@ export class SQLiteProjectionDriver implements ProjectionProvider {
           properties,
           mutation,
         );
-        completed = true;
         return { path: target.path, stableKey: saved.stableKey!, revision: saved.revision!, properties: saved.values as Record<string, JSONValue> };
       },
-      abort: async () => { completed = true; },
+      abort: async () => {},
     };
   }
   private commitWrite(

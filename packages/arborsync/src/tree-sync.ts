@@ -4,7 +4,6 @@ import {
   WireUpdateConflict,
   applyTransitionPayload,
   decodeWireObject,
-  hashObject,
   type ObjectHash,
   type RemoteTreeDescriptor,
   type TreeSnapshot,
@@ -87,7 +86,7 @@ export class TreeSynchronizer {
 
   /** Keep one live watch per placed tree; a finished loop is restarted by the next pass. */
   ensureWatch(placement: SharedTreePlacement): void {
-    const { tree, endpoint } = placement;
+    const { tree } = placement;
     const key = `${placement.configurationTree ?? "legacy"}:${tree}`;
     if (this.closed || this.watches.has(key)) return;
     const abort = new AbortController();

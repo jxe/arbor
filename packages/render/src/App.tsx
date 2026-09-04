@@ -8,7 +8,7 @@ import { api } from "./api.ts";
 import { CollectionView } from "./CollectionView.tsx";
 import { PageEditor } from "./PageEditor.tsx";
 import { ReadOnlyPage } from "./ReadOnlyPage.tsx";
-import { hasChildren, hasMarkdownContent, nodeDocument, presentationKind } from "./node-presentation.ts";
+import { hasChildren, hasMarkdownContent } from "./node-presentation.ts";
 import type { ActiveDevice as CommunityDevice } from "./configuration.ts";
 
 type PublicAccess = "none" | "read" | "write";

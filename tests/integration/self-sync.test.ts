@@ -1,4 +1,4 @@
-import { nodeDocument, nodeKind } from "../helpers/node-snapshot.ts";
+import { nodeDocument } from "../helpers/node-snapshot.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";

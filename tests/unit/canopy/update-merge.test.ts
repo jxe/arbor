@@ -8,7 +8,6 @@ import {
   decodeWireObject,
   encodeWireObject,
   hashObject,
-  type ObjectHash,
   type TreeSnapshot,
   type UpdateConflict,
   type WireDirectoryEntry,

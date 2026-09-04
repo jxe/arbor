@@ -180,19 +180,6 @@ function placeArguments(args: string[]): { operands: string[]; audience: CliAudi
       if (inline === undefined) index += 1;
     } else if (arg === "--clear-access") {
       audience.push({ kind: "clear" });
-    } else if (["-r", "--read", "-rw", "--read-write", "--remove"].includes(arg)) {
-      // Compatibility aliases for the pre-ACL-builder command surface.
-      const subject = args[index + 1];
-      if (!subject || subject.startsWith("-")) throw new Error(`${arg} requires public or ~<handle>`);
-      audience.push({
-        kind: "set",
-        subject,
-        access: arg === "--remove" ? "none" : arg === "-r" || arg === "--read" ? "read" : "write",
-      });
-      index += 1;
-    } else if (arg === "--private") {
-      // Compatibility alias for --clear-access.
-      audience.push({ kind: "clear" });
     } else if (arg.startsWith("-")) {
       throw new Error(`Unknown place option: ${arg}`);
     } else {

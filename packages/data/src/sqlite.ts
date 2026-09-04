@@ -9,7 +9,6 @@ import type {
   QueryPlan,
   RelationshipSelection,
   SelectionPlan,
-  SelectionValue,
   ValueExpression,
 } from "./authoring.ts";
 import type {
@@ -28,7 +27,6 @@ import {
   isPortableNodePlan,
   parameterValue,
   QueryCompileError,
-  QueryInputError,
   QueryUserRequiredError,
   runtimeQueryValue,
   sortPortablePropertyRows,

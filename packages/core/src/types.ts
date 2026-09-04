@@ -55,13 +55,3 @@ export interface NodeWriteRequest {
   baseRevision: string;
   source: string;
 }
-
-export interface ArborEvent {
-  seq: number;
-  type: "created" | "updated" | "moved" | "deleted" | "diagnostic" | "batch";
-  path: string;
-  previousPath?: string;
-  revision?: string;
-  classification?: "echo" | "stomp" | "external";
-  changes?: Array<{ path: string; previousPath?: string; kind: "created" | "updated" | "moved" | "deleted" }>;
-}

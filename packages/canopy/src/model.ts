@@ -1,12 +1,6 @@
 import type { AccessLevel, ReadWriteAccess, TreeKind } from "@arbor/core";
 import type { ObjectHash } from "@arbor/wire";
 
-export interface CanonicalBoundary {
-  path: string;
-  tree: string;
-  parentTree: string | null;
-}
-
 export interface CanopyTree {
   id: string;
   canonicalPath: string | null;

@@ -165,7 +165,7 @@ describe("Supplies SQLite query engine", () => {
       myLists: await engine.execute(handles.myLists, { user: { profile: ada } }),
     };
 
-    for (const [name, execution] of Object.entries(executions)) snapshot(execution).result;
+    for (const execution of Object.values(executions)) snapshot(execution).result;
     expect(executions.practiceSearch.result).toMatchSnapshot("practiceSearch result");
     expect(executions.popularLists.result).toMatchSnapshot("popularLists result");
     expect(executions.profile.result).toMatchSnapshot("profile result");

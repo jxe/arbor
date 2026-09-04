@@ -1,4 +1,4 @@
-import type { Diagnostic, SearchResult } from "./types.ts";
+import type { SearchResult } from "./types.ts";
 import { canonicalCBORHash } from "./cbor.ts";
 import type { JSONValue, NodeRef, NodeSnapshot } from "./node-model.ts";
 import type { ContentRevision, DirectoryRevision, EventCursor, Hash, LogicalPath, TreeID, TreeRef } from "./identifiers.ts";
