@@ -10,6 +10,12 @@ one clearer owner—not merely because nearby code could be refactored.
 is **WAITING** until its read-only data audit is complete, the compatibility
 window is explicitly closed, and Joe resumes it.
 
+[002 — Retire v1 account and legacy local-state
+adapters](002-retire-v1-account-and-local-state-adapters.md) is **WAITING**
+until Migration 003's rollback window ends, every supported Canopy and client
+is proven current, Joe removes the retained backups, and the v1 compatibility
+window is explicitly closed.
+
 ## Smaller items
 
 | Item | Kind | State | Promote when |
