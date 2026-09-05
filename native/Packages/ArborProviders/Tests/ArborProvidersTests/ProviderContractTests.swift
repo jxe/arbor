@@ -53,6 +53,30 @@ struct ProviderContractTests {
         #expect(ArborSyncDocumentSession.retainingAdmissionChain(nil, whenObserving: echoed) == echoed)
     }
 
+    @Test("Watch suppresses an admitted prefix when a later local prefix exists")
+    func watchSuppressesSupersededAdmissionPrefix() {
+        var gate = AdmissionWatchGate()
+        gate.admitted("sha256:around-3-30")
+        gate.admitted("sha256:complete-line")
+
+        let publishesEarlierPrefix = gate.shouldPublish("sha256:around-3-30")
+        #expect(!publishesEarlierPrefix)
+        #expect(gate.pending == ["sha256:around-3-30", "sha256:complete-line"])
+        let publishesLatestPrefix = gate.shouldPublish("sha256:complete-line")
+        #expect(publishesLatestPrefix)
+        #expect(gate.pending.isEmpty)
+    }
+
+    @Test("Watch publishes an unknown concurrent result")
+    func watchPublishesUnknownAuthoritativeResult() {
+        var gate = AdmissionWatchGate()
+        gate.admitted("sha256:local-prefix")
+
+        let publishesMergedResult = gate.shouldPublish("sha256:merged-result")
+        #expect(publishesMergedResult)
+        #expect(gate.pending.isEmpty)
+    }
+
 #if os(macOS)
     @Test("Bookmark restore migrates the former sandbox preferences domain")
     func bookmarkMigrationFromSandboxPreferences() async throws {

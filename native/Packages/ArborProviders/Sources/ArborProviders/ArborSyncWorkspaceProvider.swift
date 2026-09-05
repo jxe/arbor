@@ -364,6 +364,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
     private let initialReference: WorkspaceReference
     private var terminal = false
     private var admissionSnapshots: [String: WorkspaceDocumentSnapshot] = [:]
+    private var admissionWatchGate = AdmissionWatchGate()
 
     public init(client: ArborSyncRESTClient, reference: WorkspaceReference) {
         self.client = client
@@ -403,6 +404,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
                         revision = snapshot.capabilities.content?.revision
                         let document = try Self.documentSnapshot(snapshot, fallback: reference)
                         self.rememberAuthoritative(document)
+                        guard self.admissionWatchGate.shouldPublish(document.contentRevision) else { continue }
                         continuation.yield(document)
                     }
                     continuation.finish()
@@ -527,6 +529,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         // client's still-open cumulative update string. It therefore replaces
         // an authoritative basis cached for the same source revision.
         admissionSnapshots[snapshot.contentRevision] = snapshot
+        admissionWatchGate.admitted(snapshot.contentRevision)
         trimAdmissionSnapshots(keeping: snapshot.contentRevision)
     }
 
@@ -628,6 +631,26 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
             contentRevision: revision,
             admissionBasis: node.admissionBasis
         )
+    }
+}
+
+struct AdmissionWatchGate {
+    private(set) var pending: [String] = []
+
+    mutating func admitted(_ revision: String) {
+        if pending.last != revision { pending.append(revision) }
+    }
+
+    mutating func shouldPublish(_ revision: String) -> Bool {
+        guard let index = pending.firstIndex(of: revision) else {
+            // An unknown authoritative revision is a concurrent or transformed
+            // result, not an echo of one of this session's optimistic prefixes.
+            pending.removeAll()
+            return true
+        }
+        guard index == pending.index(before: pending.endIndex) else { return false }
+        pending.removeAll()
+        return true
     }
 }
 
