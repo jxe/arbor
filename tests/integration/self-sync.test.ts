@@ -103,6 +103,7 @@ beforeAll(async () => {
   treeB = join(sandbox, "tree-b");
   bootstrapB = join(sandbox, "bootstrap-b");
   await Promise.all([hostState, stateA, stateB, treeA, bootstrapB].map((path) => mkdir(path, { recursive: true })));
+  await writeFile(join(treeA, "_index.md"), "# Tree A\n");
   await writeFile(join(treeA, "note.md"), `# Common\n${"shared text\n".repeat(1_024)}`);
   host = await serveCanopy({
     dataRoot: hostState,
@@ -173,6 +174,19 @@ afterAll(async () => {
 });
 
 describe("private self-sync", () => {
+  test("opens an accepted directory document with an editor admission basis", async () => {
+    const author = await launch(stateA, treeA);
+    try {
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+      const opened = await author.client.node({ tree, path: "/", stableKey: null });
+      expect(nodeDocument(opened)?.source).toBe("# Tree A\n");
+      expect(opened.admissionBasis).toBeString();
+    } finally {
+      await author.close();
+    }
+  });
+
   test("places one TreeID in two isolated Arbor homes and pulls edits", async () => {
     const first = await launch(stateA, treeA);
     expect((await first.client.trees()).snapshot.some((descriptor) => descriptor.id === tree)).toBe(true);

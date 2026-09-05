@@ -15,19 +15,21 @@ describe("opaque editor admission basis", () => {
       await writeFile(join(root, "_index.md"), source);
       await writeFile(join(root, "other.md"), "# Other\n");
       const accepted = await snapshotDirectory(root);
+      const directoryContentRevision = revisionOf(`${source}\0children`);
       const basis = documentAdmissionBasis({
         ref: { tree: "tr_rehearsal", path: "/", stableKey: null },
         update: "197",
         snapshot: accepted,
         wirePath: "/_index.md",
-        contentRevision: revisionOf(source),
+        contentRevision: directoryContentRevision,
+        contentSource: source,
       });
       const replacement = "Native.\n";
       const resultSource = `${source}${replacement}`;
       const frozen = freezeEditorAdmission({
         ref: { tree: "tr_rehearsal", path: "/", stableKey: null },
         admissionBasis: basis,
-        baseContentRevision: revisionOf(source),
+        baseContentRevision: directoryContentRevision,
         source: resultSource,
         sourceEdits: [{ offset: Buffer.byteLength(source), length: 0, replacement }],
       });
@@ -78,6 +80,7 @@ describe("opaque editor admission basis", () => {
         snapshot: accepted,
         wirePath: "/note.md",
         contentRevision: revisionOf(source),
+        contentSource: source,
       });
       expect(() => freezeEditorAdmission({
         ref: { tree: "tr_notes", path: "/note", stableKey: null },

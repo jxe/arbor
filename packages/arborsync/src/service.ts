@@ -266,6 +266,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
           || !placement?.update
           || !placement.ref
           || placement.access !== "write"
+          || response.content.representation.state !== "stored"
         ) return response;
         const wirePath = await scope.workspace.wireDocumentPath(scope.ref.path);
         const accepted = await snapshotDirectory(
@@ -284,6 +285,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
             snapshot: accepted,
             wirePath,
             contentRevision: response.capabilities.content.revision,
+            contentSource: response.content.source,
           }),
         };
       });

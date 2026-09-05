@@ -22,6 +22,8 @@ interface AdmissionBasisValue {
   candidateRoot: ObjectHash;
   wirePath: string;
   contentRevision: string;
+  /** Exact Wire file revision when the public content revision also covers directory children. */
+  storedContentRevision?: string;
   objects: ReturnType<typeof encodeObjectEnvelopes>;
 }
 
@@ -63,9 +65,10 @@ function decodeBasis(value: string): AdmissionBasisValue {
     || typeof record.candidateRoot !== "string"
     || typeof record.wirePath !== "string"
     || typeof record.contentRevision !== "string"
+    || (record.storedContentRevision !== undefined && typeof record.storedContentRevision !== "string")
     || !Array.isArray(record.objects)
     || Object.keys(record).some((key) => ![
-      "version", "id", "ref", "baseUpdate", "baseRoot", "candidateRoot", "wirePath", "contentRevision", "objects",
+      "version", "id", "ref", "baseUpdate", "baseRoot", "candidateRoot", "wirePath", "contentRevision", "storedContentRevision", "objects",
     ].includes(key))
   ) throw new Error("Document admission basis is invalid");
   // Decode once here so malformed, noncanonical, or hash-mismatched objects
@@ -92,10 +95,12 @@ export function documentAdmissionBasis(input: {
   snapshot: TreeSnapshot;
   wirePath: string;
   contentRevision: string;
+  contentSource: string;
 }): string {
   const objects = new Map<ObjectHash, Uint8Array>();
   const segments = pathSegments(input.wirePath);
   let hash = input.snapshot.root;
+  let storedContentRevision: string | undefined;
   for (const [index, segment] of segments.entries()) {
     const bytes = input.snapshot.objects.get(hash);
     if (!bytes) throw new Error(`Accepted snapshot is missing object: ${hash}`);
@@ -110,9 +115,11 @@ export function documentAdmissionBasis(input: {
       if (!fileBytes) throw new Error(`Accepted snapshot is missing object: ${hash}`);
       const file = decodeWireObject(fileBytes);
       if (file.type !== "file") throw new Error(`Document admission path is not a file: ${input.wirePath}`);
-      if (revisionOf(file.bytes) !== input.contentRevision) {
-        throw new Error("Document content revision does not match its accepted Wire file");
+      const source = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
+      if (source !== input.contentSource) {
+        throw new Error("Document source does not match its accepted Wire file");
       }
+      storedContentRevision = revisionOf(file.bytes);
       objects.set(hash, fileBytes);
     }
   }
@@ -125,6 +132,7 @@ export function documentAdmissionBasis(input: {
     candidateRoot: input.snapshot.root,
     wirePath: input.wirePath,
     contentRevision: input.contentRevision,
+    storedContentRevision,
     objects: encodeObjectEnvelopes(objects),
   });
 }
@@ -165,7 +173,9 @@ export function freezeEditorAdmission(input: {
       if (!stored) throw new Error(`Document admission basis is missing object: ${entry.hash}`);
       const file = decodeWireObject(stored);
       if (file.type !== "file") throw new Error(`Document admission target is not a file: ${basis.wirePath}`);
-      if (revisionOf(file.bytes) !== input.baseContentRevision) throw new Error("Document admission source changed before it was frozen");
+      if (revisionOf(file.bytes) !== (basis.storedContentRevision ?? input.baseContentRevision)) {
+        throw new Error("Document admission source changed before it was frozen");
+      }
       const baseSource = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
       if (input.sourceEdits && applySourceEdits(baseSource, input.sourceEdits) !== input.source) {
         throw new Error("Document source edits do not produce the submitted exact source");
@@ -222,6 +232,7 @@ export function freezeEditorAdmission(input: {
       ...basis,
       candidateRoot: candidate,
       contentRevision: revisionOf(input.source),
+      storedContentRevision: revisionOf(input.source),
       objects: encodeObjectEnvelopes(nextObjects),
     }),
   };
