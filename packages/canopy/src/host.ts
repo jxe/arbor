@@ -307,6 +307,9 @@ export async function serveCanopy(options: {
         if (url.pathname === "/.arbor/trees") {
           if (request.method === "GET") {
             return json({ snapshot: canopy.list()
+              // Retained/retired ordinary roots have no network identity and
+              // therefore cannot be represented by a remote TreeDescriptor.
+              .filter((tree) => tree.status === "active" && (tree.kind === "account-configuration" || tree.canonicalPath !== null))
               .filter((tree) => canopy.canRead(account, tree.id, linkDigest(request)))
               .map((tree) => descriptorWithUpdate(publicOrigin, canopy, tree, canopy.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read")),
               observedThrough: canopy.observedThrough(),

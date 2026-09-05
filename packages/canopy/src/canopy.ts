@@ -605,7 +605,9 @@ export class CanopyDaemon implements AsyncDisposable {
 
   writableProfiles(account: CanopyAccount): CanopyTree[] {
     return this.list().filter((tree) =>
-      tree.policy === "ordinary"
+      tree.status === "active"
+      && tree.canonicalPath !== null
+      && tree.policy === "ordinary"
       && this.rootProfileType(tree.ref) !== null
       && this.canWrite(account, tree.id)
     );

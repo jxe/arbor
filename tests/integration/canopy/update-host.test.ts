@@ -93,6 +93,31 @@ async function snapshotWithCollectionFiles(path: string) {
 }
 
 describe("governed account-configuration Canopy server", () => {
+  test("does not advertise a retained noncanonical ordinary root as a remote tree", async () => {
+    const before = await client.account();
+    const profileTree = before.account.profileTree!;
+    const db = new Database(join(dataRoot, "canopy.sqlite3"));
+    const boundary = db.query("SELECT path, parent_tree FROM boundaries WHERE tree_id = ?").get(profileTree) as {
+      path: string;
+      parent_tree: string | null;
+    } | null;
+    if (!boundary) throw new Error("Expected the account profile boundary");
+    db.run("DELETE FROM boundaries WHERE tree_id = ?", [profileTree]);
+    try {
+      const account = await client.account();
+      expect(account.account.profileURL).toBeNull();
+      expect(account.account.writableProfiles.some((tree) => tree.id === profileTree)).toBe(false);
+      expect((await client.list()).snapshot.some((tree) => tree.id === profileTree)).toBe(false);
+    } finally {
+      db.run("INSERT INTO boundaries (path, tree_id, parent_tree) VALUES (?, ?, ?)", [
+        boundary.path,
+        profileTree,
+        boundary.parent_tree,
+      ]);
+      db.close();
+    }
+  });
+
   test("returns shared descriptor snapshots and authorizes immutable objects through a named tree", async () => {
     const account = await client.account();
     expect(account.observedThrough).toBeTruthy();
