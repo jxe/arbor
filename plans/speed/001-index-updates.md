@@ -3,8 +3,8 @@
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
-> report — do not improvise. When done, update the status row for this plan
-> in `plans/speed/README.md`.
+> report — do not improvise. When done, update this plan's entry in
+> `plans/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/stores/src/indexer.ts packages/arborsync/src/workspace.ts`
 > Also run `git status --short` on those paths. If the excerpts under "Current
@@ -334,7 +334,7 @@ ALL must hold:
 - [ ] `grep -n "links_source_path" packages/stores/src/indexer.ts` returns a match
 - [ ] The `search()` method is unmodified (`git diff packages/stores/src/indexer.ts`)
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plans/speed/README.md` status row for 001 updated
+- [ ] `plans/README.md` entry for Speed 001 updated
 
 ## STOP conditions
 

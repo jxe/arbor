@@ -3,8 +3,8 @@
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
-> report — do not improvise. When done, update the status row for this plan
-> in `plans/security/README.md`.
+> report — do not improvise. When done, update this plan's entry in
+> `plans/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/stores/src/indexer.ts packages/render/src/App.tsx packages/core/src/protocol.ts`
 > Note the working tree was already dirty when this plan was written, so also
@@ -239,7 +239,7 @@ ALL must hold:
 - [ ] `grep -rn "dangerouslySetInnerHTML" packages/` returns no matches
 - [ ] `grep -n "<mark>" packages/stores/src/indexer.ts` returns no matches
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plans/security/README.md` status row for 001 updated
+- [ ] `plans/README.md` entry for Security 001 updated
 
 ## STOP conditions
 

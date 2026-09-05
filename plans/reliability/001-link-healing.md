@@ -3,8 +3,8 @@
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
-> report — do not improvise. When done, update the status row for this plan
-> in `plans/reliability/README.md`.
+> report — do not improvise. When done, update this plan's entry in
+> `plans/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/arborsync/src/workspace.ts`
 > The working tree was already dirty when this plan was written; also run
@@ -198,7 +198,7 @@ ALL must hold:
 - [ ] `grep -c '\[^)\\\\s\]' packages/arborsync/src/workspace.ts` returns 0
 - [ ] The new test fails when the fix is reverted (verified in step 3)
 - [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plans/reliability/README.md` status row for 001 updated
+- [ ] `plans/README.md` entry for Reliability 001 updated
 
 ## STOP conditions
 

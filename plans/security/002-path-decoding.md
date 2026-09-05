@@ -3,8 +3,8 @@
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
-> report — do not improvise. When done, update the status row for this plan
-> in `plans/security/README.md`.
+> report — do not improvise. When done, update this plan's entry in
+> `plans/README.md`.
 >
 > **Drift check (run first)**: `git diff --stat 4247481..HEAD -- packages/core/src/logical-path.ts packages/core/src/logical-url.ts packages/arborsync/src/server.ts packages/fs/src/workspace-fs.ts`
 > Also run `git status --short` on those paths. If the excerpts under "Current
@@ -325,7 +325,7 @@ ALL must hold:
       are unmodified
 - [ ] `git status --short` shows no modified files outside the In-scope list
 - [ ] `bun run test:protocol` passes, or its absence is reported explicitly
-- [ ] `plans/security/README.md` status row for 002 updated
+- [ ] `plans/README.md` entry for Security 002 updated
 
 ## STOP conditions
 

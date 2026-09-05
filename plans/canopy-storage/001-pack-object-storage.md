@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Priority:** P2
+- **Priority:** P1
 - **Effort:** XL
 - **Risk:** HIGH — packing and pruning can make a retained root unreconstructable
 - **State:** NEEDS BASELINE AND DESIGN REVIEW

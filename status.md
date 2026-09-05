@@ -17,7 +17,7 @@ This page reports what the reference implementation does today. The [specificati
 
 ## Partial or in progress
 
-- **Executable documents.** The data/query/mutation core exists, but MDX/TSX compilation, generated typing, editor integration, React presentation, automatic activation, native presentation, and Canopy hosting are not complete. [Apps 001 and 003](plans/apps/README.md) own that work.
+- **Executable documents.** The data/query/mutation core exists, but MDX/TSX compilation, generated typing, editor integration, React presentation, automatic activation, native presentation, and Canopy hosting are not complete. [Apps 001 and 003](plans/README.md#product-completion) own that work.
 - **Client parity.** Arbor web and native Arbor share the core model and synchronization contracts, but their interaction surfaces are not identical.
 - **Group management.** Arbor web can add and remove structured members on an existing `type: group` tree. It does not provide one coherent Create Group flow, and native Arbor has no equivalent membership editor. This remains a separately tracked product-design item.
 - **Operational hosting.** Railway/VPS deployment, persistent storage, backup/restore, and coordinated alpha upgrades are documented, but production recovery, dispute handling, and high availability are not productized.
@@ -39,10 +39,9 @@ This page reports what the reference implementation does today. The [specificati
 
 ## Where work is tracked
 
-- [Applications](plans/apps/README.md) — executable documents, compiler/tooling, and hosted agents.
-- [Postgres](plans/postgres/README.md) — external database backing and projection.
-- [Canopy storage](plans/canopy-storage/README.md) — measurement-gated physical object storage work.
-- [Smaller projects](plans/smaller-projects/README.md) — bounded product outcomes and not-yet-designed gaps.
+- [Highly important](plans/README.md#highly-important) — current correctness and durability work, external-agent access, and Canopy storage.
+- [Cleanups](plans/README.md#cleanups) — bounded compatibility removal, simplification, and deduplication.
+- [Product completion](plans/README.md#product-completion) — applications, Postgres, bounded product outcomes, and not-yet-designed feature gaps.
+- [Hardening, efficiency, and polish](plans/README.md#hardening-efficiency-polish-etc) — security, testing, speed, and conditional reliability work.
 - [Open questions](plans/open-questions.md) — unresolved design questions, not hidden implementation claims.
-- [Maintenance themes](plans/README.md#cross-cutting-themes) — cleanup, security, speed, reliability, and testing.
 - [Completed outcomes](plans/_done/outcomes.md) — implementation and verification history.

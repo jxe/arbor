@@ -7,7 +7,7 @@
 > authority. Run every verification gate. If a STOP condition occurs, report
 > it instead of improvising. When the work is complete, move this file to
 > `plans/_done/applications/004-mutation-permissions.md`, preserve the Apps 004
-> identifier, update `plans/apps/README.md`, and record verification evidence
+> identifier, update `plans/README.md`, and record verification evidence
 > in `plans/_done/outcomes.md`.
 >
 > **Drift check (run first):**

@@ -45,6 +45,6 @@ native offline snapshots and child pages match local Arbor Sync and Canopy for
 CSV, JSON, and JSONL, including child-name rules, invalid inputs, pagination,
 stale readable paths, and stable-key reopening. Then remove the temporary
 native capability limitation recorded by this plan and the
-[remove-later inventory](../cleanups/README.md).
+[bounded-placement conformance item](../README.md#cleanups).
 
 This plan deliberately does not choose an implementation mechanism.

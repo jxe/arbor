@@ -85,7 +85,7 @@
   ordinary node reads by path or stable key, including stale readable paths in
   managed and untracked scopes. The deliberate compatibility/retrofit layers
   and their deletion conditions are recorded in
-  [remove-later](../../cleanups/README.md).
+  [Cleanups](../../README.md#cleanups).
 - **2026-08-27 — SQLite node read path complete:** `_store.sqlite3` detection,
   executable-store validation, and standalone SQLite introspection now share
   the relational metadata in `@arbor/data`. A SQLite-backed directory samples
@@ -211,7 +211,7 @@
   identity materialization returns the resulting ref. New journals and Wire
   fixtures contain no duplicated tree/path/PageID fields; a bounded legacy
   journal reader preserves crash recovery and has an explicit deletion
-  condition in [remove-later](../../cleanups/README.md).
+  condition in [Cleanups](../../README.md#cleanups).
 - **2026-08-28 — native presentation reference cleanup:** ArborKit now exposes
   only `WorkspaceReference { tree, path, stableKey }`; its `PageID` wrapper,
   `pageID` initializer/property, and `pathHint` alias are deleted. App,
@@ -246,7 +246,7 @@
   physical-child cache and reopens them by stable key. Swift replicas preserve
   descriptors and their reachable objects exactly across materialization and
   unrelated offline edits. Server-grade application-code containment is one
-  deferred [security boundary](../../security/README.md) shared with
+  deferred [security boundary](../../README.md#hardening-efficiency-polish-etc) shared with
   SSR/query/mutation execution. Native
   offline row projection is deliberately deferred to
   [Smaller project 003](../../smaller-projects/003-native-offline-collection-file-projection.md). The reference

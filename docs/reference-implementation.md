@@ -9,7 +9,7 @@ This document records replaceable architecture and operating choices in the curr
 - [CLI](cli.md) — the current `arbor` command surface.
 - [Client](client.md) — Arbor web and native interaction, navigation, and editing behavior.
 - [`@arbor/data`](../packages/data/README.md) — the implemented query, observation, and mutation runtime.
-- [Applications plans](../plans/apps/README.md) — compiler, presentation, activation, hosting, and agent work that remains.
+- [Product-completion plans](../plans/README.md#product-completion) — compiler, presentation, activation, hosting, and agent work that remains.
 
 ## Repository and runtimes
 
@@ -30,7 +30,7 @@ store records.
 
 `@arbor/data` implements the headless runtime used by the Supplies corpus. It lowers portable child queries over ordinary and SQLite providers, validates mounted source bindings, executes each SQLite query in one read snapshot, tracks relation/field/profile dependencies, and publishes a complete replacement only when a relevant committed change alters the canonical output. Its mutation runner validates input and authorization inside one transaction and commits retry-stable receipts with the data change. The [package README](../packages/data/README.md) owns these implemented mechanics and focused tests.
 
-Document compilation and presentation are deliberately not described as current architecture. The accepted direction uses isolated JavaScript evaluation, reproducible bundles/manifests/generated declarations, last-valid diagnostics, SSR plus hydration, and a constrained native web surface, but these remain work in [Apps 001 and 003](../plans/apps/README.md). Portable behavior belongs in [executable documents](../spec/07-executable-documents.md) and [child backings](../spec/06-child-backings.md); concrete compiler packages, worker topology, generated paths, and bundlers remain replaceable.
+Document compilation and presentation are deliberately not described as current architecture. The accepted direction uses isolated JavaScript evaluation, reproducible bundles/manifests/generated declarations, last-valid diagnostics, SSR plus hydration, and a constrained native web surface, but these remain work in [Apps 001 and 003](../plans/README.md#product-completion). Portable behavior belongs in [executable documents](../spec/07-executable-documents.md) and [child backings](../spec/06-child-backings.md); concrete compiler packages, worker topology, generated paths, and bundlers remain replaceable.
 
 ## Durability and observation
 
