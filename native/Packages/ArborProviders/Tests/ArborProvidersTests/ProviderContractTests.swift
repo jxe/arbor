@@ -56,24 +56,32 @@ struct ProviderContractTests {
     @Test("Watch suppresses an admitted prefix when a later local prefix exists")
     func watchSuppressesSupersededAdmissionPrefix() {
         var gate = AdmissionWatchGate()
-        gate.admitted("sha256:around-3-30")
-        gate.admitted("sha256:complete-line")
+        gate.admitted("sha256:around-3-30", after: "sha256:initial")
+        gate.admitted("sha256:complete-line", after: "sha256:around-3-30")
 
-        let publishesEarlierPrefix = gate.shouldPublish("sha256:around-3-30")
-        #expect(!publishesEarlierPrefix)
-        #expect(gate.pending == ["sha256:around-3-30", "sha256:complete-line"])
-        let publishesLatestPrefix = gate.shouldPublish("sha256:complete-line")
-        #expect(publishesLatestPrefix)
+        #expect(gate.observe("sha256:around-3-30") == .retain("sha256:complete-line"))
+        #expect(gate.pending == ["sha256:initial", "sha256:around-3-30", "sha256:complete-line"])
+        #expect(gate.observe("sha256:complete-line") == .publish)
         #expect(gate.pending.isEmpty)
+    }
+
+    @Test("A later admission supersedes an echo that was already published")
+    func admissionReintroducesPublishedPredecessor() {
+        var gate = AdmissionWatchGate()
+        gate.admitted("sha256:around-3-30", after: "sha256:initial")
+        #expect(gate.observe("sha256:around-3-30") == .publish)
+
+        gate.admitted("sha256:complete-line", after: "sha256:around-3-30")
+
+        #expect(gate.observe("sha256:around-3-30") == .retain("sha256:complete-line"))
     }
 
     @Test("Watch publishes an unknown concurrent result")
     func watchPublishesUnknownAuthoritativeResult() {
         var gate = AdmissionWatchGate()
-        gate.admitted("sha256:local-prefix")
+        gate.admitted("sha256:local-prefix", after: "sha256:initial")
 
-        let publishesMergedResult = gate.shouldPublish("sha256:merged-result")
-        #expect(publishesMergedResult)
+        #expect(gate.observe("sha256:merged-result") == .publish)
         #expect(gate.pending.isEmpty)
     }
 

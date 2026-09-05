@@ -435,7 +435,15 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         try requireOpen()
         let snapshot = try Self.documentSnapshot(await client.editorNode(initialReference.nodeRef), fallback: initialReference)
         rememberAuthoritative(snapshot)
-        return snapshot
+        switch admissionWatchGate.observe(snapshot.contentRevision) {
+        case .publish:
+            return snapshot
+        case let .retain(revision):
+            // The filesystem can still expose an earlier accepted prefix after
+            // this session has admitted a later one. Preserve read-your-writes
+            // for the editor consuming an already-emitted watch notification.
+            return admissionSnapshots[revision] ?? snapshot
+        }
     }
 
     public func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> {
@@ -463,8 +471,9 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
                         revision = snapshot.capabilities.content?.revision
                         let document = try Self.documentSnapshot(snapshot, fallback: reference)
                         self.rememberAuthoritative(document)
-                        guard self.admissionWatchGate.shouldPublish(document.contentRevision) else { continue }
-                        continuation.yield(document)
+                        if case .publish = self.admissionWatchGate.observe(document.contentRevision) {
+                            continuation.yield(document)
+                        }
                     }
                     continuation.finish()
                 } catch is CancellationError {
@@ -567,7 +576,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
                 sourceEdits: sourceEdits
             )
             let snapshot = try Self.documentSnapshot(value, fallback: initialReference)
-            rememberAdmission(snapshot)
+            rememberAdmission(snapshot, after: baseContentRevision)
             return snapshot
         } catch let error as ArborSyncServerError where error.value.code == "conflict" {
             let current = try await snapshot()
@@ -583,12 +592,12 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         trimAdmissionSnapshots(keeping: snapshot.contentRevision)
     }
 
-    private func rememberAdmission(_ snapshot: WorkspaceDocumentSnapshot) {
+    private func rememberAdmission(_ snapshot: WorkspaceDocumentSnapshot, after predecessor: String) {
         // A successful admission is the only response that advances the
         // client's still-open cumulative update string. It therefore replaces
         // an authoritative basis cached for the same source revision.
         admissionSnapshots[snapshot.contentRevision] = snapshot
-        admissionWatchGate.admitted(snapshot.contentRevision)
+        admissionWatchGate.admitted(snapshot.contentRevision, after: predecessor)
         trimAdmissionSnapshots(keeping: snapshot.contentRevision)
     }
 
@@ -608,7 +617,8 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
 
     private func trimAdmissionSnapshots(keeping revision: String) {
         if admissionSnapshots.count > 32 {
-            admissionSnapshots = admissionSnapshots[revision].map { [revision: $0] } ?? [:]
+            let retained = Set(admissionWatchGate.pending).union([revision])
+            admissionSnapshots = admissionSnapshots.filter { retained.contains($0.key) }
         }
     }
 
@@ -694,22 +704,33 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
 }
 
 struct AdmissionWatchGate {
+    enum Observation: Equatable {
+        case publish
+        case retain(String)
+    }
+
     private(set) var pending: [String] = []
 
-    mutating func admitted(_ revision: String) {
+    mutating func admitted(_ revision: String, after predecessor: String) {
+        // Reintroduce the predecessor even if its watch echo was already
+        // published. A later admission can race with consumption of that
+        // already-emitted event.
+        if pending.last != predecessor { pending = [predecessor] }
         if pending.last != revision { pending.append(revision) }
     }
 
-    mutating func shouldPublish(_ revision: String) -> Bool {
+    mutating func observe(_ revision: String) -> Observation {
         guard let index = pending.firstIndex(of: revision) else {
             // An unknown authoritative revision is a concurrent or transformed
             // result, not an echo of one of this session's optimistic prefixes.
             pending.removeAll()
-            return true
+            return .publish
         }
-        guard index == pending.index(before: pending.endIndex) else { return false }
+        guard index == pending.index(before: pending.endIndex) else {
+            return .retain(pending.last!)
+        }
         pending.removeAll()
-        return true
+        return .publish
     }
 }
 
