@@ -352,6 +352,90 @@ describe("private self-sync", () => {
     await author.close();
   });
 
+  test("rebases a later editor admission while its prior generation is in flight", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    const opened = await author.client.node(ref);
+    const openedSource = nodeDocument(opened)!.source;
+    if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+
+    const historyBefore = host.canopy.acceptedUpdates(tree).length;
+    const updateBodies: any[] = [];
+    const systemFetch = globalThis.fetch;
+    let releaseFirst!: () => void;
+    const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let observeFirst!: () => void;
+    const firstObserved = new Promise<void>((resolve) => { observeFirst = resolve; });
+    let blockNextUpdate = true;
+    globalThis.fetch = (async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
+        updateBodies.push(JSON.parse(init.body));
+        if (blockNextUpdate) {
+          blockNextUpdate = false;
+          observeFirst();
+          await firstReleased;
+        }
+      }
+      return systemFetch(input, init);
+    }) as typeof fetch;
+
+    const firstSource = `${openedSource}\nFirst admitted generation.\n`;
+    const secondSource = `${firstSource}Second admitted generation.\n`;
+    try {
+      const first = await author.client.admitDocumentCandidate(
+        ref,
+        opened.admissionBasis,
+        opened.capabilities.content!.revision,
+        firstSource,
+        [{ offset: Buffer.byteLength(openedSource), length: 0, replacement: "\nFirst admitted generation.\n" }],
+      );
+      await firstObserved;
+      if (!first.admissionBasis) throw new Error("Admitted document omitted its next admission basis");
+      await author.client.admitDocumentCandidate(
+        ref,
+        first.admissionBasis,
+        first.capabilities.content!.revision,
+        secondSource,
+        [{ offset: Buffer.byteLength(firstSource), length: 0, replacement: "Second admitted generation.\n" }],
+      );
+      releaseFirst();
+      await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2
+        && (await author.running.service.trees.descriptors())
+          .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+
+      const accepted = host.canopy.acceptedUpdates(tree).slice(historyBefore);
+      expect(accepted.map((update) => update.kind)).toEqual(["accepted", "accepted"]);
+      expect(updateBodies).toHaveLength(2);
+      expect(updateBodies[1].base).toBe(accepted[0]!.id);
+      expect(accepted[1]!.previousRoot).toBe(accepted[0]!.root);
+      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
+
+      const after = await author.client.node(ref);
+      const restoredSource = "# Complete-object fallback\n";
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref,
+        baseContentRevision: after.capabilities.content!.revision,
+        source: restoredSource,
+        sourceEdits: [{
+          offset: 0,
+          length: Buffer.byteLength(nodeDocument(after)!.source),
+          replacement: restoredSource,
+          expected: nodeDocument(after)!.source,
+        }],
+      });
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    } finally {
+      releaseFirst();
+      globalThis.fetch = systemFetch;
+      await author.close();
+    }
+  });
+
   test("never snapshots a tree while an editor mutation is only prepared", async () => {
     let blockPreparedWrite = false;
     let releasePrepared!: () => void;

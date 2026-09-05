@@ -15,7 +15,6 @@ import type { TreeManager } from "./tree-manager.ts";
 import { ProtocolError, type Workspace } from "./workspace.ts";
 import {
   acceptedTreeObjects,
-  clearPendingEditorAdmission,
   clearPendingTreeUpdate,
   clearTreeConflict,
   deltasFromPending,
@@ -26,6 +25,7 @@ import {
   saveAcceptedTreeObjects,
   savePendingTreeUpdate,
   saveTreeConflict,
+  settlePendingEditorAdmission,
   snapshotFromPending,
   treeConflict,
 } from "./sync-state.ts";
@@ -298,13 +298,18 @@ export class TreeSynchronizer {
     }
     for (const admission of admissions) {
       try {
-        await client.submitUpdate(
+        const result = await client.submitUpdate(
           workspace.tree,
           admission.request.base,
           snapshotFromPending(admission.request),
           { deltas: deltasFromPending(admission.request) },
         );
-        await clearPendingEditorAdmission(workspace.tree, admission.id, admission.request.candidate);
+        await settlePendingEditorAdmission(
+          workspace.tree,
+          admission.id,
+          admission.request.candidate,
+          result.update,
+        );
       } catch (error) {
         if (error instanceof WireUpdateConflict) {
           await saveTreeConflict(workspace.tree, error.result);

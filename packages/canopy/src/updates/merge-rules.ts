@@ -76,13 +76,53 @@ function arraysEqual(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function sequenceOffsets(lines: string[], sequence: string[]): number[] {
+  if (!sequence.length || sequence.length > lines.length) return [];
+  const offsets: number[] = [];
+  for (let offset = 0; offset <= lines.length - sequence.length; offset++) {
+    if (arraysEqual(lines.slice(offset, offset + sequence.length), sequence)) offsets.push(offset);
+  }
+  return offsets;
+}
+
+/**
+ * If both sides moved the same unique base block, let the already-accepted
+ * side own its placement. LCS can otherwise represent the two moves as
+ * separate insertions plus one shared deletion and duplicate the whole block.
+ */
+function collapseDuplicateMoves(
+  base: string[],
+  candidate: string[],
+  remote: string[],
+): { candidate: string[]; approximate: number } {
+  const localDeletions = editsFrom(base, candidate).filter((edit) => edit.end > edit.start && !edit.replacement.length);
+  const remoteDeletions = editsFrom(base, remote).filter((edit) => edit.end > edit.start && !edit.replacement.length);
+  const shared = localDeletions
+    .filter((local) => remoteDeletions.some((accepted) => accepted.start === local.start && accepted.end === local.end))
+    .sort((left, right) => (right.end - right.start) - (left.end - left.start));
+  const reduced = [...candidate];
+  let approximate = 0;
+  for (const deletion of shared) {
+    const block = base.slice(deletion.start, deletion.end);
+    if (!block.some((line) => line.trim())) continue;
+    const baseOffsets = sequenceOffsets(base, block);
+    const candidateOffsets = sequenceOffsets(reduced, block);
+    const remoteOffsets = sequenceOffsets(remote, block);
+    if (baseOffsets.length !== 1 || candidateOffsets.length !== 1 || remoteOffsets.length !== 1) continue;
+    reduced.splice(candidateOffsets[0]!, block.length);
+    if (candidateOffsets[0] !== remoteOffsets[0]) approximate++;
+  }
+  return { candidate: reduced, approximate };
+}
+
 function mergeLines(base: string[], candidate: string[], remote: string[]): { lines: string[]; approximate: number } {
-  const localEdits = editsFrom(base, candidate).map((edit) => ({ ...edit, side: "candidate" as const }));
+  const collapsed = collapseDuplicateMoves(base, candidate, remote);
+  const localEdits = editsFrom(base, collapsed.candidate).map((edit) => ({ ...edit, side: "candidate" as const }));
   const remoteEdits = editsFrom(base, remote).map((edit) => ({ ...edit, side: "remote" as const }));
   const edits = [...localEdits, ...remoteEdits].sort((left, right) => left.start - right.start || left.end - right.end || (left.side === "remote" ? -1 : 1));
   const result: string[] = [];
   let cursor = 0;
-  let approximate = 0;
+  let approximate = collapsed.approximate;
   for (let index = 0; index < edits.length;) {
     const group = [edits[index++]!];
     const start = group[0]!.start;

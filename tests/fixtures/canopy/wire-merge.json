@@ -48,6 +48,18 @@
       }
     },
     {
+      "name": "same-moved-block-collapses-at-accepted-placement",
+      "base": "Start\nAlpha\nBeta\nGamma\nDelta\nEpsilon\nMoved one\nMoved two\nTail one\nTail two\nTail three\nEnd\n",
+      "candidate": "Start\nAlpha\nMoved one\nMoved two\nBeta\nGamma\nDelta\nEpsilon\nTail one\nTail two\nTail three\nEnd\n",
+      "remote": "Start\nAlpha\nBeta\nMoved one\nMoved two\nGamma\nDelta\nEpsilon\nTail one\nTail two\nTail three\nEnd\n",
+      "expected": {
+        "conflicts": [],
+        "counts": {"Moved one\n": 1, "Moved two\n": 1},
+        "ordered": [["Beta\n", "Moved one\n"], ["Moved two\n", "Gamma\n"]],
+        "approximatePlacements": 1
+      }
+    },
+    {
       "name": "delete-versus-edit-keeps-edit",
       "base": "Before\nOriginal\nAfter\n",
       "candidate": "Before\nCandidate replacement\nAfter\n",

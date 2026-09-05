@@ -139,12 +139,32 @@ export function savePendingEditorAdmission(tree: string, admission: FrozenEditor
   });
 }
 
-/** Remove exactly the generation whose authority result was received. */
-export function clearPendingEditorAdmission(tree: string, id: string, candidate: string): Promise<void> {
+/**
+ * Settle one submitted editor generation. If the editor already froze a later
+ * generation in the same chain, advance that durable request to the accepted
+ * update rather than submitting it against the chain's original base.
+ */
+export function settlePendingEditorAdmission(
+  tree: string,
+  id: string,
+  candidate: string,
+  accepted: { id: string; root: ObjectHash },
+): Promise<void> {
   return serialized(tree, async () => {
     const state = await load(tree);
-    const admissions = (state.editorAdmissions ?? []).filter((admission) =>
-      admission.id !== id || admission.request.candidate !== candidate);
+    const admissions = [...(state.editorAdmissions ?? [])];
+    const index = admissions.findIndex((admission) => admission.id === id);
+    if (index >= 0) {
+      const admission = admissions[index]!;
+      if (admission.request.candidate === candidate) {
+        admissions.splice(index, 1);
+      } else if (accepted.root === candidate) {
+        admissions[index] = {
+          ...admission,
+          request: { ...admission.request, base: accepted.id },
+        };
+      }
+    }
     await save(tree, {
       ...state,
       ...(admissions.length ? { editorAdmissions: admissions } : { editorAdmissions: undefined }),
