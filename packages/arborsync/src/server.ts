@@ -512,7 +512,11 @@ function startArborSyncServer(
           return json(await service.resolveTreeConflict(decodeURIComponent(conflictResolution[1]!), body.choice as "local" | "draft" | "remote"));
         }
         if (request.method === "GET" && url.pathname === "/v1/node") {
-          return json(await service.snapshot(queryRef(url)));
+          const admissionBasis = url.searchParams.get("admissionBasis");
+          if (admissionBasis !== null && admissionBasis !== "true") {
+            throw new ProtocolError("invalid-request", "admissionBasis must be true when requested", 400);
+          }
+          return json(await service.snapshot(queryRef(url), admissionBasis === "true"));
         }
         if (request.method === "GET" && url.pathname === "/v1/file") {
           return fileResponse(request, await service.file(queryRef(url)), { noStore: true });

@@ -229,6 +229,11 @@ export class ArborSyncRESTClient {
     return this.nodeSnapshot(ref);
   }
 
+  /** Read a document with the opaque context required for Canopy-backed editor admission. */
+  editorNode(ref: NodeRef): Promise<NodeResponse> {
+    return this.nodeSnapshot(ref, true);
+  }
+
   trees(): Promise<SnapshotEnvelope<LocalTreeDescriptor[]>> {
     return this.request("/v1/trees");
   }
@@ -366,8 +371,8 @@ export class ArborSyncRESTClient {
     }
   }
 
-  private nodeSnapshot(ref: NodeRef): Promise<NodeResponse> {
-    return this.request<NodeResponse>(`/v1/node?${refQuery(ref)}`);
+  private nodeSnapshot(ref: NodeRef, admissionBasis = false): Promise<NodeResponse> {
+    return this.request<NodeResponse>(`/v1/node?${refQuery(ref)}${admissionBasis ? "&admissionBasis=true" : ""}`);
   }
 
   children(ref: NodeRef, cursor?: string | null): Promise<ChildrenPage> {

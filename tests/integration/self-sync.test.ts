@@ -174,12 +174,15 @@ afterAll(async () => {
 });
 
 describe("private self-sync", () => {
-  test("opens an accepted directory document with an editor admission basis", async () => {
+  test("adds an admission basis only to explicit editor reads", async () => {
     const author = await launch(stateA, treeA);
     try {
       await waitFor(async () => (await author.running.service.trees.descriptors())
         .find((descriptor) => descriptor.id === tree)?.sync === "idle");
-      const opened = await author.client.node({ tree, path: "/", stableKey: null });
+      const ref = { tree, path: "/", stableKey: null } as const;
+      const ordinary = await author.client.node(ref);
+      const opened = await author.client.editorNode(ref);
+      expect(ordinary.admissionBasis).toBeUndefined();
       expect(nodeDocument(opened)?.source).toBe("# Tree A\n");
       expect(opened.admissionBasis).toBeString();
     } finally {
@@ -357,7 +360,7 @@ describe("private self-sync", () => {
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
     const ref = { tree, path: "/note", stableKey: null } as const;
-    const opened = await author.client.node(ref);
+    const opened = await author.client.editorNode(ref);
     const openedSource = nodeDocument(opened)!.source;
     if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
 
@@ -516,7 +519,7 @@ describe("private self-sync", () => {
       await waitFor(async () => (await author.running.service.trees.descriptors())
         .find((descriptor) => descriptor.id === tree)?.sync === "idle");
       const ref = { tree, path: "/note", stableKey: null } as const;
-      const opened = await author.client.node(ref);
+      const opened = await author.client.editorNode(ref);
       const openedSource = nodeDocument(opened)!.source;
       if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
 
@@ -596,7 +599,7 @@ describe("private self-sync", () => {
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
     const ref = { tree, path: "/note", stableKey: null } as const;
-    const opened = await author.client.node(ref);
+    const opened = await author.client.editorNode(ref);
     const openedSource = nodeDocument(opened)!.source;
     if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
 

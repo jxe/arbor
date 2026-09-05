@@ -333,6 +333,23 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(request.path, "/v1/documents/admit")
     }
 
+    func testEditorNodeExplicitlyRequestsAdmissionBasis() async throws {
+        let node = try Data(contentsOf: fixtures.appending(path: "node.json"))
+        await URLProtocolStub.state.install { _, _ in (200, node) }
+        let client = ArborSyncRESTClient(
+            baseURL: URL(string: "https://arborsync.test")!,
+            session: stubSession()
+        )
+
+        _ = try await client.node(.path("/notes", tree: "tr_notes"))
+        _ = try await client.editorNode(.path("/notes", tree: "tr_notes"))
+
+        let requests = await URLProtocolStub.state.snapshot().requests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertFalse(requests[0].query?.contains("admissionBasis") ?? true)
+        XCTAssertTrue(requests[1].query?.contains("admissionBasis=true") ?? false)
+    }
+
     func testMutationConveniencesRejectMixedDurabilityDomains() async throws {
         let client = ArborSyncRESTClient(baseURL: URL(string: "https://arborsync.test")!)
         let content = WorkspaceOperation(

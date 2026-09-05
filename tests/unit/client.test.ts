@@ -53,6 +53,23 @@ describe("ArborSyncRESTClient exact-source contract", () => {
     expect("children" in node).toBe(false);
   });
 
+  test("requests admission context only for editor node reads", async () => {
+    const requests: string[] = [];
+    const client = new ArborSyncRESTClient({
+      fetch: async (input) => {
+        requests.push(String(input));
+        return jsonResponse(directorySnapshot());
+      },
+    });
+    const ref = { tree: "local", path: "/dir", stableKey: null } as const;
+
+    await client.node(ref);
+    await client.editorNode(ref);
+
+    expect(new URL(requests[0]!, "http://arborsync.test").searchParams.has("admissionBasis")).toBe(false);
+    expect(new URL(requests[1]!, "http://arborsync.test").searchParams.get("admissionBasis")).toBe("true");
+  });
+
   test("sends exact source and no parsed block payload", async () => {
     let body: Record<string, unknown> | undefined;
     const client = new ArborSyncRESTClient({

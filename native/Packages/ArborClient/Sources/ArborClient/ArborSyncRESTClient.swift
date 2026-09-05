@@ -175,6 +175,11 @@ public actor ArborSyncRESTClient {
         try await nodeSnapshot(ref)
     }
 
+    /// Read a document with the opaque context required for Canopy-backed editor admission.
+    public func editorNode(_ ref: NodeRef) async throws -> NodeSnapshot {
+        try await nodeSnapshot(ref, admissionBasis: true)
+    }
+
     /// Read the exact current bytes of an ordinary file.
     public func file(_ ref: NodeRef) async throws -> FileRead {
         var components = URLComponents(url: url("/v1/file"), resolvingAgainstBaseURL: false)!
@@ -234,15 +239,23 @@ public actor ArborSyncRESTClient {
         let _: ForgetResult = try await perform(request)
     }
 
-    public func openNodeView(_ ref: NodeRef) async throws -> ObservedNodeView {
-        let snapshot = try await nodeSnapshot(ref)
+    public func openNodeView(_ ref: NodeRef, admissionBasis: Bool = false) async throws -> ObservedNodeView {
+        let snapshot = try await nodeSnapshot(ref, admissionBasis: admissionBasis)
         let observedRef = snapshot.ref
-        let updates = nodeUpdates(ref: observedRef, after: snapshot.observedThrough)
+        let updates = nodeUpdates(
+            ref: observedRef,
+            after: snapshot.observedThrough,
+            admissionBasis: admissionBasis
+        )
         return ObservedNodeView(snapshot: snapshot, updates: updates)
     }
 
-    private func nodeSnapshot(_ ref: NodeRef) async throws -> NodeSnapshot {
-        try await get(path: "/v1/node", ref: ref)
+    private func nodeSnapshot(_ ref: NodeRef, admissionBasis: Bool = false) async throws -> NodeSnapshot {
+        try await get(
+            path: "/v1/node",
+            ref: ref,
+            extra: admissionBasis ? [URLQueryItem(name: "admissionBasis", value: "true")] : []
+        )
     }
 
     public func children(_ ref: NodeRef, cursor: String? = nil) async throws -> ChildrenPage {
@@ -479,7 +492,8 @@ public actor ArborSyncRESTClient {
 
     private func nodeUpdates(
         ref: NodeRef,
-        after initialCursor: String
+        after initialCursor: String,
+        admissionBasis: Bool
     ) -> AsyncThrowingStream<ObservedNodeUpdate, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -494,7 +508,7 @@ public actor ArborSyncRESTClient {
                         return
                     } catch let error as ArborSyncServerError where error.value.code == "resync-required" {
                         do {
-                            let snapshot = try await self.node(ref)
+                            let snapshot = try await self.nodeSnapshot(ref, admissionBasis: admissionBasis)
                             cursor = snapshot.observedThrough
                             continuation.yield(.resync(snapshot))
                         } catch {

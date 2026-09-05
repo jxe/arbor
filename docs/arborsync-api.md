@@ -136,7 +136,7 @@ tree, placement, or directory.
 ## 4. Node reads
 
 ```text
-GET /v1/node?tree={TreeRef}&path={path}[&stableKey={key}][&revision={hash}]
+GET /v1/node?tree={TreeRef}&path={path}[&stableKey={key}][&revision={hash}][&admissionBasis=true]
 GET /v1/file?tree={TreeRef}&path={path}[&stableKey={key}][&revision={hash}]
 GET /v1/children?tree={TreeRef}&path={path}[&stableKey={key}][&revision={hash}][&cursor={cursor}]
 GET /v1/search?tree={TreeRef}&q={query}[&cursor={cursor}]
@@ -258,11 +258,15 @@ bytes separately. Capability names and states are fail-closed: an unknown
 capability or format may be retained or ignored for forward compatibility but
 never grants editing, execution, traversal, or file access.
 
-For a writable document whose materialized tree exactly matches an accepted
-Canopy update, `admissionBasis` is opaque context for a later editor admission.
+An ordinary node read does not calculate or return `admissionBasis`. An editor
+opens its selected document with `admissionBasis=true`; for a writable document
+whose materialized tree exactly matches an accepted Canopy update, the returned
+`admissionBasis` is opaque context for a later editor admission.
 It contains the accepted Wire spine needed to freeze a normal update without
 first writing the candidate into the shared tree. Clients retain it with that
 exact source and return it unchanged; they do not decode or synthesize it.
+Child summaries never request admission context or hydrate their omitted
+content merely to render navigation chrome.
 
 Clients may derive a parsed Markdown document from exact `NodeContent.source`;
 that derived representation is not a second authored value. Markdown property

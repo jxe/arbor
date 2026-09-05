@@ -85,6 +85,15 @@ describe("arborsync REST v1", () => {
     }
   });
 
+  test("rejects malformed admission-basis node-read requests", async () => {
+    const response = await fetch(`${base}/v1/node?tree=${encodeURIComponent(scope)}&path=%2Fpage&admissionBasis=false`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "invalid-request",
+      message: "admissionBasis must be true when requested",
+    });
+  });
+
   test("serves remote/account surfaces without a local browsing session", async () => {
     const running = await serveArborSyncControl({ port: 0 });
     try {

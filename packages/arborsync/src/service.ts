@@ -249,7 +249,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     throw new ProtocolError("not-found", `Unknown tree scope: ${tree}`, 404);
   }
 
-  async snapshot(ref: NodeRef): Promise<NodeResponse> {
+  async snapshot(ref: NodeRef, includeAdmissionBasis = false): Promise<NodeResponse> {
     if (ref.tree !== LOCAL_TREE && ref.tree !== SYSTEM_TREE && this.remoteAuthorities.has(ref.tree) && !await this.trees.workspaceByTree(ref.tree)) {
       const remote = this.remoteAuthorities.get(ref.tree)!;
       const locator = `${remote.locator.replace(/\/$/, "")}${ref.path === "/" ? "" : ref.path}`;
@@ -259,6 +259,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (scope.kind === "root") {
       return this.withWorkspaceIO(scope.workspace, async () => {
         const response = await scope.workspace.snapshot(scope.ref);
+        if (!includeAdmissionBasis) return response;
         const placement = this.trees.placementFor(scope.workspace.tree);
         if (
           !response.content
@@ -266,7 +267,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
           || !placement?.update
           || !placement.ref
           || placement.access !== "write"
-          || response.content.representation.state !== "stored"
+          || response.content.representation?.state !== "stored"
         ) return response;
         const wirePath = await scope.workspace.wireDocumentPath(scope.ref.path);
         const accepted = await snapshotDirectory(

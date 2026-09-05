@@ -170,6 +170,46 @@ struct ProviderContractTests {
         ) == "filename")
     }
 
+    @Test("arborsync child summaries render without full-node refetches")
+    func arborsyncChildrenUseSummaries() async throws {
+        let page = Data(#"""
+        {
+          "parent":{"tree":"tr_notes","path":"/","stableKey":null},
+          "items":[{
+            "ref":{"tree":"tr_notes","path":"/readable","stableKey":"[[\"id\",\"pg_readable\"]]"},
+            "name":"readable",
+            "revision":"sha256:node",
+            "properties":{"title":"Readable title"},
+            "capabilities":{
+              "properties":{"revision":"sha256:properties","writable":true},
+              "content":{"revision":"sha256:content","mediaType":"text/markdown","format":"markdown","writable":true}
+            },
+            "materialization":"available",
+            "diagnostics":[]
+          }],
+          "nextCursor":null,
+          "observedThrough":"evt:1"
+        }
+        """#.utf8)
+        await ProviderURLProtocolStub.state.install { request in
+            request.url?.path == "/v1/children" ? (200, page) : (500, Data())
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ProviderURLProtocolStub.self]
+        let client = ArborSyncRESTClient(
+            baseURL: URL(string: "https://arborsync.test")!,
+            session: URLSession(configuration: configuration)
+        )
+
+        let children = try await ArborSyncWorkspaceProvider(client: client).children(
+            of: WorkspaceReference(tree: "tr_notes", path: "/")
+        )
+
+        #expect(children.count == 1)
+        #expect(children.first?.title == "Readable title")
+        #expect(await ProviderURLProtocolStub.state.paths() == ["/v1/children"])
+    }
+
     @Test("Ordinary implicit directories are editable without managed identity")
     func ordinaryImplicitDirectorySurface() throws {
         let node = try ArborSyncWorkspaceProvider.workspaceNode(
@@ -430,4 +470,47 @@ struct ProviderContractTests {
         """
         return try JSONDecoder().decode(NodeSnapshot.self, from: Data(json.utf8))
     }
+}
+
+private actor ProviderURLProtocolStubState {
+    typealias Handler = @Sendable (URLRequest) -> (Int, Data)
+
+    private var handler: Handler?
+    private var requestedPaths: [String] = []
+
+    func install(_ handler: @escaping Handler) {
+        self.handler = handler
+        requestedPaths = []
+    }
+
+    func response(for request: URLRequest) -> (Int, Data) {
+        requestedPaths.append(request.url?.path ?? "")
+        return handler?(request) ?? (500, Data())
+    }
+
+    func paths() -> [String] { requestedPaths }
+}
+
+private final class ProviderURLProtocolStub: URLProtocol, @unchecked Sendable {
+    static let state = ProviderURLProtocolStubState()
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Task {
+            let (status, data) = await Self.state.response(for: request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: status,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
 }
