@@ -374,7 +374,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
     public func snapshot() async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         let snapshot = try Self.documentSnapshot(await client.node(initialReference.nodeRef), fallback: initialReference)
-        remember(snapshot)
+        rememberAuthoritative(snapshot)
         return snapshot
     }
 
@@ -387,7 +387,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    self.remember(initial)
+                    self.rememberAuthoritative(initial)
                     continuation.yield(initial)
                     var revision = view.snapshot.capabilities.content?.revision
                     for try await update in view.updates {
@@ -402,7 +402,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
                         guard snapshot.capabilities.content?.revision != revision else { continue }
                         revision = snapshot.capabilities.content?.revision
                         let document = try Self.documentSnapshot(snapshot, fallback: reference)
-                        self.remember(document)
+                        self.rememberAuthoritative(document)
                         continuation.yield(document)
                     }
                     continuation.finish()
@@ -506,7 +506,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
                 sourceEdits: sourceEdits
             )
             let snapshot = try Self.documentSnapshot(value, fallback: initialReference)
-            remember(snapshot)
+            rememberAdmission(snapshot)
             return snapshot
         } catch let error as ArborSyncServerError where error.value.code == "conflict" {
             let current = try await snapshot()
@@ -514,10 +514,39 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         }
     }
 
-    private func remember(_ snapshot: WorkspaceDocumentSnapshot) {
+    private func rememberAuthoritative(_ snapshot: WorkspaceDocumentSnapshot) {
+        admissionSnapshots[snapshot.contentRevision] = Self.retainingAdmissionChain(
+            admissionSnapshots[snapshot.contentRevision],
+            whenObserving: snapshot
+        )
+        trimAdmissionSnapshots(keeping: snapshot.contentRevision)
+    }
+
+    private func rememberAdmission(_ snapshot: WorkspaceDocumentSnapshot) {
+        // A successful admission is the only response that advances the
+        // client's still-open cumulative update string. It therefore replaces
+        // an authoritative basis cached for the same source revision.
         admissionSnapshots[snapshot.contentRevision] = snapshot
+        trimAdmissionSnapshots(keeping: snapshot.contentRevision)
+    }
+
+    static func retainingAdmissionChain(
+        _ existing: WorkspaceDocumentSnapshot?,
+        whenObserving snapshot: WorkspaceDocumentSnapshot
+    ) -> WorkspaceDocumentSnapshot {
+        guard let existing,
+              existing.source == snapshot.source,
+              existing.admissionBasis != nil else { return snapshot }
+        // Materialization commonly echoes the revision just admitted with a
+        // freshly minted basis. Retain the admission response instead: later
+        // edits must extend its cumulative string, even if that echo arrives
+        // between two local commits.
+        return existing
+    }
+
+    private func trimAdmissionSnapshots(keeping revision: String) {
         if admissionSnapshots.count > 32 {
-            admissionSnapshots = [snapshot.contentRevision: snapshot]
+            admissionSnapshots = admissionSnapshots[revision].map { [revision: $0] } ?? [:]
         }
     }
 

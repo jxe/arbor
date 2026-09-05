@@ -31,6 +31,28 @@ struct ProviderContractTests {
         #expect(!ArborSyncDocumentSession.targets(event, reference: otherTree))
     }
 
+    @Test("An authoritative echo cannot replace a local admission continuation")
+    func authoritativeEchoRetainsAdmissionChain() {
+        let reference = WorkspaceReference(tree: "tr_notes", path: "/today", stableKey: markdownStableKey("pg_today"))
+        let admitted = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "- could be leave tue 15\n",
+            contentRevision: "sha256:edit",
+            admissionBasis: "continued-local-string"
+        )
+        let echoed = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: admitted.source,
+            contentRevision: admitted.contentRevision,
+            admissionBasis: "fresh-watch-basis"
+        )
+
+        let retained = ArborSyncDocumentSession.retainingAdmissionChain(admitted, whenObserving: echoed)
+
+        #expect(retained.admissionBasis == admitted.admissionBasis)
+        #expect(ArborSyncDocumentSession.retainingAdmissionChain(nil, whenObserving: echoed) == echoed)
+    }
+
 #if os(macOS)
     @Test("Bookmark restore migrates the former sandbox preferences domain")
     func bookmarkMigrationFromSandboxPreferences() async throws {
