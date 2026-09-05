@@ -12,14 +12,14 @@ import {
   type TreeSnapshot,
   type UpdateConflictJSON,
   type UpdateConflictResult,
-  type UpdateRequestJSON,
+  type CandidateUpdateJSON,
   applyTransitionPayload,
   decodeUpdateConflictJSON,
 } from "@arbor/wire";
 import type { FrozenEditorAdmission } from "./editor-admission.ts";
 
 /** The durable pending update is exactly the wire request body it will become. */
-export type PendingTreeUpdate = UpdateRequestJSON;
+export type PendingTreeUpdate = CandidateUpdateJSON & { base: string | null };
 
 export interface AcceptedTreeObjects {
   root: ObjectHash;
@@ -127,48 +127,35 @@ export function pendingEditorAdmissions(tree: string): Promise<FrozenEditorAdmis
   return serialized(tree, async () => [...((await load(tree)).editorAdmissions ?? [])]);
 }
 
-/** Add a new editor chain or replace its latest unsent generation atomically. */
+/** Append one durable generation, retaining its exact semantic predecessors until the editor reanchors. */
 export function savePendingEditorAdmission(tree: string, admission: FrozenEditorAdmission): Promise<void> {
   return serialized(tree, async () => {
     const state = await load(tree);
-    const admissions = [...(state.editorAdmissions ?? [])];
-    const existing = admissions.findIndex((candidate) => candidate.id === admission.id);
-    if (existing >= 0) admissions[existing] = admission;
-    else admissions.push(admission);
+    let admissions = [...(state.editorAdmissions ?? [])];
+    if (admissions.length && admissions.every((candidate) => candidate.acknowledged) && admissions.every((candidate) => candidate.id !== admission.id)) {
+      admissions = [];
+    }
+    if (!admissions.some((candidate) => candidate.id === admission.id && candidate.request.candidate === admission.request.candidate)) {
+      admissions.push(admission);
+    }
     await save(tree, { ...state, editorAdmissions: admissions });
   });
 }
 
-/**
- * Settle one submitted editor generation. If the editor already froze a later
- * generation in the same chain, advance that durable request to the accepted
- * update rather than submitting it against the chain's original base.
- */
-export function settlePendingEditorAdmission(
+/** Mark an accepted prefix but retain it so a later in-flight generation can repeat the same epoch prefix. */
+export function acknowledgePendingEditorAdmissions(
   tree: string,
   id: string,
-  candidate: string,
-  accepted: { id: string; root: ObjectHash },
+  candidates: readonly string[],
 ): Promise<void> {
   return serialized(tree, async () => {
     const state = await load(tree);
     const admissions = [...(state.editorAdmissions ?? [])];
-    const index = admissions.findIndex((admission) => admission.id === id);
-    if (index >= 0) {
-      const admission = admissions[index]!;
-      if (admission.request.candidate === candidate) {
-        admissions.splice(index, 1);
-      } else if (accepted.root === candidate) {
-        admissions[index] = {
-          ...admission,
-          request: { ...admission.request, base: accepted.id },
-        };
-      }
+    for (const candidate of candidates) {
+      const index = admissions.findIndex((admission) => admission.id === id && admission.request.candidate === candidate);
+      if (index >= 0) admissions[index] = { ...admissions[index]!, acknowledged: true };
     }
-    await save(tree, {
-      ...state,
-      ...(admissions.length ? { editorAdmissions: admissions } : { editorAdmissions: undefined }),
-    });
+    await save(tree, { ...state, editorAdmissions: admissions });
   });
 }
 

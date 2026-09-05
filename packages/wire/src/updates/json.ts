@@ -10,7 +10,9 @@ import type {
   IfMatch,
   OnConflict,
   TransitionPayload,
+  CandidateUpdate,
   UpdateRequest,
+  UpdateResponse,
   UpdateResult,
 } from "./types.ts";
 
@@ -27,6 +29,10 @@ export interface ObjectDeltaJSON {
 
 export interface UpdateRequestJSON {
   base: string | null;
+  updates: CandidateUpdateJSON[];
+}
+
+export interface CandidateUpdateJSON {
   candidate: ObjectHash;
   ifMatch: IfMatch;
   onConflict?: OnConflict;
@@ -219,25 +225,34 @@ export function decodeAcceptedTransitionJSON(value: unknown): AcceptedTransition
 
 export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
   if (!value || typeof value !== "object") throw new Error("Update body must be a JSON object");
-  const body = value as Record<string, unknown> & {
-    base?: unknown; candidate?: unknown; ifMatch?: unknown; onConflict?: unknown; objects?: unknown; deltas?: unknown;
-  };
+  const body = value as Record<string, unknown> & { base?: unknown; updates?: unknown };
   if (body.base !== null && (typeof body.base !== "string" || !body.base)) {
     throw new Error("Update requires a base update id or null for activation");
   }
+  if (!Array.isArray(body.updates) || body.updates.length === 0) throw new Error("Update requires a nonempty updates array");
+  return {
+    base: body.base,
+    updates: body.updates.map((update, index) => decodeCandidateUpdateJSON(update, body.base === null && index === 0)),
+  };
+}
+
+export function decodeCandidateUpdateJSON(value: unknown, activation = false): CandidateUpdate {
+  if (!value || typeof value !== "object") throw new Error("Update element must be a JSON object");
+  const body = value as Record<string, unknown> & {
+    candidate?: unknown; ifMatch?: unknown; onConflict?: unknown; objects?: unknown; deltas?: unknown;
+  };
   if (typeof body.candidate !== "string" || !HASH.test(body.candidate)) throw new Error("Update requires a candidate root");
   if (body.ifMatch !== "bytesHash" && body.ifMatch !== "modelHash") throw new Error("Update requires ifMatch of bytesHash or modelHash");
   if (body.onConflict !== undefined && body.onConflict !== "reject" && body.onConflict !== "merge") {
     throw new Error("onConflict must be reject or merge");
   }
   if (body.ifMatch === "bytesHash" && body.onConflict === "merge") throw new Error("A bytesHash match cannot merge");
-  if (body.base === null && body.ifMatch !== "bytesHash") throw new Error("Activation matches on bytesHash");
+  if (activation && body.ifMatch !== "bytesHash") throw new Error("Activation matches on bytesHash");
   const objects = decodeObjectEnvelopes(body.objects);
   const deltas = decodeObjectDeltas(body.deltas);
   assertDistinctResults(objects, deltas, "Object delta result also supplied as a complete object");
-  if (body.base === null && deltas.length) throw new Error("Activation has no base to apply deltas against");
+  if (activation && deltas.length) throw new Error("Activation has no base to apply deltas against");
   return {
-    base: body.base,
     candidate: body.candidate as ObjectHash,
     ifMatch: body.ifMatch,
     ...(body.onConflict !== undefined ? { onConflict: body.onConflict } : {}),
@@ -249,11 +264,17 @@ export function decodeUpdateRequestJSON(value: unknown): UpdateRequest {
 export function encodeUpdateRequestJSON(request: UpdateRequest): UpdateRequestJSON {
   return {
     base: request.base,
-    candidate: request.candidate,
-    ifMatch: request.ifMatch,
-    ...(request.onConflict !== undefined ? { onConflict: request.onConflict } : {}),
-    objects: request.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
-    deltas: request.deltas.map(encodeObjectDeltaJSON),
+    updates: request.updates.map(encodeCandidateUpdateJSON),
+  };
+}
+
+export function encodeCandidateUpdateJSON(update: CandidateUpdate): CandidateUpdateJSON {
+  return {
+    candidate: update.candidate,
+    ifMatch: update.ifMatch,
+    ...(update.onConflict !== undefined ? { onConflict: update.onConflict } : {}),
+    objects: update.objects.map(({ hash, bytes }) => ({ hash, bytes: encodeBase64(bytes) })),
+    deltas: update.deltas.map(encodeObjectDeltaJSON),
   };
 }
 
@@ -263,9 +284,11 @@ export interface TreeSnapshotJSON {
 }
 
 export type UpdateResultJSON = Omit<UpdateResult, "reconciliation"> & { reconciliation?: TransitionPayloadJSON };
+export type UpdateResponseJSON = Omit<UpdateResponse, "results"> & { results: UpdateResultJSON[] };
 
 export type UpdateConflictJSON = Omit<UpdateConflictResult, "details"> & {
-  details: Omit<UpdateConflictResult["details"], "draft"> & {
+  details: Omit<UpdateConflictResult["details"], "draft" | "completed"> & {
+    completed: UpdateResultJSON[];
     draft: TransitionPayloadJSON & { root: ObjectHash };
   };
 };
@@ -329,11 +352,12 @@ function decodeDraft(value: unknown): UpdateConflictResult["details"]["draft"] {
 }
 
 export function encodeUpdateConflictJSON(conflict: UpdateConflictResult): UpdateConflictJSON {
-  const { draft, ...details } = conflict.details;
+  const { draft, completed, ...details } = conflict.details;
   return {
     ...conflict,
     details: {
       ...details,
+      completed: completed.map(encodeUpdateResultJSON),
       draft: { root: draft.root, ...encodeTransitionPayloadJSON(draft) },
     },
   };
@@ -350,9 +374,16 @@ export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
     throw new Error("Invalid update conflict");
   }
   const details = record.details as Record<string, unknown>;
+  // Temporary mixed-version compatibility for conflicts persisted by clients
+  // before update requests became plural. New encoders always write both.
+  const completed = details.completed ?? [];
+  const failedIndex = details.failedIndex ?? 0;
   if (typeof details.kind !== "string" || !CONFLICT_KINDS.has(details.kind)
     || typeof details.base !== "string" || !HASH.test(details.base)
     || typeof details.candidate !== "string" || !HASH.test(details.candidate)
+    || !Array.isArray(completed)
+    || !Number.isSafeInteger(failedIndex) || (failedIndex as number) < 0
+    || (failedIndex as number) !== completed.length
     || !Array.isArray(details.conflicts)) {
     throw new Error("Invalid update conflict details");
   }
@@ -363,6 +394,8 @@ export function decodeUpdateConflictJSON(value: unknown): UpdateConflictResult {
     ...(record.tree ? { tree: record.tree as string } : {}),
     details: {
       kind: details.kind as UpdateConflictResult["details"]["kind"],
+      completed: completed.map(decodeUpdateResultJSON),
+      failedIndex: failedIndex as number,
       current: decodeAcceptedUpdateJSON(details.current),
       base: details.base as ObjectHash,
       candidate: details.candidate as ObjectHash,
@@ -383,8 +416,7 @@ export function decodeUpdateResultJSON(value: unknown): UpdateResult {
   if (!value || typeof value !== "object") throw new Error("Update result must be an object");
   const record = value as Record<string, unknown>;
   if (typeof record.outcome !== "string" || !OUTCOMES.has(record.outcome)
-    || typeof record.requestDigest !== "string" || !HASH.test(record.requestDigest)
-    || typeof record.observedThrough !== "string") {
+    || typeof record.requestDigest !== "string" || !HASH.test(record.requestDigest)) {
     throw new Error("Invalid update result");
   }
   const update = decodeAcceptedUpdateJSON(record.update);
@@ -392,7 +424,20 @@ export function decodeUpdateResultJSON(value: unknown): UpdateResult {
     outcome: record.outcome as UpdateResult["outcome"],
     update,
     requestDigest: record.requestDigest as ObjectHash,
-    observedThrough: record.observedThrough,
     ...(record.reconciliation === undefined ? {} : { reconciliation: decodeVerifiedTransitionPayload(record.reconciliation) }),
   };
+}
+
+
+export function encodeUpdateResponseJSON(response: UpdateResponse): UpdateResponseJSON {
+  return { results: response.results.map(encodeUpdateResultJSON), observedThrough: response.observedThrough };
+}
+
+export function decodeUpdateResponseJSON(value: unknown): UpdateResponse {
+  if (!value || typeof value !== "object") throw new Error("Update response must be an object");
+  const record = value as { results?: unknown; observedThrough?: unknown };
+  if (!Array.isArray(record.results) || record.results.length === 0 || typeof record.observedThrough !== "string" || !record.observedThrough) {
+    throw new Error("Invalid update response");
+  }
+  return { results: record.results.map(decodeUpdateResultJSON), observedThrough: record.observedThrough };
 }

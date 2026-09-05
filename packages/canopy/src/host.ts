@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResultJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResult } from "@arbor/wire";
+import { decodeTreeSnapshotJSON, encodeSnapshotBundle, encodeUpdateConflictJSON, encodeUpdateResultJSON, encodeUpdateResponseJSON, type TreeSnapshot, type UpdateConflictResult, type UpdateResponse } from "@arbor/wire";
 import { buildNetworkLocator, canonicalArborLocator, encodeSSEFrame, resolveLogicalURL, sha256 } from "@arbor/core";
 import type { AccountChallenge, AccessEntry, AccessLevel, LocatorResolution, MutationCallRuntime, ObservationEvent, QueryStreamRuntime, ReadWriteAccess, RemoteTreeDescriptor } from "@arbor/core";
 import { treeMutationResponse, treeQueryResponse } from "@arbor/data/host";
@@ -107,8 +107,11 @@ function watchDescriptor(
 const MAX_WATCH_TRANSITIONS_PER_FRAME = 64;
 const MAX_WATCH_TRANSITION_FRAME_BYTES = 1024 * 1024;
 
-function updateJSON(value: UpdateResult | UpdateConflictResult): unknown {
-  return "error" in value ? encodeUpdateConflictJSON(value) : encodeUpdateResultJSON(value);
+function updateJSON(value: UpdateResponse | UpdateConflictResult, legacy: boolean): unknown {
+  if ("error" in value) return encodeUpdateConflictJSON(value);
+  if (!legacy) return encodeUpdateResponseJSON(value);
+  const result = value.results[0]!;
+  return { ...encodeUpdateResultJSON(result), observedThrough: value.observedThrough };
 }
 
 function accountDescriptor(origin: string, canopy: CanopyDaemon, account: CanopyAccount): RemoteAccountDescriptor {
@@ -433,7 +436,17 @@ export async function serveCanopy(options: {
         if (updates) {
           if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
           const treeID = decodeURIComponent(updates[1]!);
-          const update = decodeUpdateRequestJSON(await request.json());
+          const body = await request.json() as Record<string, unknown>;
+          const legacy = !Array.isArray(body.updates);
+          const update = decodeUpdateRequestJSON(legacy
+            ? { base: body.base, updates: [{
+                candidate: body.candidate,
+                ifMatch: body.ifMatch,
+                ...(body.onConflict === undefined ? {} : { onConflict: body.onConflict }),
+                objects: body.objects,
+                deltas: body.deltas,
+              }] }
+            : body);
           const tree = canopy.get(treeID);
           // A null base activates a reserved tree, which has no descriptor yet;
           // Canopy checks the reservation and the administrator device.
@@ -449,7 +462,7 @@ export async function serveCanopy(options: {
             authentication?.subject,
             authentication ?? undefined,
           );
-          return json(updateJSON(result.result), result.status);
+          return json(updateJSON(result.result, legacy), result.status);
         }
         const watch = /^\/\.arbor\/trees\/([^/]+)\/watch$/.exec(url.pathname);
         if (watch && request.method === "GET") {

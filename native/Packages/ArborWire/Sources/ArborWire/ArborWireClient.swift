@@ -133,10 +133,23 @@ public actor ArborWireClient {
             onConflict: onConflict,
             objects: snapshot.objects
         )
+        return try prepareUpdates(tree: tree, base: base, updates: request.updates)
+    }
+
+    public func prepareUpdates(
+        tree: String,
+        base: WireUpdateBase,
+        updates: [WireCandidateUpdate]
+    ) throws -> PreparedWireUpdate {
+        guard !tree.isEmpty, !base.update.isEmpty, !updates.isEmpty else {
+            throw ArborWireValidationError.invalidValue("Update string identity is empty")
+        }
+        try validateObjectHash(base.root)
+        let request = WireUpdateRequest(base: base.update, updates: updates)
         return PreparedWireUpdate(
             tree: tree,
             body: try encoder.encode(request),
-            requestDigest: updateRequestDigest(tree: tree, base: base, candidate: snapshot.root, ifMatch: ifMatch, onConflict: onConflict)
+            requestDigests: updateRequestDigests(tree: tree, base: base, updates: updates)
         )
     }
 
@@ -156,7 +169,12 @@ public actor ArborWireClient {
                 let (data, response) = try await session.data(for: request)
                 let status = try statusCode(response)
                 if status == 409, let conflict = try? decoder.decode(WireUpdateConflict.self, from: data), conflict.error == "conflict" {
-                    throw WireUpdateConflictError(conflict: try conflict.validated())
+                    let validated = try conflict.validated()
+                    guard validated.details.failedIndex < prepared.requestDigests.count,
+                          validated.details.completed.map(\.requestDigest) == Array(prepared.requestDigests.prefix(validated.details.failedIndex)) else {
+                        throw ArborWireValidationError.invalidValue("Server conflict update-string identity mismatch")
+                    }
+                    throw WireUpdateConflictError(conflict: validated)
                 }
                 if status >= 500 {
                     lastError = decodeHTTPError(data: data, status: status)
@@ -164,8 +182,8 @@ public actor ArborWireClient {
                 }
                 try validate(data: data, status: status)
                 let decoded = try decoder.decode(WireUpdateResponse.self, from: data)
-                guard decoded.requestDigest == prepared.requestDigest else {
-                    throw ArborWireValidationError.invalidValue("Server response request digest mismatch")
+                guard decoded.results.map(\.requestDigest) == prepared.requestDigests else {
+                    throw ArborWireValidationError.invalidValue("Server response update-string identity mismatch")
                 }
                 return decoded
             } catch let error as WireUpdateConflictError {
@@ -383,10 +401,26 @@ public func canonicalUpdateIntent(
     ifMatch: String = "modelHash",
     onConflict: String? = nil
 ) -> Data {
+    canonicalUpdateIntent(
+        tree: tree,
+        base: .text(base.update),
+        candidate: candidate,
+        ifMatch: ifMatch,
+        onConflict: onConflict
+    )
+}
+
+private func canonicalUpdateIntent(
+    tree: String,
+    base: CanonicalCBORValue,
+    candidate: String,
+    ifMatch: String,
+    onConflict: String?
+) -> Data {
     CanonicalCBOR.encode(.map([
         ("version", .text("updates-v1")),
         ("tree", .text(tree)),
-        ("base", .text(base.update)),
+        ("base", base),
         ("candidate", .text(candidate)),
         ("ifMatch", .text(ifMatch)),
         ("onConflict", .text(onConflict ?? "merge")),
@@ -401,6 +435,30 @@ public func updateRequestDigest(
     onConflict: String? = nil
 ) -> String {
     canonicalCBORHash(canonicalUpdateIntent(tree: tree, base: base, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict))
+}
+
+public func updateRequestDigests(
+    tree: String,
+    base: WireUpdateBase,
+    updates: [WireCandidateUpdate]
+) -> [String] {
+    var basis: CanonicalCBORValue = .text(base.update)
+    var result: [String] = []
+    for update in updates {
+        let digest = canonicalCBORHash(canonicalUpdateIntent(
+            tree: tree,
+            base: basis,
+            candidate: update.candidate,
+            ifMatch: update.ifMatch,
+            onConflict: update.onConflict
+        ))
+        result.append(digest)
+        basis = .map([
+            ("requestDigest", .text(digest)),
+            ("candidate", .text(update.candidate)),
+        ])
+    }
+    return result
 }
 
 /// `sha256:<hex>` of already canonical CBOR bytes.

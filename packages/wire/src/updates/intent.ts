@@ -1,10 +1,12 @@
 import { canonicalCBORHash, encodeCanonicalCBOR } from "@arbor/core";
-import type { OnConflict, UpdateRequest } from "./types.ts";
+import type { ObjectHash } from "../objects.ts";
+import type { CandidateUpdate, OnConflict, UpdateRequest } from "./types.ts";
 
-export type UpdateIntent = Pick<UpdateRequest, "base" | "candidate" | "ifMatch" | "onConflict">;
+export type UpdateIntentBase = string | null | { requestDigest: ObjectHash; candidate: ObjectHash };
+export type UpdateIntent = Pick<CandidateUpdate, "candidate" | "ifMatch" | "onConflict"> & { base: UpdateIntentBase };
 
 /** `onConflict` at its effective value: merge unless the request says reject. */
-export function effectiveOnConflict(request: Pick<UpdateRequest, "onConflict">): OnConflict {
+export function effectiveOnConflict(request: Pick<CandidateUpdate, "onConflict">): OnConflict {
   return request.onConflict ?? "merge";
 }
 
@@ -30,4 +32,16 @@ export function canonicalUpdateIntent(tree: string, request: UpdateIntent): Uint
 
 export function updateRequestDigest(tree: string, request: UpdateIntent): string {
   return canonicalCBORHash(intent(tree, request));
+}
+
+/** Stable per-element identities for one append-only update string. */
+export function updateRequestDigests(tree: string, request: UpdateRequest): ObjectHash[] {
+  const digests: ObjectHash[] = [];
+  let base: UpdateIntentBase = request.base;
+  for (const update of request.updates) {
+    const digest = updateRequestDigest(tree, { base, ...update }) as ObjectHash;
+    digests.push(digest);
+    base = { requestDigest: digest, candidate: update.candidate };
+  }
+  return digests;
 }

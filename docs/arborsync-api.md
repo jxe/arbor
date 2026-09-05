@@ -320,10 +320,12 @@ prove editor provenance, but the complete source remains authoritative.
 Native and other session editors use `/v1/documents/admit` when their snapshot
 carried `admissionBasis`. Its body contains `{ ref, admissionBasis,
 baseContentRevision, source, sourceEdits? }`. Arbor Sync verifies the guarded
-edits against the basis, builds and durably freezes an ordinary Wire
-`UpdateRequest`, and acknowledges the private candidate without changing the
-materialized shared file. Authority submission may happen immediately or after
-a restart and offline interval. Only Canopy's accepted result is materialized.
+edits against the basis, builds and durably freezes one element of an ordinary
+Wire `UpdateRequest`, and acknowledges the private candidate without changing
+the materialized shared file. Each further durable generation extends the same
+epoch string and is posted immediately even while shorter-prefix requests and
+watch events remain in flight. Authority submission may also resume after a
+restart and offline interval. Only Canopy's accepted result is materialized.
 The endpoint is local adapter plumbing; it adds no Canopy route or update form.
 `writeProperties` is the representation-independent direct-edit operation:
 

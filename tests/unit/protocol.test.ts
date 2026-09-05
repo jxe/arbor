@@ -13,7 +13,7 @@ import type {
 } from "@arbor/core";
 import { canonicalArborLocator, canonicalHTTPURL, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
 import type { AccessEntry, NodeResponse, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
-import { WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeUpdateRequestJSON, hashObject, updateRequestDigest } from "@arbor/wire";
+import { WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeUpdateRequestJSON, hashObject, updateRequestDigests } from "@arbor/wire";
 import { nodeDocument } from "../helpers/node-snapshot.ts";
 
 // Test-local checks mirroring ArborWire's `WireTreeDescriptor.validated()` and
@@ -271,17 +271,20 @@ describe("REST v1 protocol fixtures", () => {
     expect(`\"${hashObject(snapshotBody)}\"`).toBe(snapshotCase.response.headers!.ETag!);
     const activate = byName.get("activate-with-null-base")!;
     const activation = decodeUpdateRequestJSON(activate.request.body);
+    const activationUpdate = activation.updates[0]!;
+    const activationResponse = activate.response.body as { results: Array<{ requestDigest: string; update: unknown }> };
     expect(activation.base).toBeNull();
-    expect(updateRequestDigest("tr_new", activation)).toBe(activate.request.derivedRequestDigest!);
-    expect(activate.response.body!.requestDigest).toBe(activate.request.derivedRequestDigest);
-    expect(decodeAcceptedUpdateJSON(activate.response.body!.update)).toMatchObject({ tree: "tr_new", root: activation.candidate, previousRoot: null, kind: "initial" });
+    expect(updateRequestDigests("tr_new", activation)).toEqual([activate.request.derivedRequestDigest!]);
+    expect(activationResponse.results[0]!.requestDigest).toBe(activate.request.derivedRequestDigest!);
+    expect(decodeAcceptedUpdateJSON(activationResponse.results[0]!.update)).toMatchObject({ tree: "tr_new", root: activationUpdate.candidate, previousRoot: null, kind: "initial" });
     const submit = byName.get("submit-current-update")!;
     const request = decodeUpdateRequestJSON(submit.request.body);
-    expect(updateRequestDigest("tr_atlas", request)).toBe(submit.request.derivedRequestDigest!);
-    expect(submit.response.body!.requestDigest).toBe(submit.request.derivedRequestDigest);
-    const current = decodeAcceptedUpdateJSON(submit.response.body!.update);
+    const submitResponse = submit.response.body as { results: Array<{ requestDigest: string; update: unknown }> };
+    expect(updateRequestDigests("tr_atlas", request)).toEqual([submit.request.derivedRequestDigest!]);
+    expect(submitResponse.results[0]!.requestDigest).toBe(submit.request.derivedRequestDigest!);
+    const current = decodeAcceptedUpdateJSON(submitResponse.results[0]!.update);
     expect(current).toMatchObject({ id: "1", tree: "tr_atlas", kind: "initial", previousRoot: null });
-    expect(current.root).toBe(request.candidate);
+    expect(current.root).toBe(request.updates[0]!.candidate);
     const watch = parseSSEFrame(byName.get("watch-ref")!.response.frame!.trim())!;
     const watched = JSON.parse(watch.data) as { cursor: string; tree: string; kind: string; change: { descriptor: unknown } };
     expect(watch.id).toBe(watched.cursor);
@@ -297,7 +300,7 @@ describe("REST v1 protocol fixtures", () => {
       "divergent-nested-boundary",
       "file-directory-kind-collision",
     ]));
-    expect(intents.version).toBe(1);
+    expect(intents.version).toBe(2);
     expect(intents.replayCases.map((item) => item.name)).toEqual([
       "same-intent-different-object-envelope",
       "different-candidate-has-different-digest",

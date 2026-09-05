@@ -12,6 +12,7 @@ public actor ReplicaSyncCoordinator {
     private var terminal = false
     private var syncActive = false
     private var syncAgain = false
+    private var inFlight = Set<String>()
 
     public init(
         replica: ArborReplica,
@@ -179,6 +180,16 @@ public actor ReplicaSyncCoordinator {
 
     /** Best-effort, nonblocking-from-the-editor handoff for one just-durable patch admission. */
     public func syncImmediately(_ admission: ReplicaPatchAdmission) async {
+        if syncActive, control.attempt != nil {
+            do {
+                let attempt = try await extendAttempt(admission: admission)
+                _ = try await submit(attempt)
+            } catch {
+                // The durable pending state remains available to the normal
+                // retry/watch path; editor admission itself stays nonblocking.
+            }
+            return
+        }
         _ = try? await synchronize(admission: admission)
     }
 
@@ -222,11 +233,7 @@ public actor ReplicaSyncCoordinator {
             )
             try files.write(control)
             try faultInjector.reached(.duringUpload)
-            let prepared = PreparedWireUpdate(tree: attempt.tree, body: attempt.body, requestDigest: attempt.digest)
-            let response = try await transport.submit(prepared)
-            try faultInjector.reached(.afterServerAcceptance)
-            try await apply(response, for: attempt)
-            return try await presentation()
+            return try await submit(attempt)
         } catch let error as WireUpdateConflictError {
             let validated = try error.conflict.validated()
             control.conflict = DurableSyncConflict(response: validated, localRootAtConflict: attempt.candidate)
@@ -253,6 +260,42 @@ public actor ReplicaSyncCoordinator {
             try? files.write(control)
             throw error
         }
+    }
+
+    private func submit(_ attempt: DurableSyncAttempt) async throws -> WorkspaceSyncPresentation {
+        guard inFlight.insert(attempt.digest).inserted else { return try await presentation() }
+        defer { finishInFlight(attempt.digest) }
+        do {
+            let prepared = PreparedWireUpdate(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests)
+            let response = try await transport.submit(prepared)
+            try faultInjector.reached(.afterServerAcceptance)
+            try await apply(response, for: attempt)
+            return try await presentation()
+        } catch let error as WireUpdateConflictError {
+            guard control.attempt?.allRequestDigests.starts(with: attempt.allRequestDigests) == true else {
+                return try await presentation()
+            }
+            let validated = try error.conflict.validated()
+            control.conflict = DurableSyncConflict(response: validated, localRootAtConflict: control.attempt?.candidate ?? attempt.candidate)
+            control.attempt = nil
+            control.presentation = WorkspaceSyncPresentation(
+                state: .conflict,
+                detail: validated.conflicts.map { "\($0.path): \($0.reason)" }.joined(separator: ", "),
+                acceptedRoot: validated.current.root,
+                localRoot: attempt.candidate,
+                localAdditions: true,
+                remoteAdditions: true
+            )
+            try files.write(control)
+            return control.presentation
+        } catch {
+            if control.attempt?.digest != attempt.digest { return try await presentation() }
+            throw error
+        }
+    }
+
+    private func finishInFlight(_ digest: String) {
+        inFlight.remove(digest)
     }
 
     public func resolveConflictKeepingLocal() throws {
@@ -309,13 +352,16 @@ public actor ReplicaSyncCoordinator {
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
+        let treeID = (await replica.treeID()).rawValue
+        let requestDigest = updateRequestDigest(tree: treeID, base: base, candidate: snapshot.root)
         let attempt = DurableSyncAttempt(
-            tree: (await replica.treeID()).rawValue,
+            tree: treeID,
             base: base,
             candidate: snapshot.root,
             generation: heads.generation,
             body: try encoder.encode(request),
-            digest: updateRequestDigest(tree: (await replica.treeID()).rawValue, base: base, candidate: snapshot.root)
+            requestDigests: [requestDigest],
+            digest: requestDigest
         )
         try faultInjector.reached(.beforeRequestPersistence)
         control.attempt = attempt
@@ -324,6 +370,46 @@ public actor ReplicaSyncCoordinator {
             acceptedRoot: base.root,
             localRoot: snapshot.root,
             localAdditions: snapshot.root != base.root
+        )
+        try files.write(control)
+        try faultInjector.reached(.afterRequestPersistence)
+        return attempt
+    }
+
+    /** Persist and return a longer request while an older prefix remains in flight. */
+    private func extendAttempt(admission: ReplicaPatchAdmission) async throws -> DurableSyncAttempt {
+        guard let existing = control.attempt else { return try await createAttempt(admission: admission) }
+        var request = try JSONDecoder().decode(WireUpdateRequest.self, from: existing.body)
+        let snapshot = try await replica.currentSnapshot()
+        guard snapshot.root != existing.candidate else { return existing }
+        let retained = (try? await retainedObjectHashes(root: existing.candidate)) ?? []
+        let update = WireCandidateUpdate(
+            candidate: snapshot.root,
+            objects: snapshot.objects
+                .filter { !retained.contains($0.hash) }
+                .map { WireObjectEnvelope(hash: $0.hash, bytes: $0.bytes) }
+        )
+        request.updates.append(update)
+        let digests = updateRequestDigests(tree: existing.tree, base: existing.base, updates: request.updates)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let attempt = DurableSyncAttempt(
+            tree: existing.tree,
+            base: existing.base,
+            candidate: snapshot.root,
+            generation: (try await replica.heads()).generation,
+            body: try encoder.encode(request),
+            requestDigests: digests,
+            digest: digests.last!
+        )
+        try faultInjector.reached(.beforeRequestPersistence)
+        control.attempt = attempt
+        control.presentation = WorkspaceSyncPresentation(
+            state: .requestPending,
+            detail: "Submitting \(request.updates.count) durable root intents",
+            acceptedRoot: existing.base.root,
+            localRoot: snapshot.root,
+            localAdditions: true
         )
         try files.write(control)
         try faultInjector.reached(.afterRequestPersistence)
@@ -395,17 +481,19 @@ public actor ReplicaSyncCoordinator {
     }
 
     private func apply(_ response: WireUpdateResponse, for attempt: DurableSyncAttempt) async throws {
-        guard response.requestDigest == attempt.digest else {
+        guard response.results.map(\.requestDigest) == attempt.allRequestDigests,
+              let final = response.results.last else {
             throw ReplicaSyncError.returnedRequestDigestMismatch
         }
+        guard control.attempt?.digest == attempt.digest else { return }
         let accepted: WireAcceptedUpdate
         let merge: WireMergeSummary?
-        switch response.result {
+        switch final.result {
         case let .current(update): accepted = update; merge = nil
         case let .accepted(update): accepted = update; merge = nil
         case let .merged(update, summary): accepted = update; merge = summary
         }
-        if response.reconciliation == nil, accepted.root != attempt.candidate {
+        if final.reconciliation == nil, accepted.root != attempt.candidate {
             throw ReplicaSyncError.returnedSnapshotMissing
         }
         try faultInjector.reached(.duringGraphDownload)
@@ -454,7 +542,7 @@ public actor ReplicaSyncCoordinator {
             try faultInjector.reached(.beforeBaseAdvancement)
             try await replica.recordAccepted(root: accepted.root, update: accepted.id, cursor: accepted.id)
         } else {
-            guard let reconciliation = response.reconciliation else { throw ReplicaSyncError.returnedSnapshotMissing }
+            guard let reconciliation = final.reconciliation else { throw ReplicaSyncError.returnedSnapshotMissing }
             // The materialized root is the candidate here, so the local graph is the basis the transition applies to.
             let local = try await replica.currentSnapshot()
             let basis = WireSnapshot(root: local.root, objects: local.objects.map { WireObjectEnvelope(hash: $0.hash, bytes: $0.bytes) })

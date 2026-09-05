@@ -93,6 +93,69 @@ async function snapshotWithCollectionFiles(path: string) {
 }
 
 describe("governed account-configuration Canopy server", () => {
+  test("accepts an append-only update string and trims an older prefix replay", async () => {
+    const baseline = await currentConfig();
+    const administrator = baseline.graph.account.admins[0]!;
+    const graphOne = {
+      account: baseline.graph.account,
+      trees: baseline.graph.trees,
+      devices: {
+        ...baseline.graph.devices,
+        [administrator]: { ...baseline.graph.devices[administrator]!, label: `Cumulative one ${crypto.randomUUID()}` },
+      },
+    };
+    const graphTwo = {
+      ...graphOne,
+      devices: {
+        ...graphOne.devices,
+        [administrator]: { ...graphOne.devices[administrator]!, label: `Cumulative two ${crypto.randomUUID()}` },
+      },
+    };
+    const snapshots = [snapshotAccountConfig(graphOne), snapshotAccountConfig(graphTwo)];
+    const updates = snapshots.map((snapshot) => ({
+      candidate: snapshot.root,
+      ifMatch: "modelHash" as const,
+      objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
+      deltas: [],
+    }));
+    const before = running.canopy.acceptedUpdates(baseline.current.tree.id).length;
+    const response = await client.submitUpdates(baseline.current.tree.id, {
+      base: baseline.current.tree.update,
+      updates,
+    });
+    expect(response.results.map(({ outcome }) => outcome)).toEqual(["accepted", "accepted"]);
+    expect(response.results[1]!.update.previousRoot).toBe(response.results[0]!.update.root);
+    expect(response.observedThrough).toBe(response.results[1]!.update.id);
+    expect(running.canopy.acceptedUpdates(baseline.current.tree.id)).toHaveLength(before + 2);
+
+    const replay = await client.submitUpdates(baseline.current.tree.id, {
+      base: baseline.current.tree.update,
+      updates: updates.slice(0, 1),
+    });
+    expect(replay.results[0]!.update.id).toBe(response.results[0]!.update.id);
+    expect(running.canopy.acceptedUpdates(baseline.current.tree.id)).toHaveLength(before + 2);
+  });
+
+  test("temporarily answers a legacy singular caller with the flattened result", async () => {
+    const baseline = await currentConfig();
+    const response = await fetch(`${running.url}/.arbor/trees/${baseline.current.tree.id}/updates`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        base: baseline.current.tree.update,
+        candidate: baseline.current.tree.root,
+        ifMatch: "modelHash",
+        objects: [],
+        deltas: [],
+      }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body.outcome).toBe("current");
+    expect(body.results).toBeUndefined();
+    expect(body.observedThrough).toBe(baseline.current.tree.update);
+  });
+
   test("does not advertise a retained noncanonical ordinary root as a remote tree", async () => {
     const before = await client.account();
     const profileTree = before.account.profileTree!;
@@ -331,7 +394,7 @@ describe("governed account-configuration Canopy server", () => {
       ref: initial.root,
     });
     const replayed = await client.submitUpdate(treeID, null, initial);
-    expect(replayed.outcome).toBe("current");
+    expect(replayed.outcome).toBe("accepted");
     expect(replayed.update).toEqual(activated.update);
     expect((await client.access(treeID)).snapshot).toContainEqual({
       id: expect.any(String),
@@ -475,7 +538,7 @@ describe("governed account-configuration Canopy server", () => {
     await expect(client.submitUpdate(treeID, null, await snapshotDirectory(changedPath))).rejects.toThrow("conflict");
 
     const account = await client.account();
-    expect(account.observedThrough).not.toBe(accepted.observedThrough);
+    expect(account.observedThrough).not.toBe(accepted.update.id);
   });
 
   test("replays accepted updates in order across tree activation", async () => {

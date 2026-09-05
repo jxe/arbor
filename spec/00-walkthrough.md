@@ -54,8 +54,9 @@ accepted configuration update. The server validates the candidate under the
 
 The laptop encodes the folder as Wire objects: one file object per file, one
 directory object per directory, each addressed by the SHA-256 of its canonical
-CBOR. It sends `POST /.arbor/trees/tr_…/updates` with `base: null`, the root
-hash as `candidate`, and every object. The server verifies the graph, records
+CBOR. It sends `POST /.arbor/trees/tr_…/updates` with `base: null` and a
+one-element `updates` string carrying the root hash as `candidate` and every
+object. The server verifies the graph, records
 the first accepted update, applies the declared ACL and canonical boundary,
 and makes the tree's descriptor and accepted snapshot readable in the same
 commit.

@@ -572,6 +572,9 @@ export class ArborSyncDaemon implements AsyncDisposable {
     }
     const frozen = freezeEditorAdmission(input);
     await savePendingEditorAdmission(scope.workspace.tree, frozen);
+    void this.accountClient(placement)
+      .then((client) => this.treeSync.pushEditorAdmissions(scope.workspace.tree, client))
+      .catch(() => {});
     void this.syncAll();
     const current = await this.withWorkspaceIO(scope.workspace, () => scope.workspace.snapshot(scope.ref));
     if (!current.content || !current.capabilities.content) throw new Error("Document admission target no longer has content");

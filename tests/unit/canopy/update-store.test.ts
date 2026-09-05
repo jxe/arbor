@@ -55,7 +55,7 @@ describe("accepted-update transaction store", () => {
     expect(store.transition(accepted!.id)).toEqual({ objects: [{ hash: B, bytes }], deltas: [] });
     expect(store.acceptedRequest("tr_test", "device:one", "sha256:request")).toEqual({
       status: 201,
-      result: { outcome: "accepted", update: accepted!, requestDigest: "sha256:request", observedThrough: accepted!.id },
+      result: { outcome: "accepted", update: accepted!, requestDigest: "sha256:request" },
     });
   });
 

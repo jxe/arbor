@@ -30,8 +30,10 @@ Before starting, record evidence that:
    element.
 2. Remove response negotiation that flattens a one-element plural result for a
    legacy caller.
-3. Remove legacy-only models, fixtures, tests, and reference documentation.
-4. Keep the plural protocol's one-element convenience APIs if they still help
+3. Remove lenient decoding defaults for pre-plural conflict envelopes and
+   durable native attempts after the retained-state upgrade window closes.
+4. Remove legacy-only models, fixtures, tests, and reference documentation.
+5. Keep the plural protocol's one-element convenience APIs if they still help
    callers; only the on-wire singular representation is temporary.
 
 ## Verification

@@ -56,6 +56,22 @@ private actor ClosureTransport: ReplicaWireTransport {
     }
 }
 
+private actor FirstRequestGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private(set) var waiting = false
+
+    func hold() async {
+        waiting = true
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+        waiting = false
+    }
+}
+
 private struct InjectedSyncCrash: Error {}
 
 private struct OnePointFault: ReplicaSyncFaultInjector {
@@ -208,6 +224,68 @@ struct ArborSyncTests {
             let second = try JSONDecoder().decode(WireUpdateRequest.self, from: secondPrepared.body)
             #expect(second.deltas.isEmpty)
             #expect(!second.objects.isEmpty)
+            #expect(try await replica.heads().pendingRoot == nil)
+        }
+    }
+
+    @Test("A later native edit posts a longer update string before the prefix response returns")
+    func fullDuplexUpdateString() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_full_duplex"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let gate = FirstRequestGate()
+            let transport = ClosureTransport(initial: initial) { prepared, call in
+                if call == 1 { await gate.hold() }
+                let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+                var previous = initial.root
+                let results = request.updates.enumerated().map { index, candidate in
+                    let update = accepted(
+                        id: "up_full_\(index + 1)",
+                        tree: tree,
+                        root: candidate.candidate,
+                        base: previous,
+                        candidate: candidate.candidate
+                    )
+                    previous = candidate.candidate
+                    return WireUpdateElementResult(
+                        result: .accepted(update),
+                        requestDigest: prepared.requestDigests[index]
+                    )
+                }
+                return WireUpdateResponse(results: results, observedThrough: "up_full_\(results.count)")
+            }
+            let replica = try await ReplicaPlacementService.place(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"),
+                transport: transport
+            )
+            let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root.appending(path: "sync"))
+            let provider = ReplicaWorkspaceProvider(replica: replica) { admission in await coordinator.syncImmediately(admission) }
+            let session = try await provider.openDocument(
+                .init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
+            )
+            let first = try await session.snapshot()
+            _ = try await session.admit(patch: WorkspaceDocumentPatch(
+                baseContentRevision: first.contentRevision,
+                edits: [.init(utf8Range: Data(first.source.utf8).count..<Data(first.source.utf8).count, replacement: "One\n")]
+            ))
+            for _ in 0..<100 where !(await gate.waiting) { try await Task.sleep(for: .milliseconds(10)) }
+            let second = try await session.snapshot()
+            _ = try await session.admit(patch: WorkspaceDocumentPatch(
+                baseContentRevision: second.contentRevision,
+                edits: [.init(utf8Range: Data(second.source.utf8).count..<Data(second.source.utf8).count, replacement: "Two\n")]
+            ))
+            for _ in 0..<100 where await transport.requests.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+            let requests = await transport.requests
+            #expect(requests.count == 2)
+            let short = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
+            let long = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
+            #expect(short.base == long.base)
+            #expect(short.updates.count == 1)
+            #expect(long.updates.count == 2)
+            #expect(Array(long.updates.prefix(1)) == short.updates)
+            await gate.release()
+            for _ in 0..<100 where try await replica.heads().pendingRoot != nil { try await Task.sleep(for: .milliseconds(10)) }
             #expect(try await replica.heads().pendingRoot == nil)
         }
     }

@@ -10,7 +10,7 @@ import {
   type ObjectDelta,
   type ObjectHash,
   type TreeSnapshot,
-  type UpdateRequestJSON,
+  type CandidateUpdateJSON,
 } from "@arbor/wire";
 
 interface AdmissionBasisValue {
@@ -30,10 +30,12 @@ interface AdmissionBasisValue {
 export interface FrozenEditorAdmission {
   id: string;
   ref: NodeRef;
-  request: UpdateRequestJSON;
+  request: CandidateUpdateJSON & { base: string };
   source: string;
   contentRevision: string;
   admissionBasis: string;
+  /** Durable acknowledgement marker; retained until the editor reanchors on a newer watchpoint. */
+  acknowledged?: boolean;
 }
 
 function encodeBasis(value: AdmissionBasisValue): string {

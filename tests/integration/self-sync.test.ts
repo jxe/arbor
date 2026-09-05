@@ -219,11 +219,11 @@ describe("private self-sync", () => {
         source,
         sourceEdits: [{ offset: 2, length: 6, replacement: "From A", expected: "Common" }],
       });
-      await waitFor(async () => updateBodies.some((body) => body.deltas?.length === 1));
+      await waitFor(async () => updateBodies.some((body) => body.updates?.[0]?.deltas?.length === 1));
     } finally {
       globalThis.fetch = systemFetch;
     }
-    const deltaBody = updateBodies.find((body) => body.deltas?.length === 1)!;
+    const deltaBody = updateBodies.find((body) => body.updates?.[0]?.deltas?.length === 1)!.updates[0];
     expect(deltaBody.deltas[0].instructions).toContainEqual({ insert: Buffer.from("From A").toString("base64") });
     expect(deltaBody.objects).not.toContainEqual(expect.objectContaining({ hash: deltaBody.deltas[0].result }));
     await author.close();
@@ -259,11 +259,11 @@ describe("private self-sync", () => {
           expected: nodeDocument(beforeFallback)!.source,
         }],
       });
-      await waitFor(async () => fallbackBodies.some((body) => Array.isArray(body.objects) && body.objects.length > 0));
+      await waitFor(async () => fallbackBodies.some((body) => Array.isArray(body.updates?.[0]?.objects) && body.updates[0].objects.length > 0));
     } finally {
       globalThis.fetch = fallbackFetch;
     }
-    const fallbackBody = fallbackBodies.find((body) => Array.isArray(body.objects) && body.objects.length > 0)!;
+    const fallbackBody = fallbackBodies.find((body) => Array.isArray(body.updates?.[0]?.objects) && body.updates[0].objects.length > 0)!.updates[0];
     expect(fallbackBody.deltas).toEqual([]);
     await fallback.running.service.synchronizeNow();
     await fallback.close();
@@ -352,7 +352,7 @@ describe("private self-sync", () => {
     await author.close();
   });
 
-  test("rebases a later editor admission while its prior generation is in flight", async () => {
+  test("posts a longer editor update string while its prior prefix is in flight", async () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
@@ -401,6 +401,7 @@ describe("private self-sync", () => {
         secondSource,
         [{ offset: Buffer.byteLength(firstSource), length: 0, replacement: "Second admitted generation.\n" }],
       );
+      await waitFor(async () => updateBodies.length >= 2);
       releaseFirst();
       await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2
         && (await author.running.service.trees.descriptors())
@@ -409,7 +410,10 @@ describe("private self-sync", () => {
       const accepted = host.canopy.acceptedUpdates(tree).slice(historyBefore);
       expect(accepted.map((update) => update.kind)).toEqual(["accepted", "accepted"]);
       expect(updateBodies).toHaveLength(2);
-      expect(updateBodies[1].base).toBe(accepted[0]!.id);
+      expect(updateBodies[0].updates).toHaveLength(1);
+      expect(updateBodies[1].updates).toHaveLength(2);
+      expect(updateBodies[1].base).toBe(updateBodies[0].base);
+      expect(updateBodies[1].updates.slice(0, 1)).toEqual(updateBodies[0].updates);
       expect(accepted[1]!.previousRoot).toBe(accepted[0]!.root);
       expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
 
@@ -570,8 +574,8 @@ describe("private self-sync", () => {
       const acceptedSource = nodeDocument(accepted!)!.source;
       expect(acceptedSource).toContain("Native while open.");
       expect(requests.some(({ url }) => url.includes("/source-candidates"))).toBe(false);
-      expect(requests.find(({ url, body }) => url.includes(`/.arbor/trees/${tree}/updates`) && typeof body?.candidate === "string")?.body)
-        .toMatchObject({ base: current.descriptor.tree.update, ifMatch: "modelHash" });
+      expect(requests.find(({ url, body }) => url.includes(`/.arbor/trees/${tree}/updates`) && typeof body?.updates?.[0]?.candidate === "string")?.body)
+        .toMatchObject({ base: current.descriptor.tree.update, updates: [expect.objectContaining({ ifMatch: "modelHash" })] });
       expect(await readFile(join(treeA, "note.md"), "utf8")).toContain("Native while open.");
 
       const restored = await author.client.node(ref);

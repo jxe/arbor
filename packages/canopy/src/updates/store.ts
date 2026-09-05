@@ -127,7 +127,6 @@ export class AcceptedUpdateStore {
         outcome: accepted.kind === "merged" ? "merged" : "accepted",
         update: accepted,
         requestDigest: digest as ObjectHash,
-        observedThrough: accepted.id,
       },
     };
   }

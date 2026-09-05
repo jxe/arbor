@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { revisionOf } from "@arbor/core";
 import { snapshotDirectory } from "@arbor/fs";
-import { applyTransitionPayload, decodeUpdateRequestJSON, decodeWireObject } from "@arbor/wire";
+import { applyTransitionPayload, decodeCandidateUpdateJSON, decodeWireObject } from "@arbor/wire";
 import { documentAdmissionBasis, freezeEditorAdmission } from "../../packages/arborsync/src/editor-admission.ts";
 
 describe("opaque editor admission basis", () => {
@@ -34,8 +34,8 @@ describe("opaque editor admission basis", () => {
         sourceEdits: [{ offset: Buffer.byteLength(source), length: 0, replacement }],
       });
 
-      const request = decodeUpdateRequestJSON(frozen.request);
-      expect(request.base).toBe("197");
+      const request = decodeCandidateUpdateJSON(frozen.request);
+      expect(frozen.request.base).toBe("197");
       expect(typeof request.candidate).toBe("string");
       expect(request.objects.length + request.deltas.length).toBeGreaterThan(0);
       const candidateObjects = applyTransitionPayload(accepted.objects, request);
@@ -60,8 +60,9 @@ describe("opaque editor admission basis", () => {
       expect(second.request.base).toBe("197");
       expect(second.request.candidate).not.toBe(frozen.request.candidate);
       expect(second.request.deltas).toEqual([]);
-      const secondRequest = decodeUpdateRequestJSON(second.request);
-      const secondObjects = applyTransitionPayload(accepted.objects, secondRequest);
+      const secondRequest = decodeCandidateUpdateJSON(second.request);
+      const firstObjects = applyTransitionPayload(accepted.objects, request);
+      const secondObjects = applyTransitionPayload(firstObjects, secondRequest);
       expect(secondObjects.has(secondRequest.candidate)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });

@@ -3,6 +3,7 @@ import {
   WireClient,
   WireUpdateConflict,
   applyTransitionPayload,
+  decodeCandidateUpdateJSON,
   decodeWireObject,
   type CurrentTree,
   type ObjectHash,
@@ -25,7 +26,7 @@ import {
   saveAcceptedTreeObjects,
   savePendingTreeUpdate,
   saveTreeConflict,
-  settlePendingEditorAdmission,
+  acknowledgePendingEditorAdmissions,
   snapshotFromPending,
   treeConflict,
 } from "./sync-state.ts";
@@ -70,6 +71,7 @@ export class TreeSynchronizer {
   readonly conflicts = new Set<string>();
   private readonly queued = new Map<string, TreeRefWatchEvent[]>();
   private readonly watches = new Map<string, { abort: AbortController; done: Promise<void> }>();
+  private readonly editorPushes = new Map<string, Map<string, Promise<void>>>();
   private closed = false;
 
   constructor(private readonly deps: TreeSyncDeps) {}
@@ -290,42 +292,15 @@ export class TreeSynchronizer {
     client: WireClient,
     remoteTrees: readonly RemoteTreeDescriptor[],
   ): Promise<SharedTreePlacement> {
-    const admissions = await pendingEditorAdmissions(workspace.tree);
+    let admissions = await pendingEditorAdmissions(workspace.tree);
     if (!admissions.length) return placement;
     if (placement.access !== "write") {
       this.deps.trees.setSyncState(workspace.tree, "conflict");
       return placement;
     }
-    for (const admission of admissions) {
-      try {
-        const result = await client.submitUpdate(
-          workspace.tree,
-          admission.request.base,
-          snapshotFromPending(admission.request),
-          { deltas: deltasFromPending(admission.request) },
-        );
-        await settlePendingEditorAdmission(
-          workspace.tree,
-          admission.id,
-          admission.request.candidate,
-          result.update,
-        );
-      } catch (error) {
-        if (error instanceof WireUpdateConflict) {
-          await saveTreeConflict(workspace.tree, error.result);
-          this.deps.trees.setSyncState(workspace.tree, "conflict");
-          this.conflicts.add(workspace.tree);
-          this.deps.events.emit({
-            tree: workspace.tree,
-            kind: "diagnostic",
-            ref: { tree: workspace.tree, path: admission.ref.path, stableKey: admission.ref.stableKey },
-            origin: "sync",
-          });
-          return placement;
-        }
-        throw error;
-      }
-    }
+    await this.pushEditorAdmissions(workspace.tree, client);
+    admissions = await pendingEditorAdmissions(workspace.tree);
+    if (admissions.some((admission) => !admission.acknowledged)) return placement;
 
     const local = await this.snapshotWorkspace(workspace, client, remoteTrees);
     if (!placement.ref || local.root !== placement.ref) return placement;
@@ -357,6 +332,63 @@ export class TreeSynchronizer {
       };
     });
     return placement;
+  }
+
+  /**
+   * Push the currently durable editor prefix immediately. A later admission
+   * gets a different key and can therefore post its longer prefix while this
+   * request is still in flight; exact duplicate pushes share one promise.
+   */
+  async pushEditorAdmissions(tree: string, client: WireClient): Promise<void> {
+    const admissions = await pendingEditorAdmissions(tree);
+    const first = admissions[0];
+    if (!first) return;
+    const chain = admissions.filter((admission) => admission.id === first.id);
+    if (chain.every((admission) => admission.acknowledged)) return;
+    const key = `${first.id}:${chain.length}:${chain.at(-1)!.request.candidate}`;
+    let pushes = this.editorPushes.get(tree);
+    if (!pushes) {
+      pushes = new Map();
+      this.editorPushes.set(tree, pushes);
+    }
+    const existing = pushes.get(key);
+    if (existing) return existing;
+    const push = (async () => {
+      try {
+        await client.submitUpdates(tree, {
+          base: first.request.base,
+          updates: chain.map((admission) => decodeCandidateUpdateJSON(admission.request)),
+        });
+        await acknowledgePendingEditorAdmissions(
+          tree,
+          first.id,
+          chain.map((admission) => admission.request.candidate),
+        );
+      } catch (error) {
+        if (!(error instanceof WireUpdateConflict)) throw error;
+        await acknowledgePendingEditorAdmissions(
+          tree,
+          first.id,
+          chain.slice(0, error.result.details.completed.length).map((admission) => admission.request.candidate),
+        );
+        await saveTreeConflict(tree, error.result);
+        this.deps.trees.setSyncState(tree, "conflict");
+        this.conflicts.add(tree);
+        this.deps.events.emit({
+          tree,
+          kind: "diagnostic",
+          ref: { tree, path: first.ref.path, stableKey: first.ref.stableKey },
+          origin: "sync",
+        });
+      }
+    })();
+    pushes.set(key, push);
+    try {
+      await push;
+    } finally {
+      pushes.delete(key);
+      if (!pushes.size) this.editorPushes.delete(tree);
+    }
   }
 
   async updateWorkspace(

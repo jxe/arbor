@@ -22,7 +22,7 @@ import {
   encodeWireObject,
   hashObject,
   wireEntryObjectHashes,
-  updateRequestDigest,
+  updateRequestDigests,
   type AcceptedTransition,
   type AcceptedTransitionPayload,
   type AcceptedUpdate,
@@ -30,8 +30,10 @@ import {
   type ObjectHash,
   type PairingOffer,
   type TreeSnapshot,
+  type CandidateUpdate,
   type UpdateConflictResult,
   type UpdateRequest,
+  type UpdateResponse,
   type UpdateResult,
 } from "@arbor/wire";
 import {
@@ -50,7 +52,7 @@ import {
 } from "./account-policy-v2.ts";
 import { reconcileUpdate, type MergeStrategy } from "./updates/reconcile.ts";
 import { effectiveOnConflict } from "@arbor/wire";
-import { AcceptedUpdateStore, type AcceptedUpdateInput } from "./updates/store.ts";
+import { AcceptedUpdateStore, type AcceptedUpdateInput, type StoredAcceptedResponse } from "./updates/store.ts";
 import { ObservationLog, type ObservationRecord } from "./updates/observations.ts";
 import { buildAcceptedTransitionPayload } from "./updates/transition.ts";
 import { ObjectStore } from "./objects.ts";
@@ -65,7 +67,7 @@ export type { CanopyAccessEntry, CanopyAccount, CanopyAuthentication, CanopyTree
 
 export interface StoredUpdateResponse {
   status: number;
-  result: UpdateResult | UpdateConflictResult;
+  result: UpdateResponse | UpdateConflictResult;
 }
 
 export interface CanopyBootstrapAccount {
@@ -736,6 +738,7 @@ export class CanopyDaemon implements AsyncDisposable {
     authentication: CanopyAuthentication,
     treeID: string,
     snapshot: TreeSnapshot,
+    requestDigest?: ObjectHash,
   ): Promise<CanopyTree> {
     if (!isGeneratedArborID(treeID, "tr") && !isPersonProfileTreeID(treeID)) {
       throw new Error("New tree activation requires a generated TreeID");
@@ -776,6 +779,7 @@ export class CanopyDaemon implements AsyncDisposable {
       authentication.subject,
       treeID,
       authentication.account.id,
+      requestDigest,
     );
     return activated;
   }
@@ -929,7 +933,7 @@ export class CanopyDaemon implements AsyncDisposable {
     return buildAcceptedTransitionPayload(previousRoot, root, (hash) => this.object(hash));
   }
 
-  private acceptedRequest(tree: string, subject: string, digest: string): StoredUpdateResponse | null {
+  private acceptedRequest(tree: string, subject: string, digest: string): StoredAcceptedResponse | null {
     return this.acceptedStore.acceptedRequest(tree, subject, digest);
   }
 
@@ -948,7 +952,7 @@ export class CanopyDaemon implements AsyncDisposable {
     this.updateLocks.set(treeID, queued);
     await previous;
     try {
-      return await this.submitUpdateLocked(
+      return await this.submitUpdatesLocked(
         treeID,
         request,
         account,
@@ -962,7 +966,7 @@ export class CanopyDaemon implements AsyncDisposable {
     }
   }
 
-  private async submitUpdateLocked(
+  private async submitUpdatesLocked(
     treeID: string,
     request: UpdateRequest,
     account: CanopyAccount | null = null,
@@ -970,32 +974,82 @@ export class CanopyDaemon implements AsyncDisposable {
     credentialSubject?: string,
     authentication?: CanopyAuthentication,
   ): Promise<StoredUpdateResponse> {
-    const requestDigest = updateRequestDigest(treeID, request);
-    if (request.base === null) return this.activateFromUpdate(treeID, request, requestDigest, authentication);
+    const digests = updateRequestDigests(treeID, request);
+    const completed: UpdateResult[] = [];
+    let accepted = false;
+    let baseRoot: ObjectHash | null = null;
+    if (request.base !== null) {
+      const baseUpdate = this.update(request.base);
+      if (!baseUpdate || baseUpdate.tree !== treeID) {
+        throw new UpdateProtocolError("base-not-retained", "Base update is not retained for this tree");
+      }
+      baseRoot = baseUpdate.root;
+    }
+    const proposed = new Map<ObjectHash, Uint8Array>();
+    for (const [index, update] of request.updates.entries()) {
+      const requestDigest = digests[index]!;
+      for (const { hash, bytes } of update.objects) proposed.set(hash, bytes);
+      if (baseRoot === null) {
+        const activation = await this.activateFromUpdate(treeID, update, requestDigest, authentication);
+        completed.push(activation.result as UpdateResult);
+        accepted ||= activation.result.outcome !== "current";
+        baseRoot = update.candidate;
+        continue;
+      }
+      const reconstructed = await this.objects.reconstructDeltas(baseRoot, update.deltas, proposed);
+      for (const object of reconstructed) {
+        if (!await this.objects.contains(update.candidate, object.hash, proposed)) {
+          throw new Error(`Object delta result is not reachable from candidate: ${object.hash}`);
+        }
+        proposed.set(object.hash, object.bytes);
+      }
+      const result = await this.submitCandidateLocked(
+        treeID,
+        baseRoot,
+        update,
+        requestDigest,
+        proposed,
+        reconstructed,
+        account,
+        linkDigest,
+        credentialSubject,
+      );
+      if ("error" in result.result) {
+        result.result.details.completed = completed;
+        result.result.details.failedIndex = index;
+        return { status: result.status, result: result.result };
+      }
+      completed.push(result.result);
+      accepted ||= result.result.outcome !== "current";
+      baseRoot = update.candidate;
+    }
+    return {
+      status: accepted ? 201 : 200,
+      result: { results: completed, observedThrough: this.observedThrough(treeID) },
+    };
+  }
+
+  private async submitCandidateLocked(
+    treeID: string,
+    baseRoot: ObjectHash,
+    request: CandidateUpdate,
+    requestDigest: ObjectHash,
+    proposed: Map<ObjectHash, Uint8Array>,
+    reconstructed: Array<{ hash: ObjectHash; bytes: Uint8Array }>,
+    account: CanopyAccount | null = null,
+    linkDigest?: string,
+    credentialSubject?: string,
+  ): Promise<{ status: number; result: UpdateResult | UpdateConflictResult }> {
     const tree = this.get(treeID);
     if (!tree) throw new Error(`Unknown tree: ${treeID}`);
     if (!this.canWrite(account, treeID, linkDigest)) throw new Error("Write access is not allowed");
-    const baseUpdate = this.update(request.base);
-    if (!baseUpdate || baseUpdate.tree !== treeID) {
-      throw new UpdateProtocolError("base-not-retained", "Base update is not retained for this tree");
-    }
-    const baseRoot = baseUpdate.root;
     const policy = tree.policy.startsWith("account-config-")
       ? this.accountConfigPolicy(tree, request, baseRoot, account, credentialSubject)
       : this.ordinaryPolicy(tree, request, account, linkDigest, credentialSubject);
     const { subject } = policy;
-    const proposed = new Map(request.objects.map(({ hash, bytes }) => [hash, bytes]));
     const replay = this.acceptedRequest(treeID, subject, requestDigest);
     if (replay) {
-      return "error" in replay.result
-        ? replay
-        : { ...replay, result: await this.withReconciliation(replay.result, request.candidate, proposed) };
-    }
-    const reconstructed = await this.objects.reconstructDeltas(baseRoot, request.deltas, proposed);
-    for (const object of reconstructed) {
-      if (!await this.objects.contains(request.candidate, object.hash, proposed)) {
-        throw new Error(`Object delta result is not reachable from candidate: ${object.hash}`);
-      }
+      return { ...replay, result: await this.withReconciliation(replay.result, request.candidate, proposed) };
     }
     await this.validateGraph(request.candidate, proposed);
     await policy.validateCandidate(request.candidate, proposed);
@@ -1017,7 +1071,7 @@ export class CanopyDaemon implements AsyncDisposable {
         return {
           status: 200,
           result: await this.withReconciliation(
-            { outcome: "current", update: remoteUpdate, requestDigest, observedThrough: remoteUpdate.id },
+            { outcome: "current", update: remoteUpdate, requestDigest },
             request.candidate,
             proposed,
           ),
@@ -1041,6 +1095,8 @@ export class CanopyDaemon implements AsyncDisposable {
             tree: treeID,
             details: {
               kind: policy.conflict.kind,
+              completed: [],
+              failedIndex: 0,
               current: remoteUpdate,
               base: baseRoot,
               candidate: request.candidate,
@@ -1078,7 +1134,7 @@ export class CanopyDaemon implements AsyncDisposable {
       return {
         status: 201,
         result: await this.withReconciliation(
-          { outcome: kind === "merged" ? "merged" : "accepted", update: accepted, requestDigest, observedThrough: accepted.id },
+          { outcome: kind === "merged" ? "merged" : "accepted", update: accepted, requestDigest },
           request.candidate,
           proposed,
         ),
@@ -1094,30 +1150,32 @@ export class CanopyDaemon implements AsyncDisposable {
    */
   private async activateFromUpdate(
     treeID: string,
-    request: UpdateRequest,
+    request: CandidateUpdate,
     requestDigest: ObjectHash,
     authentication: CanopyAuthentication | undefined,
-  ): Promise<StoredUpdateResponse> {
+  ): Promise<{ status: number; result: UpdateResult }> {
     if (!authentication) throw new Error("Account authentication is required to activate a tree");
+    const replay = this.acceptedRequest(treeID, authentication.subject, requestDigest);
+    if (replay) return replay;
     const existing = this.get(treeID);
     if (existing) {
       const current = this.currentUpdate(treeID);
       if (existing.ref === request.candidate && current) {
-        return { status: 200, result: { outcome: "current", update: current, requestDigest, observedThrough: current.id } };
+        return { status: 200, result: { outcome: "current", update: current, requestDigest } };
       }
       throw new UpdateProtocolError("activation-conflict", `TreeID is already active with different content: ${treeID}`);
     }
     const snapshot: TreeSnapshot = { root: request.candidate, objects: new Map(request.objects.map(({ hash, bytes }) => [hash, bytes])) };
-    const tree = await this.activateTree(authentication, treeID, snapshot);
+    const tree = await this.activateTree(authentication, treeID, snapshot, requestDigest);
     const update = this.currentUpdate(tree.id);
     if (!update) throw new Error("Activation recorded no accepted update");
-    return { status: 201, result: { outcome: "accepted", update, requestDigest, observedThrough: update.id } };
+    return { status: 201, result: { outcome: "accepted", update, requestDigest } };
   }
 
   /** Ordinary trees: graph and boundary validation, the Wire three-way merge, and community reconciliation. */
   private ordinaryPolicy(
     tree: CanopyTree,
-    request: UpdateRequest,
+    request: CandidateUpdate,
     account: CanopyAccount | null,
     linkDigest: string | undefined,
     credentialSubject: string | undefined,
@@ -1150,7 +1208,7 @@ export class CanopyDaemon implements AsyncDisposable {
    */
   private accountConfigPolicy(
     tree: CanopyTree,
-    request: UpdateRequest,
+    request: CandidateUpdate,
     baseRoot: ObjectHash,
     account: CanopyAccount | null,
     credentialSubject: string | undefined,
@@ -1315,6 +1373,7 @@ export class CanopyDaemon implements AsyncDisposable {
     credentialSubject?: string,
     requestedTreeID?: string,
     accountID?: string,
+    requestDigest?: ObjectHash,
   ): Promise<CanopyTree> {
     const path = normalizeBoundaryPath(canonicalPath);
     await this.validateGraph(snapshot.root, snapshot.objects);
@@ -1351,6 +1410,8 @@ export class CanopyDaemon implements AsyncDisposable {
         kind: "initial",
         acceptedAt: now,
         subject: credentialSubject ?? null,
+        candidateRoot: requestDigest ? snapshot.root : undefined,
+        requestDigest,
       });
       if (publicAccess !== "none") this.access.set(id, "everyone", "everyone", publicAccess);
       withinTransaction?.(id);

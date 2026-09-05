@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "tree": {
     "id": "tr_atlas",
     "kind": "ordinary",
@@ -73,26 +73,34 @@
         "derivedRequestDigest": "sha256:ec69538f559cbde299b86032eb56f2a00d4452e18390f678f4b41f62a24eac4b",
         "body": {
           "base": "1",
-          "candidate": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-          "objects": [],
-          "deltas": [],
-          "ifMatch": "modelHash"
+          "updates": [
+            {
+              "candidate": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+              "objects": [],
+              "deltas": [],
+              "ifMatch": "modelHash"
+            }
+          ]
         }
       },
       "response": {
         "status": 200,
         "body": {
-          "outcome": "current",
-          "requestDigest": "sha256:ec69538f559cbde299b86032eb56f2a00d4452e18390f678f4b41f62a24eac4b",
-          "update": {
-            "id": "1",
-            "tree": "tr_atlas",
-            "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
-            "previousRoot": null,
-            "kind": "initial",
-            "acceptedAt": 1787529600000,
-            "subject": null
-          },
+          "results": [
+            {
+              "outcome": "current",
+              "requestDigest": "sha256:ec69538f559cbde299b86032eb56f2a00d4452e18390f678f4b41f62a24eac4b",
+              "update": {
+                "id": "1",
+                "tree": "tr_atlas",
+                "root": "sha256:ad0ae5bc2c1dfbe49d31b4cc5f9f1191688e7bfa66a268adcc39f27856a3cd0b",
+                "previousRoot": null,
+                "kind": "initial",
+                "acceptedAt": 1787529600000,
+                "subject": null
+              }
+            }
+          ],
           "observedThrough": "1"
         }
       }
@@ -108,31 +116,39 @@
         "derivedRequestDigest": "sha256:f0b56eaecb1a942d7faeb4814f69bbcda854f7b4cd07da33d661819a784a4ecb",
         "body": {
           "base": null,
-          "candidate": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
-          "objects": [
+          "updates": [
             {
-              "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
-              "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA=="
+              "candidate": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+              "objects": [
+                {
+                  "hash": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+                  "bytes": "omR0eXBlaWRpcmVjdG9yeWdlbnRyaWVzgA=="
+                }
+              ],
+              "deltas": [],
+              "ifMatch": "bytesHash"
             }
-          ],
-          "deltas": [],
-          "ifMatch": "bytesHash"
+          ]
         }
       },
       "response": {
         "status": 201,
         "body": {
-          "outcome": "accepted",
-          "requestDigest": "sha256:f0b56eaecb1a942d7faeb4814f69bbcda854f7b4cd07da33d661819a784a4ecb",
-          "update": {
-            "id": "3",
-            "tree": "tr_new",
-            "root": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
-            "previousRoot": null,
-            "kind": "initial",
-            "acceptedAt": 1787529700000,
-            "subject": "device:dv_aaaaaaaaaaaaaaaaaaaaaaaaaa"
-          },
+          "results": [
+            {
+              "outcome": "accepted",
+              "requestDigest": "sha256:f0b56eaecb1a942d7faeb4814f69bbcda854f7b4cd07da33d661819a784a4ecb",
+              "update": {
+                "id": "3",
+                "tree": "tr_new",
+                "root": "sha256:c6394541f68012cf0509fe4fb029fdb70281f0ab9764b9f15252140b1090dc9f",
+                "previousRoot": null,
+                "kind": "initial",
+                "acceptedAt": 1787529700000,
+                "subject": "device:dv_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            }
+          ],
           "observedThrough": "3"
         }
       }

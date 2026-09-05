@@ -409,34 +409,108 @@ successful responses can be cached and reused after verification.
 POST /.arbor/trees/{TreeID}/updates
 ```
 
-The client submits one candidate against an accepted base it observed and says
-which equality level must still match for that candidate to be accepted:
+The client submits a nonempty, ordered string of candidate updates against the
+last accepted watchpoint it has confirmed:
 
 ```ts
-type UpdateRequest = TransitionPayload & {
+type UpdateRequest = {
   base: string | null;
+  updates: CandidateUpdate[];
+};
+
+type CandidateUpdate = TransitionPayload & {
   candidate: Hash;
   ifMatch: "bytesHash" | "modelHash";
   onConflict?: "reject" | "merge";
 };
 ```
 
-An update proposes a transition from the accepted base to the candidate root;
-the authority accepts it, or merges and answers with the transition from the
-candidate to what it accepted; watch ([§1.1.3](#113-watching))
-delivers every accepted transition in order. One payload shape serves all
-three.
+`base` is the id of the accepted update and `tree.update` watchpoint from which
+the string begins, or `null` when its first element activates a reserved tree.
+Each element proposes one distinct accepted-history boundary. The first is
+authored on the root at `base`; every later element is authored on the preceding
+element's submitted `candidate`, whether or not that candidate has received an
+authority response.
 
-`base` is the id of the accepted update the candidate was derived
-from. `candidate` names the exact Wire root encoding the desired complete candidate tree state.
-The authority decodes and validates its modeled state and all
-projection-specific fidelity required by that encoding. `objects` supplies
-canonical CBOR objects the server does not already retain; a client normally
-walks base and candidate together and omits unchanged objects. The candidate
-must still be complete and provable from retained base objects, supplied
-objects, and valid `deltas`. The
+A client may submit progressively longer strings without waiting for an
+earlier POST or the watch stream. For example, these requests may be in flight
+at the same time:
+
+```json
+{
+  "base": "248",
+  "updates": [
+    {
+      "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "ifMatch": "modelHash",
+      "objects": [],
+      "deltas": []
+    }
+  ]
+}
+```
+
+```json
+{
+  "base": "248",
+  "updates": [
+    {
+      "candidate": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "ifMatch": "modelHash",
+      "objects": [],
+      "deltas": []
+    },
+    {
+      "candidate": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "ifMatch": "modelHash",
+      "objects": [],
+      "deltas": []
+    }
+  ]
+}
+```
+
+Within one client epoch, every later request must preserve the exact semantic
+earlier elements and only append. The transport representation of an element's
+objects and deltas may change without changing its identity. A client must not
+rewrite an element's candidate or matching policy, or fork two different
+successors from one prefix. It starts a new epoch only after the previous
+speculative string has been completely acknowledged and its resulting accepted
+transition has been durably applied, using that watchpoint as the new `base`.
+
+The authority derives a credential-scoped request digest for each element. For
+the first element the digest basis is the accepted update id in `base`. For
+each later element it is `{ requestDigest, candidate }` from the preceding
+element. Consequently every digest commits to the complete prefix, and the
+same prefix has the same identities in every longer request.
+
+The authority serializes update strings per tree. Before processing new work,
+it finds the longest supplied prefix already represented by successful
+credential-scoped request digests in accepted history and trims that prefix.
+If the longer request arrives first it may apply every element; if a shorter
+request arrives first the longer request resumes after it; an old shorter
+request arriving last changes nothing. A previously returned `current` element
+need not have its own durable resolution record: a later accepted element
+proves its prefix was processed, while an otherwise unresolved `current`
+element may be evaluated again without creating accepted history.
+
+For each untrimmed element, the logical base root is the preceding submitted
+candidate, not the preceding accepted or merged root. Thus, if `B` to `C1` is
+merged into `M1`, the next element is reconciled as `(base: C1, candidate: C2,
+current: M1)`. Only the incremental `C1` to `C2` change is applied to the
+merged state. Each successful state-changing element is committed and emitted
+on watch separately. A conflict stops the string at that element; its
+successful prefix remains accepted and later elements are not attempted.
+
+Each `candidate` names the exact Wire root encoding the desired complete tree
+state. The authority decodes and validates its modeled state and all
+projection-specific fidelity required by that encoding. Each element may omit
+objects available from the preceding graph, but the complete request must be
+self-contained from its retained accepted `base` plus its `objects` and valid
+`deltas`. The authority may reconstruct an already-applied prefix from the
+repeated request instead of retaining its submitted candidate graph. The
 [delta rules](#25-sparse-transfer-with-object-deltas) define interchangeable
-transfer representations; they do not change the candidate's identity.
+transfer representations; they do not change a candidate's identity.
 
 ### 2.2 What the write matches
 
@@ -476,22 +550,22 @@ for the update setting.
 
 ### 2.3 Accepting and merging
 
-After reconstructing and validating the candidate graph, the server makes one
-of these decisions:
+For each untrimmed element, after reconstructing and validating its candidate
+graph, the server makes one of these decisions:
 
-1. If the candidate already equals current, return `200 current` and create no
+1. If the candidate already equals current, return `current` and create no
    accepted update.
 2. If the candidate equals the base while current has advanced, return the
    current accepted update and create no new update.
 3. If current equals the base, atomically accept the candidate and return
-   `201 accepted`.
+   `accepted`.
 4. Otherwise, if `ifMatch` is `modelHash` and every touched node still
    matches, or every conflicting
    node is resolved by a merge rule under `onConflict: "merge"`, merge: the
    result is current with the candidate's bytes for its touched nodes and the
    rule's output for any resolved node. Atomically accept it and return
-   `201 merged`.
-5. Otherwise return `409 conflict` with the current update, structured reasons
+   `merged`.
+5. Otherwise stop and return `409 conflict` with the current update, structured reasons
    naming each conflicting node, and the `draft` transition the client keeps.
    Accepted state does not advance and the rejected candidate does not become
    history.
@@ -504,23 +578,32 @@ tree. A node with no merge rule, or one the rule cannot combine, is a conflict.
 
 ### 2.4 Results, conflicts, and retry
 
-A successful response is:
+A successful response is always plural and contains one result for every
+element, including any element trimmed as an exact replay:
 
 ```ts
+type UpdateResponse = {
+  results: UpdateResult[];
+  observedThrough: EventCursor;
+};
+
 type UpdateResult = {
   outcome: "current" | "accepted" | "merged";
   update: AcceptedUpdate;
   requestDigest: Hash;
-  observedThrough: EventCursor;
   reconciliation?: TransitionPayload;
 };
 ```
 
-`update` is the accepted update that stands after the decision: the untouched
-current one for `current`, or the newly accepted or merged one. `merge` is
-present only when a merge rule ran; a merge of disjoint nodes carries none. An
-accepted update's `id` is the decimal ordinal of the `tree.update` event that
-recorded it, so it is also that event's cursor and `observedThrough`.
+`results` is nonempty and preserves request order. The response status is `201`
+if at least one result is `accepted` or `merged`, including an exact replay of
+such a result, and otherwise `200`. `observedThrough` is the authority's
+observation boundary after the whole string was processed. `update` is the
+accepted update that stands after the decision: the untouched current one for
+`current`, or the newly accepted or merged one. `merge` is present only when a
+merge rule ran; a merge of disjoint nodes carries none. An accepted update's
+`id` is the decimal ordinal of the `tree.update` event that recorded it, so it
+is also that event's cursor and `observedThrough`.
 `reconciliation` is present exactly when the accepted root differs from the
 submitted candidate: it is the transition from the candidate root to
 `update.root` under the [deltas](#25-sparse-transfer-with-object-deltas) rules, so
@@ -528,20 +611,27 @@ a superseded, merged, or replayed result is applied with the same code that
 applies a watch frame. An accepted candidate returns none.
 
 A conflict uses the shared `ArborError` envelope with
-`details.kind: "server-update" | "account-configuration"`. Its details include the current `AcceptedUpdate`, the base and candidate
-roots, structured conflict reasons naming each conflicting node, and `draft`,
-the transition from the candidate root to the draft root the client keeps.
+`details.kind: "server-update" | "account-configuration"`. Its details include
+`completed`, the ordered successful prefix results; `failedIndex`; the current
+`AcceptedUpdate`; the logical base and candidate roots; structured conflict
+reasons naming each conflicting node; and `draft`, the transition from the
+candidate root to the draft root the client keeps.
 
 Semantic request identity is the SHA-256 of the
 [canonical CBOR encoding](#41-cbor-and-hashes)
-of `{ version: "updates-v1", tree, base, candidate, ifMatch, onConflict }`,
-with `onConflict` as its effective value, scoped to the
-authenticated credential. `objects`, `deltas`, and their ordering are
+of `{ version: "updates-v1", tree, base, candidate, ifMatch, onConflict }`, with
+`onConflict` as its effective value, scoped to the authenticated credential.
+For the first element, `base` is the request's accepted update id or `null`.
+For each later element, `base` is
+`{ requestDigest: previousDigest, candidate: previousCandidate }`. This latter
+object is part of semantic identity but is implicit in the ordered JSON request.
+`objects`, `deltas`, and their ordering are
 transport choices and are excluded. An ambiguous retry may therefore replace a
 delta with complete bytes without changing identity. Exact accepted or merged
-replay returns the original result and creates no duplicate accepted update.
-Clients durably retain the base, candidate, required content, and any conflict
-draft until the result has been applied.
+elements replay their original results and create no duplicate accepted update.
+A `current` element may be evaluated again. Clients durably retain their epoch
+base, ordered elements, required content, and any conflict draft until the
+corresponding prefix has been applied.
 
 A conflict and every other error use the shared envelope:
 
@@ -590,8 +680,9 @@ unchanged payload ranges at their base offsets. Any instruction sequence that
 reconstructs the exact result is valid; the diff algorithm is the sender's
 choice and never part of identity.
 
-The base must be reachable in the relevant basis graph: the retained accepted
-base for a submission, or the previous accepted root for a transition. The
+The base must be reachable in the relevant basis graph: the request's retained
+accepted watchpoint for its first element, the preceding candidate graph for a
+later element, or the previous accepted root for a watch transition. The
 receiver hash-verifies that base, applies the instructions, requires the
 reconstructed bytes to hash to `result`, and decodes them as a valid canonical
 object. It then treats the result exactly like a complete object. A result
@@ -614,25 +705,36 @@ out-of-bounds copies, arithmetic overflow, and quota excess are invalid.
 
 This non-normative example shows how the preceding operations compose:
 
-1. The client makes an editor change durable locally and records its accepted
-   `{ root, update }` base.
-2. It builds the complete candidate graph, omitting unchanged objects and using
-   an `ObjectDelta` when that is smaller than the complete changed object.
-3. It submits the candidate against its accepted base update id. The
-   authority validates it, performs any merge, and atomically records at most
-   one accepted update.
-4. The response and the corresponding `tree.update` event may arrive in either
+1. The client records a confirmed `{ root, update }` watchpoint plus an ordered
+   speculative string of locally durable authored generations.
+2. It builds a complete candidate graph for every generation, omitting
+   unchanged objects and using an `ObjectDelta` when that is smaller than the
+   complete changed object. Every POST uses the epoch's confirmed update id as
+   `base` and repeats the complete speculative string accumulated so far.
+3. Once each generation is durable, the client may immediately submit the
+   longer string without waiting for an earlier POST or watch event. The
+   authority trims its accepted prefix, validates each remaining element,
+   performs any merge, and atomically records at most one accepted update per
+   element.
+4. The responses and corresponding `tree.update` events may arrive in either
    order. The submitting client handles them idempotently; a matching private
-   `requestDigest` is a causal acknowledgement of the frozen semantic intent.
+   per-element `requestDigest` is a causal acknowledgement of one frozen
+   generation and advances the confirmed prefix when all earlier generations
+   are also known.
 5. A clean replica applies a contiguous transition batch in memory and durably
    materializes only its final state. A replica with local changes submits its
    own candidate. Missing history or any failed check falls back to a coherent
    snapshot.
 
-The client clears its durable attempt only after applying the accepted or
-merged graph and advancing its local base. The event acknowledges candidate
-intent, not the submitted delta bytes: a merge may produce a different accepted
-representation. Rejected conflicts never appear on watch.
+The client removes generations only from the acknowledged front of its durable
+string. Once the string is empty, it starts a new epoch at the newest watchpoint
+it has durably applied. An older in-flight POST is harmless because it contains
+only already-acknowledged element identities. A watch event acknowledges
+candidate intent, not submitted delta bytes: a merge may produce a different
+accepted representation. If an element is rejected, later elements were
+authored on an unaccepted graph; the client keeps that suffix for explicit
+conflict handling or rebuilds it from the returned draft. Rejected conflicts
+never appear on watch.
 
 ## 4. Encoding details
 

@@ -501,49 +501,31 @@ public struct WireAcceptedTransition: Codable, Sendable, Equatable {
     }
 }
 
-public struct WireUpdateRequest: Codable, Sendable, Equatable {
-    /// The accepted update id the candidate derives from; nil activates a reserved tree.
-    public var base: String?
+public struct WireCandidateUpdate: Codable, Sendable, Equatable {
     public var candidate: String
-    /// Which hash must still match its value at base: "bytesHash" or "modelHash".
     public var ifMatch: String
-    /// Under modelHash, what to do with a node changed in both places; nil means merge.
     public var onConflict: String?
     public var objects: [WireObjectEnvelope]
     public var deltas: [WireObjectDelta]
 
     public init(
-        base: String?,
         candidate: String,
-        ifMatch: String? = nil,
+        ifMatch: String = "modelHash",
         onConflict: String? = nil,
         objects: [WireObjectEnvelope],
         deltas: [WireObjectDelta] = []
     ) {
-        self.base = base
         self.candidate = candidate
-        self.ifMatch = ifMatch ?? (base == nil ? "bytesHash" : "modelHash")
+        self.ifMatch = ifMatch
         self.onConflict = onConflict
         self.objects = objects
         self.deltas = deltas
     }
 
-    public init(
-        base: WireUpdateBase,
-        candidate: String,
-        ifMatch: String? = nil,
-        onConflict: String? = nil,
-        objects: [WireObjectEnvelope],
-        deltas: [WireObjectDelta] = []
-    ) {
-        self.init(base: base.update, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict, objects: objects, deltas: deltas)
-    }
-
-    private enum CodingKeys: String, CodingKey { case base, candidate, ifMatch, onConflict, objects, deltas }
+    private enum CodingKeys: String, CodingKey { case candidate, ifMatch, onConflict, objects, deltas }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        base = try values.decodeIfPresent(String.self, forKey: .base)
         candidate = try values.decode(String.self, forKey: .candidate)
         ifMatch = try values.decode(String.self, forKey: .ifMatch)
         onConflict = try values.decodeIfPresent(String.self, forKey: .onConflict)
@@ -556,14 +538,8 @@ public struct WireUpdateRequest: Codable, Sendable, Equatable {
         if ifMatch == "bytesHash", onConflict == "merge" {
             throw ArborWireValidationError.invalidValue("A bytesHash match cannot merge")
         }
-        if base == nil, ifMatch != "bytesHash" {
-            throw ArborWireValidationError.invalidValue("Activation matches on bytesHash")
-        }
         objects = try values.decode([WireObjectEnvelope].self, forKey: .objects)
         deltas = try values.decode([WireObjectDelta].self, forKey: .deltas)
-        if base == nil, !deltas.isEmpty {
-            throw ArborWireValidationError.invalidValue("Activation has no base to apply deltas against")
-        }
         let instructionCount = deltas.reduce(0) { $0 + $1.instructions.count }
         let insertedBytes = deltas.reduce(0) { partial, delta in
             partial + delta.instructions.reduce(0) { total, instruction in
@@ -584,27 +560,92 @@ public struct WireUpdateRequest: Codable, Sendable, Equatable {
         }
     }
 
+}
+
+public struct WireUpdateRequest: Codable, Sendable, Equatable {
+    /// The accepted watchpoint from which this append-only string begins; nil activates a reserved tree.
+    public var base: String?
+    public var updates: [WireCandidateUpdate]
+
+    public init(base: String?, updates: [WireCandidateUpdate]) {
+        self.base = base
+        self.updates = updates
+    }
+
+    public init(
+        base: String?,
+        candidate: String,
+        ifMatch: String? = nil,
+        onConflict: String? = nil,
+        objects: [WireObjectEnvelope],
+        deltas: [WireObjectDelta] = []
+    ) {
+        self.init(base: base, updates: [WireCandidateUpdate(
+            candidate: candidate,
+            ifMatch: ifMatch ?? (base == nil ? "bytesHash" : "modelHash"),
+            onConflict: onConflict,
+            objects: objects,
+            deltas: deltas
+        )])
+    }
+
+    public init(
+        base: WireUpdateBase,
+        candidate: String,
+        ifMatch: String? = nil,
+        onConflict: String? = nil,
+        objects: [WireObjectEnvelope],
+        deltas: [WireObjectDelta] = []
+    ) {
+        self.init(base: base.update, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict, objects: objects, deltas: deltas)
+    }
+
+    public var candidate: String { updates[0].candidate }
+    public var ifMatch: String { updates[0].ifMatch }
+    public var onConflict: String? { updates[0].onConflict }
+    public var objects: [WireObjectEnvelope] { updates[0].objects }
+    public var deltas: [WireObjectDelta] { updates[0].deltas }
+
+    private enum CodingKeys: String, CodingKey { case base, updates }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        base = try values.decodeIfPresent(String.self, forKey: .base)
+        updates = try values.decode([WireCandidateUpdate].self, forKey: .updates)
+        guard !updates.isEmpty else { throw ArborWireValidationError.invalidValue("Update requires a nonempty updates array") }
+        if base == nil {
+            guard updates[0].ifMatch == "bytesHash" else {
+                throw ArborWireValidationError.invalidValue("Activation matches on bytesHash")
+            }
+            guard updates[0].deltas.isEmpty else {
+                throw ArborWireValidationError.invalidValue("Activation has no base to apply deltas against")
+            }
+        }
+    }
+
     /// A nil base is written as an explicit JSON null: activation is a request, not an omission.
     public func encode(to encoder: Encoder) throws {
+        guard !updates.isEmpty else { throw ArborWireValidationError.invalidValue("Update requires a nonempty updates array") }
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(base, forKey: .base)
-        try values.encode(candidate, forKey: .candidate)
-        try values.encode(ifMatch, forKey: .ifMatch)
-        try values.encodeIfPresent(onConflict, forKey: .onConflict)
-        try values.encode(objects, forKey: .objects)
-        try values.encode(deltas, forKey: .deltas)
+        try values.encode(updates, forKey: .updates)
     }
 }
 
 public struct PreparedWireUpdate: Sendable, Equatable {
     public var tree: String
     public var body: Data
-    public var requestDigest: String
+    public var requestDigests: [String]
+    public var requestDigest: String { requestDigests[0] }
 
     public init(tree: String, body: Data, requestDigest: String) {
+        self.init(tree: tree, body: body, requestDigests: [requestDigest])
+    }
+
+    public init(tree: String, body: Data, requestDigests: [String]) {
         self.tree = tree
         self.body = body
-        self.requestDigest = requestDigest
+        self.requestDigests = requestDigests
     }
 }
 
@@ -693,11 +734,51 @@ public struct WireConflictDraft: Codable, Sendable, Equatable {
 
 public struct WireConflictDetails: Codable, Sendable, Equatable {
     public var kind: String
+    public var completed: [WireUpdateElementResult]
+    public var failedIndex: Int
     public var current: WireAcceptedUpdate
     public var base: String
     public var candidate: String
     public var draft: WireConflictDraft
     public var conflicts: [WireConflictReason]
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, completed, failedIndex, current, base, candidate, draft, conflicts
+    }
+
+    public init(
+        kind: String,
+        completed: [WireUpdateElementResult],
+        failedIndex: Int,
+        current: WireAcceptedUpdate,
+        base: String,
+        candidate: String,
+        draft: WireConflictDraft,
+        conflicts: [WireConflictReason]
+    ) {
+        self.kind = kind
+        self.completed = completed
+        self.failedIndex = failedIndex
+        self.current = current
+        self.base = base
+        self.candidate = candidate
+        self.draft = draft
+        self.conflicts = conflicts
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try values.decode(String.self, forKey: .kind)
+        // Temporary mixed-version compatibility for locally persisted
+        // single-update conflicts. New encoders always write both fields.
+        completed = try values.decodeIfPresent([WireUpdateElementResult].self, forKey: .completed) ?? []
+        failedIndex = try values.decodeIfPresent(Int.self, forKey: .failedIndex) ?? 0
+        current = try values.decode(WireAcceptedUpdate.self, forKey: .current)
+        base = try values.decode(String.self, forKey: .base)
+        candidate = try values.decode(String.self, forKey: .candidate)
+        draft = try values.decode(WireConflictDraft.self, forKey: .draft)
+        conflicts = try values.decode([WireConflictReason].self, forKey: .conflicts)
+    }
 }
 
 public struct WireUpdateConflict: Codable, Sendable, Equatable {
@@ -719,6 +800,8 @@ public struct WireUpdateConflict: Codable, Sendable, Equatable {
         retryable: Bool = false,
         tree: String? = nil,
         kind: String = "server-update",
+        completed: [WireUpdateElementResult] = [],
+        failedIndex: Int = 0,
         current: WireAcceptedUpdate,
         base: String,
         candidate: String,
@@ -731,6 +814,8 @@ public struct WireUpdateConflict: Codable, Sendable, Equatable {
         self.tree = tree
         self.details = WireConflictDetails(
             kind: kind,
+            completed: completed,
+            failedIndex: failedIndex,
             current: current,
             base: base,
             candidate: candidate,
@@ -749,6 +834,9 @@ public struct WireUpdateConflict: Codable, Sendable, Equatable {
         try validateObjectHash(details.candidate)
         try validateObjectHash(details.draft.root)
         _ = try details.draft.payload.validated()
+        guard details.failedIndex == details.completed.count else {
+            throw ArborWireValidationError.invalidValue("Conflict prefix does not match its failed index")
+        }
         guard details.conflicts.allSatisfy({ $0.path.hasPrefix("/") && !$0.reason.isEmpty }) else {
             throw ArborWireValidationError.invalidValue("Malformed conflict reason")
         }
@@ -762,20 +850,18 @@ public enum WireUpdateResult: Sendable, Equatable {
     case merged(WireAcceptedUpdate, WireMergeSummary)
 }
 
-public struct WireUpdateResponse: Sendable, Equatable, Decodable {
+public struct WireUpdateElementResult: Sendable, Equatable, Codable {
     public var result: WireUpdateResult
     public var requestDigest: String
     /// The transition from the candidate root to the accepted root, present whenever they differ.
     public var reconciliation: WireTransitionPayload?
-    public var observedThrough: String
 
-    private enum CodingKeys: String, CodingKey { case requestDigest, reconciliation, observedThrough }
+    private enum CodingKeys: String, CodingKey { case requestDigest, reconciliation }
 
-    public init(result: WireUpdateResult, requestDigest: String, reconciliation: WireTransitionPayload? = nil, observedThrough: String) {
+    public init(result: WireUpdateResult, requestDigest: String, reconciliation: WireTransitionPayload? = nil) {
         self.result = result
         self.requestDigest = requestDigest
         self.reconciliation = reconciliation
-        self.observedThrough = observedThrough
     }
 
     public init(from decoder: Decoder) throws {
@@ -783,13 +869,47 @@ public struct WireUpdateResponse: Sendable, Equatable, Decodable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         requestDigest = try values.decode(String.self, forKey: .requestDigest)
         try validateObjectHash(requestDigest)
-        observedThrough = try values.decode(String.self, forKey: .observedThrough)
-        guard !observedThrough.isEmpty else { throw ArborWireValidationError.invalidValue("Missing observation boundary") }
         reconciliation = try values.decodeIfPresent(WireTransitionPayload.self, forKey: .reconciliation)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try result.encode(to: encoder)
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(requestDigest, forKey: .requestDigest)
+        try values.encodeIfPresent(reconciliation, forKey: .reconciliation)
     }
 }
 
-extension WireUpdateResult: Decodable {
+public struct WireUpdateResponse: Sendable, Equatable, Decodable {
+    public var results: [WireUpdateElementResult]
+    public var observedThrough: String
+
+    public var result: WireUpdateResult { results[0].result }
+    public var requestDigest: String { results[0].requestDigest }
+    public var reconciliation: WireTransitionPayload? { results[0].reconciliation }
+
+    public init(result: WireUpdateResult, requestDigest: String, reconciliation: WireTransitionPayload? = nil, observedThrough: String) {
+        self.results = [WireUpdateElementResult(result: result, requestDigest: requestDigest, reconciliation: reconciliation)]
+        self.observedThrough = observedThrough
+    }
+
+    public init(results: [WireUpdateElementResult], observedThrough: String) {
+        self.results = results
+        self.observedThrough = observedThrough
+    }
+
+    private enum CodingKeys: String, CodingKey { case results, observedThrough }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        results = try values.decode([WireUpdateElementResult].self, forKey: .results)
+        guard !results.isEmpty else { throw ArborWireValidationError.invalidValue("Update response has no results") }
+        observedThrough = try values.decode(String.self, forKey: .observedThrough)
+        guard !observedThrough.isEmpty else { throw ArborWireValidationError.invalidValue("Missing observation boundary") }
+    }
+}
+
+extension WireUpdateResult: Codable {
     private enum CodingKeys: String, CodingKey { case outcome, update }
 
     public init(from decoder: Decoder) throws {
@@ -805,6 +925,21 @@ extension WireUpdateResult: Decodable {
             self = .merged(update, merge)
         default:
             throw DecodingError.dataCorruptedError(forKey: .outcome, in: values, debugDescription: "Unknown server update outcome")
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .current(update):
+            try values.encode("current", forKey: .outcome)
+            try values.encode(update, forKey: .update)
+        case let .accepted(update):
+            try values.encode("accepted", forKey: .outcome)
+            try values.encode(update, forKey: .update)
+        case let .merged(update, _):
+            try values.encode("merged", forKey: .outcome)
+            try values.encode(update, forKey: .update)
         }
     }
 }

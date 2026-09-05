@@ -89,14 +89,19 @@ export interface AcceptedTransition extends TransitionPayload {
   requestDigest?: ObjectHash;
 }
 
-export interface UpdateRequest extends TransitionPayload {
-  /** The accepted update the candidate was derived from, or null to activate a reserved tree. */
-  base: string | null;
+export interface CandidateUpdate extends TransitionPayload {
   candidate: ObjectHash;
   /** Which hash must still match its value at base for the candidate to be accepted. */
   ifMatch: IfMatch;
   /** Under `modelHash`, what to do with a node changed in both places; defaults to `merge`. */
   onConflict?: OnConflict;
+}
+
+export interface UpdateRequest {
+  /** The accepted update from which this append-only string begins, or null to activate a reserved tree. */
+  base: string | null;
+  /** A nonempty ordered string; every later candidate derives from the preceding submitted candidate. */
+  updates: CandidateUpdate[];
 }
 
 /**
@@ -110,8 +115,12 @@ export interface UpdateResult {
   outcome: "current" | "accepted" | "merged";
   update: AcceptedUpdate;
   requestDigest: ObjectHash;
-  observedThrough: string;
   reconciliation?: TransitionPayload;
+}
+
+export interface UpdateResponse {
+  results: UpdateResult[];
+  observedThrough: string;
 }
 
 export interface UpdateConflictResult {
@@ -121,6 +130,8 @@ export interface UpdateConflictResult {
   tree?: string;
   details: {
     kind: "server-update" | "account-configuration";
+    completed: UpdateResult[];
+    failedIndex: number;
     current: AcceptedUpdate;
     base: ObjectHash;
     candidate: ObjectHash;

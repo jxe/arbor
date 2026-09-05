@@ -198,6 +198,18 @@ struct UpdateProtocolTests {
         let onConflict = identity["onConflict"] as? String
         #expect(canonicalUpdateIntent(tree: tree, base: value, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict).base64EncodedString() == identity["canonicalCBORBase64"] as? String)
         #expect(updateRequestDigest(tree: tree, base: value, candidate: candidate, ifMatch: ifMatch, onConflict: onConflict) == identity["digest"] as? String)
+        let later = try #require(fixture["laterElement"] as? [String: Any])
+        let second = WireCandidateUpdate(
+            candidate: later["candidate"] as! String,
+            ifMatch: later["ifMatch"] as! String,
+            onConflict: later["onConflict"] as? String,
+            objects: []
+        )
+        #expect(updateRequestDigests(
+            tree: tree,
+            base: value,
+            updates: [WireCandidateUpdate(candidate: candidate, ifMatch: ifMatch, onConflict: onConflict, objects: []), second]
+        ).last == later["digest"] as? String)
     }
 
     @Test("Swift encodes and rejects the shared canonical CBOR value vectors")
@@ -260,17 +272,21 @@ struct UpdateProtocolTests {
         let encoded = try JSONEncoder().encode(request)
         let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         #expect(json["base"] as? String == "up_base")
-        #expect((json["deltas"] as? [[String: Any]])?.count == 1)
+        let updates = try #require(json["updates"] as? [[String: Any]])
+        #expect((updates[0]["deltas"] as? [[String: Any]])?.count == 1)
         let activation = try JSONEncoder().encode(WireUpdateRequest(base: nil, candidate: request.candidate, objects: []))
         let activationJSON = try #require(JSONSerialization.jsonObject(with: activation) as? [String: Any])
         #expect(activationJSON["base"] is NSNull)
-        #expect((activationJSON["deltas"] as? [Any])?.isEmpty == true)
+        let activationUpdates = try #require(activationJSON["updates"] as? [[String: Any]])
+        #expect((activationUpdates[0]["deltas"] as? [Any])?.isEmpty == true)
 
         let missingDeltas = try JSONSerialization.data(withJSONObject: [
             "base": base.update,
-            "candidate": request.candidate,
-            "ifMatch": "modelHash",
-            "objects": [],
+            "updates": [[
+                "candidate": request.candidate,
+                "ifMatch": "modelHash",
+                "objects": [],
+            ]],
         ])
         #expect(throws: (any Error).self) {
             _ = try JSONDecoder().decode(WireUpdateRequest.self, from: missingDeltas)
@@ -281,9 +297,12 @@ struct UpdateProtocolTests {
             let deltas = try #require(vector["deltas"] as? [[String: Any]])
             let body: [String: Any] = [
                 "base": base.update,
-                "candidate": "sha256:" + String(repeating: "1", count: 64),
-                "objects": [],
-                "deltas": deltas,
+                "updates": [[
+                    "candidate": "sha256:" + String(repeating: "1", count: 64),
+                    "ifMatch": "modelHash",
+                    "objects": [],
+                    "deltas": deltas,
+                ]],
             ]
             let bodyData = try JSONSerialization.data(withJSONObject: body)
             #expect(throws: (any Error).self, "\(vector["name"] ?? "")") {
@@ -296,13 +315,13 @@ struct UpdateProtocolTests {
     func endpointResult() throws {
         let data = try Data(contentsOf: fixtures.appending(path: "wire-endpoints.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(fixture["version"] as? Int == 7)
+        #expect(fixture["version"] as? Int == 8)
         let cases = try #require(fixture["cases"] as? [[String: Any]])
         let submit = try #require(cases.first { $0["name"] as? String == "submit-current-update" })
         let response = try #require(submit["response"] as? [String: Any])
         let body = try JSONSerialization.data(withJSONObject: try #require(response["body"] as? [String: Any]))
-        let result = try JSONDecoder().decode(WireUpdateResult.self, from: body)
-        guard case let .current(update) = result else { Issue.record("Expected current result"); return }
+        let responseValue = try JSONDecoder().decode(WireUpdateResponse.self, from: body)
+        guard case let .current(update) = responseValue.result else { Issue.record("Expected current result"); return }
         #expect(update.id == "1")
         let snapshotCase = try #require(cases.first { $0["name"] as? String == "read-accepted-snapshot" })
         let request = try #require(snapshotCase["request"] as? [String: Any])
@@ -414,7 +433,7 @@ struct UpdateProtocolTests {
             candidate: root.hash
         )
         let response = Data("""
-        {"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"},"observedThrough":"up_retry"}
+        {"results":[{"outcome":"accepted","requestDigest":"\(requestDigest)","update":{"id":"up_retry","tree":"tr_retry","root":"\(root.hash)","previousRoot":"\(baseHash)","kind":"accepted","acceptedAt":1787529600000,"subject":"dv_retry"}}],"observedThrough":"up_retry"}
         """.utf8)
         await WireURLProtocolStub.state.install { _, attempt in
             attempt == 1
@@ -449,7 +468,7 @@ struct UpdateProtocolTests {
             "{\"hash\":\"\($0.hash)\",\"bytes\":\"\($0.bytes.base64EncodedString())\"}"
         }.joined(separator: ",")
         let response = Data("""
-        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previousRoot":"\(base)","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)],"deltas":[]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
+        {"error":"conflict","message":"The candidate could not be merged safely","retryable":false,"tree":"tr_atlas","details":{"kind":"server-update","completed":[],"failedIndex":0,"current":{"id":"up_remote","tree":"tr_atlas","root":"\(remote)","previousRoot":"\(base)","kind":"accepted","acceptedAt":1787529600001,"subject":"dev_remote"},"base":"\(base)","candidate":"\(local.root)","draft":{"root":"\(draft.root)","objects":[\(draftObjects)],"deltas":[]},"conflicts":[{"path":"/photo.bin","reason":"binary-conflict"}]}}
         """.utf8)
         await WireURLProtocolStub.state.install { _, _ in (409, response) }
         let client = ArborWireClient(

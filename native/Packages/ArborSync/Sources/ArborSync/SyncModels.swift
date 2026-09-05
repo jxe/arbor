@@ -60,7 +60,11 @@ struct DurableSyncAttempt: Codable, Equatable, Sendable {
     var candidate: String
     var generation: Int
     var body: Data
+    /// All per-element digests in prefix order. Nil decodes a pre-plural durable one-element attempt.
+    var requestDigests: [String]?
     var digest: String
+
+    var allRequestDigests: [String] { requestDigests ?? [digest] }
 }
 
 struct DurableSyncConflict: Codable, Equatable, Sendable {

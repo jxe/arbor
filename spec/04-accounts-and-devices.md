@@ -324,7 +324,7 @@ initial snapshot:
 
 ```text
 POST /.arbor/trees/{TreeID}/updates
-{ "base": null, "candidate": <root>, "ifMatch": "bytesHash", "objects": [...] }
+{ "base": null, "updates": [{ "candidate": <root>, "ifMatch": "bytesHash", "objects": [...], "deltas": [] }] }
 ```
 
 Activation is an ordinary update whose base is `null` and whose `ifMatch` is

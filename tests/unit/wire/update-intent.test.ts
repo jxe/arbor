@@ -7,6 +7,7 @@ import {
   decodeObjectEnvelopes,
   decodeUpdateRequestJSON,
   updateRequestDigest,
+  updateRequestDigests,
   type ObjectHash,
 } from "@arbor/wire";
 
@@ -20,6 +21,15 @@ interface IntentFixtures {
     onConflict?: "reject" | "merge";
     canonicalCBORBase64: string;
     digest: string;
+  };
+  laterElement: {
+    tree: string;
+    base: { requestDigest: ObjectHash; candidate: ObjectHash };
+    candidate: ObjectHash;
+    ifMatch: "modelHash";
+    onConflict: "merge";
+    canonicalCBORBase64: string;
+    digest: ObjectHash;
   };
   replayCases: Array<{
     name: string;
@@ -82,20 +92,20 @@ describe("updates-v1 JSON identity", () => {
     expect(() => decodeObjectEnvelopes([{ hash, bytes: "YQ" }])).toThrow("padded base64");
     expect(() => decodeUpdateRequestJSON({
       base: { root: fixtures.identity.candidate, update: fixtures.identity.base },
-      candidate: fixtures.identity.candidate,
-      ifMatch: "modelHash",
-      objects: [],
+      updates: [{ candidate: fixtures.identity.candidate, ifMatch: "modelHash", objects: [], deltas: [] }],
     })).toThrow("base update id or null");
-    const activation = decodeUpdateRequestJSON({ base: null, candidate: fixtures.identity.candidate,
-      ifMatch: "bytesHash", objects: [], deltas: [] });
+    const activation = decodeUpdateRequestJSON({ base: null, updates: [{ candidate: fixtures.identity.candidate,
+      ifMatch: "bytesHash", objects: [], deltas: [] }] });
     expect(activation.base).toBeNull();
-    expect(activation.deltas).toEqual([]);
+    expect(activation.updates[0]!.deltas).toEqual([]);
     expect(() => decodeUpdateRequestJSON({
       base: null,
-      candidate: fixtures.identity.candidate,
-      ifMatch: "bytesHash",
-      objects: [],
-      deltas: [{ base: fixtures.identity.candidate, result: `${fixtures.identity.candidate.slice(0, -1)}0`, instructions: [{ insert: "eA==" }] }],
+      updates: [{
+        candidate: fixtures.identity.candidate,
+        ifMatch: "bytesHash",
+        objects: [],
+        deltas: [{ base: fixtures.identity.candidate, result: `${fixtures.identity.candidate.slice(0, -1)}0`, instructions: [{ insert: "eA==" }] }],
+      }],
     })).toThrow("no base to apply deltas");
   });
 
@@ -115,10 +125,39 @@ describe("updates-v1 JSON identity", () => {
     }
     expect(() => decodeUpdateRequestJSON({
       base: fixtures.identity.base,
-      candidate: fixtures.identity.candidate,
-      ifMatch: "modelHash",
-      objects: [{ hash: result, bytes: "eA==" }],
-      deltas: [{ base, result, instructions: [{ insert: "eA==" }] }],
+      updates: [{
+        candidate: fixtures.identity.candidate,
+        ifMatch: "modelHash",
+        objects: [{ hash: result, bytes: "eA==" }],
+        deltas: [{ base, result, instructions: [{ insert: "eA==" }] }],
+      }],
     })).toThrow("also supplied as a complete object");
+  });
+
+  test("chains later identities through the exact append-only prefix", () => {
+    const first = {
+      candidate: fixtures.identity.candidate,
+      ifMatch: fixtures.identity.ifMatch,
+      onConflict: fixtures.identity.onConflict,
+      objects: [],
+      deltas: [],
+    };
+    const second = {
+      candidate: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as ObjectHash,
+      ifMatch: "modelHash" as const,
+      objects: [],
+      deltas: [],
+    };
+    const digests = updateRequestDigests(fixtures.identity.tree, { base: fixtures.identity.base, updates: [first, second] });
+    expect(digests[0]).toBe(fixtures.identity.digest);
+    expect(digests[1]).toBe(updateRequestDigest(fixtures.identity.tree, {
+      base: { requestDigest: digests[0]!, candidate: first.candidate },
+      candidate: second.candidate,
+      ifMatch: second.ifMatch,
+    }));
+    expect(digests[1]).toBe(fixtures.laterElement.digest);
+    expect(Buffer.from(canonicalUpdateIntent(fixtures.laterElement.tree, fixtures.laterElement)).toString("base64"))
+      .toBe(fixtures.laterElement.canonicalCBORBase64);
+    expect(updateRequestDigests(fixtures.identity.tree, { base: fixtures.identity.base, updates: [first] })).toEqual(digests.slice(0, 1));
   });
 });

@@ -3,7 +3,9 @@ import type {
   UpdateConflictResult,
   IfMatch,
   OnConflict,
+  CandidateUpdate,
   UpdateRequest,
+  UpdateResponse,
   UpdateResult,
   ObjectDelta,
   ServerDevice,
@@ -27,11 +29,11 @@ import {
 import {
   decodeAcceptedTransitionJSON,
   decodeUpdateConflictJSON,
-  decodeUpdateResultJSON,
+  decodeUpdateResponseJSON,
   encodeTreeSnapshotJSON,
   encodeUpdateRequestJSON,
 } from "./updates/json.ts";
-import { updateRequestDigest } from "./updates/intent.ts";
+import { updateRequestDigests } from "./updates/intent.ts";
 import { decodeSnapshotBundle } from "./snapshots.ts";
 
 export type { RemoteTreeDescriptor } from "@arbor/core";
@@ -285,14 +287,19 @@ export class WireClient {
     snapshot: TreeSnapshot,
     options: { deltas?: ObjectDelta[]; ifMatch?: IfMatch; onConflict?: OnConflict } = {},
   ): Promise<UpdateResult> {
-    const request: UpdateRequest = {
-      base,
+    const update: CandidateUpdate = {
       candidate: snapshot.root,
       ifMatch: options.ifMatch ?? (base === null ? "bytesHash" : "modelHash"),
       ...(options.onConflict !== undefined ? { onConflict: options.onConflict } : {}),
       objects: [...snapshot.objects].map(([hash, bytes]) => ({ hash, bytes })),
       deltas: options.deltas ?? [],
     };
+    return (await this.submitUpdates(tree, { base, updates: [update] })).results[0]!;
+  }
+
+  /** Submit one append-only string of candidate generations against a confirmed watchpoint. */
+  async submitUpdates(tree: string, request: UpdateRequest): Promise<UpdateResponse> {
+    const expected = updateRequestDigests(tree, request);
     const response = await this.request(`/.arbor/trees/${encodeURIComponent(tree)}/updates`, {
       method: "POST",
       headers: this.headers(true),
@@ -300,12 +307,20 @@ export class WireClient {
     });
     if (response.status === 409) {
       const body = await response.json() as { error?: unknown; message?: unknown };
-      if (body.error === "conflict") throw new WireUpdateConflict(decodeUpdateConflictJSON(body));
+      if (body.error === "conflict") {
+        const conflict = decodeUpdateConflictJSON(body);
+        if (conflict.details.failedIndex >= expected.length
+          || conflict.details.completed.some((item, index) => item.requestDigest !== expected[index])) {
+          throw new Error("Server conflict update-string identity mismatch");
+        }
+        throw new WireUpdateConflict(conflict);
+      }
       throw new Error(`${response.url}: ${typeof body.error === "string" ? body.error : "update rejected"}${typeof body.message === "string" ? `: ${body.message}` : ""}`);
     }
-    const result = decodeUpdateResultJSON(await (await this.checked(response)).json());
-    if (result.requestDigest !== updateRequestDigest(tree, request)) {
-      throw new Error("Server response request digest mismatch");
+    const result = decodeUpdateResponseJSON(await (await this.checked(response)).json());
+    if (result.results.length !== expected.length
+      || result.results.some((item, index) => item.requestDigest !== expected[index])) {
+      throw new Error("Server response update-string identity mismatch");
     }
     return result;
   }
