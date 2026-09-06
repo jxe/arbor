@@ -9,3 +9,4 @@ test-results/
 native/Packages/*/.build/
 native/Packages/*/.swiftpm/
 native/Arbor.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+xcuserdata/
