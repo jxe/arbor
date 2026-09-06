@@ -364,6 +364,12 @@ final class ArborWorkspaceState {
         case .existing(let subject): subject
         case .profile(let locator): .profile(tree: try await resolveLocalProfile(locator, client: client, overview: overview, configurationTree: configurationTree))
         }
+        let account = overview.accounts.first { $0.configurationTree == configurationTree }
+        try ArborAccountConfigurationYAML.validateAccessChange(
+            subject: subject,
+            access: access,
+            currentProfileTree: account?.profileTree
+        )
         let next = try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
             guard var declaration = trees[tree] else {
                 throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")
@@ -454,13 +460,24 @@ final class ArborWorkspaceState {
             throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")
         }
         let entries = declaration.access.map { rule in
-            let locator: String? = if case let .profile(profileTree) = rule.subject,
+            let profileTree: String? = if case let .profile(tree) = rule.subject { tree } else { nil }
+            let locator: String? = if let profileTree,
                                       let profile = overview.trees.first(where: { $0.id == profileTree }),
                                       let path = profile.canonicalPath,
                                       let origin = overview.accounts.first(where: { $0.configurationTree == profile.configurationTree })?.canopy {
                 origin + path
             } else { nil }
-            return NativeTreeAccessEntry(subject: rule.subject, locator: locator, access: rule.access)
+            let isCurrentUser = profileTree != nil && profileTree == account.profileTree
+            return NativeTreeAccessEntry(
+                subject: rule.subject,
+                locator: locator,
+                displayName: ArborAccountConfigurationYAML.profileDisplayName(
+                    locator: locator,
+                    handle: isCurrentUser ? account.handle : nil
+                ),
+                access: rule.access,
+                isCurrentUser: isCurrentUser
+            )
         }
         return NativeTreeAccessPresentation(
             tree: tree,

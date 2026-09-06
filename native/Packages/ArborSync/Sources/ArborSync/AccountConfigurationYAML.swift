@@ -69,12 +69,22 @@ public struct ArborAccountDeviceDeclaration: Codable, Hashable, Sendable {
 public struct NativeTreeAccessEntry: Identifiable, Hashable, Sendable {
     public var subject: ArborAccountAccessSubject
     public var locator: String?
+    public var displayName: String?
     public var access: String
+    public var isCurrentUser: Bool
 
-    public init(subject: ArborAccountAccessSubject, locator: String? = nil, access: String) {
+    public init(
+        subject: ArborAccountAccessSubject,
+        locator: String? = nil,
+        displayName: String? = nil,
+        access: String,
+        isCurrentUser: Bool = false
+    ) {
         self.subject = subject
         self.locator = locator
+        self.displayName = displayName
         self.access = access
+        self.isCurrentUser = isCurrentUser
     }
 
     public var id: String {
@@ -148,6 +158,31 @@ public enum ArborAccountConfigurationYAML {
     public static func isAdministrator(deviceID: String?, devicesSource: String) throws -> Bool {
         guard let deviceID else { return false }
         return try devices(from: devicesSource)[deviceID]?.administrator == true
+    }
+
+    public static func profileDisplayName(locator: String?, handle: String? = nil) -> String? {
+        if let handle, !handle.isEmpty { return handle.hasPrefix("~") ? handle : "~\(handle)" }
+        guard let locator,
+              let url = URL(string: locator),
+              let component = url.pathComponents.last,
+              component.hasPrefix("~"),
+              component.count > 1 else { return nil }
+        return component.removingPercentEncoding ?? component
+    }
+
+    public static func validateAccessChange(
+        subject: ArborAccountAccessSubject,
+        access: String,
+        currentProfileTree: String?
+    ) throws {
+        guard access == "none" || access == "read" || access == "write" else {
+            throw ArborWireValidationError.invalidValue("Unknown access level")
+        }
+        if access == "none",
+           case let .profile(tree) = subject,
+           tree == currentProfileTree {
+            throw ArborWireValidationError.invalidValue("You cannot remove your own access")
+        }
     }
 
 }

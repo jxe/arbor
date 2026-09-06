@@ -918,7 +918,9 @@ private struct ArborSharePanel: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(label(for: entry))
-                        if case let .profile(tree) = entry.subject, entry.locator == nil {
+                        if entry.isCurrentUser {
+                            Text("You").font(.caption).foregroundStyle(.secondary)
+                        } else if case let .profile(tree) = entry.subject, entry.displayName == nil {
                             Text(tree).font(.caption.monospaced()).foregroundStyle(.secondary)
                         }
                     }
@@ -934,11 +936,18 @@ private struct ArborSharePanel: View {
                     }
                     .labelsHidden()
                     .fixedSize()
-                    Button("Remove access", systemImage: "minus.circle", role: .destructive) {
-                        Task { await change(access, target: .existing(entry.subject), permission: "none") }
+                    if entry.isCurrentUser {
+                        Image(systemName: "lock.fill")
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Your access cannot be removed")
+                            .help("Your access cannot be removed")
+                    } else {
+                        Button("Remove access", systemImage: "minus.circle", role: .destructive) {
+                            Task { await change(access, target: .existing(entry.subject), permission: "none") }
+                        }
+                        .labelStyle(.iconOnly)
+                        .disabled(busy || !access.canEdit)
                     }
-                    .labelStyle(.iconOnly)
-                    .disabled(busy || !access.canEdit)
                 }
                 .disabled(busy || !access.canEdit)
             }
@@ -952,8 +961,8 @@ private struct ArborSharePanel: View {
             Text("Rules are additive. A person may also receive access through a group.")
         }
         if access.canEdit {
-            Section("Add access") {
-                if !access.entries.contains(where: { $0.subject == .everyone }) {
+            if !access.entries.contains(where: { $0.subject == .everyone }) {
+                Section {
                     HStack {
                         Label("Everyone", systemImage: "globe")
                         Spacer()
@@ -963,16 +972,27 @@ private struct ArborSharePanel: View {
                         }
                         .disabled(busy)
                     }
+                } header: {
+                    Text("Public access")
+                } footer: {
+                    Text("Anyone who can reach this tree will receive the selected access.")
                 }
-                TextField("Person or group: ~alice or Arbor URL", text: $profileLocator)
+            }
+            Section {
+                Text("Enter the person's or group's ~handle on this Canopy, or paste their Arbor profile URL.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("Profile", text: $profileLocator, prompt: Text("~alice or Arbor profile URL"))
 #if os(iOS)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
 #endif
                 HStack {
-                    permissionPicker(selection: $newPermission)
-                    Spacer()
-                    Button("Add Person or Group") {
+                    Picker("Access", selection: $newPermission) {
+                        Text("Can view").tag("read")
+                        Text("Can edit").tag("write")
+                    }
+                    Button("Give Access", systemImage: "person.badge.plus") {
                         let locator = profileLocator
                         Task {
                             await change(access, target: .profile(locator: locator), permission: newPermission)
@@ -981,6 +1001,10 @@ private struct ArborSharePanel: View {
                     }
                     .disabled(busy || profileLocator.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+            } header: {
+                Text("People and groups")
+            } footer: {
+                Text("A ~handle is resolved on the Canopy that hosts this tree. Use a full Arbor URL for another Canopy.")
             }
             Section("Private link") {
                 HStack {
@@ -1059,7 +1083,7 @@ private struct ArborSharePanel: View {
     private func label(for entry: NativeTreeAccessEntry) -> String {
         switch entry.subject {
         case .everyone: "Everyone"
-        case .profile: entry.locator ?? "Person or group"
+        case .profile: entry.displayName ?? "Person or group"
         case .link: "Private link"
         }
     }

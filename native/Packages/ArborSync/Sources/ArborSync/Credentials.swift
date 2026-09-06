@@ -621,10 +621,19 @@ public actor NativeAccountService {
             tree: tree,
             canonical: declaration.canonical,
             entries: declaration.access.map { rule in
-                let locator: String? = if case let .profile(profileTree) = rule.subject {
-                    locators[profileTree]
-                } else { nil }
-                return NativeTreeAccessEntry(subject: rule.subject, locator: locator, access: rule.access)
+                let profileTree: String? = if case let .profile(tree) = rule.subject { tree } else { nil }
+                let locator = profileTree.flatMap { locators[$0] }
+                let isCurrentUser = profileTree != nil && profileTree == account.profileTree
+                return NativeTreeAccessEntry(
+                    subject: rule.subject,
+                    locator: locator,
+                    displayName: ArborAccountConfigurationYAML.profileDisplayName(
+                        locator: isCurrentUser ? account.profileURL ?? locator : locator,
+                        handle: isCurrentUser ? account.handle : nil
+                    ),
+                    access: rule.access,
+                    isCurrentUser: isCurrentUser
+                )
             },
             canEdit: try ArborAccountConfigurationYAML.isAdministrator(
                 deviceID: account.device?.id,
@@ -638,9 +647,6 @@ public actor NativeAccountService {
         target: NativeTreeAccessTarget,
         access: String
     ) async throws -> NativeTreeAccessPresentation {
-        guard ["none", "read", "write"].contains(access) else {
-            throw ArborWireValidationError.invalidValue("Unknown access level")
-        }
         let wire = try await client()
         let account = try await wire.account().account
         let configuration = try account.configuration.validated()
@@ -651,6 +657,11 @@ public actor NativeAccountService {
         case .profile(let locator): .profile(tree: try await resolveProfile(locator, using: wire))
         case .existing(let subject): subject
         }
+        try ArborAccountConfigurationYAML.validateAccessChange(
+            subject: subject,
+            access: access,
+            currentProfileTree: account.profileTree
+        )
         let nextSource = try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
             guard var declaration = trees[tree] else {
                 throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")

@@ -98,6 +98,34 @@ struct NativeAccountPairingTests {
         #expect(changed.contains("  '/Users/joe/Notes': tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"))
     }
 
+    @Test("Profile ACL labels prefer handles and protect the current user")
+    func profileACLPresentation() throws {
+        #expect(ArborAccountConfigurationYAML.profileDisplayName(
+            locator: "arbor://community.example/~alice"
+        ) == "~alice")
+        #expect(ArborAccountConfigurationYAML.profileDisplayName(
+            locator: nil,
+            handle: "joe"
+        ) == "~joe")
+
+        var rejected = false
+        do {
+            try ArborAccountConfigurationYAML.validateAccessChange(
+                subject: .profile(tree: "tr_joe"),
+                access: "none",
+                currentProfileTree: "tr_joe"
+            )
+        } catch {
+            rejected = true
+        }
+        #expect(rejected)
+        try ArborAccountConfigurationYAML.validateAccessChange(
+            subject: .profile(tree: "tr_alice"),
+            access: "none",
+            currentProfileTree: "tr_joe"
+        )
+    }
+
     @Test("A failed account discovery retries the exact durable pairing claim")
     func exactClaimRetry() async throws {
         await PairingURLProtocol.state.reset()
