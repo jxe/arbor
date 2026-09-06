@@ -13,11 +13,13 @@ public actor ReplicaSyncCoordinator {
     private var syncActive = false
     private var syncAgain = false
     private var inFlight = Set<String>()
+    private var transportAvailable: Bool
 
     public init(
         replica: ArborReplica,
         transport: any ReplicaWireTransport,
         stateRoot: URL,
+        transportAvailable: Bool = true,
         faultInjector: any ReplicaSyncFaultInjector = NoReplicaSyncFaults()
     ) throws {
         self.replica = replica
@@ -25,6 +27,7 @@ public actor ReplicaSyncCoordinator {
         self.files = try DurableSyncFiles(root: stateRoot)
         self.faultInjector = faultInjector
         self.control = try files.load()
+        self.transportAvailable = transportAvailable
     }
 
     public func presentation() async throws -> WorkspaceSyncPresentation {
@@ -180,9 +183,15 @@ public actor ReplicaSyncCoordinator {
 
     /** Best-effort, nonblocking-from-the-editor handoff for one just-durable patch admission. */
     public func syncImmediately(_ admission: ReplicaPatchAdmission) async {
+        // Admissions are already durable in ArborReplica. While the actual
+        // network path to Canopy is down, leave them there instead of freezing every
+        // offline generation into an update string that must later be replayed.
+        // Reconnection appends the latest replica head once to any ambiguous
+        // prefix whose transmission may have started.
+        guard transportAvailable else { return }
         if syncActive, control.attempt != nil {
             do {
-                let attempt = try await extendAttempt(admission: admission)
+                let attempt = try await extendAttemptToCurrent()
                 _ = try await submit(attempt)
             } catch {
                 // The durable pending state remains available to the normal
@@ -193,7 +202,33 @@ public actor ReplicaSyncCoordinator {
         _ = try? await synchronize(admission: admission)
     }
 
-    private func synchronize(admission: ReplicaPatchAdmission?) async throws -> WorkspaceSyncPresentation {
+    /**
+     * Records network-path availability for the Canopy transport. Reconnection immediately
+     * submits one longer plural request containing any ambiguous sent prefix
+     * plus the replica's latest durable offline state.
+     */
+    public func setTransportAvailable(_ available: Bool) async {
+        let resumed = available && !transportAvailable
+        transportAvailable = available
+        guard resumed else { return }
+        if syncActive, control.attempt != nil {
+            do {
+                let attempt = try await extendAttemptToCurrent()
+                _ = try await submit(attempt)
+            } catch {
+                // The durable prefix and latest replica head remain retryable.
+            }
+            return
+        }
+        let heads = try? await replica.heads()
+        guard control.attempt != nil || heads?.pendingRoot != nil || control.nextBase != nil else { return }
+        _ = try? await synchronize(admission: nil, extendExistingAttempt: true)
+    }
+
+    private func synchronize(
+        admission: ReplicaPatchAdmission?,
+        extendExistingAttempt: Bool = false
+    ) async throws -> WorkspaceSyncPresentation {
         try requireOpen()
         if syncActive {
             syncAgain = true
@@ -202,12 +237,17 @@ public actor ReplicaSyncCoordinator {
         syncActive = true
         defer { syncActive = false }
         var nextAdmission = admission
+        var shouldExtendExistingAttempt = extendExistingAttempt
         var followUp = admission != nil && control.attempt != nil
         var result = try await presentation()
         repeat {
             syncAgain = false
-            result = try await syncPass(admission: nextAdmission)
+            result = try await syncPass(
+                admission: nextAdmission,
+                extendExistingAttempt: shouldExtendExistingAttempt
+            )
             nextAdmission = nil
+            shouldExtendExistingAttempt = false
             if syncAgain || followUp {
                 followUp = false
                 let heads = try await replica.heads()
@@ -218,10 +258,15 @@ public actor ReplicaSyncCoordinator {
         return result
     }
 
-    private func syncPass(admission: ReplicaPatchAdmission?) async throws -> WorkspaceSyncPresentation {
+    private func syncPass(
+        admission: ReplicaPatchAdmission?,
+        extendExistingAttempt: Bool = false
+    ) async throws -> WorkspaceSyncPresentation {
         guard control.conflict == nil else { return try await presentation() }
         let attempt: DurableSyncAttempt
-        if let existing = control.attempt { attempt = existing }
+        if control.attempt != nil, extendExistingAttempt {
+            attempt = try await extendAttemptToCurrent()
+        } else if let existing = control.attempt { attempt = existing }
         else { attempt = try await createAttempt(admission: admission) }
         do {
             control.presentation = WorkspaceSyncPresentation(
@@ -377,8 +422,8 @@ public actor ReplicaSyncCoordinator {
     }
 
     /** Persist and return a longer request while an older prefix remains in flight. */
-    private func extendAttempt(admission: ReplicaPatchAdmission) async throws -> DurableSyncAttempt {
-        guard let existing = control.attempt else { return try await createAttempt(admission: admission) }
+    private func extendAttemptToCurrent() async throws -> DurableSyncAttempt {
+        guard let existing = control.attempt else { return try await createAttempt() }
         var request = try JSONDecoder().decode(WireUpdateRequest.self, from: existing.body)
         let snapshot = try await replica.currentSnapshot()
         guard snapshot.root != existing.candidate else { return existing }

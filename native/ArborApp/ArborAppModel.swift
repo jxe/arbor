@@ -8,6 +8,9 @@ import ArborWire
 import Foundation
 import Observation
 import QuagmireExtras
+#if os(iOS)
+import Network
+#endif
 
 #if os(macOS)
 struct LocalArborSyncTreePresentation: Identifiable, Sendable, Equatable {
@@ -107,6 +110,9 @@ final class ArborWorkspaceState {
 #endif
 #if os(iOS)
     private let nativePlacementStore = NativePlacementStore()
+    private let nativePathMonitor = NWPathMonitor()
+    private let nativePathMonitorQueue = DispatchQueue(label: "org.nxhx.Arbor.canopy-path")
+    private var nativeTransportAvailable = false
 #endif
 
     init(provider suppliedProvider: InMemoryWorkspaceProvider? = nil) {
@@ -138,6 +144,15 @@ final class ArborWorkspaceState {
                 detail: "Local test fixture; no server configured"
             )
         }
+#if os(iOS)
+        nativePathMonitor.pathUpdateHandler = { [weak self] path in
+            let available = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                await self?.setNativeTransportAvailable(available)
+            }
+        }
+        nativePathMonitor.start(queue: nativePathMonitorQueue)
+#endif
     }
 
     func place(tree: WireTreeDescriptor, from origin: URL, configurationTree: String? = nil, remember: Bool = true) async throws {
@@ -169,10 +184,17 @@ final class ArborWorkspaceState {
             replica = try await ReplicaPlacementService.place(tree: tree, at: replicaRoot, transport: transport)
             try Self.replicaWireFormat.write(to: formatMarker, atomically: true, encoding: .utf8)
         }
+        let initiallyAvailable: Bool
+#if os(iOS)
+        initiallyAvailable = nativeTransportAvailable
+#else
+        initiallyAvailable = true
+#endif
         let coordinator = try ReplicaSyncCoordinator(
             replica: replica,
             transport: transport,
-            stateRoot: syncStateRoot
+            stateRoot: syncStateRoot,
+            transportAvailable: initiallyAvailable
         )
 #if os(macOS)
         if let supervisor { await supervisor.stop(); self.supervisor = nil }
@@ -204,6 +226,13 @@ final class ArborWorkspaceState {
     }
 
 #if os(iOS)
+    private func setNativeTransportAvailable(_ available: Bool) async {
+        nativeTransportAvailable = available
+        guard let syncCoordinator else { return }
+        await syncCoordinator.setTransportAvailable(available)
+        await refreshSyncPresentation(from: syncCoordinator)
+    }
+
     func restoreNativePlacementIfAvailable() async -> Bool {
         do {
             guard let record = try await nativePlacementStore.load() else { return false }

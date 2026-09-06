@@ -290,6 +290,91 @@ struct ArborSyncTests {
         }
     }
 
+    @Test("Offline native admissions become one latest successor of an ambiguous prefix")
+    func offlineAdmissionsCompactBehindAmbiguousPrefix() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_offline_compaction"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let gate = FirstRequestGate()
+            let transport = ClosureTransport(initial: initial) { prepared, call in
+                if call == 1 { await gate.hold() }
+                let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+                var previous = initial.root
+                let results = request.updates.enumerated().map { index, candidate in
+                    let update = accepted(
+                        id: "up_offline_\(call)_\(index + 1)",
+                        tree: tree,
+                        root: candidate.candidate,
+                        base: previous,
+                        candidate: candidate.candidate
+                    )
+                    previous = candidate.candidate
+                    return WireUpdateElementResult(
+                        result: .accepted(update),
+                        requestDigest: prepared.requestDigests[index]
+                    )
+                }
+                return WireUpdateResponse(results: results, observedThrough: "up_offline_\(call)_\(results.count)")
+            }
+            let replica = try await ReplicaPlacementService.place(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"),
+                transport: transport
+            )
+            let coordinator = try ReplicaSyncCoordinator(
+                replica: replica,
+                transport: transport,
+                stateRoot: root.appending(path: "sync")
+            )
+            let provider = ReplicaWorkspaceProvider(replica: replica) { admission in
+                await coordinator.syncImmediately(admission)
+            }
+            let session = try await provider.openDocument(
+                .init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
+            )
+            var current = try await session.snapshot()
+            _ = try await session.admit(patch: WorkspaceDocumentPatch(
+                baseContentRevision: current.contentRevision,
+                edits: [.init(
+                    utf8Range: Data(current.source.utf8).count..<Data(current.source.utf8).count,
+                    replacement: "Before offline\n"
+                )]
+            ))
+            for _ in 0..<100 where !(await gate.waiting) { try await Task.sleep(for: .milliseconds(10)) }
+
+            await coordinator.setTransportAvailable(false)
+            for index in 1...37 {
+                current = try await session.snapshot()
+                _ = try await session.admit(patch: WorkspaceDocumentPatch(
+                    baseContentRevision: current.contentRevision,
+                    edits: [.init(
+                        utf8Range: Data(current.source.utf8).count..<Data(current.source.utf8).count,
+                        replacement: "Offline \(index)\n"
+                    )]
+                ))
+            }
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(await transport.requests.count == 1)
+
+            let latestRoot = try await replica.heads().materializedRoot
+            await coordinator.setTransportAvailable(true)
+            let requests = await transport.requests
+            #expect(requests.count == 2)
+            let prefix = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
+            let resumed = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
+            #expect(prefix.updates.count == 1)
+            #expect(resumed.updates.count == 2)
+            #expect(Array(resumed.updates.prefix(1)) == prefix.updates)
+            #expect(resumed.updates.last?.candidate == latestRoot)
+
+            await gate.release()
+            for _ in 0..<100 where try await replica.heads().pendingRoot != nil {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            #expect(try await replica.heads().pendingRoot == nil)
+        }
+    }
+
     @Test("A clean watch invalidation reads the coherent current snapshot without submitting")
     func cleanWatchPull() async throws {
         try await withTemporaryRoot { root in
