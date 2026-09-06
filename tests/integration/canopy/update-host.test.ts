@@ -613,6 +613,11 @@ describe("governed account-configuration Canopy server", () => {
     expect(peerAccount.account.handle).toBe("owner");
     const peerConfiguration = await peer.descriptor(peerAccount.account.configuration.id);
     expect((await peer.snapshot(peerConfiguration.tree.id, peerConfiguration.tree.root)).root).toBe(peerConfiguration.tree.root);
+    const peerWatchPromise = fetch(
+      `${running.url}/.arbor/trees/${peerConfiguration.tree.id}/watch?after=${peerConfiguration.observedThrough}`,
+      { headers: { authorization: `Bearer ${peerCredential}` } },
+    );
+    await Bun.sleep(25);
 
     const { current, graph } = await currentConfig();
     expect(graph.devices[peerID]?.label).toBe("Peer laptop");
@@ -623,6 +628,14 @@ describe("governed account-configuration Canopy server", () => {
       trees: graph.trees,
       devices: remainingDevices,
     });
+    const peerWatch = await peerWatchPromise;
+    expect(peerWatch.status).toBe(200);
+    const peerWatchReader = peerWatch.body!.getReader();
+    const revokedFrame = await Promise.race([
+      peerWatchReader.read(),
+      Bun.sleep(2_000).then(() => { throw new Error("Revoked watch did not close"); }),
+    ]);
+    expect(new TextDecoder().decode(revokedFrame.value)).toContain("Authorization was revoked");
     await expect(new WireClient(running.url, peerCredential).account()).rejects.toThrow("unauthenticated");
     expect((await fetch(
       `${running.url}/.arbor/trees/${peerConfiguration.tree.id}/snapshots/${peerConfiguration.tree.root}`,

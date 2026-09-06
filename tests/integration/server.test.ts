@@ -50,6 +50,15 @@ afterAll(async () => {
 });
 
 describe("arborsync REST v1", () => {
+  test("identifies the running Arbor Sync instance and runtime kind", async () => {
+    expect(await client.status()).toMatchObject({
+      service: "arborsync",
+      protocolVersion: "v1",
+      runtimeKind: "foreground",
+      instanceID: expect.any(String),
+    });
+  });
+
   test("rejects DNS-rebound Host headers", async () => {
     const response = await fetch(`${base}/v1/status`, { headers: { host: "attacker.example" } });
     expect(response.status).toBe(400);

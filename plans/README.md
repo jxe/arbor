@@ -13,7 +13,7 @@ These are the plans that currently matter most. They include known correctness a
   - [Reliability 002 — Serialize write-journal counters and appends per document](reliability/002-journal-append.md) — **P1 · TODO.**
   - [Reliability 003 — Make untracked collection-file mutations and receipts restart-safe](reliability/003-untracked-collection-file-transactions.md) — **P1 · TODO; depends on Reliability 002 and historical Data 011 terminology.**
 - **External agent access**
-  - [Smaller project 004 — Give external agents safe structured access](smaller-projects/004-external-agent-access.md) — **P1 · PLANNED; read-only CLI work can begin.** Let installed agents use Arbor's structured CLI operations; compiled-handle invocation depends on Apps 001.
+  - [Smaller project 004 — Give external agents safe structured access](smaller-projects/004-external-agent-access.md) — **P1 · IN PROGRESS; general status and cloud-session discovery are implemented.** The remaining structured read/mutation commands and agent skill can proceed; compiled-handle invocation depends on Apps 001.
 - **Canopy storage** — Reduce the physical cost of retained immutable objects and accepted transition history without changing Wire identity or accepted-state semantics.
   - [Canopy storage 001 — Pack object and history storage](canopy-storage/001-pack-object-storage.md) — **P1 · NEEDS BASELINE AND DESIGN REVIEW.** Measure and replace expensive loose-object/history storage with an integrity-checked packed representation.
   - **Storage boundary.** Packing changes durability, recovery, verification, pruning, and read-performance boundaries, so it needs one storage-owned design and acceptance gate.

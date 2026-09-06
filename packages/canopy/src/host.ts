@@ -467,12 +467,13 @@ export async function serveCanopy(options: {
         const watch = /^\/\.arbor\/trees\/([^/]+)\/watch$/.exec(url.pathname);
         if (watch && request.method === "GET") {
           const tree = canopy.get(decodeURIComponent(watch[1]!));
-          if (!tree || !canopy.canRead(account, tree.id, linkDigest(request))) return new Response("Not found", { status: 404 });
+          const requestedLinkDigest = linkDigest(request);
+          if (!tree || !canopy.canRead(account, tree.id, requestedLinkDigest)) return new Response("Not found", { status: 404 });
           // Watch streams stay open indefinitely; lift Bun's per-connection idle timeout for them.
           server.timeout(request, 0);
           const encoder = new TextEncoder();
           const credentialSubject = authentication?.subject;
-          const access = canopy.canWrite(account, tree.id, linkDigest(request)) ? "write" : "read";
+          const access = canopy.canWrite(account, tree.id, requestedLinkDigest) ? "write" : "read";
           const headerCursor = request.headers.get("last-event-id");
           const queryCursor = url.searchParams.get("after");
           if (headerCursor && queryCursor && headerCursor !== queryCursor) {
@@ -514,6 +515,10 @@ export async function serveCanopy(options: {
               let delivered = 0;
               const pending: ObservationRecord[] = [];
               let stop = () => {};
+              const authorized = () => {
+                const activeDevice = !authentication || canopy.authenticationIsActive(authentication);
+                return activeDevice && canopy.canRead(activeDevice ? account : null, tree.id, requestedLinkDigest);
+              };
               const resync = (reason: string) => {
                 if (closed) return;
                 closed = true;
@@ -530,6 +535,7 @@ export async function serveCanopy(options: {
               };
               const sendRefs = (updateIDs: string[], failure: string) => {
                 if (!updateIDs.length || closed) return;
+                if (!authorized()) return resync("Authorization was revoked");
                 const frames = refFrames(updateIDs);
                 if (!frames) return resync(failure);
                 for (const frame of frames) controller.enqueue(encoder.encode(frame));
@@ -539,10 +545,18 @@ export async function serveCanopy(options: {
                 delivered = record.ordinal;
                 if (record.updateID) sendRefs([record.updateID], "The accepted transition is unavailable or exceeds the watch frame limit");
               };
-              stop = canopy.subscribeObservations(tree.id, (record) => {
+              const stopObserving = canopy.subscribeObservations(tree.id, (record) => {
                 if (replaying) pending.push(record);
                 else deliver(record);
               });
+              const authorizationTimer = setInterval(() => {
+                if (!authorized()) resync("Authorization was revoked");
+              }, 250);
+              authorizationTimer.unref?.();
+              stop = () => {
+                clearInterval(authorizationTimer);
+                stopObserving();
+              };
               const replay = canopy.observationsAfter(tree.id, lastEventID);
               if (!replay.retained) return resync("The requested cursor is no longer retained");
               const updates = replay.records.flatMap((record) => record.updateID ? [record.updateID] : []);

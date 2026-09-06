@@ -53,6 +53,15 @@ export type {
 /** A canonical node sample plus endpoint placement context when available. */
 export type NodeSnapshot = NodeResponse;
 
+export interface ArborSyncStatus {
+  service: string;
+  version: string;
+  protocolVersion: string;
+  instanceID: string;
+  runtimeKind: "persistent" | "foreground" | "cloud";
+  deviceID?: string;
+}
+
 export class ArborSyncError extends Error {
   readonly payload: ArborError;
   constructor(
@@ -246,7 +255,7 @@ export class ArborSyncRESTClient {
     return (await this.request<{ id: string }>("/v1/tree-ids", { method: "POST" })).id;
   }
 
-  status(): Promise<{ service: string; version: string; protocolVersion: string; deviceID?: string }> {
+  status(): Promise<ArborSyncStatus> {
     return this.request("/v1/status");
   }
 

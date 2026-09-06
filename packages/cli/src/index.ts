@@ -1,27 +1,54 @@
 #!/usr/bin/env bun
-import { mkdir, realpath, stat } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath, serveArborSync, serveArborSyncControl } from "@arbor/arborsync";
+import { runArborSyncDaemon } from "@arbor/arborsync/cli";
 import { ArborSyncRESTClient } from "@arbor/client";
-import { canonicalArborLocator, canonicalHTTPURL } from "@arbor/core";
+import { canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256 } from "@arbor/core";
+import { materializeTree, snapshotDirectory } from "@arbor/fs";
 import {
   addLocalPlacement,
+  accountCheckoutPath,
   CanopyAccountStore,
   arborDataRoot,
   clearRehomeTransaction,
   loadCanopyAccountConfigurations,
   loadLocalPlacements,
+  parseAccountDevicesConfiguration,
   parseHostedTreesConfiguration,
   ProfileIdentityStore,
   replaceLocalPlacement,
+  saveCurrentAccountDeviceID,
   saveRehomeTransaction,
   type CanopyAccountConfigurationSnapshot,
 } from "@arbor/stores";
 import { WireClient } from "@arbor/wire";
 import { parseDocument, type Document } from "yaml";
 import { ARBOR_SYNC_PORT, arborDaemonSupervisor } from "./daemon.ts";
+import {
+  cloudPlacementPath,
+  cloudSessionDirectory,
+  cloudSessionForPath,
+  cloudSessionForRoot,
+  decodeCloudBundle,
+  encodeCloudBundle,
+  loadCloudBundles,
+  saveCloudBundleRecord,
+  saveCloudSession,
+  updateCloudBundleRecord,
+  validateCloudPlacementPaths,
+  type CloudBundlePayload,
+  type CloudBundlePlacement,
+  type CloudSessionRecord,
+} from "./cloud.ts";
 
 const REHOME_WIRE_TIMEOUT_MS = 60_000;
+
+class CLIUsageError extends Error {}
+
+function usageError(message: string): never {
+  throw new CLIUsageError(message);
+}
 
 type ShareAudience =
   | { kind: "private" }
@@ -40,6 +67,12 @@ function usage(): never {
   arbor me backup <file>
   arbor me restore <file> [<profile-folder>]
   arbor daemon <install|uninstall|start|stop|restart|status|logs>
+  arbor status [<locator>] [--json]
+  arbor cloud bundle create [--name <label>] --place <canonical-url> <relative-path> [...]
+  arbor cloud bundle list [--json]
+  arbor cloud bundle revoke <bundle-id>
+  arbor cloud start [<bundle-string>] [--root <directory>] [--timeout <duration>] [--json]
+  arbor cloud finish [--root <directory>] [--timeout <duration>] [--json]
   arbor place [--clear-access] [--access <subject>=<read|write|none>[,...]] <local-path> <canonical-url>
   arbor place <canonical-url> <local-path>
   arbor mv [--dry-run] <placed-local-root> <new-local-path>
@@ -52,8 +85,8 @@ async function openBrowser(url: string): Promise<void> {
   try { Bun.spawn(command, { stdout: "ignore", stderr: "ignore" }); } catch {}
 }
 
-export async function attachedArborSyncURL(target: OpenTarget, port: number): Promise<URL | null> {
-  const origin = `http://127.0.0.1:${port}`;
+export async function attachedArborSyncURL(target: OpenTarget, port: number, selectedOrigin?: string): Promise<URL | null> {
+  const origin = selectedOrigin ?? `http://127.0.0.1:${port}`;
   try {
     const status = await fetch(`${origin}/v1/status`);
     if (!status.ok || (await status.json() as { service?: string }).service !== "arborsync") return null;
@@ -225,13 +258,14 @@ async function withArborSync<T>(
   ) => Promise<T>,
 ): Promise<T> {
   if (!process.env.ARBOR_DATA_HOME) {
-    const baseURL = process.env.ARBOR_SYNC_URL ?? `http://127.0.0.1:${ARBOR_SYNC_PORT}`;
+    const cloud = !process.env.ARBOR_SYNC_URL ? await cloudSessionForPath(path) : null;
+    const baseURL = process.env.ARBOR_SYNC_URL ?? cloud?.origin ?? `http://127.0.0.1:${ARBOR_SYNC_PORT}`;
     let client = new ArborSyncRESTClient({ baseURL });
     let compatible = await client.status().then(
       (status) => status.service === "arborsync" && status.protocolVersion === "v1",
       () => false,
     );
-    if (!compatible && !process.env.ARBOR_SYNC_URL && process.platform === "darwin") {
+    if (!compatible && !process.env.ARBOR_SYNC_URL && !cloud && process.platform === "darwin") {
       const supervisor = arborDaemonSupervisor();
       const status = await supervisor.status();
       if (!status.installed) throw new Error("Arbor Sync is not running; run `arbor daemon install` first");
@@ -261,8 +295,9 @@ async function editAccountConfigurationYAML(
   configurationTree: string,
   change: (document: Document) => void | Promise<void>,
   validate: (source: string) => void,
+  filename = "trees.yaml",
 ): Promise<void> {
-  const ref = { tree: configurationTree, path: "/trees.yaml", stableKey: null } as const;
+  const ref = { tree: configurationTree, path: `/${filename}`, stableKey: null } as const;
   const file = await client.file(ref);
   const document = parseDocument(new TextDecoder("utf-8", { fatal: true }).decode(file.bytes), { uniqueKeys: true, keepSourceTokens: true });
   if (document.errors.length) throw new Error(document.errors[0]!.message);
@@ -683,8 +718,719 @@ async function placeCommand(args: string[]): Promise<void> {
   });
 }
 
+function parseDuration(value: string | undefined, fallbackMs = 5 * 60_000): number {
+  if (value === undefined) return fallbackMs;
+  const match = /^(\d+)(ms|s|m)?$/.exec(value);
+  if (!match) usageError(`Invalid duration: ${value}`);
+  const amount = Number(match[1]);
+  const multiplier = match[2] === "m" ? 60_000 : match[2] === "s" ? 1_000 : 1;
+  const result = amount * multiplier;
+  if (!Number.isSafeInteger(result) || result <= 0) usageError(`Invalid duration: ${value}`);
+  return result;
+}
+
+async function withEnvironment<T>(
+  values: Record<string, string | undefined>,
+  run: () => Promise<T>,
+): Promise<T> {
+  const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try { return await run(); }
+  finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+interface CloudBundleCreateArguments {
+  label?: string;
+  placements: Array<{ canonicalURL: string; relativePath: string }>;
+}
+
+function cloudBundleCreateArguments(args: string[]): CloudBundleCreateArguments {
+  let label: string | undefined;
+  const placements: Array<{ canonicalURL: string; relativePath: string }> = [];
+  for (let index = 0; index < args.length;) {
+    const arg = args[index];
+    if (arg === "--name") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) usageError("--name requires a label");
+      label = value;
+      index += 2;
+    } else if (arg === "--place") {
+      const canonicalURL = args[index + 1];
+      const relativePath = args[index + 2];
+      if (!canonicalURL || !relativePath || canonicalURL.startsWith("--") || relativePath.startsWith("--")) {
+        usageError("--place requires a canonical URL and relative path");
+      }
+      placements.push({ canonicalURL, relativePath });
+      index += 3;
+    } else {
+      usageError(`Unknown cloud bundle option: ${arg}`);
+    }
+  }
+  if (!placements.length) usageError("Cloud bundle creation requires at least one --place URL path pair");
+  const normalizedPaths = validateCloudPlacementPaths(placements.map((placement) => placement.relativePath));
+  return {
+    ...(label ? { label } : {}),
+    placements: placements.map((placement, index) => ({ ...placement, relativePath: normalizedPaths[index]! })),
+  };
+}
+
+async function createCloudBundle(args: string[]): Promise<void> {
+  const requested = cloudBundleCreateArguments(args);
+  await withArborSync(process.cwd(), async (client, service) => {
+    let selected: SelectedCanopyAccount | undefined;
+    const placements: CloudBundlePlacement[] = [];
+    for (const requestedPlacement of requested.placements) {
+      const target = canonicalTarget(requestedPlacement.canonicalURL);
+      const candidate = await accountForCanonicalTarget(target, { administrator: true });
+      if (!selected) {
+        await service.synchronizeNow(candidate.configuration.configurationTree);
+        selected = await accountForCanonicalTarget(target, { administrator: true });
+      } else if (candidate.configuration.configurationTree !== selected.configuration.configurationTree) {
+        throw new Error("A cloud bundle may contain trees from only one Arbor account");
+      }
+      if (target.endpoint !== selected.connection.record.origin) {
+        throw new Error("A cloud bundle may target only one Canopy");
+      }
+      const wire = new WireClient(selected.connection.record.origin, selected.connection.accountToken);
+      const resolution = await wire.resolve(target.canonicalPath);
+      const descriptor = resolution.enclosingTree;
+      if (!descriptor || resolution.ref.tree !== descriptor.id || resolution.ref.path !== "/") {
+        throw new Error(`${requestedPlacement.canonicalURL} must identify the root of a tree`);
+      }
+      if (descriptor.access !== "write") throw new Error(`${requestedPlacement.canonicalURL} is not writable by this account`);
+      if (!descriptor.canonical || canonicalHTTPURL(descriptor.canonical) !== `${target.endpoint}${target.canonicalPath}`) {
+        throw new Error(`${requestedPlacement.canonicalURL} is not the tree's canonical URL`);
+      }
+      placements.push({
+        treeID: descriptor.id,
+        canonicalURL: canonicalHTTPURL(descriptor.canonical),
+        relativePath: requestedPlacement.relativePath,
+      });
+    }
+    if (!selected) throw new Error("Cloud bundle has no account");
+    if (new Set(placements.map((placement) => placement.treeID)).size !== placements.length) {
+      throw new Error("A cloud bundle may not place the same tree more than once");
+    }
+    const bundleID = `cb_${crypto.randomUUID().replaceAll("-", "")}`;
+    const label = (requested.label ?? `Cloud bundle ${bundleID.slice(-8)}`).trim();
+    if (!label || label.length > 100) throw new Error("Cloud bundle name must be from 1 through 100 characters");
+    const deviceID = generateArborID("dv");
+    const credential = `arb_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+    const createdAt = new Date().toISOString();
+    const payload: CloudBundlePayload = {
+      version: 1,
+      bundleID,
+      label,
+      createdAt,
+      origin: selected.connection.record.origin,
+      account: selected.connection.record.account,
+      accountID: selected.connection.record.accountID,
+      configurationTree: selected.configuration.configurationTree,
+      profileTree: selected.connection.record.profileTree,
+      deviceID,
+      credential,
+      placements,
+    };
+    const encoded = encodeCloudBundle(payload);
+    const wire = new WireClient(selected.connection.record.origin, selected.connection.accountToken);
+    const pairing = await wire.createPairing();
+    await new WireClient(selected.connection.record.origin).claimPairing(pairing.id, pairing.secret, {
+      id: deviceID,
+      label,
+      credentialDigest: `sha256:${sha256(credential)}`,
+    });
+    await saveCloudBundleRecord({
+      bundleID,
+      label,
+      createdAt,
+      origin: payload.origin,
+      account: payload.account,
+      configurationTree: payload.configurationTree,
+      deviceID,
+    });
+    console.error(`Created reusable cloud bundle ${bundleID} (${placements.length} placement${placements.length === 1 ? "" : "s"}).`);
+    console.log(encoded);
+  });
+}
+
+async function listCloudBundles(json: boolean): Promise<void> {
+  const bundles = await loadCloudBundles();
+  if (json) {
+    console.log(JSON.stringify({ schemaVersion: 1, bundles }, null, 2));
+    return;
+  }
+  if (!bundles.length) {
+    console.log("No cloud bundles have been created on this device.");
+    return;
+  }
+  for (const bundle of bundles) {
+    console.log(`${bundle.bundleID}  ${bundle.revokedAt ? "revoked" : "active"}  ${bundle.label}  ${bundle.account}`);
+  }
+}
+
+async function revokeCloudBundle(bundleID: string): Promise<void> {
+  const record = (await loadCloudBundles()).find((candidate) => candidate.bundleID === bundleID);
+  if (!record) throw new Error(`Unknown local cloud bundle: ${bundleID}`);
+  if (record.revokedAt) {
+    console.log(`Cloud bundle ${bundleID} was already revoked.`);
+    return;
+  }
+  await withArborSync(process.cwd(), async (client, service) => {
+    await service.synchronizeNow(record.configurationTree);
+    const configuration = (await loadCanopyAccountConfigurations()).find((candidate) => candidate.configurationTree === record.configurationTree);
+    if (!configuration?.account || !configuration.devices || !configuration.currentDevice) {
+      throw new Error(`Account ${record.configurationTree} is unavailable or invalid`);
+    }
+    if (!configuration.currentDevice.administrator) {
+      throw new Error(`The current device is not an administrator of account ${record.configurationTree}`);
+    }
+    if (configuration.devices[record.deviceID]) {
+      await editAccountConfigurationYAML(
+        client,
+        record.configurationTree,
+        (document) => { document.deleteIn([record.deviceID]); },
+        (source) => { parseAccountDevicesConfiguration(source); },
+        "devices.yaml",
+      );
+      await service.synchronizeNow(record.configurationTree);
+    }
+    const revokedAt = new Date().toISOString();
+    await updateCloudBundleRecord(bundleID, { revokedAt });
+    console.log(`Revoked cloud bundle ${bundleID}.`);
+  });
+}
+
+function cloudStartArguments(args: string[]): { bundle: string; root: string; timeoutMs: number; json: boolean } {
+  let bundleArgument: string | undefined;
+  let root = process.cwd();
+  let timeout: string | undefined;
+  let json = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--root" || arg === "--timeout") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) usageError(`${arg} requires a value`);
+      if (arg === "--root") root = value;
+      else timeout = value;
+      index += 1;
+    } else if (arg === "--json") json = true;
+    else if (arg.startsWith("--")) usageError(`Unknown cloud start option: ${arg}`);
+    else if (bundleArgument) usageError("arbor cloud start accepts at most one bundle argument");
+    else bundleArgument = arg;
+  }
+  const environmentBundle = process.env.ARBOR_CLOUD_BUNDLE;
+  if (bundleArgument && environmentBundle) usageError("Supply the cloud bundle as an argument or ARBOR_CLOUD_BUNDLE, not both");
+  const bundle = bundleArgument ?? environmentBundle;
+  if (!bundle) usageError("arbor cloud start requires a bundle argument or ARBOR_CLOUD_BUNDLE");
+  return { bundle, root: resolve(root), timeoutMs: parseDuration(timeout), json };
+}
+
+async function directoryIsEmpty(path: string): Promise<boolean> {
+  try {
+    const info = await lstat(path);
+    return info.isDirectory() && !info.isSymbolicLink() && (await readdir(path)).length === 0;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+    throw error;
+  }
+}
+
+async function prepareCloudDataHome(payload: CloudBundlePayload, session: CloudSessionRecord): Promise<void> {
+  await withEnvironment({ ARBOR_DATA_HOME: session.dataHome, ARBOR_CREDENTIAL_STORE: "file" }, async () => {
+    const wire = new WireClient(payload.origin, payload.credential, { timeoutMs: 60_000 });
+    const account = await wire.account();
+    if (
+      account.account.id !== payload.accountID
+      || account.account.configuration.id !== payload.configurationTree
+      || account.account.profileTree !== payload.profileTree
+      || account.account.device?.id !== payload.deviceID
+    ) throw new Error("Cloud bundle authorization does not match its account identity");
+    const configuration = (await wire.descriptor(payload.configurationTree)).tree;
+    const snapshot = await wire.snapshot(payload.configurationTree, configuration.root);
+    const checkout = accountCheckoutPath(payload.configurationTree);
+    await materializeTree(checkout, snapshot.root, (hash) => {
+      const bytes = snapshot.objects.get(hash);
+      if (!bytes) throw new Error(`Account configuration snapshot is missing ${hash}`);
+      return Promise.resolve(bytes);
+    });
+    await new CanopyAccountStore(payload.configurationTree).set(payload.credential, {
+      origin: payload.origin,
+      account: payload.account,
+      accountID: payload.accountID,
+      profileTree: payload.profileTree,
+      deviceID: payload.deviceID,
+      configurationRef: configuration.root,
+      configurationUpdate: configuration.update,
+    });
+    await saveCurrentAccountDeviceID(payload.configurationTree, payload.deviceID);
+    for (const placement of session.placements) {
+      await addLocalPlacement({
+        configurationTree: payload.configurationTree,
+        path: placement.path,
+        tree: placement.treeID,
+      });
+    }
+  });
+}
+
+async function liveCloudStatus(session: CloudSessionRecord) {
+  if (!session.origin) return null;
+  try {
+    const status = await new ArborSyncRESTClient({ baseURL: session.origin }).status();
+    return status.service === "arborsync" && status.protocolVersion === "v1" && status.instanceID === session.instanceID ? status : null;
+  } catch { return null; }
+}
+
+function processIsAlive(pid: number | undefined): boolean {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch { return false; }
+}
+
+async function stopOwnedProcess(pid: number): Promise<void> {
+  try { process.kill(pid, "SIGTERM"); } catch { return; }
+  const gracefulDeadline = Date.now() + 5_000;
+  while (Date.now() < gracefulDeadline && processIsAlive(pid)) await Bun.sleep(50);
+  if (!processIsAlive(pid)) return;
+  try { process.kill(pid, "SIGKILL"); } catch { return; }
+  const forcedDeadline = Date.now() + 1_000;
+  while (Date.now() < forcedDeadline && processIsAlive(pid)) await Bun.sleep(25);
+}
+
+async function waitForCloudOrigin(session: CloudSessionRecord, deadline: number): Promise<string> {
+  const stdoutPath = join(cloudSessionDirectory(session.sessionID), "arborsync.stdout.log");
+  while (Date.now() < deadline) {
+    const source = await readFile(stdoutPath, "utf8").catch(() => "");
+    const url = source.match(/https?:\/\/127\.0\.0\.1:\d+/)?.[0];
+    if (url) {
+      try {
+        const status = await new ArborSyncRESTClient({ baseURL: url }).status();
+        if (status.instanceID === session.instanceID && status.runtimeKind === "cloud") return url;
+      } catch {}
+    }
+    await Bun.sleep(50);
+  }
+  throw new Error("Cloud Arbor Sync did not become reachable before the timeout");
+}
+
+async function cloudPlacementsReady(
+  session: CloudSessionRecord,
+  payload: Pick<CloudBundlePayload, "origin" | "credential" | "configurationTree">,
+): Promise<{ ready: boolean; reason?: string }> {
+  if (!session.origin) return { ready: false, reason: "Arbor Sync has no recorded origin" };
+  const client = new ArborSyncRESTClient({ baseURL: session.origin });
+  const local = (await client.trees()).snapshot;
+  const wire = new WireClient(payload.origin, payload.credential, { timeoutMs: 60_000 });
+  for (const target of session.placements) {
+    const descriptor = local.find((candidate) =>
+      candidate.id === target.treeID
+      && candidate.configurationTree === payload.configurationTree
+      && candidate.osPath === target.path
+    );
+    if (!descriptor) return { ready: false, reason: `${target.relativePath} has not been placed` };
+    if (descriptor.missing) return { ready: false, reason: `${target.relativePath} is missing` };
+    if (descriptor.access !== "write") return { ready: false, reason: `${target.relativePath} is not writable` };
+    if (descriptor.sync !== "idle") return { ready: false, reason: `${target.relativePath} is ${descriptor.sync ?? "not synchronized"}` };
+    const remote = (await wire.descriptor(target.treeID)).tree;
+    if (remote.access !== "write") return { ready: false, reason: `${target.relativePath} lost write access` };
+    if (descriptor.acceptedUpdate !== remote.update) return { ready: false, reason: `${target.relativePath} has not accepted the current Canopy update` };
+    const localSnapshot = await snapshotDirectory(target.path);
+    if (localSnapshot.root !== remote.root) return { ready: false, reason: `${target.relativePath} differs from Canopy` };
+  }
+  return { ready: true };
+}
+
+async function waitForCloudPlacements(
+  session: CloudSessionRecord,
+  payload: Pick<CloudBundlePayload, "origin" | "credential" | "configurationTree">,
+  deadline: number,
+): Promise<void> {
+  let reason = "placements are not ready";
+  while (Date.now() < deadline) {
+    try {
+      const result = await cloudPlacementsReady(session, payload);
+      if (result.ready) return;
+      reason = result.reason ?? reason;
+    } catch (error) {
+      reason = error instanceof Error ? error.message : String(error);
+    }
+    await Bun.sleep(100);
+  }
+  throw new Error(`Cloud placements did not become ready before the timeout: ${reason}`);
+}
+
+async function startCloud(args: string[]): Promise<void> {
+  const options = cloudStartArguments(args);
+  const payload = decodeCloudBundle(options.bundle);
+  delete process.env.ARBOR_CLOUD_BUNDLE;
+  await mkdir(options.root, { recursive: true });
+  const root = await realpath(options.root);
+  let session = await cloudSessionForRoot(root);
+  const existing = Boolean(session);
+  if (session && session.bundleID !== payload.bundleID) {
+    throw new Error(`${root} already belongs to cloud bundle ${session.bundleID}`);
+  }
+  if (!session) {
+    for (const placement of payload.placements) {
+      const destination = cloudPlacementPath(root, placement.relativePath);
+      if (!await directoryIsEmpty(destination)) throw new Error(`Cloud placement destination is not empty: ${destination}`);
+    }
+    const sessionID = `cs_${crypto.randomUUID().replaceAll("-", "")}`;
+    const now = new Date().toISOString();
+    session = {
+      version: 1,
+      sessionID,
+      bundleID: payload.bundleID,
+      configurationTree: payload.configurationTree,
+      root,
+      dataHome: join(cloudSessionDirectory(sessionID), "data"),
+      instanceID: crypto.randomUUID(),
+      phase: "preparing",
+      createdAt: now,
+      updatedAt: now,
+      placements: payload.placements.map((placement) => ({
+        ...placement,
+        path: cloudPlacementPath(root, placement.relativePath),
+      })),
+    };
+    await saveCloudSession(session);
+  }
+  const deadline = Date.now() + options.timeoutMs;
+  let spawnedPID: number | undefined;
+  try {
+    const attached = await liveCloudStatus(session);
+    if (!attached && processIsAlive(session.pid)) {
+      throw new Error("The recorded cloud Arbor Sync process is alive but its instance cannot be verified; refusing to start a second writer");
+    }
+    if (!attached) {
+      await prepareCloudDataHome(payload, session);
+      const directory = cloudSessionDirectory(session.sessionID);
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      const stdoutPath = join(directory, "arborsync.stdout.log");
+      const stderrPath = join(directory, "arborsync.stderr.log");
+      await Promise.all([
+        writeFile(stdoutPath, "", { mode: 0o600 }),
+        writeFile(stderrPath, "", { mode: 0o600 }),
+      ]);
+      session = { ...session, instanceID: crypto.randomUUID(), phase: "preparing", updatedAt: new Date().toISOString(), origin: undefined, pid: undefined, lastError: undefined };
+      await saveCloudSession(session);
+      const cliEntryPoint = process.argv[1];
+      if (!cliEntryPoint) throw new Error("Cannot locate the Arbor CLI entry point");
+      const child = Bun.spawn([
+        process.execPath,
+        cliEntryPoint,
+        "__cloud-arborsync",
+        "--control",
+        "--port", "0",
+        "--runtime-kind", "cloud",
+        "--instance-id", session.instanceID,
+      ], {
+        cwd: root,
+        env: { ...process.env, ARBOR_DATA_HOME: session.dataHome, ARBOR_CREDENTIAL_STORE: "file" },
+        stdout: Bun.file(stdoutPath),
+        stderr: Bun.file(stderrPath),
+      });
+      spawnedPID = child.pid;
+      child.unref();
+      const origin = await waitForCloudOrigin(session, deadline);
+      session = { ...session, origin, pid: child.pid, updatedAt: new Date().toISOString() };
+      await saveCloudSession(session);
+    }
+    if (!session.origin) throw new Error("Cloud Arbor Sync origin is unavailable");
+    const client = new ArborSyncRESTClient({ baseURL: session.origin });
+    await client.synchronizeNow(payload.configurationTree);
+    await waitForCloudPlacements(session, payload, deadline);
+    session = { ...session, phase: "ready", updatedAt: new Date().toISOString(), lastError: undefined };
+    await saveCloudSession(session);
+    const result = { schemaVersion: 1, ready: true, sessionID: session.sessionID, bundleID: session.bundleID, root, origin: session.origin, placements: session.placements };
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`Cloud Arbor Sync is ready at ${session.origin}.`);
+      for (const placement of session.placements) console.log(`${placement.canonicalURL} ↔ ${placement.path}`);
+    }
+  } catch (error) {
+    if (spawnedPID) await stopOwnedProcess(spawnedPID);
+    const message = error instanceof Error ? error.message : String(error);
+    await saveCloudSession({ ...session, phase: "preparing", updatedAt: new Date().toISOString(), lastError: message });
+    if (!existing) console.error(`Cloud session ${session.sessionID} was retained for retry.`);
+    throw error;
+  }
+}
+
+function cloudFinishArguments(args: string[]): { root: string; timeoutMs: number; json: boolean } {
+  let root = process.cwd();
+  let timeout: string | undefined;
+  let json = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--root" || arg === "--timeout") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) usageError(`${arg} requires a value`);
+      if (arg === "--root") root = value;
+      else timeout = value;
+      index += 1;
+    } else if (arg === "--json") json = true;
+    else usageError(`Unknown cloud finish option: ${arg}`);
+  }
+  return { root: resolve(root), timeoutMs: parseDuration(timeout), json };
+}
+
+async function finishCloud(args: string[]): Promise<void> {
+  const options = cloudFinishArguments(args);
+  let session = await cloudSessionForPath(options.root);
+  if (!session || session.phase === "finished") throw new Error(`No active cloud session contains ${options.root}`);
+  if (!session.origin || !session.pid || !await liveCloudStatus(session)) {
+    await saveCloudSession({ ...session, phase: "needs-sync", updatedAt: new Date().toISOString(), lastError: "Cloud Arbor Sync is not running" });
+    throw new Error("Cloud Arbor Sync is not running; retained session state requires recovery before it can finish");
+  }
+  session = { ...session, phase: "draining", updatedAt: new Date().toISOString(), lastError: undefined };
+  await saveCloudSession(session);
+  try {
+    const deadline = Date.now() + options.timeoutMs;
+    const connection = await withEnvironment(
+      { ARBOR_DATA_HOME: session.dataHome, ARBOR_CREDENTIAL_STORE: "file" },
+      () => new CanopyAccountStore(session!.configurationTree).get(),
+    );
+    if (!connection) throw new Error("Cloud session credential is unavailable");
+    const payload = {
+      origin: connection.record.origin,
+      credential: connection.accountToken,
+      configurationTree: connection.record.configurationTree,
+    };
+    const client = new ArborSyncRESTClient({ baseURL: session.origin });
+    await client.synchronizeNow(payload.configurationTree);
+    await waitForCloudPlacements(session, payload, deadline);
+    if (!await liveCloudStatus(session)) throw new Error("Cloud Arbor Sync instance changed before shutdown");
+    const pid = session.pid;
+    if (!pid) throw new Error("Cloud Arbor Sync PID is unavailable");
+    process.kill(pid, "SIGTERM");
+    while (Date.now() < deadline && await liveCloudStatus(session)) await Bun.sleep(50);
+    if (await liveCloudStatus(session)) throw new Error("Cloud Arbor Sync did not stop before the timeout");
+    await rm(session.dataHome, { recursive: true, force: true });
+    session = { ...session, phase: "finished", updatedAt: new Date().toISOString(), lastError: undefined };
+    await saveCloudSession(session);
+    const result = { schemaVersion: 1, finished: true, sessionID: session.sessionID, root: session.root, placements: session.placements };
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`Cloud session ${session.sessionID} synchronized and stopped.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await saveCloudSession({ ...session, phase: "needs-sync", updatedAt: new Date().toISOString(), lastError: message });
+    throw error;
+  }
+}
+
+type StatusTreeCondition = "missing" | "conflict" | "error" | "offline" | "syncing" | "not-placed" | "up-to-date";
+
+function statusTreeCondition(tree: Awaited<ReturnType<ArborSyncRESTClient["trees"]>>["snapshot"][number]): StatusTreeCondition {
+  if (tree.missing) return "missing";
+  if (tree.sync === "conflict") return "conflict";
+  if (tree.sync === "error") return "error";
+  if (tree.sync === "offline") return "offline";
+  if (tree.sync === "syncing") return "syncing";
+  if (tree.placement === "remote" || !tree.osPath) return "not-placed";
+  return "up-to-date";
+}
+
+function statusArguments(args: string[]): { locator?: string; json: boolean } {
+  let locator: string | undefined;
+  let json = false;
+  for (const arg of args) {
+    if (arg === "--json") json = true;
+    else if (arg.startsWith("--")) usageError(`Unknown status option: ${arg}`);
+    else if (locator) usageError("arbor status accepts at most one locator");
+    else locator = arg;
+  }
+  return { ...(locator ? { locator } : {}), json };
+}
+
+async function statusCommand(args: string[]): Promise<void> {
+  const options = statusArguments(args);
+  const selectionPath = options.locator && !/^(?:https?|arbor):\/\//.test(options.locator)
+    ? resolve(options.locator)
+    : process.cwd();
+  const cloud = !process.env.ARBOR_SYNC_URL && !process.env.ARBOR_DATA_HOME
+    ? await cloudSessionForPath(selectionPath)
+    : null;
+  const contextKind = process.env.ARBOR_SYNC_URL
+    ? "explicit-url"
+    : process.env.ARBOR_DATA_HOME
+      ? "foreground"
+      : cloud
+        ? "cloud"
+        : "persistent";
+  const origin = process.env.ARBOR_SYNC_URL ?? cloud?.origin ?? `http://127.0.0.1:${ARBOR_SYNC_PORT}`;
+  let liveStatus: Awaited<ReturnType<ArborSyncRESTClient["status"]>> | null = null;
+  let accounts: Awaited<ReturnType<ArborSyncRESTClient["accounts"]>>["accounts"] = [];
+  let trees: Awaited<ReturnType<ArborSyncRESTClient["trees"]>>["snapshot"] = [];
+  let observedThrough: string | undefined;
+  let runtimeState: "running" | "stopped" | "unreachable" | "incompatible" | "not-installed" = "unreachable";
+  let supervision: Awaited<ReturnType<ReturnType<typeof arborDaemonSupervisor>["status"]>> | undefined;
+  const diagnostics: Array<{ code: string; message: string }> = [];
+  try {
+    const client = new ArborSyncRESTClient({ baseURL: origin });
+    const status = await client.status();
+    if (status.service !== "arborsync" || status.protocolVersion !== "v1" || (cloud && status.instanceID !== cloud.instanceID)) {
+      runtimeState = "incompatible";
+      diagnostics.push({ code: "incompatible-runtime", message: "The selected endpoint is not the expected Arbor Sync instance" });
+    } else {
+      liveStatus = status;
+      runtimeState = "running";
+      const [accountResult, treeResult] = await Promise.all([client.accounts(), client.trees()]);
+      accounts = accountResult.accounts;
+      trees = treeResult.snapshot;
+      observedThrough = treeResult.observedThrough;
+    }
+  } catch (error) {
+    diagnostics.push({ code: "unreachable-runtime", message: error instanceof Error ? error.message : String(error) });
+    if (contextKind === "persistent") {
+      supervision = await arborDaemonSupervisor().status();
+      runtimeState = supervision.state === "not-installed"
+        ? "not-installed"
+        : supervision.state === "stopped"
+          ? "stopped"
+          : "unreachable";
+    } else if (cloud?.phase === "finished") runtimeState = "stopped";
+  }
+  const cloudPhase = cloud && runtimeState !== "running" && ["preparing", "ready", "draining"].includes(cloud.phase)
+    ? "interrupted"
+    : cloud?.phase;
+  const decoratedTrees = trees.map((tree) => ({ ...tree, condition: statusTreeCondition(tree) }));
+  let selection: Record<string, unknown> | undefined;
+  if (options.locator) {
+    if (!liveStatus) throw new Error(`Cannot resolve ${options.locator} because the selected Arbor Sync is not running`);
+    const input = /^(?:https?|arbor):\/\//.test(options.locator) ? options.locator : resolve(options.locator);
+    const resolved = await new ArborSyncRESTClient({ baseURL: origin }).resolve(input);
+    const tree = resolved.enclosingTree
+      ? decoratedTrees.find((candidate) => candidate.id === resolved.enclosingTree!.id)
+      : undefined;
+    selection = {
+      input: options.locator,
+      ref: resolved.ref,
+      historical: resolved.historical,
+      ...(tree ? { tree, condition: tree.condition } : { condition: /^(?:https?|arbor):\/\//.test(options.locator) ? "not-placed" : "not-applicable" }),
+    };
+  }
+  const inScopeTrees = cloud
+    ? decoratedTrees.filter((tree) => cloud.placements.some((target) => target.treeID === tree.id && target.path === tree.osPath))
+    : decoratedTrees.filter((tree) => tree.placement !== "remote");
+  const ready = runtimeState === "running"
+    && (!cloud || cloud.phase === "ready")
+    && inScopeTrees.length === (cloud?.placements.length ?? inScopeTrees.length)
+    && inScopeTrees.every((tree) => tree.condition === "up-to-date");
+  const result = {
+    schemaVersion: 1,
+    ready,
+    context: {
+      kind: contextKind,
+      ...(process.env.ARBOR_DATA_HOME ? { dataHome: resolve(process.env.ARBOR_DATA_HOME) } : {}),
+      origin,
+    },
+    runtime: {
+      state: runtimeState,
+      ...(liveStatus ? { instanceID: liveStatus.instanceID, runtimeKind: liveStatus.runtimeKind } : {}),
+      ...(cloud?.pid ? { pid: cloud.pid } : supervision?.pid ? { pid: supervision.pid } : {}),
+      ...(supervision ? { supervision: { installed: supervision.installed, platform: supervision.platform } } : {}),
+    },
+    ...(cloud ? {
+      cloudSession: {
+        id: cloud.sessionID,
+        root: cloud.root,
+        phase: cloudPhase,
+        updatedAt: cloud.updatedAt,
+        targets: cloud.placements.map(({ treeID, canonicalURL, relativePath, path }) => ({ treeID, canonicalURL, relativePath, path })),
+        ...(cloud.lastError ? { lastError: cloud.lastError } : {}),
+      },
+    } : {}),
+    ...(liveStatus ? {
+      live: {
+        service: liveStatus.service,
+        version: liveStatus.version,
+        protocolVersion: liveStatus.protocolVersion,
+        accounts,
+        trees: { snapshot: decoratedTrees, observedThrough },
+      },
+    } : {}),
+    ...(selection ? { selection } : {}),
+    diagnostics,
+  };
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log(`Arbor Sync: ${runtimeState} (${contextKind})`);
+  if (cloud) {
+    console.log(`Cloud session: ${cloudPhase}`);
+    console.log(`Workspace: ${cloud.root}`);
+  }
+  console.log(`Origin: ${origin}`);
+  if (selection) {
+    const selected = selection.tree as (typeof decoratedTrees)[number] | undefined;
+    console.log(`Selection: ${options.locator}`);
+    if (selected) {
+      console.log(`Tree: ${selected.id}`);
+      console.log(`Placement: ${selected.osPath ?? "remote only"}`);
+      console.log(`Sync: ${selected.condition}`);
+    } else {
+      console.log(`Tree: ${selection.condition === "not-applicable" ? "not placed" : "remote only"}`);
+      console.log(`Sync: ${selection.condition}`);
+    }
+  } else if (liveStatus) {
+    console.log(`Accounts: ${accounts.length} connected`);
+    console.log("Trees:");
+    if (!decoratedTrees.length) console.log("  none");
+    for (const tree of decoratedTrees) {
+      console.log(`  ${tree.condition.padEnd(11)} ${tree.osPath ?? (tree.canonical ? canonicalArborLocator(tree.canonical) : tree.id)} (${tree.access})`);
+    }
+  }
+  if (cloud && ["needs-sync", "interrupted"].includes(cloudPhase ?? "")) {
+    console.log(`Recovery: run arbor cloud finish --root ${JSON.stringify(cloud.root)}`);
+  }
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+  if (command === "__cloud-arborsync") {
+    await runArborSyncDaemon(args);
+    return;
+  }
+  if (command === "status") {
+    await statusCommand(args);
+    return;
+  }
+  if (command === "cloud") {
+    const [action, ...operands] = args;
+    if (action === "bundle") {
+      const [bundleAction, ...bundleOperands] = operands;
+      if (bundleAction === "create") await createCloudBundle(bundleOperands);
+      else if (bundleAction === "list") {
+        if (bundleOperands.length > 1 || (bundleOperands.length === 1 && bundleOperands[0] !== "--json")) usage();
+        await listCloudBundles(bundleOperands[0] === "--json");
+      } else if (bundleAction === "revoke") {
+        if (bundleOperands.length !== 1) usage();
+        await revokeCloudBundle(bundleOperands[0]!);
+      } else usage();
+      return;
+    }
+    if (action === "start") {
+      await startCloud(operands);
+      return;
+    }
+    if (action === "finish") {
+      await finishCloud(operands);
+      return;
+    }
+    usage();
+  }
   if (command === "me") {
     const store = new ProfileIdentityStore();
     const [action, ...operands] = args;
@@ -746,8 +1492,12 @@ async function main(): Promise<void> {
     if (args.length > 1 || args.some((arg) => arg.startsWith("-"))) usage();
     const input = args[0] ?? ".";
     const target = openTarget(input);
-    let attached = await attachedArborSyncURL(target, ARBOR_SYNC_PORT);
-    if (!attached && !process.env.ARBOR_DATA_HOME && process.platform === "darwin") {
+    const cloud = !process.env.ARBOR_SYNC_URL && !process.env.ARBOR_DATA_HOME
+      ? await cloudSessionForPath(target.path ?? process.cwd())
+      : null;
+    const selectedOrigin = process.env.ARBOR_SYNC_URL ?? cloud?.origin;
+    let attached = await attachedArborSyncURL(target, ARBOR_SYNC_PORT, selectedOrigin);
+    if (!attached && !process.env.ARBOR_DATA_HOME && !process.env.ARBOR_SYNC_URL && !cloud && process.platform === "darwin") {
       const supervisor = arborDaemonSupervisor();
       const status = await supervisor.status();
       if (!status.installed) throw new Error("Arbor Sync is not running; run `arbor daemon install` first");
@@ -813,6 +1563,6 @@ async function main(): Promise<void> {
 if (import.meta.main) {
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
+    process.exit(error instanceof CLIUsageError ? 2 : 1);
   });
 }

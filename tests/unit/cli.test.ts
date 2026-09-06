@@ -114,4 +114,60 @@ describe("arbor open operands", () => {
       await rm(state, { recursive: true, force: true });
     }
   });
+
+  test("reports general status from an explicitly selected Arbor Sync without mutating it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-status-root-"));
+    const state = await mkdtemp(join(tmpdir(), "arbor-status-state-"));
+    const previousDataHome = process.env.ARBOR_DATA_HOME;
+    process.env.ARBOR_DATA_HOME = state;
+    const running = await serveArborSync(root, { port: 0, instanceID: "status-test-instance" });
+    try {
+      const childEnvironment: Record<string, string | undefined> = { ...process.env, ARBOR_SYNC_URL: running.url };
+      delete childEnvironment.ARBOR_DATA_HOME;
+      const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "status", "--json"], {
+        cwd: join(import.meta.dir, "../.."),
+        env: childEnvironment,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exit, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+      expect(exit).toBe(0);
+      expect(JSON.parse(stdout)).toMatchObject({
+        schemaVersion: 1,
+        context: { kind: "explicit-url", origin: running.url },
+        runtime: { state: "running", instanceID: "status-test-instance" },
+      });
+    } finally {
+      running.server.stop(true);
+      await running.service[Symbol.asyncDispose]();
+      if (previousDataHome === undefined) delete process.env.ARBOR_DATA_HOME;
+      else process.env.ARBOR_DATA_HOME = previousDataHome;
+      await rm(root, { recursive: true, force: true });
+      await rm(state, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects simultaneous cloud bundle argument and environment input", async () => {
+    const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "cloud", "start", "argument-bundle"], {
+      cwd: join(import.meta.dir, "../.."),
+      env: { ...process.env, ARBOR_CLOUD_BUNDLE: "environment-bundle" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(exit).toBe(2);
+    expect(stderr).toContain("argument or ARBOR_CLOUD_BUNDLE, not both");
+    expect(stderr).not.toContain("environment-bundle");
+  });
+
+  test("uses exit 2 for malformed general status arguments", async () => {
+    const child = Bun.spawn(["bun", "packages/cli/src/index.ts", "status", "--unknown"], {
+      cwd: join(import.meta.dir, "../.."),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(exit).toBe(2);
+    expect(stderr).toContain("Unknown status option: --unknown");
+  });
 });

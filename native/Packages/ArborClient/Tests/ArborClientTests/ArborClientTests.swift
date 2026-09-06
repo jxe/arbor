@@ -31,6 +31,7 @@ final class ArborClientTests: XCTestCase {
     }
 
     func testSharedFixturesDecodeWithoutAppDependencies() throws {
+        let status = try decode(ArborSyncStatus.self, "status.json")
         let node = try decode(NodeSnapshot.self, "node.json")
         let mutation = try decode(MutationRequest.self, "mutation.json")
         let receipt = try decode(MutationReceipt.self, "receipt.json")
@@ -50,6 +51,9 @@ final class ArborClientTests: XCTestCase {
         let intentFixtures = try XCTUnwrap(JSONSerialization.jsonObject(with: intentFixtureData) as? [String: Any])
 
         XCTAssertEqual(node.ref, NodeRef(tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: pageIDStableKey("abc123")))
+        XCTAssertEqual(status.instanceID, "instance-fixture-01")
+        XCTAssertEqual(status.runtimeKind, "cloud")
+        XCTAssertEqual(status.deviceID, "dv_fixturedevice23456723456723")
         XCTAssertEqual(node.content?.source, "---\nid: abc123\ntitle: Today\n---\nHello\n")
         XCTAssertEqual(node.ref.tree, "tr_notes7f3q2ab7c")
         XCTAssertEqual(node.enclosingTree?.osPath, "/Users/joe/notes")

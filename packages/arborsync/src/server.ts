@@ -388,6 +388,8 @@ async function decodeImport(request: Request): Promise<{
 export interface ArborSyncServerOptions {
   port?: number;
   hostname?: string;
+  instanceID?: string;
+  runtimeKind?: "persistent" | "foreground" | "cloud";
   faultInjector?: (stage: string) => void | Promise<void>;
   queryRuntime?: QueryStreamRuntime;
   mutationRuntime?: MutationCallRuntime;
@@ -402,12 +404,15 @@ function startArborSyncServer(
   options: {
     port?: number;
     hostname?: string;
+    instanceID?: string;
+    runtimeKind?: "persistent" | "foreground" | "cloud";
     queryRuntime?: QueryStreamRuntime;
     mutationRuntime?: MutationCallRuntime;
     queryUser?: { profile: string } | null;
   } = {},
 ) {
   const renderRoot = join(import.meta.dir, "../../render/dist");
+  const instanceID = options.instanceID ?? crypto.randomUUID();
   const server = Bun.serve({
     port: options.port ?? 4317,
     hostname: options.hostname ?? "127.0.0.1",
@@ -418,7 +423,14 @@ function startArborSyncServer(
 
         if (request.method === "GET" && url.pathname === "/v1/status") {
           const deviceID = await currentDeviceID();
-          return json({ service: "arborsync", version: "0.1.0", protocolVersion: "v1", ...(deviceID ? { deviceID } : {}) });
+          return json({
+            service: "arborsync",
+            version: "0.1.0",
+            protocolVersion: "v1",
+            instanceID,
+            runtimeKind: options.runtimeKind ?? (workspace ? "foreground" : "persistent"),
+            ...(deviceID ? { deviceID } : {}),
+          });
         }
         if (request.method === "POST" && url.pathname === "/v1/sync") {
           const source = await request.text();

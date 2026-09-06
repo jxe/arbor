@@ -13,6 +13,7 @@ let state: string;
 let profile: string;
 let firstCanopy: Awaited<ReturnType<typeof serveCanopy>>;
 let secondCanopy: Awaited<ReturnType<typeof serveCanopy>>;
+let previousCloudHome: string | undefined;
 
 async function arborOutput(args: string[]): Promise<{ stdout: string; stderr: string }> {
   const process = Bun.spawn(["bun", "packages/cli/src/index.ts", ...args], {
@@ -32,6 +33,25 @@ async function arborOutput(args: string[]): Promise<{ stdout: string; stderr: st
 
 async function arbor(args: string[]): Promise<string> {
   return (await arborOutput(args)).stdout;
+}
+
+async function cloudStatus(path: string): Promise<Record<string, unknown>> {
+  const environment: Record<string, string | undefined> = { ...Bun.env };
+  delete environment.ARBOR_DATA_HOME;
+  delete environment.ARBOR_SYNC_URL;
+  const process = Bun.spawn(["bun", join(import.meta.dir, "../../packages/cli/src/index.ts"), "status", "--json"], {
+    cwd: path,
+    env: environment,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exit, stdout, stderr] = await Promise.all([
+    process.exited,
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+  ]);
+  expect(exit, stderr).toBe(0);
+  return JSON.parse(stdout) as Record<string, unknown>;
 }
 
 async function arborFailure(args: string[]): Promise<string> {
@@ -70,6 +90,8 @@ async function source(name: string, contents = "# CLI place\n"): Promise<string>
 
 beforeAll(async () => {
   sandbox = await mkdtemp(join(tmpdir(), "arbor-cli-sync-"));
+  previousCloudHome = process.env.ARBOR_CLOUD_HOME;
+  process.env.ARBOR_CLOUD_HOME = join(sandbox, "cloud-sessions");
   state = join(sandbox, "state");
   profile = join(sandbox, "profile");
   await Promise.all([state, profile].map((path) => mkdir(path, { recursive: true })));
@@ -106,9 +128,64 @@ afterAll(async () => {
   await firstCanopy.canopy[Symbol.asyncDispose]();
   await secondCanopy.canopy[Symbol.asyncDispose]();
   await rm(sandbox, { recursive: true, force: true });
+  if (previousCloudHome === undefined) delete process.env.ARBOR_CLOUD_HOME;
+  else process.env.ARBOR_CLOUD_HOME = previousCloudHome;
 });
 
 describe("plural-account CLI place", () => {
+  test("reuses and revokes a cloud bundle across complete start and finish sessions", async () => {
+    const original = await source("cloud-source", "# From the creator\n");
+    const canonical = `${firstCanopy.url}/~alice/cloud-source`;
+    await arbor(["place", original, canonical]);
+    const created = await arborOutput([
+      "cloud", "bundle", "create", "--name", "Integration cloud bundle",
+      "--place", canonical, "checkout",
+    ]);
+    expect(created.stderr).toContain("Created reusable cloud bundle");
+    expect(created.stdout).toStartWith("arbor-cloud-v1.cb_");
+    expect(created.stdout).not.toContain("From the creator");
+
+    const firstRoot = join(sandbox, "cloud-run-one");
+    expect(await arborFailure(["cloud", "start", created.stdout, "--root", firstRoot, "--timeout", "1ms"]))
+      .toContain("retained for retry");
+    expect(await cloudStatus(firstRoot)).toMatchObject({
+      ready: false,
+      context: { kind: "cloud" },
+      cloudSession: { phase: "interrupted" },
+    });
+    const started = await arborOutput(["cloud", "start", created.stdout, "--root", firstRoot, "--timeout", "15s", "--json"]);
+    expect(JSON.parse(started.stdout)).toMatchObject({ ready: true, root: await realpath(firstRoot) });
+    expect(await cloudStatus(firstRoot)).toMatchObject({
+      ready: true,
+      context: { kind: "cloud" },
+      runtime: { state: "running", runtimeKind: "cloud" },
+      cloudSession: { phase: "ready" },
+    });
+    expect(await readFile(join(firstRoot, "checkout", "note.md"), "utf8")).toBe("# From the creator\n");
+    await writeFile(join(firstRoot, "checkout", "note.md"), "# From cloud one\n");
+    expect(JSON.parse((await arborOutput(["cloud", "finish", "--root", firstRoot, "--timeout", "15s", "--json"])).stdout))
+      .toMatchObject({ finished: true, root: await realpath(firstRoot) });
+    expect(await cloudStatus(firstRoot)).toMatchObject({
+      ready: false,
+      context: { kind: "cloud" },
+      runtime: { state: "stopped" },
+      cloudSession: { phase: "finished" },
+    });
+
+    const secondRoot = join(sandbox, "cloud-run-two");
+    await arborOutput(["cloud", "start", created.stdout, "--root", secondRoot, "--timeout", "15s"]);
+    expect(await readFile(join(secondRoot, "checkout", "note.md"), "utf8")).toBe("# From cloud one\n");
+    await arborOutput(["cloud", "finish", "--root", secondRoot, "--timeout", "15s"]);
+
+    const bundleID = created.stdout.split(".")[1]!;
+    await arborOutput(["cloud", "bundle", "revoke", bundleID]);
+    const listed = JSON.parse((await arborOutput(["cloud", "bundle", "list", "--json"])).stdout);
+    expect(listed.bundles).toContainEqual(expect.objectContaining({ bundleID, revokedAt: expect.any(String) }));
+    expect(JSON.stringify(listed)).not.toContain(created.stdout);
+    expect(await arborFailure(["cloud", "start", created.stdout, "--root", join(sandbox, "cloud-run-revoked"), "--timeout", "2s"]))
+      .toContain("unauthenticated");
+  }, 45_000);
+
   test("selects the account that owns each canonical namespace", async () => {
     const firstSource = await source("first-source", "# First\n");
     const secondSource = await source("second-source", "# Second\n");

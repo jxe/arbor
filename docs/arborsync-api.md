@@ -91,13 +91,21 @@ GET  /v1/accounts
 GET  /v1/resolve?locator={ArborLocator}
 ```
 
-Status returns the service and protocol versions plus the current `DeviceID`
-when connected. `POST /v1/sync` accepts an optional
+Status returns the service and protocol versions, an opaque process
+`instanceID`, the `runtimeKind` (`persistent`, `foreground`, or `cloud`), and
+the current `DeviceID` when connected. The instance ID lets an owner verify
+that a PID or loopback port still belongs to the runtime it created; clients
+must not assign meaning to its contents.
+
+`POST /v1/sync` accepts an optional
 `{ configurationTree: TreeID }` body, waits for the matching account's current
 synchronization pass, and lets attached CLI clients use the same process rather
 than creating a second writer. With no body it waits for every account. An
 account-qualified operation scopes this boundary so an unrelated offline
 Canopy remains visibly errored without blocking healthy accounts.
+Completion means that the pass ran, not that every tree is ready: clients that
+need a readiness boundary must inspect the exact `GET /v1/trees` descriptors
+and reject missing, offline, conflicting, errored, or still-syncing targets.
 `POST /v1/sessions` accepts one absolute local root and activates
 the daemon's filesystem watching and durable node identity for that browsing
 session; repeated activation of the same root is idempotent.

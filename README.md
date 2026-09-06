@@ -49,6 +49,28 @@ foreground mode available with `ARBOR_DATA_HOME`.
 
 See the [CLI reference](docs/cli.md) for persistent daemon setup, placing synchronized trees, moves, identity backup and restore, and command safety rules.
 
+### Short-lived cloud agents
+
+An administrator device can package authorization and relative tree placements
+into one reusable, revocable string. On the cloud machine, `start` blocks until
+the requested folders exactly match their accepted Canopy roots; `finish`
+performs the final upload and stops the isolated Arbor Sync:
+
+```sh
+bundle=$(arbor cloud bundle create \
+  --place https://garden.example/~joe/code code)
+
+ARBOR_CLOUD_BUNDLE="$bundle" arbor cloud start --root /workspace
+# Run the agent against /workspace/code.
+arbor status /workspace/code
+arbor cloud finish --root /workspace
+```
+
+Run `arbor cloud bundle revoke <bundle-id>` on the configured administrator
+device to invalidate every use of that bundle. See the
+[CLI reference](docs/cli.md#short-lived-cloud-sessions) for lifecycle,
+recovery, and credential-handling details.
+
 ## Run a Canopy server
 
 A new Canopy community reserves its first account for an existing self-certifying profile. Print the profile TreeID created above:

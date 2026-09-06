@@ -1,6 +1,6 @@
 # Smaller project 004: External agent access through the Arbor CLI
 
-**Status:** Planned. This is an independent enabling plan, not the Canopy-hosted agent milestone. Read-only work can begin against the implemented arborsync/client surface; compiled executable-document handle invocation follows the live-data document work.
+**Status:** In progress. General `arbor status [<locator>] [--json]` and cloud-session discovery are implemented; the composable read, mutation, skill, and workflow surfaces below remain. This is an independent enabling plan, not the Canopy-hosted agent milestone. Compiled executable-document handle invocation follows the live-data document work.
 
 ## Target result
 
@@ -35,10 +35,9 @@ An external service does not need an Arbor-specific adapter when the chosen agen
 
 Add thin CLI commands over the existing `ArborSyncRESTClient` operations. Commands resolve operands as Arbor locators and use arborsync or the relevant server rather than reading private Arbor state.
 
-The initial read surface is:
+The remaining initial read surface is:
 
 ```text
-arbor status [<locator>] --json
 arbor resolve <locator> --json
 arbor read <locator> [--source|--json]
 arbor children <locator> [--cursor <cursor>] --json
@@ -104,8 +103,8 @@ Keep the skill procedural and small. Command help and JSON schemas remain author
 
 ### Phase 1 — read and discovery commands
 
-1. Add a shared CLI request/output layer over `ArborSyncRESTClient`.
-2. Implement `status`, `resolve`, `read`, `children`, `search`, `backlinks`, and
+1. Extend the status command's request/output conventions across `ArborSyncRESTClient` operations.
+2. Implement `resolve`, `read`, `children`, `search`, `backlinks`, and
    `recovery` with deterministic JSON.
 3. Exercise local paths, mounted nested trees, unplaced remote trees, historical locators, pagination, missing content, and inaccessible content.
 4. Document concise examples in CLI help without requiring a running model.

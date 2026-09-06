@@ -14,6 +14,7 @@ import type {
 import { canonicalArborLocator, canonicalHTTPURL, stableJSONString, decodeNodeRef, parseSSEFrame, parseSSEStream } from "@arbor/core";
 import type { AccessEntry, NodeResponse, RemoteTreeDescriptor, TreeDescriptor } from "@arbor/core";
 import { WireClient, decodeAcceptedUpdateJSON, decodeSnapshotBundle, decodeUpdateRequestJSON, hashObject, updateRequestDigests } from "@arbor/wire";
+import type { ArborSyncStatus } from "@arbor/client";
 import { nodeDocument } from "../helpers/node-snapshot.ts";
 
 // Test-local checks mirroring ArborWire's `WireTreeDescriptor.validated()` and
@@ -66,6 +67,7 @@ const conformanceJSON = async <T>(name: string): Promise<T> =>
 
 describe("REST v1 protocol fixtures", () => {
   test("decode the shared node, mutation, receipt, and unknown error values", async () => {
+    const status = await json<ArborSyncStatus>("status.json");
     const node = await json<NodeResponse>("node.json");
     const mutation = await json<MutationRequest>("mutation.json");
     const receipt = await json<MutationReceipt>("receipt.json");
@@ -78,6 +80,14 @@ describe("REST v1 protocol fixtures", () => {
     expect(receipt.effects[0]?.ref.tree).toBe("tr_notes7f3q2ab7c");
     expect(receipt.effects[0]?.propertiesRevision).toBe("sha256:properties");
     expect(error.error).toBe("future-error-code");
+    expect(status).toEqual({
+      service: "arborsync",
+      version: "0.1.0",
+      protocolVersion: "v1",
+      instanceID: "instance-fixture-01",
+      runtimeKind: "cloud",
+      deviceID: "dv_fixturedevice23456723456723",
+    });
   });
 
   test("decodes the tree-scoped, unpromoted, and system fixtures", async () => {

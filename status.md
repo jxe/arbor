@@ -1,7 +1,7 @@
 # Arbor implementation status
 
-*Source snapshot reviewed: `0142333` plus the content-addressed snapshot implementation,
-2026-09-04. Check the current working tree and tests before relying on a status
+*Source snapshot reviewed: `a18bc7b` plus the reusable cloud-session implementation,
+2026-09-06. Check the current working tree and tests before relying on a status
 label.*
 
 This page reports what the reference implementation does today. The [specification](spec.md) is intentionally broader: it defines the portable system Arbor is building toward. Active work belongs in [plans](plans/README.md), and completed evidence belongs in [plans/_done](plans/_done/README.md).
@@ -13,6 +13,7 @@ This page reports what the reference implementation does today. The [specificati
 - **Canopy communities and accounts.** A Canopy can host a community plus person and group profile trees, reserve account paths, enforce whole-tree access, and reconcile synchronized account configuration.
 - **Profile identity and claiming.** `arbor me create` creates a self-certifying person Profile TreeID. A community reserves that exact identity and the client proves control through the signed challenge/claim flow.
 - **Plural local accounts and devices.** One Arbor data home can hold several Canopy accounts, including multiple accounts at one origin. Account configuration uses `account.yaml`, `trees.yaml`, and `devices.yaml`; native account pairing has passed its recorded Mac-to-iPhone primary-path acceptance.
+- **Short-lived cloud workspaces.** The CLI can mint a reusable one-account cloud bundle, materialize its exact writable tree placements under an isolated root, keep them synchronized through a detached Arbor Sync, verify and stop through an explicit finish boundary, revoke the bundle device, and report persistent, foreground, or cloud state through `arbor status`.
 - **Headless executable-data core.** The checked-in Supplies corpus has SQLite-backed query lowering and execution, dependency-sensitive live result streams, and authorized transactional mutations with durable retry receipts.
 
 ## Partial or in progress

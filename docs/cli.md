@@ -1,7 +1,8 @@
 # Arbor CLI reference
 
-The Arbor CLI opens local or remote trees and places local folders through a
-Canopy. Most of the time, you only need `arbor open` and `arbor place`.
+The Arbor CLI opens local or remote trees, places local folders through a
+Canopy, and prepares synchronized workspaces for short-lived cloud machines.
+Most of the time, you only need `arbor open`, `arbor place`, and `arbor status`.
 `arbor me create` is a once-per-person identity setup command and `arbor
 daemon` is mainly for machine setup or troubleshooting; the remaining commands
 handle less common migration and administration work.
@@ -43,10 +44,11 @@ identity already exists; it refuses to replace one.
 - `--dry-run` may perform ordinary synchronization needed to establish a clean
   preflight, but does not apply the requested move or edit placement or
   canonical configuration.
-- Commands use the persistent Arbor Sync daemon by default. `ARBOR_DATA_HOME`
-  selects an isolated data home and runs a temporary foreground Arbor Sync for
-  commands that need one. `ARBOR_SYNC_URL` selects an already-running compatible
-  daemon.
+- Commands select Arbor Sync in this order: `ARBOR_SYNC_URL`, an explicit
+  `ARBOR_DATA_HOME`, the active cloud session containing the command's local
+  path, then the persistent daemon. An explicit data home runs a temporary
+  foreground Arbor Sync for commands that need one; `arbor status` remains
+  observational and never starts one.
 - Successful commands exit `0`. Operational failures exit `1`; malformed usage
   exits `2` after printing the command synopsis.
 
@@ -96,6 +98,93 @@ claimed account at a local path. It does not accept audience options. Use
 arbor place --access public=read ./handbook https://garden.example/~joe/handbook
 arbor place https://garden.example/~joe/handbook ~/Documents/handbook
 ```
+
+### `arbor status`
+
+```text
+arbor status [<locator>] [--json]
+```
+
+With no locator, report the selected Arbor Sync runtime, connected accounts,
+and tree placements. A locator may be a local path, a canonical HTTPS URL, or
+an `arbor://` locator; the focused form reports its enclosing tree and sync
+condition. The command never starts or synchronizes Arbor Sync and never edits
+cloud-session state.
+
+Human output is intended for diagnosis. `--json` returns a versioned object
+with `ready`, context and runtime state, optional cloud-session state, live
+accounts and trees, an optional selection, and safe diagnostics. A valid report
+exits zero even when Arbor Sync is stopped or degraded; scripts inspect
+`ready`, `runtime.state`, and tree conditions. `arbor daemon status` remains the
+lower-level command for launchd installation and supervision details.
+
+```sh
+arbor status
+arbor status ./notes
+arbor status https://garden.example/~joe/notes --json
+```
+
+### Short-lived cloud sessions
+
+Create a reusable bundle on an already configured administrator device. Each
+`--place` pair names the canonical tree root and its portable relative path
+beneath the cloud workspace:
+
+```sh
+bundle=$(arbor cloud bundle create --name "Coding agents" \
+  --place https://garden.example/~joe/code code \
+  --place https://garden.example/~joe/project-notes notes)
+```
+
+The command creates a dedicated non-administrator account device and prints one
+`arbor-cloud-v1...` string to stdout. That string contains its credential and
+the complete placement manifest. It is reusable, immutable, and secret. A
+bundle is limited to one claimed Arbor account on one Canopy, every selected
+tree must be writable, and the encoded string may not exceed 32 KiB. Placement
+paths are relative, disjoint, and cannot escape the chosen root.
+
+Pass the string as an argument or through `ARBOR_CLOUD_BUNDLE`. Supplying both
+is an error. The environment form avoids putting the credential in the
+operating system's process-argument list:
+
+```sh
+# On a short-lived cloud machine:
+ARBOR_CLOUD_BUNDLE="$bundle" arbor cloud start --root /workspace
+
+# This returns only after both trees are present, writable, idle, and exactly
+# equal to their accepted Canopy roots. Arbor Sync remains running.
+cd /workspace/code
+arbor status
+
+# After the agent has stopped writing:
+arbor cloud finish --root /workspace
+```
+
+`start` defaults to the current directory and a five-minute timeout. It creates
+an isolated owner-only data home and a detached loopback Arbor Sync. A new
+destination must be absent or empty. Failed preparation retains downloaded
+files and session state for another `start`, but stops the process it launched.
+
+`finish` performs a final scan and sync, proves every local root equals the
+accepted Canopy root, and then stops that exact Arbor Sync instance. If it
+cannot prove completion before its five-minute default timeout, it exits
+nonzero, records `needs-sync`, and leaves the daemon and private state available
+for another `finish`. SIGINT and SIGTERM make the daemon attempt the same final
+sync, but only explicit `finish` provides the complete verification contract.
+
+Bundles remain active until revoked. Their safe local registry contains labels
+and device IDs, never credentials or placements:
+
+```sh
+arbor cloud bundle list
+arbor cloud bundle list --json
+arbor cloud bundle revoke cb_0123456789abcdef0123456789abcdef
+```
+
+Revocation requires a configured administrator device. It removes the cloud
+device and cuts off current watches and future requests. It cannot retract data
+that a cloud machine already downloaded. Creating a replacement bundle is the
+way to change placements.
 
 ## Setup and troubleshooting
 

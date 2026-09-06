@@ -1,0 +1,8 @@
+{
+  "service": "arborsync",
+  "version": "0.1.0",
+  "protocolVersion": "v1",
+  "instanceID": "instance-fixture-01",
+  "runtimeKind": "cloud",
+  "deviceID": "dv_fixturedevice23456723456723"
+}

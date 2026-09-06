@@ -68,13 +68,27 @@ export class CanopyAccountStore {
     return { service: SERVICE, name: accountCredentialName(this.configurationTree) };
   }
 
+  private get credentialPath(): string {
+    return join(arborPrivateRoot(), "accounts", this.configurationTree, "credential");
+  }
+
+  private get usesFileCredentials(): boolean {
+    return process.env.ARBOR_CREDENTIAL_STORE === "file";
+  }
+
   /** Durable pre-network slot used while an exact account claim is pending. */
   async storeProvisionalCredential(value: string): Promise<void> {
     if (!value) throw new Error("Account credential must not be empty");
-    await Bun.secrets.set({ ...this.credentialLocation(), value });
+    if (this.usesFileCredentials) {
+      await mkdir(join(arborPrivateRoot(), "accounts", this.configurationTree), { recursive: true, mode: 0o700 });
+      await writeFile(this.credentialPath, value, { mode: 0o600 });
+    } else {
+      await Bun.secrets.set({ ...this.credentialLocation(), value });
+    }
   }
 
   async provisionalCredential(): Promise<string | null> {
+    if (this.usesFileCredentials) return readFile(this.credentialPath, "utf8").catch(() => null);
     return Bun.secrets.get(this.credentialLocation()).catch(() => null);
   }
 
@@ -87,12 +101,13 @@ export class CanopyAccountStore {
       ...metadata,
       origin,
       configurationTree: this.configurationTree,
-      credential: `${location.service}/${location.name}`,
+      credential: this.usesFileCredentials ? "file:credential" : `${location.service}/${location.name}`,
       tokenDigest: sha256(accountToken),
       connected: true,
     };
-    await Bun.secrets.set({ ...location, value: accountToken });
     await mkdir(join(arborPrivateRoot(), "accounts", this.configurationTree), { recursive: true, mode: 0o700 });
+    if (this.usesFileCredentials) await writeFile(this.credentialPath, accountToken, { mode: 0o600 });
+    else await Bun.secrets.set({ ...location, value: accountToken });
     await writeFile(this.path, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
     return record;
   }
@@ -119,6 +134,10 @@ export class CanopyAccountStore {
   async get(): Promise<{ record: CanopyAccountRecord; accountToken: string } | null> {
     const record = await this.safe();
     if (!record) return null;
+    if (record.credential === "file:credential") {
+      const accountToken = await readFile(this.credentialPath, "utf8").catch(() => null);
+      return accountToken && sha256(accountToken) === record.tokenDigest ? { record, accountToken } : null;
+    }
     const location = credentialLocation(record.credential);
     if (!location) return null;
     const accountToken = await Bun.secrets.get(location).catch(() => null);
@@ -127,7 +146,8 @@ export class CanopyAccountStore {
 
   async remove(): Promise<void> {
     const record = await this.safe();
-    await Bun.secrets.delete(record ? credentialLocation(record.credential) ?? this.credentialLocation() : this.credentialLocation());
+    if (record?.credential === "file:credential" || this.usesFileCredentials) await rm(this.credentialPath, { force: true });
+    else await Bun.secrets.delete(record ? credentialLocation(record.credential) ?? this.credentialLocation() : this.credentialLocation());
     await rm(this.path, { force: true });
   }
 
