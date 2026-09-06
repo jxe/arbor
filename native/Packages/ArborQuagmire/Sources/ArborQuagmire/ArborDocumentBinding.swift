@@ -122,6 +122,10 @@ public final class ArborDocumentBinding {
 
     public func applyAcceptedReplacement(_ snapshot: WorkspaceDocumentSnapshot) async {
         await flush()
+        applyAcceptedReplacementNow(snapshot)
+    }
+
+    private func applyAcceptedReplacementNow(_ snapshot: WorkspaceDocumentSnapshot) {
         let opened = ArborMarkdownCodec.open(
             source: snapshot.source,
             revision: snapshot.contentRevision,
@@ -175,9 +179,24 @@ public final class ArborDocumentBinding {
         // before ArborSync has any durable candidate from which to recover it.
         let currentAdmission = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger).0
         guard currentAdmission.source == accepted.source else { return }
+        let observedGeneration = generation
+        let observedAcceptedRevision = accepted.contentRevision
+        let observedAcceptedSource = accepted.source
         guard let current = try? await session.snapshot(),
-              current.contentRevision != accepted.contentRevision else { return }
-        await applyAcceptedReplacement(current)
+              current.contentRevision != observedAcceptedRevision else { return }
+        // Fetching the authoritative snapshot suspends this MainActor task. A
+        // later local commit or keystroke may have arrived while it was away.
+        // Revalidate immediately before the non-suspending replacement so an
+        // accepted prefix can never overwrite a newer editor generation.
+        guard generation == observedGeneration,
+              accepted.contentRevision == observedAcceptedRevision,
+              accepted.source == observedAcceptedSource,
+              conflict == nil,
+              lastError == nil,
+              !isSaving else { return }
+        let latestAdmission = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger).0
+        guard latestAdmission.source == observedAcceptedSource else { return }
+        applyAcceptedReplacementNow(current)
     }
 
     private func persist(source: String, generation admittedGeneration: Int) async {

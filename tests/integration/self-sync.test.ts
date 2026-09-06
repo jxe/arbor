@@ -443,6 +443,99 @@ describe("private self-sync", () => {
     }
   });
 
+  test("continues one editor update string while its accepted prefix is awaiting materialization", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const ref = { tree, path: "/note", stableKey: null } as const;
+    const opened = await author.client.editorNode(ref);
+    const openedSource = nodeDocument(opened)!.source;
+    if (!opened.admissionBasis) throw new Error("Placed document omitted its editor admission basis");
+
+    const historyBefore = host.canopy.acceptedUpdates(tree).length;
+    const updateBodies: any[] = [];
+    const systemFetch = globalThis.fetch;
+    let releaseSnapshot!: () => void;
+    const snapshotReleased = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
+    let observeSnapshot!: () => void;
+    const snapshotObserved = new Promise<void>((resolve) => { observeSnapshot = resolve; });
+    let blockAcceptedSnapshot = false;
+    globalThis.fetch = (async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
+        updateBodies.push(JSON.parse(init.body));
+        const response = await systemFetch(input, init);
+        blockAcceptedSnapshot = true;
+        return response;
+      }
+      if (blockAcceptedSnapshot && url.includes(`/.arbor/trees/${tree}/snapshots/`)) {
+        observeSnapshot();
+        await snapshotReleased;
+      }
+      return systemFetch(input, init);
+    }) as typeof fetch;
+
+    const firstSource = `${openedSource}\nFirst accepted before materialization.\n`;
+    const secondSource = `${firstSource}Second generation after refresh.\n`;
+    try {
+      await author.client.admitDocumentCandidate(
+        ref,
+        opened.admissionBasis,
+        opened.capabilities.content!.revision,
+        firstSource,
+        [{ offset: Buffer.byteLength(openedSource), length: 0, replacement: "\nFirst accepted before materialization.\n" }],
+      );
+      await snapshotObserved;
+      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
+
+      const refreshed = await Promise.race([
+        author.client.editorNode(ref),
+        Bun.sleep(1_000).then(() => { throw new Error("Editor refresh waited for accepted materialization"); }),
+      ]);
+      expect(nodeDocument(refreshed)!.source).toBe(firstSource);
+      if (!refreshed.admissionBasis) throw new Error("Refreshed document omitted its retained admission basis");
+      await author.client.admitDocumentCandidate(
+        ref,
+        refreshed.admissionBasis,
+        refreshed.capabilities.content!.revision,
+        secondSource,
+        [{ offset: Buffer.byteLength(firstSource), length: 0, replacement: "Second generation after refresh.\n" }],
+      );
+      await waitFor(async () => updateBodies.some((body) => body.updates?.length === 2));
+      releaseSnapshot();
+      await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2
+        && (await author.running.service.trees.descriptors())
+          .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+
+      const accepted = host.canopy.acceptedUpdates(tree).slice(historyBefore);
+      expect(accepted.map((update) => update.kind)).toEqual(["accepted", "accepted"]);
+      expect(updateBodies.find((body) => body.updates?.length === 2)?.updates[0])
+        .toEqual(updateBodies[0].updates[0]);
+      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
+
+      const after = await author.client.node(ref);
+      const restoredSource = "# Complete-object fallback\n";
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref,
+        baseContentRevision: after.capabilities.content!.revision,
+        source: restoredSource,
+        sourceEdits: [{
+          offset: 0,
+          length: Buffer.byteLength(nodeDocument(after)!.source),
+          replacement: restoredSource,
+          expected: nodeDocument(after)!.source,
+        }],
+      });
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    } finally {
+      releaseSnapshot();
+      globalThis.fetch = systemFetch;
+      await author.close();
+    }
+  });
+
   test("never snapshots a tree while an editor mutation is only prepared", async () => {
     let blockPreparedWrite = false;
     let releasePrepared!: () => void;

@@ -1106,6 +1106,44 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("An accepted prefix cannot replace a newer admitted editor generation")
+    func acceptedPrefixPreservesNewerAdmission() async throws {
+        let reference = WorkspaceReference(tree: "tr_live_prefix", path: "/", stableKey: markdownStableKey("pg_live_prefix"))
+        let initial = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "---\nid: pg_live_prefix\n---\n\n# Hi\n\n- Before\n",
+            contentRevision: "r1"
+        )
+        let session = InterleavingLiveUpdateSession(snapshot: initial)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        var bulletID: BlockID?
+        binding.document.walk { block, _, _ in
+            if case .bullet = block.kind { bulletID = block.id }
+        }
+        let paragraphID = try #require(bulletID)
+
+        await session.blockNextSnapshot()
+        await session.publish(
+            source: initial.source.replacingOccurrences(of: "Before", with: "Accepted prefix"),
+            revision: "r-prefix"
+        )
+        await session.waitUntilSnapshotIsBlocked()
+
+        binding.document.transaction(name: "newer local generation") {
+            _ = binding.document.setText(paragraphID, AttributedString("Newest local"))
+        }
+        binding.admitCurrentGeneration()
+        await binding.flush()
+        await session.releaseBlockedSnapshot()
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(binding.document.find(paragraphID).map { String($0.text.characters) } == "Newest local")
+        #expect((await session.admittedSnapshot()).source.contains("Newest local"))
+        #expect(binding.lastError == nil)
+        await binding.close()
+    }
+
+    @MainActor
     @Test("A watched authoritative toggle remains a toggle after replacement")
     func liveToggleUpdate() async throws {
         let reference = WorkspaceReference(
@@ -1224,5 +1262,93 @@ private actor LiveUpdateSession: WorkspaceDocumentSession {
     func flush() {}
     func history() -> [WorkspaceHistoryEntry] { [] }
     func recover(revision: String) -> WorkspaceDocumentSnapshot { current }
+    func close() { continuation.finish() }
+}
+
+private actor InterleavingLiveUpdateSession: WorkspaceDocumentSession {
+    nonisolated let identity: WorkspaceIdentity
+    private var authoritative: WorkspaceDocumentSnapshot
+    private var admitted: WorkspaceDocumentSnapshot
+    private var admissionGeneration = 0
+    private let stream: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>
+    private let continuation: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>.Continuation
+    private var shouldBlockNextSnapshot = false
+    private var snapshotIsBlocked = false
+    private var blockedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var snapshotRelease: CheckedContinuation<Void, Never>?
+
+    init(snapshot: WorkspaceDocumentSnapshot) {
+        identity = snapshot.reference.identity
+        authoritative = snapshot
+        admitted = snapshot
+        let pair = AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>.makeStream()
+        stream = pair.stream
+        continuation = pair.continuation
+    }
+
+    func blockNextSnapshot() { shouldBlockNextSnapshot = true }
+
+    func waitUntilSnapshotIsBlocked() async {
+        if snapshotIsBlocked { return }
+        await withCheckedContinuation { blockedWaiters.append($0) }
+    }
+
+    func releaseBlockedSnapshot() {
+        snapshotRelease?.resume()
+        snapshotRelease = nil
+    }
+
+    func snapshot() async -> WorkspaceDocumentSnapshot {
+        let captured = authoritative
+        if shouldBlockNextSnapshot {
+            shouldBlockNextSnapshot = false
+            snapshotIsBlocked = true
+            let waiters = blockedWaiters
+            blockedWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            await withCheckedContinuation { snapshotRelease = $0 }
+            snapshotIsBlocked = false
+        }
+        return captured
+    }
+
+    func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> { stream }
+
+    func publish(source: String, revision: String) {
+        authoritative = WorkspaceDocumentSnapshot(
+            reference: authoritative.reference,
+            source: source,
+            contentRevision: revision
+        )
+        continuation.yield(authoritative)
+    }
+
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        guard admitted.contentRevision == baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(expected: baseContentRevision, actual: admitted.contentRevision)
+        }
+        admissionGeneration += 1
+        admitted = WorkspaceDocumentSnapshot(
+            reference: admitted.reference,
+            source: source,
+            contentRevision: "r-local-\(admissionGeneration)"
+        )
+        return admitted
+    }
+
+    func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
+        guard admitted.contentRevision == patch.baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(expected: patch.baseContentRevision, actual: admitted.contentRevision)
+        }
+        return try admit(
+            source: patch.applying(to: admitted.source),
+            baseContentRevision: patch.baseContentRevision
+        )
+    }
+
+    func admittedSnapshot() -> WorkspaceDocumentSnapshot { admitted }
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) -> WorkspaceDocumentSnapshot { admitted }
     func close() { continuation.finish() }
 }

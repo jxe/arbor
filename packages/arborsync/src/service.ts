@@ -42,6 +42,7 @@ import {
   clearPendingEditorAdmissions,
   clearPendingTreeUpdate,
   clearTreeConflict,
+  pendingEditorAdmissions,
   pendingFromSnapshot,
   pendingTreeUpdate,
   savePendingEditorAdmission,
@@ -269,6 +270,30 @@ export class ArborSyncDaemon implements AsyncDisposable {
           || placement.access !== "write"
           || response.content.representation?.state !== "stored"
         ) return response;
+        const retainedAdmission = (await pendingEditorAdmissions(scope.workspace.tree))
+          .findLast((admission) => admission.request.base === placement.update
+            && admission.ref.tree === scope.ref.tree
+            && admission.ref.path === scope.ref.path
+            && admission.ref.stableKey === scope.ref.stableKey);
+        if (retainedAdmission) {
+          // An authority acknowledgement can precede local materialization. An
+          // editor read in that window must continue the durable local update
+          // string instead of minting a new epoch from the older on-disk root.
+          // Keeping this decision local preserves offline admission while also
+          // making reconnects and authoritative refreshes sequential.
+          return {
+            ...response,
+            content: { ...response.content, source: retainedAdmission.source },
+            capabilities: {
+              ...response.capabilities,
+              content: {
+                ...response.capabilities.content,
+                revision: retainedAdmission.contentRevision,
+              },
+            },
+            admissionBasis: retainedAdmission.admissionBasis,
+          };
+        }
         const wirePath = await scope.workspace.wireDocumentPath(scope.ref.path);
         const accepted = await snapshotDirectory(
           scope.workspace.root,
