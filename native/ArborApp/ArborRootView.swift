@@ -1498,7 +1498,10 @@ private struct IOSAccountPanel: View {
                 throw ArborWireValidationError.invalidValue("This iPhone has no saved Arbor placement")
             }
             self.placement = placement
-            let service = NativeAccountService(origin: placement.origin)
+            let service = NativeAccountService(
+                origin: placement.origin,
+                configurationTree: placement.configurationTree
+            )
             account = try await service.account().account
             message = nil
         } catch { message = String(describing: error) }

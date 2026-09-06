@@ -99,6 +99,7 @@ struct ArborAppTests {
         )
         let record = NativePlacementRecord(
             origin: try #require(URL(string: "https://arbor.example")),
+            configurationTree: "tr_account_configuration",
             tree: tree
         )
 
