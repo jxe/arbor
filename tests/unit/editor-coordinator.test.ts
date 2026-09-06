@@ -150,6 +150,23 @@ describe("editor coordinator", () => {
     expect(value.coordinator.isDirty).toBe(false);
   });
 
+  test("discards an external read that predates a newer saved editor generation", async () => {
+    const initial = { blocks: [paragraph("p", "initial")], frontmatter: {} };
+    const value = harness(initial);
+    const observation = value.coordinator.captureExternalObservation();
+    const stale = { blocks: [paragraph("p", "accepted prefix")], frontmatter: {} };
+
+    value.captured = { blocks: [paragraph("p", "newest local")], frontmatter: {} };
+    value.coordinator.markAuthored(value.captured);
+    await value.coordinator.flush();
+    value.coordinator.observeExternal(tree("stale-prefix", stale), observation);
+
+    expect(value.captured.blocks[0]?.content).toBe("newest local");
+    expect(value.coordinator.currentRevision).toBe("r1");
+    expect(value.accepted).toHaveLength(1);
+    expect(value.coordinator.saveState).toBe("saved");
+  });
+
   test("persists every authored row because directory rows are ordinary Markdown", async () => {
     const child = { ...paragraph("child-link", "child"), type: "standaloneLink" as const };
     const initial = { blocks: [paragraph("p", "initial"), child], frontmatter: {} };

@@ -669,8 +669,9 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
           const ref = !currentNode.ref.stableKey && event.change.previousPath === currentNode.ref.path && event.kind === "moved"
             ? { tree: currentNode.ref.tree, path: event.change.ref.path, stableKey: null } satisfies NodeRef
             : currentNode.ref;
+          const observation = coordinator.captureExternalObservation();
           const loaded = await sapiRef.current.node(ref);
-          if (affectsNode) coordinator.observeExternal(loaded);
+          if (affectsNode) coordinator.observeExternal(loaded, observation);
           else {
             observedOnSaved.current(loaded);
             onChildrenChanged((await sapiRef.current.children(loaded.ref)).items);
@@ -693,11 +694,12 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
       inflight = true;
       try {
         const currentNode = observedNode.current;
+        const observation = coordinator.captureExternalObservation();
         const loaded = await sapiRef.current.node(
           { ...nodeReference, path: currentNode.ref.path },
         );
         if (loaded.capabilities.content?.revision !== observedNode.current.capabilities.content?.revision) {
-          coordinator.observeExternal(loaded);
+          coordinator.observeExternal(loaded, observation);
         }
       } catch {} finally {
         inflight = false;

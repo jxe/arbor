@@ -23,6 +23,11 @@ export interface EditorClock {
   clearTimeout(handle: unknown): void;
 }
 
+export interface ExternalObservationAnchor {
+  generation: number;
+  revision: string;
+}
+
 interface EditorCoordinatorCallbacks {
   capture(): DocumentSnapshot;
   write(path: string, baseRevision: string, snapshot: DocumentSnapshot, base: DocumentSnapshot): Promise<NodeSnapshot>;
@@ -111,6 +116,10 @@ export class EditorCoordinator {
   get isDirty(): boolean { return this.generationValue > this.durableGenerationValue; }
   get canUndo(): boolean { return this.undoStack.length > 0 || this.documentDraft !== null; }
   get canRedo(): boolean { return this.redoStack.length > 0; }
+
+  captureExternalObservation(): ExternalObservationAnchor {
+    return { generation: this.generationValue, revision: this.revision };
+  }
 
   runNormalization<T>(callback: () => T): T {
     this.applying = true;
@@ -252,7 +261,15 @@ export class EditorCoordinator {
     }
   }
 
-  observeExternal(node: NodeSnapshot): void {
+  observeExternal(node: NodeSnapshot, anchor?: ExternalObservationAnchor): void {
+    // A same-machine read can suspend while a newer authored generation is
+    // admitted and becomes clean again. The ordinary dirty/in-flight check is
+    // no longer sufficient then: discard the stale read exactly as Native's
+    // document binding does after its awaited authoritative snapshot.
+    if (anchor && (
+      anchor.generation !== this.generationValue
+      || anchor.revision !== this.revision
+    )) return;
     if (this.isDirty || this.saveInFlight) {
       this.setStatus("external");
       this.scheduleSave(0);
