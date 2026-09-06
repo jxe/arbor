@@ -131,6 +131,19 @@ public actor ArborSyncRESTClient {
         return generated.id
     }
 
+    public func synchronize(configurationTree: String? = nil) async throws {
+        struct Request: Encodable { var configurationTree: String? }
+        struct Response: Decodable { var synchronized: Bool }
+        var request = URLRequest(url: url("/v1/sync"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(Request(configurationTree: configurationTree))
+        let response: Response = try await perform(request)
+        guard response.synchronized else {
+            throw ArborWireValidationError.invalidValue("Arbor Sync did not confirm synchronization")
+        }
+    }
+
     public func createCommunityPairing(configurationTree: String? = nil) async throws -> WirePairingOffer {
         var request = URLRequest(url: url("/v1/bootstrap/pairings"))
         request.httpMethod = "POST"

@@ -15,6 +15,24 @@ private var fixtures: URL {
 
 @Suite("Canonical wire objects")
 struct WireObjectTests {
+    @Test("Replacing a root file rebuilds a complete canonical snapshot")
+    func replacingRootFile() throws {
+        let first = try WireObjectCodec.object(.file(Data("before".utf8)))
+        let second = try WireObjectCodec.object(.file(Data("untouched".utf8)))
+        let root = try WireObjectCodec.object(.directory([
+            WireDirectoryEntry(name: "first.txt", hash: first.hash),
+            WireDirectoryEntry(name: "second.txt", hash: second.hash),
+        ]))
+        let snapshot = WireSnapshot(root: root.hash, objects: [first, second, root].sorted { $0.hash < $1.hash })
+
+        let changed = try snapshot.replacingRootFile(named: "first.txt", with: Data("after".utf8))
+
+        #expect(try String(data: changed.rootFile(named: "first.txt"), encoding: .utf8) == "after")
+        #expect(try String(data: changed.rootFile(named: "second.txt"), encoding: .utf8) == "untouched")
+        #expect(changed.root != snapshot.root)
+        #expect(try WireObjectGraph.validate(changed).count == 3)
+    }
+
     @Test("Swift reproduces every shared object byte and hash")
     func sharedVectors() throws {
         let data = try Data(contentsOf: fixtures.appending(path: "wire-objects.json"))

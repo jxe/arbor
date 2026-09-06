@@ -56,6 +56,7 @@ struct ArborRootView: View {
     @State private var recordingSession: VoiceRecordingSession<String>
     @State private var pinchDictation: EditorPinchDictation
     @State private var accountPresented = false
+    @State private var sharePresented = false
     @State private var pairingPresented = false
     @State private var presentedSheet: ArborPresentedSheet?
     @State private var searchPresented = false
@@ -66,6 +67,7 @@ struct ArborRootView: View {
     @State private var voiceLaunchReady = false
 #if os(iOS)
     @State private var sidebarPresented = false
+    @State private var placementPresented = false
 #endif
     @Environment(\.scenePhase) private var scenePhase
 
@@ -166,6 +168,14 @@ struct ArborRootView: View {
             IOSAccountPanel(workspace: workspace, onDisconnect: onDisconnect)
 #endif
         }
+        .sheet(isPresented: $sharePresented) {
+            ArborSharePanel(workspace: workspace, currentNode: model.node)
+        }
+#if os(iOS)
+        .sheet(isPresented: $placementPresented) {
+            IOSPlaceTreePanel(workspace: workspace)
+        }
+#endif
 #if os(macOS)
         .sheet(isPresented: $pairingPresented) {
             MacPairingPanel(workspace: workspace)
@@ -268,9 +278,7 @@ struct ArborRootView: View {
 
     private var sidebarContent: some View {
         List {
-#if os(macOS)
             localTreesSections
-#endif
             Button {
                 searchPresented = true
             } label: {
@@ -305,6 +313,18 @@ struct ArborRootView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
+#if os(iOS)
+            Section {
+                Button("Place Another Tree", systemImage: "folder.badge.plus") {
+                    sidebarPresented = false
+                    placementPresented = true
+                }
+                Button("Accounts", systemImage: "person.crop.circle") {
+                    sidebarPresented = false
+                    accountPresented = true
+                }
+            }
+#endif
         }
         .listStyle(.sidebar)
         .navigationTitle("Arbor")
@@ -316,9 +336,9 @@ struct ArborRootView: View {
         }
     }
 
-#if os(macOS)
     @ViewBuilder
     private var localTreesSections: some View {
+#if os(macOS)
         let overview = workspace.localArborSyncOverview
         let visits = recentUnplacedVisits
         if let placed = overview?.trees.filter({ $0.path != nil }), !placed.isEmpty {
@@ -352,8 +372,30 @@ struct ArborRootView: View {
                 }
             }
         }
+#else
+        if !workspace.nativePlacements.isEmpty {
+            Section("On This iPhone") {
+                ForEach(workspace.nativePlacements, id: \.tree.id) { placement in
+                    Button {
+                        sidebarPresented = false
+                        Task { await workspace.openNativePlacement(placement) }
+                    } label: {
+                        Label(
+                            placement.tree.canonicalPath ?? placement.tree.id,
+                            systemImage: placement.tree.id == model.currentReference.tree.rawValue
+                                ? "folder.fill"
+                                : "folder"
+                        )
+                        .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+#endif
     }
 
+#if os(macOS)
     private var recentUnplacedVisits: [LocalArborSyncVisitPresentation] {
         guard let overview = workspace.localArborSyncOverview else { return [] }
         let placedTreeIDs = Set(overview.trees.compactMap { $0.path == nil ? nil : $0.id })
@@ -532,12 +574,15 @@ struct ArborRootView: View {
                         workspace: workspace
                     )
                 }
+                Button("Share", systemImage: "square.and.arrow.up") {
+                    sharePresented = true
+                }
+#if os(macOS)
                 Button("Account", systemImage: "person.crop.circle") {
                     accountPresented = true
-#if os(macOS)
                     Task { await workspace.refreshLocalArborSyncOverview() }
-#endif
                 }
+#endif
             }
         }
     }
@@ -801,6 +846,313 @@ private struct ArborEditorUndoButtons: View {
     }
 }
 #endif
+
+private struct ArborSharePanel: View {
+    @Environment(\.dismiss) private var dismiss
+    let workspace: ArborWorkspaceState
+    let currentNode: WorkspaceNode?
+    @State private var presentation: ArborSharePresentation?
+    @State private var loading = true
+    @State private var busy = false
+    @State private var message: String?
+    @State private var profileLocator = ""
+    @State private var newPermission = "read"
+    @State private var linkPermission = "read"
+    @State private var createdLink: URL?
+    @State private var selectedAccountID = ""
+    @State private var canonicalURL = ""
+    @State private var promotionAccess = "none"
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let presentation {
+                    switch presentation {
+                    case .tracked(let access):
+                        trackedTree(access)
+                    case .promotable(let path, let accounts):
+                        promotion(path: path, accounts: accounts)
+                    }
+                } else if loading {
+                    Section { ProgressView("Loading sharing…") }
+                }
+                if let message {
+                    Section { Text(message).foregroundStyle(.red) }
+                }
+            }
+            .navigationTitle("Share")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+#if os(macOS)
+        .frame(minWidth: 520, minHeight: 540)
+        .formStyle(.grouped)
+#endif
+        .task { await load() }
+        .onChange(of: selectedAccountID) { _, id in
+            guard case let .promotable(path, accounts) = presentation,
+                  let account = accounts.first(where: { $0.id == id }) else { return }
+            canonicalURL = suggestedCanonical(path: path, account: account)
+        }
+    }
+
+    @ViewBuilder
+    private func trackedTree(_ access: NativeTreeAccessPresentation) -> some View {
+        Section("Tree") {
+            LabeledContent("Address") {
+                Text(access.canonical)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+            }
+            if !access.canEdit {
+                Text("Only an administrator for this Canopy account can change access.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        Section {
+            ForEach(access.entries) { entry in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(label(for: entry))
+                        if case let .profile(tree) = entry.subject, entry.locator == nil {
+                            Text(tree).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Picker("Permission", selection: Binding(
+                        get: { entry.access },
+                        set: { permission in
+                            Task { await change(access, target: .existing(entry.subject), permission: permission) }
+                        }
+                    )) {
+                        Text("Can view").tag("read")
+                        Text("Can edit").tag("write")
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    Button("Remove access", systemImage: "minus.circle", role: .destructive) {
+                        Task { await change(access, target: .existing(entry.subject), permission: "none") }
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(busy || !access.canEdit)
+                }
+                .disabled(busy || !access.canEdit)
+            }
+            if access.entries.isEmpty {
+                Text("Private — only the account that hosts this tree can access it.")
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Access")
+        } footer: {
+            Text("Rules are additive. A person may also receive access through a group.")
+        }
+        if access.canEdit {
+            Section("Add access") {
+                if !access.entries.contains(where: { $0.subject == .everyone }) {
+                    HStack {
+                        Label("Everyone", systemImage: "globe")
+                        Spacer()
+                        permissionPicker(selection: $newPermission)
+                        Button("Add") {
+                            Task { await change(access, target: .everyone, permission: newPermission) }
+                        }
+                        .disabled(busy)
+                    }
+                }
+                TextField("Person or group: ~alice or Arbor URL", text: $profileLocator)
+#if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+#endif
+                HStack {
+                    permissionPicker(selection: $newPermission)
+                    Spacer()
+                    Button("Add Person or Group") {
+                        let locator = profileLocator
+                        Task {
+                            await change(access, target: .profile(locator: locator), permission: newPermission)
+                            if message == nil { profileLocator = "" }
+                        }
+                    }
+                    .disabled(busy || profileLocator.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            Section("Private link") {
+                HStack {
+                    permissionPicker(selection: $linkPermission)
+                    Spacer()
+                    Button("Create Link", systemImage: "link.badge.plus") {
+                        Task { await createLink(access) }
+                    }
+                    .disabled(busy)
+                }
+                if let createdLink {
+                    Text("This secret link is shown once. Copy it before closing this sheet.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(createdLink.absoluteString)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                    HStack {
+                        Button("Copy Link", systemImage: "doc.on.doc") { copy(createdLink.absoluteString) }
+                        Link("Open Link", destination: createdLink)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func promotion(path: String, accounts: [ArborShareAccount]) -> some View {
+        Section("Upgrade this folder") {
+            LabeledContent("Folder", value: path)
+            Text("The folder stays in place and gains its own Arbor identity, history, synchronization, and access controls.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        if accounts.isEmpty {
+            Section {
+                ContentUnavailableView(
+                    "No connected Canopy account",
+                    systemImage: "person.crop.circle.badge.exclamationmark",
+                    description: Text("Connect an administrator account before upgrading this folder.")
+                )
+            }
+        } else {
+            Section("Destination") {
+                Picker("Account", selection: $selectedAccountID) {
+                    ForEach(accounts) { account in
+                        Text(account.handle.map { "~\($0) · \(URL(string: account.origin)?.host ?? account.origin)" }
+                            ?? account.origin)
+                            .tag(account.id)
+                    }
+                }
+                TextField("Canonical URL", text: $canonicalURL)
+                Picker("Initial access", selection: $promotionAccess) {
+                    Text("Private").tag("none")
+                    Text("Everyone can view").tag("read")
+                    Text("Everyone can edit").tag("write")
+                }
+                Button("Make This an Arbor Tree", systemImage: "tree") {
+                    guard let account = accounts.first(where: { $0.id == selectedAccountID }) else { return }
+                    Task { await promote(path: path, account: account) }
+                }
+                .disabled(busy || selectedAccountID.isEmpty || canonicalURL.isEmpty)
+            }
+        }
+    }
+
+    private func permissionPicker(selection: Binding<String>) -> some View {
+        Picker("Permission", selection: selection) {
+            Text("Can view").tag("read")
+            Text("Can edit").tag("write")
+        }
+        .labelsHidden()
+        .fixedSize()
+    }
+
+    private func label(for entry: NativeTreeAccessEntry) -> String {
+        switch entry.subject {
+        case .everyone: "Everyone"
+        case .profile: entry.locator ?? "Person or group"
+        case .link: "Private link"
+        }
+    }
+
+    private func load() async {
+        loading = true
+        defer { loading = false }
+        guard let currentNode else {
+            message = "There is no current folder to share."
+            return
+        }
+        do {
+            let value = try await workspace.sharePresentation(for: currentNode)
+            presentation = value
+            message = nil
+            if case let .promotable(path, accounts) = value, let first = accounts.first {
+                selectedAccountID = first.id
+                canonicalURL = suggestedCanonical(path: path, account: first)
+            }
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    private func change(
+        _ current: NativeTreeAccessPresentation,
+        target: NativeTreeAccessTarget,
+        permission: String
+    ) async {
+        busy = true
+        defer { busy = false }
+        do {
+            presentation = .tracked(try await workspace.setShareAccess(
+                tree: current.tree,
+                target: target,
+                access: permission
+            ))
+            message = nil
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    private func createLink(_ current: NativeTreeAccessPresentation) async {
+        busy = true
+        defer { busy = false }
+        do {
+            createdLink = try await workspace.createShareLink(tree: current.tree, access: linkPermission).url
+            if let currentNode {
+                presentation = try await workspace.sharePresentation(for: currentNode)
+            }
+            message = nil
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    private func promote(path: String, account: ArborShareAccount) async {
+#if os(macOS)
+        busy = true
+        defer { busy = false }
+        do {
+            try await workspace.promoteLocalFolder(
+                path: path,
+                account: account,
+                canonical: canonicalURL,
+                publicAccess: promotionAccess
+            )
+            dismiss()
+        } catch {
+            message = error.localizedDescription
+        }
+#endif
+    }
+
+    private func suggestedCanonical(path: String, account: ArborShareAccount) -> String {
+        let name = URL(fileURLWithPath: path).lastPathComponent
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        guard let handle = account.handle, !handle.isEmpty else { return account.origin + "/" + name }
+        return account.origin + "/~" + handle + "/" + name
+    }
+
+    private func copy(_ value: String) {
+#if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+#else
+        UIPasteboard.general.string = value
+#endif
+    }
+}
 
 #if os(macOS)
 private struct MacArborSyncAccountPanel: View {
@@ -1440,6 +1792,140 @@ struct ArborIOSLaunchView: View {
 #endif
 
 #if os(iOS)
+private struct IOSPlaceTreePanel: View {
+    @Environment(\.dismiss) private var dismiss
+    let workspace: ArborWorkspaceState
+    @State private var accounts: [NativeCanopyAccount] = []
+    @State private var selectedAccount: NativeCanopyAccount?
+    @State private var trees: [WireTreeDescriptor] = []
+    @State private var loading = true
+    @State private var placingTreeID: String?
+    @State private var message: String?
+
+    private var unplacedTrees: [WireTreeDescriptor] {
+        let placed = Set(workspace.nativePlacements.map(\.tree.id))
+        return trees.filter { $0.kind == "ordinary" && !placed.contains($0.id) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Canopy account") {
+                    ForEach(accounts) { account in
+                        Button {
+                            selectedAccount = account
+                            Task { await loadTrees(for: account) }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(account.handle.map { "~\($0)" } ?? account.configurationTree)
+                                    Text(account.origin.host() ?? account.origin.absoluteString)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if selectedAccount?.id == account.id {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                    if accounts.isEmpty, !loading {
+                        Text("Add a Canopy account from Accounts before placing another tree.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if selectedAccount != nil {
+                    Section("Available trees") {
+                        ForEach(unplacedTrees, id: \.id) { tree in
+                            Button {
+                                Task { await place(tree) }
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(tree.canonicalPath ?? tree.id)
+                                        Text(tree.access == "write" ? "Can edit" : "Can view")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if placingTreeID == tree.id {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: "arrow.down.circle")
+                                    }
+                                }
+                            }
+                            .disabled(placingTreeID != nil)
+                        }
+                        if unplacedTrees.isEmpty, !loading {
+                            Text("Every available tree from this account is already on this iPhone.")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if loading { Section { ProgressView("Loading…") } }
+                if let message { Section { Text(message).foregroundStyle(.red) } }
+            }
+            .navigationTitle("Place a Tree")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .task { await loadAccounts() }
+    }
+
+    private func loadAccounts() async {
+        loading = true
+        defer { loading = false }
+        do {
+            accounts = try await KeychainDeviceCredentialStore().accounts()
+            if let account = accounts.first {
+                selectedAccount = account
+                await loadTrees(for: account)
+            }
+            message = nil
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    private func loadTrees(for account: NativeCanopyAccount) async {
+        loading = true
+        defer { loading = false }
+        do {
+            trees = try await NativeAccountService(
+                origin: account.origin,
+                configurationTree: account.configurationTree
+            ).trees().snapshot.sorted {
+                ($0.canonicalPath ?? $0.id).localizedCaseInsensitiveCompare($1.canonicalPath ?? $1.id) == .orderedAscending
+            }
+            message = nil
+        } catch {
+            trees = []
+            message = error.localizedDescription
+        }
+    }
+
+    private func place(_ tree: WireTreeDescriptor) async {
+        guard let account = selectedAccount else { return }
+        placingTreeID = tree.id
+        defer { placingTreeID = nil }
+        do {
+            try await workspace.place(
+                tree: tree,
+                from: account.origin,
+                configurationTree: account.configurationTree
+            )
+            dismiss()
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+}
+
 private struct IOSAccountPanel: View {
     @Environment(\.dismiss) private var dismiss
     let workspace: ArborWorkspaceState

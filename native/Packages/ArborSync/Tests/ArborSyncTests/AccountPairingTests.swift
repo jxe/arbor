@@ -35,6 +35,69 @@ private actor MemoryAccountCredentialStore: AccountCredentialStore {
 
 @Suite("Native account pairing")
 struct NativeAccountPairingTests {
+    @Test("Account configuration access edits preserve every tree and untouched source")
+    func accountAccessYAML() throws {
+        let source = """
+        # Keep this account-level note.
+        tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:
+          canonical: https://canopy.example/~joe/notes
+          access:
+            - subject:
+                kind: everyone
+              access: read
+
+        # Keep the private tree exactly as its owner wrote it.
+        tr_bbbbbbbbbbbbbbbbbbbbbbbbbb:
+          canonical: 'https://canopy.example/~joe/private'
+          access: []
+        """
+        let changed = try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
+            trees["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?.access = [
+                ArborAccountAccessRule(
+                    subject: .profile(tree: "tr_cccccccccccccccccccccccccc"),
+                    access: "write"
+                )
+            ]
+        }
+        let decoded = try ArborAccountConfigurationYAML.trees(from: changed)
+
+        #expect(decoded.count == 2)
+        #expect(decoded["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?.access == [
+            ArborAccountAccessRule(
+                subject: .profile(tree: "tr_cccccccccccccccccccccccccc"),
+                access: "write"
+            )
+        ])
+        #expect(decoded["tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"]?.canonical == "https://canopy.example/~joe/private")
+        #expect(changed.contains("""
+        # Keep the private tree exactly as its owner wrote it.
+        tr_bbbbbbbbbbbbbbbbbbbbbbbbbb:
+          canonical: 'https://canopy.example/~joe/private'
+          access: []
+        """))
+    }
+
+    @Test("Local placement YAML adds a tree without replacing another placement")
+    func localPlacementYAML() throws {
+        let source = """
+        # Keep this placement note.
+        tr_aaaaaaaaaaaaaaaaaaaaaaaaaa:
+          '/Users/joe/Notes': tr_bbbbbbbbbbbbbbbbbbbbbbbbbb
+        """
+        let changed = try ArborLocalPlacementsYAML.adding(
+            configurationTree: "tr_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+            path: "/Users/joe/Writing",
+            tree: "tr_cccccccccccccccccccccccccc",
+            to: source
+        )
+        let decoded = try ArborLocalPlacementsYAML.placements(from: changed)
+
+        #expect(decoded["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?["/Users/joe/Notes"] == "tr_bbbbbbbbbbbbbbbbbbbbbbbbbb")
+        #expect(decoded["tr_aaaaaaaaaaaaaaaaaaaaaaaaaa"]?["/Users/joe/Writing"] == "tr_cccccccccccccccccccccccccc")
+        #expect(changed.contains("# Keep this placement note."))
+        #expect(changed.contains("  '/Users/joe/Notes': tr_bbbbbbbbbbbbbbbbbbbbbbbbbb"))
+    }
+
     @Test("A failed account discovery retries the exact durable pairing claim")
     func exactClaimRetry() async throws {
         await PairingURLProtocol.state.reset()

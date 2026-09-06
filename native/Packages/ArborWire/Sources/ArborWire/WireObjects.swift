@@ -302,3 +302,50 @@ public enum WireObjectGraph {
         return objects
     }
 }
+
+public extension WireSnapshot {
+    func rootFile(named name: String) throws -> Data {
+        let objects = try WireObjectGraph.validate(self)
+        guard case let .directory(entries, _)? = objects[root],
+              let hash = entries.first(where: { $0.name == name })?.hash,
+              case let .file(bytes)? = objects[hash] else {
+            throw ArborWireValidationError.incompleteGraph(name)
+        }
+        return bytes
+    }
+
+    func replacingRootFile(named name: String, with bytes: Data) throws -> WireSnapshot {
+        let objects = try WireObjectGraph.validate(self)
+        guard case let .directory(entries, childrenSource)? = objects[root],
+              entries.contains(where: { $0.name == name && $0.hash != nil }) else {
+            throw ArborWireValidationError.incompleteGraph(name)
+        }
+        let file = try WireObjectCodec.object(.file(bytes))
+        let nextEntries = entries.map { entry in
+            entry.name == name ? WireDirectoryEntry(name: name, hash: file.hash) : entry
+        }
+        let nextRoot = try WireObjectCodec.object(.directory(nextEntries, childrenSource: childrenSource))
+        var bytesByHash = Dictionary(uniqueKeysWithValues: self.objects.map { ($0.hash, $0.bytes) })
+        bytesByHash[file.hash] = file.bytes
+        bytesByHash[nextRoot.hash] = nextRoot.bytes
+        var reachable = Set<String>()
+        func visit(_ hash: String) throws {
+            guard reachable.insert(hash).inserted else { return }
+            guard let encoded = bytesByHash[hash] else {
+                throw ArborWireValidationError.incompleteGraph(hash)
+            }
+            if case let .directory(children, _) = try WireObjectCodec.decode(encoded) {
+                for child in children {
+                    if let childHash = child.hash { try visit(childHash) }
+                }
+            }
+        }
+        try visit(nextRoot.hash)
+        let result = WireSnapshot(
+            root: nextRoot.hash,
+            objects: reachable.sorted().map { WireObjectEnvelope(hash: $0, bytes: bytesByHash[$0]!) }
+        )
+        _ = try WireObjectGraph.validate(result)
+        return result
+    }
+}

@@ -8,12 +8,13 @@ let package = Package(
     dependencies: [
         .package(path: "../ArborKit"),
         .package(path: "../ArborReplica"),
-        .package(path: "../ArborWire")
+        .package(path: "../ArborWire"),
+        .package(url: "https://github.com/jpsim/Yams.git", from: "6.2.2")
     ],
     targets: [
         .target(
             name: "ArborSync",
-            dependencies: ["ArborKit", "ArborReplica", "ArborWire"],
+            dependencies: ["ArborKit", "ArborReplica", "ArborWire", "Yams"],
             linkerSettings: [.linkedFramework("Security")]
         ),
         .testTarget(

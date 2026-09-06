@@ -601,6 +601,97 @@ public actor NativeAccountService {
 
     public func account() async throws -> WireAccountSnapshot { try await client().account() }
     public func trees() async throws -> WireSnapshotEnvelope<[WireTreeDescriptor]> { try await client().trees() }
+    public func access(tree: String) async throws -> NativeTreeAccessPresentation {
+        let wire = try await client()
+        let account = try await wire.account().account
+        let configuration = try account.configuration.validated()
+        let snapshot = try await wire.snapshot(tree: configuration.id, root: configuration.root)
+        let treesSource = try utf8(snapshot.rootFile(named: "trees.yaml"), name: "trees.yaml")
+        let devicesSource = try utf8(snapshot.rootFile(named: "devices.yaml"), name: "devices.yaml")
+        let trees = try ArborAccountConfigurationYAML.trees(from: treesSource)
+        guard let declaration = trees[tree] else {
+            throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")
+        }
+        let safe = try await wire.access(tree: tree).snapshot
+        let locators = Dictionary(uniqueKeysWithValues: safe.compactMap { entry -> (String, String)? in
+            guard case let .profile(profileTree, locator?) = entry.subject else { return nil }
+            return (profileTree, locator)
+        })
+        return NativeTreeAccessPresentation(
+            tree: tree,
+            canonical: declaration.canonical,
+            entries: declaration.access.map { rule in
+                let locator: String? = if case let .profile(profileTree) = rule.subject {
+                    locators[profileTree]
+                } else { nil }
+                return NativeTreeAccessEntry(subject: rule.subject, locator: locator, access: rule.access)
+            },
+            canEdit: try ArborAccountConfigurationYAML.isAdministrator(
+                deviceID: account.device?.id,
+                devicesSource: devicesSource
+            )
+        )
+    }
+
+    public func setAccess(
+        tree: String,
+        target: NativeTreeAccessTarget,
+        access: String
+    ) async throws -> NativeTreeAccessPresentation {
+        guard ["none", "read", "write"].contains(access) else {
+            throw ArborWireValidationError.invalidValue("Unknown access level")
+        }
+        let wire = try await client()
+        let account = try await wire.account().account
+        let configuration = try account.configuration.validated()
+        let snapshot = try await wire.snapshot(tree: configuration.id, root: configuration.root)
+        let source = try utf8(snapshot.rootFile(named: "trees.yaml"), name: "trees.yaml")
+        let subject: ArborAccountAccessSubject = switch target {
+        case .everyone: .everyone
+        case .profile(let locator): .profile(tree: try await resolveProfile(locator, using: wire))
+        case .existing(let subject): subject
+        }
+        let nextSource = try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
+            guard var declaration = trees[tree] else {
+                throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")
+            }
+            declaration.access.removeAll { $0.subject == subject }
+            if access != "none" {
+                declaration.access.append(ArborAccountAccessRule(subject: subject, access: access))
+            }
+            trees[tree] = declaration
+        }
+        let candidate = try snapshot.replacingRootFile(named: "trees.yaml", with: Data(nextSource.utf8))
+        let prepared = try await wire.prepareUpdate(
+            tree: configuration.id,
+            base: WireUpdateBase(root: configuration.root, update: configuration.update),
+            snapshot: candidate,
+            onConflict: "merge"
+        )
+        _ = try await wire.submitUpdate(prepared)
+        return try await self.access(tree: tree)
+    }
+
+    public func createAccessLink(tree: String, access: String) async throws -> NativeAccessLink {
+        guard access == "read" || access == "write" else {
+            throw ArborWireValidationError.invalidValue("An access link must allow viewing or editing")
+        }
+        let secret = try randomSecret()
+        let digest = "sha256:" + SHA256.hash(data: Data(secret.utf8)).map { String(format: "%02x", $0) }.joined()
+        let updated = try await setAccess(
+            tree: tree,
+            target: .existing(.link(digest: digest)),
+            access: access
+        )
+        guard var components = URLComponents(string: updated.canonical) else {
+            throw ArborWireValidationError.invalidValue("The tree has no valid canonical URL")
+        }
+        components.fragment = "arbor-access=\(secret)"
+        guard let url = components.url else {
+            throw ArborWireValidationError.invalidValue("The access-link URL could not be created")
+        }
+        return NativeAccessLink(url: url)
+    }
     public func configurationID() -> String? { configurationTree }
     public func forget() async throws {
         if let configurationTree {
@@ -644,6 +735,27 @@ public actor NativeAccountService {
     }
 
     private func generatedDeviceID() throws -> String { try generatedID(prefix: "dv") }
+
+    private func utf8(_ data: Data, name: String) throws -> String {
+        guard let source = String(data: data, encoding: .utf8) else {
+            throw ArborWireValidationError.invalidValue("\(name) is not UTF-8")
+        }
+        return source
+    }
+
+    private func resolveProfile(_ input: String, using client: ArborWireClient) async throws -> String {
+        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.range(of: #"^tr_[a-z2-7]+$"#, options: .regularExpression) != nil { return value }
+        let path: String
+        if value.hasPrefix("~") {
+            path = "/\(value)"
+        } else if let url = URL(string: value), url.scheme != nil {
+            path = url.path
+        } else {
+            throw ArborWireValidationError.invalidValue("Enter a person or group Arbor URL, handle, or TreeID")
+        }
+        return try await client.resolve(path: path).ref.tree
+    }
 
     private func generatedID(prefix: String) throws -> String {
         var bytes = [UInt8](repeating: 0, count: 16)

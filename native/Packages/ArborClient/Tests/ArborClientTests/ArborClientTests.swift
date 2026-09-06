@@ -467,6 +467,27 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(snapshot.requests.map(\.path), ["/v1/bootstrap/pairings"])
     }
 
+    func testSynchronizeScopesTheLocalFlushToOneAccount() async throws {
+        await URLProtocolStub.state.install { request, _ in
+            request.url?.path == "/v1/sync"
+                ? (200, Data(#"{"synchronized":true}"#.utf8))
+                : (404, Data(#"{"error":"not-found"}"#.utf8))
+        }
+        let client = ArborSyncRESTClient(
+            baseURL: URL(string: "http://127.0.0.1:4317")!,
+            session: stubSession()
+        )
+
+        try await client.synchronize(configurationTree: "tr_accountconfig")
+
+        let snapshot = await URLProtocolStub.state.snapshot()
+        let request = try XCTUnwrap(snapshot.requests.first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.path, "/v1/sync")
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: snapshot.bodies[0]) as? [String: Any])
+        XCTAssertEqual(body["configurationTree"] as? String, "tr_accountconfig")
+    }
+
     func testRemoteBrowsingResolvesThenUsesExplicitTreeScope() async throws {
         let response = Data(#"{"ref":{"tree":"tr_notes7f3q2ab7c","path":"/notes/today","stableKey":"[[\"id\",\"abc123\"]]"},"enclosingTree":{"id":"tr_notes7f3q2ab7c","kind":"ordinary","access":"read","canonical":{"path":"/~alice/notes","endpoint":"https://example.test","parentTree":null}},"historical":false,"observedThrough":"up_notes"}"#.utf8)
         await URLProtocolStub.state.install { request, _ in
@@ -514,7 +535,7 @@ private actor URLProtocolStubState {
 
     func response(for request: URLRequest) -> (Int, Data) {
         count += 1
-        bodies.append(request.httpBody ?? Data())
+        bodies.append(requestBody(request))
         requests.append(CapturedRequest(
             path: request.url?.path,
             query: request.url?.query,
@@ -527,6 +548,21 @@ private actor URLProtocolStubState {
 
     func snapshot() -> (count: Int, bodies: [Data], requests: [CapturedRequest]) {
         (count, bodies, requests)
+    }
+
+    private func requestBody(_ request: URLRequest) -> Data {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+        var result = Data()
+        var buffer = [UInt8](repeating: 0, count: 4_096)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            if read <= 0 { break }
+            result.append(buffer, count: read)
+        }
+        return result
     }
 }
 

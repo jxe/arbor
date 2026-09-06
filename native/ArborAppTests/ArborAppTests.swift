@@ -80,7 +80,7 @@ struct ArborAppTests {
         #expect(workspace.providerDetail == "No workspace open")
     }
 
-    @Test("The iPhone placement survives a native app relaunch")
+    @Test("The iPhone placements survive a native app relaunch")
     func nativePlacementRoundTrip() async throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "ArborNativePlacement-\(UUID().uuidString)")
@@ -105,8 +105,57 @@ struct ArborAppTests {
 
         try await store.save(record)
         #expect(try await store.load() == record)
+        let second = NativePlacementRecord(
+            origin: try #require(URL(string: "https://arbor.example")),
+            configurationTree: "tr_account_configuration",
+            tree: WireTreeDescriptor(
+                id: "tr_second",
+                kind: "ordinary",
+                root: "sha256:\(String(repeating: "b", count: 64))",
+                access: "read",
+                canonical: WireCanonicalDescriptor(
+                    path: "/~joe/reading",
+                    endpoint: "https://arbor.example"
+                ),
+                update: "up_second"
+            )
+        )
+        try await store.save(second)
+        #expect(try await store.load() == second)
+        #expect(try await store.loadAll().map(\.tree.id) == ["tr_second", "tr_native"])
+
+        try await store.clear(configurationTree: "tr_account_configuration")
+        #expect(try await store.loadAll().isEmpty)
         try await store.clear()
         #expect(try await store.load() == nil)
+    }
+
+    @Test("A legacy single iPhone placement migrates when another tree is placed")
+    func legacyNativePlacementMigration() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "ArborLegacyNativePlacement-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appending(path: "placement.json")
+        let legacy = NativePlacementRecord(
+            origin: try #require(URL(string: "https://arbor.example")),
+            configurationTree: "tr_account_configuration",
+            tree: WireTreeDescriptor(
+                id: "tr_legacy",
+                kind: "ordinary",
+                root: "sha256:\(String(repeating: "c", count: 64))",
+                access: "write",
+                canonical: WireCanonicalDescriptor(path: "/~joe/legacy", endpoint: "https://arbor.example"),
+                update: "up_legacy"
+            )
+        )
+        try JSONEncoder().encode(legacy).write(to: url)
+        let store = NativePlacementStore(url: url)
+
+        #expect(try await store.loadAll() == [legacy])
+        try await store.save(legacy)
+        #expect(try await store.load() == legacy)
+        #expect(try await store.loadAll() == [legacy])
     }
 
     @Test("The app opens the deterministic Home surface")

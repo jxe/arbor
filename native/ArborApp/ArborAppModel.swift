@@ -5,6 +5,7 @@ import ArborQuagmire
 import ArborReplica
 import ArborSync
 import ArborWire
+import CryptoKit
 import Foundation
 import Observation
 import QuagmireExtras
@@ -12,9 +13,22 @@ import QuagmireExtras
 import Network
 #endif
 
+struct ArborShareAccount: Identifiable, Hashable, Sendable {
+    let configurationTree: String
+    let origin: String
+    let handle: String?
+    var id: String { configurationTree }
+}
+
+enum ArborSharePresentation: Hashable, Sendable {
+    case tracked(NativeTreeAccessPresentation)
+    case promotable(path: String, accounts: [ArborShareAccount])
+}
+
 #if os(macOS)
 struct LocalArborSyncTreePresentation: Identifiable, Sendable, Equatable {
     let id: String
+    let configurationTree: String?
     let name: String
     let canonicalPath: String?
     let path: String?
@@ -110,6 +124,7 @@ final class ArborWorkspaceState {
 #endif
 #if os(iOS)
     private let nativePlacementStore = NativePlacementStore()
+    private(set) var nativePlacements: [NativePlacementRecord] = []
     private let nativePathMonitor = NWPathMonitor()
     private let nativePathMonitorQueue = DispatchQueue(label: "org.nxhx.Arbor.canopy-path")
     private var nativeTransportAvailable = false
@@ -212,6 +227,7 @@ final class ArborWorkspaceState {
 #if os(iOS)
         if remember {
             try await nativePlacementStore.save(NativePlacementRecord(origin: origin, configurationTree: configurationTree, tree: tree))
+            nativePlacements = try await nativePlacementStore.loadAll()
         }
 #endif
         await switchProvider(
@@ -235,6 +251,7 @@ final class ArborWorkspaceState {
 
     func restoreNativePlacementIfAvailable() async -> Bool {
         do {
+            nativePlacements = try await nativePlacementStore.loadAll()
             guard let record = try await nativePlacementStore.load() else { return false }
             try await place(tree: record.tree, from: record.origin, configurationTree: record.configurationTree, remember: false)
             return true
@@ -248,10 +265,23 @@ final class ArborWorkspaceState {
         try await nativePlacementStore.load()
     }
 
+    func openNativePlacement(_ placement: NativePlacementRecord) async {
+        do {
+            try await place(
+                tree: placement.tree,
+                from: placement.origin,
+                configurationTree: placement.configurationTree
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func disconnectNativeAccount() async throws {
         guard let placement = try await nativePlacementStore.load() else { return }
         try await NativeAccountService(origin: placement.origin, configurationTree: placement.configurationTree).forget()
-        try await nativePlacementStore.clear()
+        try await nativePlacementStore.clear(configurationTree: placement.configurationTree)
+        nativePlacements = try await nativePlacementStore.loadAll()
         serverWatchTask?.cancel()
         serverWatchTask = nil
         if let syncCoordinator { await syncCoordinator.close() }
@@ -261,7 +291,267 @@ final class ArborWorkspaceState {
     }
 #endif
 
+    func sharePresentation(for node: WorkspaceNode) async throws -> ArborSharePresentation {
+#if os(iOS)
+        if nativePlacements.isEmpty {
+            nativePlacements = try await nativePlacementStore.loadAll()
+        }
+        guard let placement = nativePlacements.first(where: { $0.tree.id == node.reference.tree.rawValue }) else {
+            throw ArborWireValidationError.invalidValue("The current tree is not placed on this iPhone")
+        }
+        let service = NativeAccountService(
+            origin: placement.origin,
+            configurationTree: placement.configurationTree
+        )
+        return .tracked(try await service.access(tree: placement.tree.id))
+#else
+        if node.reference.tree.rawValue == "local" {
+            guard let physicalURL = node.provenance.physicalURL else {
+                throw ArborWireValidationError.invalidValue("The current folder has no local path")
+            }
+            let folder: URL = switch node.surface {
+            case .directory, .directoryDocument: physicalURL
+            default: physicalURL.deletingLastPathComponent()
+            }
+            if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
+            var accounts: [ArborShareAccount] = []
+            if let client = arborsyncClient {
+                for account in localArborSyncOverview?.accounts ?? [] {
+                    guard account.credentialAvailable,
+                          let origin = account.canopy,
+                          await isLocalAccountAdministrator(account, client: client) else { continue }
+                    accounts.append(ArborShareAccount(
+                        configurationTree: account.configurationTree,
+                        origin: origin,
+                        handle: account.handle
+                    ))
+                }
+            }
+            return .promotable(path: folder.standardizedFileURL.path, accounts: accounts)
+        }
+        return .tracked(try await loadLocalTreeAccess(tree: node.reference.tree.rawValue))
+#endif
+    }
+
+    func setShareAccess(
+        tree: String,
+        target: NativeTreeAccessTarget,
+        access: String
+    ) async throws -> NativeTreeAccessPresentation {
+#if os(iOS)
+        guard let placement = nativePlacements.first(where: { $0.tree.id == tree }) else {
+            throw ArborWireValidationError.invalidValue("The tree is not placed on this iPhone")
+        }
+        return try await NativeAccountService(
+            origin: placement.origin,
+            configurationTree: placement.configurationTree
+        ).setAccess(tree: tree, target: target, access: access)
+#else
+        guard access == "none" || access == "read" || access == "write",
+              let client = arborsyncClient,
+              let overview = localArborSyncOverview,
+              let placedTree = overview.trees.first(where: { $0.id == tree }),
+              let configurationTree = placedTree.configurationTree else {
+            throw ArborWireValidationError.invalidValue("The current tree has no editable account configuration")
+        }
+        let ref = NodeRef(tree: configurationTree, path: "/trees.yaml", stableKey: nil)
+        let file = try await client.file(ref)
+        guard let source = String(data: file.bytes, encoding: .utf8) else {
+            throw ArborWireValidationError.invalidValue("trees.yaml is not UTF-8")
+        }
+        let subject: ArborAccountAccessSubject = switch target {
+        case .everyone: .everyone
+        case .existing(let subject): subject
+        case .profile(let locator): .profile(tree: try await resolveLocalProfile(locator, client: client, overview: overview, configurationTree: configurationTree))
+        }
+        let next = try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
+            guard var declaration = trees[tree] else {
+                throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")
+            }
+            declaration.access.removeAll { $0.subject == subject }
+            if access != "none" {
+                declaration.access.append(ArborAccountAccessRule(subject: subject, access: access))
+            }
+            trees[tree] = declaration
+        }
+        _ = try await client.writeText(ref, baseContentRevision: file.revision, source: next)
+        await refreshLocalArborSyncOverview()
+        return try await loadLocalTreeAccess(tree: tree)
+#endif
+    }
+
+    func createShareLink(tree: String, access: String) async throws -> NativeAccessLink {
+#if os(iOS)
+        guard let placement = nativePlacements.first(where: { $0.tree.id == tree }) else {
+            throw ArborWireValidationError.invalidValue("The tree is not placed on this iPhone")
+        }
+        return try await NativeAccountService(
+            origin: placement.origin,
+            configurationTree: placement.configurationTree
+        ).createAccessLink(tree: tree, access: access)
+#else
+        var generator = SystemRandomNumberGenerator()
+        let bytes = (0..<32).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
+        let secret = Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let digest = "sha256:" + SHA256.hash(data: Data(secret.utf8)).map { String(format: "%02x", $0) }.joined()
+        let updated = try await setShareAccess(
+            tree: tree,
+            target: .existing(.link(digest: digest)),
+            access: access
+        )
+        guard var components = URLComponents(string: updated.canonical) else {
+            throw ArborWireValidationError.invalidValue("The tree has no valid canonical URL")
+        }
+        components.fragment = "arbor-access=\(secret)"
+        guard let url = components.url else {
+            throw ArborWireValidationError.invalidValue("The access-link URL could not be created")
+        }
+        return NativeAccessLink(url: url)
+#endif
+    }
+
 #if os(macOS)
+    private func isLocalAccountAdministrator(
+        _ account: LocalCanopyAccountDescriptor,
+        client: ArborSyncRESTClient
+    ) async -> Bool {
+        guard let deviceID = account.deviceID,
+              let file = try? await client.file(.init(
+                tree: account.configurationTree,
+                path: "/devices.yaml",
+                stableKey: nil
+              )),
+              let source = String(data: file.bytes, encoding: .utf8) else { return false }
+        return (try? ArborAccountConfigurationYAML.isAdministrator(
+            deviceID: deviceID,
+            devicesSource: source
+        )) == true
+    }
+
+    private func loadLocalTreeAccess(tree: String) async throws -> NativeTreeAccessPresentation {
+        if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
+        guard let client = arborsyncClient,
+              let overview = localArborSyncOverview,
+              let placedTree = overview.trees.first(where: { $0.id == tree }),
+              let configurationTree = placedTree.configurationTree,
+              let account = overview.accounts.first(where: { $0.configurationTree == configurationTree }) else {
+            throw ArborWireValidationError.invalidValue("The current tree has no editable account configuration")
+        }
+        let treesRef = NodeRef(tree: configurationTree, path: "/trees.yaml", stableKey: nil)
+        let devicesRef = NodeRef(tree: configurationTree, path: "/devices.yaml", stableKey: nil)
+        async let treesFileRequest = client.file(treesRef)
+        async let devicesFileRequest = client.file(devicesRef)
+        let (treesFile, devicesFile) = try await (treesFileRequest, devicesFileRequest)
+        guard let treesSource = String(data: treesFile.bytes, encoding: .utf8),
+              let devicesSource = String(data: devicesFile.bytes, encoding: .utf8) else {
+            throw ArborWireValidationError.invalidValue("Account configuration YAML is not UTF-8")
+        }
+        let trees = try ArborAccountConfigurationYAML.trees(from: treesSource)
+        guard let declaration = trees[tree] else {
+            throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")
+        }
+        let entries = declaration.access.map { rule in
+            let locator: String? = if case let .profile(profileTree) = rule.subject,
+                                      let profile = overview.trees.first(where: { $0.id == profileTree }),
+                                      let path = profile.canonicalPath,
+                                      let origin = overview.accounts.first(where: { $0.configurationTree == profile.configurationTree })?.canopy {
+                origin + path
+            } else { nil }
+            return NativeTreeAccessEntry(subject: rule.subject, locator: locator, access: rule.access)
+        }
+        return NativeTreeAccessPresentation(
+            tree: tree,
+            canonical: declaration.canonical,
+            entries: entries,
+            canEdit: try ArborAccountConfigurationYAML.isAdministrator(
+                deviceID: account.deviceID,
+                devicesSource: devicesSource
+            )
+        )
+    }
+
+    private func resolveLocalProfile(
+        _ input: String,
+        client: ArborSyncRESTClient,
+        overview: LocalArborSyncOverview,
+        configurationTree: String
+    ) async throws -> String {
+        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.range(of: #"^tr_[a-z2-7]+$"#, options: .regularExpression) != nil { return value }
+        let locator: String
+        if value.hasPrefix("~"),
+           let origin = overview.accounts.first(where: { $0.configurationTree == configurationTree })?.canopy,
+           let host = URL(string: origin)?.host {
+            locator = "arbor://\(host)/\(value)"
+        } else {
+            locator = value
+        }
+        guard locator.contains("://") else {
+            throw ArborWireValidationError.invalidValue("Enter a person or group Arbor URL, handle, or TreeID")
+        }
+        return try await client.resolve(locator).ref.tree
+    }
+
+    func promoteLocalFolder(
+        path: String,
+        account: ArborShareAccount,
+        canonical: String,
+        publicAccess: String
+    ) async throws {
+        guard let client = arborsyncClient,
+              publicAccess == "none" || publicAccess == "read" || publicAccess == "write",
+              let canonicalURL = URL(string: canonical),
+              let accountOrigin = URL(string: account.origin),
+              canonicalURL.scheme == accountOrigin.scheme,
+              canonicalURL.host == accountOrigin.host,
+              canonicalURL.port == accountOrigin.port,
+              canonicalURL.query == nil,
+              canonicalURL.fragment == nil else {
+            throw ArborWireValidationError.invalidValue("Enter a canonical URL on the selected Canopy")
+        }
+        let tree = try await client.treeID()
+        let ref = NodeRef(tree: account.configurationTree, path: "/trees.yaml", stableKey: nil)
+        let file = try await client.file(ref)
+        guard let source = String(data: file.bytes, encoding: .utf8) else {
+            throw ArborWireValidationError.invalidValue("trees.yaml is not UTF-8")
+        }
+        let rules = publicAccess == "none" ? [] : [
+            ArborAccountAccessRule(subject: .everyone, access: publicAccess)
+        ]
+        let next = try ArborAccountConfigurationYAML.replacingTrees(in: source) { trees in
+            guard trees[tree] == nil else {
+                throw ArborWireValidationError.invalidValue("The new TreeID is already declared")
+            }
+            trees[tree] = ArborHostedTreeDeclaration(canonical: canonical, access: rules)
+        }
+        _ = try await client.writeText(ref, baseContentRevision: file.revision, source: next)
+        do {
+            let placementsURL = ArborSupportDirectories.dataHome.appending(path: "placements.yaml")
+            let placementsSource = (try? String(contentsOf: placementsURL, encoding: .utf8)) ?? "{}\n"
+            let placements = try ArborLocalPlacementsYAML.adding(
+                configurationTree: account.configurationTree,
+                path: URL(fileURLWithPath: path).standardizedFileURL.path,
+                tree: tree,
+                to: placementsSource
+            )
+            try placements.write(to: placementsURL, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: placementsURL.path)
+        } catch {
+            if let latest = try? await client.file(ref),
+               let latestSource = String(data: latest.bytes, encoding: .utf8),
+               let rollback = try? ArborAccountConfigurationYAML.replacingTrees(in: latestSource, with: { $0[tree] = nil }) {
+                _ = try? await client.writeText(ref, baseContentRevision: latest.revision, source: rollback)
+            }
+            throw error
+        }
+        try await client.synchronize(configurationTree: account.configurationTree)
+        await refreshLocalArborSyncOverview()
+        generation += 1
+    }
+
     func openLocalWorkspace(_ url: URL, remember: Bool = true) async throws {
         try await editorWorkspace.flushAll()
         await editorWorkspace.closeAll()
@@ -410,6 +700,7 @@ final class ArborWorkspaceState {
         let trees = treeList.snapshot.map {
             LocalArborSyncTreePresentation(
                 id: $0.id,
+                configurationTree: $0.configurationTree,
                 name: $0.name,
                 canonicalPath: $0.canonical?.path,
                 path: $0.osPath,
@@ -651,7 +942,11 @@ final class ArborWorkspaceState {
     func syncNow() async {
         guard let syncCoordinator else { return }
         do {
-            syncPresentation = try await syncCoordinator.syncOnce()
+            // Manual and lifecycle refreshes must pull a clean replica as well
+            // as reconcile a locally pending one. `syncOnce()` alone expresses
+            // a local candidate and can leave a clean, stale replica dependent
+            // on an indefinitely open watch connection.
+            syncPresentation = try await syncCoordinator.recoverWatchGap()
             syncConflict = try await syncCoordinator.conflict()
         }
         catch {

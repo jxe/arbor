@@ -45,6 +45,12 @@ struct NativePlacementRecord: Codable, Equatable, Sendable {
     }
 }
 
+private struct NativePlacementCollection: Codable {
+    var version = 2
+    var selectedTree: String?
+    var placements: [NativePlacementRecord]
+}
+
 actor NativePlacementStore {
     private let url: URL
 
@@ -54,22 +60,83 @@ actor NativePlacementStore {
 
     func load() throws -> NativePlacementRecord? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        let record = try JSONDecoder().decode(NativePlacementRecord.self, from: Data(contentsOf: url))
-        guard record.version == 1 else { throw ArborWireValidationError.invalidValue("Unsupported native placement") }
-        _ = try record.tree.validated()
-        return record
+        let collection = try loadCollection()
+        return collection.selectedTree.flatMap { selected in
+            collection.placements.first { $0.tree.id == selected }
+        } ?? collection.placements.first
+    }
+
+    func loadAll() throws -> [NativePlacementRecord] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return try loadCollection().placements
     }
 
     func save(_ record: NativePlacementRecord) throws {
         _ = try record.tree.validated()
+        var collection = try loadCollectionIfPresent() ?? NativePlacementCollection(placements: [])
+        collection.placements.removeAll { $0.tree.id == record.tree.id }
+        collection.placements.append(record)
+        collection.placements.sort {
+            ($0.tree.canonicalPath ?? $0.tree.id).localizedCaseInsensitiveCompare(
+                $1.tree.canonicalPath ?? $1.tree.id
+            ) == .orderedAscending
+        }
+        collection.selectedTree = record.tree.id
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(record).write(to: url, options: .atomic)
+        try encoder.encode(collection).write(to: url, options: .atomic)
+    }
+
+    func clear(configurationTree: String?) throws {
+        guard var collection = try loadCollectionIfPresent() else { return }
+        collection.placements.removeAll { $0.configurationTree == configurationTree }
+        if collection.placements.isEmpty {
+            try clear()
+            return
+        }
+        if !collection.placements.contains(where: { $0.tree.id == collection.selectedTree }) {
+            collection.selectedTree = collection.placements.first?.tree.id
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(collection).write(to: url, options: .atomic)
     }
 
     func clear() throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         try FileManager.default.removeItem(at: url)
+    }
+
+    private func loadCollectionIfPresent() throws -> NativePlacementCollection? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try loadCollection()
+    }
+
+    private func loadCollection() throws -> NativePlacementCollection {
+        let data = try Data(contentsOf: url)
+        if let collection = try? JSONDecoder().decode(NativePlacementCollection.self, from: data) {
+            guard collection.version == 2 else {
+                throw ArborWireValidationError.invalidValue("Unsupported native placement collection")
+            }
+            try validate(collection.placements)
+            return collection
+        }
+        let record = try JSONDecoder().decode(NativePlacementRecord.self, from: data)
+        try validate([record])
+        return NativePlacementCollection(selectedTree: record.tree.id, placements: [record])
+    }
+
+    private func validate(_ records: [NativePlacementRecord]) throws {
+        var trees = Set<String>()
+        for record in records {
+            guard record.version == 1 else {
+                throw ArborWireValidationError.invalidValue("Unsupported native placement")
+            }
+            _ = try record.tree.validated()
+            guard trees.insert(record.tree.id).inserted else {
+                throw ArborWireValidationError.invalidValue("Duplicate native tree placement")
+            }
+        }
     }
 }
