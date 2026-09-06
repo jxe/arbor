@@ -491,6 +491,44 @@ struct ArborSyncTests {
         }
     }
 
+    @Test("A clean replica pulls current Canopy state when transport returns")
+    func cleanReconnectPull() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_clean_reconnect"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOld\n")
+            let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nCurrent\n")
+            let bootstrap = ClosureTransport(initial: initial) { _, _ in
+                throw ArborWireValidationError.invalidValue("Placement must not submit")
+            }
+            let replica = try await ReplicaPlacementService.place(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"),
+                transport: bootstrap
+            )
+            let remoteTransport = ClosureTransport(
+                initial: remote,
+                currentUpdate: "up_remote",
+                currentObservedThrough: "observation_after_remote"
+            ) { _, _ in
+                throw ArborWireValidationError.invalidValue("A clean reconnect must not submit")
+            }
+            let coordinator = try ReplicaSyncCoordinator(
+                replica: replica,
+                transport: remoteTransport,
+                stateRoot: root.appending(path: "sync"),
+                transportAvailable: false
+            )
+
+            await coordinator.setTransportAvailable(true)
+
+            #expect(try await replica.heads().materializedRoot == remote.root)
+            #expect(try await coordinator.watchCursor() == "observation_after_remote")
+            #expect(await remoteTransport.descriptorRequests == 1)
+            #expect(await remoteTransport.requestedRoots == [remote.root])
+            #expect(await remoteTransport.requests.isEmpty)
+        }
+    }
+
     @Test("A matching watch digest recovers a lost update response without reconnecting")
     func watchDigestRecovery() async throws {
         try await withTemporaryRoot { root in

@@ -221,8 +221,14 @@ public actor ReplicaSyncCoordinator {
             return
         }
         let heads = try? await replica.heads()
-        guard control.attempt != nil || heads?.pendingRoot != nil || control.nextBase != nil else { return }
-        _ = try? await synchronize(admission: nil, extendExistingAttempt: true)
+        if control.attempt != nil || heads?.pendingRoot != nil || control.nextBase != nil {
+            _ = try? await synchronize(admission: nil, extendExistingAttempt: true)
+        } else {
+            // A clean offline replica can still be behind Canopy. Reconnection
+            // is an authoritative catch-up boundary even when there is no local
+            // candidate to submit and no watch failure to trigger gap recovery.
+            _ = try? await recoverWatchGap()
+        }
     }
 
     private func synchronize(

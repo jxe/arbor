@@ -341,10 +341,12 @@ export class TreeSynchronizer {
    */
   async pushEditorAdmissions(tree: string, client: WireClient): Promise<void> {
     const admissions = await pendingEditorAdmissions(tree);
-    const first = admissions[0];
+    const firstIndex = admissions.findIndex((admission) => !admission.acknowledged);
+    const first = admissions[firstIndex];
     if (!first) return;
-    const chain = admissions.filter((admission) => admission.id === first.id);
-    if (chain.every((admission) => admission.acknowledged)) return;
+    const nextEpoch = admissions.findIndex((admission, index) => index > firstIndex && admission.id !== first.id);
+    const prefix = admissions.slice(0, nextEpoch < 0 ? admissions.length : nextEpoch);
+    const chain = prefix.filter((admission) => admission.id === first.id);
     const key = `${first.id}:${chain.length}:${chain.at(-1)!.request.candidate}`;
     let pushes = this.editorPushes.get(tree);
     if (!pushes) {
@@ -403,6 +405,13 @@ export class TreeSynchronizer {
     if (await treeConflict(workspace.tree)) {
       trees.setSyncState(workspace.tree, "conflict");
       this.conflicts.add(workspace.tree);
+      return;
+    }
+    if ((await pendingEditorAdmissions(workspace.tree)).some((admission) => !admission.acknowledged)) {
+      // Editor admissions are already durable and represent the earliest
+      // authored order. Do not let a filesystem snapshot overtake them and
+      // turn same-device edits into artificial three-way merges.
+      this.deps.requestSync();
       return;
     }
     if (await this.applyQueuedTransitions(workspace, placement, client, remoteTrees)) return;

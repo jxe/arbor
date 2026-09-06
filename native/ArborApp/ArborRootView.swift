@@ -113,7 +113,15 @@ struct ArborRootView: View {
 
     var body: some View {
         platformNavigation
-        .task(id: workspace.generation) { await model.resetForWorkspace() }
+        .task(id: workspace.generation) {
+            await model.resetForWorkspace()
+#if os(iOS)
+            // A restored replica is useful immediately while offline, but once
+            // its editor is observing changes, establish current Canopy state
+            // instead of relying only on replay from a long-lived watch.
+            await workspace.syncNow()
+#endif
+        }
         .task(id: workspace.latestStructuralReceipt?.id) {
             guard let receipt = workspace.latestStructuralReceipt else { return }
             await model.reconcile(receipt)
@@ -140,6 +148,11 @@ struct ArborRootView: View {
                 forwardPendingVoiceRecording()
 #if os(macOS)
                 Task { await workspace.refreshLocalArborSyncOverview() }
+#else
+                // iOS may suspend an apparently open streaming request while
+                // backgrounded. Foregrounding is therefore also a deterministic
+                // snapshot-then-follow catch-up boundary.
+                Task { await workspace.syncNow() }
 #endif
             } else {
                 Task { await workspace.flush() }

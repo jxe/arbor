@@ -443,6 +443,107 @@ describe("private self-sync", () => {
     }
   });
 
+  test("preserves interleaved editor epoch order after an in-flight prefix is acknowledged", async () => {
+    const author = await launch(stateA, treeA);
+    await waitFor(async () => (await author.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const noteRef = { tree, path: "/note", stableKey: null } as const;
+    const rootRef = { tree, path: "/", stableKey: null } as const;
+    const note = await author.client.editorNode(noteRef);
+    const root = await author.client.editorNode(rootRef);
+    const noteSource = nodeDocument(note)!.source;
+    const rootSource = nodeDocument(root)!.source;
+    if (!note.admissionBasis || !root.admissionBasis) {
+      throw new Error("Placed documents omitted their editor admission bases");
+    }
+
+    const historyBefore = host.canopy.acceptedUpdates(tree).length;
+    const updateBodies: any[] = [];
+    const systemFetch = globalThis.fetch;
+    let releaseFirst!: () => void;
+    const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let observeFirst!: () => void;
+    const firstObserved = new Promise<void>((resolve) => { observeFirst = resolve; });
+    let blockNextUpdate = true;
+    globalThis.fetch = (async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
+        updateBodies.push(JSON.parse(init.body));
+        if (blockNextUpdate) {
+          blockNextUpdate = false;
+          observeFirst();
+          await firstReleased;
+        }
+      }
+      return systemFetch(input, init);
+    }) as typeof fetch;
+
+    const firstNoteSource = `${noteSource}\nFirst editor epoch.\n`;
+    const secondNoteSource = `${firstNoteSource}Return to first editor epoch.\n`;
+    const admittedRoot = `${rootSource}\nSecond editor epoch.\n`;
+    const externalPath = join(treeA, "external-during-editor.md");
+    try {
+      const firstNote = await author.client.admitDocumentCandidate(
+        noteRef,
+        note.admissionBasis,
+        note.capabilities.content!.revision,
+        firstNoteSource,
+        [{ offset: Buffer.byteLength(noteSource), length: 0, replacement: "\nFirst editor epoch.\n" }],
+      );
+      await firstObserved;
+      await author.client.admitDocumentCandidate(
+        rootRef,
+        root.admissionBasis,
+        root.capabilities.content!.revision,
+        admittedRoot,
+        [{ offset: Buffer.byteLength(rootSource), length: 0, replacement: "\nSecond editor epoch.\n" }],
+      );
+      if (!firstNote.admissionBasis) throw new Error("First editor epoch omitted its next admission basis");
+      await author.client.admitDocumentCandidate(
+        noteRef,
+        firstNote.admissionBasis,
+        firstNote.capabilities.content!.revision,
+        secondNoteSource,
+        [{ offset: Buffer.byteLength(firstNoteSource), length: 0, replacement: "Return to first editor epoch.\n" }],
+      );
+      await writeFile(externalPath, "# External while editor admissions are pending\n");
+      const externalRoot = (await snapshotDirectory(treeA)).root;
+      await Bun.sleep(100);
+      expect(updateBodies).toHaveLength(1);
+      releaseFirst();
+
+      await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 4
+        && (await readFile(join(treeA, "note.md"), "utf8")) === secondNoteSource
+        && (await readFile(join(treeA, "_index.md"), "utf8")) === admittedRoot);
+      expect(updateBodies.map((body) => body.updates.length)).toEqual([1, 1, 2, 1]);
+      expect(updateBodies[2].updates[0]).toEqual(updateBodies[0].updates[0]);
+      expect(updateBodies[3].updates[0].candidate).toBe(externalRoot);
+
+      const currentNote = await author.client.node(noteRef);
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref: noteRef,
+        baseContentRevision: currentNote.capabilities.content!.revision,
+        source: noteSource,
+      });
+      const currentRoot = await author.client.node(rootRef);
+      await author.client.mutateContent({
+        op: "writeMarkdown",
+        ref: rootRef,
+        baseContentRevision: currentRoot.capabilities.content!.revision,
+        source: rootSource,
+      });
+      await rm(externalPath);
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    } finally {
+      releaseFirst();
+      globalThis.fetch = systemFetch;
+      await rm(externalPath, { force: true });
+      await author.close();
+    }
+  });
+
   test("continues one editor update string while its accepted prefix is awaiting materialization", async () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
