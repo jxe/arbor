@@ -1077,6 +1077,35 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("A live authoritative update cannot replace unadmitted editor text")
+    func liveAuthoritativeUpdatePreservesDirtyEditor() async throws {
+        let reference = WorkspaceReference(tree: "tr_live_dirty", path: "/", stableKey: markdownStableKey("pg_live_dirty"))
+        let initial = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "---\nid: pg_live_dirty\n---\n\n# Hi\n\n- Before\n",
+            contentRevision: "r1"
+        )
+        let session = LiveUpdateSession(snapshot: initial)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        var bulletID: BlockID?
+        binding.document.walk { block, _, _ in
+            if case .bullet = block.kind { bulletID = block.id }
+        }
+        let paragraphID = try #require(bulletID)
+        binding.document.transaction(name: "unadmitted local typing") {
+            _ = binding.document.setText(paragraphID, AttributedString("Typed locally"))
+        }
+
+        await Task.yield()
+        await session.publish(source: initial.source.replacingOccurrences(of: "Before", with: "Remote"), revision: "r2")
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(binding.document.find(paragraphID).map { String($0.text.characters) } == "Typed locally")
+        #expect(binding.lastError == nil)
+        await binding.close()
+    }
+
+    @MainActor
     @Test("A watched authoritative toggle remains a toggle after replacement")
     func liveToggleUpdate() async throws {
         let reference = WorkspaceReference(

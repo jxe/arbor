@@ -169,6 +169,12 @@ public final class ArborDocumentBinding {
         guard snapshot.contentRevision != accepted.contentRevision else { return }
         await flush()
         guard conflict == nil, lastError == nil, !isSaving else { return }
+        // Quagmire can contain a keystroke or newly inserted block before its
+        // commit callback has entered the admission queue. An incoming watch
+        // transition must not replace that dirty tree: doing so loses text
+        // before ArborSync has any durable candidate from which to recover it.
+        let currentAdmission = ArborMarkdownCodec.admission(blocks: document.children, ledger: ledger).0
+        guard currentAdmission.source == accepted.source else { return }
         guard let current = try? await session.snapshot(),
               current.contentRevision != accepted.contentRevision else { return }
         await applyAcceptedReplacement(current)
