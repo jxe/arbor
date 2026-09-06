@@ -25,6 +25,15 @@ enum ArborSharePresentation: Hashable, Sendable {
     case promotable(path: String, accounts: [ArborShareAccount])
 }
 
+enum ArborShareInvite {
+    static func locators(in input: String) -> [String] {
+        input
+            .split(separator: ",", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+}
+
 #if os(macOS)
 struct LocalArborSyncTreePresentation: Identifiable, Sendable, Equatable {
     let id: String
@@ -437,6 +446,70 @@ final class ArborWorkspaceState {
         )) == true
     }
 
+    func localCanopyDevices(configurationTree: String) async throws -> [LocalArborSyncDevicePresentation] {
+        guard let client = arborsyncClient,
+              let account = localArborSyncOverview?.accounts.first(where: {
+                  $0.configurationTree == configurationTree
+              }) else {
+            throw ArborSyncSupervisorError.incompatibleService("The Canopy account is unavailable")
+        }
+        let file = try await client.file(.init(
+            tree: configurationTree,
+            path: "/devices.yaml",
+            stableKey: nil
+        ))
+        guard let source = String(data: file.bytes, encoding: .utf8) else {
+            throw ArborWireValidationError.invalidValue("devices.yaml is not UTF-8")
+        }
+        return try ArborAccountConfigurationYAML.devices(from: source)
+            .map { id, device in
+                LocalArborSyncDevicePresentation(
+                    id: id,
+                    label: device.label,
+                    isAdministrator: device.administrator == true,
+                    isCurrent: id == account.deviceID
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
+                return lhs.label.localizedCaseInsensitiveCompare(rhs.label) == .orderedAscending
+            }
+    }
+
+    func setLocalCanopyDeviceAdministrator(
+        configurationTree: String,
+        deviceID: String,
+        administrator: Bool
+    ) async throws -> [LocalArborSyncDevicePresentation] {
+        guard let client = arborsyncClient,
+              let account = localArborSyncOverview?.accounts.first(where: {
+                  $0.configurationTree == configurationTree
+              }) else {
+            throw ArborSyncSupervisorError.incompatibleService("The Canopy account is unavailable")
+        }
+        let ref = NodeRef(tree: configurationTree, path: "/devices.yaml", stableKey: nil)
+        let file = try await client.file(ref)
+        guard let source = String(data: file.bytes, encoding: .utf8) else {
+            throw ArborWireValidationError.invalidValue("devices.yaml is not UTF-8")
+        }
+        let devices = try ArborAccountConfigurationYAML.devices(from: source)
+        try ArborAccountConfigurationYAML.validateAdministratorChange(
+            devices: devices,
+            currentDeviceID: account.deviceID,
+            targetDeviceID: deviceID,
+            administrator: administrator
+        )
+        let next = try ArborAccountConfigurationYAML.replacingDevices(in: source) { devices in
+            guard var device = devices[deviceID] else {
+                throw ArborWireValidationError.invalidValue("The device is no longer active")
+            }
+            device.administrator = administrator ? true : nil
+            devices[deviceID] = device
+        }
+        _ = try await client.writeText(ref, baseContentRevision: file.revision, source: next)
+        return try await localCanopyDevices(configurationTree: configurationTree)
+    }
+
     private func loadLocalTreeAccess(tree: String) async throws -> NativeTreeAccessPresentation {
         if localArborSyncOverview == nil { await refreshLocalArborSyncOverview() }
         guard let client = arborsyncClient,
@@ -459,26 +532,19 @@ final class ArborWorkspaceState {
         guard let declaration = trees[tree] else {
             throw ArborWireValidationError.invalidValue("The current tree is not declared by this account")
         }
-        let entries = declaration.access.map { rule in
-            let profileTree: String? = if case let .profile(tree) = rule.subject { tree } else { nil }
-            let locator: String? = if let profileTree,
-                                      let profile = overview.trees.first(where: { $0.id == profileTree }),
-                                      let path = profile.canonicalPath,
-                                      let origin = overview.accounts.first(where: { $0.configurationTree == profile.configurationTree })?.canopy {
-                origin + path
-            } else { nil }
-            let isCurrentUser = profileTree != nil && profileTree == account.profileTree
-            return NativeTreeAccessEntry(
-                subject: rule.subject,
-                locator: locator,
-                displayName: ArborAccountConfigurationYAML.profileDisplayName(
-                    locator: locator,
-                    handle: isCurrentUser ? account.handle : nil
-                ),
-                access: rule.access,
-                isCurrentUser: isCurrentUser
-            )
-        }
+        let profileLocators = Dictionary(uniqueKeysWithValues: overview.trees.compactMap { profile -> (String, String)? in
+            guard let path = profile.canonicalPath,
+                  let origin = overview.accounts.first(where: { $0.configurationTree == profile.configurationTree })?.canopy else {
+                return nil
+            }
+            return (profile.id, origin + path)
+        })
+        let entries = ArborAccountConfigurationYAML.presentedAccessEntries(
+            rules: declaration.access,
+            profileLocators: profileLocators,
+            currentProfileTree: account.profileTree,
+            currentHandle: account.handle
+        )
         return NativeTreeAccessPresentation(
             tree: tree,
             canonical: declaration.canonical,

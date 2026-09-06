@@ -617,24 +617,19 @@ public actor NativeAccountService {
             guard case let .profile(profileTree, locator?) = entry.subject else { return nil }
             return (profileTree, locator)
         })
+        var profileLocators = locators
+        if let profileTree = account.profileTree, let profileURL = account.profileURL {
+            profileLocators[profileTree] = profileURL
+        }
         return NativeTreeAccessPresentation(
             tree: tree,
             canonical: declaration.canonical,
-            entries: declaration.access.map { rule in
-                let profileTree: String? = if case let .profile(tree) = rule.subject { tree } else { nil }
-                let locator = profileTree.flatMap { locators[$0] }
-                let isCurrentUser = profileTree != nil && profileTree == account.profileTree
-                return NativeTreeAccessEntry(
-                    subject: rule.subject,
-                    locator: locator,
-                    displayName: ArborAccountConfigurationYAML.profileDisplayName(
-                        locator: isCurrentUser ? account.profileURL ?? locator : locator,
-                        handle: isCurrentUser ? account.handle : nil
-                    ),
-                    access: rule.access,
-                    isCurrentUser: isCurrentUser
-                )
-            },
+            entries: ArborAccountConfigurationYAML.presentedAccessEntries(
+                rules: declaration.access,
+                profileLocators: profileLocators,
+                currentProfileTree: account.profileTree,
+                currentHandle: account.handle
+            ),
             canEdit: try ArborAccountConfigurationYAML.isAdministrator(
                 deviceID: account.device?.id,
                 devicesSource: devicesSource

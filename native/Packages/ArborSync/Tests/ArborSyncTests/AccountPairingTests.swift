@@ -77,6 +77,45 @@ struct NativeAccountPairingTests {
         """))
     }
 
+    @Test("Device administrator edits preserve other device source")
+    func deviceAdministratorYAML() throws {
+        let source = """
+        # Current Mac
+        dv_mac:
+          label: Joe's Mac
+          administrator: true
+
+        # Preserve this note and quoting.
+        dv_phone:
+          label: 'Joe’s iPhone'
+        """
+        let changed = try ArborAccountConfigurationYAML.replacingDevices(in: source) { devices in
+            var phone = try #require(devices["dv_phone"])
+            phone.administrator = true
+            devices["dv_phone"] = phone
+        }
+        let decoded = try ArborAccountConfigurationYAML.devices(from: changed)
+
+        #expect(decoded["dv_phone"]?.administrator == true)
+        #expect(changed.contains("# Current Mac\ndv_mac:\n  label: Joe's Mac\n  administrator: true"))
+        #expect(throws: Never.self) {
+            try ArborAccountConfigurationYAML.validateAdministratorChange(
+                devices: decoded,
+                currentDeviceID: "dv_mac",
+                targetDeviceID: "dv_phone",
+                administrator: false
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try ArborAccountConfigurationYAML.validateAdministratorChange(
+                devices: decoded,
+                currentDeviceID: "dv_mac",
+                targetDeviceID: "dv_mac",
+                administrator: false
+            )
+        }
+    }
+
     @Test("Local placement YAML adds a tree without replacing another placement")
     func localPlacementYAML() throws {
         let source = """
@@ -124,6 +163,21 @@ struct NativeAccountPairingTests {
             access: "none",
             currentProfileTree: "tr_joe"
         )
+
+        let entries = ArborAccountConfigurationYAML.presentedAccessEntries(
+            rules: [
+                ArborAccountAccessRule(subject: .profile(tree: "tr_alice"), access: "read"),
+                ArborAccountAccessRule(subject: .everyone, access: "read"),
+            ],
+            profileLocators: ["tr_alice": "arbor://community.example/~alice"],
+            currentProfileTree: "tr_joe",
+            currentHandle: "joe"
+        )
+        #expect(entries.map(\.id) == ["profile:tr_joe", "profile:tr_alice", "everyone"])
+        #expect(entries[0].displayName == "~joe")
+        #expect(entries[0].access == "write")
+        #expect(entries[0].isCurrentUser)
+        #expect(entries[1].displayName == "~alice")
     }
 
     @Test("A failed account discovery retries the exact durable pairing claim")

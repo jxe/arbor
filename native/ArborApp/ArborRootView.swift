@@ -181,9 +181,11 @@ struct ArborRootView: View {
             IOSAccountPanel(workspace: workspace, onDisconnect: onDisconnect)
 #endif
         }
+#if os(iOS)
         .sheet(isPresented: $sharePresented) {
             ArborSharePanel(workspace: workspace, currentNode: model.node)
         }
+#endif
 #if os(iOS)
         .sheet(isPresented: $placementPresented) {
             IOSPlaceTreePanel(workspace: workspace)
@@ -587,13 +589,20 @@ struct ArborRootView: View {
                         workspace: workspace
                     )
                 }
+#if os(macOS)
                 Button("Share", systemImage: "square.and.arrow.up") {
                     sharePresented = true
                 }
-#if os(macOS)
+                .popover(isPresented: $sharePresented, arrowEdge: .top) {
+                    ArborSharePanel(workspace: workspace, currentNode: model.node)
+                }
                 Button("Account", systemImage: "person.crop.circle") {
                     accountPresented = true
                     Task { await workspace.refreshLocalArborSyncOverview() }
+                }
+#else
+                Button("Share", systemImage: "square.and.arrow.up") {
+                    sharePresented = true
                 }
 #endif
             }
@@ -869,9 +878,6 @@ private struct ArborSharePanel: View {
     @State private var busy = false
     @State private var message: String?
     @State private var profileLocator = ""
-    @State private var newPermission = "read"
-    @State private var linkPermission = "read"
-    @State private var createdLink: URL?
     @State private var selectedAccountID = ""
     @State private var canonicalURL = ""
     @State private var promotionAccess = "none"
@@ -894,14 +900,16 @@ private struct ArborSharePanel: View {
                 }
             }
             .navigationTitle("Share")
+#if os(iOS)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
+#endif
         }
 #if os(macOS)
-        .frame(minWidth: 520, minHeight: 540)
+        .frame(width: 520, height: 520)
         .formStyle(.grouped)
 #endif
         .task { await load() }
@@ -914,134 +922,172 @@ private struct ArborSharePanel: View {
 
     @ViewBuilder
     private func trackedTree(_ access: NativeTreeAccessPresentation) -> some View {
-        Section("Tree") {
-            LabeledContent("Address") {
-                Text(access.canonical)
-                    .textSelection(.enabled)
-                    .lineLimit(2)
+        Section {
+            HStack(spacing: 10) {
+                TextField(
+                    "Add people or groups",
+                    text: $profileLocator,
+                    prompt: Text("~handle or Arbor profile URL")
+                )
+                .textFieldStyle(.roundedBorder)
+#if os(iOS)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+#endif
+                .onSubmit { shareInvites(access) }
+                .disabled(busy || !access.canEdit)
+                Button("Share") { shareInvites(access) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(busy || !access.canEdit || inviteLocators.isEmpty)
             }
-            if !access.canEdit {
-                Text("Only an administrator for this Canopy account can change access.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        } footer: {
+            if access.canEdit {
+                Text("Separate multiple ~handles or profile URLs with commas. New people start with Can view.")
+            } else {
+#if os(iOS)
+                Text("This iPhone needs administrator access to share. On a Mac, open Account and make this device an administrator.")
+#else
+                Text("This Mac needs administrator access to share.")
+#endif
             }
         }
         Section {
-            ForEach(access.entries) { entry in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(label(for: entry))
-                        if entry.isCurrentUser {
-                            Text("You").font(.caption).foregroundStyle(.secondary)
-                        } else if case let .profile(tree) = entry.subject, entry.displayName == nil {
-                            Text(tree).font(.caption.monospaced()).foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                    Picker("Permission", selection: Binding(
-                        get: { entry.access },
-                        set: { permission in
-                            Task { await change(access, target: .existing(entry.subject), permission: permission) }
-                        }
-                    )) {
-                        Text("Can view").tag("read")
-                        Text("Can edit").tag("write")
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    if entry.isCurrentUser {
-                        Image(systemName: "lock.fill")
-                            .foregroundStyle(.secondary)
-                            .accessibilityLabel("Your access cannot be removed")
-                            .help("Your access cannot be removed")
-                    } else {
-                        Button("Remove access", systemImage: "minus.circle", role: .destructive) {
-                            Task { await change(access, target: .existing(entry.subject), permission: "none") }
-                        }
-                        .labelStyle(.iconOnly)
-                        .disabled(busy || !access.canEdit)
-                    }
-                }
-                .disabled(busy || !access.canEdit)
+            ForEach(access.entries.filter { $0.subject != .everyone }) { entry in
+                accessRow(entry, in: access)
             }
-            if access.entries.isEmpty {
-                Text("Private — only the account that hosts this tree can access it.")
-                    .foregroundStyle(.secondary)
+            if let everyone = access.entries.first(where: { $0.subject == .everyone }) {
+                accessRow(everyone, in: access)
+            } else {
+                everyoneRow(in: access)
             }
         } header: {
-            Text("Access")
+            Text("Who has access")
         } footer: {
-            Text("Rules are additive. A person may also receive access through a group.")
-        }
-        if access.canEdit {
-            if !access.entries.contains(where: { $0.subject == .everyone }) {
-                Section {
-                    HStack {
-                        Label("Everyone", systemImage: "globe")
-                        Spacer()
-                        permissionPicker(selection: $newPermission)
-                        Button("Add") {
-                            Task { await change(access, target: .everyone, permission: newPermission) }
-                        }
-                        .disabled(busy)
-                    }
-                } header: {
-                    Text("Public access")
-                } footer: {
-                    Text("Anyone who can reach this tree will receive the selected access.")
-                }
+            if access.canEdit {
+                Text("Access is additive, including access received through a group.")
+            } else {
+                Text("Only an administrator for this Canopy account can change access.")
             }
-            Section {
-                Text("Enter the person's or group's ~handle on this Canopy, or paste their Arbor profile URL.")
+        }
+        Section("Tree address") {
+            Text(access.canonical)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .lineLimit(2)
+        }
+    }
+
+    private func accessRow(
+        _ entry: NativeTreeAccessEntry,
+        in access: NativeTreeAccessPresentation
+    ) -> some View {
+        HStack(spacing: 12) {
+            accessIcon(for: entry)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(label(for: entry))
+                    if entry.isCurrentUser {
+                        Text("(You)").foregroundStyle(.secondary)
+                    }
+                }
+                Text(detail(for: entry))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextField("Profile", text: $profileLocator, prompt: Text("~alice or Arbor profile URL"))
-#if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-#endif
-                HStack {
-                    Picker("Access", selection: $newPermission) {
-                        Text("Can view").tag("read")
-                        Text("Can edit").tag("write")
-                    }
-                    Button("Give Access", systemImage: "person.badge.plus") {
-                        let locator = profileLocator
-                        Task {
-                            await change(access, target: .profile(locator: locator), permission: newPermission)
-                            if message == nil { profileLocator = "" }
-                        }
-                    }
-                    .disabled(busy || profileLocator.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            } header: {
-                Text("People and groups")
-            } footer: {
-                Text("A ~handle is resolved on the Canopy that hosts this tree. Use a full Arbor URL for another Canopy.")
+                    .lineLimit(1)
             }
-            Section("Private link") {
-                HStack {
-                    permissionPicker(selection: $linkPermission)
-                    Spacer()
-                    Button("Create Link", systemImage: "link.badge.plus") {
-                        Task { await createLink(access) }
-                    }
-                    .disabled(busy)
+            Spacer(minLength: 8)
+            if entry.isCurrentUser {
+                HStack(spacing: 5) {
+                    Text("Full access")
+                    Image(systemName: "lock.fill").font(.caption)
                 }
-                if let createdLink {
-                    Text("This secret link is shown once. Copy it before closing this sheet.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(createdLink.absoluteString)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                    HStack {
-                        Button("Copy Link", systemImage: "doc.on.doc") { copy(createdLink.absoluteString) }
-                        Link("Open Link", destination: createdLink)
+                .foregroundStyle(.secondary)
+                .help("Your access cannot be removed")
+            } else if access.canEdit {
+                accessMenu(
+                    current: entry.access,
+                    set: { permission in
+                        Task { await change(access, target: .existing(entry.subject), permission: permission) }
                     }
-                }
+                )
+                .disabled(busy)
+            } else {
+                Text(permissionLabel(entry.access)).foregroundStyle(.secondary)
             }
         }
+        .padding(.vertical, 2)
+    }
+
+    private func everyoneRow(in access: NativeTreeAccessPresentation) -> some View {
+        HStack(spacing: 12) {
+            accessIcon(systemName: "globe", tint: .blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Everyone")
+                Text("Anyone who can find this tree")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            if access.canEdit {
+                accessMenu(
+                    current: "none",
+                    set: { permission in
+                        guard permission != "none" else { return }
+                        Task { await change(access, target: .everyone, permission: permission) }
+                    }
+                )
+                .disabled(busy)
+            } else {
+                Text("No access").foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func accessIcon(for entry: NativeTreeAccessEntry) -> some View {
+        switch entry.subject {
+        case .everyone:
+            accessIcon(systemName: "globe", tint: .blue)
+        case .profile:
+            accessIcon(systemName: entry.isCurrentUser ? "person.crop.circle.fill" : "person.2.fill", tint: .indigo)
+        case .link:
+            accessIcon(systemName: "link", tint: .orange)
+        }
+    }
+
+    private func accessIcon(systemName: String, tint: Color) -> some View {
+        Image(systemName: systemName)
+            .foregroundStyle(tint)
+            .frame(width: 38, height: 38)
+            .background(tint.opacity(0.12), in: Circle())
+    }
+
+    private func accessMenu(current: String, set: @escaping (String) -> Void) -> some View {
+        Menu {
+            Button {
+                set("read")
+            } label: {
+                if current == "read" { Label("Can view", systemImage: "checkmark") }
+                else { Text("Can view") }
+            }
+            Button {
+                set("write")
+            } label: {
+                if current == "write" { Label("Can edit", systemImage: "checkmark") }
+                else { Text("Can edit") }
+            }
+            if current != "none" {
+                Divider()
+                Button("Remove access", role: .destructive) { set("none") }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(permissionLabel(current))
+                Image(systemName: "chevron.down").font(.caption)
+            }
+            .foregroundStyle(.secondary)
+        }
+        .fixedSize()
     }
 
     @ViewBuilder
@@ -1084,21 +1130,39 @@ private struct ArborSharePanel: View {
         }
     }
 
-    private func permissionPicker(selection: Binding<String>) -> some View {
-        Picker("Permission", selection: selection) {
-            Text("Can view").tag("read")
-            Text("Can edit").tag("write")
-        }
-        .labelsHidden()
-        .fixedSize()
-    }
-
     private func label(for entry: NativeTreeAccessEntry) -> String {
         switch entry.subject {
         case .everyone: "Everyone"
         case .profile: entry.displayName ?? "Person or group"
         case .link: "Private link"
         }
+    }
+
+    private func detail(for entry: NativeTreeAccessEntry) -> String {
+        if entry.isCurrentUser { return "Owner" }
+        switch entry.subject {
+        case .everyone: return "Anyone who can find this tree"
+        case .link: return "Existing access-link grant"
+        case .profile(let tree): return entry.locator ?? (entry.displayName == nil ? tree : "Person or group")
+        }
+    }
+
+    private func permissionLabel(_ permission: String) -> String {
+        switch permission {
+        case "read": "Can view"
+        case "write": "Can edit"
+        default: "No access"
+        }
+    }
+
+    private var inviteLocators: [String] {
+        ArborShareInvite.locators(in: profileLocator)
+    }
+
+    private func shareInvites(_ current: NativeTreeAccessPresentation) {
+        let locators = inviteLocators
+        guard !locators.isEmpty else { return }
+        Task { await addProfiles(locators, to: current) }
     }
 
     private func load() async {
@@ -1140,16 +1204,23 @@ private struct ArborSharePanel: View {
         }
     }
 
-    private func createLink(_ current: NativeTreeAccessPresentation) async {
+    private func addProfiles(_ locators: [String], to current: NativeTreeAccessPresentation) async {
         busy = true
         defer { busy = false }
+        var latest = current
         do {
-            createdLink = try await workspace.createShareLink(tree: current.tree, access: linkPermission).url
-            if let currentNode {
-                presentation = try await workspace.sharePresentation(for: currentNode)
+            for locator in locators {
+                latest = try await workspace.setShareAccess(
+                    tree: latest.tree,
+                    target: .profile(locator: locator),
+                    access: "read"
+                )
             }
+            presentation = .tracked(latest)
+            profileLocator = ""
             message = nil
         } catch {
+            presentation = .tracked(latest)
             message = error.localizedDescription
         }
     }
@@ -1181,14 +1252,6 @@ private struct ArborSharePanel: View {
         return account.origin + "/~" + handle + "/" + name
     }
 
-    private func copy(_ value: String) {
-#if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(value, forType: .string)
-#else
-        UIPasteboard.general.string = value
-#endif
-    }
 }
 
 #if os(macOS)
@@ -1198,6 +1261,8 @@ private struct MacArborSyncAccountPanel: View {
     let currentNode: WorkspaceNode?
     @State private var pairing: LocalArborSyncPairingPresentation?
     @State private var pairingConfigurationTree: String?
+    @State private var canopyDevices: [String: [LocalArborSyncDevicePresentation]] = [:]
+    @State private var changingDeviceID: String?
     @State private var message: String?
 
     private var account: LocalArborSyncOverview? { workspace.localArborSyncOverview }
@@ -1291,6 +1356,16 @@ private struct MacArborSyncAccountPanel: View {
                                         LabeledContent("Confirm on both devices", value: pairing.confirmationCode)
                                             .font(.headline.monospacedDigit())
                                     }
+                                    if let devices = canopyDevices[canopyAccount.configurationTree], !devices.isEmpty {
+                                        Divider()
+                                        ForEach(devices) { device in
+                                            canopyDeviceRow(
+                                                device,
+                                                configurationTree: canopyAccount.configurationTree,
+                                                devices: devices
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1375,6 +1450,72 @@ private struct MacArborSyncAccountPanel: View {
             await workspace.restartArborSync()
         }
         await workspace.refreshLocalArborSyncOverview()
+        guard let accounts = workspace.localArborSyncOverview?.accounts else { return }
+        for account in accounts {
+            do {
+                canopyDevices[account.configurationTree] = try await workspace.localCanopyDevices(
+                    configurationTree: account.configurationTree
+                )
+            } catch {
+                message = error.localizedDescription
+            }
+        }
+    }
+
+    private func canopyDeviceRow(
+        _ device: LocalArborSyncDevicePresentation,
+        configurationTree: String,
+        devices: [LocalArborSyncDevicePresentation]
+    ) -> some View {
+        let currentIsAdministrator = devices.first(where: \.isCurrent)?.isAdministrator == true
+        return HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(device.label)
+                Text([
+                    device.isCurrent ? "This Mac" : nil,
+                    device.isAdministrator ? "Administrator" : "Active device",
+                ].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if !device.isCurrent, currentIsAdministrator {
+                Button(device.isAdministrator ? "Remove administrator" : "Make administrator") {
+                    Task {
+                        await changeAdministrator(
+                            configurationTree: configurationTree,
+                            device: device,
+                            administrator: !device.isAdministrator
+                        )
+                    }
+                }
+                .disabled(changingDeviceID != nil || (
+                    device.isAdministrator && devices.filter(\.isAdministrator).count == 1
+                ))
+            }
+        }
+        .padding(.leading, 8)
+    }
+
+    private func changeAdministrator(
+        configurationTree: String,
+        device: LocalArborSyncDevicePresentation,
+        administrator: Bool
+    ) async {
+        changingDeviceID = device.id
+        defer { changingDeviceID = nil }
+        do {
+            canopyDevices[configurationTree] = try await workspace.setLocalCanopyDeviceAdministrator(
+                configurationTree: configurationTree,
+                deviceID: device.id,
+                administrator: administrator
+            )
+            message = administrator
+                ? "\(device.label) can now manage sharing."
+                : "\(device.label) is no longer an administrator."
+        } catch {
+            message = error.localizedDescription
+        }
     }
 
     private func createPairing(configurationTree: String?) async {

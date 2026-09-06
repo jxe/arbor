@@ -8,6 +8,13 @@ import Testing
 
 @MainActor
 struct ArborAppTests {
+    @Test("Share invites accept comma-separated handles and profile URLs")
+    func shareInviteLocators() {
+        #expect(ArborShareInvite.locators(
+            in: " ~alice, arbor://community.example/~research,  ,~bob "
+        ) == ["~alice", "arbor://community.example/~research", "~bob"])
+    }
+
     @Test("Save diagnostics distinguish an external daemon that is no longer reachable")
     func externalDaemonSaveDiagnostic() throws {
         let diagnostic = try #require(ArborSaveDiagnostic.describe(
