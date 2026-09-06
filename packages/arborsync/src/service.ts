@@ -45,7 +45,7 @@ import {
   pendingEditorAdmissions,
   pendingFromSnapshot,
   pendingTreeUpdate,
-  savePendingEditorAdmission,
+  appendPendingEditorAdmission,
   savePendingTreeUpdate,
   saveAcceptedTreeObjects,
   snapshotFromConflictDraft,
@@ -56,7 +56,7 @@ import { SystemTreeProjection } from "./system-tree.ts";
 import { TreeManager } from "./tree-manager.ts";
 import { TreeSynchronizer } from "./tree-sync.ts";
 import { ProtocolError, RevisionConflictError, Workspace, type ConfirmedSourcePatch, type WorkspaceOptions } from "./workspace.ts";
-import { documentAdmissionBasis, freezeEditorAdmission } from "./editor-admission.ts";
+import { documentAdmissionBasis, EditorAdmissionReconciliationError, freezeEditorAdmission } from "./editor-admission.ts";
 
 export { resolveUserPath } from "./account-bootstrap.ts";
 
@@ -596,8 +596,20 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (!placement?.update || placement.access !== "write") {
       throw new ProtocolError("unsupported-operation", "Authority admission requires a writable Canopy placement", 422);
     }
-    const frozen = freezeEditorAdmission(input);
-    await savePendingEditorAdmission(scope.workspace.tree, frozen);
+    let frozen: ReturnType<typeof freezeEditorAdmission>;
+    try {
+      frozen = await appendPendingEditorAdmission(
+        scope.workspace.tree,
+        (admissions) => freezeEditorAdmission(input, admissions),
+      );
+    } catch (error) {
+      if (!(error instanceof EditorAdmissionReconciliationError)) throw error;
+      throw new ProtocolError("conflict", error.message, 409, {
+        tree: scope.workspace.tree,
+        path: input.ref.path,
+        details: { kind: "workspace-revision" },
+      });
+    }
     void this.accountClient(placement)
       .then((client) => this.treeSync.pushEditorAdmissions(scope.workspace.tree, client))
       .catch(() => {});

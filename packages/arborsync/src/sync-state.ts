@@ -127,18 +127,28 @@ export function pendingEditorAdmissions(tree: string): Promise<FrozenEditorAdmis
   return serialized(tree, async () => [...((await load(tree)).editorAdmissions ?? [])]);
 }
 
-/** Append one durable generation, retaining its exact semantic predecessors until the editor reanchors. */
-export function savePendingEditorAdmission(tree: string, admission: FrozenEditorAdmission): Promise<void> {
+/**
+ * Build and append one durable generation while holding the tree journal lock.
+ * The builder sees the exact preceding local order, so two simultaneous editor
+ * requests cannot both fork the same pending head before either is persisted.
+ */
+export function appendPendingEditorAdmission(
+  tree: string,
+  build: (admissions: readonly FrozenEditorAdmission[]) => FrozenEditorAdmission,
+): Promise<FrozenEditorAdmission> {
   return serialized(tree, async () => {
     const state = await load(tree);
     let admissions = [...(state.editorAdmissions ?? [])];
+    const admission = build(admissions);
     if (admissions.length && admissions.every((candidate) => candidate.acknowledged) && admissions.every((candidate) => candidate.id !== admission.id)) {
       admissions = [];
     }
-    if (!admissions.some((candidate) => candidate.id === admission.id && candidate.request.candidate === admission.request.candidate)) {
+    const existing = admissions.find((candidate) => candidate.id === admission.id && candidate.request.candidate === admission.request.candidate);
+    if (!existing) {
       admissions.push(admission);
     }
     await save(tree, { ...state, editorAdmissions: admissions });
+    return existing ?? admission;
   });
 }
 

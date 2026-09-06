@@ -38,6 +38,13 @@ export interface FrozenEditorAdmission {
   acknowledged?: boolean;
 }
 
+export class EditorAdmissionReconciliationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EditorAdmissionReconciliationError";
+  }
+}
+
 function encodeBasis(value: AdmissionBasisValue): string {
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
 }
@@ -139,23 +146,101 @@ export function documentAdmissionBasis(input: {
   });
 }
 
-/** Build one standard updates-v1 candidate from an opaque basis returned by Native. */
+/**
+ * Build one standard updates-v1 candidate from an opaque basis returned by
+ * Native. A stale sibling basis sharing the pending epoch's accepted base is
+ * safely rebased onto that tree-wide local head before it becomes durable.
+ */
 export function freezeEditorAdmission(input: {
   ref: NodeRef;
   admissionBasis: string;
   baseContentRevision: string;
   source: string;
   sourceEdits?: SourceEdit[];
-}): FrozenEditorAdmission {
-  const basis = decodeBasis(input.admissionBasis);
+}, predecessors: readonly FrozenEditorAdmission[] = []): FrozenEditorAdmission {
+  let basis = decodeBasis(input.admissionBasis);
   if (
     basis.ref.tree !== input.ref.tree
     || basis.ref.path !== input.ref.path
     || basis.ref.stableKey !== input.ref.stableKey
   ) throw new Error("Document admission basis belongs to another document");
   if (basis.contentRevision !== input.baseContentRevision) throw new Error("Document admission basis has another content revision");
-  const objects = new Map(decodeObjectEnvelopes(basis.objects).map((object) => [object.hash, object.bytes]));
+  let objects = new Map(decodeObjectEnvelopes(basis.objects).map((object) => [object.hash, object.bytes]));
   const segments = pathSegments(basis.wirePath);
+  const sourceAt = (root: ObjectHash, graph: ReadonlyMap<ObjectHash, Uint8Array>): string => {
+    let hash = root;
+    for (const [index, segment] of segments.entries()) {
+      const bytes = graph.get(hash);
+      if (!bytes) throw new EditorAdmissionReconciliationError(`Pending editor head is missing object: ${hash}`);
+      const object = decodeWireObject(bytes);
+      if (object.type !== "directory") throw new EditorAdmissionReconciliationError("Pending editor path is not a directory");
+      const entry = object.entries.find((candidate) => candidate.name === segment);
+      if (!entry?.hash || entry.tree) {
+        throw new EditorAdmissionReconciliationError(`Pending editor path no longer exists: ${basis.wirePath}`);
+      }
+      hash = entry.hash;
+      if (index === segments.length - 1) {
+        const fileBytes = graph.get(hash);
+        if (!fileBytes) throw new EditorAdmissionReconciliationError(`Pending editor head is missing object: ${hash}`);
+        const file = decodeWireObject(fileBytes);
+        if (file.type !== "file") throw new EditorAdmissionReconciliationError("Pending editor target is not a file");
+        try {
+          return new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
+        } catch {
+          throw new EditorAdmissionReconciliationError("Pending editor target is not UTF-8 Markdown");
+        }
+      }
+    }
+    throw new EditorAdmissionReconciliationError("Pending editor path omitted its file");
+  };
+
+  const basisSource = sourceAt(basis.candidateRoot, objects);
+  if (input.sourceEdits && applySourceEdits(basisSource, input.sourceEdits) !== input.source) {
+    throw new Error("Document source edits do not produce the submitted exact source");
+  }
+
+  let resultSource = input.source;
+  const predecessor = predecessors.at(-1);
+  if (predecessor) {
+    // Derive the submitted candidate without a local head once so an exact
+    // retry remains idempotent even after later generations were appended.
+    const submitted = freezeEditorAdmission(input);
+    const duplicate = predecessors.find((candidate) =>
+      candidate.id === basis.id && candidate.request.candidate === submitted.request.candidate
+    );
+    if (duplicate) return duplicate;
+
+    const predecessorBasis = decodeBasis(predecessor.admissionBasis);
+    const continuesDeclaredChain = predecessor.id === basis.id
+      && predecessor.request.candidate === basis.candidateRoot;
+    const sharesAcceptedBase = predecessor.request.base === basis.baseUpdate;
+    if (!continuesDeclaredChain && sharesAcceptedBase) {
+      for (const admission of predecessors) {
+        const admissionBasis = decodeBasis(admission.admissionBasis);
+        for (const object of decodeObjectEnvelopes(admissionBasis.objects)) objects.set(object.hash, object.bytes);
+      }
+      const headSource = sourceAt(predecessor.request.candidate, objects);
+      if (headSource !== basisSource) {
+        if (!input.sourceEdits) {
+          throw new EditorAdmissionReconciliationError("Another local editor changed this document before the submitted replacement");
+        }
+        try {
+          resultSource = applySourceEdits(headSource, input.sourceEdits);
+        } catch {
+          throw new EditorAdmissionReconciliationError("Another local editor changed the submitted patch range");
+        }
+      }
+      basis = {
+        ...basis,
+        id: predecessor.id,
+        baseUpdate: predecessor.request.base,
+        baseRoot: predecessorBasis.baseRoot,
+        candidateRoot: predecessor.request.candidate,
+        storedContentRevision: revisionOf(headSource),
+      };
+    }
+  }
+
   const generated = new Map<ObjectHash, Uint8Array>();
   let baseFileBytes: Uint8Array | undefined;
   let resultFileBytes: Uint8Array | undefined;
@@ -178,12 +263,8 @@ export function freezeEditorAdmission(input: {
       if (revisionOf(file.bytes) !== (basis.storedContentRevision ?? input.baseContentRevision)) {
         throw new Error("Document admission source changed before it was frozen");
       }
-      const baseSource = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
-      if (input.sourceEdits && applySourceEdits(baseSource, input.sourceEdits) !== input.source) {
-        throw new Error("Document source edits do not produce the submitted exact source");
-      }
       baseFileBytes = stored;
-      resultFileBytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(input.source) });
+      resultFileBytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(resultSource) });
       replacement = hashObject(resultFileBytes);
       generated.set(replacement, resultFileBytes);
     } else {
@@ -228,13 +309,13 @@ export function freezeEditorAdmission(input: {
       objects: encodeObjectEnvelopes(completeObjects),
       deltas: deltas.map(encodeObjectDeltaJSON),
     },
-    source: input.source,
-    contentRevision: revisionOf(input.source),
+    source: resultSource,
+    contentRevision: revisionOf(resultSource),
     admissionBasis: encodeBasis({
       ...basis,
       candidateRoot: candidate,
-      contentRevision: revisionOf(input.source),
-      storedContentRevision: revisionOf(input.source),
+      contentRevision: revisionOf(resultSource),
+      storedContentRevision: revisionOf(resultSource),
       objects: encodeObjectEnvelopes(nextObjects),
     }),
   };

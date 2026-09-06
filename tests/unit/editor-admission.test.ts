@@ -47,6 +47,13 @@ describe("opaque editor admission basis", () => {
       if (file.type !== "file") throw new Error("Expected file candidate");
       expect(new TextDecoder().decode(file.bytes)).toBe(resultSource);
       expect(await readFile(join(root, "_index.md"), "utf8")).toBe(source);
+      expect(freezeEditorAdmission({
+        ref: frozen.ref,
+        admissionBasis: basis,
+        baseContentRevision: directoryContentRevision,
+        source: resultSource,
+        sourceEdits: [{ offset: Buffer.byteLength(source), length: 0, replacement }],
+      }, [frozen])).toEqual(frozen);
 
       const secondSource = `${resultSource}Again.\n`;
       const second = freezeEditorAdmission({
@@ -96,6 +103,123 @@ describe("opaque editor admission basis", () => {
         baseContentRevision: revisionOf(source),
         source: "# Edited\n",
       })).toThrow("belongs to another document");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rebases sibling editor bases into one tree-wide causal epoch", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-editor-admission-"));
+    try {
+      const noteSource = "# Note\n\nOriginal note.\n";
+      const otherSource = "# Other\n\nOriginal other.\n";
+      await writeFile(join(root, "note.md"), noteSource);
+      await writeFile(join(root, "other.md"), otherSource);
+      const accepted = await snapshotDirectory(root);
+      const noteBasis = documentAdmissionBasis({
+        ref: { tree: "tr_notes", path: "/note", stableKey: null },
+        update: "12",
+        snapshot: accepted,
+        wirePath: "/note.md",
+        contentRevision: revisionOf(noteSource),
+        contentSource: noteSource,
+      });
+      const otherBasis = documentAdmissionBasis({
+        ref: { tree: "tr_notes", path: "/other", stableKey: null },
+        update: "12",
+        snapshot: accepted,
+        wirePath: "/other.md",
+        contentRevision: revisionOf(otherSource),
+        contentSource: otherSource,
+      });
+
+      const noteReplacement = "Edited note.";
+      const first = freezeEditorAdmission({
+        ref: { tree: "tr_notes", path: "/note", stableKey: null },
+        admissionBasis: noteBasis,
+        baseContentRevision: revisionOf(noteSource),
+        source: noteSource.replace("Original note.", noteReplacement),
+        sourceEdits: [{
+          offset: Buffer.byteLength("# Note\n\n"),
+          length: Buffer.byteLength("Original note."),
+          replacement: noteReplacement,
+          expected: "Original note.",
+        }],
+      });
+      const otherReplacement = "Edited other.";
+      const second = freezeEditorAdmission({
+        ref: { tree: "tr_notes", path: "/other", stableKey: null },
+        admissionBasis: otherBasis,
+        baseContentRevision: revisionOf(otherSource),
+        source: otherSource.replace("Original other.", otherReplacement),
+        sourceEdits: [{
+          offset: Buffer.byteLength("# Other\n\n"),
+          length: Buffer.byteLength("Original other."),
+          replacement: otherReplacement,
+          expected: "Original other.",
+        }],
+      }, [first]);
+
+      expect(second.id).toBe(first.id);
+      expect(second.request.base).toBe(first.request.base);
+      const firstRequest = decodeCandidateUpdateJSON(first.request);
+      const secondRequest = decodeCandidateUpdateJSON(second.request);
+      const afterFirst = applyTransitionPayload(accepted.objects, firstRequest);
+      const afterSecond = applyTransitionPayload(afterFirst, secondRequest);
+      const candidateRoot = decodeWireObject(afterSecond.get(secondRequest.candidate)!);
+      if (candidateRoot.type !== "directory") throw new Error("Expected directory candidate");
+      const note = candidateRoot.entries.find((entry) => entry.name === "note.md");
+      const other = candidateRoot.entries.find((entry) => entry.name === "other.md");
+      if (!note?.hash || !other?.hash) throw new Error("Expected both candidate documents");
+      const noteFile = decodeWireObject(afterSecond.get(note.hash)!);
+      const otherFile = decodeWireObject(afterSecond.get(other.hash)!);
+      if (noteFile.type !== "file" || otherFile.type !== "file") throw new Error("Expected file candidates");
+      expect(new TextDecoder().decode(noteFile.bytes)).toContain(noteReplacement);
+      expect(new TextDecoder().decode(otherFile.bytes)).toContain(otherReplacement);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rebases a guarded non-overlapping sibling patch and rejects overlap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-editor-admission-"));
+    try {
+      const source = "# Note\n\nFirst.\nSecond.\n";
+      await writeFile(join(root, "note.md"), source);
+      const accepted = await snapshotDirectory(root);
+      const makeBasis = () => documentAdmissionBasis({
+        ref: { tree: "tr_notes", path: "/note", stableKey: null },
+        update: "12",
+        snapshot: accepted,
+        wirePath: "/note.md",
+        contentRevision: revisionOf(source),
+        contentSource: source,
+      });
+      const firstOffset = Buffer.byteLength("# Note\n\n");
+      const secondOffset = Buffer.byteLength("# Note\n\nFirst.\n");
+      const first = freezeEditorAdmission({
+        ref: { tree: "tr_notes", path: "/note", stableKey: null },
+        admissionBasis: makeBasis(),
+        baseContentRevision: revisionOf(source),
+        source: source.replace("Second.", "Changed second."),
+        sourceEdits: [{ offset: secondOffset, length: 7, replacement: "Changed second.", expected: "Second." }],
+      });
+      const rebased = freezeEditorAdmission({
+        ref: { tree: "tr_notes", path: "/note", stableKey: null },
+        admissionBasis: makeBasis(),
+        baseContentRevision: revisionOf(source),
+        source: source.replace("First.", "Changed first."),
+        sourceEdits: [{ offset: firstOffset, length: 6, replacement: "Changed first.", expected: "First." }],
+      }, [first]);
+      expect(rebased.source).toBe("# Note\n\nChanged first.\nChanged second.\n");
+
+      expect(() => freezeEditorAdmission({
+        ref: { tree: "tr_notes", path: "/note", stableKey: null },
+        admissionBasis: makeBasis(),
+        baseContentRevision: revisionOf(source),
+        source: source.replace("Second.", "Competing second."),
+        sourceEdits: [{ offset: secondOffset, length: 7, replacement: "Competing second.", expected: "Second." }],
+      }, [first])).toThrow("changed the submitted patch range");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
