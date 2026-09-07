@@ -123,20 +123,20 @@ enum ReplicaSemantics {
         }
     }
 
-    static func links(in source: String, relativeTo directory: String) -> [String] {
-        linkTargets(in: source, relativeTo: directory).map(\.path)
+    /// The directory a node's relative links resolve against. A directory carries its own
+    /// `_index.md` body, so its links are written relative to itself; every other node's are
+    /// written relative to its parent, matching the editor's `relativeReferenceBase`.
+    static func linkBase(for node: ReplicaNodeRecord) -> String {
+        node.kind == .directory ? node.path : (parent(of: node.path) ?? "/")
     }
 
-    static func linkTargets(in source: String, relativeTo directory: String) -> [(path: String, stableKey: String?, legacyKey: String?)] {
-        let pattern = #"\[[^\]]*\]\(([^)]+)\)"#
+    /// The `(?<!!)` guard keeps `![alt](/Page)` from counting as a link to `/Page`.
+    static func linkTargets(in source: String, relativeTo directory: String) -> [ResolvedNodeTarget] {
+        let pattern = #"(?<!!)\[[^\]]*\]\(([^)]+)\)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         return regex.matches(in: source, range: NSRange(source.startIndex..., in: source)).compactMap { match in
             guard let range = Range(match.range(at: 1), in: source) else { return nil }
-            guard case let .local(path, locator) = resolveLogicalURL(
-                base: directory,
-                href: String(source[range])
-            ) else { return nil }
-            return (path, locator.stableKey, locator.legacyStableKeyCandidate)
+            return resolveNodeTarget(base: directory, href: String(source[range]))
         }
     }
 

@@ -231,7 +231,7 @@ struct ArborSyncTests {
     @Test("A later native edit posts a longer update string before the prefix response returns")
     func fullDuplexUpdateString() async throws {
         try await withTemporaryRoot { root in
-            let tree = "tr_full_duplex"
+            let tree = "tr_fullduplex"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
             let gate = FirstRequestGate()
             let transport = ClosureTransport(initial: initial) { prepared, call in
@@ -293,7 +293,7 @@ struct ArborSyncTests {
     @Test("Offline native admissions become one latest successor of an ambiguous prefix")
     func offlineAdmissionsCompactBehindAmbiguousPrefix() async throws {
         try await withTemporaryRoot { root in
-            let tree = "tr_offline_compaction"
+            let tree = "tr_offlinecompaction"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
             let gate = FirstRequestGate()
             let transport = ClosureTransport(initial: initial) { prepared, call in
@@ -378,7 +378,7 @@ struct ArborSyncTests {
     @Test("A clean watch invalidation reads the coherent current snapshot without submitting")
     func cleanWatchPull() async throws {
         try await withTemporaryRoot { root in
-            let tree = "tr_watch_pull"
+            let tree = "tr_watchpull"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOne\n")
             let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nTwo\n")
             let bootstrap = ClosureTransport(initial: initial) { _, _ in
@@ -410,7 +410,7 @@ struct ArborSyncTests {
     @Test("A clean watch applies an accepted transition without fetching a snapshot")
     func cleanWatchTransition() async throws {
         try await withTemporaryRoot { root in
-            let tree = "tr_watch_transition"
+            let tree = "tr_watchtransition"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOne\n")
             let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nTwo\n")
             let transport = ClosureTransport(initial: initial) { _, _ in
@@ -459,7 +459,7 @@ struct ArborSyncTests {
     @Test("An expired watch cursor pulls a coherent snapshot and resumes after its observation boundary")
     func watchGapRecovery() async throws {
         try await withTemporaryRoot { root in
-            let tree = "tr_watch_gap"
+            let tree = "tr_watchgap"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOne\n")
             let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nTwo\n")
             let bootstrap = ClosureTransport(initial: initial) { _, _ in
@@ -494,7 +494,7 @@ struct ArborSyncTests {
     @Test("A clean replica pulls current Canopy state when transport returns")
     func cleanReconnectPull() async throws {
         try await withTemporaryRoot { root in
-            let tree = "tr_clean_reconnect"
+            let tree = "tr_cleanreconnect"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nOld\n")
             let remote = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nCurrent\n")
             let bootstrap = ClosureTransport(initial: initial) { _, _ in
@@ -532,7 +532,7 @@ struct ArborSyncTests {
     @Test("A matching watch digest recovers a lost update response without reconnecting")
     func watchDigestRecovery() async throws {
         try await withTemporaryRoot { root in
-            let tree = "tr_watch_digest"
+            let tree = "tr_watchdigest"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
             let transport = ClosureTransport(initial: initial) { prepared, call in
                 if call == 1 { throw InjectedSyncCrash() }

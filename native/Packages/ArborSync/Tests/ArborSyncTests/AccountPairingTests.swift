@@ -217,7 +217,7 @@ struct NativeAccountPairingTests {
         )
         let claim = try await restarted.claim(payload, label: "Joe's iPhone")
         #expect(claim.device.id == persisted.deviceID)
-        #expect(await restarted.configurationID() == "tr_config_exact")
+        #expect(await restarted.configurationID() == "tr_configexact")
 
         let captured = await PairingURLProtocol.state.snapshot()
         let claimRequests = captured.filter { $0.path.hasSuffix("/claim") }
@@ -230,8 +230,8 @@ struct NativeAccountPairingTests {
         #expect(accountRequests[1].authorization?.hasPrefix("Bearer ") == true)
 
         #expect(await store.loadPending(origin: origin, pairingID: "pa_exact") == nil)
-        #expect(await store.load(configurationTree: "tr_config_exact") == persisted.credential)
-        #expect(await store.accounts().map(\.configurationTree) == ["tr_config_exact"])
+        #expect(await store.load(configurationTree: "tr_configexact") == persisted.credential)
+        #expect(await store.accounts().map(\.configurationTree) == ["tr_configexact"])
     }
 
     private func pairingSession() -> URLSession {
@@ -293,14 +293,14 @@ private actor PairingURLProtocolState {
                 "account": [
                     "id": "ac_exact",
                     "handle": "joe",
-                    "profileTree": "tr_profile_exact",
+                    "profileTree": "tr_profileexact",
                     "profileURL": "https://canopy.test/~joe",
                     "community": [
                         "id": "tr_community", "kind": "ordinary", "access": "read", "root": zero, "update": "up_community",
                         "canonical": ["path": "/", "endpoint": "https://canopy.test/.well-known/arbor"],
                     ],
                     "configuration": [
-                        "id": "tr_config_exact", "kind": "account-configuration", "access": "write", "root": one, "update": "up_config",
+                        "id": "tr_configexact", "kind": "account-configuration", "access": "write", "root": one, "update": "up_config",
                     ],
                     "writableProfiles": [],
                     "device": ["id": id, "label": label],

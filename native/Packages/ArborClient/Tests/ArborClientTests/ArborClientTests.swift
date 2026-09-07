@@ -195,6 +195,46 @@ final class ArborClientTests: XCTestCase {
         }
     }
 
+    private struct NodeTargetFixture: Decodable {
+        var base: String
+        var href: String
+        var expected: ResolvedNodeTarget?
+    }
+
+    func testSharedNodeTargetFixturesResolveIdentically() throws {
+        let cases = try JSONDecoder().decode(
+            [NodeTargetFixture].self,
+            from: Data(contentsOf: conformanceFixtures.appending(path: "node-targets.json"))
+        )
+        XCTAssertGreaterThan(cases.count, 10)
+        for fixture in cases {
+            XCTAssertEqual(
+                resolveNodeTarget(base: fixture.base, href: fixture.href),
+                fixture.expected,
+                "\(fixture.base) + \(fixture.href)"
+            )
+        }
+    }
+
+    func testArborLocatorRoundTripsThroughNodeTargetResolution() throws {
+        let key = pageIDStableKey("x6baw0")
+        let locator = try XCTUnwrap(buildArborLocator(tree: "tr_sample", path: "/notes/deep", stableKey: key))
+        XCTAssertEqual(locator, "arbor://tr_sample/notes/deep;arbor-key=\(try XCTUnwrap(encodeStableKey(key)))")
+        XCTAssertEqual(
+            resolveNodeTarget(base: "/", href: locator),
+            ResolvedNodeTarget(tree: "tr_sample", path: "/notes/deep", stableKey: key)
+        )
+    }
+
+    func testRenameRewritesArborLocatorsInPlace() throws {
+        let legacy = "arbor://tr_sample/node/old?stableKey=%5B%5B%22id%22,%22x6baw0%22%5D%5D"
+        XCTAssertEqual(
+            rewriteLocalLinkPath(base: "/", href: legacy, newPath: "/new"),
+            "arbor://tr_sample/new;arbor-key=W1siaWQiLCJ4NmJhdzAiXV0"
+        )
+        XCTAssertNil(rewriteLocalLinkPath(base: "/", href: "arbor://example.com/old", newPath: "/new"))
+    }
+
     private func assertLocator(_ locator: ResolvedLocatorState, equals expected: URLFixture.Expected, label: String) {
         XCTAssertEqual(locator.stableKey, expected.stableKey, label)
         XCTAssertEqual(locator.revision, expected.revision, label)

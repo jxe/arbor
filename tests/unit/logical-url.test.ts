@@ -10,7 +10,11 @@ import {
   relativeLogicalReference,
   rewriteLocalLinkPath,
   resolveLogicalURL,
+  resolveNodeTarget,
+  buildArborLocator,
+  pageIDStableKey,
   type ResolvedLink,
+  type ResolvedNodeTarget,
 } from "@arbor/core";
 
 interface UrlCase {
@@ -34,6 +38,33 @@ describe("logical URL resolution", () => {
         expect(rewriteLocalLinkPath(base, href, rewritePath), `${href} -> ${rewritePath}`).toBe(expectedRewritten!);
       }
     }
+  });
+
+  test("resolves every shared node-target fixture identically", async () => {
+    interface NodeCase { base: string; href: string; expected: ResolvedNodeTarget | null }
+    const cases = JSON.parse(await readFile(join(conformance, "node-targets.json"), "utf8")) as NodeCase[];
+    expect(cases.length).toBeGreaterThan(10);
+    for (const { base, href, expected } of cases) {
+      expect(resolveNodeTarget(base, href), `${base} + ${href}`).toEqual(expected);
+    }
+  });
+
+  test("arbor locators round-trip through node-target resolution", () => {
+    const key = pageIDStableKey("x6baw0");
+    const locator = buildArborLocator("tr_sample", "/notes/deep", key);
+    expect(locator).toBe("arbor://tr_sample/notes/deep;arbor-key=W1siaWQiLCJ4NmJhdzAiXV0");
+    expect(resolveNodeTarget("/", locator)).toEqual({
+      tree: "tr_sample",
+      path: "/notes/deep",
+      stableKey: key,
+      legacyPageID: null,
+    });
+  });
+
+  test("a rename rewrites arbor locators in place", () => {
+    const legacy = "arbor://tr_sample/node/old?stableKey=%5B%5B%22id%22,%22x6baw0%22%5D%5D";
+    expect(rewriteLocalLinkPath("/", legacy, "/new")).toBe("arbor://tr_sample/new;arbor-key=W1siaWQiLCJ4NmJhdzAiXV0");
+    expect(rewriteLocalLinkPath("/", "arbor://example.com/old", "/new")).toBeNull();
   });
 
   test("the base is directory-like regardless of body representation", () => {

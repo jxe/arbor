@@ -323,10 +323,11 @@ public actor ArborReplica {
         let targetKey = target.pageID.map(markdownStableKey)
         if index.generation != control.generation { try rebuildIndex() }
         return index.entries.filter { entry in
-            ReplicaSemantics.linkTargets(in: entry.source, relativeTo: entry.path).contains { link in
-                link.path == target.path
+            entry.links.contains { link in
+                guard link.tree == nil || link.tree == state.tree else { return false }
+                return link.path == target.path
                     || (targetKey != nil && link.stableKey == targetKey)
-                    || (target.pageID != nil && link.legacyKey == target.pageID)
+                    || (target.pageID != nil && link.legacyPageID == target.pageID)
             }
         }
     }
@@ -782,7 +783,7 @@ public actor ArborReplica {
                     pageID: node.pageID,
                     title: ReplicaSemantics.title(for: node),
                     source: source,
-                    links: ReplicaSemantics.links(in: source, relativeTo: node.path)
+                    links: ReplicaSemantics.linkTargets(in: source, relativeTo: ReplicaSemantics.linkBase(for: node))
                 )
             }.sorted { ReplicaSemantics.compareUTF8($0.path, $1.path) }
         )

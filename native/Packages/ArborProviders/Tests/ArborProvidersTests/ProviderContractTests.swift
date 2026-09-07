@@ -281,7 +281,7 @@ struct ProviderContractTests {
         let rootURL = FileManager.default.temporaryDirectory
             .appending(path: "ArborProviderContract-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: rootURL) }
-        let tree: TreeID = "tr_provider_contract"
+        let tree: TreeID = "tr_providercontract"
         let replica = try await ArborReplica.open(at: rootURL, tree: tree)
         try await verify(
             provider: ReplicaWorkspaceProvider(replica: replica),
@@ -415,6 +415,42 @@ struct ProviderContractTests {
         _ = linker
         let backlinks = try await provider.backlinks(to: note.reference)
         #expect(backlinks.contains { $0.reference.path.hasSuffix("/linker") })
+
+        // Document-link rows are written as `arbor://` locators, and a relative href resolves
+        // against the linking page's parent. Both must count, or deleting one link to a page
+        // reads as though nothing links to it at all.
+        let locator = try #require(buildArborLocator(
+            tree: root.tree.rawValue,
+            path: note.reference.path,
+            stableKey: note.reference.stableKey
+        ))
+        let rowLinker = try #require(try await provider.perform(.createMarkdown(
+            parent: folder.reference,
+            name: "row-linker",
+            source: "# Row Linker\n\n[Provider contract](\(locator))\n"
+        )))
+        _ = rowLinker
+        let siblingHref = try #require(buildCanonicalLink(
+            from: folder.reference.path,
+            toPath: note.reference.path,
+            stableKey: nil
+        ))
+        let siblingLinker = try #require(try await provider.perform(.createMarkdown(
+            parent: folder.reference,
+            name: "sibling-linker",
+            source: "# Sibling Linker\n\n[Provider contract](\(siblingHref))\n"
+        )))
+        _ = siblingLinker
+        let imageOnly = try #require(try await provider.perform(.createMarkdown(
+            parent: folder.reference,
+            name: "image-only",
+            source: "# Image Only\n\n![Provider contract](\(note.reference.path))\n"
+        )))
+        _ = imageOnly
+        let widened = try await provider.backlinks(to: note.reference)
+        #expect(widened.contains { $0.reference.path.hasSuffix("/row-linker") })
+        #expect(widened.contains { $0.reference.path.hasSuffix("/sibling-linker") })
+        #expect(!widened.contains { $0.reference.path.hasSuffix("/image-only") })
 
         let renamed = try #require(try await provider.perform(.rename(reference: note.reference, name: "renamed")))
         #expect(renamed.reference.path.hasSuffix("/renamed"))

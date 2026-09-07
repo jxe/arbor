@@ -215,6 +215,15 @@ public enum WorkspaceSurface: Hashable, Codable, Sendable {
     case diagnostic(title: String, detail: String)
     case historical(source: String, revision: String)
 
+    /// A surface whose body is written at the directory itself, so its relative links resolve
+    /// against that directory rather than against a parent.
+    public var isDirectoryLike: Bool {
+        switch self {
+        case .directory, .directoryDocument: true
+        default: false
+        }
+    }
+
     public var supportsDocumentSession: Bool {
         switch self {
         case .markdown, .directoryDocument: true

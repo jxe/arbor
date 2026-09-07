@@ -1,6 +1,6 @@
 import type { LogicalPath } from "./identifiers.ts";
 import { canonicalNodePath, nodeDisplayName } from "./logical-path.ts";
-import { decodeStableKey, encodeStableKey, pageIDFromStableKey } from "./node-key.ts";
+import { decodeStableKey, encodeStableKey, pageIDFromStableKey, parseCanonicalStableKey } from "./node-key.ts";
 
 export interface ResolvedLocatorState {
   stableKey: string | null;
@@ -238,13 +238,93 @@ export function buildNetworkLocator(
   return `${pinned}${querySuffix(options.applicationQuery)}${fragment}`;
 }
 
-/** Rewrite only a local link's readable path, retaining all locator state. */
+export function buildArborLocator(
+  tree: string,
+  path: LogicalPath,
+  stableKey?: string | null,
+): string {
+  return `arbor://${tree}${buildNetworkLocator(canonicalNodePath(path), { stableKey })}`;
+}
+
+/**
+ * A markdown href that names a node, with the tree it names it in.
+ * `tree` is null when the href is relative to the document that contains it.
+ */
+export interface ResolvedNodeTarget {
+  tree: string | null;
+  path: LogicalPath;
+  stableKey: string | null;
+  legacyPageID: string | null;
+}
+
+/**
+ * Document links were written as `arbor://<tree>/node/<path>?stableKey=<canonical JSON>` before the
+ * locator grammar settled. Read that shape back so existing content still resolves; the `?stableKey=`
+ * query is the signature, since canonical locators carry `;arbor-key=` instead and never that query.
+ */
+function legacyNodeRoute(
+  path: LogicalPath,
+  locator: ResolvedLocatorState,
+): { path: LogicalPath; stableKey: string } | null {
+  if (path !== "/node" && !path.startsWith("/node/")) return null;
+  if (locator.stableKey || !locator.applicationQuery) return null;
+  for (const parameter of locator.applicationQuery.split("&")) {
+    const [name, rawValue] = splitOnce(parameter, "=");
+    if (name !== "stableKey" || rawValue === null) continue;
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(rawValue);
+    } catch {
+      continue;
+    }
+    if (!parseCanonicalStableKey(decoded)) continue;
+    const stripped = path.slice("/node".length);
+    return { path: stripped === "" ? "/" : canonicalNodePath(stripped as LogicalPath), stableKey: decoded };
+  }
+  return null;
+}
+
+/**
+ * Resolve a markdown href to the node it points at, accepting both relative hrefs and `arbor://`
+ * locators. Returns null for anything that does not name a node: external, system and overlay URLs,
+ * bare `#fragment` anchors, and `arbor://` URLs on a DNS authority (those name another workspace,
+ * not a node this tree can resolve).
+ */
+export function resolveNodeTarget(baseDocumentPath: LogicalPath, href: string): ResolvedNodeTarget | null {
+  const resolved = resolveLogicalURL(baseDocumentPath, href);
+  if (resolved?.kind === "local") {
+    return {
+      tree: null,
+      path: resolved.path,
+      stableKey: resolved.stableKey,
+      legacyPageID: resolved.legacyStableKeyCandidate,
+    };
+  }
+  if (resolved?.kind !== "arbor" || !("treeID" in resolved.authority)) return null;
+  const legacy = legacyNodeRoute(resolved.path, resolved);
+  if (legacy) {
+    return { tree: resolved.authority.treeID, path: legacy.path, stableKey: legacy.stableKey, legacyPageID: null };
+  }
+  return {
+    tree: resolved.authority.treeID,
+    path: resolved.path,
+    stableKey: resolved.stableKey,
+    legacyPageID: resolved.legacyStableKeyCandidate,
+  };
+}
+
+/** Rewrite a node link's readable path, retaining all locator state. Handles relative hrefs and `arbor://` locators alike. */
 export function rewriteLocalLinkPath(
   baseDocumentPath: LogicalPath,
   href: string,
   newPath: LogicalPath,
 ): string | null {
   const resolved = resolveLogicalURL(baseDocumentPath, href);
+  if (resolved?.kind === "arbor") {
+    if (!("treeID" in resolved.authority)) return null;
+    const stableKey = legacyNodeRoute(resolved.path, resolved)?.stableKey ?? resolved.stableKey;
+    return buildArborLocator(resolved.authority.treeID, newPath, stableKey);
+  }
   if (resolved?.kind !== "local") return null;
   const relativePath = relativeLogicalReference(baseDocumentPath, newPath);
   if (resolved.revision || (resolved.stableKey && resolved.contentFragment)) {

@@ -49,23 +49,24 @@ public struct ArborMoveDocument: Identifiable, Hashable, Sendable {
     }
 }
 
+/// Document-link rows carry their target as an `arbor://` locator in the canonical grammar
+/// `arbor://<tree>/<path>;arbor-key=<base64url>`, which is what `resolveNodeTarget` parses and
+/// what the backlink indexes read. Pre-canonical `arbor://<tree>/node/<path>?stableKey=<JSON>`
+/// references still decode, through the read-side shim in `resolveNodeTarget`.
 public enum ArborDocumentReferenceCodec {
     public static func encode(_ reference: WorkspaceReference) -> DocumentReference {
-        var components = URLComponents()
-        components.scheme = "arbor"
-        components.host = reference.tree.rawValue
-        components.path = "/node\(reference.path)"
-        components.queryItems = reference.stableKey.map { [URLQueryItem(name: "stableKey", value: $0)] }
-        return DocumentReference(components.string ?? "arbor://invalid")
+        let locator = buildArborLocator(
+            tree: reference.tree.rawValue,
+            path: reference.path,
+            stableKey: reference.stableKey
+        )
+        return DocumentReference(locator ?? "arbor://invalid")
     }
 
     public static func decode(_ value: DocumentReference) -> WorkspaceReference? {
-        guard let components = URLComponents(string: value.rawValue), components.scheme == "arbor",
-              let tree = components.host else { return nil }
-        guard components.path.hasPrefix("/node/") || components.path == "/node" else { return nil }
-        let path = String(components.path.dropFirst("/node".count))
-        let stableKey = components.queryItems?.first(where: { $0.name == "stableKey" })?.value
-        return WorkspaceReference(tree: TreeID(rawValue: tree), path: path.isEmpty ? "/" : path, stableKey: stableKey)
+        guard let target = resolveNodeTarget(base: "/", href: value.rawValue), let tree = target.tree else { return nil }
+        let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey)
+        return WorkspaceReference(tree: TreeID(rawValue: tree), path: target.path, stableKey: stableKey)
     }
 }
 
@@ -265,7 +266,6 @@ public final class ArborEditorHost: EditorHost {
     }
 
     public func resolveReference(from url: URL, in _: Document) -> DocumentReference? {
-        if url.scheme == "arbor" { return DocumentReference(url.absoluteString) }
         guard let reference = workspaceReference(for: url) else { return nil }
         return ArborDocumentReferenceCodec.encode(reference)
     }
@@ -277,13 +277,13 @@ public final class ArborEditorHost: EditorHost {
     }
 
     private func workspaceReference(for url: URL) -> WorkspaceReference? {
-        guard case let .local(path, locator) = resolveLogicalURL(
+        guard let target = resolveNodeTarget(
             base: relativeReferenceBase.path,
             href: url.absoluteString
         ) else { return nil }
-        let stableKey = locator.stableKey
-            ?? locator.legacyStableKeyCandidate.map(pageIDStableKey)
-        return WorkspaceReference(tree: binding.reference.tree, path: path, stableKey: stableKey)
+        let tree = target.tree.map(TreeID.init(rawValue:)) ?? binding.reference.tree
+        let stableKey = target.stableKey ?? target.legacyPageID.map(pageIDStableKey)
+        return WorkspaceReference(tree: tree, path: target.path, stableKey: stableKey)
     }
 
     public func linkURL(for reference: DocumentReference, in _: Document) -> URL? {

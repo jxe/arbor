@@ -1,3 +1,4 @@
+import ArborClient
 import Foundation
 
 public actor InMemoryWorkspaceProvider: WorkspaceProvider {
@@ -99,10 +100,24 @@ public actor InMemoryWorkspaceProvider: WorkspaceProvider {
             .map { WorkspaceSearchResult(reference: $0.reference, title: $0.title, excerpt: source(of: $0).isEmpty ? nil : source(of: $0)) }
     }
 
+    /// The `(?<!!)` guard keeps `![alt](/Page)` from counting as a link to `/Page`.
+    private func markdownLinkHrefs(in source: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: #"(?<!!)\[[^\]]*\]\(([^)]+)\)"#) else { return [] }
+        return regex.matches(in: source, range: NSRange(source.startIndex..., in: source)).compactMap { match in
+            Range(match.range(at: 1), in: source).map { String(source[$0]) }
+        }
+    }
+
     public func backlinks(to reference: WorkspaceReference) async throws -> [WorkspaceSearchResult] {
         let target = reference.path
+        let targetKey = reference.stableKey
         return nodesByIdentity.values.compactMap { node in
-            guard source(of: node).contains(target) else { return nil }
+            let base = node.surface.isDirectoryLike ? node.reference.path : (node.reference.parent?.path ?? "/")
+            let links = markdownLinkHrefs(in: source(of: node)).compactMap { resolveNodeTarget(base: base, href: $0) }
+            guard links.contains(where: { link in
+                guard link.tree == nil || link.tree == reference.tree.rawValue else { return false }
+                return link.path == target || (targetKey != nil && link.stableKey == targetKey)
+            }) else { return nil }
             return WorkspaceSearchResult(reference: node.reference, title: node.title, excerpt: target)
         }
     }

@@ -10,8 +10,11 @@ let package = Package(
     products: [
         .library(name: "ArborKit", targets: ["ArborKit"])
     ],
+    dependencies: [
+        .package(path: "../ArborClient")
+    ],
     targets: [
-        .target(name: "ArborKit"),
+        .target(name: "ArborKit", dependencies: [.product(name: "ArborClient", package: "ArborClient")]),
         .testTarget(name: "ArborKitTests", dependencies: ["ArborKit"])
     ],
     swiftLanguageModes: [.v6]

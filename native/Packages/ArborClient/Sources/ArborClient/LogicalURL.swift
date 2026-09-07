@@ -306,9 +306,85 @@ public func buildNetworkLocator(
     return result
 }
 
-/// Rewrite only a local link's readable path, retaining all locator state.
+public func buildArborLocator(tree: String, path: String, stableKey: String? = nil) -> String? {
+    guard let locator = buildNetworkLocator(rawPath: canonicalNodePath(path), stableKey: stableKey) else { return nil }
+    return "arbor://\(tree)\(locator)"
+}
+
+/// A markdown href that names a node, with the tree it names it in.
+/// `tree` is nil when the href is relative to the document that contains it.
+public struct ResolvedNodeTarget: Sendable, Equatable, Codable {
+    public var tree: String?
+    public var path: String
+    public var stableKey: String?
+    public var legacyPageID: String?
+
+    public init(tree: String? = nil, path: String, stableKey: String? = nil, legacyPageID: String? = nil) {
+        self.tree = tree
+        self.path = path
+        self.stableKey = stableKey
+        self.legacyPageID = legacyPageID
+    }
+}
+
+/// Document links were written as `arbor://<tree>/node/<path>?stableKey=<canonical JSON>` before the
+/// locator grammar settled. Read that shape back so existing content still resolves; the `?stableKey=`
+/// query is the signature, since canonical locators carry `;arbor-key=` instead and never that query.
+private func legacyNodeRoute(path: String, locator: ResolvedLocatorState) -> (path: String, stableKey: String)? {
+    guard path == "/node" || path.hasPrefix("/node/"),
+          locator.stableKey == nil,
+          let query = locator.applicationQuery
+    else { return nil }
+    for parameter in query.split(separator: "&") {
+        let (name, rawValue) = splitOnce(String(parameter), separator: "=")
+        guard name == "stableKey",
+              let decoded = rawValue?.removingPercentEncoding,
+              canonicalStableKeyJSON(decoded)
+        else { continue }
+        let stripped = String(path.dropFirst("/node".count))
+        return (stripped.isEmpty ? "/" : canonicalNodePath(stripped), decoded)
+    }
+    return nil
+}
+
+/// Resolve a markdown href to the node it points at, accepting both relative hrefs and `arbor://`
+/// locators. Returns nil for anything that does not name a node: external, system and overlay URLs,
+/// bare `#fragment` anchors, and `arbor://` URLs on a DNS authority (those name another workspace,
+/// not a node this tree can resolve).
+public func resolveNodeTarget(base: String, href: String) -> ResolvedNodeTarget? {
+    switch resolveLogicalURL(base: base, href: href) {
+    case let .local(path, locator):
+        return ResolvedNodeTarget(
+            path: path,
+            stableKey: locator.stableKey,
+            legacyPageID: locator.legacyStableKeyCandidate
+        )
+    case let .arbor(authority, path, locator):
+        guard case let .treeID(tree) = authority else { return nil }
+        guard let legacy = legacyNodeRoute(path: path, locator: locator) else {
+            return ResolvedNodeTarget(
+                tree: tree,
+                path: path,
+                stableKey: locator.stableKey,
+                legacyPageID: locator.legacyStableKeyCandidate
+            )
+        }
+        return ResolvedNodeTarget(tree: tree, path: legacy.path, stableKey: legacy.stableKey)
+    default:
+        return nil
+    }
+}
+
+/// Rewrite a node link's readable path, retaining all locator state. Handles relative hrefs and
+/// `arbor://` locators alike, so a rename does not leave an `arbor://` link naming the old path.
 public func rewriteLocalLinkPath(base: String, href: String, newPath: String) -> String? {
-    guard case let .local(_, locator) = resolveLogicalURL(base: base, href: href) else { return nil }
+    let resolved = resolveLogicalURL(base: base, href: href)
+    if case let .arbor(authority, path, locator) = resolved {
+        guard case let .treeID(tree) = authority else { return nil }
+        let stableKey = legacyNodeRoute(path: path, locator: locator)?.stableKey ?? locator.stableKey
+        return buildArborLocator(tree: tree, path: newPath, stableKey: stableKey)
+    }
+    guard case let .local(_, locator) = resolved else { return nil }
     let relativePath = relativeLogicalReference(from: base, to: newPath)
     if locator.revision != nil || (locator.stableKey != nil && locator.contentFragment != nil) {
         return buildNetworkLocator(

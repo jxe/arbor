@@ -634,6 +634,22 @@ struct ArborQuagmireTests {
         )))
         let stillLinked = await host.orphanedDocumentAfterDeletingLink(target.reference, from: source)
         #expect(stillLinked == nil)
+
+        // The regression: another page holding a *document-link row* — an `arbor://` locator, not a
+        // readable path — still links the target, so deleting this page's link must stay silent.
+        let rowTarget = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "RowTarget",
+            source: "# RowTarget\n"
+        )))
+        #expect(await host.orphanedDocumentAfterDeletingLink(rowTarget.reference, from: source) != nil)
+        let row = ArborDocumentReferenceCodec.encode(rowTarget.reference)
+        _ = try #require(await provider.perform(.createMarkdown(
+            parent: root,
+            name: "RowLinker",
+            source: "# RowLinker\n\n[RowTarget](\(row.rawValue))\n"
+        )))
+        #expect(await host.orphanedDocumentAfterDeletingLink(rowTarget.reference, from: source) == nil)
         await session.close()
     }
 
@@ -824,7 +840,7 @@ struct ArborQuagmireTests {
     @MainActor
     @Test("Recovered transcript delivery routes by PageID into a microphone section")
     func recoveredTranscriptTargetsVoiceHeading() async throws {
-        let tree: TreeID = "tr_recovered_voice"
+        let tree: TreeID = "tr_recoveredvoice"
         let reference = WorkspaceReference(
             tree: tree,
             path: "/voice",
@@ -1062,7 +1078,7 @@ struct ArborQuagmireTests {
     @MainActor
     @Test("Only a linked immediate child receives provider-owned structural Move")
     func linkedChildStructuralMove() async throws {
-        let tree: TreeID = "tr_structural_move"
+        let tree: TreeID = "tr_structuralmove"
         let root = WorkspaceNode(
             reference: .init(tree: tree, path: "/"),
             title: "Home",
@@ -1252,7 +1268,7 @@ struct ArborQuagmireTests {
     @MainActor
     @Test("A live authoritative update cannot replace unadmitted editor text")
     func liveAuthoritativeUpdatePreservesDirtyEditor() async throws {
-        let reference = WorkspaceReference(tree: "tr_live_dirty", path: "/", stableKey: markdownStableKey("pg_live_dirty"))
+        let reference = WorkspaceReference(tree: "tr_livedirty", path: "/", stableKey: markdownStableKey("pg_live_dirty"))
         let initial = WorkspaceDocumentSnapshot(
             reference: reference,
             source: "---\nid: pg_live_dirty\n---\n\n# Hi\n\n- Before\n",
@@ -1281,7 +1297,7 @@ struct ArborQuagmireTests {
     @MainActor
     @Test("An accepted prefix cannot replace a newer admitted editor generation")
     func acceptedPrefixPreservesNewerAdmission() async throws {
-        let reference = WorkspaceReference(tree: "tr_live_prefix", path: "/", stableKey: markdownStableKey("pg_live_prefix"))
+        let reference = WorkspaceReference(tree: "tr_liveprefix", path: "/", stableKey: markdownStableKey("pg_live_prefix"))
         let initial = WorkspaceDocumentSnapshot(
             reference: reference,
             source: "---\nid: pg_live_prefix\n---\n\n# Hi\n\n- Before\n",
@@ -1320,7 +1336,7 @@ struct ArborQuagmireTests {
     @Test("An editor waits for its own accepted request digest before authoritative replacement")
     func acceptedDigestFencesAuthoritativeReplacement() async throws {
         let digest = "sha256:" + String(repeating: "a", count: 64)
-        let reference = WorkspaceReference(tree: "tr_digest_fence", path: "/", stableKey: markdownStableKey("pg_digest_fence"))
+        let reference = WorkspaceReference(tree: "tr_digestfence", path: "/", stableKey: markdownStableKey("pg_digest_fence"))
         let initial = WorkspaceDocumentSnapshot(
             reference: reference,
             source: "---\nid: pg_digest_fence\n---\n\n# Hi\n\n- Before\n",
@@ -1361,7 +1377,7 @@ struct ArborQuagmireTests {
     @Test("A same-source accepted digest releases the editor fence")
     func sameSourceAcceptedDigestReleasesFence() async throws {
         let digest = "sha256:" + String(repeating: "b", count: 64)
-        let reference = WorkspaceReference(tree: "tr_digest_release", path: "/", stableKey: markdownStableKey("pg_digest_release"))
+        let reference = WorkspaceReference(tree: "tr_digestrelease", path: "/", stableKey: markdownStableKey("pg_digest_release"))
         let initial = WorkspaceDocumentSnapshot(
             reference: reference,
             source: "---\nid: pg_digest_release\n---\n\n# Hi\n\n- Before\n",
@@ -1402,7 +1418,7 @@ struct ArborQuagmireTests {
     @Test("A watched authoritative toggle remains a toggle after replacement")
     func liveToggleUpdate() async throws {
         let reference = WorkspaceReference(
-            tree: "tr_live_toggle",
+            tree: "tr_livetoggle",
             path: "/",
             stableKey: markdownStableKey("pg_live_toggle")
         )

@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { RevisionConflictError, Workspace } from "@arbor/arborsync";
-import { canonicalStableKey, encodeStableKey } from "@arbor/core";
+import { buildArborLocator, canonicalStableKey, encodeStableKey } from "@arbor/core";
 import { pageIDFromStableKey } from "@arbor/core/node-key";
 import { parseMarkdown } from "@arbor/editor";
 
@@ -303,6 +303,36 @@ describe("workspace service", () => {
       operations: [{ op: "trash", refs: [{ tree: "local", path: "/named", stableKey: null }] }],
     } as never);
     expect(trashed.effects.some((item) => item.ref.stableKey === moved!.ref.stableKey)).toBe(true);
+  });
+
+  test("counts document-link rows written as arbor:// locators", async () => {
+    const key = canonicalStableKey([["id", "rowt01"]]);
+    await writeFile(join(root, "row-target.md"), "---\nid: rowt01\n---\n# Row target\n");
+    const canonical = buildArborLocator(workspace.tree, "/row-target", key);
+    const legacy = `arbor://${workspace.tree}/node/row-target?stableKey=${encodeURIComponent(key)}`;
+    await workspace.executeMutation({
+      mutationID: "row-linker-create",
+      operations: [{
+        op: "createMarkdown",
+        tree: workspace.tree,
+        path: "/row-linker",
+        source: `[Row](${canonical})\n`,
+      }],
+    } as never);
+    await workspace.executeMutation({
+      mutationID: "legacy-row-linker-create",
+      operations: [{
+        op: "createMarkdown",
+        tree: workspace.tree,
+        path: "/legacy-row-linker",
+        source: `[Row](${legacy})\n`,
+      }],
+    } as never);
+
+    const target = await workspace.snapshot({ tree: workspace.tree, path: "/row-target", stableKey: null });
+    const entries = (await workspace.backlinksPage(target.ref)).entries.map((entry) => entry.ref.path);
+    expect(entries).toContain("/row-linker");
+    expect(entries).toContain("/legacy-row-linker");
   });
 
   test("proactively heals legacy, canonical, raw, and moved-page links", async () => {

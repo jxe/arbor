@@ -1,3 +1,4 @@
+import ArborClient
 import ArborKit
 import Foundation
 
@@ -284,7 +285,7 @@ struct ReplicaSearchIndex: Codable, Equatable, Sendable {
         var pageID: String?
         var title: String
         var source: String
-        var links: [String]
+        var links: [ResolvedNodeTarget]
     }
 
     var generation: Int

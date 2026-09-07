@@ -410,7 +410,7 @@ struct ReplicaCrashTests {
     @Test("Move and Trash crashes retain PageID recovery identity")
     func structuralRecovery() async throws {
         try await withTemporaryReplica { root in
-            let tree: TreeID = "tr_structural_crash"
+            let tree: TreeID = "tr_structuralcrash"
             let initial = try await ArborReplica.open(at: root, tree: tree)
             let provider = ReplicaWorkspaceProvider(replica: initial)
             let rootRef = WorkspaceReference(tree: tree, path: "/")

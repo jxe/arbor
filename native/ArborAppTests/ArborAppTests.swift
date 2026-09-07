@@ -135,7 +135,7 @@ struct ArborAppTests {
         )
         let record = NativePlacementRecord(
             origin: try #require(URL(string: "https://arbor.example")),
-            configurationTree: "tr_account_configuration",
+            configurationTree: "tr_accountconfiguration",
             tree: tree
         )
 
@@ -143,7 +143,7 @@ struct ArborAppTests {
         #expect(try await store.load() == record)
         let second = NativePlacementRecord(
             origin: try #require(URL(string: "https://arbor.example")),
-            configurationTree: "tr_account_configuration",
+            configurationTree: "tr_accountconfiguration",
             tree: WireTreeDescriptor(
                 id: "tr_second",
                 kind: "ordinary",
@@ -160,7 +160,7 @@ struct ArborAppTests {
         #expect(try await store.load() == second)
         #expect(try await store.loadAll().map(\.tree.id) == ["tr_second", "tr_native"])
 
-        try await store.clear(configurationTree: "tr_account_configuration")
+        try await store.clear(configurationTree: "tr_accountconfiguration")
         #expect(try await store.loadAll().isEmpty)
         try await store.clear()
         #expect(try await store.load() == nil)
@@ -175,7 +175,7 @@ struct ArborAppTests {
         let url = root.appending(path: "placement.json")
         let legacy = NativePlacementRecord(
             origin: try #require(URL(string: "https://arbor.example")),
-            configurationTree: "tr_account_configuration",
+            configurationTree: "tr_accountconfiguration",
             tree: WireTreeDescriptor(
                 id: "tr_legacy",
                 kind: "ordinary",

@@ -9,7 +9,14 @@ export interface SearchIndexResult {
   excerpt: string;
   score: number;
 }
-import { legacyPageIDCandidate, nodeDisplayName, nodePathFromPhysical, resolveLogicalURL } from "@arbor/core";
+import {
+  legacyPageIDCandidate,
+  nodeDisplayName,
+  nodePathFromPhysical,
+  pageIDFromStableKey,
+  resolveLogicalURL,
+  resolveNodeTarget,
+} from "@arbor/core";
 import { parseMarkdown } from "@arbor/editor";
 import { discoverWorkspace, type WorkspaceDiscovery } from "@arbor/fs";
 const INDEXED_EXTENSIONS = new Set(["md", "csv", "jsonl", "json", "ts", "tsx", "txt"]);
@@ -42,22 +49,15 @@ function indexedLinks(sourceBase: string, body: string): IndexedLink[] {
   for (const match of body.matchAll(pattern)) {
     const href = match[1] ?? match[2];
     if (!href) continue;
-    const resolved = resolveLogicalURL(sourceBase, href);
-    let targetPath: string | null = null;
-    let targetPageID: string | null = null;
-    let targetTreeID: string | null = null;
-    if (resolved?.kind === "local") {
-      targetPath = resolved.path;
-      targetPageID = legacyPageIDCandidate(resolved);
-    } else if (resolved?.kind === "fragment") {
-      targetPageID = legacyPageIDCandidate(resolved);
-    } else if (resolved?.kind === "arbor" && "treeID" in resolved.authority) {
-      targetPath = resolved.path;
-      targetPageID = legacyPageIDCandidate(resolved);
-      targetTreeID = resolved.authority.treeID;
-    } else {
-      continue;
-    }
+    // A bare `#pageid` names no path, only a legacy identity, so it is resolved separately.
+    const fragment = resolveLogicalURL(sourceBase, href);
+    const target = resolveNodeTarget(sourceBase, href);
+    if (!target && fragment?.kind !== "fragment") continue;
+    const targetPath = target?.path ?? null;
+    const targetPageID = target
+      ? pageIDFromStableKey(target.stableKey) ?? target.legacyPageID
+      : legacyPageIDCandidate(fragment!);
+    const targetTreeID = target?.tree ?? null;
     const start = match.index ?? 0;
     const lineStart = body.lastIndexOf("\n", start - 1) + 1;
     const lineEnd = body.indexOf("\n", start);
