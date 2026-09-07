@@ -36,13 +36,13 @@ interface IndexedLink {
   context: string;
 }
 
-function indexedLinks(sourcePath: string, body: string): IndexedLink[] {
+function indexedLinks(sourceBase: string, body: string): IndexedLink[] {
   const links: IndexedLink[] = [];
   const pattern = /(?<!!)\[[^\]]*]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^)]*)?\)/g;
   for (const match of body.matchAll(pattern)) {
     const href = match[1] ?? match[2];
     if (!href) continue;
-    const resolved = resolveLogicalURL(sourcePath, href);
+    const resolved = resolveLogicalURL(sourceBase, href);
     let targetPath: string | null = null;
     let targetPageID: string | null = null;
     let targetTreeID: string | null = null;
@@ -247,7 +247,9 @@ export class WorkspaceIndex {
       size,
       title,
       body,
-      links: extension === "md" ? indexedLinks(treePath, source) : [],
+      links: extension === "md"
+        ? indexedLinks(absolute.split(/[\\/]/).at(-1) === "_index.md" ? treePath : dirname(treePath), source)
+        : [],
     };
   }
 

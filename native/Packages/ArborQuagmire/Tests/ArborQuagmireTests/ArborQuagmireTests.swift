@@ -520,6 +520,10 @@ struct ArborQuagmireTests {
         ))
 
         #expect(firstReference.path == "/Arbor-demo")
+        #expect(firstReference.stableKey != nil)
+        let authoredLink = try #require(host.linkURL(for: first, in: binding.document))
+        #expect(authoredLink.relativeString.hasPrefix("Arbor-demo#arbor-key="))
+        #expect(authoredLink.scheme == nil)
         #expect(retry == first, "a retry should recover the page materialized by the first attempt")
         #expect(ArborDocumentReferenceCodec.decode(existing)?.path == "/welcome")
         #expect(ArborDocumentReferenceCodec.decode(remote)?.path == remoteMatch.reference.path)

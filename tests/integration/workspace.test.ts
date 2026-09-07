@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { RevisionConflictError, Workspace } from "@arbor/arborsync";
-import { canonicalStableKey } from "@arbor/core";
+import { canonicalStableKey, encodeStableKey } from "@arbor/core";
 import { pageIDFromStableKey } from "@arbor/core/node-key";
 import { parseMarkdown } from "@arbor/editor";
 
@@ -305,34 +305,43 @@ describe("workspace service", () => {
     expect(trashed.effects.some((item) => item.ref.stableKey === moved!.ref.stableKey)).toBe(true);
   });
 
-  test("heals moved links for page IDs both with and without s", async () => {
-    await writeFile(join(root, "healing-source.md"), [
-      "---",
-      "id: source1",
-      "---",
+  test("proactively heals legacy, canonical, raw, and moved-page links", async () => {
+    const canonical = encodeStableKey(canonicalStableKey([["id", "a13k9z"]]));
+    const source = [
       "[With s](healing-with-s.md#as3k9z)",
-      "[Without s](healing-without-s.md#a13k9z)",
+      `[Canonical](healing-without-s.md#arbor-key=${canonical})`,
+      "<aside>",
+      "[Raw](healing-with-s.md#as3k9z)",
+      "</aside>",
       "",
-    ].join("\n"));
+    ].join("\n");
     await writeFile(join(root, "healing-with-s.md"), "---\nid: as3k9z\n---\n# With s\n");
-    await writeFile(join(root, "healing-without-s.md"), "---\nid: a13k9z\n---\n# Without s\n");
+    await writeFile(join(root, "outgoing-target.md"), "---\nid: target1\n---\n# Outgoing target\n");
+    await writeFile(join(root, "healing-without-s.md"), "---\nid: a13k9z\n---\n# Without s\n\n[Target](outgoing-target#target1)\n");
+    await workspace.executeMutation({
+      mutationID: "healing-source-create",
+      operations: [{ op: "createMarkdown", tree: workspace.tree, path: "/healing-source", source }],
+    } as never);
 
     const withS = await workspace.snapshot({ tree: workspace.tree, path: "/healing-with-s", stableKey: null });
     const withoutS = await workspace.snapshot({ tree: workspace.tree, path: "/healing-without-s", stableKey: null });
-    await workspace.snapshot({ tree: workspace.tree, path: "/healing-source", stableKey: null });
+    expect((await workspace.backlinksPage(withS.ref)).entries.some((entry) => entry.ref.path === "/healing-source")).toBe(true);
     await workspace.executeMutation({
       mutationID: "healing-with-s-rename",
       operations: [{ op: "rename", ref: withS.ref, name: "healed-with-s" }],
     } as never);
     await workspace.executeMutation({
       mutationID: "healing-without-s-rename",
-      operations: [{ op: "rename", ref: withoutS.ref, name: "healed-without-s" }],
+      operations: [{
+        op: "move",
+        refs: [withoutS.ref],
+        destination: { tree: workspace.tree, path: "/folder", stableKey: null },
+      }],
     } as never);
-    await workspace.snapshot({ tree: workspace.tree, path: "/healing-source", stableKey: null });
-
     const expected = [
       "[With s](healed-with-s#as3k9z)",
-      "[Without s](healed-without-s#a13k9z)",
+      `[Canonical](folder/healing-without-s#arbor-key=${canonical})`,
+      "[Raw](healed-with-s#as3k9z)",
     ];
     let healed = "";
     for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -342,6 +351,15 @@ describe("workspace service", () => {
     }
     expect(healed).toContain(expected[0]!);
     expect(healed).toContain(expected[1]!);
+    expect(healed).toContain(expected[2]!);
+
+    let movedOutgoing = "";
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      movedOutgoing = await readFile(join(root, "folder", "healing-without-s.md"), "utf8");
+      if (movedOutgoing.includes("[Target](../outgoing-target#target1)")) break;
+      await Bun.sleep(50);
+    }
+    expect(movedOutgoing).toContain("[Target](../outgoing-target#target1)");
   });
 
   test("soft deletes and restores", async () => {

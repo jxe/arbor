@@ -249,7 +249,16 @@ public final class ArborEditorHost: EditorHost {
     }
 
     public func linkURL(for reference: DocumentReference, in _: Document) -> URL? {
-        URL(string: reference.rawValue)
+        guard let target = ArborDocumentReferenceCodec.decode(reference),
+              target.tree == binding.reference.tree,
+              let link = buildCanonicalLink(
+                from: relativeReferenceBase.path,
+                toPath: target.path,
+                stableKey: target.stableKey
+              ) else {
+            return URL(string: reference.rawValue)
+        }
+        return URL(string: link)
     }
 
     public func createDocument(
@@ -264,7 +273,7 @@ public final class ArborEditorHost: EditorHost {
 
         if let requested {
             if let existing = try? await provider.resolve(requested), existing.surface.supportsDocumentSession {
-                return ArborDocumentReferenceCodec.encode(existing.reference)
+                return await durableDocumentReference(for: existing)
             }
             let name = requested.path.split(separator: "/").last.map(String.init) ?? WorkspaceTitleSlug.name(for: title)
             return await createDocument(
@@ -279,10 +288,10 @@ public final class ArborEditorHost: EditorHost {
         let baseName = WorkspaceTitleSlug.name(for: title)
         let siblings = (try? await provider.children(of: parent)) ?? []
         if let existing = siblings.first(where: { page($0, hasExactTitle: title) }) {
-            return ArborDocumentReferenceCodec.encode(existing.reference)
+            return await durableDocumentReference(for: existing)
         }
         if let existing = await documentElsewhere(in: parent.tree, titled: title) {
-            return ArborDocumentReferenceCodec.encode(existing.reference)
+            return await durableDocumentReference(for: existing)
         }
         var siblingsByName: [String: WorkspaceNode] = [:]
         for node in siblings {
@@ -293,7 +302,7 @@ public final class ArborEditorHost: EditorHost {
             let name = suffix == 1 ? baseName : "\(baseName)-\(suffix)"
             if let existing = siblingsByName[name.lowercased()] {
                 if page(existing, hasExactTitle: title) {
-                    return ArborDocumentReferenceCodec.encode(existing.reference)
+                    return await durableDocumentReference(for: existing)
                 }
                 continue
             }
@@ -328,7 +337,7 @@ public final class ArborEditorHost: EditorHost {
     ) async -> DocumentReference? {
         do {
             if let created = try await performStructuralAction(.createMarkdown(parent: parent, name: name, source: source)) {
-                return ArborDocumentReferenceCodec.encode(created.reference)
+                return await durableDocumentReference(for: created)
             }
         } catch {
             // A structural write may be durable before the provider can resolve
@@ -337,7 +346,7 @@ public final class ArborEditorHost: EditorHost {
             if let materialized = try? await provider.resolve(childReference(parent: parent, name: name)),
                materialized.surface.supportsDocumentSession,
                (acceptAnyExisting || page(materialized, hasExactTitle: title)) {
-                return ArborDocumentReferenceCodec.encode(materialized.reference)
+                return await durableDocumentReference(for: materialized)
             }
             if !acceptAnyExisting,
                (try? await provider.resolve(childReference(parent: parent, name: name))) != nil {
@@ -350,10 +359,34 @@ public final class ArborEditorHost: EditorHost {
         if let materialized = try? await provider.resolve(childReference(parent: parent, name: name)),
            materialized.surface.supportsDocumentSession,
            (acceptAnyExisting || page(materialized, hasExactTitle: title)) {
-            return ArborDocumentReferenceCodec.encode(materialized.reference)
+            return await durableDocumentReference(for: materialized)
         }
         errorAction("Failed to create page: the workspace returned no created page")
         return nil
+    }
+
+    private func durableDocumentReference(for node: WorkspaceNode) async -> DocumentReference? {
+        if node.reference.stableKey != nil || node.reference.tree == "local" {
+            return ArborDocumentReferenceCodec.encode(node.reference)
+        }
+        do {
+            let session = try await provider.openDocument(node.reference)
+            do {
+                let snapshot = try await session.snapshot()
+                await session.close()
+                guard snapshot.reference.stableKey != nil else {
+                    errorAction("Failed to create a durable page link: the workspace returned no identity")
+                    return nil
+                }
+                return ArborDocumentReferenceCodec.encode(snapshot.reference)
+            } catch {
+                await session.close()
+                throw error
+            }
+        } catch {
+            errorAction("Failed to create a durable page link: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     private func childReference(parent: WorkspaceReference, name: String) -> WorkspaceReference {

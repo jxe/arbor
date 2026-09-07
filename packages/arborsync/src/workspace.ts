@@ -27,7 +27,9 @@ import {
   isPageID,
   pageIDFromStableKey,
   pageIDStableKey,
+  resolveLogicalURL,
   revisionOf,
+  rewriteLocalLinkPath,
   sha256,
 } from "@arbor/core";
 import {
@@ -138,7 +140,7 @@ export class Workspace implements AsyncDisposable {
       writableNode: (node) => node.writable && this.treeDescriptor.access !== "read",
       inspectDocument: ({ path, revision, document }) => {
         const pageID = this.registerPageID(path, document.frontmatter.id);
-        if (pageID) this.scheduleLinkHealing(path, revision, document);
+        this.scheduleLinkHealing(path, revision, document);
         return this.pageIDDiagnostics(path, pageID);
       },
       childPageID: (path, discovered) => discovered ?? this.pathPageIDs.get(path),
@@ -369,6 +371,7 @@ export class Workspace implements AsyncDisposable {
     }
 
     await this.protocolFault("protocol:preparation");
+    const linkHealingSources = await this.linkHealingSources(request.operations);
     let materializationFaulted = false;
     const effects = await this.performProtocolOperations(
       request.operations,
@@ -383,6 +386,7 @@ export class Workspace implements AsyncDisposable {
       },
     );
     await this.refreshDerivedViews(request.operations, effects);
+    await this.proactivelyHealLinks(linkHealingSources, effects);
     await this.mutations.markMaterialized(request.mutationID, requestHash, effects);
     if (!materializationFaulted) await this.protocolFault("protocol:materialized");
     return this.completeMaterialized(request.mutationID, requestHash, effects, "api");
@@ -1154,19 +1158,51 @@ export class Workspace implements AsyncDisposable {
     });
   }
 
+  private async linkHealingSources(operations: readonly WorkspaceOperation[]): Promise<Set<string>> {
+    const sources = new Set<string>();
+    for (const operation of operations) {
+      const refs = operation.op === "rename"
+        ? [operation.ref]
+        : operation.op === "move" ? operation.refs : [];
+      for (const ref of refs) {
+        const path = await this.resolveRef(ref);
+        const pageID = pageIDFromStableKey(ref.stableKey) ?? this.pathPageIDs.get(path);
+        let offset = 0;
+        for (;;) {
+          const page = this.index.backlinks(path, pageID, this.tree, true, 100, offset);
+          for (const entry of page) sources.add(entry.path);
+          if (page.length < 100) break;
+          offset += page.length;
+        }
+      }
+    }
+    return sources;
+  }
+
+  private async proactivelyHealLinks(sources: ReadonlySet<string>, effects: readonly MutationEffect[]): Promise<void> {
+    const movedPaths = new Map(effects.flatMap((effect) =>
+      effect.previousPath ? [[effect.previousPath, effect.ref.path] as const] : [],
+    ));
+    const paths = new Set([...sources].map((path) => movedPaths.get(path) ?? path));
+    for (const effect of effects) if (effect.previousPath) paths.add(effect.ref.path);
+    await Promise.all([...paths].map(async (path) => {
+      try { await this.expandedNode(path); } catch {}
+    }));
+  }
+
   private scheduleLinkHealing(treePath: string, revision: string, document: NonNullable<ExpandedNode["document"]>): void {
-    if (this.healingTimers.has(treePath)) return;
-    const healTarget = (target: string): string => target.replace(/^([^)#]+)#([^\s)]+)$/, (match, oldPath: string, encodedID: string) => {
-      let id: string;
-      try { id = decodeURIComponent(encodedID); } catch { return match; }
+    const base = posix.dirname(treePath);
+    const healTarget = (target: string): string => {
+      const resolved = resolveLogicalURL(base, target);
+      if (resolved?.kind !== "local") return target;
+      let id = pageIDFromStableKey(resolved.stableKey) ?? resolved.legacyStableKeyCandidate;
+      if (!id) return target;
+      try { id = decodeURIComponent(id); } catch { return target; }
       const owner = this.idOwners.get(id);
-      if (!owner) return match;
-      let desired = posix.relative(posix.dirname(treePath), owner);
-      if (!desired) desired = posix.basename(owner);
-      return oldPath === desired ? match : `${desired}#${id}`;
-    });
+      if (!owner) return target;
+      return rewriteLocalLinkPath(base, target, owner) ?? target;
+    };
     const healBlock = (block: ArborBlock): ArborBlock => {
-      if (block.type === "rawMarkdown") return block;
       let changed = false;
       const content = (block.content ?? "").replace(/\]\(([^)]+)\)/g, (match, target: string) => {
         const healed = healTarget(target);
@@ -1189,6 +1225,8 @@ export class Workspace implements AsyncDisposable {
     };
     const blocks = document.blocks.map(healBlock);
     if (!blocks.some((block, index) => block !== document.blocks[index])) return;
+    const pending = this.healingTimers.get(treePath);
+    if (pending) clearTimeout(pending);
     const timer = setTimeout(async () => {
       this.healingTimers.delete(treePath);
       try { await this.write(treePath, { baseRevision: revision, source: serializeMarkdown(document, blocks) }); } catch {}
