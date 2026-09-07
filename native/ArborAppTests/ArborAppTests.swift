@@ -383,7 +383,7 @@ struct ArborAppTests {
         #expect(source.contains("Saved at navigation"))
     }
 
-    @Test("Voice delivery appends through the active PageID binding and reaches the provider")
+    @Test("Voice delivery appends through the active stable-key binding and reaches the provider")
     func activeVoiceDelivery() async throws {
         let workspace = ArborWorkspaceState(provider: .sample())
         let model = ArborAppModel(workspace: workspace)
@@ -397,7 +397,7 @@ struct ArborAppTests {
 
         try await workspace.deliverVoiceTranscript(
             "Captured through Arbor voice.",
-            to: "pg_welcome"
+            to: try #require(welcome.stableKey)
         )
 
         let binding = try #require(model.binding)
@@ -416,7 +416,7 @@ struct ArborAppTests {
         #expect(source.contains("Captured through Arbor voice."))
     }
 
-    @Test("Recovered voice delivery resolves an inactive destination by PageID")
+    @Test("Recovered voice delivery resolves an inactive destination by stable key")
     func recoveredVoiceDelivery() async throws {
         let workspace = ArborWorkspaceState(provider: .sample())
         let welcome = WorkspaceReference(
@@ -427,7 +427,7 @@ struct ArborAppTests {
 
         try await workspace.deliverVoiceTranscript(
             "Recovered after interruption.",
-            to: "pg_welcome"
+            to: try #require(welcome.stableKey)
         )
 
         let saved = try await workspace.provider.resolve(welcome)
