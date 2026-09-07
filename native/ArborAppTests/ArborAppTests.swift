@@ -66,6 +66,35 @@ struct ArborAppTests {
         #expect(diagnostic.synchronizationOverride == nil)
     }
 
+    @Test("Automatic synchronization recognizes transient network failures")
+    func automaticSyncTransientNetworkErrors() {
+        for error in [
+            CancellationError(),
+            URLError(.cancelled),
+            URLError(.cannotConnectToHost),
+            URLError(.networkConnectionLost),
+            URLError(.notConnectedToInternet),
+        ] as [Error] {
+            #expect(ArborWorkspaceState.syncErrorMessage(
+                for: error,
+                reportTransientNetworkErrors: false
+            ) == nil)
+            #expect(ArborWorkspaceState.syncErrorMessage(
+                for: error,
+                reportTransientNetworkErrors: true
+            ) != nil)
+        }
+
+        #expect(ArborWorkspaceState.syncErrorMessage(
+            for: URLError(.badServerResponse),
+            reportTransientNetworkErrors: false
+        ) != nil)
+        #expect(ArborWorkspaceState.syncErrorMessage(
+            for: CocoaError(.fileReadCorruptFile),
+            reportTransientNetworkErrors: false
+        ) != nil)
+    }
+
     @Test("Extras state uses Arbor-owned support directories")
     func extrasSupportDirectories() {
         #expect(ArborSupportDirectories.root.lastPathComponent == "Arbor")

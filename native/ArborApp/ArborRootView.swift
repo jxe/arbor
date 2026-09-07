@@ -120,7 +120,7 @@ struct ArborRootView: View {
             // A restored replica is useful immediately while offline, but once
             // its editor is observing changes, establish current Canopy state
             // instead of relying only on replay from a long-lived watch.
-            await workspace.syncNow()
+            await workspace.syncNow(reportTransientNetworkErrors: false)
 #endif
         }
         .task(id: workspace.latestStructuralReceipt?.id) {
@@ -153,7 +153,7 @@ struct ArborRootView: View {
                 // iOS may suspend an apparently open streaming request while
                 // backgrounded. Foregrounding is therefore also a deterministic
                 // snapshot-then-follow catch-up boundary.
-                Task { await workspace.syncNow() }
+                Task { await workspace.syncNow(reportTransientNetworkErrors: false) }
 #endif
             } else {
                 Task { await workspace.flush() }

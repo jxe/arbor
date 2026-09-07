@@ -1022,7 +1022,7 @@ final class ArborWorkspaceState {
     }
 #endif
 
-    func syncNow() async {
+    func syncNow(reportTransientNetworkErrors: Bool = true) async {
         guard let syncCoordinator else { return }
         do {
             // Manual and lifecycle refreshes must pull a clean replica as well
@@ -1035,7 +1035,46 @@ final class ArborWorkspaceState {
         catch {
             syncPresentation = (try? await syncCoordinator.presentation())
                 ?? WorkspaceSyncPresentation(state: .offline, detail: String(describing: error))
-            errorMessage = error.localizedDescription
+            if let message = Self.syncErrorMessage(
+                for: error,
+                reportTransientNetworkErrors: reportTransientNetworkErrors
+            ) {
+                errorMessage = message
+            }
+        }
+    }
+
+    static func syncErrorMessage(
+        for error: Error,
+        reportTransientNetworkErrors: Bool
+    ) -> String? {
+        if !reportTransientNetworkErrors, isTransientNetworkError(error) { return nil }
+        return error.localizedDescription
+    }
+
+    /// Suspension routinely cancels URLSession work, and the network path can
+    /// still be settling when an iOS scene becomes active. These failures are
+    /// already represented by `syncPresentation` and retried by the watch/path
+    /// machinery; lifecycle catch-up must not also turn them into red banners.
+    static func isTransientNetworkError(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        let value = error as NSError
+        guard value.domain == NSURLErrorDomain else { return false }
+        let code = URLError.Code(rawValue: value.code)
+        return switch code {
+        case .cancelled,
+             .timedOut,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .networkConnectionLost,
+             .dnsLookupFailed,
+             .notConnectedToInternet,
+             .internationalRoamingOff,
+             .callIsActive,
+             .dataNotAllowed:
+            true
+        default:
+            false
         }
     }
 
