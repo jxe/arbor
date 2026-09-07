@@ -28,6 +28,7 @@ struct ArborApplication: App {
 
 private struct ArborNavigationCommands: Commands {
     @FocusedValue(\.arborWindowCommands) private var commands
+    @FocusedValue(\.editorCommands) private var editorCommands
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
@@ -90,6 +91,11 @@ private struct ArborNavigationCommands: Commands {
                 action: .unfoldAllHeadings
             )
 #endif
+        }
+        CommandGroup(after: .pasteboard) {
+            Button("Find in Page…") { editorCommands?.perform(.findInPage) }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(editorCommands == nil)
         }
 #if os(macOS)
         CommandMenu("Page") {
