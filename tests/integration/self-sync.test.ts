@@ -443,7 +443,7 @@ describe("private self-sync", () => {
     }
   });
 
-  test("reconciles interleaved editor bases into one causal epoch before disk sync", async () => {
+  test("keeps interleaved editor sessions as sibling Canopy candidates before disk sync", async () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
@@ -489,6 +489,7 @@ describe("private self-sync", () => {
         note.capabilities.content!.revision,
         firstNoteSource,
         [{ offset: Buffer.byteLength(noteSource), length: 0, replacement: "\nFirst editor epoch.\n" }],
+        "note-editor",
       );
       await firstObserved;
       await author.client.admitDocumentCandidate(
@@ -497,6 +498,7 @@ describe("private self-sync", () => {
         root.capabilities.content!.revision,
         admittedRoot,
         [{ offset: Buffer.byteLength(rootSource), length: 0, replacement: "\nSecond editor epoch.\n" }],
+        "root-editor",
       );
       if (!firstNote.admissionBasis) throw new Error("First editor epoch omitted its next admission basis");
       await author.client.admitDocumentCandidate(
@@ -505,24 +507,27 @@ describe("private self-sync", () => {
         firstNote.capabilities.content!.revision,
         secondNoteSource,
         [{ offset: Buffer.byteLength(firstNoteSource), length: 0, replacement: "Return to first editor epoch.\n" }],
+        "note-editor",
       );
       await writeFile(externalPath, "# External while editor admissions are pending\n");
       const externalRoot = (await snapshotDirectory(treeA)).root;
       await Bun.sleep(100);
       expect(updateBodies[0].updates).toHaveLength(1);
-      const longestBeforeRelease = updateBodies.find((body) => body.updates.length === 3);
-      expect(longestBeforeRelease).toBeDefined();
+      expect(updateBodies).toHaveLength(1);
       releaseFirst();
 
       await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 4
         && (await readFile(join(treeA, "note.md"), "utf8")) === secondNoteSource
         && (await readFile(join(treeA, "_index.md"), "utf8")) === admittedRoot);
-      const longest = updateBodies.find((body) => body.updates.length === 3)!;
-      expect(longest.updates[0]).toEqual(updateBodies[0].updates[0]);
+      const noteContinuation = updateBodies.find((body) => body.updates.length === 2)!;
+      expect(noteContinuation.updates[0]).toEqual(updateBodies[0].updates[0]);
+      expect(updateBodies.some((body) => body.updates.length === 1
+        && body.updates[0].candidate !== updateBodies[0].updates[0].candidate
+        && body.updates[0].candidate !== externalRoot)).toBe(true);
       expect(updateBodies.at(-1)!.updates).toHaveLength(1);
       expect(updateBodies.at(-1)!.updates[0].candidate).toBe(externalRoot);
       const accepted = host.canopy.acceptedUpdates(tree).slice(historyBefore);
-      expect(accepted.slice(0, 3).map((update) => update.kind)).toEqual(["accepted", "accepted", "accepted"]);
+      expect(accepted.slice(0, 3).map((update) => update.kind)).toEqual(["accepted", "merged", "merged"]);
       expect(accepted[3]?.kind).toBe("merged");
 
       const currentNote = await author.client.node(noteRef);

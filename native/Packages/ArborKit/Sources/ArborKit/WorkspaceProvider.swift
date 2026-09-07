@@ -62,12 +62,61 @@ public struct WorkspaceDocumentSnapshot: Hashable, Codable, Sendable {
 }
 
 public struct WorkspaceDocumentConflict: Hashable, Codable, Sendable, Error {
+    public struct Context: Hashable, Codable, Sendable {
+        public struct ConflictReason: Hashable, Codable, Sendable {
+            public var path: String
+            public var reason: String
+
+            public init(path: String, reason: String) {
+                self.path = path
+                self.reason = reason
+            }
+        }
+
+        public var code: String
+        public var message: String
+        public var kind: String?
+        public var reason: String?
+        public var conflicts: [ConflictReason]
+        public var resolutions: [String]
+
+        public var paths: [String] { conflicts.map(\.path) }
+
+        public init(
+            code: String,
+            message: String,
+            kind: String? = nil,
+            reason: String? = nil,
+            conflicts: [ConflictReason] = [],
+            resolutions: [String] = []
+        ) {
+            self.code = code
+            self.message = message
+            self.kind = kind
+            self.reason = reason
+            self.conflicts = conflicts
+            self.resolutions = resolutions
+        }
+    }
+
+    /// The exact source/revision the editor changed. Providers which cannot
+    /// retain the base may leave this nil.
+    public var base: WorkspaceDocumentSnapshot?
     public var current: WorkspaceDocumentSnapshot
     public var submittedSource: String
+    /// Structured provider conflict evidence, when the provider returned it.
+    public var context: Context?
 
-    public init(current: WorkspaceDocumentSnapshot, submittedSource: String) {
+    public init(
+        base: WorkspaceDocumentSnapshot? = nil,
+        current: WorkspaceDocumentSnapshot,
+        submittedSource: String,
+        context: Context? = nil
+    ) {
+        self.base = base
         self.current = current
         self.submittedSource = submittedSource
+        self.context = context
     }
 }
 

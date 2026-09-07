@@ -139,10 +139,11 @@ export function appendPendingEditorAdmission(
   return serialized(tree, async () => {
     const state = await load(tree);
     let admissions = [...(state.editorAdmissions ?? [])];
-    const admission = build(admissions);
-    if (admissions.length && admissions.every((candidate) => candidate.acknowledged) && admissions.every((candidate) => candidate.id !== admission.id)) {
-      admissions = [];
-    }
+    const acknowledged = admissions.length > 0 && admissions.every((candidate) => candidate.acknowledged);
+    const standalone = acknowledged ? build([]) : undefined;
+    const startsNewEpoch = standalone !== undefined && admissions.every((candidate) => candidate.id !== standalone.id);
+    const admission = startsNewEpoch ? standalone : build(admissions);
+    if (startsNewEpoch) admissions = [];
     const existing = admissions.find((candidate) => candidate.id === admission.id && candidate.request.candidate === admission.request.candidate);
     if (!existing) {
       admissions.push(admission);

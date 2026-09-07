@@ -31,26 +31,26 @@ struct ProviderContractTests {
         #expect(!ArborSyncDocumentSession.targets(event, reference: otherTree))
     }
 
-    @Test("An authoritative echo cannot replace a local admission continuation")
-    func authoritativeEchoRetainsAdmissionChain() {
-        let reference = WorkspaceReference(tree: "tr_notes", path: "/today", stableKey: markdownStableKey("pg_today"))
-        let admitted = WorkspaceDocumentSnapshot(
-            reference: reference,
-            source: "- could be leave tue 15\n",
-            contentRevision: "sha256:edit",
-            admissionBasis: "continued-local-string"
-        )
-        let echoed = WorkspaceDocumentSnapshot(
-            reference: reference,
-            source: admitted.source,
-            contentRevision: admitted.contentRevision,
-            admissionBasis: "fresh-watch-basis"
-        )
+    @Test("Document conflicts preserve structured provider evidence")
+    func documentConflictContext() throws {
+        let envelope = try JSONDecoder().decode(ArborSyncErrorEnvelope.self, from: Data(#"""
+        {
+          "error":"conflict",
+          "message":"Update could not be merged",
+          "retryable":false,
+          "details":{
+            "kind":"server-update",
+            "conflicts":[{"path":"/note.md","reason":"frontmatter-conflict"}],
+            "resolutions":["review","use-current","keep-submitted"]
+          }
+        }
+        """#.utf8))
 
-        let retained = ArborSyncDocumentSession.retainingAdmissionChain(admitted, whenObserving: echoed)
+        let context = ArborSyncDocumentSession.documentConflictContext(envelope.value)
 
-        #expect(retained.admissionBasis == admitted.admissionBasis)
-        #expect(ArborSyncDocumentSession.retainingAdmissionChain(nil, whenObserving: echoed) == echoed)
+        #expect(context.kind == "server-update")
+        #expect(context.conflicts == [.init(path: "/note.md", reason: "frontmatter-conflict")])
+        #expect(context.resolutions == ["review", "use-current", "keep-submitted"])
     }
 
     @Test("Watch suppresses an admitted prefix when a later local prefix exists")

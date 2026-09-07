@@ -286,6 +286,16 @@ the directory-level `CollectionFileDescriptor` defined by
 [tree snapshots](../spec/01-tree-operations.md#112-reading-an-accepted-snapshot);
 SQLite remains a distinct database backing.
 
+Each open editor session supplies a stable opaque `editorID` with
+`POST /v1/documents/admit`. The identifier distinguishes generations from one
+editor—which extend that editor's immutable pending string—from independent
+editors which may have observed the same `admissionBasis`. Arbor Sync retains
+independent candidates from their common accepted base and lets Canopy perform
+the representation-specific three-way merge. `editorID` is local admission
+coordination, not document identity, TreeID, device identity, or a portable
+Canopy field. Older clients may omit it and receive the former basis-derived
+behavior.
+
 The REST routes carry `NodeRef` without inventing a second locator shape. Node
 reads take it as the `tree`, `path`, and `stableKey` query parameters described
 in [§4](#4-node-reads); JSON mutation and transfer requests embed the three
@@ -331,7 +341,7 @@ Markdown writes submit the complete operational source and its exact
 prove editor provenance, but the complete source remains authoritative.
 Native and other session editors use `/v1/documents/admit` when their snapshot
 carried `admissionBasis`. Its body contains `{ ref, admissionBasis,
-baseContentRevision, source, sourceEdits? }`. Arbor Sync verifies the guarded
+editorID?, baseContentRevision, source, sourceEdits? }`. Arbor Sync verifies the guarded
 edits against the basis, builds and durably freezes one element of an ordinary
 Wire `UpdateRequest`, and acknowledges the private candidate without changing
 the materialized shared file. Each further durable generation extends the same

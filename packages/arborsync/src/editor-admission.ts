@@ -15,6 +15,8 @@ import {
 
 interface AdmissionBasisValue {
   version: 1;
+  /** Stable identity of one editor session, independent of its shared update epoch. */
+  editorID?: string;
   id: string;
   ref: NodeRef;
   baseUpdate: string;
@@ -28,6 +30,7 @@ interface AdmissionBasisValue {
 }
 
 export interface FrozenEditorAdmission {
+  editorID?: string;
   id: string;
   ref: NodeRef;
   request: CandidateUpdateJSON & { base: string };
@@ -39,7 +42,10 @@ export interface FrozenEditorAdmission {
 }
 
 export class EditorAdmissionReconciliationError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    public reason: "missing-head-object" | "missing-path" | "invalid-path" | "invalid-utf8" | "independent-replacement" | "overlapping-source-edits",
+  ) {
     super(message);
     this.name = "EditorAdmissionReconciliationError";
   }
@@ -62,6 +68,7 @@ function decodeBasis(value: string): AdmissionBasisValue {
   if (
     record.version !== 1
     || typeof record.id !== "string"
+    || (record.editorID !== undefined && typeof record.editorID !== "string")
     || !ref
     || typeof ref !== "object"
     || Array.isArray(ref)
@@ -77,7 +84,7 @@ function decodeBasis(value: string): AdmissionBasisValue {
     || (record.storedContentRevision !== undefined && typeof record.storedContentRevision !== "string")
     || !Array.isArray(record.objects)
     || Object.keys(record).some((key) => ![
-      "version", "id", "ref", "baseUpdate", "baseRoot", "candidateRoot", "wirePath", "contentRevision", "storedContentRevision", "objects",
+      "version", "editorID", "id", "ref", "baseUpdate", "baseRoot", "candidateRoot", "wirePath", "contentRevision", "storedContentRevision", "objects",
     ].includes(key))
   ) throw new Error("Document admission basis is invalid");
   // Decode once here so malformed, noncanonical, or hash-mismatched objects
@@ -132,9 +139,11 @@ export function documentAdmissionBasis(input: {
       objects.set(hash, fileBytes);
     }
   }
+  const editorID = crypto.randomUUID();
   return encodeBasis({
     version: 1,
-    id: crypto.randomUUID(),
+    editorID,
+    id: editorID,
     ref: input.ref,
     baseUpdate: input.update,
     baseRoot: input.snapshot.root,
@@ -148,17 +157,25 @@ export function documentAdmissionBasis(input: {
 
 /**
  * Build one standard updates-v1 candidate from an opaque basis returned by
- * Native. A stale sibling basis sharing the pending epoch's accepted base is
- * safely rebased onto that tree-wide local head before it becomes durable.
+ * Native. Later generations from the same editor extend its immutable string;
+ * sibling editors retain independent candidates from their shared accepted
+ * base so Canopy, rather than a local patch heuristic, reconciles them.
  */
 export function freezeEditorAdmission(input: {
   ref: NodeRef;
+  editorID?: string;
   admissionBasis: string;
   baseContentRevision: string;
   source: string;
   sourceEdits?: SourceEdit[];
 }, predecessors: readonly FrozenEditorAdmission[] = []): FrozenEditorAdmission {
   let basis = decodeBasis(input.admissionBasis);
+  if (input.editorID && basis.editorID !== input.editorID) {
+    // The basis describes the graph the editor saw; this value identifies the
+    // live editor which authored the new generation. A newly opened editor may
+    // legitimately receive another editor's retained pending graph.
+    basis = { ...basis, editorID: input.editorID, id: input.editorID };
+  }
   if (
     basis.ref.tree !== input.ref.tree
     || basis.ref.path !== input.ref.path
@@ -171,27 +188,27 @@ export function freezeEditorAdmission(input: {
     let hash = root;
     for (const [index, segment] of segments.entries()) {
       const bytes = graph.get(hash);
-      if (!bytes) throw new EditorAdmissionReconciliationError(`Pending editor head is missing object: ${hash}`);
+      if (!bytes) throw new EditorAdmissionReconciliationError(`Pending editor head is missing object: ${hash}`, "missing-head-object");
       const object = decodeWireObject(bytes);
-      if (object.type !== "directory") throw new EditorAdmissionReconciliationError("Pending editor path is not a directory");
+      if (object.type !== "directory") throw new EditorAdmissionReconciliationError("Pending editor path is not a directory", "invalid-path");
       const entry = object.entries.find((candidate) => candidate.name === segment);
       if (!entry?.hash || entry.tree) {
-        throw new EditorAdmissionReconciliationError(`Pending editor path no longer exists: ${basis.wirePath}`);
+        throw new EditorAdmissionReconciliationError(`Pending editor path no longer exists: ${basis.wirePath}`, "missing-path");
       }
       hash = entry.hash;
       if (index === segments.length - 1) {
         const fileBytes = graph.get(hash);
-        if (!fileBytes) throw new EditorAdmissionReconciliationError(`Pending editor head is missing object: ${hash}`);
+        if (!fileBytes) throw new EditorAdmissionReconciliationError(`Pending editor head is missing object: ${hash}`, "missing-head-object");
         const file = decodeWireObject(fileBytes);
-        if (file.type !== "file") throw new EditorAdmissionReconciliationError("Pending editor target is not a file");
+        if (file.type !== "file") throw new EditorAdmissionReconciliationError("Pending editor target is not a file", "invalid-path");
         try {
           return new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
         } catch {
-          throw new EditorAdmissionReconciliationError("Pending editor target is not UTF-8 Markdown");
+          throw new EditorAdmissionReconciliationError("Pending editor target is not UTF-8 Markdown", "invalid-utf8");
         }
       }
     }
-    throw new EditorAdmissionReconciliationError("Pending editor path omitted its file");
+    throw new EditorAdmissionReconciliationError("Pending editor path omitted its file", "missing-path");
   };
 
   const basisSource = sourceAt(basis.candidateRoot, objects);
@@ -200,7 +217,15 @@ export function freezeEditorAdmission(input: {
   }
 
   let resultSource = input.source;
-  const predecessor = predecessors.at(-1);
+  const editorID = input.editorID ?? basis.editorID ?? basis.id;
+  // An editor's speculative string is independent of sibling editors which
+  // happened to observe the same accepted Canopy base. Keep those siblings as
+  // separate local epochs: the authority can then reconcile each
+  // (base, candidate, current) tuple with the representation's merge rule.
+  const predecessor = predecessors.findLast((candidate) => {
+    const candidateBasis = decodeBasis(candidate.admissionBasis);
+    return (candidate.editorID ?? candidateBasis.editorID ?? candidateBasis.id) === editorID;
+  });
   if (predecessor) {
     // Derive the submitted candidate without a local head once so an exact
     // retry remains idempotent even after later generations were appended.
@@ -211,6 +236,7 @@ export function freezeEditorAdmission(input: {
     if (duplicate) return duplicate;
 
     const predecessorBasis = decodeBasis(predecessor.admissionBasis);
+    const predecessorEditorID = predecessor.editorID ?? predecessorBasis.editorID ?? predecessorBasis.id;
     const continuesDeclaredChain = predecessor.id === basis.id
       && predecessor.request.candidate === basis.candidateRoot;
     const sharesAcceptedBase = predecessor.request.base === basis.baseUpdate;
@@ -221,13 +247,21 @@ export function freezeEditorAdmission(input: {
       }
       const headSource = sourceAt(predecessor.request.candidate, objects);
       if (headSource !== basisSource) {
-        if (!input.sourceEdits) {
-          throw new EditorAdmissionReconciliationError("Another local editor changed this document before the submitted replacement");
-        }
-        try {
-          resultSource = applySourceEdits(headSource, input.sourceEdits);
-        } catch {
-          throw new EditorAdmissionReconciliationError("Another local editor changed the submitted patch range");
+        if (predecessorEditorID === editorID && predecessor.ref.tree === input.ref.tree
+          && predecessor.ref.path === input.ref.path && predecessor.ref.stableKey === input.ref.stableKey) {
+          // Responses and watch echoes can arrive after a newer commit has
+          // already captured the editor tree. Within one editor session,
+          // request arrival is the generation order and the later exact source
+          // supersedes the earlier source for this document.
+          resultSource = input.source;
+        } else if (!input.sourceEdits) {
+          throw new EditorAdmissionReconciliationError("Another local editor changed this document before the submitted replacement", "independent-replacement");
+        } else {
+          try {
+            resultSource = applySourceEdits(headSource, input.sourceEdits);
+          } catch {
+            throw new EditorAdmissionReconciliationError("Another local editor changed the submitted patch range", "overlapping-source-edits");
+          }
         }
       }
       basis = {
@@ -300,6 +334,7 @@ export function freezeEditorAdmission(input: {
 
   const nextObjects = new Map(generated);
   return {
+    editorID: basis.editorID ?? basis.id,
     id: basis.id,
     ref: input.ref,
     request: {

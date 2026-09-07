@@ -221,6 +221,7 @@ public actor ArborSyncRESTClient {
 
     public func admitDocumentCandidate(
         ref: NodeRef,
+        editorID: String,
         admissionBasis: String,
         baseContentRevision: String,
         source: String,
@@ -228,6 +229,7 @@ public actor ArborSyncRESTClient {
     ) async throws -> NodeSnapshot {
         struct Admission: Encodable {
             var ref: NodeRef
+            var editorID: String
             var admissionBasis: String
             var baseContentRevision: String
             var source: String
@@ -238,6 +240,7 @@ public actor ArborSyncRESTClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(Admission(
             ref: ref,
+            editorID: editorID,
             admissionBasis: admissionBasis,
             baseContentRevision: baseContentRevision,
             source: source,

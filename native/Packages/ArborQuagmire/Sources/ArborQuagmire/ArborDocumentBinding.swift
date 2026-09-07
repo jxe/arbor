@@ -109,14 +109,33 @@ public final class ArborDocumentBinding {
 
     public func resolveConflict(preferSubmitted: Bool) async throws {
         guard let conflict else { return }
-        let submitted = conflict.submittedSource
-        await applyAcceptedReplacement(conflict.current)
-        if preferSubmitted {
-            let admitted = try await session.admit(
-                source: submitted,
-                baseContentRevision: conflict.current.contentRevision
-            )
-            await applyAcceptedReplacement(admitted)
+        try await resolveConflict(source: preferSubmitted ? conflict.submittedSource : conflict.current.source)
+    }
+
+    public func resolveConflict(source: String) async throws {
+        guard let conflict else { return }
+        if source == conflict.current.source {
+            await applyAcceptedReplacement(conflict.current)
+        } else {
+            // Do not replace the live editor until the chosen resolution is
+            // durable. A failed retry must leave both the editor tree and its
+            // recoverable conflict evidence intact.
+            do {
+                let admitted = try await session.admit(
+                    source: source,
+                    baseContentRevision: conflict.current.contentRevision
+                )
+                await applyAcceptedReplacement(admitted)
+            } catch let updated as WorkspaceDocumentConflict {
+                var enriched = updated
+                if enriched.base == nil { enriched.base = conflict.current }
+                self.conflict = enriched
+                lastError = enriched
+                throw enriched
+            } catch {
+                lastError = error
+                throw error
+            }
         }
     }
 
@@ -220,8 +239,10 @@ public final class ArborDocumentBinding {
             if value.current.source == source {
                 accept(value.current, submittedSource: source, generation: admittedGeneration)
             } else {
-                conflict = value
-                lastError = value
+                var enriched = value
+                if enriched.base == nil { enriched.base = accepted }
+                conflict = enriched
+                lastError = enriched
                 if admittedGeneration == generation { isSaving = false }
             }
         } catch let value as WorkspacePatchError {
@@ -237,7 +258,7 @@ public final class ArborDocumentBinding {
                     // acknowledgement. Exact bytes are an idempotent success.
                     accept(current, submittedSource: source, generation: admittedGeneration)
                 } else {
-                    let conflict = WorkspaceDocumentConflict(current: current, submittedSource: source)
+                    let conflict = WorkspaceDocumentConflict(base: accepted, current: current, submittedSource: source)
                     self.conflict = conflict
                     lastError = conflict
                     if admittedGeneration == generation { isSaving = false }

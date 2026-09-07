@@ -599,13 +599,15 @@ function startArborSyncServer(
           validateRef(body.ref, "documents.admit.ref");
           if (
             typeof body.admissionBasis !== "string"
+            || (body.editorID !== undefined && typeof body.editorID !== "string")
             || typeof body.baseContentRevision !== "string"
             || typeof body.source !== "string"
-            || Object.keys(body).some((key) => !["ref", "admissionBasis", "baseContentRevision", "source", "sourceEdits"].includes(key))
+            || Object.keys(body).some((key) => !["ref", "editorID", "admissionBasis", "baseContentRevision", "source", "sourceEdits"].includes(key))
           ) throw new ProtocolError("invalid-request", "Document admission requires ref, admissionBasis, baseContentRevision, and source", 400);
           validateSourceEdits(body.sourceEdits);
           return json(await service.admitDocumentCandidate(body as {
             ref: NodeRef;
+            editorID?: string;
             admissionBasis: string;
             baseContentRevision: string;
             source: string;

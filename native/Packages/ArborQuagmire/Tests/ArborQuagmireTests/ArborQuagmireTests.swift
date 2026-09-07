@@ -15,6 +15,38 @@ struct ArborQuagmireTests {
                 .appending(path: "ArborQuagmireTests-\(UUID().uuidString)")
         )
     }
+
+    @Test("Document conflict analysis suggests only a safe disjoint merge")
+    func documentConflictAnalysis() {
+        let reference = WorkspaceReference(tree: "tr_notes", path: "/note")
+        let base = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "First.\nSecond.\n",
+            contentRevision: "r1"
+        )
+        let current = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "Current first.\nSecond.\n",
+            contentRevision: "r2"
+        )
+        let conflict = WorkspaceDocumentConflict(
+            base: base,
+            current: current,
+            submittedSource: "First.\nSubmitted second.\n"
+        )
+
+        #expect(ArborDocumentConflictAnalysis(conflict).automaticMergeSource == "Current first.\nSubmitted second.\n")
+
+        var authoritative = conflict
+        authoritative.context = .init(
+            code: "conflict",
+            message: "Update could not be merged",
+            kind: "server-update",
+            conflicts: [.init(path: "/note.md", reason: "frontmatter-conflict")]
+        )
+        #expect(ArborDocumentConflictAnalysis(authoritative).automaticMergeSource == nil)
+    }
+
     @Test("No-op is byte-identical across envelopes, CRLF, marks, and raw Markdown")
     func noOp() throws {
         let source = "---\r\nid: pg_exact\r\ntitle:  A  \r\n---\r\n\r\n# Heading *as authored*\r\n\r\nParagraph with **bold**, [link](other.md), $x^2$, and  two spaces.\r\n\r\n<table><tr><td>raw</td></tr></table>\r\n"
@@ -595,6 +627,33 @@ struct ArborQuagmireTests {
         let saved = try await session.snapshot()
         #expect(saved.contentRevision == "r2")
         #expect(saved.source.contains("Already durable."))
+    }
+
+    @MainActor
+    @Test("A failed Keep My Edit retains the live editor and conflict evidence")
+    func failedConflictResolutionIsNonDestructive() async throws {
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = ResolutionFailureSession(snapshot: .init(
+            reference: reference,
+            source: "# Welcome\n\nBefore.\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let paragraph = try #require(binding.document.children.first?.children.first?.id)
+        binding.document.transaction(name: "Edit") {
+            _ = binding.document.setText(paragraph, AttributedString("My unsaved edit."))
+        }
+        binding.admitCurrentGeneration()
+        await binding.flush()
+        let conflict = try #require(binding.conflict)
+
+        await #expect(throws: ResolutionFailure.self) {
+            try await binding.resolveConflict(source: conflict.submittedSource)
+        }
+
+        #expect(binding.conflict == conflict)
+        #expect(binding.lastError is ResolutionFailure)
+        #expect(binding.document.children.first?.children.first.map { String($0.text.characters) } == "My unsaved edit.")
     }
 
     @MainActor
@@ -1244,6 +1303,50 @@ private actor AlreadyAppliedStaleSession: WorkspaceDocumentSession {
     func flush() {}
     func history() -> [WorkspaceHistoryEntry] { [] }
     func recover(revision: String) throws -> WorkspaceDocumentSnapshot { current }
+    func close() {}
+}
+
+private struct ResolutionFailure: Error {}
+
+private actor ResolutionFailureSession: WorkspaceDocumentSession {
+    nonisolated let identity: WorkspaceIdentity
+    private var current: WorkspaceDocumentSnapshot
+
+    init(snapshot: WorkspaceDocumentSnapshot) {
+        identity = snapshot.reference.identity
+        current = snapshot
+    }
+
+    func snapshot() -> WorkspaceDocumentSnapshot { current }
+
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        throw ResolutionFailure()
+    }
+
+    func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
+        let base = current
+        let submitted = try patch.applying(to: base.source)
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: "# Welcome\n\nRemote edit.\n",
+            contentRevision: "r2"
+        )
+        throw WorkspaceDocumentConflict(
+            base: base,
+            current: current,
+            submittedSource: submitted,
+            context: .init(
+                code: "conflict",
+                message: "Update could not be merged",
+                kind: "server-update",
+                conflicts: [.init(path: "/welcome.md", reason: "frontmatter-conflict")]
+            )
+        )
+    }
+
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) -> WorkspaceDocumentSnapshot { current }
     func close() {}
 }
 

@@ -92,4 +92,26 @@ describe("ArborSyncRESTClient exact-source contract", () => {
     expect(operation.frontmatterPatch).toBeUndefined();
   });
 
+  test("sends the editor session identity with document admission", async () => {
+    let body: Record<string, unknown> | undefined;
+    const client = new ArborSyncRESTClient({
+      fetch: async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse(directorySnapshot());
+      },
+    });
+
+    await client.admitDocumentCandidate(
+      { tree: "tr_notes", path: "/note", stableKey: null },
+      "opaque-basis",
+      "sha256:before",
+      "# Edited\n",
+      undefined,
+      "editor-web-1",
+    );
+
+    expect(body?.editorID).toBe("editor-web-1");
+    expect(body?.admissionBasis).toBe("opaque-basis");
+  });
+
 });

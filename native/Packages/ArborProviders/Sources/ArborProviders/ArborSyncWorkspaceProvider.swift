@@ -415,6 +415,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
     public nonisolated let identity: WorkspaceIdentity
     private let client: ArborSyncRESTClient
     private let initialReference: WorkspaceReference
+    private let editorID = UUID().uuidString.lowercased()
     private var terminal = false
     private var admissionSnapshots: [String: WorkspaceDocumentSnapshot] = [:]
     private var admissionWatchGate = AdmissionWatchGate()
@@ -428,9 +429,9 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
     public func snapshot() async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
         let snapshot = try Self.documentSnapshot(await client.editorNode(initialReference.nodeRef), fallback: initialReference)
-        rememberAuthoritative(snapshot)
         switch admissionWatchGate.observe(snapshot.contentRevision) {
         case .publish:
+            rememberAuthoritative(snapshot)
             return snapshot
         case let .retain(revision):
             // The filesystem can still expose an earlier accepted prefix after
@@ -464,8 +465,8 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
                         guard snapshot.capabilities.content?.revision != revision else { continue }
                         revision = snapshot.capabilities.content?.revision
                         let document = try Self.documentSnapshot(snapshot, fallback: reference)
-                        self.rememberAuthoritative(document)
                         if case .publish = self.admissionWatchGate.observe(document.contentRevision) {
+                            self.rememberAuthoritative(document)
                             continuation.yield(document)
                         }
                     }
@@ -551,7 +552,12 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
             return try await snapshot()
         } catch let error as ArborSyncServerError where error.value.code == "conflict" && error.value.details?.workspaceRevision == true {
             let current = try await snapshot()
-            throw WorkspaceDocumentConflict(current: current, submittedSource: source)
+            throw WorkspaceDocumentConflict(
+                base: admissionSnapshots[baseContentRevision],
+                current: current,
+                submittedSource: source,
+                context: Self.documentConflictContext(error.value)
+            )
         }
     }
 
@@ -564,6 +570,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         do {
             let value = try await client.admitDocumentCandidate(
                 ref: initialReference.nodeRef,
+                editorID: editorID,
                 admissionBasis: admissionBasis,
                 baseContentRevision: baseContentRevision,
                 source: source,
@@ -574,15 +581,35 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
             return snapshot
         } catch let error as ArborSyncServerError where error.value.code == "conflict" {
             let current = try await snapshot()
-            throw WorkspaceDocumentConflict(current: current, submittedSource: source)
+            throw WorkspaceDocumentConflict(
+                base: admissionSnapshots[baseContentRevision],
+                current: current,
+                submittedSource: source,
+                context: Self.documentConflictContext(error.value)
+            )
         }
     }
 
-    private func rememberAuthoritative(_ snapshot: WorkspaceDocumentSnapshot) {
-        admissionSnapshots[snapshot.contentRevision] = Self.retainingAdmissionChain(
-            admissionSnapshots[snapshot.contentRevision],
-            whenObserving: snapshot
+    static func documentConflictContext(_ error: ArborSyncErrorValue) -> WorkspaceDocumentConflict.Context {
+        let details = error.details?.objectValue
+        let conflicts = details?["conflicts"]?.arrayValue ?? []
+        return WorkspaceDocumentConflict.Context(
+            code: error.code,
+            message: error.message,
+            kind: details?["kind"]?.stringValue,
+            reason: details?["reason"]?.stringValue,
+            conflicts: conflicts.compactMap { value in
+                guard let fields = value.objectValue,
+                      let path = fields["path"]?.stringValue,
+                      let reason = fields["reason"]?.stringValue else { return nil }
+                return .init(path: path, reason: reason)
+            },
+            resolutions: details?["resolutions"]?.arrayValue?.compactMap(\.stringValue) ?? []
         )
+    }
+
+    private func rememberAuthoritative(_ snapshot: WorkspaceDocumentSnapshot) {
+        admissionSnapshots[snapshot.contentRevision] = snapshot
         trimAdmissionSnapshots(keeping: snapshot.contentRevision)
     }
 
@@ -593,20 +620,6 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         admissionSnapshots[snapshot.contentRevision] = snapshot
         admissionWatchGate.admitted(snapshot.contentRevision, after: predecessor)
         trimAdmissionSnapshots(keeping: snapshot.contentRevision)
-    }
-
-    static func retainingAdmissionChain(
-        _ existing: WorkspaceDocumentSnapshot?,
-        whenObserving snapshot: WorkspaceDocumentSnapshot
-    ) -> WorkspaceDocumentSnapshot {
-        guard let existing,
-              existing.source == snapshot.source,
-              existing.admissionBasis != nil else { return snapshot }
-        // Materialization commonly echoes the revision just admitted with a
-        // freshly minted basis. Retain the admission response instead: later
-        // edits must extend its cumulative string, even if that echo arrives
-        // between two local commits.
-        return existing
     }
 
     private func trimAdmissionSnapshots(keeping revision: String) {
@@ -732,6 +745,21 @@ private extension JSONValue {
     var workspaceRevision: Bool {
         guard case let .object(fields) = self, fields["kind"] == .string("workspace-revision") else { return false }
         return true
+    }
+
+    var objectValue: [String: JSONValue]? {
+        guard case let .object(value) = self else { return nil }
+        return value
+    }
+
+    var arrayValue: [JSONValue]? {
+        guard case let .array(value) = self else { return nil }
+        return value
+    }
+
+    var stringValue: String? {
+        guard case let .string(value) = self else { return nil }
+        return value
     }
 }
 

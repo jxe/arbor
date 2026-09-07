@@ -324,6 +324,7 @@ final class ArborClientTests: XCTestCase {
 
         _ = try await client.admitDocumentCandidate(
             ref: .path("/notes", tree: "tr_notes"),
+            editorID: "editor-native-1",
             admissionBasis: "opaque-basis",
             baseContentRevision: "sha256:opened",
             source: "# Edited\n",
@@ -335,6 +336,9 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(captured.count, 1)
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(request.path, "/v1/documents/admit")
+        let body = try XCTUnwrap(captured.bodies.first)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(object["editorID"] as? String, "editor-native-1")
     }
 
     func testEditorNodeExplicitlyRequestsAdmissionBasis() async throws {

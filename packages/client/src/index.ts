@@ -303,11 +303,12 @@ export class ArborSyncRESTClient {
     baseContentRevision: string,
     source: string,
     sourceEdits?: Extract<ContentWorkspaceOperation, { op: "writeMarkdown" }>["sourceEdits"],
+    editorID?: string,
   ): Promise<NodeResponse> {
     return this.request("/v1/documents/admit", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ref, admissionBasis, baseContentRevision, source, ...(sourceEdits ? { sourceEdits } : {}) }),
+      body: JSON.stringify({ ref, ...(editorID ? { editorID } : {}), admissionBasis, baseContentRevision, source, ...(sourceEdits ? { sourceEdits } : {}) }),
     });
   }
 

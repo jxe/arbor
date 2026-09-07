@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { revisionOf } from "@arbor/core";
+import { mergeWireTrees } from "@arbor/canopy";
 import { snapshotDirectory } from "@arbor/fs";
 import { applyTransitionPayload, decodeCandidateUpdateJSON, decodeWireObject } from "@arbor/wire";
 import { documentAdmissionBasis, freezeEditorAdmission } from "../../packages/arborsync/src/editor-admission.ts";
@@ -108,7 +109,7 @@ describe("opaque editor admission basis", () => {
     }
   });
 
-  test("rebases sibling editor bases into one tree-wide causal epoch", async () => {
+  test("keeps sibling editor bases as independent Canopy candidates", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-editor-admission-"));
     try {
       const noteSource = "# Note\n\nOriginal note.\n";
@@ -160,28 +161,34 @@ describe("opaque editor admission basis", () => {
         }],
       }, [first]);
 
-      expect(second.id).toBe(first.id);
+      expect(second.id).not.toBe(first.id);
+      expect(second.editorID).not.toBe(first.editorID);
       expect(second.request.base).toBe(first.request.base);
       const firstRequest = decodeCandidateUpdateJSON(first.request);
       const secondRequest = decodeCandidateUpdateJSON(second.request);
       const afterFirst = applyTransitionPayload(accepted.objects, firstRequest);
-      const afterSecond = applyTransitionPayload(afterFirst, secondRequest);
-      const candidateRoot = decodeWireObject(afterSecond.get(secondRequest.candidate)!);
+      const sibling = applyTransitionPayload(accepted.objects, secondRequest);
+      const firstRoot = decodeWireObject(afterFirst.get(firstRequest.candidate)!);
+      const candidateRoot = decodeWireObject(sibling.get(secondRequest.candidate)!);
+      if (firstRoot.type !== "directory") throw new Error("Expected first directory candidate");
       if (candidateRoot.type !== "directory") throw new Error("Expected directory candidate");
+      const firstNote = firstRoot.entries.find((entry) => entry.name === "note.md");
       const note = candidateRoot.entries.find((entry) => entry.name === "note.md");
       const other = candidateRoot.entries.find((entry) => entry.name === "other.md");
-      if (!note?.hash || !other?.hash) throw new Error("Expected both candidate documents");
-      const noteFile = decodeWireObject(afterSecond.get(note.hash)!);
-      const otherFile = decodeWireObject(afterSecond.get(other.hash)!);
-      if (noteFile.type !== "file" || otherFile.type !== "file") throw new Error("Expected file candidates");
-      expect(new TextDecoder().decode(noteFile.bytes)).toContain(noteReplacement);
+      if (!firstNote?.hash || !note?.hash || !other?.hash) throw new Error("Expected both candidate documents");
+      const firstNoteFile = decodeWireObject(afterFirst.get(firstNote.hash)!);
+      const noteFile = decodeWireObject(sibling.get(note.hash)!);
+      const otherFile = decodeWireObject(sibling.get(other.hash)!);
+      if (firstNoteFile.type !== "file" || noteFile.type !== "file" || otherFile.type !== "file") throw new Error("Expected file candidates");
+      expect(new TextDecoder().decode(firstNoteFile.bytes)).toContain(noteReplacement);
+      expect(new TextDecoder().decode(noteFile.bytes)).toBe(noteSource);
       expect(new TextDecoder().decode(otherFile.bytes)).toContain(otherReplacement);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  test("rebases a guarded non-overlapping sibling patch and rejects overlap", async () => {
+  test("keeps overlapping sibling edits for Canopy reconciliation", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-editor-admission-"));
     try {
       const source = "# Note\n\nFirst.\nSecond.\n";
@@ -197,29 +204,116 @@ describe("opaque editor admission basis", () => {
       });
       const firstOffset = Buffer.byteLength("# Note\n\n");
       const secondOffset = Buffer.byteLength("# Note\n\nFirst.\n");
+      const sharedBasis = makeBasis();
       const first = freezeEditorAdmission({
         ref: { tree: "tr_notes", path: "/note", stableKey: null },
-        admissionBasis: makeBasis(),
+        editorID: "editor-a",
+        admissionBasis: sharedBasis,
         baseContentRevision: revisionOf(source),
         source: source.replace("Second.", "Changed second."),
         sourceEdits: [{ offset: secondOffset, length: 7, replacement: "Changed second.", expected: "Second." }],
       });
-      const rebased = freezeEditorAdmission({
+      const sibling = freezeEditorAdmission({
         ref: { tree: "tr_notes", path: "/note", stableKey: null },
-        admissionBasis: makeBasis(),
+        editorID: "editor-b",
+        admissionBasis: sharedBasis,
         baseContentRevision: revisionOf(source),
         source: source.replace("First.", "Changed first."),
         sourceEdits: [{ offset: firstOffset, length: 6, replacement: "Changed first.", expected: "First." }],
       }, [first]);
-      expect(rebased.source).toBe("# Note\n\nChanged first.\nChanged second.\n");
+      expect(sibling.id).not.toBe(first.id);
+      expect(sibling.request.base).toBe(first.request.base);
+      expect(sibling.source).toBe("# Note\n\nChanged first.\nSecond.\n");
 
-      expect(() => freezeEditorAdmission({
+      const overlap = freezeEditorAdmission({
         ref: { tree: "tr_notes", path: "/note", stableKey: null },
-        admissionBasis: makeBasis(),
+        editorID: "editor-c",
+        admissionBasis: sharedBasis,
         baseContentRevision: revisionOf(source),
         source: source.replace("Second.", "Competing second."),
         sourceEdits: [{ offset: secondOffset, length: 7, replacement: "Competing second.", expected: "Second." }],
-      }, [first])).toThrow("changed the submitted patch range");
+      }, [first]);
+      expect(overlap.id).not.toBe(first.id);
+      expect(overlap.source).toBe("# Note\n\nFirst.\nCompeting second.\n");
+
+      const firstRequest = decodeCandidateUpdateJSON(first.request);
+      const overlapRequest = decodeCandidateUpdateJSON(overlap.request);
+      const firstObjects = applyTransitionPayload(accepted.objects, firstRequest);
+      const overlapObjects = applyTransitionPayload(accepted.objects, overlapRequest);
+      const objects = new Map([...accepted.objects, ...firstObjects, ...overlapObjects]);
+      const merged = await mergeWireTrees(
+        accepted.root,
+        overlapRequest.candidate,
+        firstRequest.candidate,
+        async (hash) => objects.get(hash)!,
+      );
+      expect(merged.conflicts).toEqual([]);
+      expect(merged.summary?.version).toBe("markdown-additive-v1");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a stale same-editor generation supersedes an overlapping earlier generation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-editor-admission-"));
+    try {
+      const source = "# Note\n\nFirst.\nSecond.\n";
+      await writeFile(join(root, "note.md"), source);
+      const accepted = await snapshotDirectory(root);
+      const basis = documentAdmissionBasis({
+        ref: { tree: "tr_notes", path: "/note", stableKey: null },
+        update: "12",
+        snapshot: accepted,
+        wirePath: "/note.md",
+        contentRevision: revisionOf(source),
+        contentSource: source,
+      });
+      const first = freezeEditorAdmission({
+        ref: { tree: "tr_notes", path: "/note", stableKey: null },
+        editorID: "editor-native",
+        admissionBasis: basis,
+        baseContentRevision: revisionOf(source),
+        source: source.replace("Second.", "Earlier generation."),
+        sourceEdits: [{
+          offset: Buffer.byteLength("# Note\n\nFirst.\n"),
+          length: Buffer.byteLength("Second."),
+          replacement: "Earlier generation.",
+          expected: "Second.",
+        }],
+      });
+      const secondSource = first.source.replace("First.", "Changed first.");
+      const second = freezeEditorAdmission({
+        ref: first.ref,
+        editorID: "editor-native",
+        admissionBasis: first.admissionBasis,
+        baseContentRevision: first.contentRevision,
+        source: secondSource,
+        sourceEdits: [{
+          offset: Buffer.byteLength("# Note\n\n"),
+          length: Buffer.byteLength("First."),
+          replacement: "Changed first.",
+          expected: "First.",
+        }],
+      }, [first]);
+
+      const latestSource = source.replace("Second.", "Latest exact editor state.");
+      const latest = freezeEditorAdmission({
+        ref: first.ref,
+        editorID: "editor-native",
+        admissionBasis: basis,
+        baseContentRevision: revisionOf(source),
+        source: latestSource,
+        sourceEdits: [{
+          offset: Buffer.byteLength("# Note\n\nFirst.\n"),
+          length: Buffer.byteLength("Second."),
+          replacement: "Latest exact editor state.",
+          expected: "Second.",
+        }],
+      }, [first, second]);
+
+      expect(latest.editorID).toBe(first.editorID);
+      expect(latest.source).toBe(latestSource);
+      expect(latest.request.candidate).not.toBe(second.request.candidate);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

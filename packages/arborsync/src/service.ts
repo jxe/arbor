@@ -583,6 +583,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
   /** Submit a stale editor generation from its accepted Canopy base without first overwriting current disk state. */
   async admitDocumentCandidate(input: {
     ref: NodeRef;
+    editorID?: string;
     admissionBasis: string;
     baseContentRevision: string;
     source: string;
@@ -607,7 +608,11 @@ export class ArborSyncDaemon implements AsyncDisposable {
       throw new ProtocolError("conflict", error.message, 409, {
         tree: scope.workspace.tree,
         path: input.ref.path,
-        details: { kind: "workspace-revision" },
+        details: {
+          kind: "editor-admission",
+          reason: error.reason,
+          resolutions: ["review", "use-current", "keep-submitted"],
+        },
       });
     }
     void this.accountClient(placement)
