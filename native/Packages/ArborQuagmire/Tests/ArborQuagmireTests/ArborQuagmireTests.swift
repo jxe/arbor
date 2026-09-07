@@ -388,11 +388,11 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
-    @Test("Synchronous commits enqueue ordered patch admissions and flush awaits the final generation")
+    @Test("Synchronous commit bursts coalesce into one patch admission and flush forces it")
     func hostPersistence() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
         let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
-        let session = InMemoryDocumentSession(snapshot: .init(
+        let session = RecordingAdmissionSession(snapshot: .init(
             reference: reference,
             source: "# Welcome\n\nNative Arbor is ready.\n",
             contentRevision: "r1"
@@ -417,9 +417,11 @@ struct ArborQuagmireTests {
         host.persistCommit(changes: [], in: document)
         #expect(binding.generation == 2)
         #expect(binding.lastEnqueuedSource?.contains("Final edit") == true, Comment(rawValue: binding.lastEnqueuedSource ?? "nil"))
+        #expect(await session.admissionCount() == 0)
         await host.flush(document)
 
-        let saved = try await session.snapshot()
+        let saved = await session.snapshot()
+        #expect(await session.admissionCount() == 1)
         #expect(binding.lastError == nil, Comment(rawValue: String(describing: binding.lastError)))
         #expect(saved.source.contains("Final edit"), Comment(rawValue: saved.source))
 
@@ -427,7 +429,31 @@ struct ArborQuagmireTests {
         host.persistCommit(changes: [], in: document)
         await host.flush(document)
         #expect(binding.lastError == nil, Comment(rawValue: String(reflecting: binding.lastError)))
-        #expect((try await session.snapshot()).contentRevision == savedRevision)
+        #expect((await session.snapshot()).contentRevision == savedRevision)
+    }
+
+    @MainActor
+    @Test("A pending commit is admitted after the debounce without an explicit flush")
+    func debouncedPersistence() async throws {
+        let reference = WorkspaceReference(tree: "tr_sample", path: "/welcome", stableKey: markdownStableKey("pg_welcome"))
+        let session = RecordingAdmissionSession(snapshot: .init(
+            reference: reference,
+            source: "# Welcome\n\nNative Arbor is ready.\n",
+            contentRevision: "r1"
+        ))
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        let paragraph = try #require(binding.document.children.last)
+
+        binding.document.transaction(name: "edit") {
+            _ = binding.document.setText(paragraph.id, AttributedString("Debounced edit"))
+        }
+        binding.admitCurrentGeneration()
+
+        #expect(await session.admissionCount() == 0)
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(await session.admissionCount() == 1)
+        #expect((await session.snapshot()).source.contains("Debounced edit"))
+        await binding.close()
     }
 
     @MainActor
@@ -1321,6 +1347,48 @@ struct ArborQuagmireTests {
         #expect(binding.lastError == nil)
         await binding.close()
     }
+}
+
+private actor RecordingAdmissionSession: WorkspaceDocumentSession {
+    nonisolated let identity: WorkspaceIdentity
+    private var current: WorkspaceDocumentSnapshot
+    private var admissions = 0
+
+    init(snapshot: WorkspaceDocumentSnapshot) {
+        identity = snapshot.reference.identity
+        current = snapshot
+    }
+
+    func snapshot() -> WorkspaceDocumentSnapshot { current }
+
+    func admit(source: String, baseContentRevision: String) throws -> WorkspaceDocumentSnapshot {
+        guard current.contentRevision == baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(expected: baseContentRevision, actual: current.contentRevision)
+        }
+        admissions += 1
+        current = WorkspaceDocumentSnapshot(
+            reference: current.reference,
+            source: source,
+            contentRevision: "r\(admissions + 1)"
+        )
+        return current
+    }
+
+    func admit(patch: WorkspaceDocumentPatch) throws -> WorkspaceDocumentSnapshot {
+        guard current.contentRevision == patch.baseContentRevision else {
+            throw WorkspacePatchError.staleRevision(expected: patch.baseContentRevision, actual: current.contentRevision)
+        }
+        return try admit(
+            source: patch.applying(to: current.source),
+            baseContentRevision: patch.baseContentRevision
+        )
+    }
+
+    func admissionCount() -> Int { admissions }
+    func flush() {}
+    func history() -> [WorkspaceHistoryEntry] { [] }
+    func recover(revision: String) -> WorkspaceDocumentSnapshot { current }
+    func close() {}
 }
 
 private actor AlreadyAppliedStaleSession: WorkspaceDocumentSession {

@@ -19,8 +19,12 @@ public final class ArborDocumentBinding {
     private var accepted: WorkspaceDocumentSnapshot
     private var ledger: ArborSourceLedger
     private var tail: Task<Void, Never>?
+    private var pendingAdmission: (source: String, generation: Int)?
+    private var admissionDebounceTask: Task<Void, Never>?
     private var updatesTask: Task<Void, Never>?
     private(set) var generation = 0
+
+    private static let admissionDebounce: Duration = .milliseconds(250)
 
     public static func open(
         reference: WorkspaceReference,
@@ -63,14 +67,34 @@ public final class ArborDocumentBinding {
         ledger = nextLedger
         generation += 1
         let admittedGeneration = generation
+        pendingAdmission = (admission.source, admittedGeneration)
+        admissionDebounceTask?.cancel()
+        admissionDebounceTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.admissionDebounce)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.admissionDebounceTask = nil
+            self.enqueuePendingAdmission()
+        }
+    }
+
+    private func enqueuePendingAdmission() {
+        guard let pendingAdmission else { return }
+        self.pendingAdmission = nil
         let previous = tail
         tail = Task { @MainActor [self] in
             if let previous { await previous.value }
-            await self.persist(source: admission.source, generation: admittedGeneration)
+            await self.persist(source: pendingAdmission.source, generation: pendingAdmission.generation)
         }
     }
 
     public func flush() async {
+        admissionDebounceTask?.cancel()
+        admissionDebounceTask = nil
+        enqueuePendingAdmission()
         if let tail { await tail.value }
         try? await session.flush()
     }
