@@ -419,6 +419,7 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
     private var terminal = false
     private var admissionSnapshots: [String: WorkspaceDocumentSnapshot] = [:]
     private var admissionWatchGate = AdmissionWatchGate()
+    private var acceptedRequestDigests: Set<String> = []
 
     public init(client: ArborSyncRESTClient, reference: WorkspaceReference) {
         self.client = client
@@ -428,7 +429,9 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
 
     public func snapshot() async throws -> WorkspaceDocumentSnapshot {
         try requireOpen()
-        let snapshot = try Self.documentSnapshot(await client.editorNode(initialReference.nodeRef), fallback: initialReference)
+        var snapshot = try Self.documentSnapshot(await client.editorNode(initialReference.nodeRef), fallback: initialReference)
+        acceptedRequestDigests.formUnion(snapshot.acceptedRequestDigests)
+        snapshot.acceptedRequestDigests = Array(acceptedRequestDigests)
         switch admissionWatchGate.observe(snapshot.contentRevision) {
         case .publish:
             rememberAuthoritative(snapshot)
@@ -437,7 +440,9 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
             // The filesystem can still expose an earlier accepted prefix after
             // this session has admitted a later one. Preserve read-your-writes
             // for the editor consuming an already-emitted watch notification.
-            return admissionSnapshots[revision] ?? snapshot
+            var retained = admissionSnapshots[revision] ?? snapshot
+            retained.acceptedRequestDigests = Array(acceptedRequestDigests)
+            return retained
         }
     }
 
@@ -450,23 +455,42 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    self.rememberAuthoritative(initial)
-                    continuation.yield(initial)
+                    self.acceptedRequestDigests.formUnion(initial.acceptedRequestDigests)
+                    var initialDocument = initial
+                    initialDocument.acceptedRequestDigests = Array(self.acceptedRequestDigests)
+                    self.rememberAuthoritative(initialDocument)
+                    continuation.yield(initialDocument)
                     var revision = view.snapshot.capabilities.content?.revision
                     for try await update in view.updates {
                         let snapshot: NodeSnapshot
+                        var carriesAcceptance = false
                         switch update {
                         case let .resync(value):
                             snapshot = value
                         case let .event(event):
                             guard Self.targets(event, reference: reference) else { continue }
+                            let digests = event.change.acceptedRequestDigests ?? []
+                            carriesAcceptance = !digests.isEmpty
+                            self.acceptedRequestDigests.formUnion(digests)
                             snapshot = try await client.editorNode(reference.nodeRef)
                         }
-                        guard snapshot.capabilities.content?.revision != revision else { continue }
+                        let snapshotDigests = Set(snapshot.acceptedRequestDigests ?? [])
+                        carriesAcceptance = carriesAcceptance || !snapshotDigests.isSubset(of: self.acceptedRequestDigests)
+                        self.acceptedRequestDigests.formUnion(snapshotDigests)
+                        guard carriesAcceptance || snapshot.capabilities.content?.revision != revision else { continue }
                         revision = snapshot.capabilities.content?.revision
-                        let document = try Self.documentSnapshot(snapshot, fallback: reference)
-                        if case .publish = self.admissionWatchGate.observe(document.contentRevision) {
+                        var document = try Self.documentSnapshot(snapshot, fallback: reference)
+                        document.acceptedRequestDigests = Array(self.acceptedRequestDigests)
+                        let observation = self.admissionWatchGate.observe(document.contentRevision)
+                        if case .publish = observation {
                             self.rememberAuthoritative(document)
+                        }
+                        if case .publish = observation {
+                            continuation.yield(document)
+                        } else if carriesAcceptance {
+                            // The binding owns the per-editor digest fence. It
+                            // must see causal metadata even when this source is
+                            // an older optimistic prefix for this session.
                             continuation.yield(document)
                         }
                     }
@@ -705,7 +729,9 @@ public actor ArborSyncDocumentSession: WorkspaceDocumentSession {
             ),
             source: source,
             contentRevision: revision,
-            admissionBasis: node.admissionBasis
+            admissionBasis: node.admissionBasis,
+            admissionRequestDigest: node.admissionRequestDigest,
+            acceptedRequestDigests: node.acceptedRequestDigests ?? []
         )
     }
 }

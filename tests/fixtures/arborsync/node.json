@@ -45,5 +45,9 @@
   },
   "materialization": "available",
   "diagnostics": [],
+  "admissionRequestDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "acceptedRequestDigests": [
+    "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  ],
   "observedThrough": "11111111-1111-1111-1111-111111111111:4"
 }

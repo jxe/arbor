@@ -38,6 +38,7 @@ export type {
   MutationReceipt,
   MutationRequest,
   NodeRef,
+  NodeResponse,
   RecoveryEntry,
   RecoveryPage,
   SearchPage,

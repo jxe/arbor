@@ -17,6 +17,7 @@ import {
   decodeUpdateConflictJSON,
 } from "@arbor/wire";
 import type { FrozenEditorAdmission } from "./editor-admission.ts";
+import type { Hash } from "@arbor/core";
 
 /** The durable pending update is exactly the wire request body it will become. */
 export type PendingTreeUpdate = CandidateUpdateJSON & { base: string | null };
@@ -34,7 +35,11 @@ interface TreeSyncState {
   conflict?: StoredTreeConflict;
   accepted?: AcceptedTreeObjects;
   editorAdmissions?: FrozenEditorAdmission[];
+  /** Recent Canopy request digests whose accepted state was materialized locally. */
+  acceptedRequestDigests?: Hash[];
 }
+
+const MAX_ACCEPTED_REQUEST_DIGESTS = 256;
 
 function safeTreeID(tree: string): string {
   return Buffer.from(tree).toString("base64url");
@@ -68,7 +73,13 @@ async function save(tree: string, state: TreeSyncState): Promise<void> {
   const directory = join(arborPrivateRoot(), "sync");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const destination = pathFor(tree);
-  if (!state.pending && !state.conflict && !state.accepted && !state.editorAdmissions?.length) {
+  if (
+    !state.pending
+    && !state.conflict
+    && !state.accepted
+    && !state.editorAdmissions?.length
+    && !state.acceptedRequestDigests?.length
+  ) {
     await rm(destination, { force: true });
     return;
   }
@@ -120,6 +131,21 @@ export function pendingTreeUpdate(tree: string): Promise<PendingTreeUpdate | und
 
 export function acceptedTreeObjects(tree: string): Promise<AcceptedTreeObjects | undefined> {
   return serialized(tree, async () => (await load(tree)).accepted);
+}
+
+/** Recent materialized request digests let reconnecting editor sessions recover their own fence. */
+export function acceptedRequestDigests(tree: string): Promise<Hash[]> {
+  return serialized(tree, async () => [...((await load(tree)).acceptedRequestDigests ?? [])]);
+}
+
+export function rememberAcceptedRequestDigests(tree: string, digests: readonly Hash[]): Promise<void> {
+  if (!digests.length) return Promise.resolve();
+  return serialized(tree, async () => {
+    const state = await load(tree);
+    const accepted = [...new Set([...(state.acceptedRequestDigests ?? []), ...digests])]
+      .slice(-MAX_ACCEPTED_REQUEST_DIGESTS);
+    await save(tree, { ...state, acceptedRequestDigests: accepted });
+  });
 }
 
 /** Ordered, durable editor candidates that have not yet received an authority decision. */

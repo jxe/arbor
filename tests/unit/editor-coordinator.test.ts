@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ArborBlock, NodeSnapshot } from "@arbor/core";
+import type { NodeResponse } from "@arbor/client";
 import { serializeMarkdown } from "@arbor/editor";
 import {
   EditorCoordinator,
@@ -165,6 +166,47 @@ describe("editor coordinator", () => {
     expect(value.coordinator.currentRevision).toBe("r1");
     expect(value.accepted).toHaveLength(1);
     expect(value.coordinator.saveState).toBe("saved");
+  });
+
+  test("waits for its own accepted request digest before applying an authoritative prefix", async () => {
+    const digest = `sha256:${"a".repeat(64)}` as const;
+    const initial = { blocks: [paragraph("p", "initial")], frontmatter: {} };
+    let captured = structuredClone(initial);
+    const accepted: NodeResponse[] = [];
+    const coordinator = new EditorCoordinator({
+      path: "/page",
+      revision: "r0",
+      baseBlocks: initial.blocks,
+      baseFrontmatter: {},
+      initialSnapshot: initial,
+      capture: () => structuredClone(captured),
+      write: async (_path, _revision, value) => ({
+        ...tree("r-local", value),
+        admissionRequestDigest: digest,
+      }),
+      applySnapshot: (value) => { captured = structuredClone(value); },
+      acceptNode: (node) => accepted.push(node),
+      notify: () => {},
+    });
+    captured = { blocks: [paragraph("p", "latest local")], frontmatter: {} };
+    coordinator.markAuthored(captured);
+    await coordinator.flush();
+
+    coordinator.observeExternal(tree("r-prefix", {
+      blocks: [paragraph("p", "accepted prefix")],
+      frontmatter: {},
+    }));
+    expect(captured.blocks[0]?.content).toBe("latest local");
+
+    coordinator.observeExternal({
+      ...tree("r-authoritative", {
+        blocks: [paragraph("p", "accepted latest")],
+        frontmatter: {},
+      }),
+      acceptedRequestDigests: [digest],
+    });
+    expect(accepted.at(-1)?.content?.source).toContain("accepted latest");
+    expect(coordinator.currentRevision).toBe("r-authoritative");
   });
 
   test("persists every authored row because directory rows are ordinary Markdown", async () => {

@@ -1,5 +1,5 @@
 import type { ArborBlock } from "@arbor/core";
-import type { NodeSnapshot } from "@arbor/client";
+import type { NodeResponse } from "@arbor/client";
 import { mergeBlocks } from "@arbor/editor";
 import { nodeDocument } from "./node-presentation.ts";
 
@@ -30,9 +30,9 @@ export interface ExternalObservationAnchor {
 
 interface EditorCoordinatorCallbacks {
   capture(): DocumentSnapshot;
-  write(path: string, baseRevision: string, snapshot: DocumentSnapshot, base: DocumentSnapshot): Promise<NodeSnapshot>;
+  write(path: string, baseRevision: string, snapshot: DocumentSnapshot, base: DocumentSnapshot): Promise<NodeResponse>;
   applySnapshot(snapshot: DocumentSnapshot): void;
-  acceptNode(node: NodeSnapshot): void;
+  acceptNode(node: NodeResponse): void;
   notify(): void;
 }
 
@@ -91,6 +91,7 @@ export class EditorCoordinator {
   private undoStack: HistoryEntry[] = [];
   private redoStack: HistoryEntry[] = [];
   private disposed = false;
+  private waitingForRequestDigest: string | null = null;
 
   constructor(options: EditorCoordinatorOptions) {
     this.path = options.path;
@@ -243,7 +244,13 @@ export class EditorCoordinator {
     }
   }
 
-  reconcileServer(node: NodeSnapshot, displayed: DocumentSnapshot): void {
+  reconcileServer(node: NodeResponse, displayed: DocumentSnapshot): void {
+    if (this.waitingForRequestDigest
+      && node.admissionRequestDigest !== this.waitingForRequestDigest
+      && !node.acceptedRequestDigests?.some((digest) => digest === this.waitingForRequestDigest)) return;
+    if (this.waitingForRequestDigest && node.acceptedRequestDigests?.some((digest) => digest === this.waitingForRequestDigest)) {
+      this.waitingForRequestDigest = null;
+    }
     const document = nodeDocument(node);
     this.revision = node.capabilities.content?.revision!;
     this.base = {
@@ -261,7 +268,7 @@ export class EditorCoordinator {
     }
   }
 
-  observeExternal(node: NodeSnapshot, anchor?: ExternalObservationAnchor): void {
+  observeExternal(node: NodeResponse, anchor?: ExternalObservationAnchor): void {
     // A same-machine read can suspend while a newer authored generation is
     // admitted and becomes clean again. The ordinary dirty/in-flight check is
     // no longer sufficient then: discard the stale read exactly as Native's
@@ -270,6 +277,10 @@ export class EditorCoordinator {
       anchor.generation !== this.generationValue
       || anchor.revision !== this.revision
     )) return;
+    if (this.waitingForRequestDigest) {
+      if (!node.acceptedRequestDigests?.some((digest) => digest === this.waitingForRequestDigest)) return;
+      this.waitingForRequestDigest = null;
+    }
     if (this.isDirty || this.saveInFlight) {
       this.setStatus("external");
       this.scheduleSave(0);
@@ -297,11 +308,11 @@ export class EditorCoordinator {
     const execute = async () => {
       this.setStatus("saving", null);
       try {
-        let saved: NodeSnapshot;
+        let saved: NodeResponse;
         try {
           saved = await this.callbacks.write(this.path, forceRevision ?? this.revision, local, this.base);
         } catch (error) {
-          const conflict = error as Error & { status?: number; payload?: { current?: NodeSnapshot } };
+          const conflict = error as Error & { status?: number; payload?: { current?: NodeResponse } };
           if (conflict.status !== 409 || !conflict.payload?.current?.content) throw error;
           const current = conflict.payload.current;
           const currentDocument = nodeDocument(current)!;
@@ -333,6 +344,7 @@ export class EditorCoordinator {
         }
         const savedDocument = nodeDocument(saved);
         this.revision = saved.capabilities.content!.revision;
+        if (saved.admissionRequestDigest) this.waitingForRequestDigest = saved.admissionRequestDigest;
         this.base = {
           blocks: structuredClone(savedDocument?.blocks ?? []),
           frontmatter: structuredClone(savedDocument?.frontmatter ?? {}),
@@ -366,7 +378,7 @@ export class EditorCoordinator {
     if (this.isDirty) throw new Error("Resolve or retry the unsaved document changes before changing the filesystem.");
   }
 
-  useDisk(node: NodeSnapshot, local: DocumentSnapshot, disk: DocumentSnapshot): void {
+  useDisk(node: NodeResponse, local: DocumentSnapshot, disk: DocumentSnapshot): void {
     this.flushHistory();
     this.pushHistory({
       label: "Use disk version",

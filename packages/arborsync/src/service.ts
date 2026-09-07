@@ -39,6 +39,7 @@ import { FilesystemService, realOsPath } from "./fs-service.ts";
 import { summarizeExpandedNode } from "./node-sampling.ts";
 import {
   acceptedTreeObjects,
+  acceptedRequestDigests,
   clearPendingEditorAdmissions,
   clearPendingTreeUpdate,
   clearTreeConflict,
@@ -264,7 +265,11 @@ export class ArborSyncDaemon implements AsyncDisposable {
     const scope = await this.resolveScope(ref);
     if (scope.kind === "root") {
       return this.withWorkspaceIO(scope.workspace, async () => {
-        const response = await scope.workspace.snapshot(scope.ref);
+        const snapshot = await scope.workspace.snapshot(scope.ref);
+        const digests = await acceptedRequestDigests(scope.workspace.tree);
+        const response: NodeResponse = digests.length
+          ? { ...snapshot, acceptedRequestDigests: digests }
+          : snapshot;
         if (!includeAdmissionBasis) return response;
         const placement = this.trees.placementFor(scope.workspace.tree);
         if (
@@ -634,6 +639,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
         content: { ...current.capabilities.content, revision: frozen.contentRevision },
       },
       admissionBasis: frozen.admissionBasis,
+      admissionRequestDigest: frozen.requestDigest,
     };
   }
 

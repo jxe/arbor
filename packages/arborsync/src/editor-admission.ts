@@ -11,6 +11,8 @@ import {
   type ObjectHash,
   type TreeSnapshot,
   type CandidateUpdateJSON,
+  decodeCandidateUpdateJSON,
+  updateRequestDigests,
 } from "@arbor/wire";
 
 interface AdmissionBasisValue {
@@ -37,6 +39,8 @@ export interface FrozenEditorAdmission {
   source: string;
   contentRevision: string;
   admissionBasis: string;
+  /** Credential-scoped digest Canopy will echo when this generation is accepted. */
+  requestDigest?: `sha256:${string}`;
   /** Durable acknowledgement marker; retained until the editor reanchors on a newer watchpoint. */
   acknowledged?: boolean;
 }
@@ -333,17 +337,23 @@ export function freezeEditorAdmission(input: {
   }
 
   const nextObjects = new Map(generated);
+  const request: CandidateUpdateJSON & { base: string } = {
+    base: basis.baseUpdate,
+    candidate,
+    ifMatch: "modelHash",
+    objects: encodeObjectEnvelopes(completeObjects),
+    deltas: deltas.map(encodeObjectDeltaJSON),
+  };
+  const sameEpoch = predecessors.filter((admission) => admission.id === basis.id);
+  const requestDigest = updateRequestDigests(input.ref.tree, {
+    base: request.base,
+    updates: [...sameEpoch.map((admission) => decodeCandidateUpdateJSON(admission.request)), decodeCandidateUpdateJSON(request)],
+  }).at(-1)! as `sha256:${string}`;
   return {
     editorID: basis.editorID ?? basis.id,
     id: basis.id,
     ref: input.ref,
-    request: {
-      base: basis.baseUpdate,
-      candidate,
-      ifMatch: "modelHash",
-      objects: encodeObjectEnvelopes(completeObjects),
-      deltas: deltas.map(encodeObjectDeltaJSON),
-    },
+    request,
     source: resultSource,
     contentRevision: revisionOf(resultSource),
     admissionBasis: encodeBasis({
@@ -353,5 +363,6 @@ export function freezeEditorAdmission(input: {
       storedContentRevision: revisionOf(resultSource),
       objects: encodeObjectEnvelopes(nextObjects),
     }),
+    requestDigest,
   };
 }

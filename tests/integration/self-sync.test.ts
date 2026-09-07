@@ -400,7 +400,7 @@ describe("private self-sync", () => {
       );
       await firstObserved;
       if (!first.admissionBasis) throw new Error("Admitted document omitted its next admission basis");
-      await author.client.admitDocumentCandidate(
+      const second = await author.client.admitDocumentCandidate(
         ref,
         first.admissionBasis,
         first.capabilities.content!.revision,
@@ -422,6 +422,11 @@ describe("private self-sync", () => {
       expect(updateBodies[1].updates.slice(0, 1)).toEqual(updateBodies[0].updates);
       expect(accepted[1]!.previousRoot).toBe(accepted[0]!.root);
       expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
+      expect(first.admissionRequestDigest).toStartWith("sha256:");
+      expect(second.admissionRequestDigest).toStartWith("sha256:");
+      const materialized = await author.client.node(ref);
+      expect(materialized.acceptedRequestDigests).toContain(first.admissionRequestDigest!);
+      expect(materialized.acceptedRequestDigests).toContain(second.admissionRequestDigest!);
 
       const after = await author.client.node(ref);
       const restoredSource = "# Complete-object fallback\n";

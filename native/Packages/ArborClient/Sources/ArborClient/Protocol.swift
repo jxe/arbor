@@ -254,9 +254,13 @@ public struct NodeSnapshot: Codable, Sendable, Equatable {
     public var observedThrough: String
     /// Opaque arborsync context returned unchanged when admitting an editor patch.
     public var admissionBasis: String?
+    /// Credential-scoped Wire request digest for a locally durable editor admission.
+    public var admissionRequestDigest: String?
+    /// Authenticated Wire requests known to be incorporated by this observation.
+    public var acceptedRequestDigests: [String]?
 
     private enum CodingKeys: String, CodingKey {
-        case ref, enclosingTree, name, revision, properties, capabilities, content, materialization, diagnostics, observedThrough, admissionBasis
+        case ref, enclosingTree, name, revision, properties, capabilities, content, materialization, diagnostics, observedThrough, admissionBasis, admissionRequestDigest, acceptedRequestDigests
     }
 
     public init(from decoder: Decoder) throws {
@@ -273,6 +277,8 @@ public struct NodeSnapshot: Codable, Sendable, Equatable {
         diagnostics = try container.decode([Diagnostic].self, forKey: .diagnostics)
         observedThrough = try container.decode(String.self, forKey: .observedThrough)
         admissionBasis = try container.decodeIfPresent(String.self, forKey: .admissionBasis)
+        admissionRequestDigest = try container.decodeIfPresent(String.self, forKey: .admissionRequestDigest)
+        acceptedRequestDigests = try container.decodeIfPresent([String].self, forKey: .acceptedRequestDigests)
     }
 }
 
@@ -431,6 +437,8 @@ public struct WorkspaceChange: Codable, Sendable, Equatable {
     public var directoryRevision: String?
     public var origin: String
     public var mutationID: String?
+    /// Authenticated Wire requests incorporated by this materialized sync transition.
+    public var acceptedRequestDigests: [String]?
 }
 
 public struct WorkspaceEvent: Codable, Sendable, Equatable {

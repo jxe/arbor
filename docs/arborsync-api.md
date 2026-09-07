@@ -248,6 +248,8 @@ type NodeSnapshot = NodeSummary & {
   content?: NodeContent;
   observedThrough: EventCursor;
   admissionBasis?: string;
+  admissionRequestDigest?: Hash;
+  acceptedRequestDigests?: Hash[];
 };
 
 type ChildrenPage = {
@@ -270,6 +272,14 @@ An ordinary node read does not calculate or return `admissionBasis`. An editor
 opens its selected document with `admissionBasis=true`; for a writable document
 whose materialized tree exactly matches an accepted Canopy update, the returned
 `admissionBasis` is opaque context for a later editor admission.
+`POST /v1/documents/admit` returns `admissionRequestDigest`, the
+credential-scoped digest that Canopy will echo when it accepts or merges that
+generation. A sync-origin observation may attach `acceptedRequestDigests` to
+identify the requests incorporated by the newly materialized state. These are
+causal metadata, not content revisions: a merge can preserve the request digest
+while producing different source and root hashes.
+Recent accepted digests also appear on later node reads, allowing an editor
+that reconnects after the observation to resolve its own pending fence.
 It contains the accepted Wire spine needed to freeze a normal update without
 first writing the candidate into the shared tree. Clients retain it with that
 exact source and return it unchanged; they do not decode or synthesize it.
@@ -343,12 +353,18 @@ Native and other session editors use `/v1/documents/admit` when their snapshot
 carried `admissionBasis`. Its body contains `{ ref, admissionBasis,
 editorID?, baseContentRevision, source, sourceEdits? }`. Arbor Sync verifies the guarded
 edits against the basis, builds and durably freezes one element of an ordinary
-Wire `UpdateRequest`, and acknowledges the private candidate without changing
+Wire `UpdateRequest`, and acknowledges the private candidate with its
+`admissionRequestDigest` without changing
 the materialized shared file. Each further durable generation extends the same
 epoch string and is posted immediately even while shorter-prefix requests and
 watch events remain in flight. Authority submission may also resume after a
 restart and offline interval. Only Canopy's accepted result is materialized.
-The endpoint is local adapter plumbing; it adds no Canopy route or update form.
+Each editor session retains its own latest digest and does not replace its live
+document from sync observations until `acceptedRequestDigests` includes that
+digest. Other editors on the same machine wait on their own digests and may
+advance independently. Arbor Sync reports causal facts; it does not choose one
+machine-wide editor refresh boundary. The endpoint is local adapter plumbing;
+it adds no Canopy route or update form.
 `writeProperties` is the representation-independent direct-edit operation:
 
 ```ts

@@ -49,7 +49,9 @@ Arbor publishes and tests two explicit client state machines:
    client talking to Local Arbor REST. It debounces a burst into one guarded
    source patch, allows at most one admission in flight plus one replaceable
    latest successor, makes `flush` force and await local durability, and fences
-   authoritative refreshes from newer local intent.
+   authoritative refreshes from newer local intent by waiting for that
+   editor session's latest credential-scoped request digest to appear in an
+   accepted sync observation.
 2. **Direct Canopy synchronization** for a durable replica or Arbor Sync itself
    talking to Arbor Wire. It coalesces unsent durable local generations into
    one candidate head, persists an exact request before transmission, retries
@@ -202,6 +204,7 @@ states:
 | `dirty` | clean base plus latest source/generation and debounce deadline | One or more editor transactions are coalescing; no request contains them yet. |
 | `submitting` | immutable submitted patch/source/generation plus base | Exactly one Local Arbor REST admission is in flight. |
 | `submitting-dirty` | immutable in-flight submission plus one replaceable latest source/generation | New edits occurred while the request was in flight; they have not become another request. |
+| `admitted-awaiting-authority` | admitted source/revision/basis, editor ID, and latest request digest | Arbor Sync made the generation locally durable; this editor retains its live tree until an accepted observation incorporates its digest. |
 | `conflict` | base when available, current, submitted source, and any newer local source | Arbor Sync rejected admission; no local source or evidence may be discarded. |
 | `failed` | retryable exact pending source/patch and error classification | Transport/provider failure; UI must not say saved. |
 | `closed` | no timer or active work | Terminal after a successful drain or an explicit failed-close result. |
@@ -226,8 +229,16 @@ Required transitions and invariants:
    session. While one is in flight, retain only the latest successor source;
    after success, derive its patch from the returned admitted source/revision.
 6. A successful shared-tree admission means **durable in Arbor Sync**, not
-   accepted by Canopy. Project remote synchronization separately in UI/status.
-7. An authoritative observation may replace the editor only from `clean`, and
+   accepted by Canopy. It returns the credential-scoped Wire request digest.
+   Each editor session—not Arbor Sync globally—waits for its own latest digest,
+   because multiple editors on one machine may have different causal heads.
+   Arbor Sync emits accepted digests with materialization and keeps recent
+   accepted digests queryable from subsequent node snapshots so a reconnect
+   can recover a missed observation; that report is not a global pending gate.
+   Project remote synchronization separately in UI/status.
+7. An authoritative observation may replace the editor only from `clean`, or
+   from `admitted-awaiting-authority` when the observation's authenticated
+   accepted-digest set includes that editor's latest request digest, and
    only after a final non-suspending comparison of generation, accepted
    revision/source, authored source, conflict/error state, and active request.
 8. A Canopy-backed 409 retains Arbor Sync/Canopy conflict evidence and never
@@ -412,7 +423,8 @@ successor, flush, observation, failure, and conflict transitions.
 
 Open shared-tree editor nodes with `admissionBasis=true`, retain one stable
 `editorID` for the session, derive guarded UTF-8 source edits against the last
-admitted exact source, and call `admitDocumentCandidate`. Update the returned
+admitted exact source, and call `admitDocumentCandidate`. Retain the returned
+request digest in that coordinator only. Update the returned
 source/revision/basis through the same read-your-writes and observation fences
 as Swift. Continue using ordinary mutation for local/untracked content lacking
 an admission basis, but make the transport mode explicit and do not run
@@ -445,6 +457,9 @@ into Quagmire.
 
 Use an injected clock/scheduler for deterministic tests. Preserve the accepted
 prefix fences already present in `receiveAuthoritativeUpdate`. Verify that
+each binding waits for its own latest request digest, that two bindings sharing
+one Arbor Sync process advance independently, and that a merged result matches
+by request digest rather than candidate content revision. Verify that
 focus loss, navigation, backgrounding, workspace eviction, retry, conflict
 choice, history/recovery, and close all use the state machine's force/drain
 events and cannot report saved while a dirty successor remains.
@@ -585,6 +600,8 @@ commands and any demonstrated baseline-only failure when moving this plan to
   close. No correctness test depends on wall-clock sleeps.
 - **Admission concurrency**: 15 edits -> one patch; edits during request -> one
   latest successor; accepted response before/after watch; stale observation;
+  two editor sessions waiting on different digests; accepted prefix lacking the
+  current editor's digest; merged result acknowledging the current digest;
   empty final patch; retryable error; conflict; edit after conflict; flush and
   close failure.
 - **Direct concurrency**: online/offline bursts; request persisted before
@@ -617,6 +634,9 @@ commands and any demonstrated baseline-only failure when moving this plan to
 - [ ] An ambiguous request remains immutable and exactly retryable; plural
   append-only recovery remains supported.
 - [ ] No Canopy-backed client performs a competing Markdown/tree merge.
+- [ ] Every Arbor Sync editor client owns its own latest request-digest fence;
+  Arbor Sync exposes authenticated accepted digests without imposing a
+  machine-wide editor gate.
 - [ ] Authority responses are validated and materialized before the accepted
   base advances in both direct clients.
 - [ ] Conflict evidence and newer local work survive restart in both direct

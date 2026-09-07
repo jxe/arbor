@@ -22,6 +22,7 @@ public final class ArborDocumentBinding {
     private var pendingAdmission: (source: String, generation: Int)?
     private var admissionDebounceTask: Task<Void, Never>?
     private var updatesTask: Task<Void, Never>?
+    private var waitingForRequestDigest: String?
     private(set) var generation = 0
 
     private static let admissionDebounce: Duration = .milliseconds(250)
@@ -213,7 +214,13 @@ public final class ArborDocumentBinding {
     }
 
     private func receiveAuthoritativeUpdate(_ snapshot: WorkspaceDocumentSnapshot) async {
-        guard snapshot.contentRevision != accepted.contentRevision else { return }
+        let incorporatesWaitingDigest = waitingForRequestDigest.map {
+            snapshot.acceptedRequestDigests.contains($0)
+        } ?? false
+        guard snapshot.contentRevision != accepted.contentRevision else {
+            if incorporatesWaitingDigest { waitingForRequestDigest = nil }
+            return
+        }
         await flush()
         guard conflict == nil, lastError == nil, !isSaving else { return }
         // Quagmire can contain a keystroke or newly inserted block before its
@@ -225,8 +232,19 @@ public final class ArborDocumentBinding {
         let observedGeneration = generation
         let observedAcceptedRevision = accepted.contentRevision
         let observedAcceptedSource = accepted.source
-        guard let current = try? await session.snapshot(),
-              current.contentRevision != observedAcceptedRevision else { return }
+        let current: WorkspaceDocumentSnapshot
+        if incorporatesWaitingDigest {
+            current = snapshot
+        } else {
+            guard let refreshed = try? await session.snapshot() else { return }
+            current = refreshed
+        }
+        guard current.contentRevision != observedAcceptedRevision else { return }
+        if let waitingForRequestDigest {
+            guard incorporatesWaitingDigest
+                || current.acceptedRequestDigests.contains(waitingForRequestDigest) else { return }
+            self.waitingForRequestDigest = nil
+        }
         // Fetching the authoritative snapshot suspends this MainActor task. A
         // later local commit or keystroke may have arrived while it was away.
         // Revalidate immediately before the non-suspending replacement so an
@@ -304,6 +322,9 @@ public final class ArborDocumentBinding {
     ) {
         accepted = confirmed
         reference = confirmed.reference
+        if let digest = confirmed.admissionRequestDigest {
+            waitingForRequestDigest = digest
+        }
         if admittedGeneration == generation {
             if confirmed.source == source {
                 // This is the provider acknowledging the exact local tree

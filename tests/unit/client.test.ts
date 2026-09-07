@@ -114,4 +114,20 @@ describe("ArborSyncRESTClient exact-source contract", () => {
     expect(body?.admissionBasis).toBe("opaque-basis");
   });
 
+  test("returns the admission request digest used for causal refresh fencing", async () => {
+    const digest = `sha256:${"a".repeat(64)}` as const;
+    const client = new ArborSyncRESTClient({
+      fetch: async () => jsonResponse({ ...directorySnapshot(), admissionRequestDigest: digest }),
+    });
+
+    const admitted = await client.admitDocumentCandidate(
+      { tree: "tr_notes", path: "/note", stableKey: null },
+      "opaque-basis",
+      "sha256:before",
+      "# Edited\n",
+    );
+
+    expect(admitted.admissionRequestDigest).toBe(digest);
+  });
+
 });

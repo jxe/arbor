@@ -75,6 +75,8 @@ describe("REST v1 protocol fixtures", () => {
     expect(node.ref).toEqual({ tree: "tr_notes7f3q2ab7c", path: "/notes/today", stableKey: '[["id","abc123"]]' });
     expect(node.ref.tree).toBe("tr_notes7f3q2ab7c");
     expect(node.enclosingTree?.osPath).toBe("/Users/joe/notes");
+    expect(node.admissionRequestDigest).toBe(`sha256:${"a".repeat(64)}`);
+    expect(node.acceptedRequestDigests).toEqual([`sha256:${"b".repeat(64)}`]);
     expect(mutation.operations[0]?.op).toBe("move");
     expect(receipt.effects[0]?.previousPath).toBe("/notes/today");
     expect(receipt.effects[0]?.ref.tree).toBe("tr_notes7f3q2ab7c");
@@ -150,7 +152,10 @@ describe("REST v1 protocol fixtures", () => {
     const data = source.split(/\r?\n/).find((line) => line.startsWith("data:"))!.slice(5).trim();
     const event = JSON.parse(data) as WorkspaceEvent;
     expect(event.cursor).toEndWith(":5");
-    expect(event.change.origin).toBe("api");
+    expect(event.change.origin).toBe("sync");
+    expect(event.change.acceptedRequestDigests).toEqual([
+      `sha256:${"a".repeat(64)}`,
+    ]);
   });
 
   test("keeps a malformed SSE frame as a negative fixture", async () => {

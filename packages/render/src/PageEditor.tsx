@@ -10,6 +10,7 @@ import type { ArborBlock, BacklinkEntry, NodeSummary, RecoveryEntry } from "@arb
 import { canonicalArborLocator, isPersonProfileTreeID } from "@arbor/core";
 import type {
   NodeRef,
+  NodeResponse,
   NodeSnapshot,
   ObservedNodeUpdate,
   StructuralWorkspaceOperation,
@@ -536,6 +537,36 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
   });
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
+  const editorID = useRef(crypto.randomUUID()).current;
+  const admissionNode = useRef<NodeResponse | null>(node as NodeResponse);
+  useEffect(() => {
+    admissionNode.current = node as NodeResponse;
+  }, [nodeIdentity]);
+  const writeEditorSnapshot = useCallback(async (
+    baseRevision: string,
+    value: DocumentSnapshot,
+    base: DocumentSnapshot,
+  ): Promise<NodeResponse> => {
+    const source = serializeMarkdown(markdownDocument!, value.blocks, frontmatterPatch(base.frontmatter, value.frontmatter));
+    let context = admissionNode.current;
+    if (!context?.admissionBasis || context.capabilities.content?.revision !== baseRevision) {
+      context = await sapiRef.current.editorNode(nodeReference);
+      admissionNode.current = context;
+    }
+    if (context.admissionBasis && context.capabilities.content?.revision === baseRevision) {
+      const saved = await sapiRef.current.admitDocument(nodeReference, {
+        editorID,
+        admissionBasis: context.admissionBasis,
+        baseContentRevision: baseRevision,
+        source,
+      });
+      admissionNode.current = saved;
+      return saved;
+    }
+    const saved = await sapiRef.current.write(nodeReference, { baseContentRevision: baseRevision, source });
+    admissionNode.current = saved as NodeResponse;
+    return saved as NodeResponse;
+  }, [editorID, markdownDocument, nodeIdentity]);
   const replaceEditorSnapshot = useCallback((value: DocumentSnapshot) => {
     editor.transact((transaction) => {
       const anchor = captureTextSelectionPoint(transaction.doc, transaction.selection.anchor);
@@ -562,20 +593,14 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
     baseFrontmatter: markdownDocument?.frontmatter ?? {},
     initialSnapshot: { blocks: initial, frontmatter: markdownDocument?.frontmatter ?? {} },
     capture: () => snapshotRef.current(),
-    write: (_path, baseRevision, value, base) => sapiRef.current.write(nodeReference, {
-      baseContentRevision: baseRevision,
-      source: serializeMarkdown(markdownDocument!, value.blocks, frontmatterPatch(base.frontmatter, value.frontmatter)),
-    }),
+    write: (_path, baseRevision, value, base) => writeEditorSnapshot(baseRevision, value, base),
     applySnapshot: replaceEditorSnapshot,
     acceptNode: onSavedPreservingScroll,
     notify: () => renderCoordinator((value) => value + 1),
   }), [editor, nodeIdentity]);
   coordinator.configure({
     capture: () => snapshotRef.current(),
-    write: (_path, baseRevision, value, base) => sapiRef.current.write(nodeReference, {
-      baseContentRevision: baseRevision,
-      source: serializeMarkdown(markdownDocument!, value.blocks, frontmatterPatch(base.frontmatter, value.frontmatter)),
-    }),
+    write: (_path, baseRevision, value, base) => writeEditorSnapshot(baseRevision, value, base),
     applySnapshot: replaceEditorSnapshot,
     acceptNode: onSavedPreservingScroll,
     notify: () => renderCoordinator((value) => value + 1),
@@ -657,7 +682,9 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
           const event = update.event;
           if (event.change.mutationID && api.client.isOwnMutation(event.change.mutationID)) continue;
           if (event.tree !== undefined && event.tree !== currentNode.ref.tree) continue;
-          const affectsNode = event.change.ref.path === currentNode.ref.path
+          const treeSyncInvalidation = event.change.origin === "sync" && event.change.ref.path === "/";
+          const affectsNode = treeSyncInvalidation
+            || event.change.ref.path === currentNode.ref.path
             || event.change.previousPath === currentNode.ref.path
             || Boolean(currentNode.ref.stableKey && event.change.ref.stableKey === currentNode.ref.stableKey);
           const currentIsDirectory = hasChildren(currentNode);
@@ -671,7 +698,14 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
             : currentNode.ref;
           const observation = coordinator.captureExternalObservation();
           const loaded = await sapiRef.current.node(ref);
-          if (affectsNode) coordinator.observeExternal(loaded, observation);
+          const observed = {
+            ...loaded,
+            acceptedRequestDigests: [
+              ...(loaded.acceptedRequestDigests ?? []),
+              ...(event.change.acceptedRequestDigests ?? []),
+            ],
+          } satisfies NodeResponse;
+          if (affectsNode) coordinator.observeExternal(observed, observation);
           else {
             observedOnSaved.current(loaded);
             onChildrenChanged((await sapiRef.current.children(loaded.ref)).items);

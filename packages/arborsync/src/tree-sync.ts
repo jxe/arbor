@@ -12,6 +12,7 @@ import {
   type WatchEvent,
 } from "@arbor/wire";
 import type { EventBus } from "./events.ts";
+import type { Hash } from "@arbor/core";
 import type { TreeManager } from "./tree-manager.ts";
 import { ProtocolError, type Workspace } from "./workspace.ts";
 import {
@@ -22,6 +23,7 @@ import {
   pendingFromSnapshot,
   pendingEditorAdmissions,
   pendingTreeUpdate,
+  rememberAcceptedRequestDigests,
   retireAcknowledgedEditorAdmissions,
   saveAcceptedTreeObjectHashes,
   saveAcceptedTreeObjects,
@@ -150,7 +152,11 @@ export class TreeSynchronizer {
     }
   }
 
-  private async materialize(workspace: Workspace, snapshot: TreeSnapshot): Promise<void> {
+  private async materialize(
+    workspace: Workspace,
+    snapshot: TreeSnapshot,
+    acceptedRequestDigests: readonly Hash[] = [],
+  ): Promise<void> {
     await materializeTree(
       workspace.root,
       snapshot.root,
@@ -162,6 +168,7 @@ export class TreeSynchronizer {
       undefined,
       this.deps.trees.excludedMountsWithin(workspace.root),
     );
+    await rememberAcceptedRequestDigests(workspace.tree, acceptedRequestDigests);
     // Cursor ordering and request-digest correlation have already established
     // that this is accepted Wire state. Publish that causal fact directly
     // instead of relying on the filesystem watcher to infer it from bytes. The
@@ -172,6 +179,7 @@ export class TreeSynchronizer {
       kind: "updated",
       ref: { tree: workspace.tree, path: "/", stableKey: null },
       origin: "sync",
+      ...(acceptedRequestDigests.length ? { acceptedRequestDigests: [...new Set(acceptedRequestDigests)] } : {}),
     });
   }
 
@@ -295,7 +303,11 @@ export class TreeSynchronizer {
     if (descriptor.root !== final.update.root || descriptor.update !== final.update.id) return false;
 
     await this.deps.withWorkspaceIO(workspace, async () => {
-      await this.materialize(workspace, { root: final.update.root, objects });
+      await this.materialize(
+        workspace,
+        { root: final.update.root, objects },
+        transitions.flatMap((transition) => transition.requestDigest ? [transition.requestDigest as Hash] : []),
+      );
       await this.deps.trees.updateSyncMetadata({
         ...placement,
         ref: final.update.root,
@@ -344,7 +356,11 @@ export class TreeSynchronizer {
       // changed the disk while the accepted snapshot was being fetched.
       const stillClean = await this.deps.snapshotWorkspace(workspace, client, remoteTrees);
       if (stillClean.root !== placement.ref) return;
-      await this.materialize(workspace, snapshot);
+      await this.materialize(
+        workspace,
+        snapshot,
+        acknowledged.flatMap((admission) => admission.requestDigest ? [admission.requestDigest] : []),
+      );
       await this.deps.trees.updateSyncMetadata({
         ...placement,
         ref: current.tree.root,

@@ -47,17 +47,25 @@ public struct WorkspaceDocumentSnapshot: Hashable, Codable, Sendable {
     public var contentRevision: String
     /// Opaque provider context returned unchanged with a later editor admission.
     public var admissionBasis: String?
+    /// Digest of the locally durable admission this snapshot acknowledges.
+    public var admissionRequestDigest: String?
+    /// Request digests incorporated by the authoritative observation producing this snapshot.
+    public var acceptedRequestDigests: [String]
 
     public init(
         reference: WorkspaceReference,
         source: String,
         contentRevision: String,
-        admissionBasis: String? = nil
+        admissionBasis: String? = nil,
+        admissionRequestDigest: String? = nil,
+        acceptedRequestDigests: [String] = []
     ) {
         self.reference = reference
         self.source = source
         self.contentRevision = contentRevision
         self.admissionBasis = admissionBasis
+        self.admissionRequestDigest = admissionRequestDigest
+        self.acceptedRequestDigests = acceptedRequestDigests
     }
 }
 

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { revisionOf } from "@arbor/core";
 import { mergeWireTrees } from "@arbor/canopy";
 import { snapshotDirectory } from "@arbor/fs";
-import { applyTransitionPayload, decodeCandidateUpdateJSON, decodeWireObject } from "@arbor/wire";
+import { applyTransitionPayload, decodeCandidateUpdateJSON, decodeWireObject, updateRequestDigests } from "@arbor/wire";
 import { documentAdmissionBasis, freezeEditorAdmission } from "../../packages/arborsync/src/editor-admission.ts";
 
 describe("opaque editor admission basis", () => {
@@ -314,6 +314,13 @@ describe("opaque editor admission basis", () => {
       expect(latest.editorID).toBe(first.editorID);
       expect(latest.source).toBe(latestSource);
       expect(latest.request.candidate).not.toBe(second.request.candidate);
+      const expectedDigests = updateRequestDigests(first.ref.tree, {
+        base: first.request.base,
+        updates: [first, second, latest].map((admission) => decodeCandidateUpdateJSON(admission.request)),
+      });
+      expect(String(first.requestDigest)).toBe(String(expectedDigests[0]));
+      expect(String(second.requestDigest)).toBe(String(expectedDigests[1]));
+      expect(String(latest.requestDigest)).toBe(String(expectedDigests[2]));
     } finally {
       await rm(root, { recursive: true, force: true });
     }

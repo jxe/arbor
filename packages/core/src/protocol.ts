@@ -152,6 +152,10 @@ export interface NodeResponse extends NodeSnapshot {
   enclosingTree?: LocalTreeDescriptor;
   /** Opaque local admission context returned unchanged by an editor save. */
   admissionBasis?: string;
+  /** Credential-scoped Wire request digest for this locally durable editor admission. */
+  admissionRequestDigest?: Hash;
+  /** Authenticated Wire requests known to be incorporated by this observation. */
+  acceptedRequestDigests?: Hash[];
 }
 
 export interface SearchPage {
@@ -368,6 +372,8 @@ export interface WorkspaceChange {
   directoryRevision?: DirectoryRevision;
   origin: WorkspaceEventOrigin;
   mutationID?: string;
+  /** Authenticated Wire requests incorporated by this materialized sync transition. */
+  acceptedRequestDigests?: Hash[];
 }
 
 export type WorkspaceEvent = ObservationEvent<MutationEffectKind | "diagnostic", WorkspaceChange>;

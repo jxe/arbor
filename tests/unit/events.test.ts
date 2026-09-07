@@ -3,6 +3,18 @@ import { EventBus, ResyncRequiredError } from "../../packages/arborsync/src/even
 import { encodeSSEFrame } from "@arbor/core";
 
 describe("REST v1 event replay", () => {
+  test("preserves accepted request digests for per-editor causal fences", () => {
+    const bus = new EventBus();
+    const digest = `sha256:${"a".repeat(64)}` as const;
+    const event = bus.emit({
+      tree: "tr_notes",
+      kind: "updated",
+      ref: { tree: "tr_notes", path: "/", stableKey: null },
+      origin: "sync",
+      acceptedRequestDigests: [digest],
+    });
+    expect(event.change.acceptedRequestDigests).toEqual([digest]);
+  });
   test("uses process epochs and expires only cursors outside the bounded window", () => {
     const events = new EventBus(2);
     const initial = events.currentCursor();

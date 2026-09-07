@@ -1317,6 +1317,88 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("An editor waits for its own accepted request digest before authoritative replacement")
+    func acceptedDigestFencesAuthoritativeReplacement() async throws {
+        let digest = "sha256:" + String(repeating: "a", count: 64)
+        let reference = WorkspaceReference(tree: "tr_digest_fence", path: "/", stableKey: markdownStableKey("pg_digest_fence"))
+        let initial = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "---\nid: pg_digest_fence\n---\n\n# Hi\n\n- Before\n",
+            contentRevision: "r1"
+        )
+        let session = LiveUpdateSession(snapshot: initial)
+        await session.setAdmissionDigest(digest)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        var foundBulletID: BlockID?
+        binding.document.walk { block, _, _ in
+            if case .bullet = block.kind { foundBulletID = block.id }
+        }
+        let bulletID = try #require(foundBulletID)
+        binding.document.transaction(name: "latest local") {
+            _ = binding.document.setText(bulletID, AttributedString("Latest local"))
+        }
+        binding.admitCurrentGeneration()
+        await binding.flush()
+
+        await session.publish(
+            source: initial.source.replacingOccurrences(of: "Before", with: "Accepted prefix"),
+            revision: "r-prefix"
+        )
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(binding.document.find(bulletID).map { String($0.text.characters) } == "Latest local")
+
+        await session.publish(
+            source: initial.source.replacingOccurrences(of: "Before", with: "Accepted latest"),
+            revision: "r-authoritative",
+            acceptedRequestDigests: [digest]
+        )
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(binding.document.find(bulletID).map { String($0.text.characters) } == "Accepted latest")
+        await binding.close()
+    }
+
+    @MainActor
+    @Test("A same-source accepted digest releases the editor fence")
+    func sameSourceAcceptedDigestReleasesFence() async throws {
+        let digest = "sha256:" + String(repeating: "b", count: 64)
+        let reference = WorkspaceReference(tree: "tr_digest_release", path: "/", stableKey: markdownStableKey("pg_digest_release"))
+        let initial = WorkspaceDocumentSnapshot(
+            reference: reference,
+            source: "---\nid: pg_digest_release\n---\n\n# Hi\n\n- Before\n",
+            contentRevision: "r1"
+        )
+        let session = LiveUpdateSession(snapshot: initial)
+        await session.setAdmissionDigest(digest)
+        let binding = try await ArborDocumentBinding.open(reference: reference, session: session)
+        var foundBulletID: BlockID?
+        binding.document.walk { block, _, _ in
+            if case .bullet = block.kind { foundBulletID = block.id }
+        }
+        let bulletID = try #require(foundBulletID)
+        binding.document.transaction(name: "local") {
+            _ = binding.document.setText(bulletID, AttributedString("Local"))
+        }
+        binding.admitCurrentGeneration()
+        await binding.flush()
+
+        let admitted = await session.snapshot()
+        await session.publish(
+            source: admitted.source,
+            revision: admitted.contentRevision,
+            acceptedRequestDigests: [digest]
+        )
+        try await Task.sleep(for: .milliseconds(30))
+        await session.publish(
+            source: admitted.source.replacingOccurrences(of: "Local", with: "Later remote"),
+            revision: "r-later"
+        )
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(binding.document.find(bulletID).map { String($0.text.characters) } == "Later remote")
+        await binding.close()
+    }
+
+    @MainActor
     @Test("A watched authoritative toggle remains a toggle after replacement")
     func liveToggleUpdate() async throws {
         let reference = WorkspaceReference(
@@ -1485,6 +1567,7 @@ private actor LiveUpdateSession: WorkspaceDocumentSession {
     private var current: WorkspaceDocumentSnapshot
     private let stream: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>
     private let continuation: AsyncThrowingStream<WorkspaceDocumentSnapshot, Error>.Continuation
+    private var admissionDigest: String?
 
     init(snapshot: WorkspaceDocumentSnapshot) {
         identity = snapshot.reference.identity
@@ -1497,11 +1580,14 @@ private actor LiveUpdateSession: WorkspaceDocumentSession {
     func snapshot() -> WorkspaceDocumentSnapshot { current }
     func updates() async throws -> AsyncThrowingStream<WorkspaceDocumentSnapshot, Error> { stream }
 
-    func publish(source: String, revision: String) {
+    func setAdmissionDigest(_ digest: String) { admissionDigest = digest }
+
+    func publish(source: String, revision: String, acceptedRequestDigests: [String] = []) {
         current = WorkspaceDocumentSnapshot(
             reference: current.reference,
             source: source,
-            contentRevision: revision
+            contentRevision: revision,
+            acceptedRequestDigests: acceptedRequestDigests
         )
         continuation.yield(current)
     }
@@ -1513,7 +1599,8 @@ private actor LiveUpdateSession: WorkspaceDocumentSession {
         current = WorkspaceDocumentSnapshot(
             reference: current.reference,
             source: source,
-            contentRevision: "r-local"
+            contentRevision: "r-local",
+            admissionRequestDigest: admissionDigest
         )
         return current
     }

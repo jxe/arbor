@@ -59,6 +59,8 @@ final class ArborClientTests: XCTestCase {
         XCTAssertEqual(node.enclosingTree?.osPath, "/Users/joe/notes")
         XCTAssertEqual(node.enclosingTree?.canonical?.arborURL, "arbor://notes.example/~joe/notes")
         XCTAssertEqual(node.enclosingTree?.canonical?.httpURL, "https://notes.example/~joe/notes")
+        XCTAssertEqual(node.admissionRequestDigest, "sha256:" + String(repeating: "a", count: 64))
+        XCTAssertEqual(node.acceptedRequestDigests, ["sha256:" + String(repeating: "b", count: 64)])
         XCTAssertEqual(untracked.ref.tree, "local")
         XCTAssertNil(untracked.enclosingTree)
         XCTAssertEqual(systemTree.ref.tree, "system")
@@ -102,7 +104,11 @@ final class ArborClientTests: XCTestCase {
         let dataLine = try XCTUnwrap(source.split(separator: "\n").first(where: { $0.hasPrefix("data:") }))
         let data = Data(dataLine.dropFirst(5).trimmingCharacters(in: .whitespaces).utf8)
         let event = try JSONDecoder().decode(WorkspaceEvent.self, from: data)
-        XCTAssertEqual(event.change.origin, "api")
+        XCTAssertEqual(event.change.origin, "sync")
+        XCTAssertEqual(
+            event.change.acceptedRequestDigests,
+            ["sha256:" + String(repeating: "a", count: 64)]
+        )
         XCTAssertTrue(event.cursor.hasSuffix(":5"))
     }
 

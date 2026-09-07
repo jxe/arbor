@@ -70,6 +70,7 @@ function makeApi(tree: TreeRef = "local") {
     tree,
     scoped: (nextTree: TreeRef | undefined) => makeApi(nextTree ?? "local"),
     node: (ref: string | NodeRef) => client.node(refOf(ref)),
+    editorNode: (ref: string | NodeRef) => client.editorNode(refOf(ref)),
     openNodeView: (ref: string | NodeRef, signal?: AbortSignal) => client.openNodeView(refOf(ref), signal),
     children: (ref: string | NodeRef, cursor?: string | null) => client.children(refOf(ref), cursor),
     search: async (query: string, scope?: TreeRef) => (await client.search(scope ?? tree, query)).results,
@@ -93,6 +94,17 @@ function makeApi(tree: TreeRef = "local") {
       });
       return client.node(refOf(ref));
     },
+    admitDocument: (
+      ref: string | NodeRef,
+      body: { editorID: string; admissionBasis: string; baseContentRevision: string; source: string },
+    ) => client.admitDocumentCandidate(
+      refOf(ref),
+      body.admissionBasis,
+      body.baseContentRevision,
+      body.source,
+      undefined,
+      body.editorID,
+    ),
     writeProperties: (
       ref: string | NodeRef,
       basePropertiesRevision: string,
