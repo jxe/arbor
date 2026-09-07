@@ -1156,23 +1156,36 @@ export class Workspace implements AsyncDisposable {
 
   private scheduleLinkHealing(treePath: string, revision: string, document: NonNullable<ExpandedNode["document"]>): void {
     if (this.healingTimers.has(treePath)) return;
+    const healTarget = (target: string): string => target.replace(/^([^)#]+)#([^\s)]+)$/, (match, oldPath: string, encodedID: string) => {
+      let id: string;
+      try { id = decodeURIComponent(encodedID); } catch { return match; }
+      const owner = this.idOwners.get(id);
+      if (!owner) return match;
+      let desired = posix.relative(posix.dirname(treePath), owner);
+      if (!desired) desired = posix.basename(owner);
+      return oldPath === desired ? match : `${desired}#${id}`;
+    });
     const healBlock = (block: ArborBlock): ArborBlock => {
       if (block.type === "rawMarkdown") return block;
       let changed = false;
-      const content = (block.content ?? "").replace(/\]\(([^)#]+)#([^)\\s]+)\)/g, (match, oldPath: string, encodedID: string) => {
-        let id: string;
-        try { id = decodeURIComponent(encodedID); } catch { return match; }
-        const owner = this.idOwners.get(id);
-        if (!owner) return match;
-        let desired = posix.relative(posix.dirname(treePath), owner);
-        if (!desired) desired = posix.basename(owner);
-        if (oldPath === desired) return match;
+      const content = (block.content ?? "").replace(/\]\(([^)]+)\)/g, (match, target: string) => {
+        const healed = healTarget(target);
+        if (healed === target) return match;
         changed = true;
-        return `](${desired}#${id})`;
+        return `](${healed})`;
       });
+      let props = block.props;
+      if (block.type === "standaloneLink" && typeof block.props?.path === "string") {
+        const originalPath = block.props.path;
+        const path = healTarget(originalPath);
+        if (path !== originalPath) {
+          changed = true;
+          props = { ...block.props, path };
+        }
+      }
       const children = block.children.map(healBlock);
       if (children.some((child, index) => child !== block.children[index])) changed = true;
-      return changed ? { ...block, content, children } : block;
+      return changed ? { ...block, content, props, children } : block;
     };
     const blocks = document.blocks.map(healBlock);
     if (!blocks.some((block, index) => block !== document.blocks[index])) return;

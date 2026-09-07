@@ -9,7 +9,6 @@ For what works now, use [status.md](../status.md). For portable behavior, use th
 These are the plans that currently matter most. They include known correctness and durability failures plus two foundational capabilities that should not be buried among product-completion or general hardening work.
 
 - **Reliability** — Behavior that can become wrong or lose durability under concurrency, recovery, lifecycle changes, or unusual input.
-  - [Reliability 001 — Heal links whose fragments contain ordinary `s` characters](reliability/001-link-healing.md) — **P1 · TODO.**
   - [Reliability 002 — Serialize write-journal counters and appends per document](reliability/002-journal-append.md) — **P1 · TODO.**
   - [Reliability 003 — Make untracked collection-file mutations and receipts restart-safe](reliability/003-untracked-collection-file-transactions.md) — **P1 · TODO; depends on Reliability 002 and historical Data 011 terminology.**
 - **External agent access**

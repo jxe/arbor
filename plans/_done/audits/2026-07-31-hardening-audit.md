@@ -24,7 +24,7 @@ workstream, not a required execution sequence. Completed work moves to
 | Plan | Title | Priority | Effort | Risk | Depends on | Status |
 |------|-------|----------|--------|------|------------|--------|
 | [Security 001](../../security/001-search-excerpts.md) | Stop rendering search excerpts as raw HTML | P1 | S | LOW | — | TODO |
-| [Reliability 001](../../reliability/001-link-healing.md) | Fix the escaped-backslash bug in the link-healing regex | P1 | S | LOW | — | TODO |
+| [Reliability 001](../reliability/001-link-healing.md) | Fix the escaped-backslash bug in the link-healing regex | P1 | S | LOW | — | TODO |
 | [Reliability 002](../../reliability/002-journal-append.md) | Serialize write-journal appends so counters cannot collide | P1 | S | LOW | — | TODO |
 | [Security 002](../../security/002-path-decoding.md) | Decode percent-encoding once, at the HTTP boundary | P1 | M | MED | — | TODO |
 | [Speed 001](../../speed/001-index-updates.md) | Stop rebuilding the whole index on every move or delete | P2 | M | MED | soft: Insecure 001 | TODO |

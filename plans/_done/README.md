@@ -10,6 +10,8 @@ leaving them among active projects and themes.
 - [`data/`](data/README.md) preserves completed node-model and data plans.
 - [`hardening/`](hardening/README.md) preserves completed cross-cutting
   handoffs under their historical taxonomy and identifiers.
+- [`reliability/`](reliability/README.md) preserves completed correctness and
+  durability plans under their historical identifiers.
 - [`applications/`](applications/README.md) points from completed application
   phases to their durable outcome records.
 - [`interfaces/`](interfaces/README.md) preserves completed and explicitly

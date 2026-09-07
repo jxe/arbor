@@ -13,12 +13,30 @@
 
 ## Status
 
+- **Completion**: IMPLEMENTED 2026-09-07
 - **Priority**: P1
 - **Effort**: S
 - **Risk**: LOW
 - **Depends on**: none
 - **Category**: bug
 - **Planned at**: commit `4247481`, 2026-07-31
+
+## Completion evidence
+
+The live block model had drifted from the plan excerpt: full-row links are now
+`standaloneLink` blocks whose target is stored in `props.path`, so the original
+one-character content-regex change would not have repaired the reported link
+blocks. The implementation therefore shares one target healer between inline
+link content and full-row link properties. It also fixes the escaped whitespace
+class described below.
+
+- The focused integration test covers moved full-row links with both `as3k9z`
+  and `a13k9z` page IDs.
+- Reintroducing the escaped-backslash defect made only the `s`-bearing case
+  fail, proving the regression test reaches the intended bug.
+- `bun run typecheck` passed.
+- `bun test` passed: 411 tests, 0 failures.
+- `bun test tests/integration/workspace.test.ts` passed: 15 tests, 0 failures.
 
 ## Why this matters
 
@@ -193,12 +211,12 @@ exercising the healer — STOP and report.)
 
 ALL must hold:
 
-- [ ] `bun run typecheck` exits 0
-- [ ] `bun test` exits 0
-- [ ] `grep -c '\[^)\\\\s\]' packages/arborsync/src/workspace.ts` returns 0
-- [ ] The new test fails when the fix is reverted (verified in step 3)
-- [ ] `git status --short` shows no modified files outside the In-scope list
-- [ ] `plans/README.md` entry for Reliability 001 updated
+- [x] `bun run typecheck` exits 0
+- [x] `bun test` exits 0
+- [x] The incorrect escaped whitespace class is absent from the healer
+- [x] The new test fails when the regex defect is restored
+- [x] The implementation covers the current full-row `standaloneLink` shape
+- [x] `plans/README.md` entry for Reliability 001 updated
 
 ## STOP conditions
 

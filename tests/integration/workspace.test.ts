@@ -305,6 +305,45 @@ describe("workspace service", () => {
     expect(trashed.effects.some((item) => item.ref.stableKey === moved!.ref.stableKey)).toBe(true);
   });
 
+  test("heals moved links for page IDs both with and without s", async () => {
+    await writeFile(join(root, "healing-source.md"), [
+      "---",
+      "id: source1",
+      "---",
+      "[With s](healing-with-s.md#as3k9z)",
+      "[Without s](healing-without-s.md#a13k9z)",
+      "",
+    ].join("\n"));
+    await writeFile(join(root, "healing-with-s.md"), "---\nid: as3k9z\n---\n# With s\n");
+    await writeFile(join(root, "healing-without-s.md"), "---\nid: a13k9z\n---\n# Without s\n");
+
+    const withS = await workspace.snapshot({ tree: workspace.tree, path: "/healing-with-s", stableKey: null });
+    const withoutS = await workspace.snapshot({ tree: workspace.tree, path: "/healing-without-s", stableKey: null });
+    await workspace.snapshot({ tree: workspace.tree, path: "/healing-source", stableKey: null });
+    await workspace.executeMutation({
+      mutationID: "healing-with-s-rename",
+      operations: [{ op: "rename", ref: withS.ref, name: "healed-with-s" }],
+    } as never);
+    await workspace.executeMutation({
+      mutationID: "healing-without-s-rename",
+      operations: [{ op: "rename", ref: withoutS.ref, name: "healed-without-s" }],
+    } as never);
+    await workspace.snapshot({ tree: workspace.tree, path: "/healing-source", stableKey: null });
+
+    const expected = [
+      "[With s](healed-with-s#as3k9z)",
+      "[Without s](healed-without-s#a13k9z)",
+    ];
+    let healed = "";
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      healed = await readFile(join(root, "healing-source.md"), "utf8");
+      if (expected.every((link) => healed.includes(link))) break;
+      await Bun.sleep(50);
+    }
+    expect(healed).toContain(expected[0]!);
+    expect(healed).toContain(expected[1]!);
+  });
+
   test("soft deletes and restores", async () => {
     const deleted = await workspace.delete("/folder/child");
     expect(deleted.trashPath).toStartWith("/Trash/folder/child");
