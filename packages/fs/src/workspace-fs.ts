@@ -923,7 +923,20 @@ export class WorkspaceFS implements AsyncDisposable {
       const paths = operation.paths.map(canonicalNodePath);
       const destination = canonicalNodePath(operation.destination);
       const destinationNode = await this.resolve(destination);
-      if (destinationNode.kind !== "directory") throw new FsConflictError({ code: "not-found", path: destination }, `Move destination is not a directory: ${destination}`);
+      if (destinationNode.kind !== "directory" && destinationNode.kind !== "markdown") {
+        throw new FsConflictError({ code: "not-found", path: destination }, `Move destination cannot contain children: ${destination}`);
+      }
+      if (destinationNode.kind === "markdown") {
+        const physicalDestination = resolveTreePath(this.root, destination);
+        if (destinations.has(physicalDestination)) {
+          throw new FsConflictError({ code: "occupied-destination", path: destination }, `Destination already exists: ${destination}`);
+        }
+        destinations.add(physicalDestination);
+        const temporary = transactionTemporaryPath(physicalDestination, transactionId);
+        await mkdir(temporary, { recursive: true });
+        steps.push({ temporary, destination: physicalDestination, kind: "directory" });
+        this.recordParentMaterialization(physicalDestination, changes);
+      }
       for (const path of paths) {
         await this.ensureIdentityBeforePathChange(path, transactionId, { materializeImplicit: false });
       }

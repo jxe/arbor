@@ -174,6 +174,45 @@ test("reorders a child row by writing the complete directory Markdown", async ({
   }).toBe(true);
 });
 
+test("moves a child page inside a Markdown page", async ({ page }) => {
+  const operations: Array<{ op?: string; destination?: { path?: string } }> = [];
+  page.on("request", (request) => {
+    if (request.method() !== "POST" || new URL(request.url()).pathname !== "/v1/mutations") return;
+    const body = request.postDataJSON() as { operations?: Array<{ op?: string; destination?: { path?: string } }> };
+    operations.push(...(body.operations ?? []));
+  });
+  await page.goto(r("/move-inside"));
+  const source = page.locator('[data-managed-row="/move-inside/source"]');
+  const destination = page.locator('[data-managed-row="/move-inside/destination"]');
+  await expect(source).toBeVisible();
+  await expect(destination).toBeVisible();
+
+  await source.hover();
+  const handle = page.locator('[data-arbor-managed-handle="/move-inside/source"] button');
+  const handleBox = await handle.boundingBox();
+  const destinationBox = await destination.boundingBox();
+  expect(handleBox).not.toBeNull();
+  expect(destinationBox).not.toBeNull();
+  await page.mouse.move(handleBox!.x + handleBox!.width / 2, handleBox!.y + handleBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    destinationBox!.x + destinationBox!.width / 2,
+    destinationBox!.y + destinationBox!.height / 2,
+    { steps: 10 },
+  );
+  await page.mouse.up();
+
+  await expect.poll(() => operations.some((operation) =>
+    operation.op === "move" && operation.destination?.path === "/move-inside/destination",
+  )).toBe(true);
+  await expect(source).not.toBeVisible();
+  const moved = await page.evaluate(async () => {
+    const response = await fetch("/v1/node?tree=tr_eeeeeeeeeeeeeeeeeeeeeeeeee&path=%2Fmove-inside%2Fdestination%2Fsource&stableKey=");
+    return response.status;
+  });
+  expect(moved).toBe(200);
+});
+
 test("browses, searches, and edits toggle Markdown", async ({ page }) => {
   const writes: string[] = [];
   page.on("request", (request) => { if (!["GET", "HEAD"].includes(request.method())) writes.push(`${request.method()} ${request.url()}`); });

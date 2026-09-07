@@ -219,6 +219,24 @@ describe("@arbor/fs logical nodes", () => {
     await expect(stat(join(root, "folder", "_index.md"))).rejects.toThrow();
   });
 
+  test("moves into a Markdown page without rewriting its authored source", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbor-fs-move-into-page-"));
+    const state = await mkdtemp(join(tmpdir(), "arbor-fs-move-into-page-state-"));
+    directories.push(root, state);
+    await writeFile(join(root, "destination.md"), "# Destination\n\nAuthored body.\n");
+    await writeFile(join(root, "source.md"), "# Source\n");
+    const fs = await WorkspaceFS.open(root, { stateDirectory: state });
+    opened.push(fs);
+
+    const result = await fs.mutate({ operations: [{ op: "move", paths: ["/source"], destination: "/destination" }] });
+
+    expect(result.moved).toEqual([{ from: "/source", to: "/destination/source" }]);
+    expect(await readFile(join(root, "destination.md"), "utf8")).toBe("# Destination\n\nAuthored body.\n");
+    expect(await readFile(join(root, "destination", "source.md"), "utf8")).toContain("# Source\n");
+    await expect(stat(join(root, "destination", "_index.md"))).rejects.toThrow();
+    expect((await fs.list("/destination")).map((entry) => entry.path)).toContain("/destination/source");
+  });
+
   test("a rename never materializes the provider-completed directory source", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-fs-rename-complete-"));
     const state = await mkdtemp(join(tmpdir(), "arbor-fs-rename-complete-state-"));

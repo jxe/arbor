@@ -930,7 +930,7 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
       const bounds = row.getBoundingClientRect();
       const ratio = (event.clientY - bounds.top) / Math.max(1, bounds.height);
       const targetNode = childKindsRef.current.get(targetPath);
-      const position = targetNode && hasChildren(targetNode)
+      const position = targetNode && presentationKind(targetNode) !== "file"
         ? ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "inside"
         : ratio > 0.5 ? "after" : "before";
       void dropRef.current(targetPath, position, event as unknown as React.DragEvent);
@@ -1119,7 +1119,7 @@ export function PageEditor({ node, children, updates, pageActionsHost, onSaved, 
       const bounds = target.getBoundingClientRect();
       const ratio = (event.clientY - bounds.top) / Math.max(1, bounds.height);
       const targetNode = childKindsRef.current.get(targetPath);
-      const position = targetNode && hasChildren(targetNode)
+      const position = targetNode && presentationKind(targetNode) !== "file"
         ? ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "inside"
         : ratio > 0.5 ? "after" : "before";
       void dropRef.current(targetPath, position, dragEvent as unknown as React.DragEvent);
