@@ -815,30 +815,153 @@ struct ArborSyncConflictView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Roots") {
+                Section("What happened") {
+                    Text("Canopy could not safely apply every local change to the current tree. It preserved the local candidate and a server-generated draft.")
+                        .foregroundStyle(.secondary)
+                }
+                Section("Conflicts") {
+                    ForEach(Array(conflict.reasons.enumerated()), id: \.offset) { _, reason in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(reason.path).font(.headline)
+                            Text(reason.reason).foregroundStyle(.secondary)
+                            Text(guidance(for: reason.reason)).font(.caption)
+                        }
+                    }
+                }
+                Section("Conflict evidence") {
                     LabeledContent("Base", value: conflict.base)
                     LabeledContent("Local", value: conflict.local)
                     LabeledContent("Remote", value: conflict.remote)
                     LabeledContent("Server draft", value: conflict.draft)
                 }
-                Section("Unsafe overlaps") {
-                    ForEach(Array(conflict.reasons.enumerated()), id: \.offset) { _, reason in
-                        VStack(alignment: .leading) {
-                            Text(reason.path).font(.headline)
-                            Text(reason.reason).foregroundStyle(.secondary)
-                        }
-                    }
-                }
                 Section {
-                    Text("Arbor has kept both the local candidate and the server's remote/draft evidence. Continuing keeps the local tree as a new intent based on the current remote root.")
+                    Text("This keeps the complete local candidate and submits it again as a new edit based on the current remote tree. Nothing is discarded before that new intent is durable.")
                         .foregroundStyle(.secondary)
-                    Button("Keep Local and Retry", action: keepLocal)
+                    Button("Keep Local as New Edit", action: keepLocal)
                         .buttonStyle(.borderedProminent)
                 }
             }
             .navigationTitle("Synchronization Conflict")
         }
         .frame(minWidth: 620, minHeight: 480)
+    }
+
+    private func guidance(for reason: String) -> String {
+        switch reason {
+        case "frontmatter-conflict":
+            "Both versions changed the same frontmatter field differently. Review that page's metadata before retrying."
+        case "invalid-markdown-fence":
+            "The combined Markdown would leave a code fence unbalanced. Review the fenced block boundaries."
+        case "collection-file-row-conflict":
+            "Both versions changed the same collection row. Choose or combine that row's values."
+        case "collection-file-schema-conflict":
+            "The collection schema changed incompatibly. Resolve the schema before retrying row changes."
+        case "path-kind-conflict":
+            "The same path became incompatible kinds of node. Choose the intended node shape."
+        case "binary-conflict":
+            "Both versions replaced opaque file content. Arbor cannot combine those bytes automatically."
+        default:
+            "Review the local candidate against the remote version at this path, then retry the intended result."
+        }
+    }
+}
+
+struct ArborDocumentConflictView: View {
+    let conflict: WorkspaceDocumentConflict
+    let resolve: (String) -> Void
+    let close: () -> Void
+    @State private var mergedSource: String
+
+    init(
+        conflict: WorkspaceDocumentConflict,
+        resolve: @escaping (String) -> Void,
+        close: @escaping () -> Void
+    ) {
+        self.conflict = conflict
+        self.resolve = resolve
+        self.close = close
+        let analysis = ArborDocumentConflictAnalysis(conflict)
+        _mergedSource = State(initialValue: analysis.automaticMergeSource ?? conflict.submittedSource)
+    }
+
+    var body: some View {
+        let analysis = ArborDocumentConflictAnalysis(conflict)
+        VStack(spacing: 0) {
+            HStack {
+                Label("Resolve Document Conflict", systemImage: "exclamationmark.triangle")
+                    .font(.headline)
+                Spacer()
+                Button("Close", systemImage: "xmark", action: close)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            Divider()
+            Form {
+                Section("What happened") {
+                    Text(analysis.headline).font(.headline)
+                    Text(analysis.explanation).foregroundStyle(.secondary)
+                    if let context = conflict.context {
+                        LabeledContent("Reported by", value: context.kind ?? context.code)
+                        if !context.paths.isEmpty {
+                            LabeledContent("Conflicting paths", value: context.paths.joined(separator: ", "))
+                        }
+                        ForEach(Array(context.conflicts.enumerated()), id: \.offset) { _, conflict in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(conflict.path).font(.headline)
+                                Text(conflict.reason).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                Section(analysis.automaticMergeSource == nil ? "Edit a resolution" : "Suggested merge") {
+                    TextEditor(text: $mergedSource)
+                        .font(.body.monospaced())
+                        .frame(minHeight: 220)
+                    Text(analysis.automaticMergeSource == nil
+                         ? "The changes overlap, so Arbor started with your version. Edit it if needed before saving it as a new change."
+                         : "The base, current, and edited sources changed disjoint ranges, so Arbor can combine them without choosing between overlapping text.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section("Compare") {
+                    DisclosureGroup("Current version") { source(conflict.current.source) }
+                    DisclosureGroup("My unsaved edit") { source(conflict.submittedSource) }
+                    if let base = conflict.base {
+                        DisclosureGroup("Common base") { source(base.source) }
+                    }
+                }
+                Section("Resolution choices") {
+                    Button(analysis.automaticMergeSource == nil ? "Save Reviewed Version" : "Save Suggested Merge") {
+                        submit(mergedSource)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Keep My Edit") { submit(conflict.submittedSource) }
+                    Button("Use Current") { submit(conflict.current.source) }
+                }
+            }
+        }
+#if os(macOS)
+        .frame(maxWidth: 820, maxHeight: 520)
+#else
+        .frame(maxHeight: 460)
+#endif
+        .background(.background)
+    }
+
+    private func source(_ value: String) -> some View {
+        ScrollView(.horizontal) {
+            Text(value)
+                .font(.body.monospaced())
+                .textSelection(.enabled)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .frame(maxHeight: 220)
+    }
+
+    private func submit(_ source: String) {
+        resolve(source)
     }
 }
 

@@ -1441,6 +1441,17 @@ final class ArborAppModel {
         } catch { errorMessage = error.localizedDescription }
     }
 
+    func resolveEditorConflict(source: String) async {
+        guard let binding else { return }
+        do {
+            try await binding.resolveConflict(source: source)
+            await load()
+        } catch is WorkspaceDocumentConflict {
+            // The binding retained the live editor and conflict evidence; its
+            // banner remains the actionable error presentation.
+        } catch { errorMessage = error.localizedDescription }
+    }
+
     func retryDocumentSave() async {
         await binding?.retryLastSave()
     }

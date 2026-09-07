@@ -64,6 +64,7 @@ struct ArborRootView: View {
     @State private var workspaceImporterPresented = false
     @State private var trashConfirmationPresented = false
     @State private var arborsyncLogs = ""
+    @State private var documentConflictExpanded = false
     @State private var voiceLaunchReady = false
 #if os(iOS)
     @State private var sidebarPresented = false
@@ -157,6 +158,12 @@ struct ArborRootView: View {
             } else {
                 Task { await workspace.flush() }
             }
+        }
+        .onChange(of: model.currentLocation) { _, _ in
+            documentConflictExpanded = false
+        }
+        .onChange(of: model.binding?.conflict) { _, conflict in
+            if conflict == nil { documentConflictExpanded = false }
         }
         .onReceive(NotificationCenter.default.publisher(for: VoiceRecordingLaunchRequest.notificationName)) { _ in
             forwardPendingVoiceRecording()
@@ -616,20 +623,33 @@ struct ArborRootView: View {
         } else if let node = model.node {
             if node.surface.supportsDocumentSession, node.isWritable {
                 if let lease = model.editorLease, let host = model.editorHost {
-                    ArborEditorSurface(
-                        binding: lease.binding,
-                        host: host,
-                        configuration: ArborStyle.editorConfiguration,
-                        pinchDictation: pinchDictation
-                    ) {
-                        ArborDocumentFooter(
-                            provider: workspace.providerDetail,
-                            sync: workspace.syncPresentation,
+                    VStack(spacing: 0) {
+                        if documentConflictExpanded, let conflict = lease.binding.conflict {
+                            ArborDocumentConflictView(
+                                conflict: conflict,
+                                resolve: { source in
+                                    Task { await model.resolveEditorConflict(source: source) }
+                                },
+                                close: { documentConflictExpanded = false }
+                            )
+                            .id(conflict)
+                            Divider()
+                        }
+                        ArborEditorSurface(
                             binding: lease.binding,
-                            backlinks: model.backlinks,
-                            open: { destination in Task { await model.navigate(to: destination) } },
-                            showStatus: { presentedSheet = .syncStatus }
-                        )
+                            host: host,
+                            configuration: ArborStyle.editorConfiguration,
+                            pinchDictation: pinchDictation
+                        ) {
+                            ArborDocumentFooter(
+                                provider: workspace.providerDetail,
+                                sync: workspace.syncPresentation,
+                                binding: lease.binding,
+                                backlinks: model.backlinks,
+                                open: { destination in Task { await model.navigate(to: destination) } },
+                                showStatus: { presentedSheet = .syncStatus }
+                            )
+                        }
                     }
                 } else {
                     ProgressView()
@@ -747,17 +767,18 @@ struct ArborRootView: View {
     @ViewBuilder
     private var attentionBanner: some View {
         if let conflict = model.binding?.conflict {
+            let analysis = ArborDocumentConflictAnalysis(conflict)
             ArborAttentionBanner(
-                message: conflict.current.admissionBasis == nil
-                    ? "This local document changed outside the current edit session."
-                    : "Canopy could not merge this document automatically.",
+                message: analysis.headline,
                 systemImage: "exclamationmark.triangle",
-                primaryLabel: "Keep My Edit",
-                primaryAction: { Task { await model.resolveEditorConflict(preferSubmitted: true) } },
-                secondaryLabel: "Use Current",
-                secondaryAction: { Task { await model.resolveEditorConflict(preferSubmitted: false) } }
+                primaryLabel: documentConflictExpanded ? "Hide" : "Review…",
+                primaryAction: { documentConflictExpanded.toggle() },
+                secondaryLabel: analysis.automaticMergeSource == nil ? nil : "Merge",
+                secondaryAction: analysis.automaticMergeSource.map { source in
+                    { Task { await model.resolveEditorConflict(source: source) } }
+                }
             )
-            .help("Current revision: \(conflict.current.contentRevision)")
+            .help("\(analysis.explanation) Current revision: \(conflict.current.contentRevision)")
         } else if workspace.syncConflict != nil {
             ArborAttentionBanner(
                 message: "Synchronization needs a conflict choice.",
