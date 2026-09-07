@@ -257,14 +257,50 @@ export class WireClient {
 
   async snapshot(tree: string, root: string): Promise<TreeSnapshot> {
     if (!/^sha256:[a-f0-9]{64}$/.test(root)) throw new Error("Snapshot root hash is invalid");
-    const response = await this.checked(await this.request(
-      `/.arbor/trees/${encodeURIComponent(tree)}/snapshots/${root}`,
-      { headers: { ...this.headers(), accept: "application/cbor" } },
-    ));
-    if (!response.headers.get("content-type")?.toLowerCase().startsWith("application/cbor")) {
-      throw new Error("Snapshot response is not application/cbor");
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const expectProgress = () => {
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    };
+    expectProgress();
+    try {
+      const response = await this.checked(await this.request(
+        `/.arbor/trees/${encodeURIComponent(tree)}/snapshots/${root}`,
+        {
+          headers: { ...this.headers(), accept: "application/cbor" },
+          signal: controller.signal,
+        },
+      ));
+      if (!response.headers.get("content-type")?.toLowerCase().startsWith("application/cbor")) {
+        throw new Error("Snapshot response is not application/cbor");
+      }
+      if (!response.body) throw new Error("Snapshot response has no body");
+      const chunks: Uint8Array[] = [];
+      let length = 0;
+      const reader = response.body.getReader();
+      while (true) {
+        expectProgress();
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        chunks.push(chunk.value);
+        length += chunk.value.byteLength;
+      }
+      const bytes = new Uint8Array(length);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return decodeSnapshotBundle(root, bytes);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new WireTransportError(`Snapshot transfer from ${this.origin} stopped making progress`, error);
+      }
+      throw error;
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
-    return decodeSnapshotBundle(root, new Uint8Array(await response.arrayBuffer()));
   }
 
 
