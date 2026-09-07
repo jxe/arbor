@@ -34,6 +34,7 @@ struct ArborWindowCommands {
     var showSource: () -> Void
     var showSyncStatus: () -> Void
     var showPairing: () -> Void
+    var movePage: () -> Void
     var movePageToTrash: () -> Void
     var restorePage: () -> Void
     var reconnectArborSync: () -> Void
@@ -45,6 +46,7 @@ struct ArborWindowCommands {
     var canCloseTab: Bool
     var hasDocument: Bool
     var hasNode: Bool
+    var canMovePage: Bool
     var canMovePageToTrash: Bool
     var canRestorePage: Bool
 }
@@ -381,30 +383,30 @@ struct ArborStructuralMoveSheet: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var searchFocused: Bool
     @State private var query = ""
-    @State private var directories: [ArborMoveDirectory] = []
+    @State private var destinations: [ArborStructuralDestination] = []
     @State private var isLoading = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                TextField("Search folders", text: $query)
+                TextField("Search pages and folders", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .focused($searchFocused)
                     .padding(12)
                 Divider()
-                List(directories) { directory in
+                List(destinations) { destination in
                     Button {
-                        host.resolveStructuralMoveRequest(with: directory.reference)
+                        host.resolveStructuralMoveRequest(with: destination.reference)
                         dismiss()
                     } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: directory.reference.path == "/" ? "house" : "folder")
+                            Image(systemName: destination.reference.path == "/" ? "house" : destination.isDirectory ? "folder" : "doc.text")
                                 .foregroundStyle(.secondary)
                                 .frame(width: 18)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(directory.title)
+                                Text(destination.title)
                                     .font(ArborStyle.shellFont(size: 14, weight: .medium))
-                                Text(directory.reference.path)
+                                Text(destination.reference.path)
                                     .font(ArborStyle.shellFont(size: 11))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
@@ -415,17 +417,17 @@ struct ArborStructuralMoveSheet: View {
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityHint("Moves the linked page into this folder")
+                    .accessibilityHint("Moves the page beneath this destination")
                 }
                 .overlay {
-                    if isLoading, directories.isEmpty {
-                        ProgressView("Finding folders")
-                    } else if directories.isEmpty {
+                    if isLoading, destinations.isEmpty {
+                        ProgressView("Finding destinations")
+                    } else if destinations.isEmpty {
                         ContentUnavailableView("No legal destinations", systemImage: "folder.badge.questionmark")
                     }
                 }
             }
-            .navigationTitle("Move Linked Page")
+            .navigationTitle("Move Page")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -438,9 +440,9 @@ struct ArborStructuralMoveSheet: View {
         .frame(minWidth: 440, minHeight: 420)
         .task(id: query) {
             isLoading = true
-            let loaded = await host.moveDirectories(for: request.reference, matching: query)
+            let loaded = await host.structuralDestinations(for: request.reference, matching: query)
             guard !Task.isCancelled else { return }
-            directories = loaded
+            destinations = loaded
             isLoading = false
             searchFocused = true
         }

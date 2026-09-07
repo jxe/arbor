@@ -512,6 +512,7 @@ struct ArborRootView: View {
             showSource: { Task { await model.inspectSource(); presentedSheet = .source } },
             showSyncStatus: { presentedSheet = .syncStatus },
             showPairing: { pairingPresented = true },
+            movePage: { Task { _ = await model.editorHost?.moveCurrentDocument() } },
             movePageToTrash: { trashConfirmationPresented = true },
             restorePage: {
                 Task { await model.perform(.restore(reference: model.currentReference)) }
@@ -536,6 +537,10 @@ struct ArborRootView: View {
             canCloseTab: model.tabItems.count > 1,
             hasDocument: model.binding != nil,
             hasNode: model.node != nil,
+            canMovePage: model.node?.isWritable == true
+                && model.binding != nil
+                && model.currentReference.path != "/"
+                && !model.currentReference.path.hasPrefix("/Trash/"),
             canMovePageToTrash: model.node?.isWritable == true
                 && model.currentReference.path != "/"
                 && !model.currentReference.path.hasPrefix("/Trash/"),
@@ -725,7 +730,7 @@ struct ArborRootView: View {
     private var mutationParent: WorkspaceReference {
         guard let node = model.node else { return model.currentReference }
         switch node.surface {
-        case .directory, .directoryDocument, .collection: return node.reference
+        case .markdown, .directory, .directoryDocument, .collection: return node.reference
         default: return node.reference.parent ?? workspace.home
         }
     }

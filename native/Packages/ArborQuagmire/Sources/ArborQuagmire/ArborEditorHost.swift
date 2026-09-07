@@ -17,9 +17,10 @@ public struct ArborStructuralMoveRequest: Identifiable {
     let completion: (WorkspaceReference?) -> Void
 }
 
-public struct ArborMoveDirectory: Identifiable, Hashable, Sendable {
+public struct ArborStructuralDestination: Identifiable, Hashable, Sendable {
     public let reference: WorkspaceReference
     public let title: String
+    public let isDirectory: Bool
     public var id: WorkspaceIdentity { reference.identity }
 }
 
@@ -267,7 +268,7 @@ public final class ArborEditorHost: EditorHost {
         initialContent: [Block]?
     ) async -> DocumentReference? {
         let requested = requestedReference.flatMap(workspaceReference(for:))
-        let parent = requested?.parent ?? binding.reference.parent ?? WorkspaceReference(tree: binding.reference.tree, path: "/")
+        let parent = requested?.parent ?? binding.reference
         let body = initialContent.map { ArborMarkdownCodec.serializeBlocks($0) } ?? ""
         let source = "# \(title)\n\n\(body)"
 
@@ -461,7 +462,23 @@ public final class ArborEditorHost: EditorHost {
               let decoded = workspaceReference(for: reference),
               let node = try? await provider.resolve(decoded),
               isEligibleLinkedChild(node.reference) else { return false }
-        let currentReference = node.reference
+        return await relocate(node.reference, failureLabel: "linked page", navigateAfterMove: false, lookupReference: reference)
+    }
+
+    public func moveCurrentDocument() async -> Bool {
+        guard binding.reference.path != "/",
+              let node = try? await provider.resolve(binding.reference),
+              node.isWritable,
+              node.surface.supportsDocumentSession else { return false }
+        return await relocate(node.reference, failureLabel: "page", navigateAfterMove: true)
+    }
+
+    private func relocate(
+        _ currentReference: WorkspaceReference,
+        failureLabel: String,
+        navigateAfterMove: Bool,
+        lookupReference: DocumentReference? = nil
+    ) async -> Bool {
         if let pending = structuralMoveRequest {
             structuralMoveRequest = nil
             pending.completion(nil)
@@ -479,13 +496,16 @@ public final class ArborEditorHost: EditorHost {
             guard let moved = try await performStructuralAction(.move(reference: currentReference, destination: destination)) else {
                 return false
             }
-            lookups[reference] = .present(.init(
-                title: moved.title,
-                capabilities: moved.isWritable ? [.navigate, .receiveBlocks, .inline] : [.navigate]
-            ))
+            if let lookupReference {
+                lookups[lookupReference] = .present(.init(
+                    title: moved.title,
+                    capabilities: moved.isWritable ? [.navigate, .receiveBlocks, .inline] : [.navigate]
+                ))
+            }
+            if navigateAfterMove { openAction(moved.reference) }
             return true
         } catch {
-            errorAction("Failed to move linked page: \(error.localizedDescription)")
+            errorAction("Failed to move \(failureLabel): \(error.localizedDescription)")
             return false
         }
     }
@@ -496,20 +516,20 @@ public final class ArborEditorHost: EditorHost {
         request.completion(destination)
     }
 
-    public func moveDirectories(for reference: WorkspaceReference, matching rawQuery: String) async -> [ArborMoveDirectory] {
+    public func structuralDestinations(for reference: WorkspaceReference, matching rawQuery: String) async -> [ArborStructuralDestination] {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let root = WorkspaceReference(tree: reference.tree, path: "/")
         var queue = [root]
         var visited = Set<WorkspaceIdentity>()
-        var result: [ArborMoveDirectory] = []
+        var result: [ArborStructuralDestination] = []
         while !queue.isEmpty, visited.count < 500 {
             let candidate = queue.removeFirst()
             guard let node = try? await provider.resolve(candidate), visited.insert(node.id).inserted else { continue }
             guard node.reference.tree == reference.tree else { continue }
-            guard node.surface.isDirectory else { continue }
-            if let children = try? await provider.children(of: node.reference) {
+            if node.surface.isDirectory, let children = try? await provider.children(of: node.reference) {
                 queue.append(contentsOf: children.map(\.reference))
             }
+            guard node.surface.isDirectory || node.surface.supportsDocumentSession else { continue }
             let path = node.reference.path
             let containsTarget = path == reference.path || path.hasPrefix(reference.path + "/")
             let sameParent = reference.parent?.path == path
@@ -517,7 +537,11 @@ public final class ArborEditorHost: EditorHost {
                 || node.title.localizedCaseInsensitiveContains(query)
                 || path.localizedCaseInsensitiveContains(query)
             if node.isWritable, !containsTarget, !sameParent, matches {
-                result.append(ArborMoveDirectory(reference: node.reference, title: node.title))
+                result.append(ArborStructuralDestination(
+                    reference: node.reference,
+                    title: node.title,
+                    isDirectory: node.surface.isDirectory
+                ))
             }
         }
         return result.sorted {

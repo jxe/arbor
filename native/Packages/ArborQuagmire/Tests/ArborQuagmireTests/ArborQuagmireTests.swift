@@ -509,7 +509,7 @@ struct ArborQuagmireTests {
             initialContent: nil
         ))
         _ = try #require(await provider.perform(.createMarkdown(
-            parent: root,
+            parent: reference,
             name: "Collision",
             source: "# Different title\n"
         )))
@@ -519,15 +519,15 @@ struct ArborQuagmireTests {
             initialContent: nil
         ))
 
-        #expect(firstReference.path == "/Arbor-demo")
+        #expect(firstReference.path == "/welcome/Arbor-demo")
         #expect(firstReference.stableKey != nil)
         let authoredLink = try #require(host.linkURL(for: first, in: binding.document))
-        #expect(authoredLink.relativeString.hasPrefix("Arbor-demo#arbor-key="))
+        #expect(authoredLink.relativeString.hasPrefix("welcome/Arbor-demo#arbor-key="))
         #expect(authoredLink.scheme == nil)
         #expect(retry == first, "a retry should recover the page materialized by the first attempt")
         #expect(ArborDocumentReferenceCodec.decode(existing)?.path == "/welcome")
         #expect(ArborDocumentReferenceCodec.decode(remote)?.path == remoteMatch.reference.path)
-        #expect(ArborDocumentReferenceCodec.decode(disambiguated)?.path == "/Collision-2")
+        #expect(ArborDocumentReferenceCodec.decode(disambiguated)?.path == "/welcome/Collision-2")
         #expect(errors.isEmpty)
         await session.close()
     }
@@ -1019,20 +1019,28 @@ struct ArborQuagmireTests {
             surface: .directory(summary: nil),
             provenance: root.provenance
         )
+        let pageDestination = WorkspaceNode(
+            reference: .init(tree: tree, path: "/page-destination", stableKey: markdownStableKey("pg_page_destination")),
+            title: "Page Destination",
+            surface: .markdown(source: "# Page Destination\n", contentRevision: "r1"),
+            provenance: root.provenance
+        )
         let provider = InMemoryWorkspaceProvider(
-            nodes: [root, parent, child, destination],
+            nodes: [root, parent, child, destination, pageDestination],
             children: [
-                root.id: [parent.id, destination.id],
+                root.id: [parent.id, destination.id, pageDestination.id],
                 parent.id: [child.id],
             ]
         )
         let session = try await provider.openDocument(parent.reference)
         let binding = try await ArborDocumentBinding.open(reference: parent.reference, session: session)
+        var opened: [WorkspaceReference] = []
         let host = ArborEditorHost(
             binding: binding,
             provider: provider,
             linkPreviewService: linkPreviewService(),
-            relativeReferenceBase: parent.reference
+            relativeReferenceBase: parent.reference,
+            open: { opened.append($0) }
         )
         let generatedChildLink = try #require(host.resolveReference(
             from: URL(string: "child")!,
@@ -1061,6 +1069,8 @@ struct ArborQuagmireTests {
             path: "/stale-child-hint",
             stableKey: markdownStableKey("pg_child")
         ))
+        let destinations = await host.structuralDestinations(for: child.reference, matching: "")
+        #expect(destinations.contains { $0.reference.identity == pageDestination.reference.identity && !$0.isDirectory })
 
         let move = Task { await host.relocateDocument(reference, from: binding.document) }
         for _ in 0..<20 where host.structuralMoveRequest == nil { await Task.yield() }
@@ -1074,6 +1084,12 @@ struct ArborQuagmireTests {
             ArborDocumentReferenceCodec.encode(destination.reference),
             from: binding.document
         )))
+
+        let moveCurrent = Task { await host.moveCurrentDocument() }
+        for _ in 0..<20 where host.structuralMoveRequest == nil { await Task.yield() }
+        host.resolveStructuralMoveRequest(with: pageDestination.reference)
+        #expect(await moveCurrent.value)
+        #expect(opened.last?.path == "/page-destination/parent")
         await session.close()
     }
 

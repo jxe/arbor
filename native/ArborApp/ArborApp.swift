@@ -95,6 +95,8 @@ private struct ArborNavigationCommands: Commands {
         CommandMenu("Page") {
             Button("Restore Page") { commands?.restorePage() }
                 .disabled(commands?.canRestorePage != true)
+            Button("Move Page…") { commands?.movePage() }
+                .disabled(commands?.canMovePage != true)
             Button("Move Page to Trash…") { commands?.movePageToTrash() }
                 .disabled(commands?.canMovePageToTrash != true)
         }
