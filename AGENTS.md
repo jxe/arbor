@@ -35,7 +35,14 @@ Use the smallest focused tests while developing, then run the relevant gates fro
   project metadata.
 - Standalone `ArborQuagmire` package tests have separate SwiftPM state. Put that
   package in editable mode with
-  `swift package --package-path native/Packages/ArborQuagmire edit quagmire --path /Users/joe/src/quagmire`.
+  `swift package --package-path native/Packages/ArborQuagmire edit quagmire --path /Users/joe/src/quagmire`,
+  then run its tests through `tools/test-arbor-quagmire-local.sh`. Raw SwiftPM
+  test commands rewrite the tracked lockfile while the dependency is editable;
+  the wrapper preserves the published resolution around the local test.
+- Before changing the exact Quagmire release, take that standalone package out
+  of editable mode, resolve the new release so its tracked `Package.resolved`
+  records the same version, then restore editable mode. Do not commit a lockfile
+  with the edited Quagmire dependency omitted.
 - Test coordinated changes locally before releasing Quagmire. Once the tested
   revision is tagged, update both exact Arbor pins, regenerate
   `native/Arbor.xcodeproj` from `native/project.yml`, and commit that dependency

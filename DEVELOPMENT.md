@@ -49,10 +49,34 @@ cd native/Packages/ArborQuagmire
 swift package edit quagmire --path ../../../../quagmire
 ```
 
-After a tested Quagmire revision is released, update the exact version in both
-`native/project.yml` and `native/Packages/ArborQuagmire/Package.swift`, regenerate
-`native/Arbor.xcodeproj` with XcodeGen, and commit that dependency bump separately.
-Keep the local workspace in place for ongoing coordinated development.
+Run the local package tests through the repository wrapper:
+
+```sh
+tools/test-arbor-quagmire-local.sh
+```
+
+SwiftPM removes an editable dependency from `Package.resolved` whenever it runs.
+The wrapper retains local editable resolution for the build, then restores the
+tracked published lock exactly so local testing does not dirty the repository.
+
+After a tested Quagmire revision is released, first leave the standalone
+package's editable mode, update the exact version in both `native/project.yml`
+and `native/Packages/ArborQuagmire/Package.swift`, regenerate the project and
+standalone lock, then restore the local override:
+
+```sh
+swift package --package-path native/Packages/ArborQuagmire unedit quagmire
+xcodegen generate --spec native/project.yml --project native
+swift package --package-path native/Packages/ArborQuagmire resolve
+swift package --package-path native/Packages/ArborQuagmire edit quagmire \
+  --path /Users/joe/src/quagmire
+```
+
+Commit `native/Packages/ArborQuagmire/Package.resolved` with the matching
+Quagmire pin and generated project. Editable mode remains local SwiftPM state;
+use the test wrapper above after restoring it so SwiftPM cannot leave the
+lockfile dirty.
+Keep the local Xcode workspace in place for ongoing coordinated development.
 
 ## Repository map
 
