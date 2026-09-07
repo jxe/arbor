@@ -22,6 +22,7 @@ import {
   pendingFromSnapshot,
   pendingEditorAdmissions,
   pendingTreeUpdate,
+  retireAcknowledgedEditorAdmissions,
   saveAcceptedTreeObjectHashes,
   saveAcceptedTreeObjects,
   savePendingTreeUpdate,
@@ -184,6 +185,28 @@ export class TreeSynchronizer {
     return { current, snapshot: await client.snapshot(tree, current.tree.root) };
   }
 
+  /** Reuse the clean local graph and fetch only objects newly reachable from the current root. */
+  private async readSparseCurrent(
+    client: WireClient,
+    tree: string,
+    current: CurrentTree,
+    retained: TreeSnapshot,
+  ): Promise<TreeSnapshot> {
+    const objects = new Map<ObjectHash, Uint8Array>();
+    const pending: ObjectHash[] = [current.tree.root];
+    while (pending.length) {
+      const hash = pending.pop()!;
+      if (objects.has(hash)) continue;
+      const bytes = retained.objects.get(hash) ?? await client.object(tree, hash);
+      objects.set(hash, bytes);
+      const object = decodeWireObject(bytes);
+      if (object.type === "directory") {
+        for (const entry of object.entries) if (entry.hash) pending.push(entry.hash);
+      }
+    }
+    return { root: current.tree.root, objects };
+  }
+
   /** Verify the on-disk tree matches the accepted root, then record it as the accepted base. */
   private async confirmMaterialized(
     workspace: Workspace,
@@ -208,8 +231,12 @@ export class TreeSynchronizer {
     client: WireClient,
     remoteTrees: readonly RemoteTreeDescriptor[],
     descriptor?: CurrentTree,
+    retained?: TreeSnapshot,
   ): Promise<void> {
-    const { current, snapshot } = await this.readSnapshot(client, workspace.tree, descriptor);
+    const current = descriptor ?? await client.descriptor(workspace.tree);
+    const snapshot = retained
+      ? await this.readSparseCurrent(client, workspace.tree, current, retained)
+      : (await this.readSnapshot(client, workspace.tree, current)).snapshot;
     await this.deps.withWorkspaceIO(workspace, async () => {
       await this.materialize(workspace, {
         root: current.tree.root,
@@ -282,9 +309,10 @@ export class TreeSynchronizer {
 
   /**
    * Submit editor candidates that were frozen without touching the authored
-   * tree. Once every queued decision is durable on Canopy, materialize the
-   * final accepted snapshot only when the disk still equals its accepted base;
-   * otherwise the ordinary filesystem path submits that independent change.
+   * tree. Once every queued decision is durable on Canopy, prefer its accepted
+   * transition chain and otherwise fetch only objects absent from the clean
+   * local graph. A newer local edit still leaves materialization to the ordinary
+   * filesystem path.
    */
   private async submitEditorAdmissions(
     workspace: Workspace,
@@ -304,7 +332,13 @@ export class TreeSynchronizer {
 
     const local = await this.snapshotWorkspace(workspace, client, remoteTrees);
     if (!placement.ref || local.root !== placement.ref) return placement;
-    const { current, snapshot } = await this.readSnapshot(client, workspace.tree);
+    const acknowledged = admissions.filter((admission) => admission.acknowledged);
+    if (await this.applyQueuedTransitions(workspace, placement, client, remoteTrees)) {
+      await retireAcknowledgedEditorAdmissions(workspace.tree, acknowledged);
+      return this.deps.trees.placementFor(workspace.tree) ?? placement;
+    }
+    const current = await client.descriptor(workspace.tree);
+    const snapshot = await this.readSparseCurrent(client, workspace.tree, current, local);
     await this.deps.withWorkspaceIO(workspace, async () => {
       // Recheck after network I/O. A local editor or external process may have
       // changed the disk while the accepted snapshot was being fetched.
@@ -324,6 +358,7 @@ export class TreeSynchronizer {
         current.tree.root,
         "Materialized editor admission does not match its accepted Canopy root",
       );
+      await retireAcknowledgedEditorAdmissions(workspace.tree, acknowledged);
       placement = {
         ...placement,
         ref: current.tree.root,
@@ -466,7 +501,7 @@ export class TreeSynchronizer {
     if (!pending && local.root === placement.ref) {
       // Clean but behind: read the current state rather than proposing a
       // candidate the authority would only report as superseded.
-      await this.pullCurrent(workspace, placement, client, remoteTrees, current);
+      await this.pullCurrent(workspace, placement, client, remoteTrees, current, local);
       return;
     }
     if (placement.access !== "write") {

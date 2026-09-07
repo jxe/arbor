@@ -178,6 +178,26 @@ export function clearPendingEditorAdmissions(tree: string): Promise<void> {
   });
 }
 
+/**
+ * Retire one materialized acknowledged prefix without deleting a newer
+ * admission that may have arrived while the authority response was in flight.
+ */
+export function retireAcknowledgedEditorAdmissions(
+  tree: string,
+  acknowledged: readonly Pick<FrozenEditorAdmission, "id" | "request">[],
+): Promise<void> {
+  return serialized(tree, async () => {
+    const state = await load(tree);
+    const keys = new Set(acknowledged.map((admission) => `${admission.id}:${admission.request.candidate}`));
+    const remaining = (state.editorAdmissions ?? []).filter((admission) =>
+      !admission.acknowledged || !keys.has(`${admission.id}:${admission.request.candidate}`)
+    );
+    if (remaining.length) state.editorAdmissions = remaining;
+    else delete state.editorAdmissions;
+    await save(tree, state);
+  });
+}
+
 export async function saveAcceptedTreeObjects(tree: string, snapshot: TreeSnapshot): Promise<void> {
   await saveAcceptedTreeObjectHashes(tree, {
     root: snapshot.root,

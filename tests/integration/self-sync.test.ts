@@ -11,6 +11,9 @@ import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";
 import { compareWireNames, decodeWireObject, encodeWireObject, hashObject, WireClient } from "@arbor/wire";
 import { readAccountConfigGraph, snapshotAccountConfig } from "../../packages/canopy/src/account-policy.ts";
 import {
+  acknowledgePendingEditorAdmissions,
+  appendPendingEditorAdmission,
+  pendingEditorAdmissions,
   pendingTreeUpdate,
   savePendingTreeUpdate,
 } from "../../packages/arborsync/src/sync-state.ts";
@@ -555,7 +558,7 @@ describe("private self-sync", () => {
     }
   });
 
-  test("continues one editor update string while its accepted prefix is awaiting materialization", async () => {
+  test("starts a fresh editor epoch after its accepted prefix materializes", async () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
@@ -567,22 +570,10 @@ describe("private self-sync", () => {
     const historyBefore = host.canopy.acceptedUpdates(tree).length;
     const updateBodies: any[] = [];
     const systemFetch = globalThis.fetch;
-    let releaseSnapshot!: () => void;
-    const snapshotReleased = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
-    let observeSnapshot!: () => void;
-    const snapshotObserved = new Promise<void>((resolve) => { observeSnapshot = resolve; });
-    let blockAcceptedSnapshot = false;
     globalThis.fetch = (async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.includes(`/.arbor/trees/${tree}/updates`) && typeof init?.body === "string") {
         updateBodies.push(JSON.parse(init.body));
-        const response = await systemFetch(input, init);
-        blockAcceptedSnapshot = true;
-        return response;
-      }
-      if (blockAcceptedSnapshot && url.includes(`/.arbor/trees/${tree}/snapshots/`)) {
-        observeSnapshot();
-        await snapshotReleased;
       }
       return systemFetch(input, init);
     }) as typeof fetch;
@@ -597,15 +588,13 @@ describe("private self-sync", () => {
         firstSource,
         [{ offset: Buffer.byteLength(openedSource), length: 0, replacement: "\nFirst accepted before materialization.\n" }],
       );
-      await snapshotObserved;
-      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 1);
+      await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 1
+        && (await readFile(join(treeA, "note.md"), "utf8")) === firstSource
+        && (await pendingEditorAdmissions(tree)).length === 0);
 
-      const refreshed = await Promise.race([
-        author.client.editorNode(ref),
-        Bun.sleep(1_000).then(() => { throw new Error("Editor refresh waited for accepted materialization"); }),
-      ]);
+      const refreshed = await author.client.editorNode(ref);
       expect(nodeDocument(refreshed)!.source).toBe(firstSource);
-      if (!refreshed.admissionBasis) throw new Error("Refreshed document omitted its retained admission basis");
+      if (!refreshed.admissionBasis) throw new Error("Refreshed document omitted its admission basis");
       await author.client.admitDocumentCandidate(
         ref,
         refreshed.admissionBasis,
@@ -613,16 +602,16 @@ describe("private self-sync", () => {
         secondSource,
         [{ offset: Buffer.byteLength(firstSource), length: 0, replacement: "Second generation after refresh.\n" }],
       );
-      await waitFor(async () => updateBodies.some((body) => body.updates?.length === 2));
-      releaseSnapshot();
       await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2
+        && (await readFile(join(treeA, "note.md"), "utf8")) === secondSource
+        && (await pendingEditorAdmissions(tree)).length === 0
         && (await author.running.service.trees.descriptors())
           .find((descriptor) => descriptor.id === tree)?.sync === "idle");
 
       const accepted = host.canopy.acceptedUpdates(tree).slice(historyBefore);
       expect(accepted.map((update) => update.kind)).toEqual(["accepted", "accepted"]);
-      expect(updateBodies.find((body) => body.updates?.length === 2)?.updates[0])
-        .toEqual(updateBodies[0].updates[0]);
+      expect(updateBodies.map((body) => body.updates?.length)).toEqual([1, 1]);
+      expect(updateBodies[1].base).toBe(accepted[0]!.id);
       expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(secondSource);
 
       const after = await author.client.node(ref);
@@ -642,7 +631,6 @@ describe("private self-sync", () => {
       await waitFor(async () => (await author.running.service.trees.descriptors())
         .find((descriptor) => descriptor.id === tree)?.sync === "idle");
     } finally {
-      releaseSnapshot();
       globalThis.fetch = systemFetch;
       await author.close();
     }
@@ -782,9 +770,12 @@ describe("private self-sync", () => {
       const acceptedSource = nodeDocument(accepted!)!.source;
       expect(acceptedSource).toContain("Native while open.");
       expect(requests.some(({ url }) => url.includes("/source-candidates"))).toBe(false);
+      expect(requests.some(({ url }) => url.includes(`/.arbor/trees/${tree}/snapshots/`))).toBe(false);
       expect(requests.find(({ url, body }) => url.includes(`/.arbor/trees/${tree}/updates`) && typeof body?.updates?.[0]?.candidate === "string")?.body)
         .toMatchObject({ base: current.descriptor.tree.update, updates: [expect.objectContaining({ ifMatch: "modelHash" })] });
       expect(await readFile(join(treeA, "note.md"), "utf8")).toContain("Native while open.");
+      await waitFor(async () => (await pendingEditorAdmissions(tree)).length === 0);
+      expect(await pendingEditorAdmissions(tree)).toEqual([]);
 
       const restored = await author.client.node(ref);
       await author.client.mutateContent({
@@ -797,6 +788,71 @@ describe("private self-sync", () => {
     } finally {
       await author.close();
     }
+  });
+
+  test("retires a recovered acknowledged admission and catches up without a full snapshot", async () => {
+    const prepared = await launch(stateA, treeA);
+    await waitFor(async () => (await prepared.running.service.trees.descriptors())
+      .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    const placement = prepared.running.service.trees.placementFor(tree)!;
+    await prepared.close();
+
+    process.env.ARBOR_DATA_HOME = stateA;
+    const admission = await appendPendingEditorAdmission(tree, () => ({
+      id: "recovered-acknowledged-admission",
+      ref: { tree, path: "/note", stableKey: null },
+      request: {
+        base: placement.update!,
+        candidate: placement.ref!,
+        ifMatch: "modelHash",
+        objects: [],
+        deltas: [],
+      },
+      source: "already accepted\n",
+      contentRevision: "sha256:recovered",
+      admissionBasis: "recovered",
+    }));
+    await acknowledgePendingEditorAdmissions(tree, admission.id, [admission.request.candidate]);
+
+    const owner = new WireClient(host.url, token);
+    const current = await readAccepted(owner, tree);
+    const root = decodeWireObject(current.snapshot.objects.get(current.snapshot.root)!);
+    if (root.type !== "directory") throw new Error("Expected a directory root");
+    const file = encodeWireObject({ type: "file", bytes: new TextEncoder().encode("caught up incrementally\n") });
+    const nextRoot = encodeWireObject({
+      ...root,
+      entries: [...root.entries, { name: "recovered-catchup.txt", hash: hashObject(file) }]
+        .sort((left, right) => compareWireNames(left.name, right.name)),
+    });
+    current.snapshot.objects.set(hashObject(file), file);
+    current.snapshot.objects.set(hashObject(nextRoot), nextRoot);
+    await owner.submitUpdate(tree, current.descriptor.tree.update, {
+      root: hashObject(nextRoot),
+      objects: current.snapshot.objects,
+    });
+
+    const requests: string[] = [];
+    const systemFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      requests.push(url);
+      return systemFetch(input, init);
+    }) as typeof fetch;
+    let recovered: Awaited<ReturnType<typeof launch>> | undefined;
+    try {
+      recovered = await launch(stateA, treeA);
+      await waitFor(() => readFile(join(treeA, "recovered-catchup.txt"), "utf8")
+        .then((source) => source === "caught up incrementally\n")
+        .catch(() => false));
+      await waitFor(async () => (await pendingEditorAdmissions(tree)).length === 0);
+      await waitFor(async () => (await recovered!.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+    } finally {
+      globalThis.fetch = systemFetch;
+      await recovered?.close();
+    }
+    expect(requests.some((url) => url.includes(`/.arbor/trees/${tree}/snapshots/`))).toBe(false);
+    expect(await pendingEditorAdmissions(tree)).toEqual([]);
   });
 
   test("keeps an admitted Native candidate durable while Canopy is offline", async () => {

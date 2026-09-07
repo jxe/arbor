@@ -125,7 +125,12 @@ export class ArborSyncDaemon implements AsyncDisposable {
 
   private startAutoSync(syncIntervalMs?: number): void {
     if (this.syncTimer) return;
-    this.syncTimer = setInterval(() => { void this.syncAll(); }, syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS);
+    this.syncTimer = setInterval(() => {
+      // A periodic tick is only a freshness hint. Do not turn a slow or failed
+      // request into an unbounded immediate retry loop that masks its error
+      // state as permanently syncing.
+      if (!this.syncing) void this.syncAll();
+    }, syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS);
     this.syncTimer.unref?.();
     this.syncStartupTimer = setTimeout(() => {
       this.syncStartupTimer = undefined;
