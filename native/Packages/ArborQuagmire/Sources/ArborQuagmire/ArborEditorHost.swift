@@ -177,7 +177,46 @@ public final class ArborEditorHost: EditorHost {
         openAction(decoded)
     }
 
-    public func setDocumentIcon(_: String, for _: DocumentReference) async -> Bool { false }
+    public func setDocumentIcon(_ emoji: String, for reference: DocumentReference) async -> Bool {
+        guard let decoded = workspaceReference(for: reference) else { return false }
+        do {
+            let node = try await provider.resolve(decoded)
+            guard node.isWritable, node.surface.supportsDocumentSession else { return false }
+            let session = try await provider.openDocument(node.reference)
+            do {
+                let snapshot = try await session.snapshot()
+                let opened = ArborMarkdownCodec.open(
+                    source: snapshot.source,
+                    revision: snapshot.contentRevision,
+                    identitySeed: String(describing: snapshot.reference.identity)
+                )
+                var blocks = opened.blocks
+                let title: String
+                if let titleIndex = blocks.firstIndex(where: { block in
+                    if case .heading(.h1, _) = block.kind { return true }
+                    return false
+                }), case .heading(.h1, let titleText) = blocks[titleIndex].kind {
+                    title = pageTitle(String(titleText.characters), settingEmoji: emoji)
+                    blocks[titleIndex].kind = .heading(level: .h1, text: AttributedString(title))
+                } else {
+                    title = pageTitle(node.title, settingEmoji: emoji)
+                    blocks = [.heading(level: .h1, text: AttributedString(title), children: blocks)]
+                }
+                let (admission, _) = ArborMarkdownCodec.admission(blocks: blocks, ledger: opened.ledger)
+                _ = try await session.admit(patch: admission.patch)
+                try await session.flush()
+                await session.close()
+                lookups[reference] = .present(.init(title: title, capabilities: documentCapabilities(for: node)))
+                return true
+            } catch {
+                await session.close()
+                throw error
+            }
+        } catch {
+            errorAction("Couldn't set the page icon: \(error.localizedDescription)")
+            return false
+        }
+    }
 
     public func lookupDocument(_ reference: DocumentReference) -> DocumentLookup {
         if let value = lookups[reference] { return value }
@@ -188,12 +227,10 @@ public final class ArborEditorHost: EditorHost {
                 guard let self else { return }
                 do {
                     let node = try await provider.resolve(decoded)
-                    var capabilities: DocumentCapabilities = node.isWritable && node.surface.supportsDocumentSession
-                        ? [.navigate, .receiveBlocks, .inline] : [.navigate]
-                    if node.isWritable, isEligibleLinkedChild(node.reference) {
-                        capabilities.insert(.relocate)
-                    }
-                    lookups[reference] = .present(.init(title: node.title, capabilities: capabilities))
+                    lookups[reference] = .present(.init(
+                        title: node.title,
+                        capabilities: documentCapabilities(for: node)
+                    ))
                 } catch {
                     lookups[reference] = .missing
                 }
@@ -499,7 +536,7 @@ public final class ArborEditorHost: EditorHost {
             if let lookupReference {
                 lookups[lookupReference] = .present(.init(
                     title: moved.title,
-                    capabilities: moved.isWritable ? [.navigate, .receiveBlocks, .inline] : [.navigate]
+                    capabilities: documentCapabilities(for: moved)
                 ))
             }
             if navigateAfterMove { openAction(moved.reference) }
@@ -514,6 +551,15 @@ public final class ArborEditorHost: EditorHost {
         guard let request = structuralMoveRequest else { return }
         structuralMoveRequest = nil
         request.completion(destination)
+    }
+
+    private func documentCapabilities(for node: WorkspaceNode) -> DocumentCapabilities {
+        guard node.isWritable, node.surface.supportsDocumentSession else { return [.navigate] }
+        var capabilities: DocumentCapabilities = [.navigate, .receiveBlocks, .inline, .setIcon]
+        if isEligibleLinkedChild(node.reference) {
+            capabilities.insert(.relocate)
+        }
+        return capabilities
     }
 
     public func structuralDestinations(for reference: WorkspaceReference, matching rawQuery: String) async -> [ArborStructuralDestination] {

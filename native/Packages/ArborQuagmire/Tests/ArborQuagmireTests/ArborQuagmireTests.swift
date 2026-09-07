@@ -431,6 +431,48 @@ struct ArborQuagmireTests {
     }
 
     @MainActor
+    @Test("Writable page links expose the emoji picker and persist title icons")
+    func linkedPageIcon() async throws {
+        let provider = InMemoryWorkspaceProvider.sample()
+        let currentReference = WorkspaceReference(
+            tree: "tr_sample",
+            path: "/welcome",
+            stableKey: markdownStableKey("pg_welcome")
+        )
+        let currentSession = try await provider.openDocument(currentReference)
+        let binding = try await ArborDocumentBinding.open(reference: currentReference, session: currentSession)
+        let root = WorkspaceReference(tree: "tr_sample", path: "/")
+        let target = try #require(try await provider.perform(.createMarkdown(
+            parent: root,
+            name: "Target",
+            source: "# Target\n\nBody **as authored**.\n"
+        )))
+        let targetReference = ArborDocumentReferenceCodec.encode(target.reference)
+        let host = ArborEditorHost(
+            binding: binding,
+            provider: provider,
+            linkPreviewService: linkPreviewService()
+        )
+
+        #expect(host.lookupDocument(targetReference) == .pending)
+        for _ in 0..<20 where host.lookupDocument(targetReference) == .pending {
+            await Task.yield()
+        }
+        #expect(host.lookupDocument(targetReference).can(.setIcon))
+
+        #expect(await host.setDocumentIcon("🚀", for: targetReference))
+        #expect(host.lookupDocument(targetReference).title == "🚀 Target")
+        #expect(await host.setDocumentIcon("🌳", for: targetReference))
+        #expect(host.lookupDocument(targetReference).title == "🌳 Target")
+
+        let savedSession = try await provider.openDocument(target.reference)
+        let saved = try await savedSession.snapshot()
+        #expect(saved.source == "# 🌳 Target\n\nBody **as authored**.\n")
+        await savedSession.close()
+        await currentSession.close()
+    }
+
+    @MainActor
     @Test("Pasted images persist in order and resolve through provider bytes")
     func imageLifecycle() async throws {
         let provider = InMemoryWorkspaceProvider.sample()
