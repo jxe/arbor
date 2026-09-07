@@ -12,6 +12,7 @@ These are the plans that currently matter most. They include known correctness a
   - [Reliability 002 — Serialize write-journal counters and appends per document](reliability/002-journal-append.md) — **P1 · TODO.**
   - [Reliability 003 — Make untracked collection-file mutations and receipts restart-safe](reliability/003-untracked-collection-file-transactions.md) — **P1 · TODO; depends on Reliability 002 and historical Data 011 terminology.**
   - [Reliability 004 — Resolve Canopy conflicts at their authored locations](reliability/004-contextual-canopy-conflict-resolution.md) — **P1 · PLANNED; builds on durable Canopy conflict evidence and the native document-conflict safety fix.**
+  - [Reliability 005 — Standardize Arbor Sync and direct Canopy client state machines](reliability/005-client-synchronization-state-machines.md) — **P1 · PLANNED; depends on the focused native admission debounce.** Freeze two cross-language state machines, run them in the TypeScript and Swift reference clients, and document them as client best practice.
 - **External agent access**
   - [Smaller project 004 — Give external agents safe structured access](smaller-projects/004-external-agent-access.md) — **P1 · IN PROGRESS; general status and cloud-session discovery are implemented.** The remaining structured read/mutation commands and agent skill can proceed; compiled-handle invocation depends on Apps 001.
 - **Canopy storage** — Reduce the physical cost of retained immutable objects and accepted transition history without changing Wire identity or accepted-state semantics.
@@ -68,11 +69,11 @@ This is work that fills out Arbor's product feature surface. It is useful and of
 ## Hardening, Efficiency, Polish, etc.
 
 - **Further reliability hardening**
-  - **Explicit web-editor unload drain** — **READY.** Define application navigation and `beforeunload` behavior for admitted and pending generations instead of starting an unawaited save from component cleanup.
+  - **Explicit web-editor unload drain** — **OWNED by Reliability 005.** Define application navigation and `beforeunload` behavior for admitted and pending generations instead of starting an unawaited save from component cleanup.
   - **Commit native control text before flush** — **REVERIFY.** Confirm that Quagmire can still hold text outside `ArborDocumentBinding` at background, navigation, and close boundaries; if so, add commit-then-flush lifecycle behavior and visible checkpoint-pending state.
   - **Per-key frontmatter conflict semantics** — **READY.** Preserve independent external and local changes, detect same-key conflicts and deletions, and test them beside block three-way merge.
   - **Recovery repair versus concurrent writes** — **REVERIFY.** Characterize `WorkspaceFS.read()` recovery writes under the current coordinator and CAS boundaries before extracting a locking-safe repair path.
-  - **Background synchronization versus local mutation** — **REVERIFY.** Confirm synchronization and snapshotting cannot materialize or publish a torn local transaction; retain actionable errors rather than classifying programming failures as offline state.
+  - **Background synchronization versus local mutation** — **OWNED by Reliability 005.** The direct Canopy state machine must prove that synchronization cannot materialize or publish a torn local transaction and must distinguish availability from terminal validation failures.
   - **Malformed and partial legacy-state recovery** — **OWNED by Cleanups 001 and 002.** Reject unsupported or ambiguous retained state without overwriting it, and retain focused failure-path tests through each cutoff.
   - **Provider-specific materialization controls** — **NEEDS DESIGN.** Add a control only when one concrete backing can report a reliable snapshot, progress, cancellation, and failure boundary; keep provider semantics in the owning Postgres or backing plan.
   - **Web-editor boundary.** Structural undo, exact reorder restoration, pointer lifecycle, keyboard access, context-menu focus, bounded history, and scroll restoration stay together in [Smaller project 005](smaller-projects/005-web-editor.md).
@@ -90,7 +91,7 @@ This is work that fills out Arbor's product feature surface. It is useful and of
 - **Testing and evidence**
   - [Testing 001 — Run maintained gates in CI](testing/001-ci.md) — **P2 · TODO.** Cover TypeScript, browser, protocol, performance, and Swift; Testing 002 should land first if the repeated parallel lane is not stable.
   - [Testing 002 — Make parallel integration tests independent](testing/002-parallel-integration-isolation.md) — **P1 · TODO.** Remove dependence on process-global fixture state and scheduling.
-  - **Deterministic stale-save sequences** — **READY.** Extend the clock-controlled coordinator suite across external rewrites, in-flight undo, failed structural undo, retry, and navigation during a pending generation.
+  - **Deterministic stale-save sequences** — **OWNED by Reliability 005.** Its shared fixtures and clock-controlled coordinator suites cover external rewrites, in-flight undo, retry, lifecycle drains, and navigation during a pending generation.
   - **Developer browser smoke harness** — **READY.** Preserve DOM, state, and network probes for deterministic invariants; reserve hands-on checks for hover, focus, pointer drag, and feel.
   - **Canopy authorization characterization** — **READY.** Cover revoked grants, read-link write denial, non-admin access mutation, and removal of transitive group access in a dedicated daemon suite.
   - **Cross-client group workflow coverage** — **WAITING.** Add browser and native creation/membership coverage after the first-party flow is designed; do not freeze manual YAML as the UX.
