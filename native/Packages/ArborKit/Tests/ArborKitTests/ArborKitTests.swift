@@ -2,6 +2,16 @@ import Foundation
 import Testing
 @testable import ArborKit
 
+@Test("Markdown-derived display titles are plain without mutating source semantics")
+func markdownDisplayTitle() {
+    #expect(WorkspaceDisplayTitle.derived(
+        from: "---\nid: pg_title\n---\n\n# 🗓️ **Calendar**\n",
+        fallback: "Calendar"
+    ) == "🗓️ Calendar")
+    #expect(WorkspaceDisplayTitle.plainText("A [linked](elsewhere.md) title") == "A linked title")
+    #expect(WorkspaceDisplayTitle.derived(from: nil, fallback: "literal-**-filename") == "literal-**-filename")
+}
+
 @Suite("Workspace coordination")
 struct WorkspaceCoordinatorTests {
     @Test("Range-guarded source patches preserve untouched UTF-8 bytes")

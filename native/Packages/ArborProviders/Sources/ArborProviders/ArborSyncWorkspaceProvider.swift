@@ -79,7 +79,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
                         path: item.ref.path,
                         stableKey: item.ref.stableKey
                     ),
-                    title: item.title,
+                    title: WorkspaceDisplayTitle.plainText(item.title),
                     excerpt: item.excerpt.isEmpty ? nil : item.excerpt
                 )
             })
@@ -100,7 +100,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
                         path: entry.ref.path,
                         stableKey: entry.ref.stableKey
                     ),
-                    title: entry.title,
+                    title: WorkspaceDisplayTitle.plainText(entry.title),
                     excerpt: entry.context.isEmpty ? nil : entry.context
                 )
             })
@@ -349,7 +349,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
         }
         let title: String
         if case let .string(propertyTitle)? = summary.properties["title"], !propertyTitle.isEmpty {
-            title = propertyTitle
+            title = WorkspaceDisplayTitle.plainText(propertyTitle)
         } else {
             title = summary.name.isEmpty ? Self.name(of: summary.ref.path) : summary.name
         }
@@ -371,13 +371,7 @@ public struct ArborSyncWorkspaceProvider: WorkspaceProvider, Sendable {
     }
 
     static func displayTitle(source: String?, fallback: String) -> String {
-        if let source {
-            for line in source.split(whereSeparator: \.isNewline) where line.hasPrefix("# ") {
-                let title = line.dropFirst(2).trimmingCharacters(in: .whitespaces)
-                if !title.isEmpty { return title }
-            }
-        }
-        return fallback
+        WorkspaceDisplayTitle.derived(from: source, fallback: fallback)
     }
 
     static func requiresDocumentIdentity(_ node: WorkspaceNode) -> Bool {

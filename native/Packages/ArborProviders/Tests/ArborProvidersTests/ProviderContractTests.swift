@@ -169,7 +169,7 @@ struct ProviderContractTests {
     @Test("arborsync display titles match replica heading semantics")
     func arborsyncDisplayTitle() {
         #expect(ArborSyncWorkspaceProvider.displayTitle(
-            source: "---\nid: pg_title\n---\n\n# 🌲 Authored Page Title\n\nBody.\n",
+            source: "---\nid: pg_title\n---\n\n# 🌲 **Authored Page Title**\n\nBody.\n",
             fallback: "authored-page-title"
         ) == "🌲 Authored Page Title")
         #expect(ArborSyncWorkspaceProvider.displayTitle(

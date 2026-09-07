@@ -96,15 +96,10 @@ enum ReplicaSemantics {
     }
 
     static func title(for node: ReplicaNodeRecord) -> String {
-        if let source = node.source {
-            for line in source.split(whereSeparator: \.isNewline) {
-                if line.hasPrefix("# ") {
-                    let title = line.dropFirst(2).trimmingCharacters(in: .whitespaces)
-                    if !title.isEmpty { return title }
-                }
-            }
-        }
-        return node.path == "/" ? "Home" : name(of: node.path)
+        WorkspaceDisplayTitle.derived(
+            from: node.source,
+            fallback: node.path == "/" ? "Home" : name(of: node.path)
+        )
     }
 
     static func documentRevision(node: ReplicaNodeRecord, state: ReplicaState) -> String {
