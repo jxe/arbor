@@ -341,6 +341,20 @@ struct ArborQuagmireTests {
         #expect(admission.source == source)
     }
 
+    @Test("Full-row link labels preserve inline Markdown semantics")
+    func documentLinkInlineLabel() throws {
+        let source = "[🗓️ **Calendar**](Calendar.md#h31mlm)\n"
+        let block = try #require(ArborMarkdownCodec.parseBlocks(source).first)
+        guard case let .documentLink(label, reference) = block.kind else {
+            Issue.record("Expected a document link, got \(block.kind)")
+            return
+        }
+        #expect(String(label.characters) == "🗓️ Calendar")
+        #expect(label.runs.contains { $0[InlineAttributes.BoldAttribute.self] == true })
+        #expect(reference.rawValue == "Calendar.md#h31mlm")
+        #expect(ArborMarkdownCodec.serializeBlocks([block]).contains("[🗓️ **Calendar**](Calendar.md#h31mlm)"))
+    }
+
     @MainActor
     @Test("Synchronous commits enqueue ordered patch admissions and flush awaits the final generation")
     func hostPersistence() async throws {
@@ -962,6 +976,18 @@ struct ArborQuagmireTests {
             in: binding.document
         ))
         #expect(ArborDocumentReferenceCodec.decode(generatedChildLink)?.path == "/parent/child")
+        let legacyChildLink = try #require(host.resolveReference(
+            from: URL(string: "stale-child.md#pg_child")!,
+            in: binding.document
+        ))
+        #expect(ArborDocumentReferenceCodec.decode(legacyChildLink) == WorkspaceReference(
+            tree: tree,
+            path: "/parent/stale-child",
+            stableKey: markdownStableKey("pg_child")
+        ))
+        #expect(host.lookupDocument(legacyChildLink) == .pending)
+        for _ in 0..<20 where host.lookupDocument(legacyChildLink) == .pending { await Task.yield() }
+        #expect(host.lookupDocument(legacyChildLink).title == "Child")
         let relativeSiblingLink = try #require(host.resolveReference(
             from: URL(string: "../destination")!,
             in: binding.document

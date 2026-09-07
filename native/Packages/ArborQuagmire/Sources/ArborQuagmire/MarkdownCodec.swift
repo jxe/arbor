@@ -359,7 +359,7 @@ public enum ArborMarkdownCodec {
         if leadingTrimmed.hasPrefix("> ") { return .quote(text: parseInline(String(leadingTrimmed.dropFirst(2))), id: id) }
         if ["---", "***", "___"].contains(trimmed) { return .divider(id: id) }
         if let pair = wholeLink(trimmed) {
-            return .documentLink(label: AttributedString(pair.label), reference: DocumentReference(pair.target), id: id)
+            return .documentLink(label: parseInline(pair.label), reference: DocumentReference(pair.target), id: id)
         }
         if let image = wholeImage(trimmed) { return .image(source: image.target, alt: image.label, id: id) }
         if trimmed.hasPrefix("<") || trimmed.hasPrefix("$$") || trimmed.hasPrefix("|") || trimmed.hasPrefix("[^") {

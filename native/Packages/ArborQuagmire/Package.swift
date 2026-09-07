@@ -15,6 +15,7 @@ let package = Package(
         .target(
             name: "ArborQuagmire",
             dependencies: [
+                "ArborClient",
                 "ArborKit",
                 .product(name: "Quagmire", package: "quagmire"),
                 .product(name: "QuagmireExtras", package: "quagmire")

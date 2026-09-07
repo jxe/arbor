@@ -1,3 +1,4 @@
+import ArborClient
 import ArborKit
 import Foundation
 import Observation
@@ -238,16 +239,13 @@ public final class ArborEditorHost: EditorHost {
     }
 
     private func workspaceReference(for url: URL) -> WorkspaceReference? {
-        guard url.scheme == nil else { return nil }
-        let raw = url.path.removingPercentEncoding ?? url.path
-        guard !raw.isEmpty else { return nil }
-        let path = raw.hasPrefix("/")
-            ? raw
-            : (relativeReferenceBase.path == "/"
-                ? "/\(raw)"
-                : "\(relativeReferenceBase.path)/\(raw)")
-        let logical = path.lowercased().hasSuffix(".md") ? String(path.dropLast(3)) : path
-        return WorkspaceReference(tree: binding.reference.tree, path: logical)
+        guard case let .local(path, locator) = resolveLogicalURL(
+            base: relativeReferenceBase.path,
+            href: url.absoluteString
+        ) else { return nil }
+        let stableKey = locator.stableKey
+            ?? locator.legacyStableKeyCandidate.map(pageIDStableKey)
+        return WorkspaceReference(tree: binding.reference.tree, path: path, stableKey: stableKey)
     }
 
     public func linkURL(for reference: DocumentReference, in _: Document) -> URL? {
