@@ -11,6 +11,7 @@ These are the plans that currently matter most. They include known correctness a
 - **Reliability** — Behavior that can become wrong or lose durability under concurrency, recovery, lifecycle changes, or unusual input.
   - [Reliability 002 — Serialize write-journal counters and appends per document](reliability/002-journal-append.md) — **P1 · TODO.**
   - [Reliability 003 — Make untracked collection-file mutations and receipts restart-safe](reliability/003-untracked-collection-file-transactions.md) — **P1 · TODO; depends on Reliability 002 and historical Data 011 terminology.**
+  - [Reliability 004 — Resolve Canopy conflicts at their authored locations](reliability/004-contextual-canopy-conflict-resolution.md) — **P1 · PLANNED; builds on durable Canopy conflict evidence and the native document-conflict safety fix.**
 - **External agent access**
   - [Smaller project 004 — Give external agents safe structured access](smaller-projects/004-external-agent-access.md) — **P1 · IN PROGRESS; general status and cloud-session discovery are implemented.** The remaining structured read/mutation commands and agent skill can proceed; compiled-handle invocation depends on Apps 001.
 - **Canopy storage** — Reduce the physical cost of retained immutable objects and accepted transition history without changing Wire identity or accepted-state semantics.
