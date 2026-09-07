@@ -22,3 +22,21 @@ These instructions apply to the whole repository.
 ## Verification
 
 Use the smallest focused tests while developing, then run the relevant gates from `DEVELOPMENT.md`. At minimum, documentation-only changes require a repository-wide relative-link check and `git diff --check`; path moves also require every affected build or fixture test.
+
+## Quagmire development
+
+- Keep the committed Quagmire dependencies in `native/project.yml` and
+  `native/Packages/ArborQuagmire/Package.swift` pinned to the same exact GitHub
+  release. Never commit a local path in either source of truth.
+- Local Arbor app development uses the ignored
+  `native/Arbor.local.xcworkspace`, which contains `Arbor.xcodeproj` and the
+  sibling `../../quagmire` checkout. Open and build that workspace so Xcode's
+  local package overrides the released dependency without changing published
+  project metadata.
+- Standalone `ArborQuagmire` package tests have separate SwiftPM state. Put that
+  package in editable mode with
+  `swift package --package-path native/Packages/ArborQuagmire edit quagmire --path /Users/joe/src/quagmire`.
+- Test coordinated changes locally before releasing Quagmire. Once the tested
+  revision is tagged, update both exact Arbor pins, regenerate
+  `native/Arbor.xcodeproj` from `native/project.yml`, and commit that dependency
+  bump separately. A second remote-package build is not part of this workflow.

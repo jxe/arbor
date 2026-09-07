@@ -14,6 +14,46 @@ bun run build:web
 
 `bun install` exposes checkout-local scripts as `bun run arbor`, `bun run arborsync`, and `bun run canopyd`. `bun link` additionally exposes the `arbor`, `arborsync`, and `canopyd` binaries in the shell; the README quickstart uses that form.
 
+### Developing Arbor with Quagmire
+
+Arbor's committed project metadata pins an exact released Quagmire version from
+GitHub. That is the default for contributors who are not changing the editor. Do
+not replace those committed dependencies with local paths.
+
+To develop Arbor and Quagmire together, clone Quagmire beside Arbor so the
+checkouts have this layout:
+
+```text
+src/
+├── arbor/
+└── quagmire/
+```
+
+Create a local Xcode workspace named `native/Arbor.local.xcworkspace`, add
+`native/Arbor.xcodeproj` and the sibling Quagmire package to it, and build the
+`Arbor` scheme from that workspace. The workspace is ignored by Git. Xcode
+treats the local package as an override for the remote dependency with the same
+identity, so Arbor uses the Quagmire working tree while its published project
+continues to point at the stable tag.
+
+The Raycast `Swift Apps` extension recognizes this workspace automatically for
+both macOS and physical-iPhone builds. It includes the local Quagmire checkout in
+its build fingerprint, so an editor change invalidates a previously cached Arbor
+build.
+
+The standalone `ArborQuagmire` package has its own SwiftPM dependency state. Put
+it in editable mode once if you run its tests directly:
+
+```sh
+cd native/Packages/ArborQuagmire
+swift package edit quagmire --path ../../../../quagmire
+```
+
+After a tested Quagmire revision is released, update the exact version in both
+`native/project.yml` and `native/Packages/ArborQuagmire/Package.swift`, regenerate
+`native/Arbor.xcodeproj` with XcodeGen, and commit that dependency bump separately.
+Keep the local workspace in place for ongoing coordinated development.
+
 ## Repository map
 
 - `packages/` — the TypeScript logical model, providers, stores, Wire implementation, Canopy, Arbor Sync, CLI, editor, renderer, and data runtime.
