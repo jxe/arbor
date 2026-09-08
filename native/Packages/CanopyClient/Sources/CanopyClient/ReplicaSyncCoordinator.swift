@@ -3,6 +3,11 @@ import ArborReplica
 import ArborWire
 import Foundation
 
+/// Effect runner for `DirectSyncMachine` over an `ArborReplica` and a Wire
+/// transport. The replica is the durable store; `DurableSyncControl` retains
+/// the exact request, conflict, and next base; the machine owns scheduling:
+/// one request in flight, one retained successor, a trailing publication delay,
+/// and the single ambiguous-recovery transition on reconnection.
 public actor ReplicaSyncCoordinator {
     private let replica: ArborReplica
     private let transport: any ReplicaWireTransport
@@ -14,13 +19,21 @@ public actor ReplicaSyncCoordinator {
     private var syncAgain = false
     private var inFlight = Set<String>()
     private var transportAvailable: Bool
+    private var machine = DirectSyncMachine.State()
+    private let machineOptions: DirectSyncMachine.Options
+    private var publicationTask: Task<Void, Never>?
+    private var maxPublicationTask: Task<Void, Never>?
+    /// The most recent durable editor admission, for the immediate-delta fast path.
+    private var latestAdmission: ReplicaPatchAdmission?
 
     public init(
         replica: ArborReplica,
         transport: any ReplicaWireTransport,
         stateRoot: URL,
         transportAvailable: Bool = true,
-        faultInjector: any ReplicaSyncFaultInjector = NoReplicaSyncFaults()
+        faultInjector: any ReplicaSyncFaultInjector = NoReplicaSyncFaults(),
+        publicationDelay: Duration = DirectSyncMachine.publicationDelay,
+        publicationMaxDelay: Duration = DirectSyncMachine.publicationMaxDelay
     ) throws {
         self.replica = replica
         self.transport = transport
@@ -28,6 +41,104 @@ public actor ReplicaSyncCoordinator {
         self.faultInjector = faultInjector
         self.control = try files.load()
         self.transportAvailable = transportAvailable
+        self.machine = DirectSyncMachine.State(transportAvailable: transportAvailable)
+        self.machineOptions = DirectSyncMachine.Options(publicationDelay: publicationDelay, publicationMaxDelay: publicationMaxDelay)
+    }
+
+    /// The machine state, for status and tests.
+    public var syncState: DirectSyncMachine.State { machine }
+
+    // MARK: Machine
+
+    /// Enter the machine from the replica's accepted base and map the retained
+    /// durable control onto its phase: a retained attempt is `prepared` (it is
+    /// resubmitted exactly), a retained conflict is `conflict`, and unsent
+    /// replica generations are one local head.
+    private func ensureMachineEntered() async {
+        guard case .unplaced = machine.phase else { return }
+        guard let heads = try? await replica.heads(),
+              let root = control.nextBase?.root ?? heads.acceptedRoot,
+              let update = control.nextBase?.update ?? heads.acceptedUpdate else { return }
+        dispatch(.bootstrapInstalled(root: root, update: update, cursor: heads.acceptedCursor))
+        if let conflict = control.conflict {
+            machine.phase = .conflict(
+                request: DirectSyncMachine.PreparedRequest(
+                    id: "conflict",
+                    base: conflict.response.base,
+                    candidate: conflict.localRootAtConflict,
+                    digests: []
+                ),
+                conflict: DirectSyncMachine.ConflictEvidence(
+                    current: .init(root: conflict.response.current.root, update: conflict.response.current.id),
+                    draft: conflict.response.draft.root,
+                    localRoot: conflict.localRootAtConflict
+                ),
+                head: nil
+            )
+        } else if let attempt = control.attempt {
+            machine.phase = .prepared(request: Self.preparedRequest(attempt), head: nil)
+        } else if heads.pendingRoot != nil {
+            dispatch(.localHead(root: heads.materializedRoot, origin: .editor))
+        }
+    }
+
+    private static func preparedRequest(_ attempt: DurableSyncAttempt) -> DirectSyncMachine.PreparedRequest {
+        .init(id: attempt.digest, base: attempt.base.update, candidate: attempt.candidate, digests: attempt.allRequestDigests)
+    }
+
+    private func dispatch(_ event: DirectSyncMachine.Event) {
+        let (next, effects) = DirectSyncMachine.reduce(machine, event, options: machineOptions)
+        machine = next
+        for effect in effects { run(effect) }
+    }
+
+    private func run(_ effect: DirectSyncMachine.Effect) {
+        switch effect {
+        case let .schedule(timer, delay):
+            let task = Task { [weak self] in
+                do { try await Task.sleep(for: delay) } catch { return }
+                guard let self else { return }
+                await self.timerElapsed(timer)
+            }
+            switch timer {
+            case .trailing:
+                publicationTask?.cancel()
+                publicationTask = task
+            case .max:
+                maxPublicationTask?.cancel()
+                maxPublicationTask = task
+            }
+        case .cancelTimers:
+            publicationTask?.cancel()
+            publicationTask = nil
+            maxPublicationTask?.cancel()
+            maxPublicationTask = nil
+        case let .persistRequest(_, _, extends):
+            // Request preparation and submission run through the ordinary
+            // pass, which persists the exact request before its first attempt.
+            let extend = extends != nil
+            let admission = latestAdmission
+            Task { [weak self] in
+                guard let self else { return }
+                _ = try? await self.synchronize(admission: admission, extendExistingAttempt: extend)
+            }
+        case .submit, .apply, .catchUp, .discardMirrorHead, .surfaceConflict, .stop:
+            // Submission, materialization, and catch-up are performed inline by
+            // the pass that dispatched the event; they report back with
+            // `applied`, `conflicted`, or a failure.
+            break
+        }
+    }
+
+    private func timerElapsed(_ timer: DirectSyncMachine.Timer) {
+        switch timer {
+        case .trailing:
+            publicationTask = nil
+            dispatch(.publishDelayElapsed)
+        case .max:
+            maxPublicationTask = nil
+            dispatch(.maxDelayElapsed)
+        }
     }
 
     public func presentation() async throws -> WorkspaceSyncPresentation {
@@ -176,30 +287,35 @@ public actor ReplicaSyncCoordinator {
         return control.presentation
     }
 
+    /** Explicit synchronization bypasses the trailing publication delay. */
     @discardableResult
     public func syncOnce() async throws -> WorkspaceSyncPresentation {
-        try await synchronize(admission: nil)
+        await ensureMachineEntered()
+        if case let .locallyPending(_, preparing) = machine.phase, !preparing {
+            // Prepare through the pass below rather than through a timer.
+            machine.phase = .locallyPending(head: currentHead(), preparing: true)
+            run(.cancelTimers)
+        }
+        return try await synchronize(admission: latestAdmission)
     }
 
-    /** Best-effort, nonblocking-from-the-editor handoff for one just-durable patch admission. */
+    private func currentHead() -> DirectSyncMachine.LocalHead {
+        if case let .locallyPending(head, _) = machine.phase { return head }
+        return DirectSyncMachine.LocalHead(root: latestAdmission?.candidateRoot ?? "", origin: .editor)
+    }
+
+    /**
+     * Nonblocking handoff for one just-durable patch admission. The admission is
+     * already durable in ArborReplica; the machine coalesces it with any other
+     * unsent generation behind one trailing publication delay, retains it as the
+     * single successor of a request in flight, and leaves it in the replica
+     * while the transport is unavailable so reconnection appends the latest
+     * head once to any ambiguous prefix.
+     */
     public func syncImmediately(_ admission: ReplicaPatchAdmission) async {
-        // Admissions are already durable in ArborReplica. While the actual
-        // network path to Canopy is down, leave them there instead of freezing every
-        // offline generation into an update string that must later be replayed.
-        // Reconnection appends the latest replica head once to any ambiguous
-        // prefix whose transmission may have started.
-        guard transportAvailable else { return }
-        if syncActive, control.attempt != nil {
-            do {
-                let attempt = try await extendAttemptToCurrent()
-                _ = try await submit(attempt)
-            } catch {
-                // The durable pending state remains available to the normal
-                // retry/watch path; editor admission itself stays nonblocking.
-            }
-            return
-        }
-        _ = try? await synchronize(admission: admission)
+        latestAdmission = admission
+        await ensureMachineEntered()
+        dispatch(.localHead(root: admission.candidateRoot, origin: .editor))
     }
 
     /**
@@ -210,6 +326,16 @@ public actor ReplicaSyncCoordinator {
     public func setTransportAvailable(_ available: Bool) async {
         let resumed = available && !transportAvailable
         transportAvailable = available
+        await ensureMachineEntered()
+        // The machine records availability; its resume effects are performed by
+        // the explicit recovery branches below so that a request whose first
+        // attempt is still hanging can be extended exactly once.
+        let phase = machine.phase
+        machine.transportAvailable = available
+        if !available, case let .locallyPending(head, _) = phase {
+            run(.cancelTimers)
+            machine.phase = .offline(availability: .transport, request: nil, transmitted: false, head: head)
+        }
         guard resumed else { return }
         if syncActive, control.attempt != nil {
             do {
@@ -242,9 +368,9 @@ public actor ReplicaSyncCoordinator {
         }
         syncActive = true
         defer { syncActive = false }
+        await ensureMachineEntered()
         var nextAdmission = admission
         var shouldExtendExistingAttempt = extendExistingAttempt
-        var followUp = admission != nil && control.attempt != nil
         var result = try await presentation()
         repeat {
             syncAgain = false
@@ -252,10 +378,11 @@ public actor ReplicaSyncCoordinator {
                 admission: nextAdmission,
                 extendExistingAttempt: shouldExtendExistingAttempt
             )
-            nextAdmission = nil
+            nextAdmission = latestAdmission
             shouldExtendExistingAttempt = false
-            if syncAgain || followUp {
-                followUp = false
+            if syncAgain {
+                // A successor retained during the request publishes against the
+                // applied base as one more pass.
                 let heads = try await replica.heads()
                 if heads.pendingRoot == nil || control.conflict != nil { syncAgain = false }
                 else { syncAgain = true }
@@ -298,14 +425,21 @@ public actor ReplicaSyncCoordinator {
                 remoteAdditions: true
             )
             try files.write(control)
+            noteConflict(validated, attempt: attempt)
             return control.presentation
         } catch let error as WireHTTPError where error.status == 401 || error.status == 403 {
             control.presentation.state = error.code == "device-revoked" ? .revoked : .authenticationFailure
             control.presentation.detail = error.message ?? error.code
             try files.write(control)
+            dispatch(.authenticationFailed(reason: error.code))
             return control.presentation
         } catch {
-            if error is ReplicaSyncError || error is ArborWireValidationError { terminal = true }
+            if error is ReplicaSyncError || error is ArborWireValidationError {
+                terminal = true
+                dispatch(.validationFailed(reason: String(describing: error)))
+            } else {
+                dispatch(.transportFailed(id: attempt.digest))
+            }
             control.presentation.state = .offline
             control.presentation.detail = String(describing: error)
             try? files.write(control)
@@ -313,9 +447,21 @@ public actor ReplicaSyncCoordinator {
         }
     }
 
+    private func noteConflict(_ validated: WireUpdateConflict, attempt: DurableSyncAttempt) {
+        dispatch(.conflicted(
+            id: attempt.digest,
+            conflict: DirectSyncMachine.ConflictEvidence(
+                current: .init(root: validated.current.root, update: validated.current.id),
+                draft: validated.draft.root,
+                localRoot: attempt.candidate
+            )
+        ))
+    }
+
     private func submit(_ attempt: DurableSyncAttempt) async throws -> WorkspaceSyncPresentation {
         guard inFlight.insert(attempt.digest).inserted else { return try await presentation() }
         defer { finishInFlight(attempt.digest) }
+        dispatch(.submitStarted(id: attempt.digest))
         do {
             let prepared = PreparedWireUpdate(tree: attempt.tree, body: attempt.body, requestDigests: attempt.allRequestDigests)
             let response = try await transport.submit(prepared)
@@ -338,6 +484,7 @@ public actor ReplicaSyncCoordinator {
                 remoteAdditions: true
             )
             try files.write(control)
+            noteConflict(validated, attempt: attempt)
             return control.presentation
         } catch {
             if control.attempt?.digest != attempt.digest { return try await presentation() }
@@ -354,6 +501,7 @@ public actor ReplicaSyncCoordinator {
         guard let conflict = control.conflict else { throw ReplicaSyncError.noConflict }
         control.nextBase = WireUpdateBase(root: conflict.response.current.root, update: conflict.response.current.id)
         control.conflict = nil
+        if case .conflict = machine.phase { dispatch(.resolveConflict(.local)) }
         control.presentation = WorkspaceSyncPresentation(
             state: .locallyPending,
             detail: "Conflict choice retained the local document as new intent",
@@ -365,7 +513,10 @@ public actor ReplicaSyncCoordinator {
         try files.write(control)
     }
 
-    public func close() { terminal = true }
+    public func close() {
+        terminal = true
+        run(.cancelTimers)
+    }
 
     private func createAttempt(admission: ReplicaPatchAdmission? = nil) async throws -> DurableSyncAttempt {
         let heads = try await replica.heads()
@@ -424,7 +575,19 @@ public actor ReplicaSyncCoordinator {
         )
         try files.write(control)
         try faultInjector.reached(.afterRequestPersistence)
+        notePersisted(attempt)
         return attempt
+    }
+
+    /// Record the persisted request in the machine, entering `locally-pending` first if the pass started it.
+    private func notePersisted(_ attempt: DurableSyncAttempt) {
+        switch machine.phase {
+        case .current, .prepared, .submitting, .submittingPending, .acceptedPendingApply, .conflict:
+            machine.phase = .locallyPending(head: .init(root: attempt.candidate, origin: .editor), preparing: true)
+        default:
+            break
+        }
+        dispatch(.requestPersisted(Self.preparedRequest(attempt)))
     }
 
     /** Persist and return a longer request while an older prefix remains in flight. */
@@ -464,6 +627,11 @@ public actor ReplicaSyncCoordinator {
         )
         try files.write(control)
         try faultInjector.reached(.afterRequestPersistence)
+        if case .offline = machine.phase {
+            dispatch(.requestPersisted(Self.preparedRequest(attempt)))
+        } else {
+            notePersisted(attempt)
+        }
         return attempt
     }
 
@@ -539,11 +707,16 @@ public actor ReplicaSyncCoordinator {
         guard control.attempt?.digest == attempt.digest else { return }
         let accepted: WireAcceptedUpdate
         let merge: WireMergeSummary?
+        let outcome: DirectSyncMachine.AuthorityResult.Kind
         switch final.result {
-        case let .current(update): accepted = update; merge = nil
-        case let .accepted(update): accepted = update; merge = nil
-        case let .merged(update, summary): accepted = update; merge = summary
+        case let .current(update): accepted = update; merge = nil; outcome = .current
+        case let .accepted(update): accepted = update; merge = nil; outcome = .accepted
+        case let .merged(update, summary): accepted = update; merge = summary; outcome = .merged
         }
+        dispatch(.accepted(
+            id: attempt.digest,
+            result: .init(kind: outcome, root: accepted.root, update: accepted.id, cursor: accepted.id, digests: attempt.allRequestDigests)
+        ))
         if final.reconciliation == nil, accepted.root != attempt.candidate {
             throw ReplicaSyncError.returnedSnapshotMissing
         }
@@ -559,6 +732,7 @@ public actor ReplicaSyncCoordinator {
                 control.nextBase = nil
                 setAppliedPresentation(accepted: accepted, merge: merge)
                 try files.write(control)
+                dispatch(.applied)
                 return
             }
             // New local work was acknowledged after this request was frozen. If
@@ -586,6 +760,17 @@ public actor ReplicaSyncCoordinator {
                 approximatePlacements: merge?.approximatePlacements ?? 0
             )
             try files.write(control)
+            // The accepted decision is durable; the retained successor publishes
+            // against the advanced base as the next pass.
+            if case let .acceptedPendingApply(result, request, head) = machine.phase {
+                machine.phase = .acceptedPendingApply(
+                    result: result,
+                    request: request,
+                    head: head ?? .init(root: heads.materializedRoot, origin: .editor)
+                )
+            }
+            dispatch(.applied)
+            syncAgain = true
             return
         }
 
@@ -621,6 +806,7 @@ public actor ReplicaSyncCoordinator {
         control.nextBase = nil
         setAppliedPresentation(accepted: accepted, merge: merge)
         try files.write(control)
+        dispatch(.applied)
     }
 
     private func retainedObjectHashes(root: String) async throws -> Set<String> {

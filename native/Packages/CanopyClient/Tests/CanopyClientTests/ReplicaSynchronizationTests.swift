@@ -350,10 +350,10 @@ struct ReplicaSynchronizationTests {
         }
     }
 
-    @Test("A later native edit posts a longer update string before the prefix response returns")
-    func fullDuplexUpdateString() async throws {
+    @Test("A later native edit is one retained successor; no concurrent request is posted until the prefix resolves")
+    func oneRequestInFlightWithOneSuccessor() async throws {
         try await withTemporaryRoot { root in
-            let tree = "tr_fullduplex"
+            let tree = "tr_successor"
             let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
             let gate = FirstRequestGate()
             let transport = ClosureTransport(initial: initial) { prepared, call in
@@ -362,7 +362,7 @@ struct ReplicaSynchronizationTests {
                 var previous = initial.root
                 let results = request.updates.enumerated().map { index, candidate in
                     let update = accepted(
-                        id: "up_full_\(index + 1)",
+                        id: "up_successor_\(call)_\(index + 1)",
                         tree: tree,
                         root: candidate.candidate,
                         base: previous,
@@ -374,7 +374,7 @@ struct ReplicaSynchronizationTests {
                         requestDigest: prepared.requestDigests[index]
                     )
                 }
-                return WireUpdateResponse(results: results, observedThrough: "up_full_\(results.count)")
+                return WireUpdateResponse(results: results, observedThrough: "up_successor_\(call)_\(results.count)")
             }
             let replica = try await ReplicaPlacementService.place(
                 tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
@@ -391,24 +391,71 @@ struct ReplicaSynchronizationTests {
                 baseContentRevision: first.contentRevision,
                 edits: [.init(utf8Range: Data(first.source.utf8).count..<Data(first.source.utf8).count, replacement: "One\n")]
             ))
-            for _ in 0..<100 where !(await gate.waiting) { try await Task.sleep(for: .milliseconds(10)) }
+            // The admission is durable before any request; publication follows the trailing delay.
+            #expect(await transport.requests.isEmpty)
+            for _ in 0..<200 where !(await gate.waiting) { try await Task.sleep(for: .milliseconds(10)) }
+            #expect(await gate.waiting)
             let second = try await session.snapshot()
             _ = try await session.admit(patch: WorkspaceDocumentPatch(
                 baseContentRevision: second.contentRevision,
                 edits: [.init(utf8Range: Data(second.source.utf8).count..<Data(second.source.utf8).count, replacement: "Two\n")]
             ))
-            for _ in 0..<100 where await transport.requests.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+            try await Task.sleep(for: .milliseconds(400))
+            // The second generation is retained as the single successor of the request in flight.
+            #expect(await transport.requests.count == 1)
+            #expect(await coordinator.syncState.kind == "submitting-pending")
+            await gate.release()
+            for _ in 0..<200 where await transport.requests.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+            for _ in 0..<200 where try await replica.heads().pendingRoot != nil { try await Task.sleep(for: .milliseconds(10)) }
             let requests = await transport.requests
             #expect(requests.count == 2)
-            let short = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
-            let long = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
-            #expect(short.base == long.base)
-            #expect(short.updates.count == 1)
-            #expect(long.updates.count == 2)
-            #expect(Array(long.updates.prefix(1)) == short.updates)
-            await gate.release()
-            for _ in 0..<100 where try await replica.heads().pendingRoot != nil { try await Task.sleep(for: .milliseconds(10)) }
+            let prefix = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[0].body)
+            let successor = try JSONDecoder().decode(WireUpdateRequest.self, from: requests[1].body)
+            #expect(prefix.updates.count == 1)
+            // The successor is a new request against the applied base, not a longer concurrent prefix.
+            #expect(successor.updates.count == 1)
+            #expect(successor.base == "up_successor_1_1")
+            #expect(successor.updates.first?.candidate == (try await replica.heads().materializedRoot))
             #expect(try await replica.heads().pendingRoot == nil)
+            #expect(await coordinator.syncState.kind == "current")
+        }
+    }
+
+    @Test("A burst of native admissions before the publication delay becomes one request")
+    func burstCoalescesBeforePublication() async throws {
+        try await withTemporaryRoot { root in
+            let tree = "tr_burst"
+            let initial = try snapshot(markdown: "---\nid: pg_note\n---\n\n# Note\n\nBase\n")
+            let transport = ClosureTransport(initial: initial) { prepared, call in
+                let request = try JSONDecoder().decode(WireUpdateRequest.self, from: prepared.body)
+                let update = accepted(id: "up_burst_\(call)", tree: tree, root: request.candidate, base: initial.root, candidate: request.candidate)
+                return WireUpdateResponse(result: .accepted(update), requestDigest: prepared.requestDigest, observedThrough: update.id)
+            }
+            let replica = try await ReplicaPlacementService.place(
+                tree: descriptor(tree: tree, snapshot: initial, update: "up_initial"),
+                at: root.appending(path: "replica"),
+                transport: transport
+            )
+            let coordinator = try ReplicaSyncCoordinator(replica: replica, transport: transport, stateRoot: root.appending(path: "sync"))
+            let provider = ReplicaWorkspaceProvider(replica: replica) { admission in await coordinator.syncImmediately(admission) }
+            let session = try await provider.openDocument(
+                .init(tree: TreeID(rawValue: tree), path: "/note", stableKey: markdownStableKey("pg_note"))
+            )
+            for index in 1...15 {
+                let current = try await session.snapshot()
+                _ = try await session.admit(patch: WorkspaceDocumentPatch(
+                    baseContentRevision: current.contentRevision,
+                    edits: [.init(utf8Range: Data(current.source.utf8).count..<Data(current.source.utf8).count, replacement: "Move \(index)\n")]
+                ))
+            }
+            #expect(await transport.requests.isEmpty)
+            for _ in 0..<300 where try await replica.heads().pendingRoot != nil { try await Task.sleep(for: .milliseconds(10)) }
+            let requests = await transport.requests
+            #expect(requests.count == 1)
+            let request = try JSONDecoder().decode(WireUpdateRequest.self, from: try #require(requests.first?.body))
+            #expect(request.updates.count == 1)
+            #expect(request.candidate == (try await replica.heads().materializedRoot))
+            #expect((try await session.snapshot()).source.hasSuffix("Move 15\n"))
         }
     }
 
