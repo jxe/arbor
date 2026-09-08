@@ -145,6 +145,7 @@ struct ArborSidebarRow: View {
 #if os(macOS)
 struct ArborSidebarSearchRow: View {
     let result: WorkspaceSearchResult
+    let showsBacklinkCount: Bool
     let open: () -> Void
 
     var body: some View {
@@ -164,8 +165,8 @@ struct ArborSidebarSearchRow: View {
                     Text(titleParts.text)
                         .font(.system(size: 14))
                         .lineLimit(1)
-                    if result.reference.path != "/" {
-                        Text(result.reference.path)
+                    if let contextPath = arborSidebarContextPath(result.reference.path) {
+                        Text(contextPath)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -173,9 +174,11 @@ struct ArborSidebarSearchRow: View {
                     }
                 }
                 Spacer(minLength: 4)
-                Text("\(result.backlinkCount)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                if showsBacklinkCount {
+                    Text("\(result.backlinkCount)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
             }
             .contentShape(.rect)
         }
@@ -183,6 +186,10 @@ struct ArborSidebarSearchRow: View {
     }
 }
 #endif
+
+func arborSidebarContextPath(_ path: String) -> String? {
+    path.split(separator: "/", omittingEmptySubsequences: true).count > 1 ? path : nil
+}
 
 private func arborSidebarTitleParts(_ title: String) -> (emoji: String?, text: String) {
     guard let first = title.first, WorkspaceDisplayTitle.isEmoji(first) else {

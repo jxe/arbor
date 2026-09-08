@@ -104,10 +104,12 @@ For the desktop sidebar:
   document glyph when present; otherwise retain one restrained document glyph;
 - show the authored title without repeating its emoji and increase row type
   slightly; and
-- place a compact alphabetical/recent page-order toggle beside search, keep
-  alphabetical as the default contextual child view, and group the recent view
-  under calendar-relative headings such as **Today**, **This Week**, **This
-  Month**, and **Earlier** using each result's source modification time; and
+- place a compact page-order menu beside search with **Alphabetical**,
+  **Recent**, and **Link Count** choices; keep alphabetical as the default
+  contextual child view; group recent results under calendar-relative headings
+  such as **Today**, **This Week**, **This Month**, and **Earlier**; and group
+  link-count results under **0 Links**, **1 Link**, and **Multiple Links**, with
+  numeric counts visible only in the multiple-links group; and
 - keep contextual child loading, selection, context menus, and local sidebar
   width/collapse persistence intact.
 
@@ -130,14 +132,17 @@ The search view must:
 
 - issue the empty query on first presentation so pages appear before typing;
 - preserve the selected page order while searching: alphabetical mode sorts by
-  authored title with path as a stable tie-breaker, while recent mode sorts by
-  modification time and retains the same calendar-relative groups;
+  authored title with path as a stable tie-breaker, recent mode sorts by
+  modification time and retains the same calendar-relative groups, and link
+  count mode retains the same count groups and sorts the multiple-links group
+  by descending count;
 - retain the current-tree/all-trees scope choice without disabling useful
   empty-state navigation;
 - cancel or disregard stale requests and preserve the current 120 ms debounce
   only for non-empty text;
-- show the leading emoji as the row icon, the authored H1 as the primary label,
-  and the parent path as a secondary VS Code-style location;
+- show the leading emoji as the row icon and the authored H1 as the primary
+  label; show a secondary path only for pages nested in a subdirectory, where
+  it adds disambiguating context;
 - retain exact URLs for navigation across nested and mounted tree boundaries;
 - show an inbound-link indicator for every page, including zero, with readable
   singular/plural accessibility labels; and

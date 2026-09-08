@@ -221,35 +221,46 @@ struct ArborAppTests {
     }
 
 #if os(macOS)
-    @Test("Sidebar page orders sort searches and group recent pages by calendar period")
+    @Test("Sidebar page orders sort and group searches")
     func sidebarPageOrders() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
         calendar.firstWeekday = 2
         let now = try #require(ISO8601DateFormatter().date(from: "2026-09-09T12:00:00Z"))
         let tree = TreeID(rawValue: "tr_sample")
-        let result: (String, String, String) -> WorkspaceSearchResult = { title, path, timestamp in
+        let result: (String, String, String, Int) -> WorkspaceSearchResult = { title, path, timestamp, backlinks in
             WorkspaceSearchResult(
                 reference: WorkspaceReference(tree: tree, path: path),
                 title: title,
-                modifiedAt: ISO8601DateFormatter().date(from: timestamp)
+                modifiedAt: ISO8601DateFormatter().date(from: timestamp),
+                backlinkCount: backlinks
             )
         }
         let results = [
-            result("Beta", "/beta", "2026-09-09T11:00:00Z"),
-            result("🌲 Alpha", "/alpha", "2026-09-08T11:00:00Z"),
-            result("Monthly", "/monthly", "2026-09-02T11:00:00Z"),
-            result("Older", "/older", "2026-08-01T11:00:00Z"),
+            result("Beta", "/beta", "2026-09-09T11:00:00Z", 0),
+            result("🌲 Alpha", "/alpha", "2026-09-08T11:00:00Z", 1),
+            result("Monthly", "/monthly", "2026-09-02T11:00:00Z", 2),
+            result("Older", "/older", "2026-08-01T11:00:00Z", 4),
         ]
 
         #expect(ArborSidebarPages.sorted(results, by: .alphabetical).map(\.title)
             == ["🌲 Alpha", "Beta", "Monthly", "Older"])
         #expect(ArborSidebarPages.sorted(results, by: .recent).map(\.title)
             == ["Beta", "🌲 Alpha", "Monthly", "Older"])
+        #expect(ArborSidebarPages.sorted(results, by: .linkCount).map(\.title)
+            == ["Older", "Monthly", "🌲 Alpha", "Beta"])
         let groups = ArborSidebarPages.recentGroups(results, now: now, calendar: calendar)
         #expect(groups.map(\.title) == ["Today", "This Week", "This Month", "Earlier"])
         #expect(groups.map { $0.results.map(\.title) }
             == [["Beta"], ["🌲 Alpha"], ["Monthly"], ["Older"]])
+        let linkGroups = ArborSidebarPages.linkCountGroups(results)
+        #expect(linkGroups.map(\.title) == ["0 Links", "1 Link", "Multiple Links"])
+        #expect(linkGroups.map { $0.results.map(\.title) }
+            == [["Beta"], ["🌲 Alpha"], ["Older", "Monthly"]])
+        #expect(linkGroups.map(\.showsBacklinkCounts) == [false, false, true])
+        #expect(arborSidebarContextPath("/arbor-demo") == nil)
+        #expect(arborSidebarContextPath("/March-Out-My-Work/arbor-demo")
+            == "/March-Out-My-Work/arbor-demo")
     }
 #endif
 
