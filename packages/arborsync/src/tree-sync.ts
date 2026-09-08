@@ -50,6 +50,8 @@ type TreeRefWatchEvent = Extract<WatchEvent, { kind: "tree.update" }>;
 
 const INITIAL_WATCH_BACKOFF_MS = 1_000;
 const MAX_WATCH_BACKOFF_MS = 30_000;
+/** Delayed watcher delivery must not outlive editor ownership handoff. */
+const RECENT_EDITOR_GRACE_MS = 30_000;
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -75,9 +77,24 @@ export class TreeSynchronizer {
   private readonly queued = new Map<string, TreeRefWatchEvent[]>();
   private readonly watches = new Map<string, { abort: AbortController; done: Promise<void> }>();
   private readonly editorPushes = new Map<string, Map<string, Promise<void>>>();
+  private readonly recentEditorActivity = new Map<string, number>();
+  /** Exact roots written by this process, including pre-metadata handoff windows. */
+  private readonly lastMaterializedRoots = new Map<string, ObjectHash>();
   private closed = false;
 
   constructor(private readonly deps: TreeSyncDeps) {}
+
+  /** During an editor epoch disk is a materialized mirror, not local intent. */
+  noteEditorActivity(tree: string): void {
+    this.recentEditorActivity.set(tree, Date.now() + RECENT_EDITOR_GRACE_MS);
+  }
+
+  private hasRecentEditorActivity(tree: string): boolean {
+    const until = this.recentEditorActivity.get(tree) ?? 0;
+    if (until > Date.now()) return true;
+    this.recentEditorActivity.delete(tree);
+    return false;
+  }
 
   private snapshotWorkspace(
     workspace: Workspace,
@@ -168,6 +185,7 @@ export class TreeSynchronizer {
       undefined,
       this.deps.trees.excludedMountsWithin(workspace.root),
     );
+    this.lastMaterializedRoots.set(workspace.tree, snapshot.root);
     await rememberAcceptedRequestDigests(workspace.tree, acceptedRequestDigests);
     // Cursor ordering and request-digest correlation have already established
     // that this is accepted Wire state. Publish that causal fact directly
@@ -458,7 +476,8 @@ export class TreeSynchronizer {
       this.conflicts.add(workspace.tree);
       return;
     }
-    if ((await pendingEditorAdmissions(workspace.tree)).some((admission) => !admission.acknowledged)) {
+    const retainedEditorAdmissions = await pendingEditorAdmissions(workspace.tree);
+    if (retainedEditorAdmissions.some((admission) => !admission.acknowledged)) {
       // Editor admissions are already durable and represent the earliest
       // authored order. Do not let a filesystem snapshot overtake them and
       // turn same-device edits into artificial three-way merges.
@@ -520,6 +539,32 @@ export class TreeSynchronizer {
       await this.pullCurrent(workspace, placement, client, remoteTrees, current, local);
       return;
     }
+    const filesystemIsEditorMirror = retainedEditorAdmissions.length > 0
+      || this.hasRecentEditorActivity(workspace.tree);
+    if (filesystemIsEditorMirror && pending?.origin !== "local-api") {
+      // Editor admissions are the sole local source during this epoch. Bytes
+      // materialized from an earlier accepted prefix must not be frozen as a
+      // fresh filesystem candidate and sent back to Canopy. A root this
+      // process actually materialized may advance; any other divergence is
+      // unsafe to overwrite and requires explicit reconciliation.
+      if (pending) await clearPendingTreeUpdate(workspace.tree);
+      if (this.lastMaterializedRoots.get(workspace.tree) === local.root) {
+        await this.pullCurrent(workspace, placement, client, remoteTrees, current);
+        return;
+      }
+      trees.setSyncState(workspace.tree, "conflict");
+      const firstConflict = !this.conflicts.has(workspace.tree);
+      this.conflicts.add(workspace.tree);
+      if (firstConflict) {
+        this.deps.events.emit({
+          tree: workspace.tree,
+          kind: "diagnostic",
+          ref: { tree: workspace.tree, path: "/", stableKey: null },
+          origin: "sync",
+        });
+      }
+      return;
+    }
     if (placement.access !== "write") {
       trees.setSyncState(workspace.tree, "conflict");
       return;
@@ -563,13 +608,13 @@ export class TreeSynchronizer {
               root: accepted.root,
               hashes: [...retainedHashes],
             });
-            pending = pendingFromSnapshot(accepted.id, local, retainedHashes);
+            pending = pendingFromSnapshot(accepted.id, local, retainedHashes, pending.origin);
           } else {
             const retained = await acceptedTreeObjects(workspace.tree);
             const retainedHashes = retained && retained.root === placement.ref
               ? new Set(retained.hashes)
               : new Set<ObjectHash>();
-            pending = pendingFromSnapshot(pending.base, local, retainedHashes);
+            pending = pendingFromSnapshot(pending.base, local, retainedHashes, pending.origin);
           }
           await savePendingTreeUpdate(workspace.tree, pending);
           continue;

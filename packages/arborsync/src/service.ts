@@ -291,6 +291,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
           // string instead of minting a new epoch from the older on-disk root.
           // Keeping this decision local preserves offline admission while also
           // making reconnects and authoritative refreshes sequential.
+          this.treeSync.noteEditorActivity(scope.workspace.tree);
           return {
             ...response,
             content: { ...response.content, source: retainedAdmission.source },
@@ -312,7 +313,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
           (directory, sourceName) => scope.workspace.describeWireCollectionFile(directory, sourceName),
         );
         // Never attach an accepted basis to unsubmitted local filesystem state.
-        if (accepted.root !== placement.ref) return response;
+        if (accepted.root !== placement.ref || await pendingTreeUpdate(scope.workspace.tree)) return response;
+        this.treeSync.noteEditorActivity(scope.workspace.tree);
         return {
           ...response,
           admissionBasis: documentAdmissionBasis({
@@ -626,6 +628,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     if (!placement?.update || placement.access !== "write") {
       throw new ProtocolError("unsupported-operation", "Authority admission requires a writable Canopy placement", 422);
     }
+    this.treeSync.noteEditorActivity(scope.workspace.tree);
     let frozen: ReturnType<typeof freezeEditorAdmission>;
     try {
       frozen = await appendPendingEditorAdmission(
@@ -1046,6 +1049,8 @@ export class ArborSyncDaemon implements AsyncDisposable {
       pendingFromSnapshot(
         conflict.details.current.id,
         candidate,
+        new Set(),
+        "local-api",
       ),
     );
     await clearTreeConflict(tree);
@@ -1103,7 +1108,7 @@ export class ArborSyncDaemon implements AsyncDisposable {
     );
     if (snapshot.root === placement.ref) return;
     const retainedHashes = new Set(retained.hashes);
-    let pending = pendingFromSnapshot(placement.update, snapshot, retainedHashes);
+    let pending = pendingFromSnapshot(placement.update, snapshot, retainedHashes, "local-api");
 
     const baseBytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(admission.baseSource) });
     const resultBytes = encodeWireObject({ type: "file", bytes: new TextEncoder().encode(admission.resultSource) });

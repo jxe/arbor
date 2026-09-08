@@ -193,6 +193,38 @@ describe("private self-sync", () => {
     }
   });
 
+  test("preserves divergent mirror bytes without submitting or overwriting them", async () => {
+    const author = await launch(stateA, treeA);
+    try {
+      await waitFor(async () => (await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
+      const ref = { tree, path: "/note", stableKey: null } as const;
+      const opened = await author.client.editorNode(ref);
+      const acceptedSource = nodeDocument(opened)!.source;
+      expect(opened.admissionBasis).toBeString();
+      const historyBefore = host.canopy.acceptedUpdates(tree).length;
+      const divergentSource = "# Stale materialized editor state\n";
+
+      // Model a delayed watcher view of bytes written during synchronization.
+      // Once an editor owns the tree, this is a mirror observation rather than
+      // a second authoring channel.
+      await writeFile(join(treeA, "note.md"), divergentSource);
+      await Bun.sleep(150);
+      await author.running.service.synchronizeNow();
+
+      expect(await readFile(join(treeA, "note.md"), "utf8")).toBe(divergentSource);
+      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore);
+      expect(await pendingTreeUpdate(tree)).toBeUndefined();
+      expect((await author.running.service.trees.descriptors())
+        .find((descriptor) => descriptor.id === tree)?.sync).toBe("conflict");
+
+      await writeFile(join(treeA, "note.md"), acceptedSource);
+      await author.running.service.synchronizeNow();
+    } finally {
+      await author.close();
+    }
+  });
+
   test("places one TreeID in two isolated Arbor homes and pulls edits", async () => {
     const first = await launch(stateA, treeA);
     expect((await first.client.trees()).snapshot.some((descriptor) => descriptor.id === tree)).toBe(true);
@@ -451,7 +483,7 @@ describe("private self-sync", () => {
     }
   });
 
-  test("keeps interleaved editor sessions as sibling Canopy candidates before disk sync", async () => {
+  test("keeps interleaved editor sessions as sibling Canopy candidates", async () => {
     const author = await launch(stateA, treeA);
     await waitFor(async () => (await author.running.service.trees.descriptors())
       .find((descriptor) => descriptor.id === tree)?.sync === "idle");
@@ -489,7 +521,6 @@ describe("private self-sync", () => {
     const firstNoteSource = `${noteSource}\nFirst editor epoch.\n`;
     const secondNoteSource = `${firstNoteSource}Return to first editor epoch.\n`;
     const admittedRoot = `${rootSource}\nSecond editor epoch.\n`;
-    const externalPath = join(treeA, "external-during-editor.md");
     try {
       const firstNote = await author.client.admitDocumentCandidate(
         noteRef,
@@ -517,51 +548,29 @@ describe("private self-sync", () => {
         [{ offset: Buffer.byteLength(firstNoteSource), length: 0, replacement: "Return to first editor epoch.\n" }],
         "note-editor",
       );
-      await writeFile(externalPath, "# External while editor admissions are pending\n");
-      const externalRoot = (await snapshotDirectory(treeA)).root;
       await Bun.sleep(100);
       expect(updateBodies[0].updates).toHaveLength(1);
       expect(updateBodies).toHaveLength(1);
       releaseFirst();
 
-      await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 4
-        && (await readFile(join(treeA, "note.md"), "utf8")) === secondNoteSource
+      await waitFor(async () => host.canopy.acceptedUpdates(tree).length >= historyBefore + 3);
+      await waitFor(async () => (await readFile(join(treeA, "note.md"), "utf8")) === secondNoteSource
         && (await readFile(join(treeA, "_index.md"), "utf8")) === admittedRoot);
+      expect(host.canopy.acceptedUpdates(tree)).toHaveLength(historyBefore + 3);
       const noteContinuation = updateBodies.find((body) => body.updates.length === 2)!;
       expect(noteContinuation.updates[0]).toEqual(updateBodies[0].updates[0]);
       expect(updateBodies.some((body) => body.updates.length === 1
         && body.updates[0].candidate !== updateBodies[0].updates[0].candidate
-        && body.updates[0].candidate !== externalRoot)).toBe(true);
-      expect(updateBodies.at(-1)!.updates).toHaveLength(1);
-      expect(updateBodies.at(-1)!.updates[0].candidate).toBe(externalRoot);
+      )).toBe(true);
       const accepted = host.canopy.acceptedUpdates(tree).slice(historyBefore);
-      expect(accepted.slice(0, 3).map((update) => update.kind)).toEqual(["accepted", "merged", "merged"]);
-      expect(accepted[3]?.kind).toBe("merged");
+      expect(accepted.map((update) => update.kind)).toEqual(["accepted", "merged", "merged"]);
 
-      const currentNote = await author.client.node(noteRef);
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref: noteRef,
-        baseContentRevision: currentNote.capabilities.content!.revision,
-        source: noteSource,
-      });
-      const currentRoot = await author.client.node(rootRef);
-      await author.client.mutateContent({
-        op: "writeMarkdown",
-        ref: rootRef,
-        baseContentRevision: currentRoot.capabilities.content!.revision,
-        source: rootSource,
-      });
-      await rm(externalPath);
-      await waitFor(async () => (await author.running.service.trees.descriptors())
-        .find((descriptor) => descriptor.id === tree)?.sync === "idle");
     } finally {
       releaseFirst();
       globalThis.fetch = systemFetch;
-      await rm(externalPath, { force: true });
       await author.close();
     }
-  });
+  }, 10_000);
 
   test("starts a fresh editor epoch after its accepted prefix materializes", async () => {
     const author = await launch(stateA, treeA);

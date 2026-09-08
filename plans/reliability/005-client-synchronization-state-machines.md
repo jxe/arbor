@@ -62,7 +62,10 @@ Arbor publishes and tests two explicit client state machines:
    one candidate head, persists an exact request before transmission, retries
    ambiguous requests without changing their semantic identity, preserves one
    newer local head behind an in-flight request, and advances the accepted base
-   only after validating and durably applying the authority result.
+   only after validating and durably applying the authority result. For an
+   Arbor Sync placement it also carries explicit source ownership: while an
+   editor admission is active or recent, disk is a materialized mirror and
+   cannot create a local candidate.
 
 Both machines have language-neutral transition scenarios. The TypeScript web
 editor and Swift native editor run the first machine. TypeScript Arbor Sync and
@@ -286,6 +289,12 @@ platform's existing durable store. Shared fixtures use these semantic states:
 | `offline` | one of the durable pending/prepared shapes plus classified availability failure | Retry resumes from durable state without changing semantic identity. |
 | `terminal` | diagnostic reason and retained durable files | A validation/programming invariant failed; automatic mutation stops. |
 
+For Arbor Sync, every state also carries a filesystem role: `source` when an
+external disk edit may create a durable local head, or `editor-mirror` while an
+editor admission remains durable and for a bounded watcher-handoff grace period
+after the latest editor basis or admission. This is an input to the machine,
+not a third synchronization state.
+
 Required transitions and invariants:
 
 0. Entry from first placement is only the Reliability 006
@@ -300,6 +309,21 @@ Required transitions and invariants:
    availability. The scheduler uses a trailing 250 ms remote-publication delay
    with a one-second maximum from the first unsent durable head. Explicit Sync,
    shutdown drain where supported, and reconnection bypass the trailing delay.
+   An Arbor Sync filesystem observation may enter this transition only while
+   its filesystem role is `source`. In `editor-mirror`, Arbor Sync reconciles
+   disk to accepted Canopy state and never prepares or submits those bytes.
+   Pending editor admissions hold `editor-mirror` without a timeout; issuing an
+   editor admission basis or receiving an admission refreshes a bounded grace
+   period covering delayed watcher delivery after retirement. Arbor Sync must
+   not issue a new editor basis while a filesystem candidate is pending. It may
+   replace disk with newer accepted state only when disk still matches the last
+   accepted root it materialized. If disk differs, preserve it, submit nothing,
+   overwrite nothing, and enter a visible workspace-revision conflict rather
+   than guessing its provenance.
+   This fence applies to filesystem observations, not explicit Local Arbor API
+   mutations: the durable pending head must retain its source provenance so an
+   API mutation remains authored intent rather than being discarded as a
+   watcher echo.
 2. Before any POST, persist one exact request from the applied accepted base to
    the latest durable local head. Collapse all unsent intermediate generations;
    one candidate represents one intentional accepted-history boundary.
@@ -428,6 +452,18 @@ Cover at minimum:
 - restart in every durable direct-client state;
 - accepted/merged result with later local work -> apply authority result, then
   submit the retained latest head against the new base;
+- accepted editor state materializes while a later editor admission exists ->
+  watcher observations remain mirror acknowledgements and create no filesystem
+  candidate or Canopy request;
+- an editor admission retires, then its delayed watcher observation arrives in
+  the handoff grace period -> disk remains a mirror and creates no request;
+- the grace expires, then genuinely different external bytes appear -> disk
+  becomes a source and creates one ordinary candidate;
+- disk diverges from the last materialized accepted root while its role is
+  `editor-mirror` -> preserve both sides, submit and overwrite nothing, and
+  surface a workspace-revision conflict;
+- an explicit Local Arbor API mutation arrives during `editor-mirror` -> retain
+  its API provenance and treat it as authored intent rather than a disk echo;
 - malformed result -> terminal without materialization/base advancement;
 - conflict plus later local work -> preserve all evidence and latest head;
 - explicit conflict resolution -> new request at verified current base.
@@ -509,6 +545,16 @@ recovery only. General filesystem watcher bursts use the same 250 ms trailing,
 one-second maximum publication boundary rather than freezing every observed
 intermediate root.
 
+Make filesystem source authority explicit in `TreeSynchronizer`. Any retained
+editor admission, acknowledged or not, keeps the placement in `editor-mirror`;
+editor basis reads and admissions refresh the bounded watcher-handoff grace
+period. While that role applies, discard a delayed filesystem pending candidate
+instead of preparing a Wire request. Pull/materialize a newer accepted Canopy
+root only if disk still equals the last accepted root Arbor Sync materialized;
+otherwise preserve disk and surface a workspace-revision conflict. Do not use
+content equality as proof of authorship: a root Arbor Sync materialized is sync
+provenance, not new intent merely because a watcher later reports its bytes.
+
 Do not collapse independent editor epochs into one speculative graph when they
 share a base: they remain distinct candidates for Canopy merge. Compaction is
 safe only within the same writer/document epoch or for successive snapshots of
@@ -517,7 +563,9 @@ scope in types and tests; never infer it from timing alone.
 
 **Verify**: `bun run test:sync-merge` -> all tests pass; burst tests assert one
 ordinary POST/accepted candidate, ambiguous retry tests assert exact identity,
-and concurrent independent editors still reach Canopy as sibling candidates.
+concurrent independent editors still reach Canopy as sibling candidates, and
+an accepted intermediate editor root observed through disk is never submitted
+back to Canopy.
 
 ### Step 5: Put the direct Canopy machine in Swift replica synchronization
 

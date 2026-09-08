@@ -20,7 +20,11 @@ import type { FrozenEditorAdmission } from "./editor-admission.ts";
 import type { Hash } from "@arbor/core";
 
 /** The durable pending update is exactly the wire request body it will become. */
-export type PendingTreeUpdate = CandidateUpdateJSON & { base: string | null };
+export type PendingTreeUpdate = CandidateUpdateJSON & {
+  base: string | null;
+  /** Explicit Local Arbor API intent remains authoritative during an editor epoch. */
+  origin?: "local-api";
+};
 
 export interface AcceptedTreeObjects {
   root: ObjectHash;
@@ -93,6 +97,7 @@ export function pendingFromSnapshot(
   base: string | null,
   snapshot: TreeSnapshot,
   retained: ReadonlySet<ObjectHash> = new Set(),
+  origin?: PendingTreeUpdate["origin"],
 ): PendingTreeUpdate {
   return {
     base,
@@ -100,6 +105,7 @@ export function pendingFromSnapshot(
     ifMatch: base === null ? "bytesHash" : "modelHash",
     objects: encodeObjectEnvelopes([...snapshot.objects].filter(([hash]) => !retained.has(hash))),
     deltas: [],
+    ...(origin ? { origin } : {}),
   };
 }
 
