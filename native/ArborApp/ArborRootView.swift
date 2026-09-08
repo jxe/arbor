@@ -507,8 +507,16 @@ struct ArborRootView: View {
 #if os(macOS)
             // The hosted test app must not restore a real user bookmark: tests open
             // their own temporary workspace and own that helper's full lifetime.
-            if ProcessInfo.processInfo.environment["ARBOR_TEST_BUNDLED_HELPER"] != "1" {
+            let environment = ProcessInfo.processInfo.environment
+            if environment["ARBOR_TEST_BUNDLED_HELPER"] != "1" {
                 await workspace.restoreLocalWorkspaceIfAvailable()
+            } else if let path = environment["ARBOR_TEST_WORKSPACE"], !path.isEmpty {
+                // A hosted smoke run names its disposable workspace explicitly.
+                do {
+                    try await workspace.openLocalWorkspace(URL(fileURLWithPath: path, isDirectory: true), remember: false)
+                } catch {
+                    workspace.errorMessage = error.localizedDescription
+                }
             }
 #endif
             voiceLaunchReady = true
@@ -2703,11 +2711,29 @@ struct ArborIOSLaunchView: View {
                 }
             }
         } else {
-            ContentUnavailableView(
-                "QR scanning unavailable",
-                systemImage: "qrcode.viewfinder",
-                description: Text("This iPhone cannot start the camera scanner.")
-            )
+            VStack(spacing: 16) {
+                ContentUnavailableView(
+                    "QR scanning unavailable",
+                    systemImage: "qrcode.viewfinder",
+                    description: Text("This iPhone cannot start the camera scanner. Copy the pairing code from Arbor on your Mac and paste it here.")
+                )
+                Button("Paste Pairing Code", systemImage: "doc.on.clipboard") {
+                    guard let raw = UIPasteboard.general.string, !raw.isEmpty else {
+                        scanError = "The clipboard has no pairing code."
+                        return
+                    }
+                    phase = .claiming
+                    Task { await claim(raw) }
+                }
+                .buttonStyle(.borderedProminent)
+                if let scanError {
+                    Text(scanError)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+            }
         }
     }
 
