@@ -205,10 +205,10 @@ public final class ArborDocumentBinding {
         // against the verified current revision. The editor is replaced only
         // when the provider acknowledges it; a failed retry leaves both the
         // editor tree and the recoverable conflict evidence intact.
+        lastError = nil
         dispatch(.edit(source: source))
         dispatch(.resolveConflict(keepSubmitted: true))
         await settle()
-        if let updated = self.conflict { throw updated }
         if let error = lastError { throw error }
     }
 
