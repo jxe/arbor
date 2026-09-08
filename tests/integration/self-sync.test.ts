@@ -1253,7 +1253,7 @@ describe("private self-sync", () => {
       const descriptor = (await restarted.client.trees()).snapshot.find((candidate) => candidate.id === tree);
       return descriptor?.sync === "conflict";
     });
-    await restarted.client.resolveConflict(tree, "local");
+    await restarted.running.service.resolveTreeConflict(tree, "local");
     await waitFor(async () => host.canopy.acceptedUpdates(tree).length === historyBefore + 2);
     await restarted.close();
 

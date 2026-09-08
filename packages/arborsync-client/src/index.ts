@@ -8,7 +8,6 @@ import type {
   LocalTreeDescriptor,
   LocatorResolution,
   MutationReceipt,
-  MutationEffect,
   MutationRequest,
   NodeRef,
   NodeResponse,
@@ -34,7 +33,6 @@ export type {
   ContentWorkspaceOperation,
   DirectoryRevision,
   EventCursor,
-  MutationEffect,
   MutationReceipt,
   MutationRequest,
   NodeRef,
@@ -354,12 +352,6 @@ export class ArborSyncRESTClient {
 
   forgetLocalAccount(): Promise<{ forgotten: true }> {
     return this.request("/v1/local/forget", { method: "POST" });
-  }
-
-  resolveConflict(tree: string, choice: "local" | "draft" | "remote"): Promise<MutationEffect[]> {
-    return this.request(`/v1/conflicts/${encodeURIComponent(tree)}/resolve`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ choice }),
-    });
   }
 
   async openNodeView(ref: NodeRef, signal?: AbortSignal): Promise<ObservedNodeView> {

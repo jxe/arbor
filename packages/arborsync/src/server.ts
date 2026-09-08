@@ -6,11 +6,8 @@ import type {
   ArborError,
   MutationRequest,
   NodeRef,
-  QueryStreamRuntime,
-  MutationCallRuntime,
 } from "@arbor/core";
 import { PathEscapeError, encodeSSEFrame, generateArborID } from "@arbor/core";
-import { treeMutationResponse, treeQueryResponse } from "@arbor/data/host";
 import { decodeNodeRef } from "@arbor/core/node-model";
 import { FsConflictError, type FsImportEntry } from "@arbor/fs";
 import { currentDeviceID } from "@arbor/stores";
@@ -391,9 +388,6 @@ export interface ArborSyncServerOptions {
   instanceID?: string;
   runtimeKind?: "persistent" | "foreground" | "cloud";
   faultInjector?: (stage: string) => void | Promise<void>;
-  queryRuntime?: QueryStreamRuntime;
-  mutationRuntime?: MutationCallRuntime;
-  queryUser?: { profile: string } | null;
   /** Fallback reconciliation interval; Wire watches normally drive synchronization. */
   syncIntervalMs?: number;
 }
@@ -406,9 +400,6 @@ function startArborSyncServer(
     hostname?: string;
     instanceID?: string;
     runtimeKind?: "persistent" | "foreground" | "cloud";
-    queryRuntime?: QueryStreamRuntime;
-    mutationRuntime?: MutationCallRuntime;
-    queryUser?: { profile: string } | null;
   } = {},
 ) {
   const renderRoot = join(import.meta.dir, "../../render/dist");
@@ -515,14 +506,6 @@ function startArborSyncServer(
           await service.forgetLocalAccount();
           return json({ forgotten: true });
         }
-        const conflictResolution = /^\/v1\/conflicts\/([^/]+)\/resolve$/.exec(url.pathname);
-        if (conflictResolution && request.method === "POST") {
-          const body = await request.json() as { choice?: unknown };
-          if (!["local", "draft", "remote"].includes(String(body.choice))) {
-            throw new ProtocolError("invalid-request", "Conflict resolution requires local, draft, or remote", 400);
-          }
-          return json(await service.resolveTreeConflict(decodeURIComponent(conflictResolution[1]!), body.choice as "local" | "draft" | "remote"));
-        }
         if (request.method === "GET" && url.pathname === "/v1/node") {
           const admissionBasis = url.searchParams.get("admissionBasis");
           if (admissionBasis !== null && admissionBasis !== "true") {
@@ -577,19 +560,6 @@ function startArborSyncServer(
           return new Response(service.events.stream(after, request.signal), {
             headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" },
           });
-        }
-        const queryRoute = /^\/\.arbor\/trees\/([^/]+)\/queries$/.exec(url.pathname);
-        if (request.method === "QUERY" && queryRoute) {
-          if (!options.queryRuntime) return errorResponse("unsupported-operation", "No query runtime is active", 422);
-          const treeID = decodeURIComponent(queryRoute[1]!);
-          server.timeout(request, 0);
-          return treeQueryResponse(options.queryRuntime, request, treeID, options.queryUser ?? null);
-        }
-        const mutateRoute = /^\/\.arbor\/trees\/([^/]+)\/mutate$/.exec(url.pathname);
-        if (request.method === "POST" && mutateRoute) {
-          if (!options.mutationRuntime) return errorResponse("unsupported-operation", "No mutation runtime is active", 422);
-          const treeID = decodeURIComponent(mutateRoute[1]!);
-          return treeMutationResponse(options.mutationRuntime, request, treeID, options.queryUser ?? null);
         }
         if (request.method === "POST" && url.pathname === "/v1/mutations") {
           return json(await service.executeMutation(decodeMutation(await request.json())));

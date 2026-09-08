@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serveArborSync } from "@arbor/arborsync";
 import { serveCanopy } from "@arbor/canopy";
 import type { MutationCallRequest, MutationCallRuntime, MutationResultReceipt, QueryStreamEvent, QueryStreamRequest, QueryStreamRuntime } from "@arbor/core";
 
@@ -59,50 +58,6 @@ function expectFrames(body: string) {
 }
 
 describe("stateless query stream HTTP contract", () => {
-  test("serves the self-contained query request at the local Wire path only", async () => {
-    const root = await mkdtemp(join(tmpdir(), "arbor-query-api-"));
-    const state = await mkdtemp(join(tmpdir(), "arbor-query-api-state-"));
-    const previous = process.env.ARBOR_DATA_HOME;
-    process.env.ARBOR_DATA_HOME = state;
-    await writeFile(join(root, "index.md"), "# Query API\n");
-    const runtime = new FixtureRuntime();
-    const mutations = new FixtureMutationRuntime();
-    const running = await serveArborSync(root, { port: 0, queryRuntime: runtime, mutationRuntime: mutations, queryUser: { profile: "tr_local_user" } });
-    try {
-      const response = await fetch(`${running.url}/.arbor/trees/tr_source/queries`, {
-        method: "QUERY",
-        headers: { "content-type": "application/json", "last-event-id": "must-be-ignored" },
-        body: JSON.stringify(request),
-      });
-      expect(response.status).toBe(200);
-      expect(response.headers.get("content-type")).toContain("text/event-stream");
-      expectFrames(await response.text());
-      expect(runtime.users).toEqual([{ profile: "tr_local_user" }]);
-      expect((await fetch(`${running.url}/.arbor/query-stream`, { method: "POST" })).status).toBe(405);
-      expect((await fetch(`${running.url}/v1/query-stream`, { method: "POST" })).status).toBe(405);
-      const mutation: MutationCallRequest = {
-        document: request.document,
-        handle: request.queries[0]!.handle,
-        mutationID: "mut_local",
-        input: { value: 1 },
-      };
-      const mutationResponse = await fetch(`${running.url}/.arbor/trees/tr_source/mutate`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(mutation),
-      });
-      expect(mutationResponse.status).toBe(200);
-      expect(await mutationResponse.json()).toMatchObject({ mutationID: "mut_local", result: { accepted: true } });
-    } finally {
-      running.server.stop(true);
-      await running.service[Symbol.asyncDispose]();
-      if (previous === undefined) delete process.env.ARBOR_DATA_HOME;
-      else process.env.ARBOR_DATA_HOME = previous;
-      await rm(root, { recursive: true, force: true });
-      await rm(state, { recursive: true, force: true });
-    }
-  });
-
   test("serves Arbor Wire with the authenticated profile context", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbor-query-wire-"));
     const runtime = new FixtureRuntime();

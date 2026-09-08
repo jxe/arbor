@@ -428,7 +428,6 @@ an authenticated configuration tree:
 POST /v1/bootstrap/accounts
 POST /v1/bootstrap/pairings
 POST /v1/local/forget
-POST /v1/conflicts/{TreeID}/resolve
 ```
 
 Account bootstrap requires an existing self-certifying profile identity. It
@@ -439,9 +438,10 @@ with the profile key, and submits the account claim. It is restart-idempotent
 and never rewrites user-authored YAML to insert IDs or normalize it. Pairing
 creates or claims the server pairing while similarly keeping the raw
 new-device credential local. Local forget disconnects this data home without
-revoking the server device or deleting user files. Typed conflict resolution
-names an exact stored private conflict identity and never adds a resolution
-field to YAML.
+revoking the server device or deleting user files. Tree-level conflict
+resolution is not a REST operation: the daemon keeps the durable conflict
+evidence and the native replica resolves its own; a macOS presentation is
+Reliability 004's work.
 
 ## 8. Snapshot then observe
 
