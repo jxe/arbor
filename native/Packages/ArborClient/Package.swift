@@ -11,12 +11,16 @@ let package = Package(
         .library(name: "ArborClient", targets: ["ArborClient"])
     ],
     dependencies: [
+        .package(path: "../ArborKit"),
         .package(path: "../ArborWire")
     ],
     targets: [
         .target(
             name: "ArborClient",
-            dependencies: [.product(name: "ArborWire", package: "ArborWire")]
+            dependencies: [
+                .product(name: "ArborKit", package: "ArborKit"),
+                .product(name: "ArborWire", package: "ArborWire")
+            ]
         ),
         .testTarget(name: "ArborClientTests", dependencies: ["ArborClient"])
     ],
