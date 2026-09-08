@@ -3,7 +3,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "
 import { basename, dirname, join, resolve } from "node:path";
 import { resolveUserPath, serveArborSync, serveArborSyncControl } from "@arbor/arborsync";
 import { runArborSyncDaemon } from "@arbor/arborsync/cli";
-import { ArborSyncRESTClient } from "@arbor/client";
+import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 import { canonicalArborLocator, canonicalHTTPURL, generateArborID, sha256 } from "@arbor/core";
 import { materializeTree, snapshotDirectory } from "@arbor/fs";
 import {

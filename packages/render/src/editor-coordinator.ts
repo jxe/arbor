@@ -1,5 +1,5 @@
 import type { ArborBlock } from "@arbor/core";
-import type { NodeResponse } from "@arbor/client";
+import type { NodeResponse } from "@arbor/arborsync-client";
 import { mergeBlocks } from "@arbor/editor";
 import { nodeDocument } from "./node-presentation.ts";
 

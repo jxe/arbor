@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { serveArborSyncControl, serveArborSync } from "@arbor/arborsync";
-import { ArborSyncRESTClient, type MutationRequest, type WorkspaceEvent } from "@arbor/client";
+import { ArborSyncRESTClient, type MutationRequest, type WorkspaceEvent } from "@arbor/arborsync-client";
 import { stableJSONString, canonicalStableKey, pageIDStableKey, sha256 } from "@arbor/core";
 import type { Workspace } from "@arbor/arborsync";
 

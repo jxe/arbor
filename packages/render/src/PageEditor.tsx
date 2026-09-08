@@ -14,12 +14,12 @@ import type {
   NodeSnapshot,
   ObservedNodeUpdate,
   StructuralWorkspaceOperation,
-} from "@arbor/client";
+} from "@arbor/arborsync-client";
 import { canonicalNodePath } from "@arbor/core/logical-path";
 import { legacyPageIDCandidate, resolveLogicalURL } from "@arbor/core/logical-url";
 import { pageIDFromStableKey, pageIDStableKey } from "@arbor/core/node-key";
 import { placeDirectoryChildren, reorderChildLinks, resolveChildLinkPath, serializeMarkdown } from "@arbor/editor";
-import { api, type BrowserMutationResult } from "./api.ts";
+import { api, type BrowserMutationResult } from "@arbor/arborsync-client/api";
 import {
   EditorCoordinator,
   frontmatterPatch,

@@ -7,7 +7,7 @@ import {
   type RecoveryEntry,
   type StructuralWorkspaceOperation,
   type TreeRef,
-} from "@arbor/client";
+} from "./index.ts";
 import { activeDevices, applyConfigurationAction, configurationAccessEntries, configurationStatus, revokeActiveDevice, type ConfigurationAction } from "./configuration.ts";
 
 export interface BrowserImportEntry {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { ChildrenPage, NodeSnapshot } from "@arbor/client";
-import { ArborSyncRESTClient } from "@arbor/client";
+import type { ChildrenPage, NodeSnapshot } from "@arbor/arborsync-client";
+import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 
 const CURSOR = "11111111-1111-1111-1111-111111111111:1";
 

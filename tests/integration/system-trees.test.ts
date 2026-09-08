@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveArborSync } from "@arbor/arborsync";
-import { ArborSyncRESTClient } from "@arbor/client";
+import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 
 let root: string;
 let state: string;

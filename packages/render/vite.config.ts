@@ -7,7 +7,9 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: [
-      { find: "@arbor/client", replacement: resolve(import.meta.dirname, "../client/src/index.ts") },
+      { find: "@arbor/arborsync-client/api", replacement: resolve(import.meta.dirname, "../arborsync-client/src/api.ts") },
+      { find: "@arbor/arborsync-client/configuration", replacement: resolve(import.meta.dirname, "../arborsync-client/src/configuration.ts") },
+      { find: "@arbor/arborsync-client", replacement: resolve(import.meta.dirname, "../arborsync-client/src/index.ts") },
       { find: "@arbor/core/hash", replacement: resolve(import.meta.dirname, "../core/src/hash.ts") },
       { find: "@arbor/core/logical-path", replacement: resolve(import.meta.dirname, "../core/src/logical-path.ts") },
       { find: "@arbor/core/logical-url", replacement: resolve(import.meta.dirname, "../core/src/logical-url.ts") },

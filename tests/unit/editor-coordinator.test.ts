@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ArborBlock, NodeSnapshot } from "@arbor/core";
-import type { NodeResponse } from "@arbor/client";
+import type { NodeResponse } from "@arbor/arborsync-client";
 import { serializeMarkdown } from "@arbor/editor";
 import {
   EditorCoordinator,

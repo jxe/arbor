@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ArborSyncDaemon, serveArborSync } from "@arbor/arborsync";
-import { ArborSyncRESTClient } from "@arbor/client";
+import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 import { serveCanopy } from "@arbor/canopy";
 import { canonicalArborLocator, generateArborID, sha256 } from "@arbor/core";
 import { CommunityConfigStore, saveCurrentDeviceID } from "@arbor/stores";

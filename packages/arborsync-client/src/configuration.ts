@@ -1,7 +1,7 @@
 import type { AccessEntry } from "@arbor/core";
 import { canonicalArborLocator } from "@arbor/core";
 import { sha256 } from "@arbor/core/hash";
-import { ArborSyncRESTClient } from "@arbor/client";
+import { ArborSyncRESTClient } from "./index.ts";
 import { parseDocument, type Document } from "yaml";
 
 type ShareAudience =

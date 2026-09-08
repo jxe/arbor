@@ -1,0 +1,14 @@
+{
+  "name": "@arbor/arborsync-client",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./api": "./src/api.ts",
+    "./configuration": "./src/configuration.ts"
+  },
+  "dependencies": {
+    "@arbor/core": "workspace:*",
+    "yaml": "2.8.2"
+  }
+}

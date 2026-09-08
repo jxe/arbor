@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { serveArborSync } from "@arbor/arborsync";
-import { ArborSyncRESTClient } from "@arbor/client";
+import { ArborSyncRESTClient } from "@arbor/arborsync-client";
 import type { MutationRequest, NodeSnapshot } from "@arbor/core";
 import { canonicalStableKey } from "@arbor/core";
 
